@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""
+remotepower-agent  —  Client-side daemon for RemotePower
+Polls the RemotePower server every 60 seconds.
+On first run (or if not enrolled), prompts for server URL + PIN and registers.
+
+Config file: /etc/remotepower/agent.conf
+Credentials: /etc/remotepower/credentials   (mode 600, root only)
+"""
+
+import os
+import sys
+import json
+import time
+import socket
+import subprocess
+import platform
+import configparser
+import argparse
+import logging
+from pathlib import Path
+from urllib import request, error, parse
+
+# ─── Paths ─────────────────────────────────────────────────────────────────────
+CONF_DIR   = Path('/etc/remotepower')
+CONF_FILE  = CONF_DIR / 'agent.conf'
+CREDS_FILE = CONF_DIR / 'credentials'
+LOG_FILE   = '/var/log/remotepower-agent.log'
+VERSION    = '1.0.0'
+
+# ─── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_FILE) if os.path.exists('/var/log') else logging.NullHandler(),
+    ]
+)
+log = logging.getLogger('remotepower')
+
+# ─── HTTP helpers ───────────────────────────────────────────────────────────────
+def http_post(url: str, data: dict, timeout: int = 10) -> dict:
+    body = json.dumps(data).encode()
+    req = request.Request(url, data=body,
+                          headers={'Content-Type': 'application/json',
+                                   'User-Agent': f'RemotePower-Agent/{VERSION}'})
+    with request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+# ─── Credentials ───────────────────────────────────────────────────────────────
+def load_credentials() -> dict | None:
+    if not CREDS_FILE.exists():
+        return None
+    try:
+        data = json.loads(CREDS_FILE.read_text())
+        if data.get('device_id') and data.get('token') and data.get('server_url'):
+            return data
+    except Exception:
+        pass
+    return None
+
+def save_credentials(creds: dict):
+    CONF_DIR.mkdir(parents=True, exist_ok=True)
+    CREDS_FILE.write_text(json.dumps(creds, indent=2))
+    CREDS_FILE.chmod(0o600)
+    log.info(f"Credentials saved to {CREDS_FILE}")
+
+# ─── System info ───────────────────────────────────────────────────────────────
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+def get_os_info() -> str:
+    try:
+        with open('/etc/os-release') as f:
+            for line in f:
+                if line.startswith('PRETTY_NAME='):
+                    return line.split('=', 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return platform.system() + ' ' + platform.release()
+
+# ─── Enrollment ────────────────────────────────────────────────────────────────
+def enroll_interactive():
+    """Interactive enrollment: ask for server URL and PIN, register device."""
+    print()
+    print("╔══════════════════════════════════════════╗")
+    print("║     RemotePower Client Setup             ║")
+    print("╚══════════════════════════════════════════╝")
+    print()
+
+    server_url = input("RemotePower server URL (e.g. http://192.168.1.10): ").strip().rstrip('/')
+    if not server_url.startswith('http'):
+        server_url = 'http://' + server_url
+
+    pin = input("Enrollment PIN (shown in web dashboard): ").strip()
+    device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
+    if not device_name:
+        device_name = socket.gethostname()
+
+    print()
+    print("Enrolling device...")
+    try:
+        resp = http_post(f"{server_url}/api/enroll/register", {
+            'pin': pin,
+            'hostname': socket.gethostname(),
+            'name': device_name,
+            'os': get_os_info(),
+            'ip': get_local_ip(),
+            'version': VERSION,
+        })
+        if resp.get('ok'):
+            creds = {
+                'server_url': server_url,
+                'device_id': resp['device_id'],
+                'token': resp['token'],
+                'name': device_name,
+            }
+            save_credentials(creds)
+            print(f"✓ Enrolled successfully! Device ID: {resp['device_id']}")
+            print(f"  Credentials saved to {CREDS_FILE}")
+            return creds
+        else:
+            print(f"✗ Enrollment failed: {resp.get('error', 'Unknown error')}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"✗ Error contacting server: {e}")
+        sys.exit(1)
+
+# ─── Heartbeat loop ─────────────────────────────────────────────────────────────
+def heartbeat(creds: dict, interval: int = 60):
+    server = creds['server_url']
+    dev_id = creds['device_id']
+    token  = creds['token']
+
+    log.info(f"RemotePower agent starting. Server: {server}, Device: {dev_id}")
+    log.info(f"Polling interval: {interval}s")
+
+    while True:
+        try:
+            resp = http_post(f"{server}/api/heartbeat", {
+                'device_id': dev_id,
+                'token': token,
+                'ip': get_local_ip(),
+                'os': get_os_info(),
+                'version': VERSION,
+            })
+
+            cmd = resp.get('command')
+            if cmd:
+                log.info(f"Received command: {cmd}")
+                execute_command(cmd)
+
+        except error.HTTPError as e:
+            if e.code == 403:
+                log.error("Device credentials rejected by server. Re-enroll with: remotepower-agent enroll")
+            else:
+                log.warning(f"HTTP error: {e.code}")
+        except Exception as e:
+            log.warning(f"Heartbeat failed: {e}")
+
+        time.sleep(interval)
+
+def execute_command(cmd: str):
+    if cmd == 'shutdown':
+        log.info("Executing shutdown command...")
+        try:
+            subprocess.run(['systemctl', 'poweroff'], check=True)
+        except Exception as e:
+            log.error(f"Shutdown failed: {e}")
+    else:
+        log.warning(f"Unknown command: {cmd}")
+
+# ─── Entry point ───────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description='RemotePower client agent')
+    parser.add_argument('action', nargs='?', default='run',
+                        choices=['run', 'enroll', 'status'],
+                        help='run (daemon), enroll (interactive setup), status')
+    parser.add_argument('--interval', type=int, default=60,
+                        help='Polling interval in seconds (default: 60)')
+    args = parser.parse_args()
+
+    if os.geteuid() != 0:
+        print("Warning: running as non-root. Shutdown may fail.")
+        print("Run with sudo or set up the systemd unit (which runs as root).")
+        print()
+
+    if args.action == 'enroll':
+        enroll_interactive()
+        return
+
+    if args.action == 'status':
+        creds = load_credentials()
+        if creds:
+            print(f"Enrolled: Yes")
+            print(f"Server:   {creds['server_url']}")
+            print(f"Device:   {creds['name']} ({creds['device_id']})")
+        else:
+            print("Not enrolled. Run: remotepower-agent enroll")
+        return
+
+    # Normal run
+    creds = load_credentials()
+    if not creds:
+        print("Device not enrolled. Starting enrollment wizard...")
+        creds = enroll_interactive()
+
+    heartbeat(creds, interval=args.interval)
+
+if __name__ == '__main__':
+    main()

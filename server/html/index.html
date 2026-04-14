@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RemotePower — Device Control</title>
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #111520;
+    --surface2: #161b28;
+    --border: #1e2535;
+    --accent: #3b7eff;
+    --accent2: #5c9fff;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #22c55e;
+    --green-dim: #166534;
+    --red: #ef4444;
+    --red-dim: #7f1d1d;
+    --amber: #f59e0b;
+    --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(59,126,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,126,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Glow orb */
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(59,126,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 0;
+    position: sticky;
+    top: 0;
+    background: rgba(10,12,16,0.85);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .logo-icon svg { width: 20px; height: 20px; }
+  .logo-text { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo-text span { color: var(--accent); }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .status-bar {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-green 2s infinite;
+  }
+  @keyframes pulse-green {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
+  }
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Main content */
+  main { padding: 48px 0; }
+
+  .page-title {
+    margin-bottom: 8px;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .page-subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 40px;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .stat-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .stat-icon.blue { background: rgba(59,126,255,0.15); color: var(--accent); }
+  .stat-icon.green { background: rgba(34,197,94,0.15); color: var(--green); }
+  .stat-icon.red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .stat-icon svg { width: 20px; height: 20px; }
+  .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Device grid */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .section-title { font-size: 16px; font-weight: 600; }
+  .enroll-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+  .enroll-btn svg { width: 14px; height: 14px; }
+
+  .devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+
+  .device-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .device-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 14px 14px 0 0;
+  }
+  .device-card.online::before { background: var(--green); }
+  .device-card.offline::before { background: var(--red); }
+  .device-card:hover { border-color: rgba(59,126,255,0.3); transform: translateY(-2px); }
+
+  .device-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .device-info { display: flex; align-items: center; gap: 14px; }
+  .device-icon {
+    width: 44px; height: 44px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
+  .device-name { font-size: 15px; font-weight: 600; }
+  .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .status-badge.online { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+  }
+  .online .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
+  .offline .status-badge-dot { background: var(--red); }
+
+  .device-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .meta-item { }
+  .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
+
+  .device-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .btn-shutdown {
+    flex: 1;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--red);
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .btn-shutdown:hover:not(:disabled) {
+    background: rgba(239,68,68,0.2);
+    border-color: var(--red);
+  }
+  .btn-shutdown:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-shutdown svg { width: 14px; height: 14px; }
+
+  .btn-remove {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-remove:hover { border-color: var(--red); color: var(--red); }
+  .btn-remove svg { width: 14px; height: 14px; }
+
+  /* Last seen */
+  .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--muted);
+  }
+  .empty-icon {
+    width: 64px; height: 64px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .empty-text { font-size: 14px; line-height: 1.6; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 440px;
+    transform: translateY(20px);
+    transition: transform 0.2s;
+  }
+  .modal-overlay.active .modal { transform: translateY(0); }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+
+  .pin-display {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .pin-code {
+    font-family: monospace;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: var(--accent);
+  }
+  .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pin-countdown { color: var(--amber); font-weight: 600; }
+
+  .modal-actions { display: flex; gap: 10px; }
+  .btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Confirm shutdown modal */
+  .confirm-icon {
+    width: 48px; height: 48px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    color: var(--red);
+  }
+  .confirm-icon svg { width: 24px; height: 24px; }
+
+  /* Toast */
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 260px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show { transform: translateX(0); }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error { border-left: 3px solid var(--red); }
+  .toast.info { border-left: 3px solid var(--accent); }
+  .toast-icon { font-size: 16px; }
+
+  /* Refresh timer */
+  .refresh-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--border);
+    z-index: 50;
+  }
+  .refresh-progress {
+    height: 100%;
+    background: var(--accent);
+    transition: width 1s linear;
+  }
+
+  /* Login page */
+  .login-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 100%;
+    max-width: 400px;
+  }
+  .login-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
+  .form-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: var(--font);
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--muted); }
+  .login-btn {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 8px;
+  }
+  .login-btn:hover { background: var(--accent2); }
+  .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
+  .login-error.show { display: block; }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .devices-grid { grid-template-columns: 1fr; }
+    .modal { margin: 16px; }
+  }
+</style>
+</head>
+<body>
+<!-- Login page (shown if not authenticated) -->
+<div id="login-page" class="login-container" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      </div>
+      <span class="logo-text">Remote<span>Power</span></span>
+    </div>
+    <div class="login-title">Sign in</div>
+    <div class="login-sub">Access your device control panel</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input type="text" id="login-user" class="form-input" placeholder="admin" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password">
+    </div>
+    <button class="login-btn" onclick="doLogin()">Sign in</button>
+    <div id="login-error" class="login-error">Invalid username or password</div>
+  </div>
+</div>
+
+<!-- Main dashboard -->
+<div id="app" style="display:none">
+  <header>
+    <div class="container header-inner">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        </div>
+        <span class="logo-text">Remote<span>Power</span></span>
+      </div>
+      <div class="header-right">
+        <div class="status-bar">
+          <div class="status-dot"></div>
+          <span id="last-refresh-label">Live</span>
+        </div>
+        <button class="logout-btn" onclick="doLogout()">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <div class="page-title">Device Control</div>
+      <div class="page-subtitle">Manage and remotely shut down enrolled devices</div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-icon blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Total devices</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-online">0</div>
+            <div class="stat-label">Online</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon red">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-offline">0</div>
+            <div class="stat-label">Offline</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-header">
+        <div class="section-title">Enrolled Devices</div>
+        <button class="enroll-btn" onclick="openEnrollModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Enroll device
+        </button>
+      </div>
+
+      <div id="devices-container" class="devices-grid">
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div class="empty-title">No devices enrolled</div>
+          <div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Enroll Modal -->
+<div class="modal-overlay" id="enroll-modal">
+  <div class="modal">
+    <div class="modal-title">Enroll a device</div>
+    <div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. The PIN expires after 10 minutes.</div>
+    <div class="pin-display">
+      <div class="pin-label">Enrollment PIN</div>
+      <div class="pin-code" id="pin-code">------</div>
+      <div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('enroll-modal')">Close</button>
+      <button class="btn-primary" onclick="generateNewPin()">Generate new PIN</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shutdown Confirm Modal -->
+<div class="modal-overlay" id="shutdown-modal">
+  <div class="modal">
+    <div class="confirm-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+    </div>
+    <div class="modal-title">Shut down device?</div>
+    <div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('shutdown-modal')">Cancel</button>
+      <button class="btn-shutdown" onclick="confirmShutdown()" style="flex:1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        Shut down
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Refresh progress bar -->
+<div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
+
+<script>
+const API = '';  // Same origin - proxied via Nginx
+let devices = [];
+let shutdownTarget = null;
+let pinTimer = null;
+let pinSeconds = 0;
+let refreshTimer = null;
+let refreshInterval = 60;
+let refreshRemaining = refreshInterval;
+
+// ---- Auth ----
+function checkAuth() {
+  const token = sessionStorage.getItem('rp_token');
+  if (token) {
+    showApp();
+  } else {
+    document.getElementById('login-page').style.display = 'flex';
+  }
+}
+
+async function doLogin() {
+  const user = document.getElementById('login-user').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-error');
+  err.classList.remove('show');
+
+  try {
+    const resp = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username: user, password: pass})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      sessionStorage.setItem('rp_token', data.token);
+      showApp();
+    } else {
+      err.classList.add('show');
+    }
+  } catch(e) {
+    err.textContent = 'Connection error';
+    err.classList.add('show');
+  }
+}
+
+function doLogout() {
+  sessionStorage.removeItem('rp_token');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-page').style.display = 'flex';
+  clearInterval(refreshTimer);
+}
+
+function getToken() { return sessionStorage.getItem('rp_token') || ''; }
+
+function showApp() {
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  loadDevices();
+  startRefreshCycle();
+}
+
+// Enter key on login
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('login-user').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('login-pass').focus();
+  });
+  checkAuth();
+});
+
+// ---- Devices ----
+async function loadDevices() {
+  try {
+    const resp = await fetch('/api/devices', {
+      headers: {'X-Token': getToken()}
+    });
+    if (resp.status === 401) { doLogout(); return; }
+    devices = await resp.json();
+    renderDevices();
+  } catch(e) {
+    toast('Failed to load devices', 'error');
+  }
+}
+
+function renderDevices() {
+  const container = document.getElementById('devices-container');
+  const online = devices.filter(d => d.online).length;
+  document.getElementById('stat-total').textContent = devices.length;
+  document.getElementById('stat-online').textContent = online;
+  document.getElementById('stat-offline').textContent = devices.length - online;
+
+  if (devices.length === 0) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+      <div class="empty-title">No devices enrolled</div>
+      <div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div>
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = devices.map(d => {
+    const isOnline = d.online;
+    const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'}">
+      <div class="device-header">
+        <div class="device-info">
+          <div class="device-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <div>
+            <div class="device-name">${escHtml(d.name)}</div>
+            <div class="device-hostname">${escHtml(d.hostname)}</div>
+          </div>
+        </div>
+        <div class="status-badge ${isOnline ? 'online' : 'offline'}">
+          <div class="status-badge-dot"></div>
+          ${isOnline ? 'Online' : 'Offline'}
+        </div>
+      </div>
+      <div class="device-meta">
+        <div class="meta-item">
+          <div class="meta-label">OS</div>
+          <div class="meta-value">${escHtml(d.os || '—')}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">IP</div>
+          <div class="meta-value">${escHtml(d.ip || '—')}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Version</div>
+          <div class="meta-value">${escHtml(d.version || '—')}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Enrolled</div>
+          <div class="meta-value">${d.enrolled ? timeAgo(d.enrolled) : '—'}</div>
+        </div>
+      </div>
+      <div class="device-actions">
+        <button class="btn-shutdown" onclick="requestShutdown('${escHtml(d.id)}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+          Shut down
+        </button>
+        <button class="btn-remove" onclick="removeDevice('${escHtml(d.id)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
+      <div class="last-seen">Last seen: ${lastSeen}</div>
+    </div>`;
+  }).join('');
+}
+
+// ---- Shutdown ----
+function requestShutdown(id, name) {
+  shutdownTarget = id;
+  document.getElementById('shutdown-name').textContent = name;
+  openModal('shutdown-modal');
+}
+
+async function confirmShutdown() {
+  closeModal('shutdown-modal');
+  try {
+    const resp = await fetch('/api/shutdown', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'X-Token': getToken()},
+      body: JSON.stringify({device_id: shutdownTarget})
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      toast('Shutdown command queued', 'success');
+      setTimeout(loadDevices, 3000);
+    } else {
+      toast(data.error || 'Failed to send command', 'error');
+    }
+  } catch(e) {
+    toast('Connection error', 'error');
+  }
+}
+
+async function removeDevice(id) {
+  if (!confirm('Remove this device?')) return;
+  try {
+    const resp = await fetch('/api/devices/' + id, {
+      method: 'DELETE',
+      headers: {'X-Token': getToken()}
+    });
+    if (resp.ok) {
+      toast('Device removed', 'info');
+      loadDevices();
+    }
+  } catch(e) { toast('Error', 'error'); }
+}
+
+// ---- Enroll ----
+function openEnrollModal() {
+  generateNewPin();
+  openModal('enroll-modal');
+}
+
+async function generateNewPin() {
+  try {
+    const resp = await fetch('/api/enroll/pin', {
+      method: 'POST',
+      headers: {'X-Token': getToken()}
+    });
+    const data = await resp.json();
+    document.getElementById('pin-code').textContent = data.pin;
+    startPinCountdown(600);
+  } catch(e) {
+    document.getElementById('pin-code').textContent = 'ERROR';
+  }
+}
+
+function startPinCountdown(seconds) {
+  clearInterval(pinTimer);
+  pinSeconds = seconds;
+  updatePinDisplay();
+  pinTimer = setInterval(() => {
+    pinSeconds--;
+    updatePinDisplay();
+    if (pinSeconds <= 0) clearInterval(pinTimer);
+  }, 1000);
+}
+
+function updatePinDisplay() {
+  const m = Math.floor(pinSeconds / 60).toString().padStart(2,'0');
+  const s = (pinSeconds % 60).toString().padStart(2,'0');
+  document.getElementById('pin-countdown').textContent = `${m}:${s}`;
+}
+
+// ---- Refresh cycle ----
+function startRefreshCycle() {
+  clearInterval(refreshTimer);
+  refreshRemaining = refreshInterval;
+  refreshTimer = setInterval(() => {
+    refreshRemaining--;
+    const pct = (refreshRemaining / refreshInterval) * 100;
+    document.getElementById('refresh-progress').style.width = pct + '%';
+    if (refreshRemaining <= 0) {
+      refreshRemaining = refreshInterval;
+      loadDevices();
+    }
+    const m = Math.floor(refreshRemaining / 60);
+    const s = refreshRemaining % 60;
+    document.getElementById('last-refresh-label').textContent = `Refresh in ${m > 0 ? m+'m ' : ''}${s}s`;
+  }, 1000);
+}
+
+// ---- Helpers ----
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
+});
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function timeAgo(ts) {
+  const diff = Math.floor(Date.now()/1000 - parseInt(ts));
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+let toastId = 0;
+function toast(msg, type = 'info') {
+  const id = 'toast-' + (++toastId);
+  const icons = {success:'✓', error:'✕', info:'ℹ'};
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.id = id;
+  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ'}</span><span>${msg}</span>`;
+  document.getElementById('toast-container').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 400);
+  }, 3500);
+}
+</script>
+</body>
+</html>
