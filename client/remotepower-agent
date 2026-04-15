@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""
+remotepower-agent  —  Client-side daemon for RemotePower
+Polls the RemotePower server every 60 seconds.
+On first run (or if not enrolled), prompts for server URL + PIN and registers.
+
+Config file: /etc/remotepower/agent.conf
+Credentials: /etc/remotepower/credentials   (mode 600, root only)
+"""
+
+import os
+import sys
+import json
+import time
+import socket
+import subprocess
+import platform
+import configparser
+import argparse
+import logging
+import hashlib
+import shutil
+import stat
+import tempfile
+from pathlib import Path
+from urllib import request, error, parse
+
+# ─── Paths ─────────────────────────────────────────────────────────────────────
+CONF_DIR   = Path('/etc/remotepower')
+CONF_FILE  = CONF_DIR / 'agent.conf'
+CREDS_FILE = CONF_DIR / 'credentials'
+LOG_FILE   = '/var/log/remotepower-agent.log'
+VERSION    = '1.1.0'
+
+AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
+
+# ─── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_FILE) if os.path.exists('/var/log') else logging.NullHandler(),
+    ]
+)
+log = logging.getLogger('remotepower')
+
+# ─── HTTP helpers ───────────────────────────────────────────────────────────────
+def http_post(url: str, data: dict, timeout: int = 10) -> dict:
+    body = json.dumps(data).encode()
+    req = request.Request(url, data=body,
+                          headers={'Content-Type': 'application/json',
+                                   'User-Agent': f'RemotePower-Agent/{VERSION}'})
+    with request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+def http_get(url: str, timeout: int = 10) -> dict:
+    req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
+    with request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+def http_get_binary(url: str, timeout: int = 30) -> bytes:
+    req = request.Request(url, headers={'User-Agent': f'RemotePower-Agent/{VERSION}'})
+    with request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+# ─── Credentials ───────────────────────────────────────────────────────────────
+def load_credentials() -> dict | None:
+    if not CREDS_FILE.exists():
+        return None
+    try:
+        data = json.loads(CREDS_FILE.read_text())
+        if data.get('device_id') and data.get('token') and data.get('server_url'):
+            return data
+    except Exception:
+        pass
+    return None
+
+def save_credentials(creds: dict):
+    CONF_DIR.mkdir(parents=True, exist_ok=True)
+    CREDS_FILE.write_text(json.dumps(creds, indent=2))
+    CREDS_FILE.chmod(0o600)
+    log.info(f"Credentials saved to {CREDS_FILE}")
+
+# ─── System info ───────────────────────────────────────────────────────────────
+def get_local_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return '127.0.0.1'
+
+def get_os_info() -> str:
+    try:
+        with open('/etc/os-release') as f:
+            for line in f:
+                if line.startswith('PRETTY_NAME='):
+                    return line.split('=', 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return platform.system() + ' ' + platform.release()
+
+def get_mac() -> str:
+    """Return MAC of the primary outbound interface via /sys."""
+    try:
+        out = subprocess.check_output(['ip', 'route', 'get', '8.8.8.8'],
+                                      text=True, timeout=3)
+        for part in out.split():
+            if part == 'dev':
+                idx = out.split().index('dev')
+                iface = out.split()[idx + 1]
+                addr = Path(f'/sys/class/net/{iface}/address')
+                if addr.exists():
+                    return addr.read_text().strip()
+    except Exception:
+        pass
+    return ''
+
+def get_uptime() -> str:
+    try:
+        return subprocess.check_output(['uptime', '-p'], text=True).strip()
+    except Exception:
+        return ''
+
+def get_journal(lines: int = 100) -> list:
+    try:
+        out = subprocess.check_output(
+            ['journalctl', '-n', str(lines), '--no-pager',
+             '--output=short-iso', '--no-hostname'],
+            text=True, stderr=subprocess.DEVNULL, timeout=10,
+        )
+        return out.strip().splitlines()
+    except Exception:
+        return []
+
+def get_patch_info() -> dict:
+    """Return pending update count. Uses dry-run only — nothing is installed."""
+    result = {'manager': 'unknown', 'upgradable': None}
+
+    if Path('/usr/bin/apt-get').exists():
+        result['manager'] = 'apt'
+        try:
+            out = subprocess.check_output(
+                ['apt-get', '--simulate', '--quiet', 'upgrade'],
+                text=True, timeout=30, stderr=subprocess.DEVNULL,
+            )
+            result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
+        except Exception:
+            pass
+
+    elif Path('/usr/bin/dnf').exists() or Path('/usr/bin/dnf5').exists():
+        result['manager'] = 'dnf'
+        try:
+            out = subprocess.check_output(
+                ['dnf', 'check-update', '--quiet'],
+                text=True, timeout=30, stderr=subprocess.DEVNULL,
+            )
+            result['upgradable'] = sum(
+                1 for l in out.splitlines()
+                if l and not l.startswith(' ') and not l.startswith('Last')
+            )
+        except subprocess.CalledProcessError as e:
+            # dnf exits 100 when updates are available
+            if e.returncode == 100 and e.output:
+                result['upgradable'] = sum(
+                    1 for l in e.output.splitlines()
+                    if l and not l.startswith(' ') and not l.startswith('Last')
+                )
+        except Exception:
+            pass
+
+    elif Path('/usr/bin/pacman').exists():
+        result['manager'] = 'pacman'
+        try:
+            subprocess.check_call(
+                ['pacman', '-Sy', '--noconfirm', '--noprogressbar'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+            )
+            out = subprocess.check_output(
+                ['pacman', '-Qu'], text=True, timeout=10, stderr=subprocess.DEVNULL,
+            )
+            result['upgradable'] = len(out.strip().splitlines())
+        except subprocess.CalledProcessError:
+            result['upgradable'] = 0
+        except Exception:
+            pass
+
+    return result
+
+# ─── Self-update ───────────────────────────────────────────────────────────────
+def check_for_update(server_url: str) -> bool:
+    """
+    Ask the server if a newer agent is available.
+    If so, download it, verify SHA-256, atomically replace ourselves,
+    then restart via systemctl.
+    Returns True if an update was applied (process will restart).
+    """
+    try:
+        info = http_get(f"{server_url}/api/agent/version", timeout=10)
+    except Exception as e:
+        log.debug(f"Update check failed: {e}")
+        return False
+
+    remote_version = info.get('version')
+    remote_sha256  = info.get('sha256')
+
+    if not remote_version or not remote_sha256:
+        return False
+
+    if remote_version == VERSION:
+        return False
+
+    # Simple version comparison: treat as tuples of ints
+    def vt(v):
+        try:
+            return tuple(int(x) for x in v.split('.'))
+        except Exception:
+            return (0,)
+
+    if vt(remote_version) <= vt(VERSION):
+        return False
+
+    log.info(f"Update available: {VERSION} → {remote_version}. Downloading…")
+
+    try:
+        data = http_get_binary(f"{server_url}/api/agent/download", timeout=30)
+    except Exception as e:
+        log.error(f"Download failed: {e}")
+        return False
+
+    # Verify SHA-256 before touching anything on disk
+    actual_sha = hashlib.sha256(data).hexdigest()
+    if not hmac_compare(actual_sha, remote_sha256):
+        log.error(f"SHA-256 mismatch: got {actual_sha}, expected {remote_sha256}")
+        return False
+
+    # Atomic replace: write to tmp, chmod, then rename
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=AGENT_BINARY.parent, prefix='.rp-update-')
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+
+        os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP |
+                           stat.S_IROTH | stat.S_IXOTH)  # 755
+        shutil.move(tmp_path, str(AGENT_BINARY))
+        log.info(f"Agent updated to {remote_version}. Restarting service…")
+    except Exception as e:
+        log.error(f"Failed to write update: {e}")
+        return False
+
+    # Restart via systemd — this process will be killed and replaced
+    try:
+        subprocess.Popen(['systemctl', 'restart', 'remotepower-agent'])
+    except Exception as e:
+        log.warning(f"systemctl restart failed: {e}. Re-exec manually.")
+
+    return True
+
+def hmac_compare(a: str, b: str) -> bool:
+    import hmac as _hmac
+    return _hmac.compare_digest(a.lower(), b.lower())
+
+# ─── Enrollment ────────────────────────────────────────────────────────────────
+def enroll_interactive():
+    """Interactive enrollment: ask for server URL and PIN, register device."""
+    print()
+    print("╔══════════════════════════════════════════╗")
+    print("║     RemotePower Client Setup             ║")
+    print("╚══════════════════════════════════════════╝")
+    print()
+
+    server_url = input("RemotePower server URL (e.g. http://192.168.1.10): ").strip().rstrip('/')
+    if not server_url.startswith('http'):
+        server_url = 'http://' + server_url
+
+    pin = input("Enrollment PIN (shown in web dashboard): ").strip()
+    device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
+    if not device_name:
+        device_name = socket.gethostname()
+
+    print()
+    print("Enrolling device...")
+    try:
+        resp = http_post(f"{server_url}/api/enroll/register", {
+            'pin':      pin,
+            'hostname': socket.gethostname(),
+            'name':     device_name,
+            'os':       get_os_info(),
+            'ip':       get_local_ip(),
+            'mac':      get_mac(),
+            'version':  VERSION,
+        })
+        if resp.get('ok'):
+            creds = {
+                'server_url': server_url,
+                'device_id':  resp['device_id'],
+                'token':      resp['token'],
+                'name':       device_name,
+            }
+            save_credentials(creds)
+            print(f"✓ Enrolled successfully! Device ID: {resp['device_id']}")
+            print(f"  Credentials saved to {CREDS_FILE}")
+            return creds
+        else:
+            print(f"✗ Enrollment failed: {resp.get('error', 'Unknown error')}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"✗ Error contacting server: {e}")
+        sys.exit(1)
+
+# ─── Heartbeat loop ─────────────────────────────────────────────────────────────
+def heartbeat(creds: dict, interval: int = 60):
+    server = creds['server_url']
+    dev_id = creds['device_id']
+    token  = creds['token']
+
+    log.info(f"RemotePower agent v{VERSION} starting. Server: {server}, Device: {dev_id}")
+    log.info(f"Polling interval: {interval}s")
+
+    poll_count = 0
+    UPDATE_CHECK_EVERY = 60  # check for agent update every N polls (~1h at 60s interval)
+
+    while True:
+        poll_count += 1
+
+        # ── Build heartbeat payload ──────────────────────────────────────────
+        payload = {
+            'device_id': dev_id,
+            'token':     token,
+            'ip':        get_local_ip(),
+            'os':        get_os_info(),
+            'version':   VERSION,
+        }
+
+        # Send full sysinfo every 10th poll to avoid hammering dnf/pacman
+        if poll_count % 10 == 0:
+            payload['sysinfo'] = {
+                'uptime':   get_uptime(),
+                'packages': get_patch_info(),
+                'platform': platform.platform(),
+            }
+            payload['journal'] = get_journal(100)
+
+        # ── Heartbeat ────────────────────────────────────────────────────────
+        try:
+            resp = http_post(f"{server}/api/heartbeat", payload)
+
+            cmd = resp.get('command')
+            if cmd:
+                log.info(f"Received command: {cmd}")
+                execute_command(cmd)
+
+        except error.HTTPError as e:
+            if e.code == 403:
+                log.error("Device credentials rejected. Re-enroll: remotepower-agent enroll")
+            else:
+                log.warning(f"HTTP error: {e.code}")
+        except Exception as e:
+            log.warning(f"Heartbeat failed: {e}")
+
+        # ── Self-update check (infrequent) ────────────────────────────────────
+        if poll_count % UPDATE_CHECK_EVERY == 0:
+            try:
+                if check_for_update(server):
+                    return  # systemctl restart will bring us back
+            except Exception as e:
+                log.debug(f"Update check error: {e}")
+
+        time.sleep(interval)
+
+def execute_command(cmd: str):
+    if cmd == 'shutdown':
+        log.info("Executing shutdown command...")
+        try:
+            subprocess.run(['systemctl', 'poweroff'], check=True)
+        except Exception as e:
+            log.error(f"Shutdown failed: {e}")
+    elif cmd == 'reboot':
+        log.info("Executing reboot command...")
+        try:
+            subprocess.run(['systemctl', 'reboot'], check=True)
+        except Exception as e:
+            log.error(f"Reboot failed: {e}")
+    else:
+        log.warning(f"Unknown command: {cmd}")
+
+# ─── Entry point ───────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description='RemotePower client agent')
+    parser.add_argument('action', nargs='?', default='run',
+                        choices=['run', 'enroll', 'status', 'update'],
+                        help='run (daemon), enroll (interactive setup), status, update (force self-update check)')
+    parser.add_argument('--interval', type=int, default=60,
+                        help='Polling interval in seconds (default: 60)')
+    args = parser.parse_args()
+
+    if os.geteuid() != 0:
+        print("Warning: running as non-root. Shutdown/reboot may fail.")
+        print("Run with sudo or set up the systemd unit (which runs as root).")
+        print()
+
+    if args.action == 'enroll':
+        enroll_interactive()
+        return
+
+    if args.action == 'status':
+        creds = load_credentials()
+        if creds:
+            print(f"Enrolled: Yes")
+            print(f"Server:   {creds['server_url']}")
+            print(f"Device:   {creds['name']} ({creds['device_id']})")
+            print(f"Version:  {VERSION}")
+            print(f"MAC:      {get_mac()}")
+        else:
+            print("Not enrolled. Run: remotepower-agent enroll")
+        return
+
+    if args.action == 'update':
+        creds = load_credentials()
+        if not creds:
+            print("Not enrolled.")
+            sys.exit(1)
+        updated = check_for_update(creds['server_url'])
+        if not updated:
+            print(f"Already up to date (v{VERSION}).")
+        return
+
+    # Normal run
+    creds = load_credentials()
+    if not creds:
+        print("Device not enrolled. Starting enrollment wizard...")
+        creds = enroll_interactive()
+
+    heartbeat(creds, interval=args.interval)
+
+if __name__ == '__main__':
+    main()

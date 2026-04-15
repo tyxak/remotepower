@@ -1,0 +1,30 @@
+[Unit]
+Description=RemotePower Agent — Remote shutdown client
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/remotepower-agent run
+Restart=always
+RestartSec=30
+
+# Logs to journald: journalctl -u remotepower-agent -f
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+User=root
+# ProtectSystem=strict  # Disabled: needs to write to /etc/remotepower/credentials
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+# Environment overrides (optional)
+# Environment="RP_INTERVAL=60"
+
+[Install]
+WantedBy=multi-user.target
