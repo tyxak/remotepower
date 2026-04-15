@@ -129,7 +129,14 @@ def get_journal(lines: int = 100) -> list:
     try:
         out = subprocess.check_output(
             ['journalctl', '-n', str(lines), '--no-pager',
-             '--output=short-iso', '--no-hostname'],
+             '--output=short-iso', '--no-hostname',
+             # exclude noisy system units
+             '--exclude-identifier=pipewire',
+             '--exclude-identifier=pipewire-pulse',
+             '--exclude-identifier=wireplumber',
+             '--exclude-identifier=audit',
+             '--exclude-identifier=dbus-daemon',
+             ],
             text=True, stderr=subprocess.DEVNULL, timeout=10,
         )
         return out.strip().splitlines()
