@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![RemotePower Dashboard](docs/screenshots/dashboard.png)
+![RemotePower Dashboard](docs/screenshots/Front.png)
 
 **Remote device management over HTTPS — no open inbound firewall ports on clients required.**
 
@@ -30,11 +30,25 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
     <td align="center"><b>Login</b></td>
     <td align="center"><b>Dashboard</b></td>
     <td align="center"><b>Enroll device</b></td>
+    <td align="center"><b>Device detail</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/login.png" width="280"/></td>
-    <td><img src="docs/screenshots/dashboard.png" width="280"/></td>
-    <td><img src="docs/screenshots/enroll.png" width="280"/></td>
+    <td><img src="docs/screenshots/Login.png" width="220"/></td>
+    <td><img src="docs/screenshots/Front.png" width="220"/></td>
+    <td><img src="docs/screenshots/Enroll.png" width="220"/></td>
+    <td><img src="docs/screenshots/Packages.png" width="220"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Monitor</b></td>
+    <td align="center"><b>Users</b></td>
+    <td align="center"><b>Settings</b></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/Monitoring.png" width="220"/></td>
+    <td><img src="docs/screenshots/Users.png" width="220"/></td>
+    <td><img src="docs/screenshots/Settings.png" width="220"/></td>
+    <td></td>
   </tr>
 </table>
 
