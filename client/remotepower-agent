@@ -226,7 +226,7 @@ def check_for_update(server_url: str) -> bool:
     log.info(f"Update available: {VERSION} → {remote_version}. Downloading…")
 
     try:
-        data = http_get_binary(f"{server_url}/api/agent/download", timeout=30)
+        data = http_get_binary(f"{server_url}/agent/remotepower-agent", timeout=30)
     except Exception as e:
         log.error(f"Download failed: {e}")
         return False
