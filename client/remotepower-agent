@@ -30,7 +30,7 @@ CONF_DIR   = Path('/etc/remotepower')
 CONF_FILE  = CONF_DIR / 'agent.conf'
 CREDS_FILE = CONF_DIR / 'credentials'
 LOG_FILE   = '/var/log/remotepower-agent.log'
-VERSION    = '1.1.0'
+VERSION    = '1.1.1'
 
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
@@ -40,7 +40,7 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE) if os.path.exists('/var/log') else logging.NullHandler(),
+        logging.FileHandler(LOG_FILE) if os.geteuid() == 0 else logging.NullHandler(),
     ]
 )
 log = logging.getLogger('remotepower')
