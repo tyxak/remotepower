@@ -19,6 +19,7 @@
     --red: #ef4444;
     --red-dim: #7f1d1d;
     --amber: #f59e0b;
+    --purple: #7c3aed;
     --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -119,6 +120,24 @@
     0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
     50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
   }
+  .header-nav {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .nav-btn:hover { color: var(--text); border-color: var(--border); }
+  .nav-btn.active { color: var(--text); background: var(--surface2); border-color: var(--border); }
   .logout-btn {
     background: transparent;
     border: 1px solid var(--border);
@@ -128,8 +147,13 @@
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
+    font-family: var(--font);
   }
   .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Pages */
+  .page { display: none; }
+  .page.active { display: block; }
 
   /* Main content */
   main { padding: 48px 0; }
@@ -170,14 +194,14 @@
     justify-content: center;
     flex-shrink: 0;
   }
-  .stat-icon.blue { background: rgba(59,126,255,0.15); color: var(--accent); }
-  .stat-icon.green { background: rgba(34,197,94,0.15); color: var(--green); }
-  .stat-icon.red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .stat-icon.blue  { background: rgba(59,126,255,0.15); color: var(--accent); }
+  .stat-icon.green { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red); }
   .stat-icon svg { width: 20px; height: 20px; }
   .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
   .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-  /* Device grid */
+  /* Section header */
   .section-header {
     display: flex;
     align-items: center;
@@ -185,6 +209,50 @@
     margin-bottom: 20px;
   }
   .section-title { font-size: 16px; font-weight: 600; }
+
+  /* Buttons — primary/secondary */
+  .btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: var(--font);
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon svg { width: 14px; height: 14px; }
+
+  /* Enroll button */
   .enroll-btn {
     background: var(--accent);
     color: #fff;
@@ -198,10 +266,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: var(--font);
   }
   .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
   .enroll-btn svg { width: 14px; height: 14px; }
 
+  /* Device grid */
   .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -224,7 +294,7 @@
     height: 2px;
     border-radius: 14px 14px 0 0;
   }
-  .device-card.online::before { background: var(--green); }
+  .device-card.online::before  { background: var(--green); }
   .device-card.offline::before { background: var(--red); }
   .device-card:hover { border-color: rgba(59,126,255,0.3); transform: translateY(-2px); }
 
@@ -246,7 +316,7 @@
     flex-shrink: 0;
   }
   .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
-  .device-name { font-size: 15px; font-weight: 600; }
+  .device-name     { font-size: 15px; font-weight: 600; }
   .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
 
   .status-badge {
@@ -259,14 +329,12 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
+    white-space: nowrap;
   }
-  .status-badge.online { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-  .status-badge.offline { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
-  .status-badge-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-  }
-  .online .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
+  .status-badge.online  { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .online  .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
   .offline .status-badge-dot { background: var(--red); }
 
   .device-meta {
@@ -275,20 +343,33 @@
     gap: 12px;
     margin-bottom: 20px;
   }
-  .meta-item { }
   .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
 
+  /* Patch badge inline */
+  .patch-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+  }
+  .patch-badge.warn { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .patch-badge.ok   { background: rgba(34,197,94,0.1);   color: var(--green); }
+
   .device-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .btn-shutdown {
     flex: 1;
+    min-width: 100px;
     background: rgba(239,68,68,0.1);
     border: 1px solid rgba(239,68,68,0.3);
     color: var(--red);
-    padding: 10px 16px;
+    padding: 9px 12px;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -298,19 +379,71 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    font-family: var(--font);
   }
-  .btn-shutdown:hover:not(:disabled) {
-    background: rgba(239,68,68,0.2);
-    border-color: var(--red);
-  }
+  .btn-shutdown:hover:not(:disabled) { background: rgba(239,68,68,0.2); border-color: var(--red); }
   .btn-shutdown:disabled { opacity: 0.35; cursor: not-allowed; }
   .btn-shutdown svg { width: 14px; height: 14px; }
+
+  .btn-reboot {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-reboot:hover:not(:disabled) { background: rgba(245,158,11,0.2); border-color: var(--amber); }
+  .btn-reboot:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-reboot svg { width: 14px; height: 14px; }
+
+  .btn-wol {
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-wol:hover { background: rgba(124,58,237,0.2); border-color: #7c3aed; }
+  .btn-wol svg { width: 14px; height: 14px; }
+
+  .btn-detail {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-detail:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-detail svg { width: 14px; height: 14px; }
 
   .btn-remove {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--muted);
-    padding: 10px 14px;
+    padding: 9px 12px;
     border-radius: 8px;
     font-size: 13px;
     cursor: pointer;
@@ -318,11 +451,11 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: var(--font);
   }
   .btn-remove:hover { border-color: var(--red); color: var(--red); }
   .btn-remove svg { width: 14px; height: 14px; }
 
-  /* Last seen */
   .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
   /* Empty state */
@@ -330,6 +463,7 @@
     text-align: center;
     padding: 80px 24px;
     color: var(--muted);
+    grid-column: 1 / -1;
   }
   .empty-icon {
     width: 64px; height: 64px;
@@ -343,7 +477,7 @@
   }
   .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
   .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
-  .empty-text { font-size: 14px; line-height: 1.6; }
+  .empty-text  { font-size: 14px; line-height: 1.6; }
 
   /* Modal */
   .modal-overlay {
@@ -366,14 +500,18 @@
     border-radius: 16px;
     padding: 32px;
     width: 100%;
-    max-width: 440px;
+    max-width: 480px;
     transform: translateY(20px);
     transition: transform 0.2s;
+    max-height: 90vh;
+    overflow-y: auto;
   }
   .modal-overlay.active .modal { transform: translateY(0); }
-  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-wide { max-width: 680px; }
+  .modal-title    { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
   .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
 
+  /* PIN display */
   .pin-display {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -383,113 +521,30 @@
     margin-bottom: 24px;
   }
   .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .pin-code {
-    font-family: monospace;
-    font-size: 36px;
-    font-weight: 700;
-    letter-spacing: 8px;
-    color: var(--accent);
-  }
+  .pin-code  { font-family: monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
   .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .pin-countdown { color: var(--amber); font-weight: 600; }
 
-  .modal-actions { display: flex; gap: 10px; }
-  .btn-primary {
-    flex: 1;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  .btn-primary:hover { background: var(--accent2); }
-  .btn-secondary {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
 
-  /* Confirm shutdown modal */
+  /* Confirm icons */
   .confirm-icon {
     width: 48px; height: 48px;
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.3);
     border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     margin-bottom: 16px;
-    color: var(--red);
   }
+  .confirm-icon.red    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); }
+  .confirm-icon.amber  { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
   .confirm-icon svg { width: 24px; height: 24px; }
 
-  /* Toast */
-  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
-  .toast {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 260px;
-    transform: translateX(120%);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  }
-  .toast.show { transform: translateX(0); }
-  .toast.success { border-left: 3px solid var(--green); }
-  .toast.error { border-left: 3px solid var(--red); }
-  .toast.info { border-left: 3px solid var(--accent); }
-  .toast-icon { font-size: 16px; }
-
-  /* Refresh timer */
-  .refresh-bar {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: 2px;
-    background: var(--border);
-    z-index: 50;
-  }
-  .refresh-progress {
-    height: 100%;
-    background: var(--accent);
-    transition: width 1s linear;
-  }
-
-  /* Login page */
-  .login-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 24px;
-  }
-  .login-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 40px;
-    width: 100%;
-    max-width: 400px;
-  }
-  .login-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
-  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-  .login-sub { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  /* Form elements */
   .form-group { margin-bottom: 16px; }
-  .form-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
+  .form-label {
+    font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; display: block;
+  }
   .form-input {
     width: 100%;
     background: var(--bg);
@@ -504,18 +559,122 @@
   }
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
-  .login-btn {
-    width: 100%;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 12px;
+  select.form-input { cursor: pointer; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 12px;
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+  /* Monitor status */
+  .mon-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Journal log */
+  .journal-wrap {
+    background: #070910;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .journal-wrap:empty::after { content: '(no journal data yet)'; color: var(--muted); }
+
+  /* Sysinfo row */
+  .sysinfo-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .sysinfo-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
-    margin-top: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .sysinfo-pill .label { color: var(--muted); margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sysinfo-pill .value { font-weight: 600; font-family: monospace; }
+
+  /* Settings page */
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .settings-section .hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
+
+  /* Users page */
+  .user-row td:last-child { text-align: right; }
+  .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* Toast */
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show    { transform: translateX(0); }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+  .toast-icon    { font-size: 16px; }
+
+  /* Refresh bar */
+  .refresh-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border); z-index: 50; }
+  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
+
+  /* Login page */
+  .login-container {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 100%; max-width: 400px;
+  }
+  .login-logo  { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .login-btn {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s; margin-top: 8px;
+    font-family: var(--font);
   }
   .login-btn:hover { background: var(--accent2); }
   .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
@@ -525,12 +684,14 @@
   @media (max-width: 600px) {
     .stats-row { grid-template-columns: 1fr; }
     .devices-grid { grid-template-columns: 1fr; }
-    .modal { margin: 16px; }
+    .modal { margin: 16px; padding: 24px; }
+    .header-nav { display: none; }
   }
 </style>
 </head>
 <body>
-<!-- Login page (shown if not authenticated) -->
+
+<!-- ══ LOGIN ══════════════════════════════════════════════════════════════════ -->
 <div id="login-page" class="login-container" style="display:none">
   <div class="login-card">
     <div class="login-logo">
@@ -554,7 +715,7 @@
   </div>
 </div>
 
-<!-- Main dashboard -->
+<!-- ══ APP ════════════════════════════════════════════════════════════════════ -->
 <div id="app" style="display:none">
   <header>
     <div class="container header-inner">
@@ -563,6 +724,12 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
         </div>
         <span class="logo-text">Remote<span>Power</span></span>
+      </div>
+      <div class="header-nav">
+        <button class="nav-btn active" onclick="showPage('devices',this)">Devices</button>
+        <button class="nav-btn" onclick="showPage('monitor',this)">Monitor</button>
+        <button class="nav-btn" onclick="showPage('users',this)">Users</button>
+        <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
       </div>
       <div class="header-right">
         <div class="status-bar">
@@ -576,65 +743,145 @@
 
   <main>
     <div class="container">
-      <div class="page-title">Device Control</div>
-      <div class="page-subtitle">Manage and remotely shut down enrolled devices</div>
 
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-icon blue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <!-- ── Devices page ─────────────────────────────────────────────────── -->
+      <div id="page-devices" class="page active">
+        <div class="page-title">Device Control</div>
+        <div class="page-subtitle">Manage and remotely control enrolled devices</div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total devices</div></div>
           </div>
-          <div>
-            <div class="stat-value" id="stat-total">0</div>
-            <div class="stat-label">Total devices</div>
+          <div class="stat-card">
+            <div class="stat-icon green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-online">0</div><div class="stat-label">Online</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon red">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-offline">0</div><div class="stat-label">Offline</div></div>
           </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div>
-            <div class="stat-value" id="stat-online">0</div>
-            <div class="stat-label">Online</div>
+
+        <div class="section-header">
+          <div class="section-title">Enrolled Devices</div>
+          <button class="enroll-btn" onclick="openEnrollModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Enroll device
+          </button>
+        </div>
+
+        <div id="devices-container" class="devices-grid"></div>
+      </div>
+
+      <!-- ── Monitor page ─────────────────────────────────────────────────── -->
+      <div id="page-monitor" class="page">
+        <div class="page-title">Monitor</div>
+        <div class="page-subtitle">Ping, TCP, and HTTP checks run from the server</div>
+
+        <div class="section-header">
+          <div class="section-title">Targets</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" onclick="runMonitor()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+              Check now
+            </button>
+            <button class="enroll-btn" onclick="openMonitorAdd()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add target
+            </button>
           </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon red">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </div>
-          <div>
-            <div class="stat-value" id="stat-offline">0</div>
-            <div class="stat-label">Offline</div>
-          </div>
+
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Label</th><th>Type</th><th>Target</th><th>Status</th><th>Detail</th><th>Checked</th><th></th></tr></thead>
+            <tbody id="monitor-tbody">
+              <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div class="section-header">
-        <div class="section-title">Enrolled Devices</div>
-        <button class="enroll-btn" onclick="openEnrollModal()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Enroll device
-        </button>
-      </div>
+      <!-- ── Users page ───────────────────────────────────────────────────── -->
+      <div id="page-users" class="page">
+        <div class="page-title">Admin Users</div>
+        <div class="page-subtitle">Manage who can access this dashboard</div>
 
-      <div id="devices-container" class="devices-grid">
-        <div class="empty-state">
-          <div class="empty-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </div>
-          <div class="empty-title">No devices enrolled</div>
-          <div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div>
+        <div class="section-header">
+          <div class="section-title">Accounts</div>
+          <button class="enroll-btn" onclick="openUserAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add user
+          </button>
+        </div>
+
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Username</th><th>Created</th><th></th></tr></thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-    </div>
+
+      <!-- ── Settings page ────────────────────────────────────────────────── -->
+      <div id="page-settings" class="page">
+        <div class="page-title">Settings</div>
+        <div class="page-subtitle">Server configuration</div>
+
+        <div class="settings-section">
+          <h3>Offline Webhook</h3>
+          <p class="hint">POST a JSON payload to this URL when a device goes offline. Compatible with Ntfy, Gotify, Slack, Discord, and any webhook receiver.</p>
+          <div class="settings-row">
+            <div class="form-group" style="flex:1">
+              <label class="form-label">Webhook URL</label>
+              <input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic">
+            </div>
+          </div>
+          <div id="cfg-webhook-note" style="font-size:12px;color:var(--green);margin-top:4px;display:none">✓ Webhook is currently configured</div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Wake-on-LAN</h3>
+          <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
+          <div class="settings-row">
+            <div class="form-group">
+              <label class="form-label">Broadcast address</label>
+              <input type="text" id="cfg-wol-bcast" class="form-input" placeholder="255.255.255.255">
+            </div>
+            <div class="form-group" style="max-width:120px">
+              <label class="form-label">Port</label>
+              <input type="number" id="cfg-wol-port" class="form-input" placeholder="9">
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
+          <button class="btn-secondary" onclick="loadSettings()">Reload</button>
+        </div>
+      </div>
+
+    </div><!-- /container -->
   </main>
-</div>
+</div><!-- /app -->
 
-<!-- Enroll Modal -->
+<!-- ══ MODALS ════════════════════════════════════════════════════════════════ -->
+
+<!-- Enroll -->
 <div class="modal-overlay" id="enroll-modal">
   <div class="modal">
     <div class="modal-title">Enroll a device</div>
-    <div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. The PIN expires after 10 minutes.</div>
+    <div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div>
     <div class="pin-display">
       <div class="pin-label">Enrollment PIN</div>
       <div class="pin-code" id="pin-code">------</div>
@@ -647,20 +894,115 @@
   </div>
 </div>
 
-<!-- Shutdown Confirm Modal -->
+<!-- Shutdown confirm -->
 <div class="modal-overlay" id="shutdown-modal">
   <div class="modal">
-    <div class="confirm-icon">
+    <div class="confirm-icon red">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
     </div>
     <div class="modal-title">Shut down device?</div>
     <div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('shutdown-modal')">Cancel</button>
-      <button class="btn-shutdown" onclick="confirmShutdown()" style="flex:1">
+      <button class="btn-shutdown" style="flex:1" onclick="confirmShutdown()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
         Shut down
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- Reboot confirm -->
+<div class="modal-overlay" id="reboot-modal">
+  <div class="modal">
+    <div class="confirm-icon amber">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+    </div>
+    <div class="modal-title">Reboot device?</div>
+    <div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('reboot-modal')">Cancel</button>
+      <button class="btn-reboot" style="flex:1" onclick="confirmReboot()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+        Reboot
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Device detail (sysinfo + journal) -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="detail-title">Device details</div>
+    <div id="detail-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add monitor target -->
+<div class="modal-overlay" id="monitor-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add monitor target</div>
+    <div class="form-group">
+      <label class="form-label">Label</label>
+      <input type="text" id="mon-label" class="form-input" placeholder="My Router">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select id="mon-type" class="form-input">
+        <option value="ping">Ping (ICMP)</option>
+        <option value="tcp">TCP port</option>
+        <option value="http">HTTP / HTTPS</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Target</label>
+      <input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('monitor-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addMonitor()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add user -->
+<div class="modal-overlay" id="user-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add admin user</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input type="text" id="new-username" class="form-input" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" id="new-password" class="form-input" autocomplete="new-password">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('user-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="createUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change password -->
+<div class="modal-overlay" id="passwd-modal">
+  <div class="modal">
+    <div class="modal-title">Change password</div>
+    <input type="hidden" id="passwd-username">
+    <div class="form-group" id="passwd-old-wrap">
+      <label class="form-label">Current password</label>
+      <input type="password" id="passwd-old" class="form-input" autocomplete="current-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">New password</label>
+      <input type="password" id="passwd-new" class="form-input" autocomplete="new-password">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('passwd-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitPasswd()">Update</button>
     </div>
   </div>
 </div>
@@ -672,19 +1014,23 @@
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
 <script>
-const API = '';  // Same origin - proxied via Nginx
-let devices = [];
-let shutdownTarget = null;
-let pinTimer = null;
-let pinSeconds = 0;
-let refreshTimer = null;
+// ══════════════════════════════════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════════════════════════════════
+let devices         = [];
+let shutdownTarget  = null;
+let rebootTarget    = null;
+let pinTimer        = null;
+let pinSeconds      = 0;
+let refreshTimer    = null;
 let refreshInterval = 60;
 let refreshRemaining = refreshInterval;
 
-// ---- Auth ----
+// ══════════════════════════════════════════════════════════════════════════════
+// Auth
+// ══════════════════════════════════════════════════════════════════════════════
 function checkAuth() {
-  const token = sessionStorage.getItem('rp_token');
-  if (token) {
+  if (sessionStorage.getItem('rp_token')) {
     showApp();
   } else {
     document.getElementById('login-page').style.display = 'flex';
@@ -694,14 +1040,13 @@ function checkAuth() {
 async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
-  const err = document.getElementById('login-error');
+  const err  = document.getElementById('login-error');
   err.classList.remove('show');
-
   try {
     const resp = await fetch('/api/login', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({username: user, password: pass})
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: user, password: pass}),
     });
     const data = await resp.json();
     if (data.ok) {
@@ -732,25 +1077,39 @@ function showApp() {
   startRefreshCycle();
 }
 
-// Enter key on login
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('login-pass').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
-  document.getElementById('login-user').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('login-pass').focus();
-  });
-  checkAuth();
-});
+// ── API helper ────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {method, headers: {'X-Token': getToken()}};
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch('/api' + path, opts);
+  if (r.status === 401) { doLogout(); return null; }
+  return r.json();
+}
 
-// ---- Devices ----
+// ══════════════════════════════════════════════════════════════════════════════
+// Navigation
+// ══════════════════════════════════════════════════════════════════════════════
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'monitor')  runMonitor();
+  if (name === 'users')    loadUsers();
+  if (name === 'settings') loadSettings();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Devices
+// ══════════════════════════════════════════════════════════════════════════════
 async function loadDevices() {
   try {
-    const resp = await fetch('/api/devices', {
-      headers: {'X-Token': getToken()}
-    });
-    if (resp.status === 401) { doLogout(); return; }
-    devices = await resp.json();
+    const data = await api('GET', '/devices');
+    if (!data) return;
+    devices = data;
     renderDevices();
   } catch(e) {
     toast('Failed to load devices', 'error');
@@ -760,8 +1119,8 @@ async function loadDevices() {
 function renderDevices() {
   const container = document.getElementById('devices-container');
   const online = devices.filter(d => d.online).length;
-  document.getElementById('stat-total').textContent = devices.length;
-  document.getElementById('stat-online').textContent = online;
+  document.getElementById('stat-total').textContent   = devices.length;
+  document.getElementById('stat-online').textContent  = online;
   document.getElementById('stat-offline').textContent = devices.length - online;
 
   if (devices.length === 0) {
@@ -776,6 +1135,14 @@ function renderDevices() {
   container.innerHTML = devices.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
+    const si = d.sysinfo || {};
+    const pkg = si.packages;
+    let patchHtml = '';
+    if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
+      const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
+      patchHtml = `<span class="patch-badge ${cls}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
+    }
+
     return `<div class="device-card ${isOnline ? 'online' : 'offline'}">
       <div class="device-header">
         <div class="device-info">
@@ -803,7 +1170,7 @@ function renderDevices() {
         </div>
         <div class="meta-item">
           <div class="meta-label">Version</div>
-          <div class="meta-value">${escHtml(d.version || '—')}</div>
+          <div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div>
         </div>
         <div class="meta-item">
           <div class="meta-label">Enrolled</div>
@@ -811,11 +1178,22 @@ function renderDevices() {
         </div>
       </div>
       <div class="device-actions">
-        <button class="btn-shutdown" onclick="requestShutdown('${escHtml(d.id)}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
+        <button class="btn-shutdown" onclick="requestShutdown('${d.id}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           Shut down
         </button>
-        <button class="btn-remove" onclick="removeDevice('${escHtml(d.id)}')">
+        <button class="btn-reboot" onclick="requestReboot('${d.id}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+          Reboot
+        </button>
+        ${d.mac ? `<button class="btn-wol" onclick="sendWol('${d.id}','${escHtml(d.name)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+          WoL
+        </button>` : ''}
+        <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </button>
+        <button class="btn-remove" onclick="removeDevice('${d.id}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
@@ -824,7 +1202,7 @@ function renderDevices() {
   }).join('');
 }
 
-// ---- Shutdown ----
+// ── Shutdown ─────────────────────────────────────────────────────────────────
 function requestShutdown(id, name) {
   shutdownTarget = id;
   document.getElementById('shutdown-name').textContent = name;
@@ -833,51 +1211,91 @@ function requestShutdown(id, name) {
 
 async function confirmShutdown() {
   closeModal('shutdown-modal');
-  try {
-    const resp = await fetch('/api/shutdown', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json', 'X-Token': getToken()},
-      body: JSON.stringify({device_id: shutdownTarget})
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      toast('Shutdown command queued', 'success');
-      setTimeout(loadDevices, 3000);
-    } else {
-      toast(data.error || 'Failed to send command', 'error');
-    }
-  } catch(e) {
-    toast('Connection error', 'error');
-  }
+  const data = await api('POST', '/shutdown', {device_id: shutdownTarget});
+  if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); }
+  else toast(data?.error || 'Failed', 'error');
 }
 
+// ── Reboot ────────────────────────────────────────────────────────────────────
+function requestReboot(id, name) {
+  rebootTarget = id;
+  document.getElementById('reboot-name').textContent = name;
+  openModal('reboot-modal');
+}
+
+async function confirmReboot() {
+  closeModal('reboot-modal');
+  const data = await api('POST', '/reboot', {device_id: rebootTarget});
+  if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── WoL ───────────────────────────────────────────────────────────────────────
+async function sendWol(id, name) {
+  const data = await api('POST', '/wol', {device_id: id});
+  if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success');
+  else toast(data?.error || 'WoL failed', 'error');
+}
+
+// ── Remove ────────────────────────────────────────────────────────────────────
 async function removeDevice(id) {
-  if (!confirm('Remove this device?')) return;
-  try {
-    const resp = await fetch('/api/devices/' + id, {
-      method: 'DELETE',
-      headers: {'X-Token': getToken()}
-    });
-    if (resp.ok) {
-      toast('Device removed', 'info');
-      loadDevices();
-    }
-  } catch(e) { toast('Error', 'error'); }
+  if (!confirm('Remove this device from RemotePower?')) return;
+  const data = await api('DELETE', '/devices/' + id);
+  if (data?.ok) { toast('Device removed', 'info'); loadDevices(); }
+  else toast(data?.error || 'Error', 'error');
 }
 
-// ---- Enroll ----
+// ── Detail (sysinfo + journal) ────────────────────────────────────────────────
+async function openDetail(id, name) {
+  document.getElementById('detail-title').textContent = name;
+  document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('detail-modal');
+
+  const data = await api('GET', '/devices/' + id + '/sysinfo');
+  if (!data) return;
+
+  const si = data.sysinfo || {};
+  const journal = data.journal || [];
+  const pkg = si.packages || {};
+
+  let html = '';
+
+  if (si.uptime || pkg.manager) {
+    html += `<div class="sysinfo-row">`;
+    if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`;
+    if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`;
+    if (pkg.upgradable !== null && pkg.upgradable !== undefined) {
+      const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)';
+      html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`;
+    }
+    if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`;
+    html += `</div>`;
+  }
+
+  html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">Journal — last ${journal.length} lines</div>`;
+  html += `<div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`;
+
+  if (!si.uptime && !journal.length) {
+    html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">
+      No data yet — the agent reports sysinfo every ~10 minutes.
+    </div>`;
+  }
+
+  document.getElementById('detail-body').innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Enroll PIN
+// ══════════════════════════════════════════════════════════════════════════════
 function openEnrollModal() {
   generateNewPin();
   openModal('enroll-modal');
 }
 
 async function generateNewPin() {
+  document.getElementById('pin-code').textContent = '……';
   try {
-    const resp = await fetch('/api/enroll/pin', {
-      method: 'POST',
-      headers: {'X-Token': getToken()}
-    });
-    const data = await resp.json();
+    const data = await api('POST', '/enroll/pin');
     document.getElementById('pin-code').textContent = data.pin;
     startPinCountdown(600);
   } catch(e) {
@@ -897,12 +1315,169 @@ function startPinCountdown(seconds) {
 }
 
 function updatePinDisplay() {
-  const m = Math.floor(pinSeconds / 60).toString().padStart(2,'0');
-  const s = (pinSeconds % 60).toString().padStart(2,'0');
+  const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0');
+  const s = (pinSeconds % 60).toString().padStart(2, '0');
   document.getElementById('pin-countdown').textContent = `${m}:${s}`;
 }
 
-// ---- Refresh cycle ----
+// ══════════════════════════════════════════════════════════════════════════════
+// Monitor
+// ══════════════════════════════════════════════════════════════════════════════
+let monitorTargets = [];
+
+async function runMonitor() {
+  const tbody = document.getElementById('monitor-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Checking…</td></tr>';
+  const data = await api('GET', '/monitor');
+  if (!data) return;
+  const results = data.monitors || [];
+  if (!results.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr>';
+    return;
+  }
+  monitorTargets = results;
+  tbody.innerHTML = results.map((m, i) => `
+    <tr>
+      <td style="font-weight:500">${escHtml(m.label)}</td>
+      <td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td>
+      <td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td>
+      <td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td>
+      <td><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button></td>
+    </tr>`).join('');
+}
+
+function openMonitorAdd() {
+  document.getElementById('mon-label').value  = '';
+  document.getElementById('mon-type').value   = 'ping';
+  document.getElementById('mon-target').value = '';
+  openModal('monitor-add-modal');
+}
+
+async function addMonitor() {
+  const label  = document.getElementById('mon-label').value.trim();
+  const type   = document.getElementById('mon-type').value;
+  const target = document.getElementById('mon-target').value.trim();
+  if (!target) { toast('Target is required', 'error'); return; }
+
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = [...(cfg.monitors || []), {label: label || target, type, target}];
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) {
+    toast('Monitor added', 'success');
+    closeModal('monitor-add-modal');
+    runMonitor();
+  } else toast(res?.error || 'Failed', 'error');
+}
+
+async function removeMonitor(idx) {
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = (cfg.monitors || []).filter((_, i) => i !== idx);
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) { toast('Removed', 'info'); runMonitor(); }
+  else toast(res?.error || 'Failed', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Users
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadUsers() {
+  const data = await api('GET', '/users');
+  if (!data) return;
+  const tbody = document.getElementById('users-tbody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">No users.</td></tr>';
+    return;
+  }
+  const me = sessionStorage.getItem('rp_me') || '';
+  tbody.innerHTML = data.map(u => `
+    <tr class="user-row">
+      <td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td>
+      <td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td>
+      <td>
+        <div class="user-actions">
+          <button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button>
+          <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function openUserAdd() {
+  document.getElementById('new-username').value = '';
+  document.getElementById('new-password').value = '';
+  openModal('user-add-modal');
+}
+
+async function createUser() {
+  const username = document.getElementById('new-username').value.trim();
+  const password = document.getElementById('new-password').value;
+  if (!username || !password) { toast('Both fields required', 'error'); return; }
+  const data = await api('POST', '/users', {username, password});
+  if (data?.ok) { toast(`User ${username} created`, 'success'); closeModal('user-add-modal'); loadUsers(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Delete user "${username}"?`)) return;
+  const data = await api('DELETE', '/users/' + username);
+  if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+function openPasswd(username) {
+  document.getElementById('passwd-username').value = username;
+  document.getElementById('passwd-old').value = '';
+  document.getElementById('passwd-new').value = '';
+  // Only show "old password" field for self — but we don't track current user here,
+  // so always show it. Server enforces the rule.
+  document.getElementById('passwd-old-wrap').style.display = 'block';
+  openModal('passwd-modal');
+}
+
+async function submitPasswd() {
+  const username = document.getElementById('passwd-username').value;
+  const old_pw   = document.getElementById('passwd-old').value;
+  const new_pw   = document.getElementById('passwd-new').value;
+  if (!new_pw) { toast('New password required', 'error'); return; }
+  const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw});
+  if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Settings
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadSettings() {
+  const data = await api('GET', '/config');
+  if (!data) return;
+  document.getElementById('cfg-webhook').value    = '';
+  document.getElementById('cfg-wol-bcast').value  = data.wol_broadcast || '255.255.255.255';
+  document.getElementById('cfg-wol-port').value   = data.wol_port     || '9';
+  const note = document.getElementById('cfg-webhook-note');
+  note.style.display = data.webhook_configured ? 'block' : 'none';
+}
+
+async function saveSettings() {
+  const payload = {
+    wol_broadcast: document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
+    wol_port:      parseInt(document.getElementById('cfg-wol-port').value) || 9,
+  };
+  const wh = document.getElementById('cfg-webhook').value.trim();
+  if (wh) payload.webhook_url = wh;
+  const data = await api('POST', '/config', payload);
+  if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Refresh cycle (unchanged from original)
+// ══════════════════════════════════════════════════════════════════════════════
 function startRefreshCycle() {
   clearInterval(refreshTimer);
   refreshRemaining = refreshInterval;
@@ -916,38 +1491,44 @@ function startRefreshCycle() {
     }
     const m = Math.floor(refreshRemaining / 60);
     const s = refreshRemaining % 60;
-    document.getElementById('last-refresh-label').textContent = `Refresh in ${m > 0 ? m+'m ' : ''}${s}s`;
+    document.getElementById('last-refresh-label').textContent =
+      `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`;
   }, 1000);
 }
 
-// ---- Helpers ----
-function openModal(id) { document.getElementById(id).classList.add('active'); }
+// ══════════════════════════════════════════════════════════════════════════════
+// Modal helpers (same pattern as original)
+// ══════════════════════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Helpers (escHtml + timeAgo + toast unchanged from original)
+// ══════════════════════════════════════════════════════════════════════════════
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function timeAgo(ts) {
-  const diff = Math.floor(Date.now()/1000 - parseInt(ts));
-  if (diff < 60) return diff + 's ago';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
+  const diff = Math.floor(Date.now() / 1000 - parseInt(ts));
+  if (diff < 60)    return diff + 's ago';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
 }
 
 let toastId = 0;
 function toast(msg, type = 'info') {
   const id = 'toast-' + (++toastId);
-  const icons = {success:'✓', error:'✕', info:'ℹ'};
+  const icons = {success: '✓', error: '✕', info: 'ℹ'};
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.id = id;
-  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ'}</span><span>${msg}</span>`;
+  el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
   document.getElementById('toast-container').appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => {
@@ -955,6 +1536,17 @@ function toast(msg, type = 'info') {
     setTimeout(() => el.remove(), 400);
   }, 3500);
 }
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('login-user').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('login-pass').focus();
+  });
+  checkAuth();
+});
 </script>
 </body>
 </html>

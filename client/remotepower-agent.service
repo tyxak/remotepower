@@ -1,6 +1,6 @@
 [Unit]
 Description=RemotePower Agent — Remote shutdown client
-Documentation=https://github.com/yourname/remotepower
+Documentation=https://github.com/tyxak/remotepower
 After=network-online.target
 Wants=network-online.target
 
@@ -9,6 +9,7 @@ Type=simple
 ExecStart=/usr/local/bin/remotepower-agent run
 Restart=always
 RestartSec=30
+
 # Logs to journald: journalctl -u remotepower-agent -f
 StandardOutput=journal
 StandardError=journal
