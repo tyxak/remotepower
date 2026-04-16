@@ -1016,7 +1016,7 @@ def main():
 
     # Monitor history
     elif pi == '/api/monitor/history' and m == 'GET':
-        from urllib.parse import parse_qs, urlparse
+        from urllib.parse import parse_qs
         qs    = parse_qs(os.environ.get('QUERY_STRING', ''))
         label = qs.get('label', [''])[0]
         handle_monitor_history(label)

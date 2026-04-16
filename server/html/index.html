@@ -1109,6 +1109,23 @@
   </div>
 </div>
 
+<!-- Tag editor modal -->
+<div class="modal-overlay" id="tag-modal">
+  <div class="modal">
+    <div class="modal-title">Edit tags</div>
+    <div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div>
+    <input type="hidden" id="tag-device-id">
+    <div class="form-group">
+      <label class="form-label">Tags</label>
+      <input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('tag-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveTags()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add monitor target -->
 <div class="modal-overlay" id="monitor-add-modal">
   <div class="modal">
@@ -1477,8 +1494,11 @@ function renderDevices() {
         <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </button>
-        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command" style="color:var(--purple);border-color:rgba(124,58,237,0.3)">
+        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command${!isOnline?' (queued — executes when online)':''}" style="color:var(--purple);border-color:rgba(124,58,237,0.3)${!isOnline?';opacity:0.5':''}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}')" title="Edit tags" style="color:var(--accent);border-color:rgba(59,126,255,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         </button>
         <button class="btn-remove" onclick="removeDevice('${d.id}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
@@ -1570,6 +1590,24 @@ async function openDetail(id, name) {
   }
 
   document.getElementById('detail-body').innerHTML = html;
+
+  // Append cmd output if any
+  try {
+    const out = await api('GET', '/devices/' + id + '/output');
+    if (out?.outputs?.length) {
+      let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`;
+      outHtml += out.outputs.slice().reverse().map(o => `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code>
+            <span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span>
+          </div>
+          <div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div>
+        </div>`).join('');
+      document.getElementById('detail-body').innerHTML += outHtml;
+    }
+  } catch(e) {}
+}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1918,7 +1956,7 @@ function openScheduleAdd() {
   // Populate device selector
   const sel = document.getElementById('sched-device');
   sel.innerHTML = devices.map(d =>
-    `<option value="${escHtml(d.id)}">${escHtml(d.name)}</option>`
+    `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`
   ).join('');
   // Default to 1 hour from now
   const dt = new Date(Date.now() + 3600000);
@@ -1993,6 +2031,31 @@ async function loadAbout() {
     const m  = av.match(/VERSION\s*=\s*['"]([^'"]+)['"]/);
     if (m) document.getElementById('about-agent-version').textContent = m[1];
   } catch(e) {}
+}
+
+// ── Tag editor ────────────────────────────────────────────────────────────────
+function openTagModal(id, currentTags) {
+  document.getElementById('tag-device-id').value = id;
+  document.getElementById('tag-input').value = currentTags;
+  openModal('tag-modal');
+}
+
+async function saveTags() {
+  const id   = document.getElementById('tag-device-id').value;
+  const raw  = document.getElementById('tag-input').value;
+  const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0);
+  const r = await fetch('/api/devices/' + id + '/tags', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json', 'X-Token': getToken()},
+    body: JSON.stringify({tags}),
+  });
+  if (r.status === 401) { doLogout(); return; }
+  const data = await r.json();
+  if (data?.ok) {
+    toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success');
+    closeModal('tag-modal');
+    loadDevices();
+  } else toast(data?.error || 'Failed', 'error');
 }
 
 // ── Update device (push self-update) ──────────────────────────────────────────
