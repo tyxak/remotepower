@@ -416,18 +416,22 @@ def handle_wol():
     magic = b'\xff' * 6 + mac_bytes * 16
 
     cfg = load(CONFIG_FILE)
-    bcast = cfg.get('wol_broadcast', '255.255.255.255')
     port  = int(cfg.get('wol_port', 9))
+
+    # Use unicast to last known IP if available (works over routed/VPN networks)
+    # Fall back to broadcast if no IP is stored
+    device_ip = devices[dev_id].get('ip', '').strip()
+    target = device_ip if device_ip else cfg.get('wol_broadcast', '255.255.255.255')
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.sendto(magic, (bcast, port))
+            s.sendto(magic, (target, port))    
+
     except Exception as e:
         respond(500, {'error': f'WoL send failed: {e}'})
 
-    respond(200, {'ok': True, 'mac': mac, 'broadcast': bcast})
-
+    respond(200, {'ok': True, 'mac': mac, 'target': target})
 
 def handle_sysinfo(dev_id: str):
     require_auth()

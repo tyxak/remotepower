@@ -30,7 +30,7 @@ CONF_DIR   = Path('/etc/remotepower')
 CONF_FILE  = CONF_DIR / 'agent.conf'
 CREDS_FILE = CONF_DIR / 'credentials'
 LOG_FILE   = '/var/log/remotepower-agent.log'
-VERSION    = '1.1.1'
+VERSION    = '1.1.2'
 
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
