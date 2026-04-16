@@ -345,7 +345,7 @@ def heartbeat(creds: dict, interval: int = 60):
         }
 
         # Send full sysinfo every 10th poll to avoid hammering dnf/pacman
-        if poll_count % 10 == 0:
+        if poll_count % 180 == 0:
             payload['sysinfo'] = {
                 'uptime':   get_uptime(),
                 'packages': get_patch_info(),
