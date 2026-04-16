@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend
-Runs via fcgiwrap as a CGI script, or standalone with gunicorn/uvicorn behind Nginx.
-Uses flat-file storage in /var/lib/remotepower/
+RemotePower API backend — v1.2.0
+Runs via fcgiwrap as a CGI script behind Nginx.
+Flat-file storage in /var/lib/remotepower/
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -18,22 +19,26 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+# ─── Version ───────────────────────────────────────────────────────────────────
+SERVER_VERSION = '1.2.0'
+
 # ─── Config ────────────────────────────────────────────────────────────────────
-DATA_DIR  = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
+DATA_DIR     = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE   = DATA_DIR / 'users.json'
 DEVICES_FILE = DATA_DIR / 'devices.json'
 PINS_FILE    = DATA_DIR / 'pins.json'
 TOKENS_FILE  = DATA_DIR / 'tokens.json'
 CMDS_FILE    = DATA_DIR / 'commands.json'
 CONFIG_FILE  = DATA_DIR / 'config.json'
+HISTORY_FILE = DATA_DIR / 'history.json'
 
-TOKEN_TTL    = 86400 * 7   # 7 days
-PIN_TTL      = 600          # 10 minutes
-ONLINE_TTL   = 180          # device considered offline after 3 minutes
+TOKEN_TTL  = 86400 * 7  # 7 days
+PIN_TTL    = 600         # 10 minutes
+ONLINE_TTL = 180         # seconds before device considered offline
 
-SECRET_KEY = os.environ.get('RP_SECRET', 'change-me-in-production-please')
+MAX_HISTORY = 200        # command history entries to keep
 
-# ─── bcrypt (optional, graceful fallback to SHA-256) ───────────────────────────
+# ─── bcrypt (optional, graceful SHA-256 fallback) ──────────────────────────────
 try:
     import bcrypt as _bcrypt
     _BCRYPT = True
@@ -46,7 +51,6 @@ def hash_password(plain: str) -> str:
     return hashlib.sha256(plain.encode()).hexdigest()
 
 def verify_password(plain: str, stored: str) -> bool:
-    """Verify against bcrypt hash or legacy sha256. Timing-safe."""
     if stored.startswith('$2'):
         if not _BCRYPT:
             return False
@@ -55,18 +59,17 @@ def verify_password(plain: str, stored: str) -> bool:
         except Exception:
             return False
     return hmac.compare_digest(
-        hashlib.sha256(plain.encode()).hexdigest(),
-        stored
+        hashlib.sha256(plain.encode()).hexdigest(), stored
     )
 
 def maybe_rehash(username: str, plain: str, stored: str):
-    """Silently upgrade a SHA-256 hash to bcrypt on successful login."""
+    """Silently upgrade SHA-256 → bcrypt on next login."""
     if _BCRYPT and not stored.startswith('$2'):
         users = load(USERS_FILE)
         users[username]['password_hash'] = hash_password(plain)
         save(USERS_FILE, users)
 
-# ─── Storage helpers ────────────────────────────────────────────────────────────
+# ─── Storage ───────────────────────────────────────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def load(path: Path) -> dict:
@@ -80,22 +83,24 @@ def save(path: Path, data):
     tmp.write_text(json.dumps(data, indent=2))
     tmp.replace(path)
 
-# ─── Default admin user ─────────────────────────────────────────────────────────
+# ─── Default admin ─────────────────────────────────────────────────────────────
 def ensure_default_user():
     users = load(USERS_FILE)
     if not users:
-        pw_hash = hashlib.sha256(b'remotepower').hexdigest()
-        users = {'admin': {'password_hash': pw_hash, 'created': int(time.time())}}
-        save(USERS_FILE, users)
+        save(USERS_FILE, {
+            'admin': {
+                'password_hash': hashlib.sha256(b'remotepower').hexdigest(),
+                'created': int(time.time()),
+            }
+        })
 
 ensure_default_user()
 
-# ─── Auth helpers ───────────────────────────────────────────────────────────────
+# ─── Auth ──────────────────────────────────────────────────────────────────────
 def make_token() -> str:
     return secrets.token_urlsafe(32)
 
 def verify_token(token: str):
-    """Return username if valid, None otherwise."""
     if not token:
         return None
     tokens = load(TOKENS_FILE)
@@ -116,12 +121,10 @@ def cleanup_tokens():
     if len(pruned) != len(tokens):
         save(TOKENS_FILE, pruned)
 
-# ─── Request parsing ────────────────────────────────────────────────────────────
+# ─── Request helpers ───────────────────────────────────────────────────────────
 def get_body() -> bytes:
     length = int(os.environ.get('CONTENT_LENGTH', 0) or 0)
-    if length > 0:
-        return sys.stdin.buffer.read(length)
-    return b''
+    return sys.stdin.buffer.read(length) if length > 0 else b''
 
 def get_json_body() -> dict:
     try:
@@ -138,11 +141,16 @@ def path_info() -> str:
 def method() -> str:
     return os.environ.get('REQUEST_METHOD', 'GET').upper()
 
-# ─── Response helpers ───────────────────────────────────────────────────────────
+def remote_addr() -> str:
+    return os.environ.get('REMOTE_ADDR', '')
+
+# ─── Response helpers ──────────────────────────────────────────────────────────
 def respond(status: int, data):
-    reason = {200:'OK', 201:'Created', 400:'Bad Request', 401:'Unauthorized',
-              403:'Forbidden', 404:'Not Found', 405:'Method Not Allowed',
-              500:'Internal Server Error'}
+    reason = {
+        200: 'OK', 201: 'Created', 400: 'Bad Request',
+        401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found',
+        405: 'Method Not Allowed', 500: 'Internal Server Error',
+    }
     print(f"Status: {status} {reason.get(status, '')}")
     print("Content-Type: application/json")
     print("Cache-Control: no-store")
@@ -151,14 +159,28 @@ def respond(status: int, data):
     sys.exit(0)
 
 def require_auth() -> str:
-    """Return username or exit 401."""
     token = get_token_from_request()
     username = verify_token(token)
     if not username:
         respond(401, {'error': 'Unauthorized'})
     return username
 
-# ─── Webhook helper ─────────────────────────────────────────────────────────────
+# ─── Command history ───────────────────────────────────────────────────────────
+def log_command(actor: str, device_id: str, device_name: str, command: str):
+    history = load(HISTORY_FILE)
+    entries = history.get('entries', [])
+    entries.append({
+        'ts':          int(time.time()),
+        'actor':       actor,
+        'device_id':   device_id,
+        'device_name': device_name,
+        'command':     command,
+    })
+    # Keep only the last MAX_HISTORY entries
+    history['entries'] = entries[-MAX_HISTORY:]
+    save(HISTORY_FILE, history)
+
+# ─── Webhook ───────────────────────────────────────────────────────────────────
 def fire_webhook(event: str, payload: dict):
     cfg = load(CONFIG_FILE)
     url = cfg.get('webhook_url', '').strip()
@@ -173,26 +195,23 @@ def fire_webhook(event: str, payload: dict):
     try:
         urllib.request.urlopen(req, timeout=5)
     except Exception:
-        pass  # webhook failure must never break the API
+        pass
 
-# ─── Offline webhook: runs on every API request (cheap file check) ──────────────
 def check_offline_webhooks():
     devices = load(DEVICES_FILE)
     now = int(time.time())
     cfg = load(CONFIG_FILE)
     notified = cfg.get('offline_notified', {})
     changed = False
-
     for dev_id, dev in devices.items():
         last = dev.get('last_seen', 0)
         is_offline = (now - last) > ONLINE_TTL
         already = notified.get(dev_id, False)
-
         if is_offline and not already:
             fire_webhook('device_offline', {
                 'device_id': dev_id,
-                'name': dev.get('name', dev_id),
-                'hostname': dev.get('hostname', ''),
+                'name':      dev.get('name', dev_id),
+                'hostname':  dev.get('hostname', ''),
                 'last_seen': last,
             })
             notified[dev_id] = True
@@ -200,12 +219,11 @@ def check_offline_webhooks():
         elif not is_offline and already:
             notified[dev_id] = False
             changed = True
-
     if changed:
         cfg['offline_notified'] = notified
         save(CONFIG_FILE, cfg)
 
-# ─── Route handlers ─────────────────────────────────────────────────────────────
+# ─── Handlers ──────────────────────────────────────────────────────────────────
 
 def handle_login():
     if method() != 'POST':
@@ -213,18 +231,14 @@ def handle_login():
     body = get_json_body()
     username = body.get('username', '').strip()
     password = body.get('password', '')
-
     users = load(USERS_FILE)
     user = users.get(username)
     if not user:
         respond(200, {'ok': False})
-
     stored = user.get('password_hash', '')
     if not verify_password(password, stored):
         respond(200, {'ok': False})
-
     maybe_rehash(username, password, stored)
-
     cleanup_tokens()
     token = make_token()
     tokens = load(TOKENS_FILE)
@@ -242,17 +256,18 @@ def handle_devices_list():
         last_ping = dev.get('last_seen', 0)
         is_online = (now - last_ping) < ONLINE_TTL
         result.append({
-            'id': dev_id,
-            'name': dev.get('name', dev_id),
+            'id':       dev_id,
+            'name':     dev.get('name', dev_id),
             'hostname': dev.get('hostname', ''),
-            'os': dev.get('os', ''),
-            'ip': dev.get('ip', ''),
-            'mac': dev.get('mac', ''),
-            'version': dev.get('version', ''),
+            'os':       dev.get('os', ''),
+            'ip':       dev.get('ip', ''),
+            'mac':      dev.get('mac', ''),
+            'version':  dev.get('version', ''),
+            'tags':     dev.get('tags', []),
             'last_seen': last_ping,
             'enrolled': dev.get('enrolled', 0),
-            'online': is_online,
-            'sysinfo': dev.get('sysinfo', {}),
+            'online':   is_online,
+            'sysinfo':  dev.get('sysinfo', {}),
         })
     result.sort(key=lambda x: x['name'].lower())
     respond(200, result)
@@ -271,6 +286,25 @@ def handle_device_delete(dev_id: str):
     cmds.pop(dev_id, None)
     save(CMDS_FILE, cmds)
     respond(200, {'ok': True})
+
+
+def handle_device_tags(dev_id: str):
+    """PATCH /api/devices/:id/tags — set tags list."""
+    actor = require_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    tags = body.get('tags', [])
+    if not isinstance(tags, list):
+        respond(400, {'error': 'tags must be a list'})
+    # sanitise: strings only, max 32 chars, max 10 tags
+    tags = [str(t)[:32] for t in tags[:10]]
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['tags'] = tags
+    save(DEVICES_FILE, devices)
+    respond(200, {'ok': True, 'tags': tags})
 
 
 def handle_enroll_pin():
@@ -293,29 +327,27 @@ def handle_enroll_register():
     pin = str(body.get('pin', '')).strip()
     if not pin:
         respond(400, {'error': 'PIN required'})
-
     pins = load(PINS_FILE)
     now = int(time.time())
     entry = pins.get(pin)
     if not entry or (now - entry['created']) > PIN_TTL:
         respond(403, {'error': 'Invalid or expired PIN'})
-
     del pins[pin]
     save(PINS_FILE, pins)
-
-    dev_id = secrets.token_urlsafe(12)
+    dev_id   = secrets.token_urlsafe(12)
     hostname = body.get('hostname', 'unknown')
-    devices = load(DEVICES_FILE)
+    devices  = load(DEVICES_FILE)
     devices[dev_id] = {
-        'name':     body.get('name', hostname),
-        'hostname': hostname,
-        'os':       body.get('os', ''),
-        'ip':       body.get('ip', ''),
-        'mac':      body.get('mac', ''),
-        'version':  body.get('version', '1.0'),
-        'enrolled': now,
+        'name':      body.get('name', hostname),
+        'hostname':  hostname,
+        'os':        body.get('os', ''),
+        'ip':        body.get('ip', ''),
+        'mac':       body.get('mac', ''),
+        'version':   body.get('version', '1.0'),
+        'tags':      [],
+        'enrolled':  now,
         'last_seen': now,
-        'token':    secrets.token_urlsafe(32),
+        'token':     secrets.token_urlsafe(32),
     }
     save(DEVICES_FILE, devices)
     respond(201, {'ok': True, 'device_id': dev_id, 'token': devices[dev_id]['token']})
@@ -324,31 +356,24 @@ def handle_enroll_register():
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
-    dev_id    = body.get('device_id', '')
+    body     = get_json_body()
+    dev_id   = body.get('device_id', '')
     dev_token = body.get('token', '')
-
-    devices = load(DEVICES_FILE)
-    dev = devices.get(dev_id)
+    devices  = load(DEVICES_FILE)
+    dev      = devices.get(dev_id)
     if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
         respond(403, {'error': 'Unauthorized device'})
-
     now = int(time.time())
     dev['last_seen'] = now
-    dev['ip']      = body.get('ip',      dev.get('ip', ''))
-    dev['os']      = body.get('os',      dev.get('os', ''))
-    dev['version'] = body.get('version', dev.get('version', ''))
-
-    # Store sysinfo + journal when agent sends them (every ~10th poll)
+    dev['ip']        = body.get('ip',      dev.get('ip', ''))
+    dev['os']        = body.get('os',      dev.get('os', ''))
+    dev['version']   = body.get('version', dev.get('version', ''))
     if 'sysinfo' in body:
         dev['sysinfo'] = body['sysinfo']
     if 'journal' in body:
-        dev['journal'] = body['journal']  # list of strings
-
+        dev['journal'] = body['journal']
     devices[dev_id] = dev
     save(DEVICES_FILE, devices)
-
-    # Pending commands — preserve original single-string format the agent expects
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
     if pending:
@@ -360,78 +385,74 @@ def handle_heartbeat():
         respond(200, {'command': None})
 
 
-def handle_shutdown():
-    require_auth()
-    if method() != 'POST':
-        respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
-    dev_id = body.get('device_id', '')
+def _queue_command(dev_id: str, command: str, actor: str):
+    """Queue a command and write to history."""
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
     cmds = load(CMDS_FILE)
     if dev_id not in cmds:
         cmds[dev_id] = []
-    cmds[dev_id].append('shutdown')
+    # Deduplicate — don't queue same command twice
+    if command not in cmds[dev_id]:
+        cmds[dev_id].append(command)
     save(CMDS_FILE, cmds)
+    log_command(actor, dev_id, devices[dev_id].get('name', dev_id), command)
     respond(200, {'ok': True})
+
+
+def handle_shutdown():
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    _queue_command(get_json_body().get('device_id', ''), 'shutdown', actor)
 
 
 def handle_reboot():
-    require_auth()
+    actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
-    dev_id = body.get('device_id', '')
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    cmds = load(CMDS_FILE)
-    if dev_id not in cmds:
-        cmds[dev_id] = []
-    cmds[dev_id].append('reboot')
-    save(CMDS_FILE, cmds)
-    respond(200, {'ok': True})
+    _queue_command(get_json_body().get('device_id', ''), 'reboot', actor)
+
+
+def handle_update_device():
+    """Queue an agent self-update command — no SSH needed."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    _queue_command(get_json_body().get('device_id', ''), 'update', actor)
 
 
 def handle_wol():
     require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
-    dev_id = body.get('device_id', '')
+    body    = get_json_body()
+    dev_id  = body.get('device_id', '')
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
-
     mac = devices[dev_id].get('mac', '').strip()
     if not mac:
         respond(400, {'error': 'No MAC address on record for this device'})
-
-    import re
     if not re.match(r'^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$', mac):
         respond(400, {'error': 'Invalid MAC address format'})
-
     mac_bytes = bytes.fromhex(mac.replace(':', '').replace('-', ''))
-    magic = b'\xff' * 6 + mac_bytes * 16
-
-    cfg = load(CONFIG_FILE)
+    magic     = b'\xff' * 6 + mac_bytes * 16
+    cfg   = load(CONFIG_FILE)
     port  = int(cfg.get('wol_port', 9))
-
-    # Use unicast to last known IP if available (works over routed/VPN networks)
-    # Fall back to broadcast if no IP is stored
+    # Unicast to last known IP if available (works over routed/VPN networks)
+    # Fall back to broadcast
     device_ip = devices[dev_id].get('ip', '').strip()
-    target = device_ip if device_ip else cfg.get('wol_broadcast', '255.255.255.255')
-
+    target    = device_ip if device_ip else cfg.get('wol_broadcast', '255.255.255.255')
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.sendto(magic, (target, port))    
-
+            s.sendto(magic, (target, port))
     except Exception as e:
         respond(500, {'error': f'WoL send failed: {e}'})
-
     respond(200, {'ok': True, 'mac': mac, 'target': target})
+
 
 def handle_sysinfo(dev_id: str):
     require_auth()
@@ -447,21 +468,22 @@ def handle_sysinfo(dev_id: str):
 
 def handle_monitor_run():
     require_auth()
-    cfg = load(CONFIG_FILE)
+    cfg      = load(CONFIG_FILE)
     monitors = cfg.get('monitors', [])
-    results = []
+    results  = []
     for m in monitors:
         mtype  = m.get('type', 'ping')
         target = m.get('target', '')
         label  = m.get('label', target)
         ok     = False
         detail = ''
-
         if mtype == 'ping':
             try:
-                r = subprocess.run(['ping', '-c', '1', '-W', '2', target],
-                                   capture_output=True, timeout=5)
-                ok = r.returncode == 0
+                r = subprocess.run(
+                    ['ping', '-c', '1', '-W', '2', target],
+                    capture_output=True, timeout=5
+                )
+                ok     = r.returncode == 0
                 detail = 'up' if ok else 'no reply'
             except Exception as e:
                 detail = str(e)
@@ -470,7 +492,7 @@ def handle_monitor_run():
             port = int(port_s) if port_s else 80
             try:
                 with socket.create_connection((host, port), timeout=3):
-                    ok = True
+                    ok     = True
                     detail = 'open'
             except Exception as e:
                 detail = str(e)
@@ -478,22 +500,22 @@ def handle_monitor_run():
             try:
                 req = urllib.request.Request(target, method='HEAD')
                 with urllib.request.urlopen(req, timeout=5) as resp:
-                    ok = resp.status < 400
+                    ok     = resp.status < 400
                     detail = str(resp.status)
             except urllib.error.HTTPError as e:
                 detail = str(e.code)
             except Exception as e:
                 detail = str(e)
-
-        results.append({'label': label, 'type': mtype, 'target': target,
-                        'ok': ok, 'detail': detail, 'checked': int(time.time())})
-
+        results.append({
+            'label': label, 'type': mtype, 'target': target,
+            'ok': ok, 'detail': detail, 'checked': int(time.time()),
+        })
     respond(200, {'monitors': results})
 
 
 def handle_config_get():
     require_auth()
-    cfg = load(CONFIG_FILE)
+    cfg  = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
             if k not in ('webhook_url', 'offline_notified')}
     safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
@@ -505,7 +527,7 @@ def handle_config_save():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
-    cfg = load(CONFIG_FILE)
+    cfg  = load(CONFIG_FILE)
     for key in ('webhook_url', 'wol_broadcast', 'wol_port', 'monitors'):
         if key in body:
             cfg[key] = body[key]
@@ -513,23 +535,30 @@ def handle_config_save():
     respond(200, {'ok': True})
 
 
-# ── Multi-user management ───────────────────────────────────────────────────────
+def handle_history():
+    require_auth()
+    history = load(HISTORY_FILE)
+    entries = history.get('entries', [])
+    # Return newest first
+    respond(200, list(reversed(entries)))
+
 
 def handle_users_list():
     require_auth()
     users = load(USERS_FILE)
-    out = [{'username': u, 'created': d.get('created', 0)} for u, d in users.items()]
-    respond(200, out)
+    respond(200, [
+        {'username': u, 'created': d.get('created', 0)}
+        for u, d in users.items()
+    ])
 
 
 def handle_user_create():
     require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body     = get_json_body()
     username = body.get('username', '').strip()
     password = body.get('password', '')
-    import re
     if not username or not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
     if not password:
@@ -537,8 +566,10 @@ def handle_user_create():
     users = load(USERS_FILE)
     if username in users:
         respond(400, {'error': 'User already exists'})
-    users[username] = {'password_hash': hash_password(password),
-                       'created': int(time.time())}
+    users[username] = {
+        'password_hash': hash_password(password),
+        'created':       int(time.time()),
+    }
     save(USERS_FILE, users)
     respond(201, {'ok': True, 'username': username})
 
@@ -563,14 +594,14 @@ def handle_user_passwd():
     requester = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    body = get_json_body()
+    body     = get_json_body()
     username = body.get('username', requester)
     old_pw   = body.get('old_password', '')
     new_pw   = body.get('new_password', '')
     if not new_pw:
         respond(400, {'error': 'new_password required'})
     users = load(USERS_FILE)
-    user = users.get(username)
+    user  = users.get(username)
     if not user:
         respond(404, {'error': 'User not found'})
     if username == requester:
@@ -581,30 +612,26 @@ def handle_user_passwd():
     respond(200, {'ok': True})
 
 
-# ── Agent self-update ───────────────────────────────────────────────────────────
-
 def handle_agent_version():
-    """Return current server-side agent version + SHA-256 so clients can self-update."""
-    cfg = load(CONFIG_FILE)
+    cfg        = load(CONFIG_FILE)
     agent_path = Path('/var/www/remotepower/agent/remotepower-agent')
     if not agent_path.exists():
         respond(200, {'version': None, 'sha256': None})
     sha = hashlib.sha256(agent_path.read_bytes()).hexdigest()
     respond(200, {
         'version': cfg.get('agent_version', 'unknown'),
-        'sha256': sha,
+        'sha256':  sha,
     })
 
 
 def handle_agent_download():
-    """Serve the latest agent binary for self-update. No auth — token checked by agent."""
     agent_path = Path('/var/www/remotepower/agent/remotepower-agent')
     if not agent_path.exists():
-        respond(404, {'error': 'Agent binary not found on server'})
+        respond(404, {'error': 'Agent binary not found'})
     data = agent_path.read_bytes()
     print("Status: 200 OK")
     print("Content-Type: application/octet-stream")
-    print(f"Content-Disposition: attachment; filename=remotepower-agent")
+    print("Content-Disposition: attachment; filename=remotepower-agent")
     print(f"Content-Length: {len(data)}")
     print("Cache-Control: no-store")
     print()
@@ -612,9 +639,42 @@ def handle_agent_download():
     sys.exit(0)
 
 
-# ─── Router ─────────────────────────────────────────────────────────────────────
+def handle_version_check():
+    """Check installed server version against latest GitHub release."""
+    cfg   = load(CONFIG_FILE)
+    local = cfg.get('server_version', SERVER_VERSION)
+    try:
+        req = urllib.request.Request(
+            'https://api.github.com/repos/tyxak/remotepower/releases/latest',
+            headers={'User-Agent': 'RemotePower'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        latest = data.get('tag_name', '').lstrip('v')
+    except Exception:
+        latest = None
+
+    def vt(v):
+        try:
+            return tuple(int(x) for x in v.split('.'))
+        except Exception:
+            return (0,)
+
+    update_available = (
+        latest is not None and
+        local  != 'unknown' and
+        vt(latest) > vt(local)
+    )
+    respond(200, {
+        'current':          local,
+        'latest':           latest,
+        'update_available': update_available,
+        'release_url':      'https://github.com/tyxak/remotepower/releases/latest',
+    })
+
+
+# ─── Router ────────────────────────────────────────────────────────────────────
 def main():
-    # Offline webhook check on every request — cheap file stat, no subprocess
     try:
         check_offline_webhooks()
     except Exception:
@@ -623,34 +683,55 @@ def main():
     pi = path_info()
     m  = method()
 
-    # ── original routes (unchanged) ────────────────────────────────────────────
+    # Auth
     if pi == '/api/login':
         handle_login()
+
+    # Devices
     elif pi == '/api/devices' and m == 'GET':
         handle_devices_list()
-    elif pi.startswith('/api/devices/') and m == 'DELETE':
+    elif pi.startswith('/api/devices/') and m == 'DELETE' and not pi.endswith('/tags'):
         handle_device_delete(pi[len('/api/devices/'):])
+    elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
+        handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
+        handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
+
+    # Enrollment
     elif pi == '/api/enroll/pin':
         handle_enroll_pin()
     elif pi == '/api/enroll/register':
         handle_enroll_register()
+
+    # Heartbeat
     elif pi == '/api/heartbeat':
         handle_heartbeat()
+
+    # Commands
     elif pi == '/api/shutdown':
         handle_shutdown()
-    # ── new routes ──────────────────────────────────────────────────────────────
     elif pi == '/api/reboot':
         handle_reboot()
+    elif pi == '/api/update-device':
+        handle_update_device()
     elif pi == '/api/wol':
         handle_wol()
-    elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
-        handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
+
+    # Monitor
     elif pi == '/api/monitor' and m == 'GET':
         handle_monitor_run()
+
+    # Config
     elif pi == '/api/config' and m == 'GET':
         handle_config_get()
     elif pi == '/api/config' and m == 'POST':
         handle_config_save()
+
+    # History
+    elif pi == '/api/history' and m == 'GET':
+        handle_history()
+
+    # Users
     elif pi == '/api/users' and m == 'GET':
         handle_users_list()
     elif pi == '/api/users' and m == 'POST':
@@ -659,12 +740,20 @@ def main():
         handle_user_delete(pi[len('/api/users/'):])
     elif pi == '/api/users/passwd' and m == 'POST':
         handle_user_passwd()
+
+    # Agent self-update
     elif pi == '/api/agent/version' and m == 'GET':
         handle_agent_version()
     elif pi == '/api/agent/download' and m == 'GET':
         handle_agent_download()
+
+    # Server version check
+    elif pi == '/api/version' and m == 'GET':
+        handle_version_check()
+
     else:
         respond(404, {'error': 'Not found'})
+
 
 if __name__ == '__main__':
     try:
