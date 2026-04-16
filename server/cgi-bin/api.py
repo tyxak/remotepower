@@ -20,7 +20,7 @@ import urllib.error
 from pathlib import Path
 
 # ─── Version ───────────────────────────────────────────────────────────────────
-SERVER_VERSION = '1.2.0'
+SERVER_VERSION = '1.3.0'
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 DATA_DIR     = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
@@ -30,13 +30,20 @@ PINS_FILE    = DATA_DIR / 'pins.json'
 TOKENS_FILE  = DATA_DIR / 'tokens.json'
 CMDS_FILE    = DATA_DIR / 'commands.json'
 CONFIG_FILE  = DATA_DIR / 'config.json'
-HISTORY_FILE = DATA_DIR / 'history.json'
+HISTORY_FILE   = DATA_DIR / 'history.json'
+SCHEDULE_FILE  = DATA_DIR / 'schedule.json'
+UPTIME_FILE    = DATA_DIR / 'uptime.json'
+MON_HIST_FILE  = DATA_DIR / 'monitor_history.json'
+CMD_OUTPUT_FILE= DATA_DIR / 'cmd_output.json'
 
 TOKEN_TTL  = 86400 * 7  # 7 days
 PIN_TTL    = 600         # 10 minutes
 ONLINE_TTL = 180         # seconds before device considered offline
 
-MAX_HISTORY = 200        # command history entries to keep
+MAX_HISTORY      = 200   # command history entries to keep
+MAX_MON_HISTORY  = 50    # monitor results to keep per target
+MAX_CMD_OUTPUT   = 100   # stored command outputs to keep
+PATCH_ALERT_KEY  = 'patch_alert_threshold'  # config key
 
 # ─── bcrypt (optional, graceful SHA-256 fallback) ──────────────────────────────
 try:
@@ -223,6 +230,41 @@ def check_offline_webhooks():
         cfg['offline_notified'] = notified
         save(CONFIG_FILE, cfg)
 
+    # Patch alert — fire webhook if any device exceeds threshold
+    threshold = cfg.get(PATCH_ALERT_KEY)
+    if threshold is not None:
+        try:
+            threshold = int(threshold)
+            devices = load(DEVICES_FILE)
+            alerted = cfg.get('patch_alerted', {})
+            patch_changed = False
+            for dev_id, dev in devices.items():
+                si  = dev.get('sysinfo', {})
+                pkg = si.get('packages', {})
+                count = pkg.get('upgradable')
+                if count is None:
+                    continue
+                over = count >= threshold
+                was  = alerted.get(dev_id, False)
+                if over and not was:
+                    fire_webhook('patch_alert', {
+                        'device_id':  dev_id,
+                        'name':       dev.get('name', dev_id),
+                        'hostname':   dev.get('hostname', ''),
+                        'upgradable': count,
+                        'threshold':  threshold,
+                    })
+                    alerted[dev_id] = True
+                    patch_changed = True
+                elif not over and was:
+                    alerted[dev_id] = False
+                    patch_changed = True
+            if patch_changed:
+                cfg['patch_alerted'] = alerted
+                save(CONFIG_FILE, cfg)
+        except Exception:
+            pass
+
 # ─── Handlers ──────────────────────────────────────────────────────────────────
 
 def handle_login():
@@ -374,6 +416,24 @@ def handle_heartbeat():
         dev['journal'] = body['journal']
     devices[dev_id] = dev
     save(DEVICES_FILE, devices)
+
+    # Track online/offline uptime history (lightweight — one entry per state change)
+    _record_uptime(dev_id, dev.get('name', dev_id), True)
+
+    # Store exec output if agent sent it
+    if 'cmd_output' in body:
+        outputs = load(CMD_OUTPUT_FILE)
+        if dev_id not in outputs:
+            outputs[dev_id] = []
+        outputs[dev_id].append({
+            'ts':     int(time.time()),
+            'cmd':    body['cmd_output'].get('cmd', ''),
+            'output': body['cmd_output'].get('output', ''),
+            'rc':     body['cmd_output'].get('rc', -1),
+        })
+        outputs[dev_id] = outputs[dev_id][-MAX_CMD_OUTPUT:]
+        save(CMD_OUTPUT_FILE, outputs)
+
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
     if pending:
@@ -510,6 +570,23 @@ def handle_monitor_run():
             'label': label, 'type': mtype, 'target': target,
             'ok': ok, 'detail': detail, 'checked': int(time.time()),
         })
+    # Persist monitor history (last N results per target)
+    try:
+        mh = load(MON_HIST_FILE)
+        for r in results:
+            key = r['label']
+            if key not in mh:
+                mh[key] = []
+            mh[key].append({
+                'ts':     r['checked'],
+                'ok':     r['ok'],
+                'detail': r['detail'],
+            })
+            mh[key] = mh[key][-MAX_MON_HISTORY:]
+        save(MON_HIST_FILE, mh)
+    except Exception:
+        pass
+
     respond(200, {'monitors': results})
 
 
@@ -528,7 +605,7 @@ def handle_config_save():
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
     cfg  = load(CONFIG_FILE)
-    for key in ('webhook_url', 'wol_broadcast', 'wol_port', 'monitors'):
+    for key in ('webhook_url', 'wol_broadcast', 'wol_port', 'monitors', 'patch_alert_threshold'):
         if key in body:
             cfg[key] = body[key]
     save(CONFIG_FILE, cfg)
@@ -673,10 +750,178 @@ def handle_version_check():
     })
 
 
+
+# ── Uptime tracking ────────────────────────────────────────────────────────────
+def _record_uptime(dev_id: str, name: str, is_online: bool):
+    """Record state changes only — keeps the file small."""
+    uptime = load(UPTIME_FILE)
+    if dev_id not in uptime:
+        uptime[dev_id] = {'name': name, 'events': []}
+    events = uptime[dev_id].get('events', [])
+    # Only append if state changed
+    last_state = events[-1]['online'] if events else None
+    if last_state != is_online:
+        events.append({'ts': int(time.time()), 'online': is_online})
+        # Keep last 500 events per device
+        uptime[dev_id]['events'] = events[-500:]
+        uptime[dev_id]['name'] = name
+        save(UPTIME_FILE, uptime)
+
+
+def handle_uptime(dev_id: str):
+    """Return uptime event history for a device."""
+    require_auth()
+    uptime = load(UPTIME_FILE)
+    dev = uptime.get(dev_id, {})
+    respond(200, {
+        'device_id': dev_id,
+        'name':      dev.get('name', dev_id),
+        'events':    dev.get('events', []),
+    })
+
+
+def handle_monitor_history(label: str):
+    """Return last N check results for a monitor target."""
+    require_auth()
+    mh  = load(MON_HIST_FILE)
+    respond(200, {
+        'label':   label,
+        'history': mh.get(label, []),
+    })
+
+
+# ── Scheduled commands ─────────────────────────────────────────────────────────
+def handle_schedule_list():
+    require_auth()
+    schedule = load(SCHEDULE_FILE)
+    respond(200, schedule.get('jobs', []))
+
+
+def handle_schedule_add():
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body    = get_json_body()
+    dev_id  = body.get('device_id', '').strip()
+    command = body.get('command', '').strip()
+    run_at  = body.get('run_at', 0)  # unix timestamp
+
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    if command not in ('shutdown', 'reboot'):
+        respond(400, {'error': 'command must be shutdown or reboot'})
+    if not isinstance(run_at, (int, float)) or run_at <= int(time.time()):
+        respond(400, {'error': 'run_at must be a future unix timestamp'})
+
+    schedule = load(SCHEDULE_FILE)
+    jobs = schedule.get('jobs', [])
+    job = {
+        'id':          secrets.token_hex(6),
+        'device_id':   dev_id,
+        'device_name': devices[dev_id].get('name', dev_id),
+        'command':     command,
+        'run_at':      int(run_at),
+        'actor':       actor,
+        'created':     int(time.time()),
+    }
+    jobs.append(job)
+    schedule['jobs'] = jobs
+    save(SCHEDULE_FILE, schedule)
+    respond(201, {'ok': True, 'job': job})
+
+
+def handle_schedule_delete(job_id: str):
+    require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    schedule = load(SCHEDULE_FILE)
+    jobs = [j for j in schedule.get('jobs', []) if j['id'] != job_id]
+    if len(jobs) == len(schedule.get('jobs', [])):
+        respond(404, {'error': 'Job not found'})
+    schedule['jobs'] = jobs
+    save(SCHEDULE_FILE, schedule)
+    respond(200, {'ok': True})
+
+
+def process_schedule():
+    """Run due scheduled jobs. Called on every API request — cheap file check."""
+    schedule = load(SCHEDULE_FILE)
+    jobs     = schedule.get('jobs', [])
+    now      = int(time.time())
+    remaining = []
+    for job in jobs:
+        if job['run_at'] <= now:
+            dev_id  = job['device_id']
+            command = job['command']
+            devices = load(DEVICES_FILE)
+            if dev_id in devices:
+                cmds = load(CMDS_FILE)
+                if dev_id not in cmds:
+                    cmds[dev_id] = []
+                if command not in cmds[dev_id]:
+                    cmds[dev_id].append(command)
+                save(CMDS_FILE, cmds)
+                log_command(
+                    f"scheduler({job['actor']})",
+                    dev_id, job['device_name'], command
+                )
+        else:
+            remaining.append(job)
+    if len(remaining) != len(jobs):
+        schedule['jobs'] = remaining
+        save(SCHEDULE_FILE, schedule)
+
+
+# ── Custom commands ────────────────────────────────────────────────────────────
+def handle_custom_cmd():
+    """Queue an arbitrary shell command for a device."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body    = get_json_body()
+    dev_id  = body.get('device_id', '').strip()
+    cmd_str = body.get('cmd', '').strip()
+
+    if not cmd_str:
+        respond(400, {'error': 'cmd required'})
+    if len(cmd_str) > 512:
+        respond(400, {'error': 'cmd too long (max 512 chars)'})
+    # Block obviously dangerous patterns
+    blocked = ['rm -rf /', 'mkfs', '> /dev/sd', 'dd if=']
+    for b in blocked:
+        if b in cmd_str:
+            respond(400, {'error': f'Blocked pattern: {b}'})
+
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    cmds = load(CMDS_FILE)
+    if dev_id not in cmds:
+        cmds[dev_id] = []
+    # Custom commands are prefixed with 'exec:' so the agent knows
+    cmds[dev_id].append(f'exec:{cmd_str}')
+    save(CMDS_FILE, cmds)
+    log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec:{cmd_str[:40]}')
+    respond(200, {'ok': True})
+
+
+def handle_cmd_output(dev_id: str):
+    """Return stored command output for a device."""
+    require_auth()
+    outputs = load(CMD_OUTPUT_FILE)
+    respond(200, {'outputs': outputs.get(dev_id, [])})
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def main():
     try:
         check_offline_webhooks()
+    except Exception:
+        pass
+    try:
+        process_schedule()
     except Exception:
         pass
 
@@ -750,6 +995,31 @@ def main():
     # Server version check
     elif pi == '/api/version' and m == 'GET':
         handle_version_check()
+
+    # Schedule
+    elif pi == '/api/schedule' and m == 'GET':
+        handle_schedule_list()
+    elif pi == '/api/schedule' and m == 'POST':
+        handle_schedule_add()
+    elif pi.startswith('/api/schedule/') and m == 'DELETE':
+        handle_schedule_delete(pi[len('/api/schedule/'):])
+
+    # Custom commands
+    elif pi == '/api/exec' and m == 'POST':
+        handle_custom_cmd()
+    elif pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET':
+        handle_cmd_output(pi[len('/api/devices/'):-len('/output')])
+
+    # Uptime history
+    elif pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET':
+        handle_uptime(pi[len('/api/devices/'):-len('/uptime')])
+
+    # Monitor history
+    elif pi == '/api/monitor/history' and m == 'GET':
+        from urllib.parse import parse_qs, urlparse
+        qs    = parse_qs(os.environ.get('QUERY_STRING', ''))
+        label = qs.get('label', [''])[0]
+        handle_monitor_history(label)
 
     else:
         respond(404, {'error': 'Not found'})

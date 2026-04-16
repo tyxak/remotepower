@@ -22,6 +22,85 @@
     --purple: #7c3aed;
     --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
   }
+  /* Light mode */
+  body.light {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+  body.light body::before { background-image:
+    linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
+  body.light header { background: rgba(241,245,249,0.9); }
+  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+  /* Theme toggle button */
+  .theme-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    line-height: 1;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* Update available banner */
+  .update-banner {
+    background: rgba(245,158,11,0.08);
+    border-bottom: 1px solid rgba(245,158,11,0.25);
+    padding: 10px 24px;
+    font-size: 13px;
+    color: var(--amber);
+    text-align: center;
+    position: relative;
+    z-index: 99;
+  }
+  .update-banner a { color: var(--amber); font-weight: 600; text-decoration: underline; }
+  /* Tags */
+  .tag-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(59,126,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(59,126,255,0.2);
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+  /* Update button */
+  .btn-update {
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    color: var(--green);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-update:hover { background: rgba(34,197,94,0.2); border-color: var(--green); }
+  .btn-update svg { width: 14px; height: 14px; }
+  /* History table */
+  .cmd-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; font-family: monospace;
+  }
+  .cmd-badge.shutdown { background: rgba(239,68,68,0.1);   color: var(--red); }
+  .cmd-badge.reboot   { background: rgba(245,158,11,0.1);  color: var(--amber); }
+  .cmd-badge.update   { background: rgba(34,197,94,0.1);   color: var(--green); }
+  .cmd-badge.wol      { background: rgba(124,58,237,0.1);  color: #a78bfa; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
@@ -728,14 +807,18 @@
       <div class="header-nav">
         <button class="nav-btn active" onclick="showPage('devices',this)">Devices</button>
         <button class="nav-btn" onclick="showPage('monitor',this)">Monitor</button>
+        <button class="nav-btn" onclick="showPage('history',this)">History</button>
+        <button class="nav-btn" onclick="showPage('schedule',this)">Schedule</button>
         <button class="nav-btn" onclick="showPage('users',this)">Users</button>
         <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
+        <button class="nav-btn" onclick="showPage('about',this)">About</button>
       </div>
       <div class="header-right">
         <div class="status-bar">
           <div class="status-dot"></div>
           <span id="last-refresh-label">Live</span>
         </div>
+        <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
         <button class="logout-btn" onclick="doLogout()">Sign out</button>
       </div>
     </div>
@@ -771,7 +854,10 @@
         </div>
 
         <div class="section-header">
-          <div class="section-title">Enrolled Devices</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="section-title">Enrolled Devices</div>
+            <div id="tag-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          </div>
           <button class="enroll-btn" onclick="openEnrollModal()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Enroll device
@@ -865,9 +951,91 @@
           </div>
         </div>
 
+        <div class="settings-section">
+          <h3>Patch Alert</h3>
+          <p class="hint">Fire the offline webhook when a device has more than this many pending updates. Leave empty to disable.</p>
+          <div class="settings-row">
+            <div class="form-group" style="max-width:160px">
+              <label class="form-label">Threshold (updates)</label>
+              <input type="number" id="cfg-patch-threshold" class="form-input" placeholder="e.g. 10" min="1">
+            </div>
+          </div>
+        </div>
+
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
           <button class="btn-secondary" onclick="loadSettings()">Reload</button>
+        </div>
+      </div>
+
+      <!-- ── History page ────────────────────────────────────────────────── -->
+      <div id="page-history" class="page">
+        <div class="page-title">Command History</div>
+        <div class="page-subtitle">Log of all commands sent to devices</div>
+        <div class="section-header">
+          <div class="section-title">Recent commands</div>
+          <button class="btn-icon" onclick="loadHistory()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+            Refresh
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Device</th><th>Command</th></tr></thead>
+            <tbody id="history-tbody">
+              <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Schedule page ─────────────────────────────────────────────────── -->
+      <div id="page-schedule" class="page">
+        <div class="page-title">Scheduled Commands</div>
+        <div class="page-subtitle">Queue shutdown or reboot at a specific time</div>
+        <div class="section-header">
+          <div class="section-title">Pending jobs</div>
+          <button class="enroll-btn" onclick="openScheduleAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add job
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Device</th><th>Command</th><th>Scheduled for</th><th>By</th><th></th></tr></thead>
+            <tbody id="schedule-tbody">
+              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── About page ────────────────────────────────────────────────────── -->
+      <div id="page-about" class="page">
+        <div class="page-title">About</div>
+        <div class="page-subtitle">RemotePower — self-hosted device management</div>
+        <div class="settings-section" style="max-width:600px">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+            <div class="logo-icon" style="width:52px;height:52px;border-radius:12px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:28px;height:28px"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            </div>
+            <div>
+              <div style="font-size:22px;font-weight:700">RemotePower</div>
+              <div style="color:var(--muted);font-size:13px">Server version: <span id="about-server-version" style="font-family:monospace">—</span></div>
+            </div>
+          </div>
+          <table style="margin-bottom:20px">
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0;width:160px">Agent version</td><td style="font-family:monospace" id="about-agent-version">—</td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" style="color:var(--accent)">github.com/tyxak/remotepower</a></td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">License</td><td>MIT</td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">Latest release</td><td><span id="about-latest-version" style="font-family:monospace">checking…</span></td></tr>
+          </table>
+          <p style="font-size:13px;color:var(--muted);line-height:1.7">
+            Self-hosted remote device management — shutdown, reboot, Wake-on-LAN,
+            monitoring, scheduled commands, and agent self-update.<br><br>
+            No inbound firewall rules on clients. Agents poll the server over HTTPS.
+            Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.
+          </p>
         </div>
       </div>
 
@@ -1007,6 +1175,62 @@
   </div>
 </div>
 
+<!-- Schedule add modal -->
+<div class="modal-overlay" id="schedule-add-modal">
+  <div class="modal">
+    <div class="modal-title">Schedule command</div>
+    <div class="form-group">
+      <label class="form-label">Device</label>
+      <select id="sched-device" class="form-input"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Command</label>
+      <select id="sched-command" class="form-input">
+        <option value="shutdown">Shut down</option>
+        <option value="reboot">Reboot</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date &amp; time</label>
+      <input type="datetime-local" id="sched-datetime" class="form-input">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addScheduleJob()">Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom command modal -->
+<div class="modal-overlay" id="exec-modal">
+  <div class="modal">
+    <div class="modal-title">Run command</div>
+    <div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div>
+    <input type="hidden" id="exec-device-id">
+    <div class="form-group">
+      <label class="form-label">Shell command</label>
+      <input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button>
+      <button class="btn-primary" onclick="sendExecCmd()">Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- Monitor history modal -->
+<div class="modal-overlay" id="mon-history-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="mon-history-title">Monitor history</div>
+    <div id="mon-history-body" style="min-height:80px">
+      <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('mon-history-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast container -->
 <div class="toast-container" id="toast-container"></div>
 
@@ -1025,6 +1249,7 @@ let pinSeconds      = 0;
 let refreshTimer    = null;
 let refreshInterval = 60;
 let refreshRemaining = refreshInterval;
+let activeTagFilter = null;  // currently selected tag filter
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Auth
@@ -1075,6 +1300,36 @@ function showApp() {
   document.getElementById('app').style.display = 'block';
   loadDevices();
   startRefreshCycle();
+  checkServerVersion();
+  applyTheme();
+}
+
+async function checkServerVersion() {
+  try {
+    const data = await api('GET', '/version');
+    if (!data || !data.update_available) return;
+    document.getElementById('update-banner')?.remove();
+    const banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.className = 'update-banner';
+    banner.innerHTML = `⚡ RemotePower <strong>v${data.latest}</strong> is available (you have v${data.current}) — <a href="${data.release_url}" target="_blank">View release →</a>`;
+    document.querySelector('header').insertAdjacentElement('afterend', banner);
+  } catch(e) {}
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function applyTheme() {
+  const theme = localStorage.getItem('rp_theme') || 'dark';
+  document.body.classList.toggle('light', theme === 'light');
+  const btn = document.querySelector('.theme-btn');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('rp_theme', isLight ? 'light' : 'dark');
+  const btn = document.querySelector('.theme-btn');
+  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
@@ -1098,8 +1353,11 @@ function showPage(name, btn) {
   document.getElementById('page-' + name).classList.add('active');
   if (btn) btn.classList.add('active');
   if (name === 'monitor')  runMonitor();
+  if (name === 'history')  loadHistory();
+  if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
   if (name === 'settings') loadSettings();
+  if (name === 'about')    loadAbout();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1123,7 +1381,30 @@ function renderDevices() {
   document.getElementById('stat-online').textContent  = online;
   document.getElementById('stat-offline').textContent = devices.length - online;
 
-  if (devices.length === 0) {
+  // Build tag filter bar
+  const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
+  const filterBar = document.getElementById('tag-filter-bar');
+  if (filterBar) {
+    filterBar.innerHTML = allTags.map(t => `
+      <button onclick="setTagFilter('${escHtml(t)}')"
+        style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;
+               background:${activeTagFilter===t ? 'rgba(59,126,255,0.2)' : 'transparent'};
+               color:${activeTagFilter===t ? 'var(--accent)' : 'var(--muted)'};
+               border-color:${activeTagFilter===t ? 'var(--accent)' : 'var(--border)'};
+               font-family:var(--font)">${escHtml(t)}</button>`).join('');
+    if (activeTagFilter) {
+      filterBar.innerHTML += `<button onclick="setTagFilter(null)"
+        style="padding:3px 10px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid var(--border);
+               color:var(--muted);background:transparent;font-family:var(--font)">✕ clear</button>`;
+    }
+  }
+
+  // Apply tag filter
+  const filtered = activeTagFilter
+    ? devices.filter(d => (d.tags || []).includes(activeTagFilter))
+    : devices;
+
+  if (filtered.length === 0) {
     container.innerHTML = `<div class="empty-state">
       <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
       <div class="empty-title">No devices enrolled</div>
@@ -1132,7 +1413,7 @@ function renderDevices() {
     return;
   }
 
-  container.innerHTML = devices.map(d => {
+  container.innerHTML = filtered.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
     const si = d.sysinfo || {};
@@ -1190,13 +1471,20 @@ function renderDevices() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
           WoL
         </button>` : ''}
+        <button class="btn-update" onclick="sendUpdate('${d.id}','${escHtml(d.name)}')" title="Push agent self-update">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+        </button>
         <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command" style="color:var(--purple);border-color:rgba(124,58,237,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         </button>
         <button class="btn-remove" onclick="removeDevice('${d.id}')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
+      ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('');
@@ -1344,9 +1632,14 @@ async function runMonitor() {
       <td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td>
       <td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td>
       <td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td>
-      <td><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escHtml(m.label)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </button>
+        <button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </td>
     </tr>`).join('');
 }
 
@@ -1381,6 +1674,63 @@ async function removeMonitor(idx) {
   const res = await api('POST', '/config', {monitors});
   if (res?.ok) { toast('Removed', 'info'); runMonitor(); }
   else toast(res?.error || 'Failed', 'error');
+}
+
+// ── Monitor history ──────────────────────────────────────────────────────────
+async function openMonitorHistory(label) {
+  document.getElementById('mon-history-title').textContent = `History: ${label}`;
+  document.getElementById('mon-history-body').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('mon-history-modal');
+
+  const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`);
+  if (!data) return;
+
+  const history = data.history || [];
+  if (!history.length) {
+    document.getElementById('mon-history-body').innerHTML =
+      '<div style="color:var(--muted);text-align:center;padding:40px">No history yet — run a check first.</div>';
+    return;
+  }
+
+  // Simple sparkline: last 20 results as colored dots
+  const recent = history.slice(-20);
+  const dots = recent.map(h =>
+    `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}"
+      style="display:inline-block;width:12px;height:12px;border-radius:50%;margin:2px;
+             background:${h.ok ? 'var(--green)' : 'var(--red)'}"></span>`
+  ).join('');
+
+  const upCount   = history.filter(h => h.ok).length;
+  const pct       = Math.round(upCount / history.length * 100);
+  const lastCheck = history[history.length - 1];
+
+  document.getElementById('mon-history-body').innerHTML = `
+    <div class="sysinfo-row" style="margin-bottom:16px">
+      <div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div>
+      <div class="sysinfo-pill"><div class="label">Uptime</div>
+        <div class="value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div></div>
+      <div class="sysinfo-pill"><div class="label">Last status</div>
+        <div class="value" style="color:${lastCheck.ok?'var(--green)':'var(--red)'}">
+          ${lastCheck.ok ? '↑ up' : '↓ down'}
+        </div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Last ${recent.length} checks (newest right)</div>
+    <div style="padding:8px 0">${dots}</div>
+    <div class="table-card" style="margin-top:16px;max-height:240px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+          ${[...history].reverse().slice(0,50).map(h => `
+            <tr>
+              <td style="font-size:12px;color:var(--muted)">${new Date(h.ts*1000).toLocaleString()}</td>
+              <td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td>
+              <td style="font-size:12px;color:var(--muted)">${escHtml(h.detail||'—')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1456,9 +1806,10 @@ async function submitPasswd() {
 async function loadSettings() {
   const data = await api('GET', '/config');
   if (!data) return;
-  document.getElementById('cfg-webhook').value    = '';
-  document.getElementById('cfg-wol-bcast').value  = data.wol_broadcast || '255.255.255.255';
-  document.getElementById('cfg-wol-port').value   = data.wol_port     || '9';
+  document.getElementById('cfg-webhook').value         = '';
+  document.getElementById('cfg-wol-bcast').value       = data.wol_broadcast || '255.255.255.255';
+  document.getElementById('cfg-wol-port').value        = data.wol_port      || '9';
+  document.getElementById('cfg-patch-threshold').value = data.patch_alert_threshold || '';
   const note = document.getElementById('cfg-webhook-note');
   note.style.display = data.webhook_configured ? 'block' : 'none';
 }
@@ -1470,6 +1821,8 @@ async function saveSettings() {
   };
   const wh = document.getElementById('cfg-webhook').value.trim();
   if (wh) payload.webhook_url = wh;
+  const pt = document.getElementById('cfg-patch-threshold').value.trim();
+  if (pt) payload.patch_alert_threshold = parseInt(pt);
   const data = await api('POST', '/config', payload);
   if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); }
   else toast(data?.error || 'Failed', 'error');
@@ -1535,6 +1888,137 @@ function toast(msg, type = 'info') {
     el.classList.remove('show');
     setTimeout(() => el.remove(), 400);
   }, 3500);
+}
+
+// ── Tag filter ────────────────────────────────────────────────────────────────
+function setTagFilter(tag) {
+  activeTagFilter = tag;
+  renderDevices();
+}
+
+// ── Schedule ──────────────────────────────────────────────────────────────────
+async function loadSchedule() {
+  const tbody = document.getElementById('schedule-tbody');
+  const data  = await api('GET', '/schedule');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(j => `
+    <tr>
+      <td style="font-weight:500">${escHtml(j.device_name)}</td>
+      <td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td>
+      <td style="font-family:monospace;font-size:12px">${new Date(j.run_at*1000).toLocaleString()}</td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td>
+    </tr>`).join('');
+}
+
+function openScheduleAdd() {
+  // Populate device selector
+  const sel = document.getElementById('sched-device');
+  sel.innerHTML = devices.map(d =>
+    `<option value="${escHtml(d.id)}">${escHtml(d.name)}</option>`
+  ).join('');
+  // Default to 1 hour from now
+  const dt = new Date(Date.now() + 3600000);
+  const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('sched-datetime').value = local;
+  openModal('schedule-add-modal');
+}
+
+async function addScheduleJob() {
+  const dev_id  = document.getElementById('sched-device').value;
+  const command = document.getElementById('sched-command').value;
+  const dt      = document.getElementById('sched-datetime').value;
+  if (!dt) { toast('Please select a date/time', 'error'); return; }
+  const run_at = Math.floor(new Date(dt).getTime() / 1000);
+  const data = await api('POST', '/schedule', {device_id: dev_id, command, run_at});
+  if (data?.ok) {
+    toast(`${command} scheduled`, 'success');
+    closeModal('schedule-add-modal');
+    loadSchedule();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteJob(id) {
+  const data = await api('DELETE', '/schedule/' + id);
+  if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Custom command (exec) ─────────────────────────────────────────────────────
+function openExecModal(id, name) {
+  document.getElementById('exec-device-id').value = id;
+  document.getElementById('exec-cmd').value = '';
+  document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`;
+  openModal('exec-modal');
+}
+
+async function sendExecCmd() {
+  const id  = document.getElementById('exec-device-id').value;
+  const cmd = document.getElementById('exec-cmd').value.trim();
+  if (!cmd) { toast('Enter a command', 'error'); return; }
+  const data = await api('POST', '/exec', {device_id: id, cmd});
+  if (data?.ok) {
+    toast('Command queued — output on next heartbeat (~60s)', 'success');
+    closeModal('exec-modal');
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+// ── About ─────────────────────────────────────────────────────────────────────
+async function loadAbout() {
+  // Server version from /api/version
+  try {
+    const v = await api('GET', '/version');
+    if (v) {
+      document.getElementById('about-server-version').textContent = v.current || '—';
+      const latestEl = document.getElementById('about-latest-version');
+      if (v.latest) {
+        latestEl.textContent = v.latest;
+        if (v.update_available) {
+          latestEl.style.color = 'var(--amber)';
+          latestEl.textContent += ' ⚡ update available';
+        } else {
+          latestEl.style.color = 'var(--green)';
+          latestEl.textContent += ' ✓ up to date';
+        }
+      }
+    }
+  } catch(e) {}
+
+  // Agent version from /api/agent/version
+  try {
+    const av = await fetch('/agent/remotepower-agent').then(r => r.text()).catch(() => '');
+    const m  = av.match(/VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (m) document.getElementById('about-agent-version').textContent = m[1];
+  } catch(e) {}
+}
+
+// ── Update device (push self-update) ──────────────────────────────────────────
+async function sendUpdate(id, name) {
+  if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return;
+  const data = await api('POST', '/update-device', {device_id: id});
+  if (data?.ok) toast(`Update queued for ${name}`, 'success');
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/history');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No commands logged yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(e => `
+    <tr>
+      <td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+      <td style="font-weight:500">${escHtml(e.actor)}</td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(e.device_name)}</td>
+      <td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td>
+    </tr>`).join('');
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

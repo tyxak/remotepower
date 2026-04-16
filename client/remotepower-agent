@@ -28,7 +28,7 @@ from urllib import request, error
 CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.2.0'
+VERSION      = '1.3.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # ─── Poll cadence ───────────────────────────────────────────────────────────────
@@ -337,26 +337,57 @@ def enroll_interactive():
         sys.exit(1)
 
 # ─── Command execution ──────────────────────────────────────────────────────────
-def execute_command(cmd: str):
+def execute_command(cmd: str) -> dict | None:
+    """
+    Execute a command. Returns a result dict for exec: commands,
+    None for system commands (shutdown/reboot/update).
+    """
     if cmd == 'shutdown':
         log.info("Executing: shutdown")
         try:
             subprocess.run(['systemctl', 'poweroff'], check=True)
         except Exception as e:
             log.error(f"Shutdown failed: {e}")
+
     elif cmd == 'reboot':
         log.info("Executing: reboot")
         try:
             subprocess.run(['systemctl', 'reboot'], check=True)
         except Exception as e:
             log.error(f"Reboot failed: {e}")
+
     elif cmd == 'update':
         log.info("Executing: self-update (server-initiated)")
         creds = load_credentials()
         if creds:
             check_for_update(creds['server_url'])
+
+    elif cmd.startswith('exec:'):
+        shell_cmd = cmd[5:]
+        log.info(f"Executing custom command: {shell_cmd!r}")
+        try:
+            result = subprocess.run(
+                shell_cmd, shell=True, capture_output=True,
+                text=True, timeout=30
+            )
+            output = (result.stdout + result.stderr).strip()
+            log.info(f"Command output (rc={result.returncode}): {output[:200]}")
+            return {
+                'cmd':    shell_cmd,
+                'output': output[:4096],  # cap at 4KB
+                'rc':     result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            log.warning(f"Command timed out: {shell_cmd!r}")
+            return {'cmd': shell_cmd, 'output': 'TIMEOUT', 'rc': -1}
+        except Exception as e:
+            log.error(f"Command failed: {e}")
+            return {'cmd': shell_cmd, 'output': str(e), 'rc': -1}
+
     else:
         log.warning(f"Unknown command: {cmd!r}")
+
+    return None
 
 # ─── Heartbeat loop ─────────────────────────────────────────────────────────────
 def heartbeat(creds: dict, interval: int = POLL_INTERVAL):
@@ -409,7 +440,10 @@ def heartbeat(creds: dict, interval: int = POLL_INTERVAL):
             cmd = resp.get('command')
             if cmd:
                 log.info(f"Received command: {cmd}")
-                execute_command(cmd)
+                result = execute_command(cmd)
+                # If exec: command returned output, send it on next heartbeat
+                if result is not None:
+                    payload['cmd_output'] = result
         except error.HTTPError as e:
             if e.code == 403:
                 log.error("Credentials rejected — re-enroll: sudo remotepower-agent enroll")
