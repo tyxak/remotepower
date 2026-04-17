@@ -24,18 +24,29 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 info "Publishing agent binary..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
 
-info "Updating agent version in config.json..."
+info "Updating versions in config.json..."
 python3 - << 'PYEOF'
 import json, re
 from pathlib import Path
-agent = Path('/var/www/remotepower/agent/remotepower-agent').read_text()
-m = re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]", agent)
-v = m.group(1) if m else 'unknown'
+
 p = Path('/var/lib/remotepower/config.json')
 c = json.loads(p.read_text()) if p.exists() else {}
-c['agent_version'] = v
+
+# Agent version — read from deployed binary
+agent = Path('/var/www/remotepower/agent/remotepower-agent').read_text()
+m = re.search(r"VERSION\s*=\s*['\"]([^'\"]+)['\"]", agent)
+agent_v = m.group(1) if m else 'unknown'
+c['agent_version'] = agent_v
+
+# Server version — read from deployed api.py
+api = Path('/var/www/remotepower/cgi-bin/api.py').read_text()
+m = re.search(r"SERVER_VERSION\s*=\s*['\"]([^'\"]+)['\"]", api)
+server_v = m.group(1) if m else agent_v
+c['server_version'] = server_v
+
 p.write_text(json.dumps(c, indent=2))
-print(f"  Agent version → {v}")
+print(f"  Agent version  → {agent_v}")
+print(f"  Server version → {server_v}")
 PYEOF
 
 success "Done. Changes are live immediately (CGI — no restart needed)."
