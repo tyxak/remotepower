@@ -153,19 +153,22 @@ def get_uptime() -> str:
         return ''
 
 def get_journal(lines: int = 100) -> list:
-    noisy = [
+    noisy = {
         'pipewire', 'pipewire-pulse', 'wireplumber',
         'audit', 'dbus-daemon', 'systemd-networkd',
-    ]
-    args = [
-        'journalctl', '-n', str(lines), '--no-pager',
-        '--output=short-iso', '--no-hostname',
-    ] + [f'--exclude-identifier={n}' for n in noisy]
+    }
     try:
         out = subprocess.check_output(
-            args, text=True, stderr=subprocess.DEVNULL, timeout=10
+            ['journalctl', '-n', str(lines * 3), '--no-pager',
+             '--output=short-iso', '--no-hostname'],
+            text=True, stderr=subprocess.DEVNULL, timeout=10
         )
-        return out.strip().splitlines()
+        # Filter noisy identifiers in Python — more portable than --exclude-identifier
+        filtered = [
+            l for l in out.strip().splitlines()
+            if not any(n in l for n in noisy)
+        ]
+        return filtered[-lines:]
     except Exception:
         return []
 
