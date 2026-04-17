@@ -20,7 +20,7 @@ import urllib.error
 from pathlib import Path
 
 # ─── Version ───────────────────────────────────────────────────────────────────
-SERVER_VERSION = '1.3.0'
+SERVER_VERSION = '1.3.1'
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 DATA_DIR     = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
