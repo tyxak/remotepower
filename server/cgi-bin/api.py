@@ -717,19 +717,32 @@ def handle_agent_download():
 
 
 def handle_version_check():
-    """Check installed server version against latest GitHub release."""
+    """Check installed server version against latest GitHub release.
+    Result is cached in config.json for 1 hour to avoid rate limiting."""
     cfg   = load(CONFIG_FILE)
     local = cfg.get('server_version', SERVER_VERSION)
-    try:
-        req = urllib.request.Request(
-            'https://api.github.com/repos/tyxak/remotepower/releases/latest',
-            headers={'User-Agent': 'RemotePower'}
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read())
-        latest = data.get('tag_name', '').lstrip('v')
-    except Exception:
-        latest = None
+    now   = int(time.time())
+
+    # Use cached result if fresher than 1 hour
+    cached_latest = cfg.get('_github_latest_version')
+    cached_ts     = cfg.get('_github_latest_ts', 0)
+    if cached_latest and (now - cached_ts) < 3600:
+        latest = cached_latest
+    else:
+        try:
+            req = urllib.request.Request(
+                'https://api.github.com/repos/tyxak/remotepower/releases/latest',
+                headers={'User-Agent': 'RemotePower'}
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                data = json.loads(r.read())
+            latest = data.get('tag_name', '').lstrip('v')
+            # Cache the result
+            cfg['_github_latest_version'] = latest
+            cfg['_github_latest_ts']      = now
+            save(CONFIG_FILE, cfg)
+        except Exception:
+            latest = cached_latest  # fall back to last known value
 
     def vt(v):
         try:
