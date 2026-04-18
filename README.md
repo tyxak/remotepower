@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://kernel.org)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -24,56 +24,13 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 
 ---
 
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center"><b>Login</b></td>
-    <td align="center"><b>Dashboard</b></td>
-    <td align="center"><b>Enroll device</b></td>
-    <td align="center"><b>Custom command</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/Login.png" width="220"/></td>
-    <td><img src="docs/screenshots/Dashboard.png" width="220"/></td>
-    <td><img src="docs/screenshots/Enroll.png" width="220"/></td>
-    <td><img src="docs/screenshots/CMD.png" width="220"/></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Monitor</b></td>
-    <td align="center"><b>Schedule</b></td>
-    <td align="center"><b>Users</b></td>
-    <td align="center"><b>Settings</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/Monitoring.png" width="220"/></td>
-    <td><img src="docs/screenshots/Sched.png" width="220"/></td>
-    <td><img src="docs/screenshots/Admin.png" width="220"/></td>
-    <td><img src="docs/screenshots/Settings.png" width="220"/></td>
-  </tr>
-  <tr>
-    <td align="center"><b>About</b></td>
-    <td></td>
-    <td></td>
-    <td></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/About.png" width="220"/></td>
-    <td></td>
-    <td></td>
-    <td></td>
-  </tr>
-</table>
-
----
-
 ## Features
 
 | Feature | Notes |
 |---|---|
 | 🟢 **Live status** | Green/red per device, auto-refreshes every 60s |
 | 🔐 **bcrypt auth** | bcrypt password hashing, transparent SHA-256 upgrade on login |
-| 👥 **Multiple admin users** | Add/remove admins from the dashboard |
+| 👥 **Roles** | Admin (full access) and Viewer (read-only) roles per user |
 | 📟 **PIN enrollment** | 6-digit PIN, single-use, expires in 10 minutes |
 | 🔌 **No inbound firewall rules** | Client polls server, not the other way around |
 | 🐧 **systemd integration** | Client runs as a proper daemon, auto-starts on boot |
@@ -89,12 +46,25 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | 📈 **Monitor history** | Uptime %, sparkline, last 50 check results per target |
 | 🔄 **Agent self-update** | SHA-256 verified, atomic replace, no SSH needed |
 | 🏷️ **Device tags** | Tag devices and filter dashboard by group |
-| 🕐 **Scheduled commands** | Queue shutdown/reboot at a specific date and time |
+| 🗂️ **Device groups** | Namespace devices (e.g. `dc1/prod`, `homelab`), sort and batch by group |
+| 📝 **Device notes** | Free-text notes per device, shown as tooltip |
+| 🕐 **Scheduled commands** | One-shot (datetime) or recurring (cron expression) shutdown/reboot |
 | 📜 **Command history** | Every action logged with actor, device, and timestamp |
 | 🖥️ **Custom commands** | Run arbitrary shell commands, output returned via next heartbeat |
+| 📚 **Command library** | Save named shell snippets, pick from dropdown in exec modal |
+| 🔒 **Command allowlist** | Per-device whitelist of allowed exec commands |
+| 📊 **Metrics history** | CPU/RAM/disk sparklines per device (requires psutil on client) |
+| ⏱️ **Adjustable poll interval** | Set per-device heartbeat cadence (10–3600 s) from dashboard |
+| 🔑 **API keys** | Named non-expiring keys for scripts and CI pipelines |
+| 📤 **Backup export** | One-click ZIP download of all data JSON files |
 | 🔔 **Patch alert** | Webhook when a device exceeds a configurable update threshold |
+| 🔔 **Command webhooks** | Webhook on command queued and command executed |
 | 📊 **Uptime tracking** | Online/offline state changes stored per device |
 | 🌙 **Dark/light mode** | Toggle in header, persisted per browser |
+| 🔄 **Re-enrollment** | `re-enroll` preserves device history, tags, group, and notes |
+| 🛡️ **Agent integrity** | `integrity` subcommand compares binary SHA-256 vs server |
+| 📊 **Digest endpoint** | `/api/digest` for cron-driven email summaries |
+| ⚡ **Long-poll exec** | `/api/exec/wait` holds connection open until output arrives |
 | ℹ️ **About page** | Server version, agent version, GitHub release check |
 
 ---
@@ -108,31 +78,31 @@ Browser ──HTTPS──► Nginx (your server)
                       ├─ /api/*         → Python CGI backend (via fcgiwrap)
                       ├─ /agent/        → Agent binary (static, for self-update)
                       └─ /var/lib/remotepower/
-                              ├── users.json            # bcrypt password hashes
+                              ├── users.json            # bcrypt password hashes + roles
                               ├── devices.json          # enrolled devices + sysinfo cache
                               ├── tokens.json           # browser session tokens
+                              ├── apikeys.json          # named API keys
                               ├── pins.json             # pending enrollment PINs
                               ├── commands.json         # pending command queue per device
                               ├── config.json           # webhook, WoL, monitor targets
                               ├── history.json          # command log (last 200)
-                              ├── schedule.json         # scheduled jobs
+                              ├── schedule.json         # scheduled jobs (one-shot + recurring)
                               ├── uptime.json           # online/offline state changes
                               ├── monitor_history.json  # check results per target
-                              └── cmd_output.json       # custom command output
+                              ├── cmd_output.json       # custom command output
+                              ├── metrics.json          # CPU/RAM/disk time-series
+                              ├── cmd_library.json      # saved command snippets
+                              └── longpoll.json         # pending long-poll slots
 
 Client machine (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
   └─ systemd: remotepower-agent.service
        └─ Python daemon
-            └─ POST /api/heartbeat every 60s
-                 ├─ receives: shutdown | reboot | update | exec:<cmd>
+            └─ POST /api/heartbeat every N seconds (configurable, default 60)
+                 ├─ receives: shutdown | reboot | update | exec:<cmd> | poll_interval:<n>
                  ├─ sends sysinfo + journal every 10th poll (~10 min)
-                 └─ sends patch count every 180th poll (~3 hr)
+                 ├─ sends patch count every 180th poll (~3 hr)
+                 └─ sends cpu/mem/disk metrics (if psutil installed)
 ```
-
-**Why polling instead of push?**
-- Zero firewall config on clients
-- Works behind NAT, VPNs, double-NAT
-- Clients can be on completely different networks
 
 ---
 
@@ -156,8 +126,6 @@ cd remotepower
 sudo bash install-server.sh
 ```
 
-Detects your distro (apt / dnf / pacman), installs dependencies, configures Nginx, creates the data directory, and sets up your first admin account.
-
 ### 3. Enroll a client
 
 **In the dashboard:**
@@ -176,56 +144,288 @@ The device appears in the dashboard within 60 seconds.
 
 ## Upgrading
 
-### Server
-
 ```bash
 cd /path/to/remotepower
 git pull origin main
 sudo bash deploy-server.sh
 ```
 
-`deploy-server.sh` redeploys `api.py`, `index.html`, `remotepower-passwd`, and the agent binary. Does **not** touch your Nginx config, `users.json`, or `config.json`.
-
-### Clients
-
-Clients self-update automatically within ~1 hour. To trigger immediately:
-
-```bash
-sudo remotepower-agent update
-# Or push from dashboard: click ↺ on any device card
-```
+Clients self-update automatically within ~1 hour, or push from the dashboard with the ↺ button.
 
 ---
 
 ## Feature Guide
 
+### Device Groups
+Assign a namespace to a device via the group button (👥) on the device card. Groups like `dc1/prod`, `homelab`, `office` cause the device grid to sort and visually group by namespace. Batch commands (`device_ids`, `tag`, or `group` field) can target an entire group at once.
+
+### Device Notes
+Click the 📄 button on any device card to add free-text notes. Notes are shown as a tooltip on the device name. Useful for documenting quirks: "NAS in basement — WoL unreliable", "kids' PC — check before rebooting".
+
+### Batch Commands
+Click the device icon (top-left of a card) to select it — it turns into a checkmark. A batch action bar appears above the grid with Shut down all / Reboot all / Update all. The API also accepts `tag:` or `group:` targets directly:
+
+```bash
+curl -X POST https://your-server/api/reboot \
+  -H "X-Token: YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"tag": "servers"}'
+```
+
+### Recurring Scheduled Commands
+In the Schedule tab, leave the datetime blank and fill in a cron expression instead:
+
+| Cron | Meaning |
+|------|---------|
+| `0 3 * * 0` | Every Sunday at 03:00 |
+| `0 2 * * 1-5` | Mon–Fri at 02:00 |
+| `*/30 * * * *` | Every 30 minutes |
+
+One-shot jobs are removed after firing. Recurring jobs stay.
+
+### Command Library
+Save frequently-used commands in the Library page. When you open the exec modal (>_ button on a device card), a dropdown lets you pick from your saved snippets — no retyping.
+
+### Command Allowlist
+For higher-security devices, lock down which commands can be run via exec. Click the 🔒 button on a device card, enter one command per line. When the list is non-empty, only those exact commands are accepted; all others return 403.
+
+### Metrics (CPU / RAM / Disk)
+Install `psutil` on client machines for automatic metrics collection:
+
+```bash
+pip install psutil --break-system-packages
+sudo systemctl restart remotepower-agent
+```
+
+The server stores up to 1440 snapshots (~24 h at 60 s intervals) in `metrics.json`. Click the 📈 button on a device card to see sparkline charts.
+
+### Adjustable Poll Interval
+Click the ⏱ button on a device card to change how often the agent checks in (10–3600 s). The new interval is queued as a `poll_interval:<n>` command and applied on the agent's next heartbeat — no restart needed.
+
+### API Keys
+Go to API Keys (nav) and create a named key. Keys are non-expiring and use the same `X-Token` header as session tokens. Assign `admin` for full access or `viewer` for read-only. Use them in scripts:
+
+```bash
+curl https://your-server/api/digest \
+  -H "X-Token: YOUR_API_KEY"
+```
+
+Keys are shown once at creation. Store them in your secrets manager.
+
+### Re-enrollment
+When re-enrolling a device (e.g. after reinstalling the OS), use `re-enroll` instead of `enroll` to preserve the device's existing history, tags, group, and notes:
+
+```bash
+sudo remotepower-agent re-enroll
+```
+
+### Agent Integrity Check
+Verify the running agent binary matches the server's known-good hash:
+
+```bash
+sudo remotepower-agent integrity
+# ✓ OK — ok
+# or: ✗ MISMATCH: local=abc123… server=def456…
+```
+
+Exit code 0 = OK, 1 = mismatch. Wire into a daily cron with a webhook alert if needed.
+
+### Backup Export
+Settings → Export backup downloads a ZIP of all data JSON files (excluding session tokens). Or via API:
+
+```bash
+curl https://your-server/api/export \
+  -H "X-Token: YOUR_TOKEN" -o remotepower-backup.zip
+```
+
+### Digest for Email / Cron
+```bash
+# Add to cron for a daily status email
+curl -s https://your-server/api/digest \
+  -H "X-Token: YOUR_API_KEY" | jq .
+```
+
+Returns: `total`, `online`, `offline`, `pending_patches`, `recent_commands`.
+
+### Long-Poll Exec
+For near-interactive command output (instead of waiting 60 s for the next heartbeat):
+
+```bash
+curl -X POST https://your-server/api/exec/wait \
+  -H "X-Token: YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "DEVICE_ID", "cmd": "df -h", "timeout": 90}'
+```
+
+The connection stays open until the agent delivers the output (up to `timeout` seconds). On timeout, falls back to a `timeout: true` response; poll `/api/devices/:id/output` for the result.
+
 ### Wake-on-LAN
 MAC is reported at enroll time. Sends unicast to the device's last known IP — works over routed networks and VPNs without broadcast forwarding.
 
-### Device Tags & Filtering
-Assign tags like `servers`, `homelab`, `workstations`. Tag filter buttons appear above the device grid.
-
-### Scheduled Commands
-The **Schedule** tab lets you queue a shutdown or reboot at a specific date and time.
-
-### Custom Commands
-Click `>_` on any device card to run an arbitrary shell command. Output returned on the next heartbeat (~60s).
-
-### Offline Webhook
+### Offline Webhook Events
 
 ```json
-{ "event": "device_offline",  "name": "mypc", "last_seen": 1712345678 }
-{ "event": "device_online",   "name": "mypc" }
-{ "event": "patch_alert",     "name": "mypc", "upgradable": 15, "threshold": 10 }
+{ "event": "device_offline",      "name": "mypc", "last_seen": 1712345678 }
+{ "event": "device_online",       "name": "mypc" }
+{ "event": "patch_alert",         "name": "mypc", "upgradable": 15, "threshold": 10 }
+{ "event": "command_queued",      "name": "mypc", "command": "reboot", "actor": "admin" }
+{ "event": "command_executed",    "name": "mypc", "command": "exec:df -h" }
 ```
 
 Compatible with Ntfy, Gotify, Slack, Discord, n8n, Home Assistant.
 
-### Monitor History
-Click ↗ on any monitor row — uptime %, sparkline of last 20 checks, scrollable table of last 50 results.
+---
 
-### Patch Alert
-Settings → Patch Alert → set threshold (e.g. 10). Webhook fires when any device exceeds that count.
+## API Reference
+
+All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
+
+### Devices
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/devices` | ✓ | List enrolled devices |
+| `DELETE` | `/api/devices/:id` | admin | Remove a device |
+| `PATCH` | `/api/devices/:id/tags` | admin | Set device tags |
+| `PATCH` | `/api/devices/:id/notes` | admin | Set device notes |
+| `PATCH` | `/api/devices/:id/group` | admin | Set device group |
+| `PATCH` | `/api/devices/:id/poll_interval` | admin | Set poll interval hint |
+| `GET` | `/api/devices/:id/sysinfo` | ✓ | Cached sysinfo + journal |
+| `GET` | `/api/devices/:id/uptime` | ✓ | Uptime event history |
+| `GET` | `/api/devices/:id/output` | ✓ | Custom command output |
+| `GET` | `/api/devices/:id/metrics` | ✓ | CPU/RAM/disk time-series |
+| `GET/POST` | `/api/devices/:id/allowlist` | admin | Get/set command allowlist |
+
+### Commands (support `device_id`, `device_ids[]`, `tag`, or `group`)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/shutdown` | admin | Queue shutdown |
+| `POST` | `/api/reboot` | admin | Queue reboot |
+| `POST` | `/api/update-device` | admin | Queue agent self-update |
+| `POST` | `/api/wol` | admin | Send WoL magic packet |
+| `POST` | `/api/exec` | admin | Queue custom shell command |
+| `POST` | `/api/exec/wait` | admin | Long-poll exec (up to 120 s) |
+
+### Enrollment & Heartbeat
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/login` | — | Login, returns session token |
+| `POST` | `/api/enroll/pin` | admin | Generate enrollment PIN |
+| `POST` | `/api/enroll/register` | — | Register device with PIN (pass `device_id` for re-enroll) |
+| `POST` | `/api/heartbeat` | device | Client keepalive + fetch commands |
+
+### Schedule
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/schedule` | ✓ | List scheduled jobs |
+| `POST` | `/api/schedule` | admin | Add job (`run_at` or `cron`) |
+| `DELETE` | `/api/schedule/:id` | admin | Cancel scheduled job |
+
+### Monitor
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/monitor` | ✓ | Run ping/TCP/HTTP checks |
+| `GET` | `/api/monitor/history?label=X` | ✓ | Check history for a target |
+
+### Users & Auth
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/users` | ✓ | List admin users (with role) |
+| `POST` | `/api/users` | admin | Create user (pass `role`: admin\|viewer) |
+| `DELETE` | `/api/users/:name` | admin | Delete user |
+| `POST` | `/api/users/passwd` | ✓ | Change password |
+
+### API Keys
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/apikeys` | admin | List API keys |
+| `POST` | `/api/apikeys` | admin | Create API key (value shown once) |
+| `DELETE` | `/api/apikeys/:id` | admin | Delete API key |
+
+### Command Library
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/cmd-library` | ✓ | List command snippets |
+| `POST` | `/api/cmd-library` | admin | Add command snippet |
+| `DELETE` | `/api/cmd-library/:id` | admin | Delete command snippet |
+
+### Misc
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/history` | ✓ | Command history log |
+| `GET` | `/api/config` | ✓ | Get config |
+| `POST` | `/api/config` | admin | Save config |
+| `GET` | `/api/agent/version` | — | Agent version + SHA-256 |
+| `GET` | `/api/version` | ✓ | Server version + GitHub check |
+| `GET` | `/api/export` | admin | Download ZIP backup |
+| `GET` | `/api/digest` | ✓ | Summary (total, online, patches, recent cmds) |
+
+---
+
+## Client Agent Commands
+
+```bash
+remotepower-agent status        # Show enrollment info, version, all interfaces
+sudo remotepower-agent enroll   # Enroll interactively
+sudo remotepower-agent re-enroll  # Re-enroll preserving history/tags/group/notes
+sudo remotepower-agent update   # Force self-update check immediately
+sudo remotepower-agent integrity  # Verify binary SHA-256 vs server
+sudo remotepower-agent run      # Run in foreground (debug)
+
+systemctl status remotepower-agent
+journalctl -u remotepower-agent -f
+systemctl restart remotepower-agent
+```
+
+### Optional: metrics collection
+
+```bash
+pip install psutil --break-system-packages
+sudo systemctl restart remotepower-agent
+```
+
+---
+
+## Data Storage
+
+All data in `/var/lib/remotepower/` (owned by `www-data`, mode `700`):
+
+| File | Contents |
+|------|----------|
+| `users.json` | Admin accounts + bcrypt hashes + roles |
+| `devices.json` | Enrolled devices, MAC, group, notes, cached sysinfo + journal |
+| `tokens.json` | Active browser sessions (7-day TTL) |
+| `apikeys.json` | Named API keys (values stored here) |
+| `pins.json` | Pending enrollment PINs |
+| `commands.json` | Pending command queue per device |
+| `config.json` | Webhook URL, WoL settings, monitor targets, patch threshold |
+| `history.json` | Command log (last 200 entries) |
+| `schedule.json` | Scheduled jobs (one-shot + recurring cron) |
+| `uptime.json` | Online/offline state changes per device |
+| `monitor_history.json` | Check results per monitor target (last 50) |
+| `cmd_output.json` | Custom command output per device (last 100) |
+| `metrics.json` | CPU/RAM/disk snapshots per device (last 1440) |
+| `cmd_library.json` | Saved command snippets |
+| `longpoll.json` | Pending long-poll output slots (transient) |
+
+**Backup:**
+```bash
+sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
+# Or via dashboard: Settings → Export backup
+```
+
+---
+
+## Security Notes
+
+- Use HTTPS for anything internet-facing
+- Session tokens expire after 7 days; API keys do not expire — rotate them if compromised
+- Enrollment PINs are single-use, expire after 10 minutes
+- Device tokens are 256-bit random secrets
+- Passwords stored as **bcrypt** (cost 12); SHA-256 hashes auto-upgraded on next login
+- Webhook URL stored server-side only, never returned to the browser
+- Custom commands run as root — use the per-device command allowlist for untrusted operators
+- Viewer role users cannot queue commands, change config, or access API keys
+- `apikeys.json` is owned by `www-data` mode `700` — protect your server
 
 ---
 
@@ -241,11 +441,7 @@ server {
 
     ssl_certificate     /root/.acme.sh/yourdomain.com/fullchain.cer;
     ssl_certificate_key /root/.acme.sh/yourdomain.com/yourdomain.com.key;
-    ssl_trusted_certificate /root/.acme.sh/yourdomain.com/ca.cer;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:SSL:10m;
-    ssl_stapling on;
-    ssl_stapling_verify on;
 
     root /var/www/remotepower;
     index index.html;
@@ -260,6 +456,8 @@ server {
         fastcgi_param CONTENT_LENGTH $content_length;
         fastcgi_param HTTP_X_TOKEN $http_x_token;
         fastcgi_param RP_DATA_DIR /var/lib/remotepower;
+        # Long-poll exec needs an extended timeout
+        fastcgi_read_timeout 130s;
         limit_except GET POST DELETE PATCH { deny all; }
     }
 
@@ -272,107 +470,9 @@ server {
     location / { try_files $uri $uri/ /index.html; }
     location ~* \.(json|tmp)$ { deny all; }
 }
-
-server {
-    listen 80;
-    server_name power.yourdomain.com;
-    return 301 https://$host$request_uri;
-}
 ```
 
-### With Certbot
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d power.yourdomain.com
-```
-
----
-
-## API Reference
-
-All authenticated endpoints require: `X-Token: <token>`
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/login` | — | Login, returns session token |
-| `GET` | `/api/devices` | ✓ | List enrolled devices |
-| `DELETE` | `/api/devices/:id` | ✓ | Remove a device |
-| `PATCH` | `/api/devices/:id/tags` | ✓ | Set device tags |
-| `GET` | `/api/devices/:id/sysinfo` | ✓ | Cached sysinfo + journal |
-| `GET` | `/api/devices/:id/uptime` | ✓ | Uptime event history |
-| `GET` | `/api/devices/:id/output` | ✓ | Custom command output |
-| `POST` | `/api/enroll/pin` | ✓ | Generate enrollment PIN |
-| `POST` | `/api/enroll/register` | — | Register device with PIN |
-| `POST` | `/api/heartbeat` | device | Client keepalive + fetch commands |
-| `POST` | `/api/shutdown` | ✓ | Queue shutdown |
-| `POST` | `/api/reboot` | ✓ | Queue reboot |
-| `POST` | `/api/update-device` | ✓ | Queue agent self-update |
-| `POST` | `/api/wol` | ✓ | Send WoL magic packet |
-| `POST` | `/api/exec` | ✓ | Queue custom shell command |
-| `GET` | `/api/monitor` | ✓ | Run ping/TCP/HTTP checks |
-| `GET` | `/api/monitor/history?label=X` | ✓ | Check history for a target |
-| `GET` | `/api/schedule` | ✓ | List scheduled jobs |
-| `POST` | `/api/schedule` | ✓ | Add scheduled job |
-| `DELETE` | `/api/schedule/:id` | ✓ | Cancel scheduled job |
-| `GET` | `/api/history` | ✓ | Command history log |
-| `GET` | `/api/config` | ✓ | Get config |
-| `POST` | `/api/config` | ✓ | Save config |
-| `GET` | `/api/users` | ✓ | List admin users |
-| `POST` | `/api/users` | ✓ | Create admin user |
-| `DELETE` | `/api/users/:name` | ✓ | Delete admin user |
-| `POST` | `/api/users/passwd` | ✓ | Change password |
-| `GET` | `/api/agent/version` | — | Agent version + SHA-256 |
-| `GET` | `/api/version` | ✓ | Server version + GitHub check |
-
----
-
-## Client Agent Commands
-
-```bash
-remotepower-agent status       # Show enrollment info, version, all interfaces
-sudo remotepower-agent enroll  # Enroll / re-enroll interactively
-sudo remotepower-agent update  # Force self-update check immediately
-sudo remotepower-agent run     # Run in foreground (debug)
-
-systemctl status remotepower-agent
-journalctl -u remotepower-agent -f
-systemctl restart remotepower-agent
-```
-
----
-
-## User Management
-
-```bash
-# Interactive menu: add, change password, delete, list users + hash types
-sudo python3 /var/www/remotepower/cgi-bin/remotepower-passwd
-```
-
----
-
-## Data Storage
-
-All data in `/var/lib/remotepower/` (owned by `www-data`, mode `700`):
-
-| File | Contents |
-|------|----------|
-| `users.json` | Admin accounts + bcrypt hashes |
-| `devices.json` | Enrolled devices, MAC, cached sysinfo + journal |
-| `tokens.json` | Active browser sessions (7-day TTL) |
-| `pins.json` | Pending enrollment PINs |
-| `commands.json` | Pending command queue per device |
-| `config.json` | Webhook URL, WoL settings, monitor targets, patch threshold |
-| `history.json` | Command log (last 200 entries) |
-| `schedule.json` | Scheduled jobs |
-| `uptime.json` | Online/offline state changes per device |
-| `monitor_history.json` | Check results per monitor target (last 50) |
-| `cmd_output.json` | Custom command output per device (last 100) |
-
-**Backup:**
-```bash
-sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
-```
+> **Note:** `fastcgi_read_timeout 130s` is required for `/api/exec/wait` long-poll connections. Without it, Nginx will close the connection after the default 60 s.
 
 ---
 
@@ -391,6 +491,17 @@ sudo chown www-data:www-data /run/fcgiwrap.socket
 sudo systemctl restart fcgiwrap nginx
 ```
 
+**Long-poll exec times out immediately**
+- Check `fastcgi_read_timeout` in your Nginx config — must be ≥ 130 s
+- The CGI process holds the connection; fcgiwrap must not be configured with a process limit that kills long-running requests
+
+**Metrics not appearing**
+```bash
+pip install psutil --break-system-packages
+sudo systemctl restart remotepower-agent
+# Metrics only appear after the first sysinfo poll (~60s)
+```
+
 **Device shows offline after enrolling**
 ```bash
 journalctl -u remotepower-agent -f
@@ -398,20 +509,12 @@ curl -v https://your-server/api/heartbeat
 ```
 
 **Shutdown/reboot queued but nothing happens**
-- Executes on the client's next poll (up to 60s)
+- Executes on the client's next poll (up to 60s by default)
 - Agent must run as root: `systemctl cat remotepower-agent | grep User`
 
-**WoL button missing**
-- MAC is only stored for agents enrolled with v1.2+
-- Re-enroll: `sudo remotepower-agent enroll`
-
-**Custom command output not appearing**
-- Output returned on next heartbeat (~60s) — check device detail modal
-
-**Agent self-update fails**
-```bash
-curl -I https://your-server/agent/remotepower-agent  # should return 200
-```
+**Re-enroll creates a new device instead of updating**
+- Use `sudo remotepower-agent re-enroll` (not `enroll`)
+- The existing `device_id` from `/etc/remotepower/credentials` must be present
 
 **Reset everything**
 ```bash
@@ -422,18 +525,6 @@ sudo python3 /var/www/remotepower/cgi-bin/remotepower-passwd
 
 ---
 
-## Security Notes
-
-- Use HTTPS for anything internet-facing
-- Session tokens expire after 7 days
-- Enrollment PINs are single-use, expire after 10 minutes
-- Device tokens are 256-bit random secrets
-- Passwords stored as **bcrypt** (cost 12); SHA-256 hashes auto-upgraded on next login
-- Webhook URL stored server-side only, never returned to the browser
-- Custom commands run as root — only grant dashboard access to trusted users
-
----
-
 ## File Layout
 
 ```
@@ -441,20 +532,20 @@ remotepower/
 ├── README.md
 ├── CHANGELOG.md
 ├── LICENSE
-├── install-server.sh       # First-time server install (apt/dnf/pacman)
-├── install-client.sh       # First-time client install + enrollment
-├── deploy-server.sh        # Fast redeploy after git pull
+├── install-server.sh
+├── install-client.sh
+├── deploy-server.sh
 ├── server/
-│   ├── html/index.html     # Dashboard (vanilla HTML/CSS/JS, no framework)
-│   ├── cgi-bin/api.py      # REST API (Python 3, CGI via fcgiwrap)
-│   ├── conf/remotepower.conf  # Nginx site config
-│   └── remotepower-passwd  # User management utility
+│   ├── html/index.html         # Dashboard (vanilla HTML/CSS/JS, no framework)
+│   ├── cgi-bin/api.py          # REST API (Python 3, CGI via fcgiwrap)
+│   ├── conf/remotepower.conf   # Nginx site config
+│   └── remotepower-passwd      # User management utility
 ├── client/
 │   ├── remotepower-agent           # Polling daemon (Python 3)
 │   └── remotepower-agent.service   # systemd unit
 ├── tests/
-│   ├── test_api.py         # API unit tests
-│   └── test_agent.py       # Agent unit tests
+│   ├── test_api.py
+│   └── test_agent.py
 └── docs/
     └── screenshots/
 ```
@@ -466,4 +557,3 @@ remotepower/
 MIT — see [LICENSE](LICENSE)
 
 <div align="center"><sub>Made with ☕ and vi</sub></div>
-

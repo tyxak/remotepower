@@ -101,6 +101,75 @@
   .cmd-badge.reboot   { background: rgba(245,158,11,0.1);  color: var(--amber); }
   .cmd-badge.update   { background: rgba(34,197,94,0.1);   color: var(--green); }
   .cmd-badge.wol      { background: rgba(124,58,237,0.1);  color: #a78bfa; }
+  /* Group badge */
+  .group-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
+    font-weight: 500; background: rgba(124,58,237,0.1); color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.2); margin-right: 4px; margin-top: 4px;
+  }
+  /* Notes tip inline badge */
+  .notes-tip {
+    display: inline-block;
+    font-size: 12px;
+    margin-left: 6px;
+    cursor: pointer;
+    opacity: 0.6;
+    vertical-align: middle;
+    transition: opacity 0.15s, transform 0.15s;
+    position: relative;
+  }
+  .notes-tip:hover { opacity: 1; transform: scale(1.2); }
+  /* Tooltip popup on hover */
+  .notes-tip::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text);
+    white-space: pre-wrap;
+    max-width: 260px;
+    width: max-content;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+    word-break: break-word;
+  }
+  .notes-tip:hover::after { opacity: 1; }
+
+  .form-textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; font-size: 14px; color: var(--text); outline: none;
+    transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
+  }
+  .form-textarea:focus { border-color: var(--accent); }
+  /* API key display */
+  .apikey-value {
+    font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; word-break: break-all; color: var(--green);
+  }
+  /* Batch action bar */
+  .batch-bar {
+    display: none; background: rgba(59,126,255,0.08); border: 1px solid rgba(59,126,255,0.2);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .batch-bar.visible { display: flex; }
+  /* Offline reason indicator */
+  .missed-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2);
+    margin-left: 4px;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
@@ -812,6 +881,8 @@
         <button class="nav-btn" onclick="showPage('users',this)">Users</button>
         <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
         <button class="nav-btn" onclick="showPage('about',this)">About</button>
+        <button class="nav-btn" onclick="showPage('apikeys',this)">API Keys</button>
+        <button class="nav-btn" onclick="showPage('cmdlib',this)">Library</button>
       </div>
       <div class="header-right">
         <div class="status-bar">
@@ -864,6 +935,17 @@
           </button>
         </div>
 
+        <div id="batch-bar" class="batch-bar">
+          <span style="font-size:13px;color:var(--accent);font-weight:600"><span id="batch-count">0</span> selected</span>
+          <button class="btn-shutdown" style="flex:none;padding:7px 14px" onclick="batchAction('shutdown')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down all
+          </button>
+          <button class="btn-reboot" style="padding:7px 14px" onclick="batchAction('reboot')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot all
+          </button>
+          <button class="btn-update" onclick="batchAction('update')">Update all</button>
+          <button class="btn-secondary" style="padding:7px 14px" onclick="clearSelection()">Clear</button>
+        </div>
         <div id="devices-container" class="devices-grid"></div>
       </div>
 
@@ -911,7 +993,7 @@
 
         <div class="table-card">
           <table>
-            <thead><tr><th>Username</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Username</th><th>Created</th><th>Role</th><th></th></tr></thead>
             <tbody id="users-tbody">
               <tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
             </tbody>
@@ -962,9 +1044,13 @@
           </div>
         </div>
 
-        <div style="display:flex;gap:10px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
           <button class="btn-secondary" onclick="loadSettings()">Reload</button>
+          <button class="btn-icon" onclick="exportBackup()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export backup
+          </button>
         </div>
       </div>
 
@@ -1036,6 +1122,48 @@
             No inbound firewall rules on clients. Agents poll the server over HTTPS.
             Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.
           </p>
+        </div>
+      </div>
+
+      <!-- ── API Keys page ──────────────────────────────────────────────────── -->
+      <div id="page-apikeys" class="page">
+        <div class="page-title">API Keys</div>
+        <div class="page-subtitle">Named non-expiring keys for scripts and CI pipelines</div>
+        <div class="section-header">
+          <div class="section-title">Keys</div>
+          <button class="enroll-btn" onclick="openApiKeyCreate()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New key
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Name</th><th>Role</th><th>User</th><th>Created</th><th></th></tr></thead>
+            <tbody id="apikeys-tbody">
+              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Command Library page ───────────────────────────────────────────── -->
+      <div id="page-cmdlib" class="page">
+        <div class="page-title">Command Library</div>
+        <div class="page-subtitle">Saved shell command snippets — pick from the exec modal</div>
+        <div class="section-header">
+          <div class="section-title">Snippets</div>
+          <button class="enroll-btn" onclick="openCmdLibAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add snippet
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Name</th><th>Command</th><th>Description</th><th></th></tr></thead>
+            <tbody id="cmdlib-tbody">
+              <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -1165,6 +1293,13 @@
       <label class="form-label">Password</label>
       <input type="password" id="new-password" class="form-input" autocomplete="new-password">
     </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select id="new-role" class="form-input">
+        <option value="admin">Admin (full access)</option>
+        <option value="viewer">Viewer (read-only dashboard)</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('user-add-modal')">Cancel</button>
       <button class="btn-primary" onclick="createUser()">Create</button>
@@ -1208,8 +1343,13 @@
       </select>
     </div>
     <div class="form-group">
-      <label class="form-label">Date &amp; time</label>
+      <label class="form-label">Date &amp; time (one-shot)</label>
       <input type="datetime-local" id="sched-datetime" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">— or — Cron expression (recurring)</label>
+      <input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div>
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button>
@@ -1228,6 +1368,12 @@
       <label class="form-label">Shell command</label>
       <input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512">
     </div>
+    <div class="form-group">
+      <label class="form-label">Or pick from library</label>
+      <select id="exec-library-pick" class="form-input" onchange="pickFromLibrary()">
+        <option value="">— Command library —</option>
+      </select>
+    </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button>
       <button class="btn-primary" onclick="sendExecCmd()">Run</button>
@@ -1244,6 +1390,137 @@
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('mon-history-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Notes modal -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal">
+    <div class="modal-title">Device notes</div>
+    <input type="hidden" id="notes-device-id">
+    <div class="form-group">
+      <label class="form-label">Notes (free text)</label>
+      <textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('notes-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveNotes()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group modal -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal">
+    <div class="modal-title">Device group</div>
+    <div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div>
+    <input type="hidden" id="group-device-id">
+    <div class="form-group">
+      <label class="form-label">Group</label>
+      <input type="text" id="group-input" class="form-input" placeholder="homelab">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('group-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveGroup()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Poll interval modal -->
+<div class="modal-overlay" id="poll-modal">
+  <div class="modal">
+    <div class="modal-title">Adjust poll interval</div>
+    <div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div>
+    <input type="hidden" id="poll-device-id">
+    <div class="form-group">
+      <label class="form-label">Interval (seconds, 10–3600)</label>
+      <input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('poll-modal')">Cancel</button>
+      <button class="btn-primary" onclick="savePollInterval()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Allowlist modal -->
+<div class="modal-overlay" id="allowlist-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title">Command allowlist</div>
+    <div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div>
+    <input type="hidden" id="allowlist-device-id">
+    <div class="form-group">
+      <label class="form-label">Allowed commands</label>
+      <textarea id="allowlist-input" class="form-textarea" style="min-height:160px;font-family:monospace" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('allowlist-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveAllowlist()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule cron modal addition — extending existing schedule modal with cron option -->
+<!-- API Key create modal -->
+<div class="modal-overlay" id="apikey-create-modal">
+  <div class="modal">
+    <div class="modal-title">Create API key</div>
+    <div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div>
+    <div class="form-group">
+      <label class="form-label">Key name</label>
+      <input type="text" id="apikey-name" class="form-input" placeholder="deploy-script">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select id="apikey-role" class="form-input">
+        <option value="admin">Admin (full access)</option>
+        <option value="viewer">Viewer (read-only)</option>
+      </select>
+    </div>
+    <div id="apikey-result" style="display:none;margin-bottom:16px">
+      <div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div>
+      <div class="apikey-value" id="apikey-value-display"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('apikey-create-modal')">Close</button>
+      <button class="btn-primary" id="apikey-create-btn" onclick="createApiKey()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command library add modal -->
+<div class="modal-overlay" id="cmdlib-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add command snippet</div>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Command</label>
+      <input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description (optional)</label>
+      <input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addCmdSnippet()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Metrics modal -->
+<div class="modal-overlay" id="metrics-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="metrics-title">Metrics</div>
+    <div id="metrics-body" style="min-height:80px">
+      <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button>
     </div>
   </div>
 </div>
@@ -1367,7 +1644,8 @@ async function api(method, path, body) {
 function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
+  const el = document.getElementById('page-' + name);
+  if (el) el.classList.add('active');
   if (btn) btn.classList.add('active');
   if (name === 'monitor')  runMonitor();
   if (name === 'history')  loadHistory();
@@ -1375,6 +1653,8 @@ function showPage(name, btn) {
   if (name === 'users')    loadUsers();
   if (name === 'settings') loadSettings();
   if (name === 'about')    loadAbout();
+  if (name === 'apikeys')  loadApiKeys();
+  if (name === 'cmdlib')   loadCmdLib();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1435,26 +1715,34 @@ function renderDevices() {
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
     const si = d.sysinfo || {};
     const pkg = si.packages;
+    const isSel = selectedDevices.has(d.id);
     let patchHtml = '';
     if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
       const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
       patchHtml = `<span class="patch-badge ${cls}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
     }
+    const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls')
+      ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
 
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'}">
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'}" style="${isSel ? 'border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,126,255,0.2)' : ''}">
       <div class="device-header">
         <div class="device-info">
-          <div class="device-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <div class="device-icon" style="cursor:pointer" onclick="toggleSelect('${d.id}')" title="Select for batch action">
+            ${isSel
+              ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
+              : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`
+            }
           </div>
           <div>
-            <div class="device-name">${escHtml(d.name)}</div>
-            <div class="device-hostname">${escHtml(d.hostname)}</div>
+            <div class="device-name">${escHtml(d.name)}${d.notes
+              ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escHtml(d.notes)}')">📝</span>`
+              : ''}</div>
+            <div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>
           </div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}">
           <div class="status-badge-dot"></div>
-          ${isOnline ? 'Online' : 'Offline'}
+          ${isOnline ? 'Online' : 'Offline'}${missedHtml}
         </div>
       </div>
       <div class="device-meta">
@@ -1471,8 +1759,8 @@ function renderDevices() {
           <div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div>
         </div>
         <div class="meta-item">
-          <div class="meta-label">Enrolled</div>
-          <div class="meta-value">${d.enrolled ? timeAgo(d.enrolled) : '—'}</div>
+          <div class="meta-label">Poll / Enrolled</div>
+          <div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div>
         </div>
       </div>
       <div class="device-actions">
@@ -1491,16 +1779,31 @@ function renderDevices() {
         <button class="btn-update" onclick="sendUpdate('${d.id}','${escHtml(d.name)}')" title="Push agent self-update">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
         </button>
-        <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')">
+        <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')" title="Sysinfo &amp; journal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </button>
-        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command${!isOnline?' (queued — executes when online)':''}" style="color:var(--purple);border-color:rgba(124,58,237,0.3)${!isOnline?';opacity:0.5':''}">
+        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command" style="color:var(--purple);border-color:rgba(124,58,237,0.3)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openMetrics('${d.id}','${escHtml(d.name)}')" title="Metrics (CPU / RAM / Disk)" style="color:var(--green);border-color:rgba(34,197,94,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </button>
         <button class="btn-detail" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}')" title="Edit tags" style="color:var(--accent);border-color:rgba(59,126,255,0.3)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         </button>
-        <button class="btn-remove" onclick="removeDevice('${d.id}')">
+        <button class="btn-detail" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}')" title="Set group / namespace" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}')" title="Edit device notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openPollModal('${d.id}','${d.poll_interval||60}')" title="Adjust poll interval (currently ${d.poll_interval||60}s)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openAllowlistModal('${d.id}')" title="Command allowlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </button>
+        <button class="btn-remove" onclick="removeDevice('${d.id}')" title="Remove device">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
@@ -1786,6 +2089,7 @@ async function loadUsers() {
     <tr class="user-row">
       <td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td>
       <td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td>
+      <td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td>
       <td>
         <div class="user-actions">
           <button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button>
@@ -1804,9 +2108,10 @@ function openUserAdd() {
 async function createUser() {
   const username = document.getElementById('new-username').value.trim();
   const password = document.getElementById('new-password').value;
+  const role     = document.getElementById('new-role').value;
   if (!username || !password) { toast('Both fields required', 'error'); return; }
-  const data = await api('POST', '/users', {username, password});
-  if (data?.ok) { toast(`User ${username} created`, 'success'); closeModal('user-add-modal'); loadUsers(); }
+  const data = await api('POST', '/users', {username, password, role});
+  if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); }
   else toast(data?.error || 'Failed', 'error');
 }
 
@@ -1945,34 +2250,32 @@ async function loadSchedule() {
     <tr>
       <td style="font-weight:500">${escHtml(j.device_name)}</td>
       <td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td>
-      <td style="font-family:monospace;font-size:12px">${new Date(j.run_at*1000).toLocaleString()}</td>
+      <td style="font-family:monospace;font-size:12px">
+        ${j.recurring
+          ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>`
+          : new Date(j.run_at*1000).toLocaleString()}
+      </td>
       <td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td>
       <td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td>
     </tr>`).join('');
-}
-
-function openScheduleAdd() {
-  // Populate device selector
-  const sel = document.getElementById('sched-device');
-  sel.innerHTML = devices.map(d =>
-    `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`
-  ).join('');
-  // Default to 1 hour from now
-  const dt = new Date(Date.now() + 3600000);
-  const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
-  document.getElementById('sched-datetime').value = local;
-  openModal('schedule-add-modal');
 }
 
 async function addScheduleJob() {
   const dev_id  = document.getElementById('sched-device').value;
   const command = document.getElementById('sched-command').value;
   const dt      = document.getElementById('sched-datetime').value;
-  if (!dt) { toast('Please select a date/time', 'error'); return; }
-  const run_at = Math.floor(new Date(dt).getTime() / 1000);
-  const data = await api('POST', '/schedule', {device_id: dev_id, command, run_at});
+  const cron    = document.getElementById('sched-cron').value.trim();
+  if (!dt && !cron) { toast('Provide a date/time or cron expression', 'error'); return; }
+  const payload = {device_id: dev_id, command};
+  if (cron) {
+    payload.cron = cron;
+  } else {
+    const run_at = Math.floor(new Date(dt).getTime() / 1000);
+    payload.run_at = run_at;
+  }
+  const data = await api('POST', '/schedule', payload);
   if (data?.ok) {
-    toast(`${command} scheduled`, 'success');
+    toast(cron ? `Recurring ${command} scheduled (${cron})` : `${command} scheduled`, 'success');
     closeModal('schedule-add-modal');
     loadSchedule();
   } else toast(data?.error || 'Failed', 'error');
@@ -1989,7 +2292,33 @@ function openExecModal(id, name) {
   document.getElementById('exec-device-id').value = id;
   document.getElementById('exec-cmd').value = '';
   document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`;
+  // Populate library dropdown
+  api('GET', '/cmd-library').then(data => {
+    const sel = document.getElementById('exec-library-pick');
+    sel.innerHTML = '<option value="">— Command library —</option>';
+    (data || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt);
+    });
+  }).catch(() => {});
   openModal('exec-modal');
+}
+
+function pickFromLibrary() {
+  const val = document.getElementById('exec-library-pick').value;
+  if (val) document.getElementById('exec-cmd').value = val;
+}
+
+function openScheduleAdd() {
+  const sel = document.getElementById('sched-device');
+  sel.innerHTML = devices.map(d =>
+    `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`
+  ).join('');
+  const dt = new Date(Date.now() + 3600000);
+  const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('sched-datetime').value = local;
+  document.getElementById('sched-cron').value = '';
+  openModal('schedule-add-modal');
 }
 
 async function sendExecCmd() {
@@ -2083,6 +2412,259 @@ async function loadHistory() {
     </tr>`).join('');
 }
 
+// ── Batch selection ───────────────────────────────────────────────────────────
+let selectedDevices = new Set();
+
+function toggleSelect(id) {
+  if (selectedDevices.has(id)) selectedDevices.delete(id);
+  else selectedDevices.add(id);
+  updateBatchBar();
+}
+
+function clearSelection() {
+  selectedDevices.clear(); updateBatchBar(); renderDevices();
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const cnt = document.getElementById('batch-count');
+  if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; }
+  else { bar.classList.remove('visible'); }
+}
+
+async function batchAction(command) {
+  if (!selectedDevices.size) return;
+  const verb = command === 'shutdown' ? 'Shut down' : command === 'reboot' ? 'Reboot' : 'Update';
+  if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return;
+  const ep = command === 'update' ? '/update-device' : `/${command}`;
+  const data = await api('POST', ep, {device_ids: [...selectedDevices]});
+  if (data?.ok) { toast(`${verb} queued for ${selectedDevices.size} devices`, 'success'); clearSelection(); setTimeout(loadDevices, 3000); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+function openNotesModal(id, currentNotes) {
+  document.getElementById('notes-device-id').value = id;
+  document.getElementById('notes-input').value = currentNotes || '';
+  openModal('notes-modal');
+}
+
+async function saveNotes() {
+  const id = document.getElementById('notes-device-id').value;
+  const notes = document.getElementById('notes-input').value;
+  const r = await api('PATCH', '/devices/' + id + '/notes', {notes});
+  if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Group ─────────────────────────────────────────────────────────────────────
+function openGroupModal(id, current) {
+  document.getElementById('group-device-id').value = id;
+  document.getElementById('group-input').value = current || '';
+  openModal('group-modal');
+}
+
+async function saveGroup() {
+  const id = document.getElementById('group-device-id').value;
+  const group = document.getElementById('group-input').value.trim();
+  const r = await api('PATCH', '/devices/' + id + '/group', {group});
+  if (r?.ok) { toast('Group saved', 'success'); closeModal('group-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Poll interval ─────────────────────────────────────────────────────────────
+function openPollModal(id, current) {
+  document.getElementById('poll-device-id').value = id;
+  document.getElementById('poll-input').value = current || 60;
+  openModal('poll-modal');
+}
+
+async function savePollInterval() {
+  const id = document.getElementById('poll-device-id').value;
+  const interval = parseInt(document.getElementById('poll-input').value);
+  const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval});
+  if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Command allowlist ─────────────────────────────────────────────────────────
+async function openAllowlistModal(id) {
+  document.getElementById('allowlist-device-id').value = id;
+  document.getElementById('allowlist-input').value = '';
+  openModal('allowlist-modal');
+  const r = await api('GET', '/devices/' + id + '/allowlist');
+  if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n');
+}
+
+async function saveAllowlist() {
+  const id = document.getElementById('allowlist-device-id').value;
+  const raw = document.getElementById('allowlist-input').value;
+  const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds});
+  if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+async function openMetrics(id, name) {
+  document.getElementById('metrics-title').textContent = `Metrics: ${name}`;
+  document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('metrics-modal');
+  const data = await api('GET', '/devices/' + id + '/metrics');
+  if (!data || !data.metrics || !data.metrics.length) {
+    document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>';
+    return;
+  }
+  const metrics = data.metrics.slice(-60); // last 60 points
+  function spark(key, color) {
+    const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined);
+    if (!vals.length) return '<span style="color:var(--muted);font-size:12px">no data</span>';
+    const max = 100; const w = 6; const h = 32;
+    const bars = vals.map(v => {
+      const bh = Math.max(2, Math.round((v / max) * h));
+      return `<rect x="0" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`;
+    }).join('');
+    const svgW = vals.length * w;
+    const latest = vals[vals.length-1];
+    return `<svg width="${svgW}" height="${h}" style="vertical-align:middle">${bars.split('x="0"').map((s,i) => s.replace('x="0"', `x="${i*w}"`)).join('')}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`;
+  }
+  document.getElementById('metrics-body').innerHTML = `
+    <div class="sysinfo-row" style="margin-bottom:20px">
+      <div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div>
+      <div class="sysinfo-pill"><div class="label">From</div><div class="value" style="font-size:11px">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div>
+    </div>
+    <div style="display:grid;gap:16px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">CPU</div>
+        ${spark('cpu_percent','var(--accent)')}
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Memory</div>
+        ${spark('mem_percent','var(--green)')}
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Disk</div>
+        ${spark('disk_percent','var(--amber)')}
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:12px">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`;
+}
+
+// ── Export backup ─────────────────────────────────────────────────────────────
+function exportBackup() {
+  const token = getToken();
+  const a = document.createElement('a');
+  a.href = '/api/export';
+  // Inject token as query param workaround for download links
+  a.href = `/api/export?_t=${encodeURIComponent(token)}`;
+  // The API uses X-Token header — trigger via fetch and blob
+  fetch('/api/export', {headers: {'X-Token': token}})
+    .then(r => r.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`;
+      a.click(); URL.revokeObjectURL(url);
+      toast('Backup downloaded', 'success');
+    }).catch(() => toast('Export failed', 'error'));
+}
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+async function loadApiKeys() {
+  const tbody = document.getElementById('apikeys-tbody');
+  const data = await api('GET', '/apikeys');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No API keys. Create one for scripting access.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(k => `
+    <tr>
+      <td style="font-weight:600">${escHtml(k.name)}</td>
+      <td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td>
+      <td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button></td>
+    </tr>`).join('');
+}
+
+function openApiKeyCreate() {
+  document.getElementById('apikey-name').value = '';
+  document.getElementById('apikey-role').value = 'admin';
+  document.getElementById('apikey-result').style.display = 'none';
+  document.getElementById('apikey-create-btn').style.display = '';
+  openModal('apikey-create-modal');
+}
+
+async function createApiKey() {
+  const name = document.getElementById('apikey-name').value.trim();
+  const role = document.getElementById('apikey-role').value;
+  if (!name) { toast('Name required', 'error'); return; }
+  const data = await api('POST', '/apikeys', {name, role});
+  if (data?.ok) {
+    document.getElementById('apikey-value-display').textContent = data.key;
+    document.getElementById('apikey-result').style.display = 'block';
+    document.getElementById('apikey-create-btn').style.display = 'none';
+    loadApiKeys();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteApiKey(id) {
+  if (!confirm('Delete this API key? Scripts using it will stop working.')) return;
+  const data = await api('DELETE', '/apikeys/' + id);
+  if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Command Library ───────────────────────────────────────────────────────────
+async function loadCmdLib() {
+  const tbody = document.getElementById('cmdlib-tbody');
+  const data = await api('GET', '/cmd-library');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(s => `
+    <tr>
+      <td style="font-weight:600">${escHtml(s.name)}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escHtml(s.cmd)}')">Use</button>
+        <button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escHtml(s.id)}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openCmdLibAdd() {
+  document.getElementById('cmdlib-name').value = '';
+  document.getElementById('cmdlib-cmd').value = '';
+  document.getElementById('cmdlib-desc').value = '';
+  openModal('cmdlib-add-modal');
+}
+
+async function addCmdSnippet() {
+  const name = document.getElementById('cmdlib-name').value.trim();
+  const cmd  = document.getElementById('cmdlib-cmd').value.trim();
+  const desc = document.getElementById('cmdlib-desc').value.trim();
+  if (!name || !cmd) { toast('Name and command required', 'error'); return; }
+  const data = await api('POST', '/cmd-library', {name, cmd, description: desc});
+  if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteCmdSnippet(id) {
+  const data = await api('DELETE', '/cmd-library/' + id);
+  if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+function useCmdSnippet(cmd) {
+  // If exec modal is open, paste into it; otherwise open it without a device
+  document.getElementById('exec-cmd').value = cmd;
+  closeModal('cmdlib-add-modal');
+  toast('Command pasted into exec modal', 'info');
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-pass').addEventListener('keydown', e => {
@@ -2096,3 +2678,4 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+
