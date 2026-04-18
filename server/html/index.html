@@ -2519,14 +2519,13 @@ async function openMetrics(id, name) {
   function spark(key, color) {
     const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined);
     if (!vals.length) return '<span style="color:var(--muted);font-size:12px">no data</span>';
-    const max = 100; const w = 6; const h = 32;
-    const bars = vals.map(v => {
-      const bh = Math.max(2, Math.round((v / max) * h));
-      return `<rect x="0" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`;
+    const w = 6; const h = 32;
+    const bars = vals.map((v, i) => {
+      const bh = Math.max(2, Math.round((v / 100) * h));
+      return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`;
     }).join('');
-    const svgW = vals.length * w;
     const latest = vals[vals.length-1];
-    return `<svg width="${svgW}" height="${h}" style="vertical-align:middle">${bars.split('x="0"').map((s,i) => s.replace('x="0"', `x="${i*w}"`)).join('')}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`;
+    return `<svg width="${vals.length*w}" height="${h}" style="vertical-align:middle">${bars}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`;
   }
   document.getElementById('metrics-body').innerHTML = `
     <div class="sysinfo-row" style="margin-bottom:20px">
@@ -2536,15 +2535,15 @@ async function openMetrics(id, name) {
     <div style="display:grid;gap:16px">
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">CPU</div>
-        ${spark('cpu_percent','var(--accent)')}
+        ${spark('cpu','var(--accent)')}
       </div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Memory</div>
-        ${spark('mem_percent','var(--green)')}
+        ${spark('mem','var(--green)')}
       </div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
         <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Disk</div>
-        ${spark('disk_percent','var(--amber)')}
+        ${spark('disk','var(--amber)')}
       </div>
     </div>
     <p style="font-size:12px;color:var(--muted);margin-top:12px">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`;
