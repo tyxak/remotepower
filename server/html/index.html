@@ -19,7 +19,156 @@
     --red: #ef4444;
     --red-dim: #7f1d1d;
     --amber: #f59e0b;
+    --purple: #7c3aed;
     --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  /* Light mode */
+  body.light {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+  body.light body::before { background-image:
+    linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
+  body.light header { background: rgba(241,245,249,0.9); }
+  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+  /* Theme toggle button */
+  .theme-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    line-height: 1;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* Update available banner */
+  .update-banner {
+    background: rgba(245,158,11,0.08);
+    border-bottom: 1px solid rgba(245,158,11,0.25);
+    padding: 10px 24px;
+    font-size: 13px;
+    color: var(--amber);
+    text-align: center;
+    position: relative;
+    z-index: 99;
+  }
+  .update-banner a { color: var(--amber); font-weight: 600; text-decoration: underline; }
+  /* Tags */
+  .tag-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(59,126,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(59,126,255,0.2);
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+  /* Update button */
+  .btn-update {
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    color: var(--green);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-update:hover { background: rgba(34,197,94,0.2); border-color: var(--green); }
+  .btn-update svg { width: 14px; height: 14px; }
+  /* History table */
+  .cmd-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; font-family: monospace;
+  }
+  .cmd-badge.shutdown { background: rgba(239,68,68,0.1);   color: var(--red); }
+  .cmd-badge.reboot   { background: rgba(245,158,11,0.1);  color: var(--amber); }
+  .cmd-badge.update   { background: rgba(34,197,94,0.1);   color: var(--green); }
+  .cmd-badge.wol      { background: rgba(124,58,237,0.1);  color: #a78bfa; }
+  /* Group badge */
+  .group-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
+    font-weight: 500; background: rgba(124,58,237,0.1); color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.2); margin-right: 4px; margin-top: 4px;
+  }
+  /* Notes tip inline badge */
+  .notes-tip {
+    display: inline-block;
+    font-size: 12px;
+    margin-left: 6px;
+    cursor: pointer;
+    opacity: 0.6;
+    vertical-align: middle;
+    transition: opacity 0.15s, transform 0.15s;
+    position: relative;
+  }
+  .notes-tip:hover { opacity: 1; transform: scale(1.2); }
+  /* Tooltip popup on hover */
+  .notes-tip::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text);
+    white-space: pre-wrap;
+    max-width: 260px;
+    width: max-content;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+    word-break: break-word;
+  }
+  .notes-tip:hover::after { opacity: 1; }
+
+  .form-textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; font-size: 14px; color: var(--text); outline: none;
+    transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
+  }
+  .form-textarea:focus { border-color: var(--accent); }
+  /* API key display */
+  .apikey-value {
+    font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; word-break: break-all; color: var(--green);
+  }
+  /* Batch action bar */
+  .batch-bar {
+    display: none; background: rgba(59,126,255,0.08); border: 1px solid rgba(59,126,255,0.2);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .batch-bar.visible { display: flex; }
+  /* Offline reason indicator */
+  .missed-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2);
+    margin-left: 4px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -79,11 +228,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
   }
   .logo {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-shrink: 0;
   }
   .logo-icon {
     width: 36px;
@@ -100,7 +252,8 @@
   .header-right {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px;
+    flex-shrink: 0;
   }
   .status-bar {
     font-size: 12px;
@@ -119,6 +272,29 @@
     0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
     50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
   }
+  .header-nav {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: wrap;
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+  }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 5px 9px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+    white-space: nowrap;
+  }
+  .nav-btn:hover { color: var(--text); border-color: var(--border); }
+  .nav-btn.active { color: var(--text); background: var(--surface2); border-color: var(--border); }
   .logout-btn {
     background: transparent;
     border: 1px solid var(--border);
@@ -128,8 +304,13 @@
     font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
+    font-family: var(--font);
   }
   .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Pages */
+  .page { display: none; }
+  .page.active { display: block; }
 
   /* Main content */
   main { padding: 48px 0; }
@@ -170,14 +351,14 @@
     justify-content: center;
     flex-shrink: 0;
   }
-  .stat-icon.blue { background: rgba(59,126,255,0.15); color: var(--accent); }
-  .stat-icon.green { background: rgba(34,197,94,0.15); color: var(--green); }
-  .stat-icon.red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .stat-icon.blue  { background: rgba(59,126,255,0.15); color: var(--accent); }
+  .stat-icon.green { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red); }
   .stat-icon svg { width: 20px; height: 20px; }
   .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
   .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
-  /* Device grid */
+  /* Section header */
   .section-header {
     display: flex;
     align-items: center;
@@ -185,6 +366,50 @@
     margin-bottom: 20px;
   }
   .section-title { font-size: 16px; font-weight: 600; }
+
+  /* Buttons — primary/secondary */
+  .btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: var(--font);
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon svg { width: 14px; height: 14px; }
+
+  /* Enroll button */
   .enroll-btn {
     background: var(--accent);
     color: #fff;
@@ -198,10 +423,12 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: var(--font);
   }
   .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
   .enroll-btn svg { width: 14px; height: 14px; }
 
+  /* Device grid */
   .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -224,7 +451,7 @@
     height: 2px;
     border-radius: 14px 14px 0 0;
   }
-  .device-card.online::before { background: var(--green); }
+  .device-card.online::before  { background: var(--green); }
   .device-card.offline::before { background: var(--red); }
   .device-card:hover { border-color: rgba(59,126,255,0.3); transform: translateY(-2px); }
 
@@ -246,7 +473,7 @@
     flex-shrink: 0;
   }
   .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
-  .device-name { font-size: 15px; font-weight: 600; }
+  .device-name     { font-size: 15px; font-weight: 600; }
   .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
 
   .status-badge {
@@ -259,14 +486,12 @@
     font-weight: 600;
     letter-spacing: 0.5px;
     text-transform: uppercase;
+    white-space: nowrap;
   }
-  .status-badge.online { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-  .status-badge.offline { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
-  .status-badge-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-  }
-  .online .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
+  .status-badge.online  { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .online  .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
   .offline .status-badge-dot { background: var(--red); }
 
   .device-meta {
@@ -275,20 +500,33 @@
     gap: 12px;
     margin-bottom: 20px;
   }
-  .meta-item { }
   .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
   .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
 
+  /* Patch badge inline */
+  .patch-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+  }
+  .patch-badge.warn { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .patch-badge.ok   { background: rgba(34,197,94,0.1);   color: var(--green); }
+
   .device-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .btn-shutdown {
     flex: 1;
+    min-width: 100px;
     background: rgba(239,68,68,0.1);
     border: 1px solid rgba(239,68,68,0.3);
     color: var(--red);
-    padding: 10px 16px;
+    padding: 9px 12px;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 500;
@@ -298,19 +536,71 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+    font-family: var(--font);
   }
-  .btn-shutdown:hover:not(:disabled) {
-    background: rgba(239,68,68,0.2);
-    border-color: var(--red);
-  }
+  .btn-shutdown:hover:not(:disabled) { background: rgba(239,68,68,0.2); border-color: var(--red); }
   .btn-shutdown:disabled { opacity: 0.35; cursor: not-allowed; }
   .btn-shutdown svg { width: 14px; height: 14px; }
+
+  .btn-reboot {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-reboot:hover:not(:disabled) { background: rgba(245,158,11,0.2); border-color: var(--amber); }
+  .btn-reboot:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-reboot svg { width: 14px; height: 14px; }
+
+  .btn-wol {
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-wol:hover { background: rgba(124,58,237,0.2); border-color: #7c3aed; }
+  .btn-wol svg { width: 14px; height: 14px; }
+
+  .btn-detail {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-detail:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-detail svg { width: 14px; height: 14px; }
 
   .btn-remove {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--muted);
-    padding: 10px 14px;
+    padding: 9px 12px;
     border-radius: 8px;
     font-size: 13px;
     cursor: pointer;
@@ -318,11 +608,11 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    font-family: var(--font);
   }
   .btn-remove:hover { border-color: var(--red); color: var(--red); }
   .btn-remove svg { width: 14px; height: 14px; }
 
-  /* Last seen */
   .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
 
   /* Empty state */
@@ -330,6 +620,7 @@
     text-align: center;
     padding: 80px 24px;
     color: var(--muted);
+    grid-column: 1 / -1;
   }
   .empty-icon {
     width: 64px; height: 64px;
@@ -343,7 +634,7 @@
   }
   .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
   .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
-  .empty-text { font-size: 14px; line-height: 1.6; }
+  .empty-text  { font-size: 14px; line-height: 1.6; }
 
   /* Modal */
   .modal-overlay {
@@ -366,14 +657,18 @@
     border-radius: 16px;
     padding: 32px;
     width: 100%;
-    max-width: 440px;
+    max-width: 480px;
     transform: translateY(20px);
     transition: transform 0.2s;
+    max-height: 90vh;
+    overflow-y: auto;
   }
   .modal-overlay.active .modal { transform: translateY(0); }
-  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-wide { max-width: 680px; }
+  .modal-title    { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
   .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
 
+  /* PIN display */
   .pin-display {
     background: var(--bg);
     border: 1px solid var(--border);
@@ -383,113 +678,30 @@
     margin-bottom: 24px;
   }
   .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .pin-code {
-    font-family: monospace;
-    font-size: 36px;
-    font-weight: 700;
-    letter-spacing: 8px;
-    color: var(--accent);
-  }
+  .pin-code  { font-family: monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
   .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .pin-countdown { color: var(--amber); font-weight: 600; }
 
-  .modal-actions { display: flex; gap: 10px; }
-  .btn-primary {
-    flex: 1;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-  .btn-primary:hover { background: var(--accent2); }
-  .btn-secondary {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 11px 20px;
-    border-radius: 8px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
 
-  /* Confirm shutdown modal */
+  /* Confirm icons */
   .confirm-icon {
     width: 48px; height: 48px;
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.3);
     border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     margin-bottom: 16px;
-    color: var(--red);
   }
+  .confirm-icon.red    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); }
+  .confirm-icon.amber  { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
   .confirm-icon svg { width: 24px; height: 24px; }
 
-  /* Toast */
-  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
-  .toast {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 260px;
-    transform: translateX(120%);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  }
-  .toast.show { transform: translateX(0); }
-  .toast.success { border-left: 3px solid var(--green); }
-  .toast.error { border-left: 3px solid var(--red); }
-  .toast.info { border-left: 3px solid var(--accent); }
-  .toast-icon { font-size: 16px; }
-
-  /* Refresh timer */
-  .refresh-bar {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: 2px;
-    background: var(--border);
-    z-index: 50;
-  }
-  .refresh-progress {
-    height: 100%;
-    background: var(--accent);
-    transition: width 1s linear;
-  }
-
-  /* Login page */
-  .login-container {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 24px;
-  }
-  .login-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 40px;
-    width: 100%;
-    max-width: 400px;
-  }
-  .login-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
-  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-  .login-sub { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  /* Form elements */
   .form-group { margin-bottom: 16px; }
-  .form-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
+  .form-label {
+    font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; display: block;
+  }
   .form-input {
     width: 100%;
     background: var(--bg);
@@ -504,18 +716,122 @@
   }
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
-  .login-btn {
-    width: 100%;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    padding: 12px;
+  select.form-input { cursor: pointer; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 12px;
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+  /* Monitor status */
+  .mon-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
+
+  /* Journal log */
+  .journal-wrap {
+    background: #070910;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .journal-wrap:empty::after { content: '(no journal data yet)'; color: var(--muted); }
+
+  /* Sysinfo row */
+  .sysinfo-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .sysinfo-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
     border-radius: 8px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s;
-    margin-top: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .sysinfo-pill .label { color: var(--muted); margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sysinfo-pill .value { font-weight: 600; font-family: monospace; }
+
+  /* Settings page */
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .settings-section .hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
+
+  /* Users page */
+  .user-row td:last-child { text-align: right; }
+  .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* Toast */
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show    { transform: translateX(0); }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+  .toast-icon    { font-size: 16px; }
+
+  /* Refresh bar */
+  .refresh-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border); z-index: 50; }
+  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
+
+  /* Login page */
+  .login-container {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 100%; max-width: 400px;
+  }
+  .login-logo  { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .login-btn {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s; margin-top: 8px;
+    font-family: var(--font);
   }
   .login-btn:hover { background: var(--accent2); }
   .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
@@ -525,12 +841,14 @@
   @media (max-width: 600px) {
     .stats-row { grid-template-columns: 1fr; }
     .devices-grid { grid-template-columns: 1fr; }
-    .modal { margin: 16px; }
+    .modal { margin: 16px; padding: 24px; }
+    .header-nav { display: none; }
   }
 </style>
 </head>
 <body>
-<!-- Login page (shown if not authenticated) -->
+
+<!-- ══ LOGIN ══════════════════════════════════════════════════════════════════ -->
 <div id="login-page" class="login-container" style="display:none">
   <div class="login-card">
     <div class="login-logo">
@@ -549,12 +867,17 @@
       <label class="form-label">Password</label>
       <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password">
     </div>
+    <div class="form-group" id="totp-group" style="display:none">
+      <label class="form-label">Authenticator Code (2FA)</label>
+      <input type="text" id="login-totp" class="form-input" placeholder="123456" maxlength="6" autocomplete="one-time-code"
+        inputmode="numeric" pattern="[0-9]*" style="text-align:center;font-size:20px;letter-spacing:6px;font-weight:700">
+    </div>
     <button class="login-btn" onclick="doLogin()">Sign in</button>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </div>
 </div>
 
-<!-- Main dashboard -->
+<!-- ══ APP ════════════════════════════════════════════════════════════════════ -->
 <div id="app" style="display:none">
   <header>
     <div class="container header-inner">
@@ -564,11 +887,25 @@
         </div>
         <span class="logo-text">Remote<span>Power</span></span>
       </div>
+      <div class="header-nav">
+        <button class="nav-btn active" onclick="showPage('devices',this)">Devices</button>
+        <button class="nav-btn" onclick="showPage('about',this)">About</button>
+        <button class="nav-btn" onclick="showPage('apikeys',this)">API Keys</button>
+        <button class="nav-btn" onclick="showPage('audit',this)">Audit</button>
+        <button class="nav-btn" onclick="showPage('history',this)">History</button>
+        <button class="nav-btn" onclick="showPage('cmdlib',this)">Library</button>
+        <button class="nav-btn" onclick="showPage('monitor',this)">Monitor</button>
+        <button class="nav-btn" onclick="showPage('patches',this)">Patches</button>
+        <button class="nav-btn" onclick="showPage('schedule',this)">Schedule</button>
+        <button class="nav-btn" onclick="showPage('settings',this)">Settings</button>
+        <button class="nav-btn" onclick="showPage('users',this)">Users</button>
+      </div>
       <div class="header-right">
         <div class="status-bar">
           <div class="status-dot"></div>
           <span id="last-refresh-label">Live</span>
         </div>
+        <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
         <button class="logout-btn" onclick="doLogout()">Sign out</button>
       </div>
     </div>
@@ -576,65 +913,399 @@
 
   <main>
     <div class="container">
-      <div class="page-title">Device Control</div>
-      <div class="page-subtitle">Manage and remotely shut down enrolled devices</div>
 
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-icon blue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <!-- ── Devices page ─────────────────────────────────────────────────── -->
+      <div id="page-devices" class="page active">
+        <div class="page-title">Device Control</div>
+        <div class="page-subtitle">Manage and remotely control enrolled devices</div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Total devices</div></div>
           </div>
-          <div>
-            <div class="stat-value" id="stat-total">0</div>
-            <div class="stat-label">Total devices</div>
+          <div class="stat-card">
+            <div class="stat-icon green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-online">0</div><div class="stat-label">Online</div></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon red">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
+            <div><div class="stat-value" id="stat-offline">0</div><div class="stat-label">Offline</div></div>
           </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+
+        <div class="section-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="section-title">Enrolled Devices</div>
+            <div id="tag-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
           </div>
-          <div>
-            <div class="stat-value" id="stat-online">0</div>
-            <div class="stat-label">Online</div>
+          <button class="enroll-btn" onclick="openEnrollModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Enroll device
+          </button>
+        </div>
+
+        <div id="batch-bar" class="batch-bar">
+          <span style="font-size:13px;color:var(--accent);font-weight:600"><span id="batch-count">0</span> selected</span>
+          <button class="btn-shutdown" style="flex:none;padding:7px 14px" onclick="batchAction('shutdown')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down all
+          </button>
+          <button class="btn-reboot" style="padding:7px 14px" onclick="batchAction('reboot')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot all
+          </button>
+          <button class="btn-update" onclick="batchAction('update')">Update all</button>
+          <button class="btn-secondary" style="padding:7px 14px" onclick="clearSelection()">Clear</button>
+        </div>
+        <!-- Search / filter bar -->
+        <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="position:relative;flex:1;max-width:300px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="device-search-input" class="form-input" placeholder="Search devices…"
+              oninput="filterDevices()" style="padding:8px 12px 8px 34px;font-size:13px">
+          </div>
+          <select id="device-status-filter" class="form-input" onchange="filterDevices()"
+            style="width:auto;padding:8px 12px;font-size:13px">
+            <option value="all">All status</option>
+            <option value="online">Online only</option>
+            <option value="offline">Offline only</option>
+          </select>
+          <select id="device-group-filter" class="form-input" onchange="filterDevices()"
+            style="width:auto;padding:8px 12px;font-size:13px">
+            <option value="all">All groups</option>
+          </select>
+        </div>
+        <div id="devices-container" class="devices-grid"></div>
+      </div>
+
+      <!-- ── Monitor page ─────────────────────────────────────────────────── -->
+      <div id="page-monitor" class="page">
+        <div class="page-title">Monitor</div>
+        <div class="page-subtitle">Ping, TCP, and HTTP checks run from the server</div>
+
+        <div class="section-header">
+          <div class="section-title">Targets</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" onclick="runMonitor()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+              Check now
+            </button>
+            <button class="enroll-btn" onclick="openMonitorAdd()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add target
+            </button>
           </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon red">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </div>
-          <div>
-            <div class="stat-value" id="stat-offline">0</div>
-            <div class="stat-label">Offline</div>
-          </div>
+
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Label</th><th>Type</th><th>Target</th><th>Status</th><th>Detail</th><th>Checked</th><th></th></tr></thead>
+            <tbody id="monitor-tbody">
+              <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div class="section-header">
-        <div class="section-title">Enrolled Devices</div>
-        <button class="enroll-btn" onclick="openEnrollModal()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Enroll device
-        </button>
-      </div>
+      <!-- ── Users page ───────────────────────────────────────────────────── -->
+      <div id="page-users" class="page">
+        <div class="page-title">Admin Users</div>
+        <div class="page-subtitle">Manage who can access this dashboard</div>
 
-      <div id="devices-container" class="devices-grid">
-        <div class="empty-state">
-          <div class="empty-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </div>
-          <div class="empty-title">No devices enrolled</div>
-          <div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div>
+        <div class="section-header">
+          <div class="section-title">Accounts</div>
+          <button class="enroll-btn" onclick="openUserAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add user
+          </button>
+        </div>
+
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Username</th><th>Created</th><th>Role</th><th></th></tr></thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-    </div>
+
+      <!-- ── Settings page ────────────────────────────────────────────────── -->
+      <div id="page-settings" class="page">
+        <div class="page-title">Settings</div>
+        <div class="page-subtitle">Server configuration</div>
+
+        <!-- 2FA Section -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px">
+          <div style="font-size:15px;font-weight:600;margin-bottom:4px">Two-Factor Authentication (2FA)</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Protect your account with an authenticator app (Google Authenticator, Authy, etc.)</div>
+          <div id="totp-status" style="margin-bottom:12px"></div>
+          <div id="totp-setup-area"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Offline Webhook</h3>
+          <p class="hint">POST a JSON payload to this URL when a device goes offline. Compatible with Ntfy, Gotify, Slack, Discord, and any webhook receiver.</p>
+          <div class="settings-row">
+            <div class="form-group" style="flex:1">
+              <label class="form-label">Webhook URL</label>
+              <input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic">
+            </div>
+          </div>
+          <div id="cfg-webhook-note" style="font-size:12px;color:var(--green);margin-top:4px;display:none">✓ Webhook is currently configured</div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Wake-on-LAN</h3>
+          <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
+          <div class="settings-row">
+            <div class="form-group">
+              <label class="form-label">Broadcast address</label>
+              <input type="text" id="cfg-wol-bcast" class="form-input" placeholder="255.255.255.255">
+            </div>
+            <div class="form-group" style="max-width:120px">
+              <label class="form-label">Port</label>
+              <input type="number" id="cfg-wol-port" class="form-input" placeholder="9">
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Patch Alert</h3>
+          <p class="hint">Fire the offline webhook when a device has more than this many pending updates. Leave empty to disable.</p>
+          <div class="settings-row">
+            <div class="form-group" style="max-width:160px">
+              <label class="form-label">Threshold (updates)</label>
+              <input type="number" id="cfg-patch-threshold" class="form-input" placeholder="e.g. 10" min="1">
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
+          <button class="btn-secondary" onclick="loadSettings()">Reload</button>
+          <button class="btn-icon" onclick="exportBackup()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export backup
+          </button>
+        </div>
+      </div>
+
+      <!-- ── History page ────────────────────────────────────────────────── -->
+      <div id="page-history" class="page">
+        <div class="page-title">Command History</div>
+        <div class="page-subtitle">Log of all commands sent to devices</div>
+        <div class="section-header">
+          <div class="section-title">Recent commands</div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" onclick="loadHistory()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+              Refresh
+            </button>
+            <button class="btn-icon" onclick="clearHistory()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              Clear
+            </button>
+          </div>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Device</th><th>Command</th></tr></thead>
+            <tbody id="history-tbody">
+              <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Schedule page ─────────────────────────────────────────────────── -->
+      <div id="page-schedule" class="page">
+        <div class="page-title">Scheduled Commands</div>
+        <div class="page-subtitle">Queue shutdown or reboot at a specific time</div>
+        <div class="section-header">
+          <div class="section-title">Pending jobs</div>
+          <button class="enroll-btn" onclick="openScheduleAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add job
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Device</th><th>Command</th><th>Scheduled for</th><th>By</th><th></th></tr></thead>
+            <tbody id="schedule-tbody">
+              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── About page ────────────────────────────────────────────────────── -->
+      <div id="page-about" class="page">
+        <div class="page-title">About</div>
+        <div class="page-subtitle">RemotePower — self-hosted device management</div>
+        <div class="settings-section" style="max-width:600px">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+            <div class="logo-icon" style="width:52px;height:52px;border-radius:12px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:28px;height:28px"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+            </div>
+            <div>
+              <div style="font-size:22px;font-weight:700">RemotePower</div>
+              <div style="color:var(--muted);font-size:13px">Server version: <span id="about-server-version">—</span></div>
+            </div>
+          </div>
+          <table style="margin-bottom:20px">
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0;width:160px">Agent version</td><td id="about-agent-version">—</td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" style="color:var(--accent)">github.com/tyxak/remotepower</a></td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">License</td><td>MIT</td></tr>
+            <tr><td style="color:var(--muted);padding:6px 12px 6px 0">Latest release</td><td><span id="about-latest-version" style="font-family:monospace">checking…</span></td></tr>
+          </table>
+          <p style="font-size:13px;color:var(--muted);line-height:1.7">
+            Self-hosted remote device management — shutdown, reboot, Wake-on-LAN,
+            monitoring, scheduled commands, and agent self-update.<br><br>
+            No inbound firewall rules on clients. Agents poll the server over HTTPS.
+            Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── API Keys page ──────────────────────────────────────────────────── -->
+      <div id="page-apikeys" class="page">
+        <div class="page-title">API Keys</div>
+        <div class="page-subtitle">Named non-expiring keys for scripts and CI pipelines</div>
+        <div class="section-header">
+          <div class="section-title">Keys</div>
+          <button class="enroll-btn" onclick="openApiKeyCreate()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New key
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Name</th><th>Role</th><th>User</th><th>Created</th><th></th></tr></thead>
+            <tbody id="apikeys-tbody">
+              <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Command Library page ───────────────────────────────────────────── -->
+      <!-- ── Patches page ────────────────────────────────────────────────── -->
+      <div id="page-patches" class="page">
+        <div class="page-title">Patch Report</div>
+        <div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data</div>
+        <!-- Filter row -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <div style="position:relative;flex:1;max-width:280px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="patch-search-input" class="form-input" placeholder="Search patches…"
+              oninput="renderPatchTable()" style="padding:8px 12px 8px 34px;font-size:13px">
+          </div>
+          <select id="patch-group-filter" class="form-input" onchange="renderPatchTable()"
+            style="width:auto;padding:8px 12px;font-size:13px">
+            <option value="all">All groups</option>
+          </select>
+          <select id="patch-device-filter" class="form-input" onchange="renderPatchTable()"
+            style="width:auto;padding:8px 12px;font-size:13px;max-width:220px">
+            <option value="all">All devices</option>
+          </select>
+          <button class="btn-icon" onclick="loadPatchReport()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+            Refresh
+          </button>
+        </div>
+        <!-- Export row -->
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:12px;color:var(--muted)">Export (filtered):</span>
+          <button class="btn-icon" onclick="exportPatchFiltered('csv')">CSV</button>
+          <button class="btn-icon" onclick="exportPatchFiltered('xml')">XML</button>
+        </div>
+        <!-- Summary cards -->
+        <div class="stats-row" id="patch-summary" style="grid-template-columns:repeat(5,1fr)">
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div>
+          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value" id="patch-patched" style="color:var(--green)">—</div><div class="stat-label">Fully Patched</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value" id="patch-pending" style="color:var(--amber)">—</div><div class="stat-label">With Patches</div></div></div>
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-value" id="patch-count" style="color:var(--red)">—</div><div class="stat-label">Total Pending</div></div></div>
+          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value" id="patch-pct" style="color:var(--green)">—</div><div class="stat-label">Patch Rate</div></div></div>
+        </div>
+        <!-- Device patch table -->
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Status</th><th>Pkg Manager</th><th>Pending</th><th>Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead>
+            <tbody id="patch-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load patch report.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Audit Log page ──────────────────────────────────────────────── -->
+      <div id="page-audit" class="page">
+        <div class="page-title">Audit Log</div>
+        <div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
+        <div style="display:flex;gap:10px;margin-bottom:20px">
+          <button class="btn-icon" onclick="loadAuditLog()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+            Refresh
+          </button>
+          <button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Clear
+          </button>
+          <button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th><th>Source IP</th></tr></thead>
+            <tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Per-device patch report modal -->
+      <div class="modal-overlay" id="device-patch-modal">
+        <div class="modal modal-wide">
+          <div class="modal-title" id="device-patch-title">Device Patch Report</div>
+          <div class="modal-subtitle">Detailed patch information for this device</div>
+          <div id="device-patch-body"></div>
+          <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('device-patch-modal')">Close</button></div>
+        </div>
+      </div>
+
+      <div id="page-cmdlib" class="page">
+        <div class="page-title">Command Library</div>
+        <div class="page-subtitle">Saved shell command snippets — pick from the exec modal</div>
+        <div class="section-header">
+          <div class="section-title">Snippets</div>
+          <button class="enroll-btn" onclick="openCmdLibAdd()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add snippet
+          </button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Name</th><th>Command</th><th>Description</th><th></th></tr></thead>
+            <tbody id="cmdlib-tbody">
+              <tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /container -->
   </main>
-</div>
+</div><!-- /app -->
 
-<!-- Enroll Modal -->
+<!-- ══ MODALS ════════════════════════════════════════════════════════════════ -->
+
+<!-- Enroll -->
 <div class="modal-overlay" id="enroll-modal">
   <div class="modal">
     <div class="modal-title">Enroll a device</div>
-    <div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. The PIN expires after 10 minutes.</div>
+    <div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div>
     <div class="pin-display">
       <div class="pin-label">Enrollment PIN</div>
       <div class="pin-code" id="pin-code">------</div>
@@ -647,20 +1318,337 @@
   </div>
 </div>
 
-<!-- Shutdown Confirm Modal -->
+<!-- Shutdown confirm -->
 <div class="modal-overlay" id="shutdown-modal">
   <div class="modal">
-    <div class="confirm-icon">
+    <div class="confirm-icon red">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
     </div>
     <div class="modal-title">Shut down device?</div>
     <div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('shutdown-modal')">Cancel</button>
-      <button class="btn-shutdown" onclick="confirmShutdown()" style="flex:1">
+      <button class="btn-shutdown" style="flex:1" onclick="confirmShutdown()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
         Shut down
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- Reboot confirm -->
+<div class="modal-overlay" id="reboot-modal">
+  <div class="modal">
+    <div class="confirm-icon amber">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+    </div>
+    <div class="modal-title">Reboot device?</div>
+    <div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('reboot-modal')">Cancel</button>
+      <button class="btn-reboot" style="flex:1" onclick="confirmReboot()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+        Reboot
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Device detail (sysinfo + journal) -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="detail-title">Device details</div>
+    <div id="detail-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tag editor modal -->
+<div class="modal-overlay" id="tag-modal">
+  <div class="modal">
+    <div class="modal-title">Edit tags</div>
+    <div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div>
+    <input type="hidden" id="tag-device-id">
+    <div class="form-group">
+      <label class="form-label">Tags</label>
+      <input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('tag-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveTags()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add monitor target -->
+<div class="modal-overlay" id="monitor-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add monitor target</div>
+    <div class="form-group">
+      <label class="form-label">Label</label>
+      <input type="text" id="mon-label" class="form-input" placeholder="My Router">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select id="mon-type" class="form-input">
+        <option value="ping">Ping (ICMP)</option>
+        <option value="tcp">TCP port</option>
+        <option value="http">HTTP / HTTPS</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Target</label>
+      <input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('monitor-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addMonitor()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add user -->
+<div class="modal-overlay" id="user-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add admin user</div>
+    <div class="form-group">
+      <label class="form-label">Username</label>
+      <input type="text" id="new-username" class="form-input" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" id="new-password" class="form-input" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select id="new-role" class="form-input">
+        <option value="admin">Admin (full access)</option>
+        <option value="viewer">Viewer (read-only dashboard)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('user-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="createUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change password -->
+<div class="modal-overlay" id="passwd-modal">
+  <div class="modal">
+    <div class="modal-title">Change password</div>
+    <input type="hidden" id="passwd-username">
+    <div class="form-group" id="passwd-old-wrap">
+      <label class="form-label">Current password</label>
+      <input type="password" id="passwd-old" class="form-input" autocomplete="current-password">
+    </div>
+    <div class="form-group">
+      <label class="form-label">New password</label>
+      <input type="password" id="passwd-new" class="form-input" autocomplete="new-password">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('passwd-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitPasswd()">Update</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule add modal -->
+<div class="modal-overlay" id="schedule-add-modal">
+  <div class="modal">
+    <div class="modal-title">Schedule command</div>
+    <div class="form-group">
+      <label class="form-label">Device</label>
+      <select id="sched-device" class="form-input"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Command</label>
+      <select id="sched-command" class="form-input">
+        <option value="shutdown">Shut down</option>
+        <option value="reboot">Reboot</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date &amp; time (one-shot)</label>
+      <input type="datetime-local" id="sched-datetime" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">— or — Cron expression (recurring)</label>
+      <input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addScheduleJob()">Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom command modal -->
+<div class="modal-overlay" id="exec-modal">
+  <div class="modal">
+    <div class="modal-title">Run command</div>
+    <div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div>
+    <input type="hidden" id="exec-device-id">
+    <div class="form-group">
+      <label class="form-label">Shell command</label>
+      <input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Or pick from library</label>
+      <select id="exec-library-pick" class="form-input" onchange="pickFromLibrary()">
+        <option value="">— Command library —</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button>
+      <button class="btn-primary" onclick="sendExecCmd()">Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- Monitor history modal -->
+<div class="modal-overlay" id="mon-history-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="mon-history-title">Monitor history</div>
+    <div id="mon-history-body" style="min-height:80px">
+      <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('mon-history-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Notes modal -->
+<div class="modal-overlay" id="notes-modal">
+  <div class="modal">
+    <div class="modal-title">Device notes</div>
+    <input type="hidden" id="notes-device-id">
+    <div class="form-group">
+      <label class="form-label">Notes (free text)</label>
+      <textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('notes-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveNotes()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Group modal -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal">
+    <div class="modal-title">Device group</div>
+    <div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div>
+    <input type="hidden" id="group-device-id">
+    <div class="form-group">
+      <label class="form-label">Group</label>
+      <input type="text" id="group-input" class="form-input" placeholder="homelab">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('group-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveGroup()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Poll interval modal -->
+<div class="modal-overlay" id="poll-modal">
+  <div class="modal">
+    <div class="modal-title">Adjust poll interval</div>
+    <div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div>
+    <input type="hidden" id="poll-device-id">
+    <div class="form-group">
+      <label class="form-label">Interval (seconds, 10–3600)</label>
+      <input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('poll-modal')">Cancel</button>
+      <button class="btn-primary" onclick="savePollInterval()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Allowlist modal -->
+<div class="modal-overlay" id="allowlist-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title">Command allowlist</div>
+    <div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div>
+    <input type="hidden" id="allowlist-device-id">
+    <div class="form-group">
+      <label class="form-label">Allowed commands</label>
+      <textarea id="allowlist-input" class="form-textarea" style="min-height:160px;font-family:monospace" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('allowlist-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveAllowlist()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule cron modal addition — extending existing schedule modal with cron option -->
+<!-- API Key create modal -->
+<div class="modal-overlay" id="apikey-create-modal">
+  <div class="modal">
+    <div class="modal-title">Create API key</div>
+    <div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div>
+    <div class="form-group">
+      <label class="form-label">Key name</label>
+      <input type="text" id="apikey-name" class="form-input" placeholder="deploy-script">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Role</label>
+      <select id="apikey-role" class="form-input">
+        <option value="admin">Admin (full access)</option>
+        <option value="viewer">Viewer (read-only)</option>
+      </select>
+    </div>
+    <div id="apikey-result" style="display:none;margin-bottom:16px">
+      <div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div>
+      <div class="apikey-value" id="apikey-value-display"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('apikey-create-modal')">Close</button>
+      <button class="btn-primary" id="apikey-create-btn" onclick="createApiKey()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command library add modal -->
+<div class="modal-overlay" id="cmdlib-add-modal">
+  <div class="modal">
+    <div class="modal-title">Add command snippet</div>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Command</label>
+      <input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description (optional)</label>
+      <input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button>
+      <button class="btn-primary" onclick="addCmdSnippet()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Metrics modal -->
+<div class="modal-overlay" id="metrics-modal">
+  <div class="modal modal-wide">
+    <div class="modal-title" id="metrics-title">Metrics</div>
+    <div id="metrics-body" style="min-height:80px">
+      <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button>
     </div>
   </div>
 </div>
@@ -672,19 +1660,24 @@
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
 <script>
-const API = '';  // Same origin - proxied via Nginx
-let devices = [];
-let shutdownTarget = null;
-let pinTimer = null;
-let pinSeconds = 0;
-let refreshTimer = null;
+// ══════════════════════════════════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════════════════════════════════
+let devices         = [];
+let shutdownTarget  = null;
+let rebootTarget    = null;
+let pinTimer        = null;
+let pinSeconds      = 0;
+let refreshTimer    = null;
 let refreshInterval = 60;
 let refreshRemaining = refreshInterval;
+let activeTagFilter = null;  // currently selected tag filter
 
-// ---- Auth ----
+// ══════════════════════════════════════════════════════════════════════════════
+// Auth
+// ══════════════════════════════════════════════════════════════════════════════
 function checkAuth() {
-  const token = sessionStorage.getItem('rp_token');
-  if (token) {
+  if (sessionStorage.getItem('rp_token')) {
     showApp();
   } else {
     document.getElementById('login-page').style.display = 'flex';
@@ -694,20 +1687,41 @@ function checkAuth() {
 async function doLogin() {
   const user = document.getElementById('login-user').value.trim();
   const pass = document.getElementById('login-pass').value;
-  const err = document.getElementById('login-error');
+  const totpInput = document.getElementById('login-totp');
+  const totp_code = totpInput ? totpInput.value.trim() : '';
+  const err  = document.getElementById('login-error');
   err.classList.remove('show');
-
+  err.style.color = '';
+  if (!user || !pass) return;
   try {
+    const payload = {username: user, password: pass};
+    if (totp_code) payload.totp_code = totp_code;
     const resp = await fetch('/api/login', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({username: user, password: pass})
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
     });
     const data = await resp.json();
+    if (data.totp_required) {
+      // Show TOTP field
+      document.getElementById('totp-group').style.display = 'block';
+      totpInput.focus();
+      if (data.totp_invalid) {
+        err.textContent = 'Invalid authenticator code — try again';
+        err.classList.add('show');
+      } else {
+        err.textContent = 'Enter your 6-digit authenticator code';
+        err.style.color = 'var(--accent)';
+        err.classList.add('show');
+      }
+      return;
+    }
     if (data.ok) {
       sessionStorage.setItem('rp_token', data.token);
+      sessionStorage.setItem('rp_me', data.username || user);
       showApp();
     } else {
+      err.textContent = 'Invalid username or password';
       err.classList.add('show');
     }
   } catch(e) {
@@ -730,27 +1744,80 @@ function showApp() {
   document.getElementById('app').style.display = 'block';
   loadDevices();
   startRefreshCycle();
+  checkServerVersion();
+  applyTheme();
+  requestNotifications();
 }
 
-// Enter key on login
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('login-pass').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
-  document.getElementById('login-user').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('login-pass').focus();
-  });
-  checkAuth();
-});
+async function checkServerVersion() {
+  try {
+    const data = await api('GET', '/version');
+    if (!data || !data.update_available) return;
+    document.getElementById('update-banner')?.remove();
+    const banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.className = 'update-banner';
+    banner.innerHTML = `⚡ RemotePower <strong>v${data.latest}</strong> is available (you have v${data.current}) — <a href="${data.release_url}" target="_blank">View release →</a>`;
+    document.querySelector('header').insertAdjacentElement('afterend', banner);
+  } catch(e) {}
+}
 
-// ---- Devices ----
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function applyTheme() {
+  const theme = localStorage.getItem('rp_theme') || 'dark';
+  document.body.classList.toggle('light', theme === 'light');
+  const btn = document.querySelector('.theme-btn');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('rp_theme', isLight ? 'light' : 'dark');
+  const btn = document.querySelector('.theme-btn');
+  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
+}
+
+// ── API helper ────────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {method, headers: {'X-Token': getToken()}};
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch('/api' + path, opts);
+  if (r.status === 401) { doLogout(); return null; }
+  return r.json();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Navigation
+// ══════════════════════════════════════════════════════════════════════════════
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('page-' + name);
+  if (el) el.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'monitor')  runMonitor();
+  if (name === 'history')  loadHistory();
+  if (name === 'schedule') loadSchedule();
+  if (name === 'users')    loadUsers();
+  if (name === 'settings') { loadSettings(); loadTotpStatus(); }
+  if (name === 'about')    loadAbout();
+  if (name === 'apikeys')  loadApiKeys();
+  if (name === 'cmdlib')   loadCmdLib();
+  if (name === 'patches')  loadPatchReport();
+  if (name === 'audit')    loadAuditLog();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Devices
+// ══════════════════════════════════════════════════════════════════════════════
 async function loadDevices() {
   try {
-    const resp = await fetch('/api/devices', {
-      headers: {'X-Token': getToken()}
-    });
-    if (resp.status === 401) { doLogout(); return; }
-    devices = await resp.json();
+    const data = await api('GET', '/devices');
+    if (!data) return;
+    devices = data;
     renderDevices();
   } catch(e) {
     toast('Failed to load devices', 'error');
@@ -760,11 +1827,58 @@ async function loadDevices() {
 function renderDevices() {
   const container = document.getElementById('devices-container');
   const online = devices.filter(d => d.online).length;
-  document.getElementById('stat-total').textContent = devices.length;
-  document.getElementById('stat-online').textContent = online;
+  checkDeviceNotifications(devices);
+
+  // Populate group filter dropdown
+  const allGroups = [...new Set(devices.map(d => d.group).filter(g => g))].sort();
+  const groupSel = document.getElementById('device-group-filter');
+  if (groupSel) {
+    const cur = groupSel.value;
+    groupSel.innerHTML = '<option value="all">All groups</option>' +
+      allGroups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+    groupSel.value = cur;
+  }
+  document.getElementById('stat-total').textContent   = devices.length;
+  document.getElementById('stat-online').textContent  = online;
   document.getElementById('stat-offline').textContent = devices.length - online;
 
-  if (devices.length === 0) {
+  // Build tag filter bar
+  const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
+  const filterBar = document.getElementById('tag-filter-bar');
+  if (filterBar) {
+    filterBar.innerHTML = allTags.map(t => `
+      <button onclick="setTagFilter('${escHtml(t)}')"
+        style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;
+               background:${activeTagFilter===t ? 'rgba(59,126,255,0.2)' : 'transparent'};
+               color:${activeTagFilter===t ? 'var(--accent)' : 'var(--muted)'};
+               border-color:${activeTagFilter===t ? 'var(--accent)' : 'var(--border)'};
+               font-family:var(--font)">${escHtml(t)}</button>`).join('');
+    if (activeTagFilter) {
+      filterBar.innerHTML += `<button onclick="setTagFilter(null)"
+        style="padding:3px 10px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid var(--border);
+               color:var(--muted);background:transparent;font-family:var(--font)">✕ clear</button>`;
+    }
+  }
+
+  // Apply all filters (tag + search + status + group)
+  let filtered = activeTagFilter
+    ? devices.filter(d => (d.tags || []).includes(activeTagFilter))
+    : devices;
+  if (deviceSearchTerm) {
+    filtered = filtered.filter(d =>
+      (d.name||'').toLowerCase().includes(deviceSearchTerm) ||
+      (d.hostname||'').toLowerCase().includes(deviceSearchTerm) ||
+      (d.ip||'').toLowerCase().includes(deviceSearchTerm) ||
+      (d.os||'').toLowerCase().includes(deviceSearchTerm) ||
+      (d.group||'').toLowerCase().includes(deviceSearchTerm) ||
+      (d.tags||[]).some(t => t.toLowerCase().includes(deviceSearchTerm))
+    );
+  }
+  if (deviceStatusFilter === 'online') filtered = filtered.filter(d => d.online);
+  else if (deviceStatusFilter === 'offline') filtered = filtered.filter(d => !d.online);
+  if (deviceGroupFilter !== 'all') filtered = filtered.filter(d => d.group === deviceGroupFilter);
+
+  if (filtered.length === 0) {
     container.innerHTML = `<div class="empty-state">
       <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
       <div class="empty-title">No devices enrolled</div>
@@ -773,23 +1887,39 @@ function renderDevices() {
     return;
   }
 
-  container.innerHTML = devices.map(d => {
+  container.innerHTML = filtered.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'}">
+    const si = d.sysinfo || {};
+    const pkg = si.packages;
+    const isSel = selectedDevices.has(d.id);
+    let patchHtml = '';
+    if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
+      const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
+      patchHtml = `<span class="patch-badge ${cls}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
+    }
+    const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls')
+      ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
+
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'}" style="${isSel ? 'border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,126,255,0.2)' : ''}">
       <div class="device-header">
         <div class="device-info">
-          <div class="device-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <div class="device-icon" style="cursor:pointer" onclick="toggleSelect('${d.id}')" title="Select for batch action">
+            ${isSel
+              ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
+              : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`
+            }
           </div>
           <div>
-            <div class="device-name">${escHtml(d.name)}</div>
-            <div class="device-hostname">${escHtml(d.hostname)}</div>
+            <div class="device-name">${escHtml(d.name)}${d.notes
+              ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escHtml(d.notes)}')">📝</span>`
+              : ''}</div>
+            <div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}</div>
           </div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}">
           <div class="status-badge-dot"></div>
-          ${isOnline ? 'Online' : 'Offline'}
+          ${isOnline ? 'Online' : 'Offline'}${missedHtml}
         </div>
       </div>
       <div class="device-meta">
@@ -803,28 +1933,64 @@ function renderDevices() {
         </div>
         <div class="meta-item">
           <div class="meta-label">Version</div>
-          <div class="meta-value">${escHtml(d.version || '—')}</div>
+          <div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div>
         </div>
         <div class="meta-item">
-          <div class="meta-label">Enrolled</div>
-          <div class="meta-value">${d.enrolled ? timeAgo(d.enrolled) : '—'}</div>
+          <div class="meta-label">Poll / Enrolled</div>
+          <div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div>
         </div>
       </div>
       <div class="device-actions">
-        <button class="btn-shutdown" onclick="requestShutdown('${escHtml(d.id)}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
+        <button class="btn-shutdown" onclick="requestShutdown('${d.id}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
           Shut down
         </button>
-        <button class="btn-remove" onclick="removeDevice('${escHtml(d.id)}')">
+        <button class="btn-reboot" onclick="requestReboot('${d.id}','${escHtml(d.name)}')" ${!isOnline ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+          Reboot
+        </button>
+        ${d.mac ? `<button class="btn-wol" onclick="sendWol('${d.id}','${escHtml(d.name)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+          WoL
+        </button>` : ''}
+        <button class="btn-update" onclick="sendUpdate('${d.id}','${escHtml(d.name)}')" title="Push agent self-update">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openDetail('${d.id}','${escHtml(d.name)}')" title="Sysinfo &amp; journal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openExecModal('${d.id}','${escHtml(d.name)}')" title="Run custom command" style="color:var(--purple);border-color:rgba(124,58,237,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openMetrics('${d.id}','${escHtml(d.name)}')" title="Metrics (CPU / RAM / Disk)" style="color:var(--green);border-color:rgba(34,197,94,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}')" title="Edit tags" style="color:var(--accent);border-color:rgba(59,126,255,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}')" title="Set group / namespace" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}')" title="Edit device notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openPollModal('${d.id}','${d.poll_interval||60}')" title="Adjust poll interval (currently ${d.poll_interval||60}s)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </button>
+        <button class="btn-detail" onclick="openAllowlistModal('${d.id}')" title="Command allowlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </button>
+        <button class="btn-remove" onclick="removeDevice('${d.id}')" title="Remove device">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         </button>
       </div>
+      ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('');
 }
 
-// ---- Shutdown ----
+// ── Shutdown ─────────────────────────────────────────────────────────────────
 function requestShutdown(id, name) {
   shutdownTarget = id;
   document.getElementById('shutdown-name').textContent = name;
@@ -833,51 +1999,108 @@ function requestShutdown(id, name) {
 
 async function confirmShutdown() {
   closeModal('shutdown-modal');
-  try {
-    const resp = await fetch('/api/shutdown', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json', 'X-Token': getToken()},
-      body: JSON.stringify({device_id: shutdownTarget})
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      toast('Shutdown command queued', 'success');
-      setTimeout(loadDevices, 3000);
-    } else {
-      toast(data.error || 'Failed to send command', 'error');
-    }
-  } catch(e) {
-    toast('Connection error', 'error');
-  }
+  const data = await api('POST', '/shutdown', {device_id: shutdownTarget});
+  if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); }
+  else toast(data?.error || 'Failed', 'error');
 }
 
+// ── Reboot ────────────────────────────────────────────────────────────────────
+function requestReboot(id, name) {
+  rebootTarget = id;
+  document.getElementById('reboot-name').textContent = name;
+  openModal('reboot-modal');
+}
+
+async function confirmReboot() {
+  closeModal('reboot-modal');
+  const data = await api('POST', '/reboot', {device_id: rebootTarget});
+  if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── WoL ───────────────────────────────────────────────────────────────────────
+async function sendWol(id, name) {
+  const data = await api('POST', '/wol', {device_id: id});
+  if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success');
+  else toast(data?.error || 'WoL failed', 'error');
+}
+
+// ── Remove ────────────────────────────────────────────────────────────────────
 async function removeDevice(id) {
-  if (!confirm('Remove this device?')) return;
-  try {
-    const resp = await fetch('/api/devices/' + id, {
-      method: 'DELETE',
-      headers: {'X-Token': getToken()}
-    });
-    if (resp.ok) {
-      toast('Device removed', 'info');
-      loadDevices();
-    }
-  } catch(e) { toast('Error', 'error'); }
+  if (!confirm('Remove this device from RemotePower?')) return;
+  const data = await api('DELETE', '/devices/' + id);
+  if (data?.ok) { toast('Device removed', 'info'); loadDevices(); }
+  else toast(data?.error || 'Error', 'error');
 }
 
-// ---- Enroll ----
+// ── Detail (sysinfo + journal) ────────────────────────────────────────────────
+async function openDetail(id, name) {
+  document.getElementById('detail-title').textContent = name;
+  document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('detail-modal');
+
+  const data = await api('GET', '/devices/' + id + '/sysinfo');
+  if (!data) return;
+
+  const si = data.sysinfo || {};
+  const journal = data.journal || [];
+  const pkg = si.packages || {};
+
+  let html = '';
+
+  if (si.uptime || pkg.manager) {
+    html += `<div class="sysinfo-row">`;
+    if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`;
+    if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`;
+    if (pkg.upgradable !== null && pkg.upgradable !== undefined) {
+      const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)';
+      html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`;
+    }
+    if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`;
+    html += `</div>`;
+  }
+
+  html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">Journal — last ${journal.length} lines</div>`;
+  html += `<div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`;
+
+  if (!si.uptime && !journal.length) {
+    html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">
+      No data yet — the agent reports sysinfo every ~10 minutes.
+    </div>`;
+  }
+
+  document.getElementById('detail-body').innerHTML = html;
+
+  // Append cmd output if any
+  try {
+    const out = await api('GET', '/devices/' + id + '/output');
+    if (out?.outputs?.length) {
+      let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`;
+      outHtml += out.outputs.slice().reverse().map(o => `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code>
+            <span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span>
+          </div>
+          <div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div>
+        </div>`).join('');
+      document.getElementById('detail-body').innerHTML += outHtml;
+    }
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Enroll PIN
+// ══════════════════════════════════════════════════════════════════════════════
 function openEnrollModal() {
   generateNewPin();
   openModal('enroll-modal');
 }
 
 async function generateNewPin() {
+  document.getElementById('pin-code').textContent = '……';
   try {
-    const resp = await fetch('/api/enroll/pin', {
-      method: 'POST',
-      headers: {'X-Token': getToken()}
-    });
-    const data = await resp.json();
+    const data = await api('POST', '/enroll/pin');
     document.getElementById('pin-code').textContent = data.pin;
     startPinCountdown(600);
   } catch(e) {
@@ -897,12 +2120,236 @@ function startPinCountdown(seconds) {
 }
 
 function updatePinDisplay() {
-  const m = Math.floor(pinSeconds / 60).toString().padStart(2,'0');
-  const s = (pinSeconds % 60).toString().padStart(2,'0');
+  const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0');
+  const s = (pinSeconds % 60).toString().padStart(2, '0');
   document.getElementById('pin-countdown').textContent = `${m}:${s}`;
 }
 
-// ---- Refresh cycle ----
+// ══════════════════════════════════════════════════════════════════════════════
+// Monitor
+// ══════════════════════════════════════════════════════════════════════════════
+let monitorTargets = [];
+
+async function runMonitor() {
+  const tbody = document.getElementById('monitor-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Checking…</td></tr>';
+  const data = await api('GET', '/monitor');
+  if (!data) return;
+  const results = data.monitors || [];
+  if (!results.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr>';
+    return;
+  }
+  monitorTargets = results;
+  tbody.innerHTML = results.map((m, i) => `
+    <tr>
+      <td style="font-weight:500">${escHtml(m.label)}</td>
+      <td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td>
+      <td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td>
+      <td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escHtml(m.label)}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </button>
+        <button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function openMonitorAdd() {
+  document.getElementById('mon-label').value  = '';
+  document.getElementById('mon-type').value   = 'ping';
+  document.getElementById('mon-target').value = '';
+  openModal('monitor-add-modal');
+}
+
+async function addMonitor() {
+  const label  = document.getElementById('mon-label').value.trim();
+  const type   = document.getElementById('mon-type').value;
+  const target = document.getElementById('mon-target').value.trim();
+  if (!target) { toast('Target is required', 'error'); return; }
+
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = [...(cfg.monitors || []), {label: label || target, type, target}];
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) {
+    toast('Monitor added', 'success');
+    closeModal('monitor-add-modal');
+    runMonitor();
+  } else toast(res?.error || 'Failed', 'error');
+}
+
+async function removeMonitor(idx) {
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = (cfg.monitors || []).filter((_, i) => i !== idx);
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) { toast('Removed', 'info'); runMonitor(); }
+  else toast(res?.error || 'Failed', 'error');
+}
+
+// ── Monitor history ──────────────────────────────────────────────────────────
+async function openMonitorHistory(label) {
+  document.getElementById('mon-history-title').textContent = `History: ${label}`;
+  document.getElementById('mon-history-body').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('mon-history-modal');
+
+  const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`);
+  if (!data) return;
+
+  const history = data.history || [];
+  if (!history.length) {
+    document.getElementById('mon-history-body').innerHTML =
+      '<div style="color:var(--muted);text-align:center;padding:40px">No history yet — run a check first.</div>';
+    return;
+  }
+
+  // Simple sparkline: last 20 results as colored dots
+  const recent = history.slice(-20);
+  const dots = recent.map(h =>
+    `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}"
+      style="display:inline-block;width:12px;height:12px;border-radius:50%;margin:2px;
+             background:${h.ok ? 'var(--green)' : 'var(--red)'}"></span>`
+  ).join('');
+
+  const upCount   = history.filter(h => h.ok).length;
+  const pct       = Math.round(upCount / history.length * 100);
+  const lastCheck = history[history.length - 1];
+
+  document.getElementById('mon-history-body').innerHTML = `
+    <div class="sysinfo-row" style="margin-bottom:16px">
+      <div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div>
+      <div class="sysinfo-pill"><div class="label">Uptime</div>
+        <div class="value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div></div>
+      <div class="sysinfo-pill"><div class="label">Last status</div>
+        <div class="value" style="color:${lastCheck.ok?'var(--green)':'var(--red)'}">
+          ${lastCheck.ok ? '↑ up' : '↓ down'}
+        </div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Last ${recent.length} checks (newest right)</div>
+    <div style="padding:8px 0">${dots}</div>
+    <div class="table-card" style="margin-top:16px;max-height:240px;overflow-y:auto">
+      <table>
+        <thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+          ${[...history].reverse().slice(0,50).map(h => `
+            <tr>
+              <td style="font-size:12px;color:var(--muted)">${new Date(h.ts*1000).toLocaleString()}</td>
+              <td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td>
+              <td style="font-size:12px;color:var(--muted)">${escHtml(h.detail||'—')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Users
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadUsers() {
+  const data = await api('GET', '/users');
+  if (!data) return;
+  const tbody = document.getElementById('users-tbody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">No users.</td></tr>';
+    return;
+  }
+  const me = sessionStorage.getItem('rp_me') || '';
+  tbody.innerHTML = data.map(u => `
+    <tr class="user-row">
+      <td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td>
+      <td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td>
+      <td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td>
+      <td>
+        <div class="user-actions">
+          <button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button>
+          <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function openUserAdd() {
+  document.getElementById('new-username').value = '';
+  document.getElementById('new-password').value = '';
+  openModal('user-add-modal');
+}
+
+async function createUser() {
+  const username = document.getElementById('new-username').value.trim();
+  const password = document.getElementById('new-password').value;
+  const role     = document.getElementById('new-role').value;
+  if (!username || !password) { toast('Both fields required', 'error'); return; }
+  const data = await api('POST', '/users', {username, password, role});
+  if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Delete user "${username}"?`)) return;
+  const data = await api('DELETE', '/users/' + username);
+  if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+function openPasswd(username) {
+  document.getElementById('passwd-username').value = username;
+  document.getElementById('passwd-old').value = '';
+  document.getElementById('passwd-new').value = '';
+  // Only show "old password" field for self — but we don't track current user here,
+  // so always show it. Server enforces the rule.
+  document.getElementById('passwd-old-wrap').style.display = 'block';
+  openModal('passwd-modal');
+}
+
+async function submitPasswd() {
+  const username = document.getElementById('passwd-username').value;
+  const old_pw   = document.getElementById('passwd-old').value;
+  const new_pw   = document.getElementById('passwd-new').value;
+  if (!new_pw) { toast('New password required', 'error'); return; }
+  const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw});
+  if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Settings
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadSettings() {
+  const data = await api('GET', '/config');
+  if (!data) return;
+  document.getElementById('cfg-webhook').value         = '';
+  document.getElementById('cfg-wol-bcast').value       = data.wol_broadcast || '255.255.255.255';
+  document.getElementById('cfg-wol-port').value        = data.wol_port      || '9';
+  document.getElementById('cfg-patch-threshold').value = data.patch_alert_threshold || '';
+  const note = document.getElementById('cfg-webhook-note');
+  note.style.display = data.webhook_configured ? 'block' : 'none';
+}
+
+async function saveSettings() {
+  const payload = {
+    wol_broadcast: document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
+    wol_port:      parseInt(document.getElementById('cfg-wol-port').value) || 9,
+  };
+  const wh = document.getElementById('cfg-webhook').value.trim();
+  if (wh) payload.webhook_url = wh;
+  const pt = document.getElementById('cfg-patch-threshold').value.trim();
+  if (pt) payload.patch_alert_threshold = parseInt(pt);
+  const data = await api('POST', '/config', payload);
+  if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Refresh cycle (unchanged from original)
+// ══════════════════════════════════════════════════════════════════════════════
 function startRefreshCycle() {
   clearInterval(refreshTimer);
   refreshRemaining = refreshInterval;
@@ -916,38 +2363,44 @@ function startRefreshCycle() {
     }
     const m = Math.floor(refreshRemaining / 60);
     const s = refreshRemaining % 60;
-    document.getElementById('last-refresh-label').textContent = `Refresh in ${m > 0 ? m+'m ' : ''}${s}s`;
+    document.getElementById('last-refresh-label').textContent =
+      `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`;
   }, 1000);
 }
 
-// ---- Helpers ----
-function openModal(id) { document.getElementById(id).classList.add('active'); }
+// ══════════════════════════════════════════════════════════════════════════════
+// Modal helpers (same pattern as original)
+// ══════════════════════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Helpers (escHtml + timeAgo + toast unchanged from original)
+// ══════════════════════════════════════════════════════════════════════════════
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function timeAgo(ts) {
-  const diff = Math.floor(Date.now()/1000 - parseInt(ts));
-  if (diff < 60) return diff + 's ago';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
+  const diff = Math.floor(Date.now() / 1000 - parseInt(ts));
+  if (diff < 60)    return diff + 's ago';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
 }
 
 let toastId = 0;
 function toast(msg, type = 'info') {
   const id = 'toast-' + (++toastId);
-  const icons = {success:'✓', error:'✕', info:'ℹ'};
+  const icons = {success: '✓', error: '✕', info: 'ℹ'};
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.id = id;
-  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ'}</span><span>${msg}</span>`;
+  el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
   document.getElementById('toast-container').appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => {
@@ -955,6 +2408,815 @@ function toast(msg, type = 'info') {
     setTimeout(() => el.remove(), 400);
   }, 3500);
 }
+
+// ── Tag filter ────────────────────────────────────────────────────────────────
+function setTagFilter(tag) {
+  activeTagFilter = tag;
+  renderDevices();
+}
+
+// ── Schedule ──────────────────────────────────────────────────────────────────
+async function loadSchedule() {
+  const tbody = document.getElementById('schedule-tbody');
+  const data  = await api('GET', '/schedule');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(j => `
+    <tr>
+      <td style="font-weight:500">${escHtml(j.device_name)}</td>
+      <td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td>
+      <td style="font-family:monospace;font-size:12px">
+        ${j.recurring
+          ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>`
+          : new Date(j.run_at*1000).toLocaleString()}
+      </td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td>
+    </tr>`).join('');
+}
+
+async function addScheduleJob() {
+  const dev_id  = document.getElementById('sched-device').value;
+  const command = document.getElementById('sched-command').value;
+  const dt      = document.getElementById('sched-datetime').value;
+  const cron    = document.getElementById('sched-cron').value.trim();
+  if (!dt && !cron) { toast('Provide a date/time or cron expression', 'error'); return; }
+  const payload = {device_id: dev_id, command};
+  if (cron) {
+    payload.cron = cron;
+  } else {
+    const run_at = Math.floor(new Date(dt).getTime() / 1000);
+    payload.run_at = run_at;
+  }
+  const data = await api('POST', '/schedule', payload);
+  if (data?.ok) {
+    toast(cron ? `Recurring ${command} scheduled (${cron})` : `${command} scheduled`, 'success');
+    closeModal('schedule-add-modal');
+    loadSchedule();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteJob(id) {
+  const data = await api('DELETE', '/schedule/' + id);
+  if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Custom command (exec) ─────────────────────────────────────────────────────
+function openExecModal(id, name) {
+  document.getElementById('exec-device-id').value = id;
+  document.getElementById('exec-cmd').value = '';
+  document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`;
+  // Populate library dropdown
+  api('GET', '/cmd-library').then(data => {
+    const sel = document.getElementById('exec-library-pick');
+    sel.innerHTML = '<option value="">— Command library —</option>';
+    (data || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt);
+    });
+  }).catch(() => {});
+  openModal('exec-modal');
+}
+
+function pickFromLibrary() {
+  const val = document.getElementById('exec-library-pick').value;
+  if (val) document.getElementById('exec-cmd').value = val;
+}
+
+function openScheduleAdd() {
+  const sel = document.getElementById('sched-device');
+  sel.innerHTML = devices.map(d =>
+    `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`
+  ).join('');
+  const dt = new Date(Date.now() + 3600000);
+  const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('sched-datetime').value = local;
+  document.getElementById('sched-cron').value = '';
+  openModal('schedule-add-modal');
+}
+
+async function sendExecCmd() {
+  const id  = document.getElementById('exec-device-id').value;
+  const cmd = document.getElementById('exec-cmd').value.trim();
+  if (!cmd) { toast('Enter a command', 'error'); return; }
+  const data = await api('POST', '/exec', {device_id: id, cmd});
+  if (data?.ok) {
+    toast('Command queued — output on next heartbeat (~60s)', 'success');
+    closeModal('exec-modal');
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+// ── About ─────────────────────────────────────────────────────────────────────
+async function loadAbout() {
+  // Server version from /api/version
+  try {
+    const v = await api('GET', '/version');
+    if (v) {
+      document.getElementById('about-server-version').textContent = v.current || '—';
+      const latestEl = document.getElementById('about-latest-version');
+      if (v.latest) {
+        latestEl.textContent = v.latest;
+        if (v.update_available) {
+          latestEl.style.color = 'var(--amber)';
+          latestEl.textContent += ' ⚡ update available';
+        } else {
+          latestEl.style.color = 'var(--green)';
+          latestEl.textContent += ' ✓ up to date';
+        }
+      }
+    }
+  } catch(e) {}
+
+  // Agent version from /api/agent/version
+  try {
+    const av = await fetch('/agent/remotepower-agent').then(r => r.text()).catch(() => '');
+    const m  = av.match(/VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (m) document.getElementById('about-agent-version').textContent = m[1];
+  } catch(e) {}
+}
+
+// ── Tag editor ────────────────────────────────────────────────────────────────
+function openTagModal(id, currentTags) {
+  document.getElementById('tag-device-id').value = id;
+  document.getElementById('tag-input').value = currentTags;
+  openModal('tag-modal');
+}
+
+async function saveTags() {
+  const id   = document.getElementById('tag-device-id').value;
+  const raw  = document.getElementById('tag-input').value;
+  const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0);
+  const r = await fetch('/api/devices/' + id + '/tags', {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json', 'X-Token': getToken()},
+    body: JSON.stringify({tags}),
+  });
+  if (r.status === 401) { doLogout(); return; }
+  const data = await r.json();
+  if (data?.ok) {
+    toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success');
+    closeModal('tag-modal');
+    loadDevices();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Update device (push self-update) ──────────────────────────────────────────
+async function sendUpdate(id, name) {
+  if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return;
+  const data = await api('POST', '/update-device', {device_id: id});
+  if (data?.ok) toast(`Update queued for ${name}`, 'success');
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/history');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No commands logged yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(e => `
+    <tr>
+      <td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+      <td style="font-weight:500">${escHtml(e.actor)}</td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(e.device_name)}</td>
+      <td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td>
+    </tr>`).join('');
+}
+
+async function clearHistory() {
+  if (!confirm('Clear all command history? This cannot be undone.')) return;
+  const data = await api('DELETE', '/history');
+  if (data?.ok) { toast('History cleared', 'success'); loadHistory(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Batch selection ───────────────────────────────────────────────────────────
+let selectedDevices = new Set();
+
+function toggleSelect(id) {
+  if (selectedDevices.has(id)) selectedDevices.delete(id);
+  else selectedDevices.add(id);
+  updateBatchBar();
+}
+
+function clearSelection() {
+  selectedDevices.clear(); updateBatchBar(); renderDevices();
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const cnt = document.getElementById('batch-count');
+  if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; }
+  else { bar.classList.remove('visible'); }
+}
+
+async function batchAction(command) {
+  if (!selectedDevices.size) return;
+  const verb = command === 'shutdown' ? 'Shut down' : command === 'reboot' ? 'Reboot' : 'Update';
+  if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return;
+  const ep = command === 'update' ? '/update-device' : `/${command}`;
+  const data = await api('POST', ep, {device_ids: [...selectedDevices]});
+  if (data?.ok) { toast(`${verb} queued for ${selectedDevices.size} devices`, 'success'); clearSelection(); setTimeout(loadDevices, 3000); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+function openNotesModal(id, currentNotes) {
+  document.getElementById('notes-device-id').value = id;
+  document.getElementById('notes-input').value = currentNotes || '';
+  openModal('notes-modal');
+}
+
+async function saveNotes() {
+  const id = document.getElementById('notes-device-id').value;
+  const notes = document.getElementById('notes-input').value;
+  const r = await api('PATCH', '/devices/' + id + '/notes', {notes});
+  if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Group ─────────────────────────────────────────────────────────────────────
+function openGroupModal(id, current) {
+  document.getElementById('group-device-id').value = id;
+  document.getElementById('group-input').value = current || '';
+  openModal('group-modal');
+}
+
+async function saveGroup() {
+  const id = document.getElementById('group-device-id').value;
+  const group = document.getElementById('group-input').value.trim();
+  const r = await api('PATCH', '/devices/' + id + '/group', {group});
+  if (r?.ok) { toast('Group saved', 'success'); closeModal('group-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Poll interval ─────────────────────────────────────────────────────────────
+function openPollModal(id, current) {
+  document.getElementById('poll-device-id').value = id;
+  document.getElementById('poll-input').value = current || 60;
+  openModal('poll-modal');
+}
+
+async function savePollInterval() {
+  const id = document.getElementById('poll-device-id').value;
+  const interval = parseInt(document.getElementById('poll-input').value);
+  const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval});
+  if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Command allowlist ─────────────────────────────────────────────────────────
+async function openAllowlistModal(id) {
+  document.getElementById('allowlist-device-id').value = id;
+  document.getElementById('allowlist-input').value = '';
+  openModal('allowlist-modal');
+  const r = await api('GET', '/devices/' + id + '/allowlist');
+  if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n');
+}
+
+async function saveAllowlist() {
+  const id = document.getElementById('allowlist-device-id').value;
+  const raw = document.getElementById('allowlist-input').value;
+  const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+  const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds});
+  if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+async function openMetrics(id, name) {
+  document.getElementById('metrics-title').textContent = `Metrics: ${name}`;
+  document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('metrics-modal');
+  const data = await api('GET', '/devices/' + id + '/metrics');
+  if (!data || !data.metrics || !data.metrics.length) {
+    document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>';
+    return;
+  }
+  const metrics = data.metrics.slice(-60); // last 60 points
+  function spark(key, color) {
+    const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined);
+    if (!vals.length) return '<span style="color:var(--muted);font-size:12px">no data</span>';
+    const w = 6; const h = 32;
+    const bars = vals.map((v, i) => {
+      const bh = Math.max(2, Math.round((v / 100) * h));
+      return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`;
+    }).join('');
+    const latest = vals[vals.length-1];
+    return `<svg width="${vals.length*w}" height="${h}" style="vertical-align:middle">${bars}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`;
+  }
+  document.getElementById('metrics-body').innerHTML = `
+    <div class="sysinfo-row" style="margin-bottom:20px">
+      <div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div>
+      <div class="sysinfo-pill"><div class="label">From</div><div class="value" style="font-size:11px">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div>
+    </div>
+    <div style="display:grid;gap:16px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">CPU</div>
+        ${spark('cpu','var(--accent)')}
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Memory</div>
+        ${spark('mem','var(--green)')}
+      </div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Disk</div>
+        ${spark('disk','var(--amber)')}
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:12px">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`;
+}
+
+// ── Export backup ─────────────────────────────────────────────────────────────
+function exportBackup() {
+  const token = getToken();
+  const a = document.createElement('a');
+  a.href = '/api/export';
+  // Inject token as query param workaround for download links
+  a.href = `/api/export?_t=${encodeURIComponent(token)}`;
+  // The API uses X-Token header — trigger via fetch and blob
+  fetch('/api/export', {headers: {'X-Token': token}})
+    .then(r => r.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`;
+      a.click(); URL.revokeObjectURL(url);
+      toast('Backup downloaded', 'success');
+    }).catch(() => toast('Export failed', 'error'));
+}
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+async function loadApiKeys() {
+  const tbody = document.getElementById('apikeys-tbody');
+  const data = await api('GET', '/apikeys');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No API keys. Create one for scripting access.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(k => `
+    <tr>
+      <td style="font-weight:600">${escHtml(k.name)}</td>
+      <td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td>
+      <td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button></td>
+    </tr>`).join('');
+}
+
+function openApiKeyCreate() {
+  document.getElementById('apikey-name').value = '';
+  document.getElementById('apikey-role').value = 'admin';
+  document.getElementById('apikey-result').style.display = 'none';
+  document.getElementById('apikey-create-btn').style.display = '';
+  openModal('apikey-create-modal');
+}
+
+async function createApiKey() {
+  const name = document.getElementById('apikey-name').value.trim();
+  const role = document.getElementById('apikey-role').value;
+  if (!name) { toast('Name required', 'error'); return; }
+  const data = await api('POST', '/apikeys', {name, role});
+  if (data?.ok) {
+    document.getElementById('apikey-value-display').textContent = data.key;
+    document.getElementById('apikey-result').style.display = 'block';
+    document.getElementById('apikey-create-btn').style.display = 'none';
+    loadApiKeys();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteApiKey(id) {
+  if (!confirm('Delete this API key? Scripts using it will stop working.')) return;
+  const data = await api('DELETE', '/apikeys/' + id);
+  if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Command Library ───────────────────────────────────────────────────────────
+async function loadCmdLib() {
+  const tbody = document.getElementById('cmdlib-tbody');
+  const data = await api('GET', '/cmd-library');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(s => `
+    <tr>
+      <td style="font-weight:600">${escHtml(s.name)}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td>
+      <td style="display:flex;gap:6px">
+        <button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escHtml(s.cmd)}')">Use</button>
+        <button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escHtml(s.id)}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openCmdLibAdd() {
+  document.getElementById('cmdlib-name').value = '';
+  document.getElementById('cmdlib-cmd').value = '';
+  document.getElementById('cmdlib-desc').value = '';
+  openModal('cmdlib-add-modal');
+}
+
+async function addCmdSnippet() {
+  const name = document.getElementById('cmdlib-name').value.trim();
+  const cmd  = document.getElementById('cmdlib-cmd').value.trim();
+  const desc = document.getElementById('cmdlib-desc').value.trim();
+  if (!name || !cmd) { toast('Name and command required', 'error'); return; }
+  const data = await api('POST', '/cmd-library', {name, cmd, description: desc});
+  if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+async function deleteCmdSnippet(id) {
+  const data = await api('DELETE', '/cmd-library/' + id);
+  if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+function useCmdSnippet(cmd) {
+  // If exec modal is open, paste into it; otherwise open it without a device
+  document.getElementById('exec-cmd').value = cmd;
+  closeModal('cmdlib-add-modal');
+  toast('Command pasted into exec modal', 'info');
+}
+
+// ── QR Code generator (client-side, no dependencies) ─────────────────────────
+function generateQRCode(containerId, text) {
+  // Load qrcode-generator from cdnjs (tiny, MIT licensed)
+  if (window.qrcode) {
+    _renderQR(containerId, text);
+    return;
+  }
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+  script.onload = () => _renderQR(containerId, text);
+  script.onerror = () => {
+    // Fallback: use a public QR API
+    const el = document.getElementById(containerId);
+    if (el) {
+      const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`;
+      el.innerHTML = `<img src="${fallbackUrl}" width="160" height="160" style="display:block" onerror="this.parentElement.innerHTML='<div style=\\'padding:16px;color:#666;font-size:12px;text-align:center\\'>QR unavailable.<br>Enter secret manually.</div>'">`;
+    }
+  };
+  document.head.appendChild(script);
+}
+
+function _renderQR(containerId, text) {
+  const el = document.getElementById(containerId);
+  if (!el || !window.qrcode) return;
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    el.innerHTML = qr.createSvgTag(4, 0);
+    // Style the SVG
+    const svg = el.querySelector('svg');
+    if (svg) {
+      svg.style.display = 'block';
+      svg.style.width = '160px';
+      svg.style.height = '160px';
+    }
+  } catch(e) {
+    el.innerHTML = '<div style="padding:16px;color:#666;font-size:12px;text-align:center">QR generation failed.<br>Enter secret manually.</div>';
+  }
+}
+
+// ── 2FA / TOTP ──────────────────────────────────────────────────────────────────
+async function loadTotpStatus() {
+  const data = await api('GET', '/totp/status');
+  if (!data) return;
+  const statusEl = document.getElementById('totp-status');
+  const setupEl = document.getElementById('totp-setup-area');
+  if (data.enabled) {
+    statusEl.innerHTML = '<span style="color:var(--green);font-weight:600">✓ 2FA is enabled</span>';
+    setupEl.innerHTML = `<button class="btn-secondary" onclick="disableTotp()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Disable 2FA</button>`;
+  } else {
+    statusEl.innerHTML = '<span style="color:var(--muted)">2FA is not enabled</span>';
+    setupEl.innerHTML = `<button class="btn-primary" onclick="setupTotp()" style="max-width:200px">Enable 2FA</button>`;
+  }
+}
+
+async function setupTotp() {
+  const data = await api('POST', '/totp/setup');
+  if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; }
+  const setupEl = document.getElementById('totp-setup-area');
+  // Generate QR code client-side
+  const qrContainerId = 'totp-qr-' + Date.now();
+  setupEl.innerHTML = `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px">
+      <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+        <div id="${qrContainerId}" style="background:#fff;padding:8px;border-radius:8px;flex-shrink:0;min-width:168px;min-height:168px;display:flex;align-items:center;justify-content:center">
+          <span style="color:#999;font-size:12px">Generating…</span>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Scan with your authenticator app</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Or enter manually:</div>
+          <div style="font-family:monospace;font-size:14px;letter-spacing:2px;color:var(--accent);word-break:break-all;background:var(--surface2);padding:10px;border-radius:6px;cursor:pointer"
+            onclick="navigator.clipboard?.writeText('${data.secret}');toast('Secret copied','success')" title="Click to copy">${data.secret}</div>
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Verify — enter a code from your app</label>
+      <input type="text" id="totp-confirm-code" class="form-input" placeholder="123456" maxlength="6"
+        inputmode="numeric" style="max-width:200px;text-align:center;font-size:18px;letter-spacing:4px">
+    </div>
+    <button class="btn-primary" onclick="confirmTotp()" style="max-width:200px">Confirm & Enable</button>
+  `;
+  // Load QR library and render
+  generateQRCode(qrContainerId, data.uri);
+}
+
+async function confirmTotp() {
+  const code = document.getElementById('totp-confirm-code').value.trim();
+  if (!code) { toast('Enter a code', 'error'); return; }
+  const data = await api('POST', '/totp/confirm', {code});
+  if (data?.ok) {
+    toast('2FA enabled!', 'success');
+    loadTotpStatus();
+  } else toast(data?.error || 'Invalid code', 'error');
+}
+
+async function disableTotp() {
+  const pw = prompt('Enter your password to disable 2FA:');
+  if (!pw) return;
+  const data = await api('POST', '/totp/disable', {password: pw});
+  if (data?.ok) {
+    toast('2FA disabled', 'info');
+    loadTotpStatus();
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Device search/filter ──────────────────────────────────────────────────────
+let deviceSearchTerm = '';
+let deviceStatusFilter = 'all';
+let deviceGroupFilter = 'all';
+
+function filterDevices() {
+  deviceSearchTerm = (document.getElementById('device-search-input')?.value || '').toLowerCase();
+  deviceStatusFilter = document.getElementById('device-status-filter')?.value || 'all';
+  deviceGroupFilter = document.getElementById('device-group-filter')?.value || 'all';
+  renderDevices();
+}
+
+// ── Patch Report ─────────────────────────────────────────────────────────────
+let patchReportData = null; // cached full report
+
+async function loadPatchReport() {
+  const tbody = document.getElementById('patch-tbody');
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/patch-report');
+  if (!data) return;
+  patchReportData = data;
+
+  // Populate filter dropdowns
+  const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort();
+  const gSel = document.getElementById('patch-group-filter');
+  const cur = gSel.value;
+  gSel.innerHTML = '<option value="all">All groups</option>' +
+    groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
+  gSel.value = cur;
+
+  const dSel = document.getElementById('patch-device-filter');
+  const curD = dSel.value;
+  dSel.innerHTML = '<option value="all">All devices</option>' +
+    data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join('');
+  dSel.value = curD;
+
+  renderPatchTable();
+}
+
+function getFilteredPatchDevices() {
+  if (!patchReportData) return [];
+  let devs = patchReportData.devices;
+  const gf = document.getElementById('patch-group-filter')?.value || 'all';
+  const df = document.getElementById('patch-device-filter')?.value || 'all';
+  const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase();
+  if (gf !== 'all') devs = devs.filter(d => d.group === gf);
+  if (df !== 'all') devs = devs.filter(d => d.device_id === df);
+  if (search) devs = devs.filter(d =>
+    (d.name||'').toLowerCase().includes(search) ||
+    (d.hostname||'').toLowerCase().includes(search) ||
+    (d.os||'').toLowerCase().includes(search) ||
+    (d.group||'').toLowerCase().includes(search) ||
+    (d.pkg_manager||'').toLowerCase().includes(search) ||
+    (d.tags||[]).some(t => t.toLowerCase().includes(search))
+  );
+  return devs;
+}
+
+function renderPatchTable() {
+  if (!patchReportData) return;
+  const filtered = getFilteredPatchDevices();
+
+  // Recalculate summary for filtered set
+  let total = filtered.length, patched = 0, withPatches = 0, noData = 0, pending = 0;
+  for (const d of filtered) {
+    if (d.patch_status === 'fully_patched') patched++;
+    else if (d.patch_status === 'patches_available') { withPatches++; pending += (d.upgradable || 0); }
+    else noData++;
+  }
+  const onlineWithData = patched + withPatches;
+  const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0;
+
+  document.getElementById('patch-total').textContent = total;
+  document.getElementById('patch-patched').textContent = patched;
+  document.getElementById('patch-pending').textContent = withPatches;
+  document.getElementById('patch-count').textContent = pending;
+  document.getElementById('patch-pct').textContent = pct + '%';
+
+  const tbody = document.getElementById('patch-tbody');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices match the current filter.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(d => {
+    const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
+    const statusLabel = d.patch_status === 'fully_patched' ? 'Patched'
+      : d.patch_status === 'patches_available' ? `${d.upgradable} pending`
+      : (d.online ? 'No data' : 'Offline — No data');
+    const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c =>
+      `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`
+    ).join('');
+    return `<tr>
+      <td style="font-weight:500">${escHtml(d.name)}</td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td>
+      <td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td>
+      <td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td>
+      <td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td>
+      <td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td>
+      <td><span class="patch-badge ${statusCls}">${statusLabel}</span></td>
+      <td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escHtml(d.name)}')">Detail</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function exportPatchFiltered(format) {
+  // Build query string from current filter
+  const gf = document.getElementById('patch-group-filter')?.value || 'all';
+  const df = document.getElementById('patch-device-filter')?.value || 'all';
+
+  // Single device → use per-device endpoint (JSON only, download via blob)
+  if (df !== 'all' && format !== 'csv' && format !== 'xml' && format !== 'pdf') {
+    openDevicePatchReport(df, '');
+    return;
+  }
+
+  let url = `/api/patch-report/${format}`;
+  const params = [];
+  if (gf !== 'all') params.push(`group=${encodeURIComponent(gf)}`);
+  if (df !== 'all') params.push(`device_id=${encodeURIComponent(df)}`);
+  if (params.length) url += '?' + params.join('&');
+
+  fetch(url, {headers: {'X-Token': getToken()}})
+    .then(r => {
+      if (!r.ok) throw new Error('Export failed');
+      return r.blob();
+    })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = u;
+      const suffix = gf !== 'all' ? `-${gf}` : df !== 'all' ? `-device` : '';
+      a.download = `patch-report${suffix}-${new Date().toISOString().slice(0,10)}.${format}`;
+      a.click(); URL.revokeObjectURL(u);
+      toast(`${format.toUpperCase()} downloaded`, 'success');
+    }).catch(() => toast('Export failed', 'error'));
+}
+
+async function openDevicePatchReport(devId, devName) {
+  document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`;
+  document.getElementById('device-patch-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('device-patch-modal');
+  const data = await api('GET', `/patch-report/device/${devId}`);
+  if (!data) return;
+  const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' :
+                      data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)';
+  const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' :
+                      data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data';
+
+  let html = `
+    <div class="sysinfo-row" style="margin-bottom:16px">
+      <div class="sysinfo-pill"><div class="label">Status</div><div class="value" style="color:${statusColor}">${statusLabel}</div></div>
+      <div class="sysinfo-pill"><div class="label">OS</div><div class="value" style="font-size:11px">${escHtml(data.os||'—')}</div></div>
+      <div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div>
+      <div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div>
+      <div class="sysinfo-pill"><div class="label">Online</div><div class="value" style="color:${data.online?'var(--green)':'var(--red)'}">${data.online?'Yes':'No'}</div></div>
+    </div>`;
+
+  if (data.uptime) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Uptime: ${escHtml(data.uptime)}</div>`;
+  if (data.group) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`;
+
+  // Patch command history
+  html += '<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Patch Command History</div>';
+  if (data.patch_history && data.patch_history.length) {
+    html += data.patch_history.slice().reverse().map(o => `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code>
+          <span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span>
+        </div>
+        <div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div>
+      </div>`).join('');
+  } else {
+    html += '<div style="color:var(--muted);font-size:13px;padding:12px">No patch commands recorded yet.</div>';
+  }
+
+  document.getElementById('device-patch-body').innerHTML = html;
+}
+
+// ── Audit Log ────────────────────────────────────────────────────────────────
+async function loadAuditLog() {
+  const tbody = document.getElementById('audit-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/audit-log');
+  if (!data || !data.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.map(e => `
+    <tr>
+      <td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+      <td style="font-weight:500">${escHtml(e.actor)}</td>
+      <td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td>
+      <td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td>
+    </tr>`).join('');
+}
+
+async function revokeAllSessions() {
+  if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return;
+  const data = await api('POST', '/sessions/revoke', {});
+  if (data?.ok) {
+    toast(`${data.revoked} sessions revoked — logging out`, 'success');
+    setTimeout(doLogout, 1500);
+  } else toast(data?.error || 'Failed', 'error');
+}
+
+async function clearAuditLog() {
+  if (!confirm('Clear the entire audit log? This cannot be undone.')) return;
+  const data = await api('DELETE', '/audit-log');
+  if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Notification API ─────────────────────────────────────────────────────────
+let notificationsEnabled = false;
+
+function requestNotifications() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') { notificationsEnabled = true; return; }
+  if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => { notificationsEnabled = (p === 'granted'); });
+  }
+}
+
+function sendNotification(title, body) {
+  if (!notificationsEnabled) return;
+  try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) {}
+}
+
+// Track device status changes for browser notifications
+let previousDeviceStates = {};
+
+function checkDeviceNotifications(newDevices) {
+  if (!notificationsEnabled) return;
+  for (const d of newDevices) {
+    const prev = previousDeviceStates[d.id];
+    if (prev !== undefined && prev !== d.online) {
+      sendNotification(
+        `RemotePower: ${d.name}`,
+        d.online ? 'Device came online' : 'Device went offline'
+      );
+    }
+    previousDeviceStates[d.id] = d.online;
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('login-totp').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('login-user').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('login-pass').focus();
+  });
+  checkAuth();
+});
 </script>
 </body>
 </html>
+
