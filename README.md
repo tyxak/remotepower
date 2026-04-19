@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://kernel.org)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
