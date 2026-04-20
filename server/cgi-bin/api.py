@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend — v1.4.1
+RemotePower API backend - v1.5.1
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.5.0'
+SERVER_VERSION = '1.5.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'

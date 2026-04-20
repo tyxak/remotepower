@@ -1,0 +1,22 @@
+services:
+  remotepower:
+    build: .
+    # Or use a published image:
+    # image: tyxak/remotepower:1.5.1
+    container_name: remotepower
+    ports:
+      - "8080:8080"
+    environment:
+      - RP_ADMIN_USER=admin
+      - RP_ADMIN_PASS=changeme          # Change this! Only used on first run.
+    volumes:
+      - remotepower_data:/var/lib/remotepower
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  remotepower_data:

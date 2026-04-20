@@ -4,16 +4,17 @@
 
 ![RemotePower Dashboard](docs/screenshots/Dash_1_4_1.png)
 
-**Remote device management over HTTPS — no open inbound firewall ports on clients required.**
+**Remote device management over HTTPS - no open inbound firewall ports on clients required.**
 
 ![Patch Report](docs/screenshots/PatchReport.png)
 ![Device Search & Filter](docs/screenshots/SearchFilter.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)](https://kernel.org)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](https://kernel.org)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -21,9 +22,9 @@
 
 ## What is RemotePower?
 
-RemotePower is a self-hosted web dashboard for remotely managing Linux machines on your network. It works by having a lightweight agent on each client machine that **polls** the server — meaning clients only make outbound connections. No inbound firewall rules needed on the clients.
+RemotePower is a self-hosted web dashboard for remotely managing Linux machines on your network. It works by having a lightweight agent on each client machine that **polls** the server - meaning clients only make outbound connections. No inbound firewall rules needed on the clients.
 
-Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): generate a PIN in the dashboard, run the client installer, enter the PIN — done.
+Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): generate a PIN in the dashboard, run the client installer, enter the PIN - done.
 
 ---
 
@@ -75,7 +76,7 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 ## Architecture
 
 ```
-Browser ──HTTPS──► Nginx (your server)
+Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       │
                       ├─ /              → Dashboard (HTML/CSS/JS, no framework)
                       ├─ /api/*         → Python CGI backend (via fcgiwrap)
@@ -97,7 +98,7 @@ Browser ──HTTPS──► Nginx (your server)
                               ├── cmd_library.json      # saved command snippets
                               └── longpoll.json         # pending long-poll slots
 
-Client machine (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
+Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
   └─ systemd: remotepower-agent.service
        └─ Python daemon
             └─ POST /api/heartbeat every N seconds (configurable, default 60)
@@ -105,6 +106,15 @@ Client machine (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
                  ├─ sends sysinfo + journal every 10th poll (~10 min)
                  ├─ sends patch count every 180th poll (~3 hr)
                  └─ sends cpu/mem/disk metrics (if psutil installed)
+
+Windows client (Windows 10/11, Server 2019+)
+  └─ NSSM service: RemotePowerAgent
+       └─ Python script (remotepower-agent.py)
+            └─ Same heartbeat protocol as Linux agent
+                 ├─ shutdown/reboot via shutdown.exe /s /r
+                 ├─ patch info via Windows Update COM API
+                 ├─ journal via wevtutil (System event log)
+                 └─ metrics via psutil (optional)
 ```
 
 ---
@@ -133,7 +143,7 @@ sudo bash install-server.sh
 
 **In the dashboard:**
 1. Open `https://your-server/` → log in
-2. Click **+ Enroll device** — a 6-digit PIN appears (valid 10 min)
+2. Click **+ Enroll device** - a 6-digit PIN appears (valid 10 min)
 
 **On the client machine:**
 ```bash
@@ -142,6 +152,94 @@ sudo bash install-client.sh
 ```
 
 The device appears in the dashboard within 60 seconds.
+
+---
+
+## Quick Start (Docker)
+
+```bash
+git clone https://github.com/tyxak/remotepower
+cd remotepower
+
+# Edit docker-compose.yml to set RP_ADMIN_PASS
+docker compose up -d
+```
+
+The dashboard is available at `http://your-server:8080/`. Put a reverse proxy (Caddy, Traefik, nginx) in front for HTTPS.
+
+Data is stored in the `remotepower_data` Docker volume. To back up:
+
+```bash
+docker compose exec remotepower tar czf - /var/lib/remotepower > backup.tar.gz
+```
+
+To update:
+
+```bash
+git pull origin main
+docker compose build
+docker compose up -d
+```
+
+---
+
+## Windows Client
+
+The Windows agent uses the same heartbeat protocol as the Linux agent. It requires Python 3.8+ and runs as a Windows Service via [NSSM](https://nssm.cc).
+
+### Install (PowerShell)
+
+```powershell
+# Run as Administrator
+powershell -ExecutionPolicy Bypass -File install-client.ps1
+```
+
+The installer will:
+1. Check for Python 3.8+
+2. Install `psutil` for metrics (optional)
+3. Run the enrollment wizard
+4. Download NSSM and install the agent as a Windows Service
+
+### Manual install
+
+```powershell
+# Copy agent
+mkdir "$env:ProgramFiles\RemotePower"
+copy client\remotepower-agent.py "$env:ProgramFiles\RemotePower\"
+
+# Enroll
+python "$env:ProgramFiles\RemotePower\remotepower-agent.py" enroll
+
+# Run in foreground (for testing)
+python "$env:ProgramFiles\RemotePower\remotepower-agent.py" run
+```
+
+### Windows agent commands
+
+```powershell
+python remotepower-agent.py status        # Show enrollment info
+python remotepower-agent.py enroll        # Enroll interactively
+python remotepower-agent.py re-enroll     # Re-enroll preserving history
+python remotepower-agent.py integrity     # Verify binary SHA-256 vs server
+python remotepower-agent.py run           # Run in foreground
+
+# Service management (if installed via NSSM)
+Get-Service RemotePowerAgent
+Restart-Service RemotePowerAgent
+Get-Content "$env:ProgramData\RemotePower\agent.log" -Tail 50 -Wait
+```
+
+### Windows-specific behavior
+
+| Feature | Linux | Windows |
+|---------|-------|---------|
+| Shutdown | `systemctl poweroff` | `shutdown /s /t 30` |
+| Reboot | `systemctl reboot` | `shutdown /r /t 30` |
+| Patch info | apt/dnf/pacman | Windows Update COM API |
+| Journal | journalctl | wevtutil (System event log) |
+| Service | systemd | NSSM |
+| Self-update | Automatic | Manual (logged when available) |
+| Config path | `/etc/remotepower/` | `%ProgramData%\RemotePower\` |
 
 ---
 
@@ -163,10 +261,10 @@ Clients self-update automatically within ~1 hour, or push from the dashboard wit
 Assign a namespace to a device via the group button (👥) on the device card. Groups like `dc1/prod`, `homelab`, `office` cause the device grid to sort and visually group by namespace. Batch commands (`device_ids`, `tag`, or `group` field) can target an entire group at once.
 
 ### Device Notes
-Click the 📄 button on any device card to add free-text notes. Notes are shown as a tooltip on the device name. Useful for documenting quirks: "NAS in basement — WoL unreliable", "kids' PC — check before rebooting".
+Click the 📄 button on any device card to add free-text notes. Notes are shown as a tooltip on the device name. Useful for documenting quirks: "NAS in basement - WoL unreliable", "kids' PC - check before rebooting".
 
 ### Batch Commands
-Click the device icon (top-left of a card) to select it — it turns into a checkmark. A batch action bar appears above the grid with Shut down all / Reboot all / Update all. The API also accepts `tag:` or `group:` targets directly:
+Click the device icon (top-left of a card) to select it - it turns into a checkmark. A batch action bar appears above the grid with Shut down all / Reboot all / Update all. The API also accepts `tag:` or `group:` targets directly:
 
 ```bash
 curl -X POST https://your-server/api/reboot \
@@ -187,7 +285,7 @@ In the Schedule tab, leave the datetime blank and fill in a cron expression inst
 One-shot jobs are removed after firing. Recurring jobs stay.
 
 ### Command Library
-Save frequently-used commands in the Library page. When you open the exec modal (>_ button on a device card), a dropdown lets you pick from your saved snippets — no retyping.
+Save frequently-used commands in the Library page. When you open the exec modal (>_ button on a device card), a dropdown lets you pick from your saved snippets - no retyping.
 
 ### Command Allowlist
 For higher-security devices, lock down which commands can be run via exec. Click the 🔒 button on a device card, enter one command per line. When the list is non-empty, only those exact commands are accepted; all others return 403.
@@ -203,7 +301,7 @@ sudo systemctl restart remotepower-agent
 The server stores up to 1440 snapshots (~24 h at 60 s intervals) in `metrics.json`. Click the 📈 button on a device card to see sparkline charts.
 
 ### Adjustable Poll Interval
-Click the ⏱ button on a device card to change how often the agent checks in (10–3600 s). The new interval is queued as a `poll_interval:<n>` command and applied on the agent's next heartbeat — no restart needed.
+Click the ⏱ button on a device card to change how often the agent checks in (10–3600 s). The new interval is queued as a `poll_interval:<n>` command and applied on the agent's next heartbeat - no restart needed.
 
 ### API Keys
 Go to API Keys (nav) and create a named key. Keys are non-expiring and use the same `X-Token` header as session tokens. Assign `admin` for full access or `viewer` for read-only. Use them in scripts:
@@ -227,7 +325,7 @@ Verify the running agent binary matches the server's known-good hash:
 
 ```bash
 sudo remotepower-agent integrity
-# ✓ OK — ok
+# ✓ OK - ok
 # or: ✗ MISMATCH: local=abc123… server=def456…
 ```
 
@@ -263,7 +361,7 @@ curl -X POST https://your-server/api/exec/wait \
 The connection stays open until the agent delivers the output (up to `timeout` seconds). On timeout, falls back to a `timeout: true` response; poll `/api/devices/:id/output` for the result.
 
 ### Wake-on-LAN
-MAC is reported at enroll time. Sends unicast to the device's last known IP — works over routed networks and VPNs without broadcast forwarding.
+MAC is reported at enroll time. Sends unicast to the device's last known IP - works over routed networks and VPNs without broadcast forwarding.
 
 ### Offline Webhook Events
 
@@ -311,9 +409,9 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 ### Enrollment & Heartbeat
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/login` | — | Login, returns session token |
+| `POST` | `/api/login` | - | Login, returns session token |
 | `POST` | `/api/enroll/pin` | admin | Generate enrollment PIN |
-| `POST` | `/api/enroll/register` | — | Register device with PIN (pass `device_id` for re-enroll) |
+| `POST` | `/api/enroll/register` | - | Register device with PIN (pass `device_id` for re-enroll) |
 | `POST` | `/api/heartbeat` | device | Client keepalive + fetch commands |
 
 ### Schedule
@@ -357,7 +455,7 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `GET` | `/api/history` | ✓ | Command history log |
 | `GET` | `/api/config` | ✓ | Get config |
 | `POST` | `/api/config` | admin | Save config |
-| `GET` | `/api/agent/version` | — | Agent version + SHA-256 |
+| `GET` | `/api/agent/version` | - | Agent version + SHA-256 |
 | `GET` | `/api/version` | ✓ | Server version + GitHub check |
 | `GET` | `/api/export` | admin | Download ZIP backup |
 | `GET` | `/api/digest` | ✓ | Summary (total, online, patches, recent cmds) |
@@ -434,14 +532,14 @@ sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/
 ## Security Notes
 
 - Use HTTPS for anything internet-facing
-- Session tokens expire after 7 days; API keys do not expire — rotate them if compromised
+- Session tokens expire after 7 days; API keys do not expire - rotate them if compromised
 - Enrollment PINs are single-use, expire after 10 minutes
 - Device tokens are 256-bit random secrets
 - Passwords stored as **bcrypt** (cost 12); SHA-256 hashes auto-upgraded on next login
 - Webhook URL stored server-side only, never returned to the browser
-- Custom commands run as root — use the per-device command allowlist for untrusted operators
+- Custom commands run as root - use the per-device command allowlist for untrusted operators
 - Viewer role users cannot queue commands, change config, or access API keys
-- `apikeys.json` is owned by `www-data` mode `700` — protect your server
+- `apikeys.json` is owned by `www-data` mode `700` - protect your server
 
 ---
 
@@ -508,7 +606,7 @@ sudo systemctl restart fcgiwrap nginx
 ```
 
 **Long-poll exec times out immediately**
-- Check `fastcgi_read_timeout` in your Nginx config — must be ≥ 130 s
+- Check `fastcgi_read_timeout` in your Nginx config - must be ≥ 130 s
 - The CGI process holds the connection; fcgiwrap must not be configured with a process limit that kills long-running requests
 
 **Metrics not appearing**
@@ -548,17 +646,25 @@ remotepower/
 ├── README.md
 ├── CHANGELOG.md
 ├── LICENSE
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
 ├── install-server.sh
-├── install-client.sh
+├── install-client.sh              # Linux client installer
+├── install-client.ps1             # Windows client installer
 ├── deploy-server.sh
+├── docker/
+│   ├── nginx-docker.conf          # Nginx config for Docker
+│   └── entrypoint.sh              # Docker entrypoint
 ├── server/
-│   ├── html/index.html         # Dashboard (vanilla HTML/CSS/JS, no framework)
-│   ├── cgi-bin/api.py          # REST API (Python 3, CGI via fcgiwrap)
-│   ├── conf/remotepower.conf   # Nginx site config
-│   └── remotepower-passwd      # User management utility
+│   ├── html/index.html            # Dashboard (vanilla HTML/CSS/JS, no framework)
+│   ├── cgi-bin/api.py             # REST API (Python 3, CGI via fcgiwrap)
+│   ├── conf/remotepower.conf      # Nginx site config
+│   └── remotepower-passwd         # User management utility
 ├── client/
-│   ├── remotepower-agent           # Polling daemon (Python 3)
-│   └── remotepower-agent.service   # systemd unit
+│   ├── remotepower-agent          # Linux polling daemon (Python 3)
+│   ├── remotepower-agent.py       # Windows polling daemon (Python 3)
+│   └── remotepower-agent.service  # systemd unit (Linux)
 ├── tests/
 │   ├── test_api.py
 │   └── test_agent.py
@@ -570,6 +676,6 @@ remotepower/
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT - see [LICENSE](LICENSE)
 
 <div align="center"><sub>Made with ☕ and vi</sub></div>

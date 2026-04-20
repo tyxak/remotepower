@@ -1,0 +1,10 @@
+.git
+.github
+docs/screenshots
+tests
+*.tar.gz
+*.md
+!README.md
+LICENSE
+CODE_OF_CONDUCT.md
+CHANGES.md
