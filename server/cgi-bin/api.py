@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.5.1
+RemotePower API backend - v1.6.0
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.5.1'
+SERVER_VERSION = '1.6.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -41,6 +41,7 @@ APIKEYS_FILE     = DATA_DIR / 'apikeys.json'
 RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
+WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 
 TOKEN_TTL  = 86400 * 7
 PIN_TTL    = 600
@@ -54,6 +55,7 @@ MAX_METRICS       = 1440
 MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
 MAX_AUDIT_LOG     = 500
+MAX_WEBHOOK_LOG   = 100
 
 # ── Login brute-force protection ───────────────────────────────────────────────
 LOGIN_FAIL_WINDOW  = 300   # 5-minute rolling window
@@ -445,6 +447,24 @@ def audit_log(actor, action, detail='', source_ip=None):
     save(AUDIT_LOG_FILE, al)
 
 # ── Webhook ────────────────────────────────────────────────────────────────────
+def _log_webhook(event, url, status, detail=''):
+    """Append an entry to the webhook log (last MAX_WEBHOOK_LOG entries)."""
+    try:
+        wl = load(WEBHOOK_LOG_FILE)
+        entries = wl.get('entries', [])
+        entries.append({
+            'ts':     int(time.time()),
+            'event':  str(event)[:64],
+            'url':    str(url)[:256],
+            'status': str(status)[:16],
+            'detail': str(detail)[:512],
+        })
+        wl['entries'] = entries[-MAX_WEBHOOK_LOG:]
+        save(WEBHOOK_LOG_FILE, wl)
+    except Exception:
+        pass
+
+
 def fire_webhook(event, payload):
     cfg = load(CONFIG_FILE)
     url = cfg.get('webhook_url', '').strip()
@@ -453,27 +473,165 @@ def fire_webhook(event, payload):
     # Validate URL scheme before firing
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
+        _log_webhook(event, url, 'error', 'invalid scheme (must be http or https)')
         return
     # Sanitize payload values before sending
     safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v) for k, v in payload.items()}
-    body = json.dumps({'event': str(event)[:64], 'ts': int(time.time()), **safe_payload}).encode()
-    req = urllib.request.Request(
-        url, data=body,
-        headers={'Content-Type': 'application/json', 'User-Agent': 'RemotePower/2'},
-        method='POST',
-    )
+
+    # Build human-readable title + message for push services
+    titles = {
+        'device_offline': 'Device Offline',
+        'device_online':  'Device Online',
+        'command_queued':  'Command Queued',
+        'command_executed': 'Command Executed',
+        'patch_alert':     'Patch Alert',
+        'monitor_down':    'Monitor Down',
+        'monitor_up':      'Monitor Recovered',
+        'test':            'Webhook Test',
+    }
+    title = titles.get(event, f'RemotePower: {event}')
+    message = _webhook_message(event, safe_payload)
+    priority = _webhook_priority(event)
+
+    # ── Auto-detect service and build appropriate payload ─────────────────
+    host = parsed.hostname or ''
+
+    if 'discord.com' in host or 'discordapp.com' in host:
+        # Discord expects { content: "..." } or { embeds: [...] }
+        colors = {
+            'device_offline': 0xEF4444, 'device_online': 0x22C55E,
+            'monitor_down': 0xEF4444, 'monitor_up': 0x22C55E,
+            'patch_alert': 0xF59E0B, 'command_queued': 0x3B7EFF,
+            'command_executed': 0x3B7EFF, 'test': 0x7C3AED,
+        }
+        body = json.dumps({
+            'username': 'RemotePower',
+            'embeds': [{
+                'title': title,
+                'description': message,
+                'color': colors.get(event, 0x3B7EFF),
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                'footer': {'text': f'RemotePower {SERVER_VERSION}'},
+            }],
+        }).encode()
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': f'RemotePower/{SERVER_VERSION}',
+        }
+
+    elif 'hooks.slack.com' in host:
+        # Slack expects { text: "..." } or { blocks: [...] }
+        body = json.dumps({
+            'text': f'*{title}*\n{message}',
+        }).encode()
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': f'RemotePower/{SERVER_VERSION}',
+        }
+
+    else:
+        # Generic / Ntfy / Gotify — JSON body + push-friendly headers
+        body = json.dumps({
+            'event': str(event)[:64],
+            'ts': int(time.time()),
+            'title': title,
+            'message': message,
+            'priority': priority,
+            **safe_payload,
+        }).encode()
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': f'RemotePower/{SERVER_VERSION}',
+            # Ntfy / Gotify / Pushover compatible headers
+            'X-Title': title,
+            'X-Priority': str(priority),
+            'X-Tags': _webhook_tags(event),
+        }
+
+    req = urllib.request.Request(url, data=body, headers=headers, method='POST')
     try:
-        urllib.request.urlopen(req, timeout=5)
+        ctx = None
+        if parsed.scheme == 'https':
+            ctx = _get_ssl_context()
+        resp = urllib.request.urlopen(req, timeout=10, context=ctx)
+        _log_webhook(event, url, resp.status, f'OK ({resp.status})')
+    except urllib.error.HTTPError as e:
+        _log_webhook(event, url, e.code, f'HTTP {e.code}: {str(e.reason)[:200]}')
+    except urllib.error.URLError as e:
+        _log_webhook(event, url, 'error', f'URLError: {str(e.reason)[:200]}')
+    except Exception as e:
+        _log_webhook(event, url, 'error', f'{type(e).__name__}: {str(e)[:200]}')
+
+
+def _webhook_message(event, payload):
+    """Build a human-readable message string for push notifications."""
+    name = payload.get('name', payload.get('device_id', 'unknown'))
+    if event == 'device_offline':
+        return f'{name} went offline (last seen: {_ts_fmt(payload.get("last_seen", 0))})'
+    elif event == 'device_online':
+        return f'{name} is back online'
+    elif event == 'command_queued':
+        return f'{payload.get("actor", "system")} queued "{payload.get("command", "?")}" on {name}'
+    elif event == 'command_executed':
+        return f'{name} executed "{payload.get("command", "?")}"'
+    elif event == 'patch_alert':
+        return f'{name} has {payload.get("upgradable", "?")} pending updates (threshold: {payload.get("threshold", "?")})'
+    elif event == 'monitor_down':
+        return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) is DOWN — {payload.get("detail", "")}'
+    elif event == 'monitor_up':
+        return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) recovered'
+    elif event == 'test':
+        return f'This is a test notification from RemotePower ({payload.get("server_version", "?")}). If you see this, webhooks are working!'
+    return f'{event}: {name}'
+
+
+def _webhook_priority(event):
+    """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
+    if event in ('device_offline', 'monitor_down', 'patch_alert'):
+        return 4
+    if event in ('device_online', 'monitor_up'):
+        return 3
+    return 3
+
+
+def _webhook_tags(event):
+    """Return emoji tags for Ntfy-style push services."""
+    tags = {
+        'device_offline': 'red_circle,computer',
+        'device_online':  'green_circle,computer',
+        'command_queued':  'arrow_forward',
+        'command_executed': 'white_check_mark',
+        'patch_alert':     'warning,package',
+        'monitor_down':    'red_circle,satellite',
+        'monitor_up':      'green_circle,satellite',
+        'test':            'white_check_mark,bell',
+    }
+    return tags.get(event, 'bell')
+
+
+def _ts_fmt(ts):
+    """Format a unix timestamp to human-readable string."""
+    if not ts:
+        return 'never'
+    try:
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(ts)))
     except Exception:
-        pass
+        return str(ts)
+
 
 def check_offline_webhooks():
+    cfg = load(CONFIG_FILE)
+    # Skip if offline webhooks are disabled
+    if not cfg.get('offline_webhook_enabled', True):
+        return
     devices = load(DEVICES_FILE)
     now = int(time.time())
-    cfg = load(CONFIG_FILE)
     notified = cfg.get('offline_notified', {})
     changed = False
     for dev_id, dev in devices.items():
+        # Skip devices that have monitoring disabled
+        if not dev.get('monitored', True):
+            continue
         last = dev.get('last_seen', 0)
         is_offline = (now - last) > ONLINE_TTL
         already = notified.get(dev_id, False)
@@ -592,6 +750,7 @@ def handle_devices_list():
             'os': dev.get('os', ''), 'ip': dev.get('ip', ''), 'mac': dev.get('mac', ''),
             'version': dev.get('version', ''), 'tags': dev.get('tags', []),
             'group': dev.get('group', ''), 'notes': dev.get('notes', ''),
+            'icon': dev.get('icon', ''), 'monitored': dev.get('monitored', True),
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60), 'sysinfo': dev.get('sysinfo', {}),
@@ -690,6 +849,45 @@ def handle_device_poll_interval(dev_id):
     save(CMDS_FILE, cmds)
     save(DEVICES_FILE, devices)
     respond(200, {'ok': True, 'poll_interval': interval})
+
+
+def handle_device_icon(dev_id):
+    require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    icon = _sanitize_str(get_json_body().get('icon', ''), 32)
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['icon'] = icon
+    save(DEVICES_FILE, devices)
+    respond(200, {'ok': True, 'icon': icon})
+
+
+def handle_device_monitored(dev_id):
+    require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    monitored = bool(body.get('monitored', True))
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['monitored'] = monitored
+    save(DEVICES_FILE, devices)
+    # If disabling monitoring, clear any pending offline notification
+    if not monitored:
+        cfg = load(CONFIG_FILE)
+        notified = cfg.get('offline_notified', {})
+        if dev_id in notified:
+            del notified[dev_id]
+            cfg['offline_notified'] = notified
+            save(CONFIG_FILE, cfg)
+    respond(200, {'ok': True, 'monitored': monitored})
 
 
 def handle_enroll_pin():
@@ -1066,12 +1264,34 @@ def handle_monitor_run():
                         'ok': ok, 'detail': detail, 'checked': int(time.time())})
     try:
         mh = load(MON_HIST_FILE)
+        cfg = load(CONFIG_FILE)
+        mon_notified = cfg.get('monitor_notified', {})
+        mon_webhook_on = cfg.get('monitor_webhook_enabled', True)
+        mon_changed = False
         for r in results:
             key = r['label']
             if key not in mh: mh[key] = []
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
+            # Fire webhook on monitor state change
+            if mon_webhook_on:
+                was_down = mon_notified.get(key, False)
+                if not r['ok'] and not was_down:
+                    fire_webhook('monitor_down', {
+                        'label': r['label'], 'type': r['type'],
+                        'target': r['target'], 'detail': r['detail'],
+                    })
+                    mon_notified[key] = True; mon_changed = True
+                elif r['ok'] and was_down:
+                    fire_webhook('monitor_up', {
+                        'label': r['label'], 'type': r['type'],
+                        'target': r['target'], 'detail': r['detail'],
+                    })
+                    mon_notified[key] = False; mon_changed = True
         save(MON_HIST_FILE, mh)
+        if mon_changed:
+            cfg['monitor_notified'] = mon_notified
+            save(CONFIG_FILE, cfg)
     except Exception:
         pass
     respond(200, {'monitors': results})
@@ -1090,9 +1310,12 @@ def handle_config_get():
     require_auth()
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
-            if k not in ('webhook_url', 'offline_notified', 'patch_alerted',
+            if k not in ('offline_notified', 'patch_alerted', 'monitor_notified',
                          '_github_latest_version', '_github_latest_ts')}
     safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
+    safe.setdefault('offline_webhook_enabled', True)
+    safe.setdefault('monitor_webhook_enabled', True)
+    safe.setdefault('monitor_interval', 300)
     respond(200, safe)
 
 
@@ -1109,6 +1332,12 @@ def handle_config_save():
                 respond(400, {'error': 'webhook_url must be http or https'})
         cfg['webhook_url'] = url
 
+    if 'offline_webhook_enabled' in body:
+        cfg['offline_webhook_enabled'] = bool(body['offline_webhook_enabled'])
+
+    if 'monitor_webhook_enabled' in body:
+        cfg['monitor_webhook_enabled'] = bool(body['monitor_webhook_enabled'])
+
     if 'wol_broadcast' in body:
         cfg['wol_broadcast'] = _sanitize_ip(body['wol_broadcast']) or '255.255.255.255'
 
@@ -1122,12 +1351,17 @@ def handle_config_save():
             respond(400, {'error': 'wol_port must be an integer'})
 
     if 'patch_alert_threshold' in body:
-        try:
-            t = int(body['patch_alert_threshold'])
-            if t < 1: respond(400, {'error': 'patch_alert_threshold must be >= 1'})
-            cfg['patch_alert_threshold'] = t
-        except (ValueError, TypeError):
-            respond(400, {'error': 'patch_alert_threshold must be an integer'})
+        val = body['patch_alert_threshold']
+        if val is None or val == '' or val == 0:
+            cfg.pop('patch_alert_threshold', None)
+            cfg.pop('patch_alerted', None)
+        else:
+            try:
+                t = int(val)
+                if t < 1: respond(400, {'error': 'patch_alert_threshold must be >= 1'})
+                cfg['patch_alert_threshold'] = t
+            except (ValueError, TypeError):
+                respond(400, {'error': 'patch_alert_threshold must be an integer'})
 
     if 'monitors' in body and isinstance(body['monitors'], list):
         validated = []
@@ -1150,6 +1384,14 @@ def handle_config_save():
 
     if 'allow_internal_monitors' in body:
         cfg['allow_internal_monitors'] = bool(body['allow_internal_monitors'])
+
+    if 'monitor_interval' in body:
+        try:
+            mi = int(body['monitor_interval'])
+            mi = max(60, min(3600, mi))
+            cfg['monitor_interval'] = mi
+        except (ValueError, TypeError):
+            respond(400, {'error': 'monitor_interval must be an integer (60–3600)'})
 
     save(CONFIG_FILE, cfg)
     respond(200, {'ok': True})
@@ -2037,6 +2279,54 @@ def handle_audit_log_clear():
     respond(200, {'ok': True})
 
 
+def handle_webhook_test():
+    """Send a test webhook to verify the URL is working."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE)
+    url = cfg.get('webhook_url', '').strip()
+    if not url:
+        respond(400, {'error': 'No webhook URL configured — set one in Settings first'})
+    fire_webhook('test', {
+        'server_version': SERVER_VERSION,
+        'triggered_by': actor,
+    })
+    audit_log(actor, 'webhook_test', f'test webhook fired to {url[:80]}')
+    # Return the most recent log entry so the UI can show success/failure
+    wl = load(WEBHOOK_LOG_FILE)
+    entries = wl.get('entries', [])
+    last = entries[-1] if entries else None
+    respond(200, {'ok': True, 'result': last})
+
+
+def handle_webhook_log():
+    """Return the webhook delivery log."""
+    require_admin_auth()
+    wl = load(WEBHOOK_LOG_FILE)
+    respond(200, list(reversed(wl.get('entries', []))))
+
+
+def handle_webhook_log_clear():
+    """Clear the webhook delivery log."""
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    save(WEBHOOK_LOG_FILE, {'entries': []})
+    audit_log(actor, 'clear_webhook_log', 'webhook log cleared')
+    respond(200, {'ok': True})
+
+
+def handle_monitor_alerts_clear():
+    """Reset monitor alert state so alerts can re-fire."""
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE)
+    cfg['monitor_notified'] = {}
+    cfg['offline_notified'] = {}
+    save(CONFIG_FILE, cfg)
+    audit_log(actor, 'clear_monitor_alerts', 'monitor alert state reset')
+    respond(200, {'ok': True})
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def main():
     try: check_offline_webhooks()
@@ -2050,7 +2340,8 @@ def main():
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
-                                     '/output','/metrics','/allowlist','/poll_interval')):
+                                     '/output','/metrics','/allowlist','/poll_interval',
+                                     '/icon','/monitored')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
@@ -2060,6 +2351,10 @@ def main():
         handle_device_group(pi[len('/api/devices/'):-len('/group')])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
+        handle_device_icon(pi[len('/api/devices/'):-len('/icon')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH':
+        handle_device_monitored(pi[len('/api/devices/'):-len('/monitored')])
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
     elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
@@ -2121,6 +2416,10 @@ def main():
     elif pi == '/api/patch-report/xml' and m == 'GET': handle_patch_report_xml()
     elif pi == '/api/audit-log' and m == 'GET': handle_audit_log()
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
+    elif pi == '/api/webhook/test' and m == 'POST': handle_webhook_test()
+    elif pi == '/api/webhook/log' and m == 'GET': handle_webhook_log()
+    elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
+    elif pi == '/api/monitor/alerts/clear' and m == 'DELETE': handle_monitor_alerts_clear()
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
     else: respond(404, {'error': 'Not found'})
 

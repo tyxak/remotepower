@@ -1,5 +1,62 @@
 # Changelog
 
+## v1.6.0 - 2026-04-21
+
+### New features
+
+**Webhook overhaul**
+- Webhook URL is now visible and editable in the Settings UI (previously hidden after save)
+- Webhook payloads now include `title`, `message`, and `priority` fields for human-readable push notifications
+- Push-compatible headers added: `X-Title`, `X-Priority`, `X-Tags` — works out of the box with Ntfy, Gotify, Pushover, Slack, and Discord
+- Per-event emoji tags for Ntfy (`X-Tags` header) — e.g. `red_circle,computer` for offline, `warning,package` for patch alerts
+- Per-event priority levels (3=normal, 4=high) for push services
+- `User-Agent` header now includes server version (`RemotePower/1.6.0`)
+
+**Monitor webhook alerts**
+- New `monitor_down` event fires when a monitor target goes from up to down
+- New `monitor_up` event fires when a monitor target recovers
+- State-change tracking prevents duplicate alerts (only fires on transitions)
+- Toggle on/off via Settings checkbox ("Monitor alerts")
+
+**Offline webhook toggle**
+- New toggle in Settings to enable/disable device offline/online webhook alerts
+- Allows keeping the webhook URL configured for other events (patch alerts, commands, monitors) while disabling offline noise
+
+**Patch alert improvements**
+- Threshold can now be cleared (set to 0 or empty) to disable patch alerts via the UI
+- Clearing the threshold also resets tracked alert state
+
+### Changed
+
+- `GET /api/config` now returns `webhook_url`, `offline_webhook_enabled`, and `monitor_webhook_enabled` (webhook URL was previously hidden from the API response)
+- `POST /api/config` accepts `offline_webhook_enabled` (bool) and `monitor_webhook_enabled` (bool)
+- `POST /api/config` accepts `patch_alert_threshold: 0` or `null` to clear the threshold
+- Settings UI reorganised: "Webhooks" section replaces "Offline Webhook", with toggles and visible URL
+- All version strings bumped to 1.6.0 (server, Linux agent, Windows agent, Dockerfile, docker-compose, README badge)
+- Webhook `fire_webhook()` rewritten with richer payloads and push headers
+
+### Config keys added
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `offline_webhook_enabled` | bool | `true` | Enable/disable device offline/online webhook alerts |
+| `monitor_webhook_enabled` | bool | `true` | Enable/disable monitor up/down webhook alerts |
+| `monitor_notified` | object | `{}` | Internal state tracking for monitor alert deduplication |
+
+### Webhook events
+
+| Event | Priority | When |
+|-------|----------|------|
+| `device_offline` | 4 (high) | Device misses heartbeats beyond ONLINE_TTL |
+| `device_online` | 3 | Device comes back online |
+| `monitor_down` | 4 (high) | Monitor target transitions from up to down |
+| `monitor_up` | 3 | Monitor target recovers |
+| `patch_alert` | 4 (high) | Device exceeds pending update threshold |
+| `command_queued` | 3 | Command queued for a device |
+| `command_executed` | 3 | Device reports command execution |
+
+---
+
 ## v1.5.1 - 2026-04-20
 
 ### New features

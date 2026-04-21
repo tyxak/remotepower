@@ -2,19 +2,16 @@
 
 <div align="center">
 
-![RemotePower Dashboard](docs/screenshots/Dash_1_4_1.png)
+![RemotePower Dashboard](docs/screenshots/Index.png)
 
 **Remote device management over HTTPS - no open inbound firewall ports on clients required.**
-
-![Patch Report](docs/screenshots/PatchReport.png)
-![Device Search & Filter](docs/screenshots/SearchFilter.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](https://kernel.org)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
