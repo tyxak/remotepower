@@ -1009,7 +1009,7 @@
       <div id="page-schedule" class="page">
         <div class="page-title">Scheduled Commands</div><div class="page-subtitle">Queue shutdown or reboot at a specific time</div>
         <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" onclick="openScheduleAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add job</button></div>
-        <div class="table-card"><tr><thead><tr><th>Device</th><th>Command</th><th>Scheduled for</th><th>By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead><tr><th>Device</th><th>Command</th><th>Scheduled for</th><th>By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── About page (unchanged) ───────────────────────────────────────── -->
@@ -1040,7 +1040,7 @@
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
         <div style="display:flex;gap:10px;margin-bottom:20px"><button class="btn-icon" onclick="loadAuditLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button><button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button></div>
-        <div class="table-card"><tr><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th><th>Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th><th>Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
       <div id="page-cmdlib" class="page">
