@@ -1,5 +1,27 @@
 # Changelog
  
+## v1.6.0 — 2026-04-21
+ 
+### New features
+- Webhook URL visible and editable in Settings UI — no longer hidden after save
+- Webhook payloads include `title`, `message`, `priority` for push-friendly notifications
+- Push headers (`X-Title`, `X-Priority`, `X-Tags`) for Ntfy, Gotify, Pushover compatibility
+- Monitor webhook alerts — `monitor_down` / `monitor_up` events on state change
+- Toggle on/off for device offline/online webhook alerts in Settings
+- Toggle on/off for monitor webhook alerts in Settings
+- Patch alert threshold can be cleared (set to 0 or empty) to disable
+- Clear webhook URL button in Settings UI
+### Changed
+- `GET /api/config` now returns `webhook_url` (was hidden), `offline_webhook_enabled`, `monitor_webhook_enabled`
+- Settings page reorganised: "Webhooks" section with toggles replaces "Offline Webhook"
+- `fire_webhook()` rewritten with richer payloads, human-readable messages, and push headers
+- All version strings bumped to 1.6.0
+### New config keys
+- `offline_webhook_enabled` (bool, default: true) — toggle offline/online alerts
+- `monitor_webhook_enabled` (bool, default: true) — toggle monitor alerts
+- `monitor_notified` (internal) — state tracking for monitor alert deduplication
+---
+ 
 ## v1.3.0 — 2026-04-16
  
 ### New features

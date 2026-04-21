@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-remotepower-agent  —  Client-side daemon for RemotePower v1.5.0
+remotepower-agent  -  Client-side daemon for RemotePower v1.6.0
 Polls the RemotePower server at a configurable interval (default 60s).
 On first run (or if not enrolled), prompts for server URL + PIN and registers.
 
@@ -27,7 +27,7 @@ from urllib import request, error
 CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.5.0'
+VERSION      = '1.6.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -35,7 +35,7 @@ SYSINFO_EVERY      = 10
 PATCH_EVERY        = 180
 UPDATE_CHECK_EVERY = 60
 
-# Metrics collection requires psutil (optional — gracefully skipped if absent)
+# Metrics collection requires psutil (optional - gracefully skipped if absent)
 try:
     import psutil as _psutil
     _PSUTIL = True
@@ -56,7 +56,7 @@ import ssl as _ssl
 
 # ─── SSL context ────────────────────────────────────────────────────────────────
 def _make_ssl_context():
-    """Return a strict SSL context — certificate verification always on."""
+    """Return a strict SSL context - certificate verification always on."""
     ctx = _ssl.create_default_context()
     ctx.verify_mode = _ssl.CERT_REQUIRED
     ctx.check_hostname = True
@@ -423,7 +423,7 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         except error.HTTPError as e:
             if e.code == 403:
-                log.error("Credentials rejected — re-enroll: sudo remotepower-agent enroll")
+                log.error("Credentials rejected - re-enroll: sudo remotepower-agent enroll")
             else:
                 log.warning(f"HTTP {e.code}")
         except Exception as e:
@@ -482,7 +482,7 @@ def main():
         if not creds: print("Not enrolled."); sys.exit(1)
         ok, detail = get_agent_integrity(creds['server_url'])
         status = "✓ OK" if ok else "✗ MISMATCH"
-        print(f"Agent integrity: {status} — {detail}")
+        print(f"Agent integrity: {status} - {detail}")
         sys.exit(0 if ok else 1)
 
     creds = load_credentials()
