@@ -85,6 +85,57 @@
   }
   .btn-update:hover { background: rgba(34,197,94,0.2); border-color: var(--green); }
   .btn-update svg { width: 14px; height: 14px; }
+  .btn-upgrade {
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-upgrade:hover { background: rgba(124,58,237,0.2); border-color: var(--purple); }
+  .btn-upgrade svg { width: 14px; height: 14px; }
+  .btn-shutdown {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--red);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-shutdown:hover { background: rgba(239,68,68,0.2); border-color: var(--red); }
+  .btn-shutdown svg { width: 14px; height: 14px; }
+  .btn-reboot {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-reboot:hover { background: rgba(245,158,11,0.2); border-color: var(--amber); }
+  .btn-reboot svg { width: 14px; height: 14px; }
   .cmd-badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px;
     font-size: 11px; font-weight: 600; font-family: monospace;
@@ -583,6 +634,14 @@
   .device-dropdown.active .dropdown-content {
     display: block;
   }
+  /* When a dropdown is active, lift its parent device card above sibling cards
+     so the open menu isn't pierced by other cards' ... buttons */
+  .device-dropdown.active {
+    z-index: 9999;
+  }
+  .device-card:has(.device-dropdown.active) {
+    z-index: 9999;
+  }
 
   .empty-state {
     text-align: center;
@@ -935,13 +994,18 @@
 
         <div id="batch-bar" class="batch-bar">
           <span style="font-size:13px;color:var(--accent);font-weight:600"><span id="batch-count">0</span> selected</span>
-          <button class="btn-shutdown" style="flex:none;padding:7px 14px" onclick="batchAction('shutdown')">
+          <button class="btn-shutdown" onclick="batchAction('shutdown')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down all
           </button>
-          <button class="btn-reboot" style="padding:7px 14px" onclick="batchAction('reboot')">
+          <button class="btn-reboot" onclick="batchAction('reboot')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot all
           </button>
-          <button class="btn-update" onclick="batchAction('update')">Update all</button>
+          <button class="btn-upgrade" onclick="batchAction('upgrade')" title="Upgrade packages via apt / dnf / pacman on each device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg> Upgrade packages
+          </button>
+          <button class="btn-update" onclick="batchAction('update')" title="Update the RemotePower agent binary on each device">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8"/><polyline points="8 6 12 2 16 6"/><path d="M20 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6"/></svg> Update agent
+          </button>
           <button class="btn-secondary" style="padding:7px 14px" onclick="clearSelection()">Clear</button>
         </div>
         <!-- Search / filter bar -->
@@ -1365,7 +1429,7 @@ let selectedDevices = new Set();
 function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
 function clearSelection() { selectedDevices.clear(); updateBatchBar(); renderDevices(); }
 function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
-async function batchAction(command) { if (!selectedDevices.size) return; const verb = command === 'shutdown' ? 'Shut down' : command === 'reboot' ? 'Reboot' : 'Update'; if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const ep = command === 'update' ? '/update-device' : `/${command}`; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { toast(`${verb} queued for ${selectedDevices.size} devices`, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
+async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
 async function saveNotes() { const id = document.getElementById('notes-device-id').value; const notes = document.getElementById('notes-input').value; const r = await api('PATCH', '/devices/' + id + '/notes', {notes}); if (r?.ok) { toast('Notes saved', 'success'); closeModal('notes-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 function openGroupModal(id, current) { document.getElementById('group-device-id').value = id; document.getElementById('group-input').value = current || ''; openModal('group-modal'); }
