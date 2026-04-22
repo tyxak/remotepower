@@ -2,7 +2,7 @@ services:
   remotepower:
     build: .
     # Or use a published image:
-    # image: tyxak/remotepower:1.6.0
+    # image: tyxak/remotepower:1.6.3
     container_name: remotepower
     ports:
       - "8080:8080"

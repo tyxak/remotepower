@@ -18,7 +18,10 @@ StandardError=journal
 User=root
 # ProtectSystem=strict  # Disabled: needs to write to /etc/remotepower/credentials
 PrivateTmp=yes
-NoNewPrivileges=yes
+# NoNewPrivileges=yes   # Disabled: breaks apt's seteuid transition to _apt (uid 105)
+#                       # during exec: package-manager commands. The agent runs as
+#                       # root to execute admin tasks, so this hardening is mostly
+#                       # cosmetic anyway.
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

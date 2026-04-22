@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.6.0
+RemotePower API backend - v1.6.3
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.6.0'
+SERVER_VERSION = '1.6.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -1169,6 +1169,74 @@ def handle_update_device():
     if not ids: respond(400, {'error': 'No valid device targets'})
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
+
+
+# Single self-detecting upgrade command. Runs on the device and picks
+# apt-get / dnf / pacman at execution time, so it works even on freshly
+# restarted agents that haven't sent a sysinfo poll yet (patch info is
+# only collected every PATCH_EVERY polls = ~3h after agent restart, so
+# relying on the server-side sysinfo cache was fragile).
+#
+# For apt: writes a one-line apt config to a tempfile and exports APT_CONFIG,
+# so every apt-get call in the chain inherits APT::Sandbox::User=root and
+# skips the seteuid(_apt) drop that fails under systemd hardening.
+_UPGRADE_CMD = (
+    'set -e; '
+    'if command -v apt-get >/dev/null 2>&1; then '
+    '  APT_CONFIG=$(mktemp); '
+    '  trap "rm -f $APT_CONFIG" EXIT; '
+    '  printf \'APT::Sandbox::User "root";\\n'
+    'Dpkg::Options:: "--force-confdef";\\n'
+    'Dpkg::Options:: "--force-confold";\\n\' > "$APT_CONFIG"; '
+    '  export APT_CONFIG DEBIAN_FRONTEND=noninteractive; '
+    '  apt-get update && apt-get -y upgrade && apt-get -y autoremove && apt-get clean; '
+    'elif command -v dnf >/dev/null 2>&1; then '
+    '  dnf -y upgrade; '
+    'elif command -v pacman >/dev/null 2>&1; then '
+    '  pacman -Syu --noconfirm; '
+    'else '
+    '  echo "No supported package manager (apt-get/dnf/pacman) found" >&2; '
+    '  exit 2; '
+    'fi'
+)
+
+
+def handle_upgrade_device():
+    """
+    Queue an OS package-manager upgrade (apt/dnf/pacman) per device.
+    The command self-detects the package manager at runtime on each device,
+    so it works even before the agent has sent its first sysinfo poll.
+    Output arrives on the next heartbeat via the existing exec: channel.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body(); ids = _resolve_targets(body)
+    if not ids: respond(400, {'error': 'No valid device targets'})
+
+    devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
+    queued_str = f'exec:{_UPGRADE_CMD}'
+    for dev_id in ids:
+        if not _validate_id(dev_id):
+            results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+        dev = devices.get(dev_id)
+        if not dev:
+            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+        if dev_id not in cmds:
+            cmds[dev_id] = []
+        if queued_str not in cmds[dev_id]:
+            cmds[dev_id].append(queued_str)
+        log_command(actor, dev_id, dev.get('name', dev_id), 'upgrade packages')
+        fire_webhook('command_queued', {
+            'device_id': dev_id, 'name': dev.get('name', dev_id),
+            'command': 'upgrade packages', 'actor': actor,
+        })
+        results[dev_id] = {'ok': True}
+    save(CMDS_FILE, cmds)
+    if len(ids) == 1:
+        r = results[ids[0]]
+        if r.get('ok'): respond(200, {'ok': True})
+        else:           respond(400, {'error': r.get('error', 'Failed')})
+    respond(200, {'ok': True, 'results': results})
 
 
 def handle_wol():
@@ -2367,6 +2435,7 @@ def main():
     elif pi == '/api/shutdown': handle_shutdown()
     elif pi == '/api/reboot': handle_reboot()
     elif pi == '/api/update-device': handle_update_device()
+    elif pi == '/api/upgrade-device': handle_upgrade_device()
     elif pi == '/api/wol': handle_wol()
     elif pi == '/api/monitor' and m == 'GET': handle_monitor_run()
     elif pi == '/api/config' and m == 'GET': handle_config_get()

@@ -1,4 +1,102 @@
 # Changelog
+
+## v1.6.3 — 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" rejected freshly-restarted devices with
+  `Unknown or unreported package manager: none`. Root cause: the server
+  looked up `sysinfo.packages.manager` on the device record, but `packages`
+  is only populated after a patch-info poll — which runs every `PATCH_EVERY`
+  (180) polls, i.e. roughly 3 hours after agent restart. On any device that
+  had been restarted recently (every Debian box the 1.6.1 service-file fix
+  was deployed to) the upgrade button was effectively broken.
+
+  The dispatcher no longer relies on server-side sysinfo at all. It now
+  queues a single self-detecting shell snippet that runs `command -v
+  apt-get` / `dnf` / `pacman` on the device at execution time and picks
+  the right one. This also simplifies the server code — one command, no
+  per-device dispatch, no stale-cache failure modes.
+
+### Changed
+- `POST /api/upgrade-device` response no longer includes the `manager`
+  field (the server doesn't know in advance anymore). The queued exec
+  output — visible on the next heartbeat — still shows which manager ran.
+- All version strings bumped to 1.6.3.
+
+### Note on custom `apt` commands
+The Custom Command dialog runs whatever string you type verbatim. If you
+manually type `apt update && apt upgrade -y …` on a box that still has
+`NoNewPrivileges=yes` in its agent service file, you'll still see the
+`seteuid 105 failed` error — that's expected, and the fix is to deploy
+the 1.6.1 service file and do `systemctl daemon-reload && systemctl
+restart remotepower-agent` on that host. The bulk "Upgrade packages"
+button works around this automatically via the APT_CONFIG override;
+custom commands don't, by design.
+---
+ 
+## v1.6.2 — 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" still failed on Debian/Ubuntu with
+  `E: seteuid 105 failed - seteuid (1: Operation not permitted)` because the
+  `-o APT::Sandbox::User=root` flag was only applied to `apt-get upgrade`.
+  But `apt-get update` is the call that actually opens network sockets and
+  drops to the `_apt` user — so under systemd hardening (`NoNewPrivileges=yes`,
+  restricted cgroups, user namespaces), `apt-get update` returned rc=100 and
+  short-circuited the `&&` chain before upgrade ever ran.
+
+  The fix writes a one-line apt config to a tempfile, points `APT_CONFIG` at
+  it, and exports that env var for the whole chain. Every `apt-get` call in
+  the chain (`update`, `upgrade`, `autoremove`, `clean`) now inherits
+  `APT::Sandbox::User "root"` plus the `Dpkg::Options` conffile handling, and
+  a `trap` cleans up the tempfile even if any step fails.
+
+  **Server-only fix** — agents don't need to be restarted to pick this up,
+  since the command is constructed server-side and dispatched via the
+  existing `exec:` channel. Just redeploy the server.
+
+### Changed
+- All version strings bumped to 1.6.2.
+---
+ 
+## v1.6.1 — 2026-04-22
+
+### Fixed
+- Bulk-action icons in the selection bar rendered as oversized default-styled
+  buttons — `.btn-shutdown` and `.btn-reboot` had no CSS defined, so SVGs were
+  unconstrained. Added matching red/amber/purple button styles with proper 14px
+  SVG sizing so the batch bar visually matches the rest of the UI.
+- Device "…" dropdown menu was pierced by sibling cards' menu buttons due to
+  each `.device-card` sharing a stacking context with `z-index: 20`. The open
+  dropdown's parent card is now lifted via `:has(.device-dropdown.active)` plus
+  an explicit `z-index: 9999` on the active dropdown wrapper as a fallback.
+- Agent `exec:` commands running apt failed with
+  `seteuid 105 failed - seteuid (1: Operation not permitted)` because
+  `NoNewPrivileges=yes` in `remotepower-agent.service` blocked apt's drop to
+  the `_apt` user. Removed the directive — the agent runs as root by design,
+  so this hardening was cosmetic. Defence-in-depth added in the new upgrade
+  path via `-o APT::Sandbox::User=root`.
+
+### New features
+- Bulk "Upgrade packages" action — select multiple devices and run apt/dnf/
+  pacman upgrade across all of them in one click. Server dispatches the right
+  command per device based on the package manager reported in sysinfo:
+  - apt:    `apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get clean`
+            (with `APT::Sandbox::User=root` and non-interactive dpkg conffile handling)
+  - dnf:    `dnf -y upgrade`
+  - pacman: `pacman -Syu --noconfirm`
+  Output arrives on the next heartbeat (~60s) via the existing `exec:` pipe.
+- "Update all" button renamed to "Update agent" with a clarifying tooltip so
+  it isn't confused with package upgrades.
+
+### New API
+- `POST /api/upgrade-device` — body `{device_ids: [...]}` or `{device_id: "..."}`.
+  Returns per-device results including the detected package manager, or an
+  error if the manager is unknown/unreported.
+
+### Changed
+- All version strings bumped to 1.6.1.
+---
  
 ## v1.6.0 — 2026-04-21
  
