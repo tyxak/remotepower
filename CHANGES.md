@@ -1,5 +1,102 @@
 # Changelog
 
+## v1.7.0 — 2026-04-23
+
+### Added
+
+**CVE Scanner** — automatic vulnerability scanning against installed packages
+using the free [OSV.dev](https://osv.dev) database. No API key required.
+
+- New agent function `get_package_list()` enumerates installed packages via
+  `dpkg-query` / `rpm` / `pacman` / `apk`. Submitted to the server every 6
+  hours (or whenever the package set changes) via a new `/api/packages`
+  endpoint. Hash-gated — resubmits only when the list actually changes.
+- New server module `cve_scanner.py` queries OSV's `/v1/querybatch` (up to
+  500 packages per request) and hydrates vulnerability details on first
+  encounter. Details cached for 7 days in `cve_details_cache.json`.
+- Severity normalized to `critical` / `high` / `medium` / `low` / `unknown`
+  from ecosystem-specific labels (Debian/RedHat style) with CVSS base-score
+  fallback.
+- New "CVEs" page in the dashboard: aggregate severity counts across the
+  fleet, per-device breakdown, per-vulnerability drill-down with links to
+  upstream advisories and fixed-version information when available.
+- Ignore list: mark a CVE as accepted risk either globally or for a specific
+  device. Ignored entries are excluded from counts and webhook alerts but
+  remain visible (dimmed) in the per-device view.
+- New webhook event `cve_found` fires when new critical/high vulnerabilities
+  appear in a scan that weren't present in the previous scan (respects the
+  ignore list). Priority 5 (urgent) with `rotating_light,shield` tags.
+- Supported ecosystems: Debian, Ubuntu, Rocky Linux, AlmaLinux, Red Hat,
+  Alpine, Arch Linux. Fedora is not reliably covered by OSV and is flagged
+  as `unsupported`.
+- New config key `cve_webhook_enabled` (default `true`).
+
+**Prometheus `/metrics` endpoint** — standard text exposition at
+`GET /api/metrics`, authenticated via session token or API key. Prometheus's
+native `bearer_token` scrape config works unchanged.
+
+Metric families exposed:
+- `remotepower_info{version}` — server version
+- `remotepower_devices_total` / `remotepower_devices_online`
+- `remotepower_device_online{device,name,group,os}` — 1/0 per device
+- `remotepower_device_last_seen_timestamp_seconds{...}`
+- `remotepower_device_cpu_percent{...}` / `_mem_percent{...}` / `_disk_percent{...}`
+- `remotepower_device_upgradable_packages{...,manager}`
+- `remotepower_device_cve_findings{...,severity}`
+- `remotepower_monitor_up{label,type,target}`
+- `remotepower_monitor_last_check_timestamp_seconds{...}`
+- `remotepower_commands_pending_total`
+- `remotepower_scheduled_jobs_total`
+- `remotepower_webhook_deliveries_total{status}`
+- `remotepower_webhook_log_size`
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST   | `/api/packages` | Agent submits installed package list (device-auth) |
+| POST   | `/api/cve/scan` | Admin triggers CVE scan for one or all devices |
+| GET    | `/api/cve/findings` | Aggregate CVE report across all devices |
+| GET    | `/api/devices/{id}/cve` | Per-device CVE findings |
+| GET    | `/api/cve/ignore` | List all active ignore entries |
+| POST   | `/api/cve/ignore` | Mark a CVE as accepted risk |
+| DELETE | `/api/cve/ignore/{vuln_id}` | Remove an ignore |
+| GET    | `/api/metrics` | Prometheus scrape endpoint |
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `packages.json` | Per-device installed package list + hash + collected timestamp |
+| `cve_findings.json` | Per-device scan results |
+| `cve_ignore.json` | Global/per-device CVE ignore list |
+| `cve_details_cache.json` | OSV vulnerability detail cache (7-day TTL) |
+
+### Agent changes
+
+- Bumped agent version to 1.7.0 (Linux + Windows)
+- New constants: `PACKAGE_LIST_EVERY = 360`, `MAX_PACKAGES_SEND = 10000`
+- New functions (Linux): `get_os_release()`, `get_package_list()`,
+  `send_package_list()` + three hash-cache helpers
+- New sidecar file `/etc/remotepower/pkg_hash` stores the hash of the last
+  submitted package list so subsequent polls can skip resubmission when
+  nothing changed
+- Windows agent gets the version bump but no package enumeration (OSV
+  doesn't cover Windows app ecosystems well; Windows devices show as
+  `unsupported` in the CVE UI)
+
+### Changed
+
+- All version strings bumped to 1.7.0
+- `_webhook_message()`, `_webhook_priority()`, `_webhook_tags()` extended
+  for the new `cve_found` event
+- `GET /api/config` now returns `cve_webhook_enabled`
+- `POST /api/config` accepts `cve_webhook_enabled` (bool)
+- DELETE guard on `/api/devices/<id>` updated to exclude the new `/cve`
+  subresource path
+
+---
+
 ## v1.6.3 — 2026-04-22
 
 ### Fixed

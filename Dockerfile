@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 LABEL maintainer="tyxak"
 LABEL description="RemotePower - Self-hosted remote device management"
-LABEL version="1.6.3"
+LABEL version="1.7.0"
 
 # Install nginx, fcgiwrap and runtime deps
 RUN apt-get update -qq && \

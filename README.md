@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.6.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -66,6 +66,8 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | 🛡️ **Agent integrity** | `integrity` subcommand compares binary SHA-256 vs server |
 | 📊 **Digest endpoint** | `/api/digest` for cron-driven email summaries |
 | ⚡ **Long-poll exec** | `/api/exec/wait` holds connection open until output arrives |
+| 🛡️ **CVE scanner** | Installed packages checked against OSV.dev; severity-ranked per-device findings with fixed-version hints; ignore list for accepted risk |
+| 📊 **Prometheus metrics** | `/api/metrics` endpoint in standard text exposition format for Grafana/Prometheus scraping |
 | ℹ️ **About page** | Server version, agent version, GitHub release check |
 
 ---

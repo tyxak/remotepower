@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.7.0 - 2026-04-23
+
+### New features
+
+**CVE Scanner (via OSV.dev)**
+- New "CVEs" page in the dashboard showing aggregate severity counts (critical/high/medium/low) across the fleet, per-device breakdown, and per-vulnerability drill-down
+- Agent enumerates installed packages (`dpkg-query` / `rpm` / `pacman` / `apk`) every 6 hours and submits via new `/api/packages` endpoint; hash-gated so it only resubmits when the package list actually changes
+- Server queries OSV.dev's batch endpoint (up to 500 packages per request) and caches vulnerability details for 7 days
+- Supported ecosystems: Debian, Ubuntu, Rocky Linux, AlmaLinux, Red Hat, Alpine, Arch Linux
+- Fixed-version information shown in the drill-down when OSV provides it
+- Ignore list: mark a CVE as accepted risk globally or for a specific device; ignored findings are excluded from counts and alerts but remain visible (dimmed)
+- New webhook event `cve_found` fires (priority 5 — urgent) when new critical/high CVEs appear that weren't in the previous scan
+
+**Prometheus `/metrics` endpoint**
+- Standard Prometheus text exposition at `GET /api/metrics`
+- Auth via session token or API key — Prometheus's native `bearer_token` scrape config works unchanged
+- Device count, online state, cpu/mem/disk percentages, upgradable package counts, CVE findings by severity, monitor state, command queue depth, webhook delivery counters
+
+### New endpoints
+
+- `POST /api/packages` — agent submits installed package list (device-authenticated)
+- `POST /api/cve/scan` — admin triggers CVE scan (one device or all)
+- `GET  /api/cve/findings` — aggregate CVE report
+- `GET  /api/devices/{id}/cve` — per-device CVE findings
+- `GET  /api/cve/ignore` — list active ignore entries
+- `POST /api/cve/ignore` — mark a CVE as accepted risk
+- `DELETE /api/cve/ignore/{vuln_id}` — remove an ignore
+- `GET  /api/metrics` — Prometheus scrape endpoint
+
+### Changed
+
+- All version strings bumped to 1.7.0 (server, Linux agent, Windows agent)
+- Linux agent gains `PACKAGE_LIST_EVERY = 360` and `MAX_PACKAGES_SEND = 10000` constants
+- Linux agent gains six new functions (`get_os_release`, `get_package_list`, `send_package_list`, three hash-cache helpers) + a sidecar file `/etc/remotepower/pkg_hash`
+- Webhook event helpers extended for `cve_found`
+
+### Config keys added
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `cve_webhook_enabled` | bool | `true` | Whether to fire `cve_found` webhooks on new critical/high findings |
+
+### New data files
+
+- `packages.json` — per-device installed package list + hash
+- `cve_findings.json` — per-device scan results
+- `cve_ignore.json` — global/per-device CVE ignore list
+- `cve_details_cache.json` — OSV vulnerability detail cache (7-day TTL)
+
+### Notes
+
+- Fedora is not reliably covered by OSV and is marked `unsupported`. Extend `cve_scanner.detect_ecosystem()` to add custom mappings.
+- First-time CVE scan on a heavy Debian host can take 30–60 seconds while per-vulnerability details are hydrated; subsequent scans hit the cache and are near-instant.
+- Windows agents submit no package data (OSV ecosystems don't cover Windows well). Windows devices show as `unsupported` in the CVE UI.
+- Package list submission is bandwidth-efficient: ~120 KB per device per change event, zero bytes when nothing changed (hash-gated client-side).
+
+---
+
 ## v1.6.0 - 2026-04-21
 
 ### New features

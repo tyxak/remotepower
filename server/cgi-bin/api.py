@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.6.3
+RemotePower API backend - v1.7.0
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.6.3'
+SERVER_VERSION = '1.7.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -43,6 +43,20 @@ AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 
+# ── v1.7.0: CVE scanner + package inventory ────────────────────────────────────
+PACKAGES_FILE       = DATA_DIR / 'packages.json'
+CVE_FINDINGS_FILE   = DATA_DIR / 'cve_findings.json'
+CVE_IGNORE_FILE     = DATA_DIR / 'cve_ignore.json'
+
+MAX_PACKAGE_LIST    = 10000      # hard cap on packages per device payload
+CVE_SCAN_MAX_AGE    = 86400      # auto-scan if findings older than this
+CVE_ALERT_SEVERITY  = ('critical', 'high')  # which severities fire webhooks
+
+# Sibling modules — must live in the same cgi-bin directory
+sys.path.insert(0, str(Path(__file__).parent))
+import cve_scanner
+import prometheus_export
+
 TOKEN_TTL  = 86400 * 7
 PIN_TTL    = 600
 ONLINE_TTL = 180
@@ -63,7 +77,7 @@ LOGIN_FAIL_MAX     = 10    # lock after this many failures
 LOGIN_LOCKOUT_TIME = 600   # 10-minute lockout
 
 # ── Input size limits ──────────────────────────────────────────────────────────
-MAX_BODY_BYTES    = 65536   # 64 KB hard cap on any request body
+MAX_BODY_BYTES    = 50 * 1024 * 1024  # 50 MB# 64 KB hard cap on any request body
 MAX_HOSTNAME_LEN  = 253
 MAX_NAME_LEN      = 64
 MAX_OS_LEN        = 128
@@ -576,6 +590,9 @@ def _webhook_message(event, payload):
         return f'{name} executed "{payload.get("command", "?")}"'
     elif event == 'patch_alert':
         return f'{name} has {payload.get("upgradable", "?")} pending updates (threshold: {payload.get("threshold", "?")})'
+    elif event == 'cve_found':
+        sev_summary = f'{payload.get("critical", 0)} critical, {payload.get("high", 0)} high'
+        return f'{name}: {payload.get("count", "?")} new CVEs ({sev_summary})'
     elif event == 'monitor_down':
         return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) is DOWN — {payload.get("detail", "")}'
     elif event == 'monitor_up':
@@ -587,6 +604,8 @@ def _webhook_message(event, payload):
 
 def _webhook_priority(event):
     """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
+    if event == 'cve_found':
+        return 5
     if event in ('device_offline', 'monitor_down', 'patch_alert'):
         return 4
     if event in ('device_online', 'monitor_up'):
@@ -602,6 +621,7 @@ def _webhook_tags(event):
         'command_queued':  'arrow_forward',
         'command_executed': 'white_check_mark',
         'patch_alert':     'warning,package',
+        'cve_found':       'rotating_light,shield',
         'monitor_down':    'red_circle,satellite',
         'monitor_up':      'green_circle,satellite',
         'test':            'white_check_mark,bell',
@@ -1383,6 +1403,7 @@ def handle_config_get():
     safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
     safe.setdefault('offline_webhook_enabled', True)
     safe.setdefault('monitor_webhook_enabled', True)
+    safe.setdefault('cve_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
     respond(200, safe)
 
@@ -1405,6 +1426,9 @@ def handle_config_save():
 
     if 'monitor_webhook_enabled' in body:
         cfg['monitor_webhook_enabled'] = bool(body['monitor_webhook_enabled'])
+
+    if 'cve_webhook_enabled' in body:
+        cfg['cve_webhook_enabled'] = bool(body['cve_webhook_enabled'])
 
     if 'wol_broadcast' in body:
         cfg['wol_broadcast'] = _sanitize_ip(body['wol_broadcast']) or '255.255.255.255'
@@ -2395,6 +2419,383 @@ def handle_monitor_alerts_clear():
     respond(200, {'ok': True})
 
 
+# ─── v1.7.0: CVE scanner + package inventory ──────────────────────────────────
+
+def _sanitize_package_entry(entry):
+    """Sanitize one {name,version,arch} dict from agent payload."""
+    if not isinstance(entry, dict):
+        return None
+    name = _sanitize_str(entry.get('name', ''), 128, allow_empty=False)
+    version = _sanitize_str(entry.get('version', ''), 64, allow_empty=False)
+    arch = _sanitize_str(entry.get('arch', ''), 16)
+    if not name or not version:
+        return None
+    # Package names / versions are alphanum + common punctuation
+    if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,127}$', name):
+        return None
+    if not re.match(r'^[A-Za-z0-9][A-Za-z0-9._+\-:~]{0,63}$', version):
+        return None
+    return {'name': name, 'version': version, 'arch': arch}
+
+
+def handle_packages_submit():
+    """POST /api/packages — agent submits its installed package list."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body()
+    dev_id    = str(body.get('device_id', '')).strip()
+    dev_token = str(body.get('token', '')).strip()
+    if not _validate_id(dev_id):
+        respond(403, {'error': 'Unauthorized device'})
+
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+        respond(403, {'error': 'Unauthorized device'})
+
+    raw_pkgs = body.get('packages') or []
+    if not isinstance(raw_pkgs, list):
+        respond(400, {'error': 'packages must be a list'})
+    if len(raw_pkgs) > MAX_PACKAGE_LIST:
+        raw_pkgs = raw_pkgs[:MAX_PACKAGE_LIST]
+
+    packages = []
+    for entry in raw_pkgs:
+        safe = _sanitize_package_entry(entry)
+        if safe:
+            packages.append(safe)
+
+    pkg_manager = _sanitize_str(body.get('pkg_manager', ''), 16)
+    hint = body.get('ecosystem_hint') or {}
+    safe_hint = {
+        'ID':         _sanitize_str(hint.get('ID', ''), 32),
+        'VERSION_ID': _sanitize_str(hint.get('VERSION_ID', ''), 16),
+        'ID_LIKE':    _sanitize_str(hint.get('ID_LIKE', ''), 64),
+    }
+
+    ecosystem = cve_scanner.detect_ecosystem(safe_hint, pkg_manager)
+
+    store = load(PACKAGES_FILE)
+    new_hash = cve_scanner.packages_hash(packages)
+    existing = store.get(dev_id, {})
+    store[dev_id] = {
+        'hash':         new_hash,
+        'collected_at': int(time.time()),
+        'ecosystem':    ecosystem or '',
+        'pkg_manager':  pkg_manager,
+        'count':        len(packages),
+        'packages':     packages,
+    }
+    save(PACKAGES_FILE, store)
+
+    changed = existing.get('hash') != new_hash
+    respond(200, {
+        'ok':              True,
+        'ecosystem':       ecosystem or 'unsupported',
+        'packages_stored': len(packages),
+        'changed':         changed,
+        'scan_suggested':  changed and bool(ecosystem),
+    })
+
+
+def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
+    """Fire webhook if new critical/high CVEs appeared since last scan."""
+    cfg = load(CONFIG_FILE)
+    if not cfg.get('cve_webhook_enabled', True):
+        return
+
+    ignore_data = load(CVE_IGNORE_FILE)
+    prev_ids = {f['vuln_id'] for f in previous}
+
+    new_critical_high = []
+    for f in current:
+        if f['vuln_id'] in prev_ids:
+            continue
+        if f.get('severity') not in CVE_ALERT_SEVERITY:
+            continue
+        ig = ignore_data.get(f['vuln_id'])
+        if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
+            continue
+        new_critical_high.append(f)
+
+    if not new_critical_high:
+        return
+
+    dev = devices.get(dev_id, {})
+    fire_webhook('cve_found', {
+        'device_id':  dev_id,
+        'name':       dev.get('name', dev_id),
+        'count':      len(new_critical_high),
+        'critical':   sum(1 for f in new_critical_high if f['severity'] == 'critical'),
+        'high':       sum(1 for f in new_critical_high if f['severity'] == 'high'),
+        'sample':     [{'id': f['vuln_id'], 'pkg': f['package'], 'sev': f['severity']}
+                       for f in new_critical_high[:5]],
+    })
+
+
+def handle_cve_scan():
+    """POST /api/cve/scan — admin triggers scan for one or all devices."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    target = body.get('device_id')
+    if target is not None:
+        target = str(target).strip()
+        if not _validate_id(target):
+            respond(400, {'error': 'Invalid device_id'})
+
+    store = load(PACKAGES_FILE)
+    findings_all = load(CVE_FINDINGS_FILE)
+    devices = load(DEVICES_FILE)
+
+    scanned = []
+    skipped = []
+    errors  = []
+
+    targets = [target] if target else list(store.keys())
+
+    for dev_id in targets:
+        entry = store.get(dev_id)
+        if not entry:
+            skipped.append({'device_id': dev_id, 'reason': 'no package list submitted yet'})
+            continue
+        ecosystem = entry.get('ecosystem') or ''
+        if not ecosystem:
+            skipped.append({'device_id': dev_id, 'reason': 'unsupported ecosystem'})
+            continue
+
+        result = cve_scanner.scan_device(
+            dev_id,
+            entry.get('packages') or [],
+            ecosystem,
+            DATA_DIR,
+        )
+
+        if result.get('error') and not result.get('findings'):
+            errors.append({'device_id': dev_id, 'error': result['error']})
+            continue
+
+        previous = findings_all.get(dev_id, {}).get('findings') or []
+        findings_all[dev_id] = result
+        _detect_new_cve_and_fire_webhook(dev_id, devices, previous, result.get('findings') or [])
+        scanned.append({'device_id': dev_id, 'findings': len(result.get('findings') or [])})
+
+    save(CVE_FINDINGS_FILE, findings_all)
+    audit_log(actor, 'cve_scan',
+              detail=f'scanned={len(scanned)} skipped={len(skipped)} errors={len(errors)}')
+    respond(200, {'scanned': scanned, 'skipped': skipped, 'errors': errors})
+
+
+def handle_cve_findings():
+    """GET /api/cve/findings — aggregate CVE report across all devices."""
+    require_auth()
+    findings_all = load(CVE_FINDINGS_FILE)
+    ignore_data  = load(CVE_IGNORE_FILE)
+    pkg_store    = load(PACKAGES_FILE)
+    devices      = load(DEVICES_FILE)
+    now = int(time.time())
+
+    report = {
+        'generated_at': now,
+        'devices':      [],
+        'summary':      {'critical': 0, 'high': 0, 'medium': 0, 'low': 0,
+                         'unknown':  0, 'ignored':  0, 'devices_scanned': 0,
+                         'devices_with_findings': 0,
+                         'devices_unsupported': 0},
+    }
+
+    for dev_id, dev in devices.items():
+        pkg_entry = pkg_store.get(dev_id) or {}
+        ecosystem = pkg_entry.get('ecosystem', '')
+        f_entry = findings_all.get(dev_id) or {}
+        findings = f_entry.get('findings') or []
+        summary = cve_scanner.summarize_findings(
+            findings,
+            {k for k, v in ignore_data.items()
+             if v.get('scope') == 'global' or v.get('scope') == dev_id}
+        )
+        status = 'scanned'
+        if not pkg_entry:
+            status = 'no_packages'
+        elif not ecosystem:
+            status = 'unsupported'
+            report['summary']['devices_unsupported'] += 1
+        elif not f_entry:
+            status = 'not_scanned'
+
+        if f_entry:
+            report['summary']['devices_scanned'] += 1
+            if sum(summary[k] for k in ('critical', 'high', 'medium', 'low')) > 0:
+                report['summary']['devices_with_findings'] += 1
+            for k in ('critical', 'high', 'medium', 'low', 'unknown', 'ignored'):
+                report['summary'][k] += summary[k]
+
+        report['devices'].append({
+            'device_id':   dev_id,
+            'name':        dev.get('name', dev_id),
+            'group':       dev.get('group', ''),
+            'os':          dev.get('os', ''),
+            'ecosystem':   ecosystem or 'unsupported',
+            'status':      status,
+            'scanned_at':  f_entry.get('scanned_at', 0),
+            'package_count': pkg_entry.get('count', 0),
+            'counts':      summary,
+        })
+
+    report['devices'].sort(
+        key=lambda d: (-d['counts']['critical'], -d['counts']['high'], d['name'].lower())
+    )
+    respond(200, report)
+
+
+def handle_cve_device(dev_id):
+    """GET /api/devices/{id}/cve — detailed findings for one device."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    findings_all = load(CVE_FINDINGS_FILE)
+    ignore_data  = load(CVE_IGNORE_FILE)
+    pkg_store    = load(PACKAGES_FILE)
+    dev = devices[dev_id]
+
+    f_entry   = findings_all.get(dev_id) or {}
+    pkg_entry = pkg_store.get(dev_id) or {}
+    findings  = f_entry.get('findings') or []
+    findings  = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+
+    respond(200, {
+        'device_id':      dev_id,
+        'name':           dev.get('name', dev_id),
+        'group':          dev.get('group', ''),
+        'os':             dev.get('os', ''),
+        'ecosystem':      pkg_entry.get('ecosystem', '') or 'unsupported',
+        'scanned_at':     f_entry.get('scanned_at', 0),
+        'packages_count': pkg_entry.get('count', 0),
+        'collected_at':   pkg_entry.get('collected_at', 0),
+        'findings':       findings,
+        'error':          f_entry.get('error', ''),
+    })
+
+
+def handle_cve_ignore_add():
+    """POST /api/cve/ignore — mark a vuln as accepted risk."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body     = get_json_body()
+    vuln_id  = _sanitize_str(body.get('vuln_id', ''), 64, allow_empty=False)
+    reason   = _sanitize_str(body.get('reason', ''), 256)
+    scope    = _sanitize_str(body.get('scope', 'global'), 64)
+    if not vuln_id:
+        respond(400, {'error': 'vuln_id required'})
+    if scope != 'global' and not _validate_id(scope):
+        respond(400, {'error': 'scope must be "global" or a valid device_id'})
+
+    ignore_data = load(CVE_IGNORE_FILE)
+    ignore_data[vuln_id] = {
+        'scope':  scope,
+        'reason': reason,
+        'actor':  actor,
+        'ts':     int(time.time()),
+    }
+    save(CVE_IGNORE_FILE, ignore_data)
+    audit_log(actor, 'cve_ignore_add',
+              detail=f'{vuln_id} scope={scope} reason={reason[:80]}')
+    respond(200, {'ok': True, 'ignored': vuln_id})
+
+
+def handle_cve_ignore_delete(vuln_id):
+    """DELETE /api/cve/ignore/{vuln_id}"""
+    actor = require_admin_auth()
+    vuln_id = _sanitize_str(vuln_id, 64, allow_empty=False)
+    if not vuln_id:
+        respond(400, {'error': 'Invalid vuln_id'})
+    ignore_data = load(CVE_IGNORE_FILE)
+    if vuln_id in ignore_data:
+        del ignore_data[vuln_id]
+        save(CVE_IGNORE_FILE, ignore_data)
+        audit_log(actor, 'cve_ignore_remove', detail=vuln_id)
+    respond(200, {'ok': True})
+
+
+def handle_cve_ignore_list():
+    """GET /api/cve/ignore — list all active ignores."""
+    require_auth()
+    ignore_data = load(CVE_IGNORE_FILE)
+    items = [{'vuln_id': k, **v} for k, v in ignore_data.items()]
+    items.sort(key=lambda x: -x.get('ts', 0))
+    respond(200, {'ignores': items})
+
+
+# ─── v1.7.0: Prometheus metrics exporter ──────────────────────────────────────
+
+def handle_prometheus_metrics():
+    """
+    GET /api/metrics — Prometheus text exposition.
+    Auth: X-Token header OR Authorization: Bearer <key> (Prometheus-native).
+    """
+    token = get_token_from_request()
+    if not token:
+        auth = os.environ.get('HTTP_AUTHORIZATION', '')
+        if auth.lower().startswith('bearer '):
+            token = auth[7:].strip()
+    username, _role = verify_token(token)
+    if not username:
+        print('Status: 401 Unauthorized')
+        print('Content-Type: text/plain; charset=utf-8')
+        print('WWW-Authenticate: Bearer realm="remotepower"')
+        print('Cache-Control: no-store')
+        print()
+        print('Unauthorized')
+        sys.exit(0)
+
+    now = int(time.time())
+    devices = load(DEVICES_FILE)
+    cfg = load(CONFIG_FILE)
+    mon_hist = load(MON_HIST_FILE)
+
+    monitor_state = {}
+    for label, entries in mon_hist.items():
+        if entries:
+            last = entries[-1]
+            monitor_state[label] = {
+                'up':   bool(last.get('up', True)),
+                'last': last.get('ts', 0),
+            }
+
+    ctx = {
+        'server_version':  SERVER_VERSION,
+        'now':             now,
+        'online_ttl':      ONLINE_TTL,
+        'devices':         devices,
+        'monitors':        cfg.get('monitors') or [],
+        'monitor_state':   monitor_state,
+        'schedule':        load(SCHEDULE_FILE),
+        'pending_cmds':    load(CMDS_FILE),
+        'webhook_log':     load(WEBHOOK_LOG_FILE),
+        'webhook_log_cap': MAX_WEBHOOK_LOG,
+        'cve_findings':    load(CVE_FINDINGS_FILE),
+        'cve_ignore':      load(CVE_IGNORE_FILE),
+    }
+    body = prometheus_export.generate_metrics(ctx)
+
+    print('Status: 200 OK')
+    print('Content-Type: text/plain; version=0.0.4; charset=utf-8')
+    print('Cache-Control: no-store')
+    print()
+    print(body)
+    sys.exit(0)
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def main():
     try: check_offline_webhooks()
@@ -2409,7 +2810,7 @@ def main():
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
-                                     '/icon','/monitored')):
+                                     '/icon','/monitored','/cve')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
@@ -2490,6 +2891,21 @@ def main():
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
     elif pi == '/api/monitor/alerts/clear' and m == 'DELETE': handle_monitor_alerts_clear()
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
+
+    # ── v1.7.0: Package inventory + CVE scanner ────────────────────────────────
+    elif pi == '/api/packages' and m == 'POST': handle_packages_submit()
+    elif pi == '/api/cve/scan' and m == 'POST': handle_cve_scan()
+    elif pi == '/api/cve/findings' and m == 'GET': handle_cve_findings()
+    elif pi == '/api/cve/ignore' and m == 'GET': handle_cve_ignore_list()
+    elif pi == '/api/cve/ignore' and m == 'POST': handle_cve_ignore_add()
+    elif pi.startswith('/api/cve/ignore/') and m == 'DELETE':
+        handle_cve_ignore_delete(pi[len('/api/cve/ignore/'):])
+    elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
+        handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
+
+    # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
+    elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
+
     else: respond(404, {'error': 'Not found'})
 
 

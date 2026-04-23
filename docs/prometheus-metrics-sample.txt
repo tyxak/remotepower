@@ -1,0 +1,62 @@
+# HELP remotepower_info Server build information.
+# TYPE remotepower_info gauge
+remotepower_info{version="1.7.0"} 1
+# HELP remotepower_devices_total Total enrolled devices.
+# TYPE remotepower_devices_total gauge
+remotepower_devices_total 2
+# HELP remotepower_devices_online Currently online devices.
+# TYPE remotepower_devices_online gauge
+remotepower_devices_online 1
+# HELP remotepower_device_online Whether device is currently online (1/0).
+# TYPE remotepower_device_online gauge
+remotepower_device_online{device="abc123",name="web-1",group="prod",os="Debian 12"} 1
+remotepower_device_online{device="def456",name="nas",group="homelab",os="Alpine 3.19"} 0
+# HELP remotepower_device_last_seen_timestamp_seconds Last heartbeat time.
+# TYPE remotepower_device_last_seen_timestamp_seconds gauge
+remotepower_device_last_seen_timestamp_seconds{device="abc123",name="web-1",group="prod"} 1714000000
+remotepower_device_last_seen_timestamp_seconds{device="def456",name="nas",group="homelab"} 1713999500
+# HELP remotepower_device_cpu_percent CPU utilization percentage.
+# TYPE remotepower_device_cpu_percent gauge
+remotepower_device_cpu_percent{device="abc123",name="web-1",group="prod"} 23.5
+# HELP remotepower_device_mem_percent Memory utilization percentage.
+# TYPE remotepower_device_mem_percent gauge
+remotepower_device_mem_percent{device="abc123",name="web-1",group="prod"} 68.2
+# HELP remotepower_device_disk_percent Root filesystem usage percentage.
+# TYPE remotepower_device_disk_percent gauge
+remotepower_device_disk_percent{device="abc123",name="web-1",group="prod"} 45.0
+# HELP remotepower_device_upgradable_packages Pending package upgrades.
+# TYPE remotepower_device_upgradable_packages gauge
+remotepower_device_upgradable_packages{device="abc123",name="web-1",group="prod",manager="apt"} 3
+# HELP remotepower_device_cve_findings CVE findings by severity (excludes ignored).
+# TYPE remotepower_device_cve_findings gauge
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="critical"} 1
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="high"} 1
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="medium"} 0
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="low"} 0
+remotepower_device_cve_findings{device="abc123",name="web-1",group="prod",severity="unknown"} 0
+remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="critical"} 0
+remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="high"} 0
+remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="medium"} 0
+remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="low"} 0
+remotepower_device_cve_findings{device="def456",name="nas",group="homelab",severity="unknown"} 0
+# HELP remotepower_monitor_up Whether a configured monitor target is up.
+# TYPE remotepower_monitor_up gauge
+remotepower_monitor_up{label="api",type="http",target="https://example.test"} 1
+# HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
+# TYPE remotepower_monitor_last_check_timestamp_seconds gauge
+remotepower_monitor_last_check_timestamp_seconds{label="api",type="http",target="https://example.test"} 1714000000
+# HELP remotepower_commands_pending_total Commands waiting to be picked up.
+# TYPE remotepower_commands_pending_total gauge
+remotepower_commands_pending_total 1
+# HELP remotepower_scheduled_jobs_total Scheduled jobs currently queued.
+# TYPE remotepower_scheduled_jobs_total gauge
+remotepower_scheduled_jobs_total 0
+# HELP remotepower_webhook_deliveries_total Webhook deliveries observed in log buffer.
+# TYPE remotepower_webhook_deliveries_total gauge
+remotepower_webhook_deliveries_total{status="ok"} 2
+remotepower_webhook_deliveries_total{status="error"} 1
+remotepower_webhook_deliveries_total{status="other"} 0
+# HELP remotepower_webhook_log_size Current size of the webhook delivery log.
+# TYPE remotepower_webhook_log_size gauge
+remotepower_webhook_log_size 3
+

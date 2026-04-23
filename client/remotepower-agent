@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-remotepower-agent  -  Client-side daemon for RemotePower v1.6.3
+remotepower-agent  -  Client-side daemon for RemotePower v1.7.0
 Polls the RemotePower server at a configurable interval (default 60s).
 On first run (or if not enrolled), prompts for server URL + PIN and registers.
 
@@ -9,6 +9,7 @@ Credentials: /etc/remotepower/credentials   (mode 600, root only)
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -26,14 +27,17 @@ from urllib import request, error
 
 CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
+PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.6.3'
+VERSION      = '1.7.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
 SYSINFO_EVERY      = 10
 PATCH_EVERY        = 180
 UPDATE_CHECK_EVERY = 60
+PACKAGE_LIST_EVERY = 360          # ≈ 6 hours at 60s poll
+MAX_PACKAGES_SEND  = 10000        # matches server-side cap
 
 # Metrics collection requires psutil (optional - gracefully skipped if absent)
 try:
@@ -199,6 +203,184 @@ def get_patch_info():
         except subprocess.CalledProcessError: result['upgradable'] = 0
         except Exception: pass
     return result
+
+
+# ─── v1.7.0: Package inventory for CVE scanning ───────────────────────────────
+
+def get_os_release():
+    """Parse /etc/os-release into a dict. Returns {} if unavailable."""
+    out = {}
+    try:
+        with open('/etc/os-release', 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, _, v = line.partition('=')
+                v = v.strip()
+                if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
+                    v = v[1:-1]
+                out[k.strip()] = v
+    except (OSError, UnicodeDecodeError):
+        pass
+    return out
+
+
+def get_package_list():
+    """
+    Enumerate all installed packages via the system package manager.
+    Returns (pkg_manager, [{name, version, arch}, ...]).
+    """
+    if Path('/usr/bin/dpkg-query').exists():
+        try:
+            out = subprocess.check_output(
+                ['dpkg-query', '-W', '-f=${Package}\\t${Version}\\t${Architecture}\\n'],
+                text=True, timeout=30, stderr=subprocess.DEVNULL,
+            )
+            pkgs = []
+            for line in out.splitlines():
+                parts = line.split('\t')
+                if len(parts) >= 3 and parts[0] and parts[1]:
+                    pkgs.append({
+                        'name':    parts[0].strip(),
+                        'version': parts[1].strip(),
+                        'arch':    parts[2].strip(),
+                    })
+            return 'apt', pkgs
+        except Exception:
+            return 'apt', []
+
+    if Path('/usr/bin/rpm').exists():
+        try:
+            out = subprocess.check_output(
+                ['rpm', '-qa', '--qf', '%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{ARCH}\\n'],
+                text=True, timeout=30, stderr=subprocess.DEVNULL,
+            )
+            pkgs = []
+            for line in out.splitlines():
+                parts = line.split('\t')
+                if len(parts) >= 3 and parts[0] and parts[1]:
+                    pkgs.append({
+                        'name':    parts[0].strip(),
+                        'version': parts[1].strip(),
+                        'arch':    parts[2].strip(),
+                    })
+            return 'dnf', pkgs
+        except Exception:
+            return 'dnf', []
+
+    if Path('/usr/bin/pacman').exists():
+        try:
+            out = subprocess.check_output(
+                ['pacman', '-Q'],
+                text=True, timeout=15, stderr=subprocess.DEVNULL,
+            )
+            pkgs = []
+            for line in out.splitlines():
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    pkgs.append({
+                        'name':    parts[0].strip(),
+                        'version': parts[1].strip(),
+                        'arch':    '',
+                    })
+            return 'pacman', pkgs
+        except Exception:
+            return 'pacman', []
+
+    if Path('/sbin/apk').exists() or Path('/usr/sbin/apk').exists():
+        try:
+            out = subprocess.check_output(
+                ['apk', 'info', '-v'],
+                text=True, timeout=15, stderr=subprocess.DEVNULL,
+            )
+            pkgs = []
+            for line in out.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                m = re.match(r'^(.+?)-(\d[^-]*(-r\d+)?)$', line)
+                if m:
+                    pkgs.append({
+                        'name':    m.group(1),
+                        'version': m.group(2),
+                        'arch':    '',
+                    })
+            return 'apk', pkgs
+        except Exception:
+            return 'apk', []
+
+    return 'unknown', []
+
+
+def _load_last_pkg_hash():
+    try:
+        return PKG_HASH_FILE.read_text().strip()
+    except (OSError, UnicodeDecodeError):
+        return ''
+
+
+def _save_last_pkg_hash(h):
+    try:
+        PKG_HASH_FILE.write_text(h)
+        os.chmod(PKG_HASH_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def _compute_pkg_hash(packages):
+    """Matches server-side cve_scanner.packages_hash() — order-independent."""
+    normalized = sorted(
+        (p.get('name', ''), p.get('version', ''))
+        for p in packages
+    )
+    return hashlib.sha256(
+        json.dumps(normalized, separators=(',', ':')).encode()
+    ).hexdigest()[:16]
+
+
+def send_package_list(creds):
+    """
+    Collect installed packages and push to /api/packages only when the list
+    has changed since the last successful submission. Returns True if sent.
+    """
+    pkg_manager, pkgs = get_package_list()
+    if not pkgs:
+        log.debug(f'No packages enumerable (manager={pkg_manager})')
+        return False
+
+    if len(pkgs) > MAX_PACKAGES_SEND:
+        log.warning(f'Truncating package list from {len(pkgs)} to {MAX_PACKAGES_SEND}')
+        pkgs = pkgs[:MAX_PACKAGES_SEND]
+
+    new_hash = _compute_pkg_hash(pkgs)
+    if new_hash == _load_last_pkg_hash():
+        log.debug('Package list unchanged — skipping submission')
+        return False
+
+    os_release = get_os_release()
+    payload = {
+        'device_id':      creds['device_id'],
+        'token':          creds['token'],
+        'pkg_manager':    pkg_manager,
+        'ecosystem_hint': {
+            'ID':         os_release.get('ID', ''),
+            'VERSION_ID': os_release.get('VERSION_ID', ''),
+            'ID_LIKE':    os_release.get('ID_LIKE', ''),
+        },
+        'packages':       pkgs,
+    }
+    try:
+        resp = http_post(f"{creds['server_url']}/api/packages", payload, timeout=30)
+        log.info(f'Submitted {len(pkgs)} packages '
+                 f'(ecosystem={resp.get("ecosystem", "?")}, '
+                 f'changed={resp.get("changed", False)})')
+        _save_last_pkg_hash(new_hash)
+        return True
+    except Exception as e:
+        log.warning(f'Package list submission failed: {e}')
+        return False
+
 
 def get_metrics():
     """Collect CPU/RAM/disk percentages via psutil (optional)."""
@@ -396,6 +578,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         if run_patch:
             log.debug(f"Poll {poll_count}: running patch check")
             cached_patch = get_patch_info(); send_sysinfo = True
+
+        # v1.7.0: submit package inventory for CVE scanning (hash-gated)
+        if poll_count == 1 or poll_count % PACKAGE_LIST_EVERY == 0:
+            try:
+                send_package_list(creds)
+            except Exception as e:
+                log.debug(f'Package submission error: {e}')
 
         if send_sysinfo:
             sysinfo = {

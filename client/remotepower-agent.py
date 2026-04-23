@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-remotepower-agent.py  -  Windows client daemon for RemotePower v1.6.3
+remotepower-agent.py  -  Windows client daemon for RemotePower v1.7.0
 Polls the RemotePower server at a configurable interval (default 60s).
 On first run (or if not enrolled), prompts for server URL + PIN and registers.
 
@@ -32,7 +32,7 @@ from urllib import request, error
 CONF_DIR     = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'RemotePower'
 CREDS_FILE   = CONF_DIR / 'credentials.json'
 LOG_FILE     = CONF_DIR / 'agent.log'
-VERSION      = '1.6.3'
+VERSION      = '1.7.0'
 AGENT_SCRIPT = Path(sys.argv[0]).resolve()
 
 POLL_INTERVAL      = 60

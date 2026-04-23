@@ -914,6 +914,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       <span>Patches</span>
     </button>
+    <button class="nav-btn" onclick="showPage('cve',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+      <span>CVEs</span>
+    </button>
     <button class="nav-btn" onclick="showPage('schedule',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>Schedule</span>
@@ -1100,6 +1104,23 @@
         <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Status</th><th>Pkg Manager</th><th>Pending</th><th>Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load patch report. </td></tr></tbody></table></div>
       </div>
 
+      <div id="page-cve" class="page">
+        <div class="page-title">CVE Findings</div>
+        <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" style="color:var(--accent)">OSV.dev</a> — scan checks installed packages against known CVEs.</div>
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+          <button class="btn-icon" onclick="loadCVEReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-primary" style="max-width:200px" onclick="triggerCVEScan()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:24px">
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value" id="cve-stat-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div><div class="stat-value" id="cve-stat-high" style="color:#f97316">0</div><div class="stat-label">High</div></div></div>
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></div><div><div class="stat-value" id="cve-stat-medium" style="color:var(--amber)">0</div><div class="stat-label">Medium</div></div></div>
+          <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value" id="cve-stat-low" style="color:var(--muted)">0</div><div class="stat-label">Low</div></div></div>
+          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
+        </div>
+        <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>Ecosystem</th><th style="text-align:center">Critical</th><th style="text-align:center">High</th><th style="text-align:center">Medium</th><th style="text-align:center">Low</th><th>Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load findings. </td></tr></tbody></table></div>
+      </div>
+
       <!-- ── Audit Log page (unchanged) ─────────────────────────────────────── -->
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
@@ -1138,6 +1159,7 @@
 <div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" style="display:none;margin-bottom:16px"><div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('apikey-create-modal')">Close</button><button class="btn-primary" id="apikey-create-btn" onclick="createApiKey()">Create</button></div></div></div>
 <div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button><button class="btn-primary" onclick="addCmdSnippet()">Add</button></div></div></div>
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;max-height:200px;overflow-y:auto"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input" placeholder="🖥️" maxlength="4" style="font-size:24px;text-align:center;max-width:80px"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('icon-modal')">Cancel</button><button class="btn-secondary" onclick="saveDeviceIcon('')">Clear</button><button class="btn-primary" onclick="saveDeviceIcon(document.getElementById('icon-custom').value)">Save</button></div></div></div>
 
 <div class="toast-container" id="toast-container"></div>
@@ -1276,6 +1298,7 @@ function showPage(name, btn) {
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'patches')  loadPatchReport();
+  if (name === 'cve')      loadCVEReport();
   if (name === 'audit')    loadAuditLog();
 }
 async function loadDevices() {
@@ -1462,6 +1485,75 @@ function getFilteredPatchDevices() { if (!patchReportData) return []; let devs =
 function renderPatchTable() { if (!patchReportData) return; const filtered = getFilteredPatchDevices(); let total = filtered.length, patched = 0, withPatches = 0, pending = 0; for (const d of filtered) { if (d.patch_status === 'fully_patched') patched++; else if (d.patch_status === 'patches_available') { withPatches++; pending += (d.upgradable || 0); } } const onlineWithData = patched + withPatches; const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0; document.getElementById('patch-total').textContent = total; document.getElementById('patch-patched').textContent = patched; document.getElementById('patch-pending').textContent = withPatches; document.getElementById('patch-count').textContent = pending; document.getElementById('patch-pct').textContent = pct + '%'; const tbody = document.getElementById('patch-tbody'); if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices match the current filter. </td></tr>'; return; } tbody.innerHTML = filtered.map(d => { const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : ''; const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data'); const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join(''); return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escHtml(d.name)}')">Detail</button></tr>`; }).join(''); }
 function exportPatchFiltered(format) { const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; if (df !== 'all' && format !== 'csv' && format !== 'xml') { openDevicePatchReport(df, ''); return; } let url = `/api/patch-report/${format}`; const params = []; if (gf !== 'all') params.push(`group=${encodeURIComponent(gf)}`); if (df !== 'all') params.push(`device_id=${encodeURIComponent(df)}`); if (params.length) url += '?' + params.join('&'); fetch(url, {headers: {'X-Token': getToken()}}).then(r => { if (!r.ok) throw new Error('Export failed'); return r.blob(); }).then(blob => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; const suffix = gf !== 'all' ? `-${gf}` : df !== 'all' ? `-device` : ''; a.download = `patch-report${suffix}-${new Date().toISOString().slice(0,10)}.${format}`; a.click(); URL.revokeObjectURL(u); toast(`${format.toUpperCase()} downloaded`, 'success'); }).catch(() => toast('Export failed', 'error')); }
 async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Status</div><div class="value" style="color:${statusColor}">${statusLabel}</div></div><div class="sysinfo-pill"><div class="label">OS</div><div class="value" style="font-size:11px">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value" style="color:${data.online?'var(--green)':'var(--red)'}">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code><span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div style="color:var(--muted);font-size:13px;padding:12px">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+
+// ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
+let cveReportData = null;
+async function loadCVEReport() {
+  const tbody = document.getElementById('cve-tbody');
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/cve/findings');
+  if (!data) return;
+  cveReportData = data;
+  document.getElementById('cve-stat-critical').textContent = data.summary.critical;
+  document.getElementById('cve-stat-high').textContent = data.summary.high;
+  document.getElementById('cve-stat-medium').textContent = data.summary.medium;
+  document.getElementById('cve-stat-low').textContent = data.summary.low;
+  document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
+  if (!data.devices.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices enrolled. </td></tr>'; return; }
+  tbody.innerHTML = data.devices.map(d => {
+    const statusBadge = {
+      'scanned':     '<span style="color:var(--green)">●</span>',
+      'not_scanned': '<span style="color:var(--muted)">●</span> not scanned',
+      'no_packages': '<span style="color:var(--muted)">●</span> no package list',
+      'unsupported': '<span style="color:var(--amber)">●</span> unsupported',
+    }[d.status] || d.status;
+    const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
+    const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+    return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escHtml(d.device_id)}','${escHtml(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escHtml(d.device_id)}')">Scan</button></td></tr>`;
+  }).join('');
+}
+async function triggerCVEScan(devId) {
+  const label = devId ? 'device' : 'all devices';
+  toast(`Scanning ${label}… may take a minute`, 'info');
+  const body = devId ? {device_id: devId} : {};
+  const result = await api('POST', '/cve/scan', body);
+  if (!result) return;
+  const s = result.scanned?.length || 0, k = result.skipped?.length || 0, e = result.errors?.length || 0;
+  toast(`Scan complete: ${s} scanned, ${k} skipped, ${e} errors`, e > 0 ? 'error' : 'success');
+  loadCVEReport();
+}
+async function openDeviceCVE(devId, devName) {
+  document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
+  document.getElementById('cve-detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('cve-detail-modal');
+  const data = await api('GET', `/devices/${devId}/cve`);
+  if (!data) return;
+  const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
+  let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value" style="font-size:12px">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value" style="font-size:11px">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
+  if (data.error) html += `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:var(--red)">${escHtml(data.error)}</div>`;
+  if (!data.findings.length) { html += '<div style="color:var(--muted);text-align:center;padding:40px">No vulnerabilities found. 🎉</div>'; }
+  else {
+    html += data.findings.map(f => {
+      const color = sevColor[f.severity] || 'var(--muted)';
+      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" style="color:var(--accent)">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
+      const aliasesHtml = (f.aliases||[]).map(a => `<code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(a)}</code>`).join('');
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;margin-left:auto;font-size:11px" onclick="ignoreCVE('${escHtml(f.vuln_id)}','${escHtml(devId)}','${escHtml(devName)}')">Ignore</button>` : ''}</div></div>`;
+    }).join('');
+  }
+  document.getElementById('cve-detail-body').innerHTML = html;
+}
+async function ignoreCVE(vulnId, devId, devName) {
+  const reason = prompt(`Ignore ${vulnId}? Enter a reason (accepted risk, false positive, etc.):`);
+  if (reason === null) return;
+  const scope = confirm('Ignore globally across ALL devices?\n\nOK = global\nCancel = this device only') ? 'global' : devId;
+  const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
+  if (result && result.ok) {
+    toast(`${vulnId} ignored (${scope})`, 'success');
+    openDeviceCVE(devId, devName);
+    loadCVEReport();
+  }
+}
+
 async function loadAuditLog() { const tbody = document.getElementById('audit-tbody'); tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/audit-log'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet. </td></tr>'; return; } tbody.innerHTML = data.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`).join(''); }
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
