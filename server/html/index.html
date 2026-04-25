@@ -847,6 +847,95 @@
     .devices-grid { grid-template-columns: 1fr; }
     .modal { margin: 16px; padding: 24px; }
   }
+  /* ── v1.8.3: Calendar + Tasks ─────────────────────────────────────────── */
+  .cal-day {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-height: 92px;
+    padding: 6px 6px 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .cal-day:hover { background: var(--surface2); }
+  .cal-day-num { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .cal-day.today .cal-day-num {
+    color: var(--accent); font-weight: 600;
+    background: var(--accent); color: white;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .cal-day.other-month { opacity: 0.35; }
+  .cal-event {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: white; font-weight: 500;
+    cursor: pointer;
+  }
+  .cal-event:hover { filter: brightness(1.15); }
+  .cal-event.color-blue   { background: #3b82f6; }
+  .cal-event.color-green  { background: #22c55e; }
+  .cal-event.color-amber  { background: #f59e0b; color: #1a1a1a; }
+  .cal-event.color-red    { background: #ef4444; }
+  .cal-event.color-purple { background: #a855f7; }
+  .cal-event.color-teal   { background: #14b8a6; }
+  .cal-event.color-slate  { background: #64748b; }
+
+  .kanban-column {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+  }
+  .kanban-column.drag-over {
+    background: var(--surface2);
+    border-color: var(--accent);
+  }
+  .kanban-header {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 0 0 10px; display: flex;
+    align-items: center; gap: 8px;
+  }
+  .kanban-count {
+    background: var(--surface2); color: var(--muted);
+    font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    font-weight: 500; letter-spacing: 0;
+  }
+  .kanban-list {
+    display: flex; flex-direction: column; gap: 8px; flex: 1;
+  }
+  .kanban-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: grab;
+    user-select: none;
+  }
+  .kanban-card:hover { border-color: var(--accent); }
+  .kanban-card.dragging { opacity: 0.4; cursor: grabbing; }
+  .kanban-card-title {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    margin-bottom: 4px; line-height: 1.35;
+  }
+  .kanban-card-meta {
+    font-size: 11px; color: var(--muted);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .kanban-card-device {
+    background: var(--accent); color: white;
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-family: monospace;
+  }
+
 </style>
 </head>
 <body>
@@ -918,9 +1007,29 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
       <span>CVEs</span>
     </button>
+    <button class="nav-btn" onclick="showPage('services',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Services</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('logs',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
+      <span>Logs</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('maintenance',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      <span>Maintenance</span>
+    </button>
     <button class="nav-btn" onclick="showPage('schedule',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>Schedule</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('calendar',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Calendar</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('tasks',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span>Tasks</span>
     </button>
     <div class="sidebar-label"><span>Tools</span></div>
     <button class="nav-btn" onclick="showPage('history',this)">
@@ -1121,6 +1230,172 @@
         <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>Ecosystem</th><th style="text-align:center">Critical</th><th style="text-align:center">High</th><th style="text-align:center">Medium</th><th style="text-align:center">Low</th><th>Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load findings. </td></tr></tbody></table></div>
       </div>
 
+      <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->
+      <div id="page-services" class="page">
+        <div class="page-title">Services <span id="services-maint-badge" style="display:none;font-size:12px;color:var(--amber);margin-left:12px">🔧 <span id="services-maint-count">0</span> maintenance window(s) active</span></div>
+        <div class="page-subtitle">systemd units watched per device. Click a row to see history, logs, and configuration.</div>
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+          <button class="btn-icon" onclick="loadServicesReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
+          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div><div class="stat-value" id="services-stat-up" style="color:var(--green)">0</div><div class="stat-label">Services Up</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div><div class="stat-value" id="services-stat-down" style="color:var(--red)">0</div><div class="stat-label">Services Down</div></div></div>
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="services-stat-devices">0</div><div class="stat-label">Devices Reporting</div></div></div>
+          <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value" id="services-stat-total">0</div><div class="stat-label">Units Watched</div></div></div>
+        </div>
+        <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>Watched</th><th style="text-align:center">Up</th><th style="text-align:center">Down</th><th>Last report</th><th></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load. </td></tr></tbody></table></div>
+      </div>
+
+      <!-- ── v1.8.1: Logs page ─────────────────────────────────────────────── -->
+      <div id="page-logs" class="page">
+        <div class="page-title">Logs</div>
+        <div class="page-subtitle">6-hour rolling buffer across the fleet. Search, tail live, or manage alert rules.</div>
+
+        <!-- Search bar + stats -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="logs-search-input" placeholder="regex (e.g. error|critical)  — blank shows live tail"
+                 style="flex:1;min-width:300px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:monospace;font-size:13px"
+                 onkeydown="if(event.key==='Enter')runLogSearch()">
+          <select id="logs-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" onchange="onLogFilterChange()">
+            <option value="">All devices</option>
+          </select>
+          <select id="logs-unit-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" onchange="onLogFilterChange()">
+            <option value="">All units</option>
+          </select>
+          <button class="btn-primary" style="max-width:100px" onclick="runLogSearch()">Search</button>
+          <button class="btn-icon" onclick="clearLogSearch()" title="Clear search and return to live tail">✕ Clear</button>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+          <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="14 2 14 8 20 8"/><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div><div class="stat-value" id="logs-stat-lines">0</div><div class="stat-label">Lines in buffer</div></div></div>
+          <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="logs-stat-devices">0</div><div class="stat-label">Devices reporting</div></div></div>
+          <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div><div class="stat-value" id="logs-stat-last" style="font-size:14px">—</div><div class="stat-label">Last line</div></div></div>
+          <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg></div><div><div class="stat-value" id="logs-stat-rules">0</div><div class="stat-label">Alert rules</div></div></div>
+        </div>
+
+        <!-- Tail viewer -->
+        <div id="logs-viewer-wrap" style="margin-bottom:24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:13px;color:var(--muted)" id="logs-viewer-title">Live tail — auto-refreshing every 30s</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px"><input type="checkbox" id="logs-autoscroll" checked> auto-scroll to newest</label>
+            </div>
+          </div>
+          <div id="logs-viewer" class="journal-wrap" style="max-height:500px;min-height:300px;font-size:12px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px">
+            <div style="text-align:center;color:var(--muted);padding:40px">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Alert rules -->
+        <div class="section-header" style="margin:24px 0 12px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="page-title" style="font-size:16px;margin:0">Alert rules</div>
+            <div style="font-size:12px;color:var(--muted)">Regex match on incoming log lines fires a <code>log_alert</code> webhook.</div>
+          </div>
+          <button class="btn-primary" style="max-width:180px" onclick="openAddRuleModal()">+ Add rule</button>
+        </div>
+
+        <!-- v1.8.2: tab switcher -->
+        <div style="display:flex;gap:0;margin-bottom:-1px;position:relative;z-index:1">
+          <button id="logs-tab-device" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid transparent" onclick="switchRulesTab('device')">Per-device</button>
+          <button id="logs-tab-global" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);background:var(--surface2)" onclick="switchRulesTab('global')">Fleet-wide</button>
+        </div>
+
+        <div class="table-card" id="logs-rules-device-wrap">
+          <table>
+            <thead><tr><th>Device</th><th>Group</th><th>Unit</th><th>Pattern</th><th style="text-align:center">Threshold</th><th></th></tr></thead>
+            <tbody id="logs-rules-tbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No per-device rules configured.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card" id="logs-rules-global-wrap" style="display:none">
+          <div style="font-size:12px;color:var(--muted);padding:12px 16px 0">
+            Fleet-wide rules apply to every device that submits logs for the named unit. Use <code>*</code> for the unit to match any unit on any device.
+          </div>
+          <table>
+            <thead><tr><th>Unit</th><th>Pattern</th><th style="text-align:center">Threshold</th><th>Created</th><th></th></tr></thead>
+            <tbody id="logs-rules-global-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v1.8.0: Maintenance page ────────────────────────────────────────── -->
+      <div id="page-maintenance" class="page">
+        <div class="page-title">Maintenance Windows</div>
+        <div class="page-subtitle">Scheduled windows suppress webhook alerts for specific devices, groups, or the whole fleet.</div>
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+          <button class="btn-icon" onclick="loadMaintenance()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-primary" style="max-width:200px" onclick="openNewMaintModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New window</button>
+          <button class="btn-icon" onclick="loadMaintSuppressions()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Suppression log</button>
+        </div>
+        <div class="table-card"><table><thead><tr><th>Reason</th><th>Scope</th><th>Target</th><th>When</th><th>Events</th><th style="text-align:center">Status</th><th></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh. </td></tr></tbody></table></div>
+        <div id="maint-suppressions" style="margin-top:24px;display:none">
+          <div class="page-title" style="font-size:16px;margin-top:24px">Recent Suppressions</div>
+          <div class="table-card"><table><thead><tr><th>When</th><th>Event</th><th>Device</th><th>Window</th><th>Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ── v1.8.3: Calendar page ────────────────────────────────────────── -->
+      <div id="page-calendar" class="page">
+        <div class="page-title">Calendar</div>
+        <div class="page-subtitle">Shared events across all users — backups, deploys, renewals, anything you want to remember.</div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn-icon" onclick="calNav(-1)" title="Previous month">‹</button>
+            <div id="cal-title" style="font-size:18px;font-weight:600;min-width:180px;text-align:center">—</div>
+            <button class="btn-icon" onclick="calNav(1)" title="Next month">›</button>
+            <button class="btn-icon" onclick="calNav(0)" style="margin-left:8px;font-size:12px">Today</button>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" onclick="loadCalendar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-primary" style="max-width:160px" onclick="openEventModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New event</button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:0 4px 8px">
+          <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+        </div>
+        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;min-height:500px"></div>
+      </div>
+
+      <!-- ── v1.8.3: Tasks page (kanban) ─────────────────────────────────── -->
+      <div id="page-tasks" class="page">
+        <div class="page-title">Tasks</div>
+        <div class="page-subtitle">Shared kanban board. Drag cards between columns. Optionally link a task to a device.</div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="tasks-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:180px" onchange="loadTasks()">
+              <option value="">All devices</option>
+              <option value="__none__">No device linked</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" onclick="loadTasks()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-primary" style="max-width:160px" onclick="openTaskModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New task</button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;min-height:500px" id="kanban-board">
+          <div class="kanban-column" data-state="upcoming" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'upcoming')">
+            <div class="kanban-header" style="color:#60a5fa">● Upcoming <span class="kanban-count" id="tasks-count-upcoming">0</span></div>
+            <div class="kanban-list" id="tasks-col-upcoming"></div>
+          </div>
+          <div class="kanban-column" data-state="ongoing" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'ongoing')">
+            <div class="kanban-header" style="color:var(--amber)">● Ongoing <span class="kanban-count" id="tasks-count-ongoing">0</span></div>
+            <div class="kanban-list" id="tasks-col-ongoing"></div>
+          </div>
+          <div class="kanban-column" data-state="pending" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'pending')">
+            <div class="kanban-header" style="color:#a78bfa">● Pending <span class="kanban-count" id="tasks-count-pending">0</span></div>
+            <div class="kanban-list" id="tasks-col-pending"></div>
+          </div>
+          <div class="kanban-column" data-state="closed" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'closed')">
+            <div class="kanban-header" style="color:var(--muted)">● Closed <span class="kanban-count" id="tasks-count-closed">0</span></div>
+            <div class="kanban-list" id="tasks-col-closed"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Audit Log page (unchanged) ─────────────────────────────────────── -->
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
@@ -1160,6 +1435,120 @@
 <div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button><button class="btn-primary" onclick="addCmdSnippet()">Add</button></div></div></div>
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('service-edit-modal')">Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
+
+<!-- ── v1.8.3: Calendar event modal ──────────────────────────────────── -->
+<div class="modal-overlay" id="event-modal"><div class="modal">
+  <div class="modal-title" id="event-modal-title">New event</div>
+  <div class="form-group"><label>Title</label><input type="text" id="event-title" maxlength="120" placeholder="e.g. Prod DB backup"></div>
+  <div class="form-group"><label>Description</label><textarea id="event-description" rows="3" maxlength="2000" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:6px;font-size:13px;resize:vertical" placeholder="Optional notes…"></textarea></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group"><label>Start</label><input type="datetime-local" id="event-start"></div>
+    <div class="form-group"><label>End</label><input type="datetime-local" id="event-end"></div>
+  </div>
+  <div class="form-group"><label><input type="checkbox" id="event-all-day"> All day</label></div>
+  <div class="form-group"><label>Color</label>
+    <div id="event-color-picker" style="display:flex;gap:6px">
+      <div data-color="blue"   class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#3b82f6;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="green"  class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#22c55e;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="amber"  class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#f59e0b;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="red"    class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#ef4444;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="purple" class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#a855f7;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="teal"   class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#14b8a6;cursor:pointer;border:2px solid transparent"></div>
+      <div data-color="slate"  class="ev-color" style="width:28px;height:28px;border-radius:4px;background:#64748b;cursor:pointer;border:2px solid transparent"></div>
+    </div>
+  </div>
+  <div class="modal-actions" style="justify-content:space-between">
+    <button class="btn-secondary" id="event-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCurrentEvent()">Delete</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn-secondary" onclick="closeModal('event-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveEvent()">Save</button>
+    </div>
+  </div>
+</div></div>
+
+<!-- ── v1.8.3: Task modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="task-modal"><div class="modal">
+  <div class="modal-title" id="task-modal-title">New task</div>
+  <div class="form-group"><label>Title</label><input type="text" id="task-title" maxlength="200" placeholder="What needs doing?"></div>
+  <div class="form-group"><label>Description</label><textarea id="task-description" rows="5" maxlength="4000" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px;border-radius:6px;font-size:13px;resize:vertical" placeholder="Optional details…"></textarea></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group"><label>State</label>
+      <select id="task-state">
+        <option value="upcoming">Upcoming</option>
+        <option value="ongoing">Ongoing</option>
+        <option value="pending">Pending</option>
+        <option value="closed">Closed</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Linked device (optional)</label>
+      <select id="task-device"><option value="">— None —</option></select>
+    </div>
+  </div>
+  <div id="task-meta" style="font-size:11px;color:var(--muted);margin:4px 0 8px;display:none"></div>
+  <div class="modal-actions" style="justify-content:space-between">
+    <button class="btn-secondary" id="task-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCurrentTask()">Delete</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn-secondary" onclick="closeModal('task-modal')">Cancel</button>
+      <button class="btn-primary" onclick="saveTask()">Save</button>
+    </div>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="log-rule-modal"><div class="modal"><div class="modal-title" id="log-rule-modal-title">Add per-device log alert rule</div>
+  <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Matching log lines fire a <code>log_alert</code> webhook when the threshold is reached within a single agent submission (~5 min window).</div>
+  <div class="form-group" id="log-rule-device-row"><label>Device</label><select id="log-rule-device"></select></div>
+  <div class="form-group" id="log-rule-global-hint" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:10px;border-radius:6px">
+    Fleet-wide rule: applies to every device that submits logs for this unit. Use <code>*</code> to match any unit on any device (useful for patterns like <code>OOMkilled</code>).
+  </div>
+  <div class="form-group"><label>Unit <span id="log-rule-unit-hint" style="display:none;font-size:11px;color:var(--muted)">(or <code>*</code> for any unit)</span></label><input type="text" id="log-rule-unit" placeholder="nginx.service" maxlength="128"></div>
+  <div class="form-group"><label>Pattern (regex, case-insensitive)</label><input type="text" id="log-rule-pattern" placeholder="error|critical|FATAL" maxlength="128" style="font-family:monospace"></div>
+  <div class="form-group"><label>Threshold (min matches to fire)</label><input type="number" id="log-rule-threshold" value="1" min="1" max="100"></div>
+  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('log-rule-modal')">Cancel</button><button class="btn-primary" onclick="saveLogRule()">Add</button></div>
+</div></div>
+<div class="modal-overlay" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>
+  <div class="form-group"><label>Reason</label><input type="text" id="maint-reason" placeholder="Monthly patching" maxlength="120"></div>
+  <div class="form-group"><label>Scope</label>
+    <select id="maint-scope" onchange="onMaintScopeChange()">
+      <option value="device">Single device</option>
+      <option value="group">Group</option>
+      <option value="global">Entire fleet</option>
+    </select>
+  </div>
+  <div class="form-group" id="maint-target-row"><label>Target</label>
+    <select id="maint-target-device"></select>
+    <input type="text" id="maint-target-group" placeholder="group name" style="display:none" maxlength="60">
+  </div>
+  <div class="form-group"><label>Window type</label>
+    <select id="maint-type" onchange="onMaintTypeChange()">
+      <option value="oneshot">One-shot (specific time)</option>
+      <option value="cron">Recurring (cron)</option>
+    </select>
+  </div>
+  <div id="maint-oneshot-row">
+    <div class="form-group"><label>Start (local time)</label><input type="datetime-local" id="maint-start"></div>
+    <div class="form-group"><label>End (local time)</label><input type="datetime-local" id="maint-end"></div>
+  </div>
+  <div id="maint-cron-row" style="display:none">
+    <div class="form-group"><label>Cron expression</label><input type="text" id="maint-cron" placeholder="0 3 * * SUN (Sundays at 03:00)" maxlength="64"></div>
+    <div class="form-group"><label>Duration (minutes)</label><input type="number" id="maint-duration" min="1" max="10080" value="60"></div>
+  </div>
+  <div class="form-group"><label>Events to suppress (leave empty for all)</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:13px" id="maint-events-box">
+      <label><input type="checkbox" class="maint-event-cb" value="device_offline"> device_offline</label>
+      <label><input type="checkbox" class="maint-event-cb" value="device_online"> device_online</label>
+      <label><input type="checkbox" class="maint-event-cb" value="monitor_down"> monitor_down</label>
+      <label><input type="checkbox" class="maint-event-cb" value="monitor_up"> monitor_up</label>
+      <label><input type="checkbox" class="maint-event-cb" value="service_down"> service_down</label>
+      <label><input type="checkbox" class="maint-event-cb" value="service_up"> service_up</label>
+      <label><input type="checkbox" class="maint-event-cb" value="patch_alert"> patch_alert</label>
+      <label><input type="checkbox" class="maint-event-cb" value="cve_found"> cve_found</label>
+      <label><input type="checkbox" class="maint-event-cb" value="log_alert"> log_alert</label>
+    </div>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('new-maint-modal')">Cancel</button><button class="btn-primary" onclick="saveMaintenance()">Create</button></div>
+</div></div>
 <div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;max-height:200px;overflow-y:auto"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input" placeholder="🖥️" maxlength="4" style="font-size:24px;text-align:center;max-width:80px"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('icon-modal')">Cancel</button><button class="btn-secondary" onclick="saveDeviceIcon('')">Clear</button><button class="btn-primary" onclick="saveDeviceIcon(document.getElementById('icon-custom').value)">Save</button></div></div></div>
 
 <div class="toast-container" id="toast-container"></div>
@@ -1299,6 +1688,12 @@ function showPage(name, btn) {
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'patches')  loadPatchReport();
   if (name === 'cve')      loadCVEReport();
+  if (name === 'services') loadServicesReport();
+  if (name === 'maintenance') loadMaintenance();
+  if (name === 'logs')     enterLogsPage();
+  else                     leaveLogsPage();
+  if (name === 'calendar') loadCalendar();
+  if (name === 'tasks')    loadTasks();
   if (name === 'audit')    loadAuditLog();
 }
 async function loadDevices() {
@@ -1554,9 +1949,1012 @@ async function ignoreCVE(vulnId, devId, devName) {
   }
 }
 
+// ─── v1.8.0: Services ─────────────────────────────────────────────────────────
+let servicesCurrentDeviceId = null;
+
+async function loadServicesReport() {
+  const tbody = document.getElementById('services-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/services');
+  if (!data) return;
+  // Also fetch maintenance badge
+  const maint = await api('GET', '/maintenance');
+  const active = (maint?.windows || []).filter(w => w.active).length;
+  if (active > 0) {
+    document.getElementById('services-maint-badge').style.display = '';
+    document.getElementById('services-maint-count').textContent = active;
+  } else {
+    document.getElementById('services-maint-badge').style.display = 'none';
+  }
+
+  let totalUp = 0, totalDown = 0, totalUnits = 0, devsReporting = 0;
+  for (const d of data.devices) {
+    totalUp += d.up; totalDown += d.down; totalUnits += d.total;
+    if (d.total > 0) devsReporting++;
+  }
+  document.getElementById('services-stat-up').textContent = totalUp;
+  document.getElementById('services-stat-down').textContent = totalDown;
+  document.getElementById('services-stat-devices').textContent = devsReporting;
+  document.getElementById('services-stat-total').textContent = totalUnits;
+
+  if (!data.devices.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No devices enrolled.</td></tr>'; return; }
+
+  tbody.innerHTML = data.devices.map(d => {
+    const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span style="color:var(--muted);font-size:11px">never</span>';
+    const unitList = (d.services || []).map(s => {
+      const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
+      return `<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;margin:1px;font-family:monospace"><span style="color:${color}">●</span> ${escHtml(s.unit)}</span>`;
+    }).join('');
+    const watchedCell = d.total > 0 ? unitList : '<span style="color:var(--muted);font-size:11px">(none configured)</span>';
+    const upCell   = d.up > 0 ? `<td style="text-align:center;color:var(--green);font-weight:600">${d.up}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+    const downCell = d.down > 0 ? `<td style="text-align:center;color:var(--red);font-weight:600">${d.down}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+    return `<tr style="cursor:pointer" onclick="openServiceDetail('${escHtml(d.device_id)}','${escHtml(d.name)}')">
+      <td style="font-weight:500">${escHtml(d.name)}</td>
+      <td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
+      <td>${watchedCell}</td>
+      ${upCell}${downCell}
+      <td style="font-size:11px;color:var(--muted)">${reportText}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escHtml(d.device_id)}','${escHtml(d.name)}')">Configure</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function openServiceDetail(devId, devName) {
+  servicesCurrentDeviceId = devId;
+  document.getElementById('service-detail-title').textContent = `Services: ${devName}`;
+  document.getElementById('service-detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  document.getElementById('service-edit-btn').onclick = () => { closeModal('service-detail-modal'); editServicesConfig(devId, devName); };
+  openModal('service-detail-modal');
+  const data = await api('GET', `/devices/${devId}/services`);
+  if (!data) return;
+  const updated = data.updated_at ? new Date(data.updated_at*1000).toLocaleString() : 'never';
+  let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Units watched</div><div class="value">${data.services.length}</div></div><div class="sysinfo-pill"><div class="label">Last report</div><div class="value" style="font-size:11px">${updated}</div></div></div>`;
+  if (!data.services.length) {
+    html += '<div style="color:var(--muted);text-align:center;padding:40px">No services configured. Click "Edit watched units" below.</div>';
+  } else {
+    html += data.services.map(s => {
+      const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
+      const sinceText = s.since ? new Date(s.since*1000).toLocaleString() : '—';
+      const histItems = (s.history || []).slice().reverse();
+      const logItems  = (s.log_tail || []).slice(-20);
+
+      const histBody = histItems.length
+        ? histItems.map(h => `<div style="font-size:11px;color:var(--muted);font-family:monospace">${new Date(h.ts*1000).toLocaleString()}: ${escHtml(h.from||'?')} → ${escHtml(h.to||'?')}</div>`).join('')
+        : '<div style="font-size:11px;color:var(--muted);font-style:italic;padding:4px 0">No transitions recorded since enrollment.</div>';
+
+      const logBody = logItems.length
+        ? logItems.map(l => `<div class="journal-line">${escHtml(l.line || '')}</div>`).join('')
+        : '<div style="font-size:11px;color:var(--muted);font-style:italic;padding:4px 0">No logs captured yet. Agent submits every ~5 min; needs v1.8.0+ and journalctl access (run as root).</div>';
+
+      const histLabel = `State history (${histItems.length})`;
+      const logLabel  = `Recent logs (${logItems.length})`;
+
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div><span style="color:${color};font-weight:600">●</span> <code style="font-size:13px;color:var(--accent);margin-left:6px">${escHtml(s.unit)}</code> <span style="margin-left:8px;font-size:12px;color:var(--muted)">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span></div>
+          <div style="font-size:11px;color:var(--muted)">since: ${sinceText}</div>
+        </div>
+        <details style="margin-bottom:6px"${histItems.length ? ' open' : ''}><summary style="font-size:12px;color:var(--muted);cursor:pointer">${histLabel}</summary><div style="padding-top:6px">${histBody}</div></details>
+        <details${logItems.length ? ' open' : ''}><summary style="font-size:12px;color:var(--muted);cursor:pointer">${logLabel}</summary><div class="journal-wrap" style="max-height:200px;margin-top:6px">${logBody}</div></details>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('service-detail-body').innerHTML = html;
+}
+
+async function editServicesConfig(devId, devName) {
+  const cfg = await api('GET', `/devices/${devId}/services/config`);
+  if (!cfg) return;
+  document.getElementById('service-edit-textarea').value = (cfg.services_watched || []).join('\n');
+  document.getElementById('service-edit-save').onclick = async () => {
+    const lines = document.getElementById('service-edit-textarea').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const result = await api('POST', `/devices/${devId}/services/config`, {services_watched: lines, log_watch: cfg.log_watch || []});
+    if (result && result.ok) {
+      toast(`Saved: ${result.services_watched.length} unit(s) for ${devName}`, 'success');
+      closeModal('service-edit-modal');
+      loadServicesReport();
+    }
+  };
+  openModal('service-edit-modal');
+}
+
+// ─── v1.8.0: Maintenance ──────────────────────────────────────────────────────
+
+async function loadMaintenance() {
+  const tbody = document.getElementById('maint-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/maintenance');
+  if (!data) return;
+  if (!data.windows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No maintenance windows defined.</td></tr>'; return; }
+  tbody.innerHTML = data.windows.map(w => {
+    const when = w.cron ? `<code style="font-size:11px">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
+                        : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
+    const events = (w.events && w.events.length) ? w.events.join(', ') : '<em style="color:var(--muted)">all</em>';
+    const status = w.active
+      ? '<span style="color:var(--amber);font-weight:600">🔧 ACTIVE</span>'
+      : '<span style="color:var(--muted)">scheduled</span>';
+    const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
+    return `<tr>
+      <td style="font-weight:500">${escHtml(w.reason || '(no reason)')}</td>
+      <td><span class="group-badge">${escHtml(w.scope)}</span></td>
+      <td style="font-size:12px;font-family:monospace;color:var(--muted)">${target}</td>
+      <td style="font-size:12px">${when}</td>
+      <td style="font-size:11px;color:var(--muted)">${events}</td>
+      <td style="text-align:center">${status}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escHtml(w.id)}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadMaintSuppressions() {
+  const section = document.getElementById('maint-suppressions');
+  section.style.display = '';
+  const tbody = document.getElementById('maint-supp-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/maintenance/suppressions');
+  if (!data) return;
+  if (!data.entries.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No suppressions recorded.</td></tr>'; return; }
+  tbody.innerHTML = data.entries.map(e => `<tr>
+    <td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+    <td><code style="font-size:12px">${escHtml(e.event)}</code></td>
+    <td style="font-family:monospace;font-size:11px">${escHtml(e.device_id || '—')}</td>
+    <td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.window_id || '—')}</td>
+    <td style="font-size:12px">${escHtml(e.reason || '')}</td>
+  </tr>`).join('');
+}
+
+async function deleteMaintenance(winId) {
+  if (!confirm('Delete this maintenance window?')) return;
+  const result = await api('DELETE', `/maintenance/${winId}`);
+  if (result && result.ok) { toast('Window deleted', 'success'); loadMaintenance(); }
+}
+
+async function openNewMaintModal() {
+  // Populate device dropdown
+  const devs = await api('GET', '/devices');
+  const sel = document.getElementById('maint-target-device');
+  sel.innerHTML = '';
+  if (devs) {
+    for (const d of (devs.devices || devs)) {
+      const opt = document.createElement('option');
+      opt.value = d.id || d.device_id;
+      opt.textContent = (d.name || d.id) + (d.group ? ' ['+d.group+']' : '');
+      sel.appendChild(opt);
+    }
+  }
+  // Reset form
+  document.getElementById('maint-reason').value = '';
+  document.getElementById('maint-scope').value = 'device';
+  document.getElementById('maint-type').value = 'oneshot';
+  document.getElementById('maint-cron').value = '';
+  document.getElementById('maint-duration').value = 60;
+  document.querySelectorAll('.maint-event-cb').forEach(cb => cb.checked = false);
+  // Default start/end: now+5min, now+65min
+  const pad = n => n.toString().padStart(2,'0');
+  const toLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  const start = new Date(now.getTime() + 5*60000);
+  const end = new Date(now.getTime() + 65*60000);
+  document.getElementById('maint-start').value = toLocal(start);
+  document.getElementById('maint-end').value = toLocal(end);
+  onMaintScopeChange(); onMaintTypeChange();
+  openModal('new-maint-modal');
+}
+
+function onMaintScopeChange() {
+  const scope = document.getElementById('maint-scope').value;
+  const row = document.getElementById('maint-target-row');
+  const selDev = document.getElementById('maint-target-device');
+  const txtGrp = document.getElementById('maint-target-group');
+  if (scope === 'global') { row.style.display = 'none'; return; }
+  row.style.display = '';
+  if (scope === 'device') { selDev.style.display = ''; txtGrp.style.display = 'none'; }
+  else                    { selDev.style.display = 'none'; txtGrp.style.display = ''; }
+}
+
+function onMaintTypeChange() {
+  const t = document.getElementById('maint-type').value;
+  document.getElementById('maint-oneshot-row').style.display = (t === 'oneshot') ? '' : 'none';
+  document.getElementById('maint-cron-row').style.display    = (t === 'cron')    ? '' : 'none';
+}
+
+async function saveMaintenance() {
+  const reason = document.getElementById('maint-reason').value.trim();
+  const scope  = document.getElementById('maint-scope').value;
+  const type   = document.getElementById('maint-type').value;
+  let target = '';
+  if (scope === 'device') target = document.getElementById('maint-target-device').value;
+  else if (scope === 'group') target = document.getElementById('maint-target-group').value.trim();
+  const events = Array.from(document.querySelectorAll('.maint-event-cb'))
+    .filter(cb => cb.checked).map(cb => cb.value);
+
+  const body = {reason, scope, target, events};
+  if (type === 'oneshot') {
+    const s = document.getElementById('maint-start').value;
+    const e = document.getElementById('maint-end').value;
+    if (!s || !e) { toast('Start and end are required', 'error'); return; }
+    // Convert local datetime-local → ISO UTC
+    body.start = new Date(s).toISOString();
+    body.end   = new Date(e).toISOString();
+  } else {
+    body.cron = document.getElementById('maint-cron').value.trim();
+    body.duration = parseInt(document.getElementById('maint-duration').value) * 60;
+  }
+  const result = await api('POST', '/maintenance', body);
+  if (result && result.ok) {
+    toast('Maintenance window created', 'success');
+    closeModal('new-maint-modal');
+    loadMaintenance();
+  } else {
+    toast(result?.error || 'Failed to create window', 'error');
+  }
+}
+
+// ─── v1.8.1: Logs page ───────────────────────────────────────────────────────
+let logsState = {
+  timer:     null,        // interval id for live tail polling
+  newestTs:  0,           // monotonic cursor for /api/logs/tail
+  lines:     [],          // in-memory buffer of currently-displayed lines
+  maxLines:  1000,        // client-side cap — keep DOM cheap
+  searchMode: false,      // true = showing search results, false = live tail
+  devicesCache: [],       // for filter dropdown
+};
+
+async function enterLogsPage() {
+  // Populate device/unit dropdowns from current state
+  await refreshLogsFilters();
+  await loadLogRules();
+  // Set the initial tab styling to match state (defaults to per-device)
+  switchRulesTab(logsRulesTab);
+  startLogsTail();
+}
+
+function leaveLogsPage() {
+  if (logsState.timer) {
+    clearInterval(logsState.timer);
+    logsState.timer = null;
+  }
+}
+
+async function refreshLogsFilters() {
+  const devSel = document.getElementById('logs-device-filter');
+  const prevDev = devSel.value;
+  // Load devices list (reuse whatever api returns for /devices)
+  const devs = await api('GET', '/devices');
+  const list = devs?.devices || devs || [];
+  logsState.devicesCache = list;
+  devSel.innerHTML = '<option value="">All devices</option>' +
+    list.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}${d.group ? ' ['+escHtml(d.group)+']' : ''}</option>`).join('');
+  devSel.value = prevDev;
+}
+
+function startLogsTail() {
+  logsState.searchMode = false;
+  logsState.newestTs = 0;
+  logsState.lines = [];
+  document.getElementById('logs-viewer-title').textContent = 'Live tail — auto-refreshing every 30s';
+  document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">Fetching recent lines…</div>';
+  // Initial pull: everything from last 10 min
+  logsState.newestTs = Math.floor(Date.now()/1000) - 600;
+  pollLogsTail(true);
+  if (logsState.timer) clearInterval(logsState.timer);
+  logsState.timer = setInterval(() => pollLogsTail(false), 30000);
+}
+
+async function pollLogsTail(initial) {
+  if (logsState.searchMode) return;
+  const qs = new URLSearchParams();
+  qs.set('since', String(logsState.newestTs));
+  const dev = document.getElementById('logs-device-filter').value;
+  const unit = document.getElementById('logs-unit-filter').value;
+  if (dev) qs.set('device', dev);
+  if (unit) qs.set('unit', unit);
+  qs.set('limit', '500');
+  const data = await api('GET', `/logs/tail?${qs.toString()}`);
+  if (!data) return;
+  // Update stats
+  document.getElementById('logs-stat-lines').textContent = data.stats.total_lines;
+  document.getElementById('logs-stat-devices').textContent = data.stats.devices_reporting;
+
+  if (data.lines.length) {
+    logsState.newestTs = data.newest_ts;
+    logsState.lines = logsState.lines.concat(data.lines);
+    if (logsState.lines.length > logsState.maxLines) {
+      logsState.lines = logsState.lines.slice(-logsState.maxLines);
+    }
+    const last = logsState.lines[logsState.lines.length - 1];
+    document.getElementById('logs-stat-last').textContent = last ? relTime(last.ts) : '—';
+    renderLogsViewer();
+  } else if (initial) {
+    // v1.8.2: three distinct empty states for clearer diagnosis
+    let msg;
+    if (data.stats.devices_reporting === 0) {
+      msg = '<div style="text-align:center;color:var(--muted);padding:40px">'
+          + 'No devices are submitting logs yet.<br>'
+          + '<span style="font-size:11px">1) Configure watched services on the <a href="#" onclick="showPage(\'services\',document.querySelector(\'.nav-btn[onclick*=services]\')); return false" style="color:var(--accent)">Services page</a>. '
+          + '2) Agents submit every ~5 min. 3) Agent must be v1.8.0+ and have journalctl access.</span></div>';
+    } else if (data.stats.total_lines === 0) {
+      msg = `<div style="text-align:center;color:var(--muted);padding:40px">`
+          + `${data.stats.devices_reporting} device(s) are reporting, but watched units have been quiet.<br>`
+          + `<span style="font-size:11px">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
+    } else {
+      msg = `<div style="text-align:center;color:var(--muted);padding:40px">`
+          + `${data.stats.total_lines} line(s) in the buffer, but none match the current filter.<br>`
+          + `<span style="font-size:11px">Try clearing the device/unit filters above.</span></div>`;
+    }
+    document.getElementById('logs-viewer').innerHTML = msg;
+  }
+
+  // Refresh unit dropdown from discovered units
+  const allUnits = new Set();
+  for (const l of logsState.lines) allUnits.add(l.unit);
+  const unitSel = document.getElementById('logs-unit-filter');
+  const prevUnit = unitSel.value;
+  if (allUnits.size) {
+    const sorted = Array.from(allUnits).sort();
+    if (unitSel.options.length - 1 !== sorted.length) {
+      unitSel.innerHTML = '<option value="">All units</option>' +
+        sorted.map(u => `<option value="${escHtml(u)}">${escHtml(u)}</option>`).join('');
+      unitSel.value = prevUnit;
+    }
+  }
+}
+
+function renderLogsViewer() {
+  const viewer = document.getElementById('logs-viewer');
+  const wasAtBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) < 30;
+  viewer.innerHTML = logsState.lines.map(l => {
+    const color = lineSeverityColor(l.line);
+    const ts = new Date(l.ts*1000).toLocaleTimeString();
+    return `<div style="font-family:monospace;font-size:12px;line-height:1.5;padding:1px 4px;${color?'color:'+color+';':''}">`
+      + `<span style="color:var(--muted)">${ts}</span> `
+      + `<span style="color:var(--accent)">${escHtml(l.name)}</span> `
+      + `<span style="color:var(--muted)">${escHtml(l.unit)}</span>  `
+      + escHtml(l.line)
+      + `</div>`;
+  }).join('');
+  // Always-on polling (v1.8.2). Auto-scroll respects user's checkbox + whether
+  // they were already at the bottom — so manual scroll-up to read older lines
+  // still works within a poll window; next poll jumps them down again unless
+  // they uncheck auto-scroll.
+  const autoScroll = document.getElementById('logs-autoscroll').checked;
+  if (autoScroll && wasAtBottom) {
+    viewer.scrollTop = viewer.scrollHeight;
+  }
+}
+
+function lineSeverityColor(line) {
+  if (!line) return '';
+  if (/(?:\b|_)(FATAL|CRITICAL|emergency|panic)(?:\b|_)/i.test(line)) return 'var(--red)';
+  if (/(?:\b|_)(ERROR|ERR)(?:\b|_)|\berror:/i.test(line)) return '#f97316';
+  if (/(?:\b|_)(WARN(?:ING)?)(?:\b|_)/i.test(line)) return 'var(--amber)';
+  return '';
+}
+
+function relTime(ts) {
+  if (!ts) return '—';
+  const delta = Math.floor(Date.now()/1000 - ts);
+  if (delta < 60) return `${delta}s ago`;
+  if (delta < 3600) return `${Math.floor(delta/60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta/3600)}h ago`;
+  return `${Math.floor(delta/86400)}d ago`;
+}
+
+function onLogFilterChange() {
+  // Changing a filter resets the tail so we don't show stale unfiltered lines
+  if (!logsState.searchMode) startLogsTail();
+}
+
+async function runLogSearch() {
+  const q = document.getElementById('logs-search-input').value.trim();
+  if (!q) { clearLogSearch(); return; }
+  logsState.searchMode = true;
+  if (logsState.timer) { clearInterval(logsState.timer); logsState.timer = null; }
+  const dev = document.getElementById('logs-device-filter').value;
+  const qs = new URLSearchParams({q, limit: '500'});
+  if (dev) qs.set('device', dev);
+  document.getElementById('logs-viewer-title').textContent = `Search results for: ${q}`;
+  document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">Searching…</div>';
+  const data = await api('GET', `/logs/search?${qs.toString()}`);
+  if (!data) return;
+  if (!data.results.length) {
+    document.getElementById('logs-viewer').innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px">No matches for <code>${escHtml(q)}</code> in the current buffer.</div>`;
+    return;
+  }
+  // Group by device (per user preference from planning)
+  const byDev = {};
+  for (const r of data.results) {
+    if (!byDev[r.device_id]) byDev[r.device_id] = {name: r.name, lines: []};
+    byDev[r.device_id].lines.push(r);
+  }
+  let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} device${Object.keys(byDev).length===1?'':'s'}</div>`;
+  for (const [dev_id, g] of Object.entries(byDev)) {
+    html += `<details open style="margin-bottom:8px"><summary style="font-size:13px;color:var(--accent);cursor:pointer;padding:4px 0">${escHtml(g.name)} <span style="color:var(--muted);font-size:11px">(${g.lines.length})</span></summary>`;
+    html += g.lines.map(l => {
+      const color = lineSeverityColor(l.line);
+      return `<div style="font-family:monospace;font-size:12px;padding:1px 4px 1px 20px;${color?'color:'+color+';':''}"><span style="color:var(--muted)">${new Date(l.ts*1000).toLocaleString()}</span> <span style="color:var(--muted)">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
+    }).join('');
+    html += `</details>`;
+  }
+  document.getElementById('logs-viewer').innerHTML = html;
+}
+
+function clearLogSearch() {
+  document.getElementById('logs-search-input').value = '';
+  startLogsTail();
+}
+
+// ─── Alert rules (v1.8.2: per-device + fleet-wide tabs) ────────────────────
+let logsRulesTab = 'device';  // 'device' | 'global'
+
+function switchRulesTab(tab) {
+  logsRulesTab = tab;
+  document.getElementById('logs-rules-device-wrap').style.display = (tab === 'device') ? '' : 'none';
+  document.getElementById('logs-rules-global-wrap').style.display = (tab === 'global') ? '' : 'none';
+  // Style the active tab
+  const dBtn = document.getElementById('logs-tab-device');
+  const gBtn = document.getElementById('logs-tab-global');
+  const active = 'background:var(--surface2);border-bottom:1px solid var(--surface2)';
+  const inactive = 'background:var(--surface);border-bottom:1px solid var(--border)';
+  dBtn.style.cssText = 'border-radius:6px 6px 0 0;' + (tab === 'device' ? active : inactive);
+  gBtn.style.cssText = 'border-radius:6px 6px 0 0;' + (tab === 'global' ? active : inactive);
+  if (tab === 'global') loadGlobalLogRules();
+}
+
+async function loadLogRules() {
+  // Load both tables; one is hidden
+  await Promise.all([loadPerDeviceLogRules(), loadGlobalLogRules()]);
+}
+
+async function loadPerDeviceLogRules() {
+  const tbody = document.getElementById('logs-rules-tbody');
+  const data = await api('GET', '/logs/rules');
+  if (!data) return;
+  const globalCount = parseInt(document.getElementById('logs-stat-rules').dataset.globalCount || '0');
+  document.getElementById('logs-stat-rules').textContent = data.rules.length + globalCount;
+  document.getElementById('logs-stat-rules').dataset.deviceCount = data.rules.length;
+  if (!data.rules.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No per-device rules configured.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.rules.map(r => `<tr>
+    <td style="font-weight:500">${escHtml(r.device_name)}</td>
+    <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+    <td><code style="font-size:12px">${escHtml(r.unit)}</code></td>
+    <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
+    <td style="text-align:center">≥ ${r.threshold}</td>
+    <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteLogRule('${escHtml(r.device_id)}','${escHtml(r.unit)}','${escHtml(r.pattern)}')">Delete</button></td>
+  </tr>`).join('');
+}
+
+async function loadGlobalLogRules() {
+  const tbody = document.getElementById('logs-rules-global-tbody');
+  const data = await api('GET', '/logs/rules/global');
+  if (!data) return;
+  const deviceCount = parseInt(document.getElementById('logs-stat-rules').dataset.deviceCount || '0');
+  document.getElementById('logs-stat-rules').textContent = deviceCount + data.rules.length;
+  document.getElementById('logs-stat-rules').dataset.globalCount = data.rules.length;
+  if (!data.rules.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.rules.map(r => {
+    const created = r.created_at ? new Date(r.created_at*1000).toLocaleDateString() : '—';
+    const unitDisplay = r.unit === '*'
+      ? '<code style="font-size:12px;color:var(--amber)">* (any unit)</code>'
+      : `<code style="font-size:12px">${escHtml(r.unit)}</code>`;
+    return `<tr>
+      <td>${unitDisplay}</td>
+      <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
+      <td style="text-align:center">≥ ${r.threshold}</td>
+      <td style="font-size:11px;color:var(--muted)">${created} <span style="opacity:0.6">by ${escHtml(r.created_by || '?')}</span></td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteGlobalLogRule('${escHtml(r.id)}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function openAddRuleModal() {
+  // Modal content depends on which tab is active
+  const isGlobal = (logsRulesTab === 'global');
+  document.getElementById('log-rule-modal-title').textContent =
+    isGlobal ? 'Add fleet-wide log alert rule' : 'Add per-device log alert rule';
+  document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
+  document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
+  document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
+  if (!isGlobal) {
+    const sel = document.getElementById('log-rule-device');
+    sel.innerHTML = logsState.devicesCache.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}</option>`).join('');
+  }
+  document.getElementById('log-rule-unit').value = '';
+  document.getElementById('log-rule-unit').placeholder = isGlobal ? 'sshd.service  (or *)' : 'nginx.service';
+  document.getElementById('log-rule-pattern').value = '';
+  document.getElementById('log-rule-threshold').value = '1';
+  openModal('log-rule-modal');
+}
+
+async function saveLogRule() {
+  const unit    = document.getElementById('log-rule-unit').value.trim();
+  const pattern = document.getElementById('log-rule-pattern').value.trim();
+  const threshold = parseInt(document.getElementById('log-rule-threshold').value) || 1;
+  if (!unit || !pattern) { toast('Unit and pattern are required', 'error'); return; }
+  // Validate regex client-side
+  try { new RegExp(pattern); } catch(e) { toast('Invalid regex: '+e.message, 'error'); return; }
+
+  if (logsRulesTab === 'global') {
+    // Fleet-wide rule
+    const result = await api('POST', '/logs/rules/global', {unit, pattern, threshold});
+    if (result && result.ok) {
+      toast('Fleet-wide rule added', 'success');
+      closeModal('log-rule-modal');
+      loadGlobalLogRules();
+    } else {
+      toast(result?.error || 'Failed to save rule', 'error');
+    }
+    return;
+  }
+
+  // Per-device rule (unchanged from 1.8.1)
+  const devId = document.getElementById('log-rule-device').value;
+  if (!devId) { toast('Device is required', 'error'); return; }
+  const existing = await api('GET', `/devices/${devId}/services/config`);
+  if (!existing) return;
+  const log_watch = existing.log_watch || [];
+  if (log_watch.some(r => r.unit === unit && r.pattern === pattern)) {
+    toast('Rule already exists', 'error');
+    return;
+  }
+  log_watch.push({unit, pattern, threshold});
+  // Also ensure the unit is in services_watched so the agent submits its logs
+  const watched = existing.services_watched || [];
+  if (unit !== '*' && !watched.includes(unit)) watched.push(unit);
+  const result = await api('POST', `/devices/${devId}/services/config`, {
+    services_watched: watched,
+    log_watch,
+  });
+  if (result && result.ok) {
+    toast('Rule added', 'success');
+    closeModal('log-rule-modal');
+    loadPerDeviceLogRules();
+  } else {
+    toast(result?.error || 'Failed to save rule', 'error');
+  }
+}
+
+async function deleteLogRule(devId, unit, pattern) {
+  if (!confirm(`Remove per-device rule for ${unit}?\n\nPattern: ${pattern}`)) return;
+  const existing = await api('GET', `/devices/${devId}/services/config`);
+  if (!existing) return;
+  const log_watch = (existing.log_watch || []).filter(r => !(r.unit === unit && r.pattern === pattern));
+  const result = await api('POST', `/devices/${devId}/services/config`, {
+    services_watched: existing.services_watched || [],
+    log_watch,
+  });
+  if (result && result.ok) { toast('Rule removed', 'success'); loadPerDeviceLogRules(); }
+}
+
+async function deleteGlobalLogRule(ruleId) {
+  if (!confirm('Remove fleet-wide rule?')) return;
+  const result = await api('DELETE', `/logs/rules/global/${ruleId}`);
+  if (result && result.ok) { toast('Fleet-wide rule removed', 'success'); loadGlobalLogRules(); }
+}
+
 async function loadAuditLog() { const tbody = document.getElementById('audit-tbody'); tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/audit-log'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet. </td></tr>'; return; } tbody.innerHTML = data.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`).join(''); }
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
+
+// ─── v1.8.3: Calendar ────────────────────────────────────────────────────────
+let calCurrentMonth = null;   // Date object pinned to the first of the displayed month
+let calCurrentEvents = [];    // events fetched for the displayed range
+let calEditingId = null;      // id of event currently being edited (or null = new)
+let calSelectedColor = 'blue';
+
+function calMonthBounds(d) {
+  const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0);
+  const end   = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+  return [start, end];
+}
+
+function calFmtMonthTitle(d) {
+  return d.toLocaleString(undefined, {month: 'long', year: 'numeric'});
+}
+
+function calNav(delta) {
+  if (!calCurrentMonth) calCurrentMonth = new Date();
+  if (delta === 0) {
+    calCurrentMonth = new Date();
+  } else {
+    calCurrentMonth = new Date(
+      calCurrentMonth.getFullYear(),
+      calCurrentMonth.getMonth() + delta,
+      1
+    );
+  }
+  loadCalendar();
+}
+
+async function loadCalendar() {
+  if (!calCurrentMonth) calCurrentMonth = new Date();
+  document.getElementById('cal-title').textContent = calFmtMonthTitle(calCurrentMonth);
+
+  // Fetch a wider window so events spanning into adjacent months still show
+  const fetchStart = new Date(calCurrentMonth.getFullYear(), calCurrentMonth.getMonth() - 1, 1);
+  const fetchEnd   = new Date(calCurrentMonth.getFullYear(), calCurrentMonth.getMonth() + 2, 0);
+  const qs = new URLSearchParams({
+    from: fetchStart.toISOString(),
+    to:   fetchEnd.toISOString(),
+  });
+  const data = await api('GET', `/calendar?${qs.toString()}`);
+  calCurrentEvents = (data && data.events) || [];
+  renderCalendarGrid();
+}
+
+function renderCalendarGrid() {
+  const grid = document.getElementById('cal-grid');
+  if (!calCurrentMonth) calCurrentMonth = new Date();
+  const year = calCurrentMonth.getFullYear();
+  const month = calCurrentMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  // ISO weekday: Mon=1..Sun=7. JS getDay: Sun=0..Sat=6. Convert.
+  const firstWeekday = (firstOfMonth.getDay() + 6) % 7;  // 0=Mon..6=Sun
+  // Calendar grid starts on the Monday of the week containing the 1st
+  const gridStart = new Date(year, month, 1 - firstWeekday);
+
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+
+  // Index events by yyyy-m-d local-date key
+  const byDay = {};
+  for (const ev of calCurrentEvents) {
+    let evStart, evEnd;
+    try {
+      evStart = new Date(ev.start);
+      evEnd   = ev.end ? new Date(ev.end) : evStart;
+    } catch { continue; }
+    // Walk each day from start to end (inclusive)
+    const cur = new Date(evStart.getFullYear(), evStart.getMonth(), evStart.getDate());
+    const last = new Date(evEnd.getFullYear(), evEnd.getMonth(), evEnd.getDate());
+    while (cur <= last) {
+      const key = `${cur.getFullYear()}-${cur.getMonth()}-${cur.getDate()}`;
+      if (!byDay[key]) byDay[key] = [];
+      byDay[key].push(ev);
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+
+  // Render 6 weeks × 7 days = 42 cells
+  let html = '';
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const isToday = (d.getFullYear() === today.getFullYear()
+                    && d.getMonth() === today.getMonth()
+                    && d.getDate() === today.getDate());
+    const isOtherMonth = d.getMonth() !== month;
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const events = byDay[key] || [];
+    const eventsHtml = events.slice(0, 3).map(ev =>
+      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" onclick="event.stopPropagation();openEventModal('${escHtml(ev.id)}')" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
+    ).join('');
+    const more = events.length > 3 ? `<div style="font-size:10px;color:var(--muted);padding:0 4px">+${events.length - 3} more</div>` : '';
+    const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    html += `<div class="cal-day${isOtherMonth ? ' other-month' : ''}${isToday ? ' today' : ''}" onclick="openEventModalForDay('${dayDate}')">
+      <div class="cal-day-num">${d.getDate()}</div>
+      ${eventsHtml}${more}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function openEventModal(eventId) {
+  calEditingId = eventId || null;
+  document.getElementById('event-modal-title').textContent = eventId ? 'Edit event' : 'New event';
+  document.getElementById('event-delete-btn').style.display = eventId ? '' : 'none';
+  // Wire the color swatches (idempotent)
+  document.querySelectorAll('#event-color-picker .ev-color').forEach(el => {
+    el.onclick = () => {
+      calSelectedColor = el.dataset.color;
+      document.querySelectorAll('#event-color-picker .ev-color').forEach(x => x.style.borderColor = 'transparent');
+      el.style.borderColor = 'var(--text)';
+    };
+  });
+
+  let title = '', desc = '', color = 'blue', allDay = false;
+  let startVal = '', endVal = '';
+  if (eventId) {
+    const ev = calCurrentEvents.find(e => e.id === eventId);
+    if (!ev) { toast('Event not found', 'error'); return; }
+    title = ev.title; desc = ev.description || ''; color = ev.color || 'blue';
+    allDay = !!ev.all_day;
+    startVal = isoToLocalInput(ev.start);
+    endVal   = ev.end ? isoToLocalInput(ev.end) : startVal;
+  } else {
+    // Default: 1 hour from now, 1 hour duration
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    const later = new Date(now.getTime() + 3600 * 1000);
+    startVal = dateToLocalInput(now);
+    endVal   = dateToLocalInput(later);
+  }
+  document.getElementById('event-title').value = title;
+  document.getElementById('event-description').value = desc;
+  document.getElementById('event-start').value = startVal;
+  document.getElementById('event-end').value = endVal;
+  document.getElementById('event-all-day').checked = allDay;
+  calSelectedColor = color;
+  document.querySelectorAll('#event-color-picker .ev-color').forEach(el => {
+    el.style.borderColor = (el.dataset.color === color) ? 'var(--text)' : 'transparent';
+  });
+  openModal('event-modal');
+}
+
+function openEventModalForDay(dayStr) {
+  // dayStr is "YYYY-MM-DD" in local time
+  const [y, mo, d] = dayStr.split('-').map(Number);
+  const start = new Date(y, mo - 1, d, 9, 0);
+  const end   = new Date(y, mo - 1, d, 10, 0);
+  calEditingId = null;
+  document.getElementById('event-modal-title').textContent = 'New event';
+  document.getElementById('event-delete-btn').style.display = 'none';
+  document.querySelectorAll('#event-color-picker .ev-color').forEach(el => {
+    el.onclick = () => {
+      calSelectedColor = el.dataset.color;
+      document.querySelectorAll('#event-color-picker .ev-color').forEach(x => x.style.borderColor = 'transparent');
+      el.style.borderColor = 'var(--text)';
+    };
+    el.style.borderColor = (el.dataset.color === 'blue') ? 'var(--text)' : 'transparent';
+  });
+  document.getElementById('event-title').value = '';
+  document.getElementById('event-description').value = '';
+  document.getElementById('event-start').value = dateToLocalInput(start);
+  document.getElementById('event-end').value = dateToLocalInput(end);
+  document.getElementById('event-all-day').checked = false;
+  calSelectedColor = 'blue';
+  openModal('event-modal');
+}
+
+function dateToLocalInput(d) {
+  // Format Date as YYYY-MM-DDTHH:MM for <input type="datetime-local">
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function isoToLocalInput(iso) {
+  try { return dateToLocalInput(new Date(iso)); }
+  catch { return ''; }
+}
+
+async function saveEvent() {
+  const title = document.getElementById('event-title').value.trim();
+  if (!title) { toast('Title is required', 'error'); return; }
+  const startLocal = document.getElementById('event-start').value;
+  const endLocal   = document.getElementById('event-end').value;
+  if (!startLocal) { toast('Start time is required', 'error'); return; }
+
+  const body = {
+    title,
+    description: document.getElementById('event-description').value,
+    start:       new Date(startLocal).toISOString(),
+    end:         endLocal ? new Date(endLocal).toISOString() : new Date(startLocal).toISOString(),
+    all_day:     document.getElementById('event-all-day').checked,
+    color:       calSelectedColor,
+  };
+  let result;
+  if (calEditingId) {
+    result = await api('PUT', `/calendar/${calEditingId}`, body);
+  } else {
+    result = await api('POST', '/calendar', body);
+  }
+  if (result && result.ok) {
+    toast(calEditingId ? 'Event updated' : 'Event created', 'success');
+    closeModal('event-modal');
+    loadCalendar();
+  } else {
+    toast(result?.error || 'Failed to save', 'error');
+  }
+}
+
+async function deleteCurrentEvent() {
+  if (!calEditingId) return;
+  if (!confirm('Delete this event?')) return;
+  const result = await api('DELETE', `/calendar/${calEditingId}`);
+  if (result && result.ok) {
+    toast('Event deleted', 'success');
+    closeModal('event-modal');
+    loadCalendar();
+  } else {
+    toast(result?.error || 'Failed to delete', 'error');
+  }
+}
+
+// ─── v1.8.3: Tasks (kanban) ──────────────────────────────────────────────────
+let tasksCache = [];
+let taskEditingId = null;
+
+async function loadTasks() {
+  // Populate device filter with current devices (only on first load)
+  const sel = document.getElementById('tasks-device-filter');
+  if (sel.options.length <= 2) {
+    const devs = await api('GET', '/devices');
+    if (devs) {
+      const list = devs.devices || devs;
+      // Keep "All devices" + "No device linked" options at top
+      for (const d of list) {
+        const opt = document.createElement('option');
+        opt.value = d.id || d.device_id;
+        opt.textContent = d.name || d.id;
+        sel.appendChild(opt);
+      }
+    }
+  }
+  const filterDev = sel.value;
+  const qs = new URLSearchParams();
+  if (filterDev === '__none__') {
+    // Server doesn't have a "no device" filter; we fetch all and filter client-side
+  } else if (filterDev) {
+    qs.set('device', filterDev);
+  }
+  const data = await api('GET', `/tasks?${qs.toString()}`);
+  if (!data) return;
+  let tasks = data.tasks || [];
+  if (filterDev === '__none__') {
+    tasks = tasks.filter(t => !t.device_id);
+  }
+  tasksCache = tasks;
+  renderKanban(tasks);
+}
+
+function renderKanban(tasks) {
+  const states = ['upcoming', 'ongoing', 'pending', 'closed'];
+  for (const s of states) {
+    const col = document.getElementById(`tasks-col-${s}`);
+    const filtered = tasks.filter(t => (t.state || 'upcoming') === s);
+    document.getElementById(`tasks-count-${s}`).textContent = filtered.length;
+    if (!filtered.length) {
+      col.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 4px;text-align:center;font-style:italic">No tasks</div>`;
+      continue;
+    }
+    col.innerHTML = filtered.map(t => renderTaskCard(t)).join('');
+  }
+}
+
+function renderTaskCard(t) {
+  const devBadge = t.device_id && t._device_name
+    ? `<span class="kanban-card-device">${escHtml(t._device_name)}</span>`
+    : '';
+  const meta = [];
+  if (t.created_by) meta.push(`by ${escHtml(t.created_by)}`);
+  if (t.updated_at) {
+    const ago = relTime(t.updated_at);
+    meta.push(ago);
+  }
+  return `<div class="kanban-card" draggable="true"
+              ondragstart="onTaskDragStart(event,'${escHtml(t.id)}')"
+              ondragend="onTaskDragEnd(event)"
+              onclick="openTaskModal('${escHtml(t.id)}')">
+    <div class="kanban-card-title">${escHtml(t.title)}</div>
+    <div class="kanban-card-meta">
+      ${devBadge}
+      <span style="opacity:0.7">${meta.join(' · ')}</span>
+    </div>
+  </div>`;
+}
+
+function onTaskDragStart(e, taskId) {
+  e.dataTransfer.setData('text/plain', taskId);
+  e.dataTransfer.effectAllowed = 'move';
+  e.target.classList.add('dragging');
+}
+
+function onTaskDragEnd(e) {
+  e.target.classList.remove('dragging');
+}
+
+function onKanbanDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onKanbanDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function onKanbanDrop(e, newState) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const taskId = e.dataTransfer.getData('text/plain');
+  if (!taskId) return;
+  const task = tasksCache.find(t => t.id === taskId);
+  if (!task || task.state === newState) return;
+  // Optimistic update
+  task.state = newState;
+  renderKanban(tasksCache);
+  const result = await api('PUT', `/tasks/${taskId}`, {state: newState});
+  if (!result || !result.ok) {
+    toast(result?.error || 'Failed to move task', 'error');
+    loadTasks();  // resync from server
+  }
+}
+
+async function openTaskModal(taskId) {
+  taskEditingId = taskId || null;
+  document.getElementById('task-modal-title').textContent = taskId ? 'Edit task' : 'New task';
+  document.getElementById('task-delete-btn').style.display = taskId ? '' : 'none';
+
+  // Populate device dropdown
+  const devSel = document.getElementById('task-device');
+  if (devSel.options.length <= 1) {
+    const devs = await api('GET', '/devices');
+    if (devs) {
+      const list = devs.devices || devs;
+      for (const d of list) {
+        const opt = document.createElement('option');
+        opt.value = d.id || d.device_id;
+        opt.textContent = d.name || d.id;
+        devSel.appendChild(opt);
+      }
+    }
+  }
+
+  const meta = document.getElementById('task-meta');
+  if (taskId) {
+    const t = tasksCache.find(x => x.id === taskId);
+    if (!t) { toast('Task not found', 'error'); return; }
+    document.getElementById('task-title').value = t.title;
+    document.getElementById('task-description').value = t.description || '';
+    document.getElementById('task-state').value = t.state || 'upcoming';
+    document.getElementById('task-device').value = t.device_id || '';
+    const created = t.created_at ? new Date(t.created_at*1000).toLocaleString() : '?';
+    const updated = t.updated_at ? new Date(t.updated_at*1000).toLocaleString() : created;
+    meta.style.display = '';
+    meta.innerHTML = `Created ${escHtml(created)} by ${escHtml(t.created_by||'?')} · Updated ${escHtml(updated)}`;
+  } else {
+    document.getElementById('task-title').value = '';
+    document.getElementById('task-description').value = '';
+    document.getElementById('task-state').value = 'upcoming';
+    document.getElementById('task-device').value = '';
+    meta.style.display = 'none';
+  }
+  openModal('task-modal');
+}
+
+async function saveTask() {
+  const title = document.getElementById('task-title').value.trim();
+  if (!title) { toast('Title is required', 'error'); return; }
+  const body = {
+    title,
+    description: document.getElementById('task-description').value,
+    state:       document.getElementById('task-state').value,
+    device_id:   document.getElementById('task-device').value,
+  };
+  let result;
+  if (taskEditingId) {
+    result = await api('PUT', `/tasks/${taskEditingId}`, body);
+  } else {
+    result = await api('POST', '/tasks', body);
+  }
+  if (result && result.ok) {
+    toast(taskEditingId ? 'Task updated' : 'Task created', 'success');
+    closeModal('task-modal');
+    loadTasks();
+  } else {
+    toast(result?.error || 'Failed to save', 'error');
+  }
+}
+
+async function deleteCurrentTask() {
+  if (!taskEditingId) return;
+  if (!confirm('Delete this task?')) return;
+  const result = await api('DELETE', `/tasks/${taskEditingId}`);
+  if (result && result.ok) {
+    toast('Task deleted', 'success');
+    closeModal('task-modal');
+    loadTasks();
+  } else {
+    toast(result?.error || 'Failed to delete', 'error');
+  }
+}
 let notificationsEnabled = false;
 function requestNotifications() { if (!('Notification' in window)) return; if (Notification.permission === 'granted') { notificationsEnabled = true; return; } if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { notificationsEnabled = (p === 'granted'); }); }
 function sendNotification(title, body) { if (!notificationsEnabled) return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) {} }

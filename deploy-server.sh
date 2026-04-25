@@ -12,8 +12,19 @@ die()     { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-info "Deploying api.py..."
-install -m 755 "$SCRIPT_DIR/server/cgi-bin/api.py" /var/www/remotepower/cgi-bin/api.py
+info "Deploying all cgi-bin Python modules..."
+# Auto-discovers api.py plus all sibling modules (cve_scanner.py, prometheus_export.py,
+# and any future ones) — no need to edit this script when adding a new module.
+for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
+    name="$(basename "$f")"
+    # api.py needs +x for CGI; others are pure imports
+    if [[ "$name" == "api.py" ]]; then
+        install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
+    else
+        install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
+    fi
+    echo "      → cgi-bin/$name"
+done
 
 info "Deploying index.html..."
 cp "$SCRIPT_DIR/server/html/index.html" /var/www/remotepower/index.html

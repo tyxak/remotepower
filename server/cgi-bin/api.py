@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.7.0
+RemotePower API backend - v1.8.3
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.7.0'
+SERVER_VERSION = '1.8.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -52,6 +52,32 @@ MAX_PACKAGE_LIST    = 10000      # hard cap on packages per device payload
 CVE_SCAN_MAX_AGE    = 86400      # auto-scan if findings older than this
 CVE_ALERT_SEVERITY  = ('critical', 'high')  # which severities fire webhooks
 
+# ── v1.8.0: service monitoring, log tail, maintenance windows ─────────────────
+SERVICES_FILE       = DATA_DIR / 'services.json'          # current state per device
+SERVICE_HIST_FILE   = DATA_DIR / 'service_history.json'   # transitions per (device,unit)
+LOG_WATCH_FILE      = DATA_DIR / 'log_watch.json'         # captured log buffer per device
+MAINT_FILE          = DATA_DIR / 'maintenance.json'       # active + scheduled windows
+MAINT_SUPPRESS_LOG  = DATA_DIR / 'maint_suppressed.json'  # audit trail for suppressions
+
+# v1.8.2: fleet-wide log alert rules (per-device rules still live on device.log_watch)
+LOG_RULES_GLOBAL_FILE = DATA_DIR / 'log_rules_global.json'
+MAX_GLOBAL_LOG_RULES  = 50
+
+# v1.8.3: standalone shared calendar events
+CALENDAR_FILE       = DATA_DIR / 'calendar.json'
+MAX_CALENDAR_EVENTS = 1000
+
+# v1.8.3: shared kanban-style task board (optional device linking)
+TASKS_FILE          = DATA_DIR / 'tasks.json'
+MAX_TASKS           = 500
+TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
+
+MAX_SERVICES_PER_DEVICE = 50       # sanity cap
+MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
+MAX_LOG_LINES_PER_UNIT  = 100      # per-poll capture window
+LOG_BUFFER_TTL          = 6 * 3600 # rolling N-hour buffer
+MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # 2 MB per device cap
+
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
@@ -77,7 +103,7 @@ LOGIN_FAIL_MAX     = 10    # lock after this many failures
 LOGIN_LOCKOUT_TIME = 600   # 10-minute lockout
 
 # ── Input size limits ──────────────────────────────────────────────────────────
-MAX_BODY_BYTES    = 50 * 1024 * 1024  # 50 MB# 64 KB hard cap on any request body
+MAX_BODY_BYTES    = 50 * 1024 * 1024  # 50 MB — raised from 64 KB in v1.7.0 for package-list uploads
 MAX_HOSTNAME_LEN  = 253
 MAX_NAME_LEN      = 64
 MAX_OS_LEN        = 128
@@ -484,6 +510,20 @@ def fire_webhook(event, payload):
     url = cfg.get('webhook_url', '').strip()
     if not url:
         return
+
+    # v1.8.0: maintenance-window suppression
+    try:
+        mw = in_maintenance(event, payload)
+    except Exception:
+        mw = None
+    if mw:
+        try:
+            log_suppression(event, payload, mw)
+        except Exception:
+            pass
+        _log_webhook(event, url, 'suppressed', f'maintenance: {mw.get("reason", "")}')
+        return
+
     # Validate URL scheme before firing
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
@@ -501,6 +541,10 @@ def fire_webhook(event, payload):
         'patch_alert':     'Patch Alert',
         'monitor_down':    'Monitor Down',
         'monitor_up':      'Monitor Recovered',
+        'cve_found':       'New CVEs Detected',
+        'service_down':    'Service Down',
+        'service_up':      'Service Recovered',
+        'log_alert':       'Log Pattern Matched',
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
@@ -597,6 +641,12 @@ def _webhook_message(event, payload):
         return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) is DOWN — {payload.get("detail", "")}'
     elif event == 'monitor_up':
         return f'Monitor "{payload.get("label", "?")}" ({payload.get("type", "?")}: {payload.get("target", "?")}) recovered'
+    elif event == 'service_down':
+        return f'{name}: {payload.get("unit", "?")} is {payload.get("active", "down")} (was {payload.get("previous", "active")})'
+    elif event == 'service_up':
+        return f'{name}: {payload.get("unit", "?")} is active again'
+    elif event == 'log_alert':
+        return f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {payload.get("count", "?")} times'
     elif event == 'test':
         return f'This is a test notification from RemotePower ({payload.get("server_version", "?")}). If you see this, webhooks are working!'
     return f'{event}: {name}'
@@ -606,9 +656,9 @@ def _webhook_priority(event):
     """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
     if event == 'cve_found':
         return 5
-    if event in ('device_offline', 'monitor_down', 'patch_alert'):
+    if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down', 'log_alert'):
         return 4
-    if event in ('device_online', 'monitor_up'):
+    if event in ('device_online', 'monitor_up', 'service_up'):
         return 3
     return 3
 
@@ -624,6 +674,9 @@ def _webhook_tags(event):
         'cve_found':       'rotating_light,shield',
         'monitor_down':    'red_circle,satellite',
         'monitor_up':      'green_circle,satellite',
+        'service_down':    'red_circle,gear',
+        'service_up':      'green_circle,gear',
+        'log_alert':       'warning,scroll',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -1039,6 +1092,13 @@ def handle_heartbeat():
     save(DEVICES_FILE, devices)
     _record_uptime(dev_id, dev.get('name', dev_id), True)
 
+    # v1.8.0: process service report
+    if 'services' in body and isinstance(body['services'], list):
+        try:
+            process_service_report(dev_id, body['services'])
+        except Exception:
+            pass  # never let service processing break heartbeat
+
     # executed_command webhook — validate it's one of our known command types
     if 'executed_command' in body:
         cmd_val = str(body['executed_command'])[:600]
@@ -1069,11 +1129,16 @@ def handle_heartbeat():
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
+    common_resp = {
+        'poll_interval':    dev.get('poll_interval', 60),
+        'services_watched': dev.get('services_watched', []),
+        'log_watch':        dev.get('log_watch', []),
+    }
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; save(CMDS_FILE, cmds)
-        respond(200, {'command': cmd, 'poll_interval': dev.get('poll_interval', 60)})
+        respond(200, {'command': cmd, **common_resp})
     else:
-        respond(200, {'command': None, 'poll_interval': dev.get('poll_interval', 60)})
+        respond(200, {'command': None, **common_resp})
 
 
 def _record_metrics(dev_id, sysinfo):
@@ -1404,6 +1469,7 @@ def handle_config_get():
     safe.setdefault('offline_webhook_enabled', True)
     safe.setdefault('monitor_webhook_enabled', True)
     safe.setdefault('cve_webhook_enabled', True)
+    safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
     respond(200, safe)
 
@@ -1429,6 +1495,9 @@ def handle_config_save():
 
     if 'cve_webhook_enabled' in body:
         cfg['cve_webhook_enabled'] = bool(body['cve_webhook_enabled'])
+
+    if 'service_webhook_enabled' in body:
+        cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
 
     if 'wol_broadcast' in body:
         cfg['wol_broadcast'] = _sanitize_ip(body['wol_broadcast']) or '255.255.255.255'
@@ -2772,6 +2841,16 @@ def handle_prometheus_metrics():
                 'last': last.get('ts', 0),
             }
 
+    # v1.8.0: maintenance-window context — count currently active
+    maint = load(MAINT_FILE)
+    maint_active = 0
+    for w in (maint.get('windows') or []):
+        try:
+            if _window_active(w, now):
+                maint_active += 1
+        except Exception:
+            pass
+
     ctx = {
         'server_version':  SERVER_VERSION,
         'now':             now,
@@ -2785,6 +2864,8 @@ def handle_prometheus_metrics():
         'webhook_log_cap': MAX_WEBHOOK_LOG,
         'cve_findings':    load(CVE_FINDINGS_FILE),
         'cve_ignore':      load(CVE_IGNORE_FILE),
+        'services':        load(SERVICES_FILE),
+        'maintenance_active_count': maint_active,
     }
     body = prometheus_export.generate_metrics(ctx)
 
@@ -2794,6 +2875,1156 @@ def handle_prometheus_metrics():
     print()
     print(body)
     sys.exit(0)
+
+
+# ─── v1.8.0: Maintenance windows ───────────────────────────────────────────────
+
+def _cron_match(expr, ts):
+    """
+    Very small cron evaluator — 5 fields, no ranges like 1-5, no `@reboot`.
+    Supports *, */N, a,b,c, single integers. Matches the minute containing `ts`.
+    """
+    parts = (expr or '').split()
+    if len(parts) != 5:
+        return False
+    tm = time.localtime(ts)
+    # cron weekday: 0=Sun..6=Sat; Python tm_wday: 0=Mon..6=Sun. Convert.
+    cron_wday = (tm.tm_wday + 1) % 7
+    values = (tm.tm_min, tm.tm_hour, tm.tm_mday, tm.tm_mon, cron_wday)
+    for spec, v in zip(parts, values):
+        if not _cron_field_match(spec, v):
+            return False
+    return True
+
+
+def _cron_field_match(spec, value):
+    spec = spec.strip()
+    if spec == '*':
+        return True
+    if spec.startswith('*/'):
+        try:
+            step = int(spec[2:])
+            return step > 0 and value % step == 0
+        except ValueError:
+            return False
+    for part in spec.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            if int(part) == value:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _window_active(window, now):
+    """Return True if this maintenance window is active right now."""
+    # One-shot: ISO-8601 start + end
+    start = window.get('start')
+    end   = window.get('end')
+    if start and end:
+        try:
+            # Accept both '2026-05-10T22:00:00Z' and '2026-05-10T22:00:00+00:00'
+            s = _parse_iso(start)
+            e = _parse_iso(end)
+            if s <= now <= e:
+                return True
+        except ValueError:
+            pass
+    # Recurring cron window
+    cron = window.get('cron')
+    dur  = int(window.get('duration', 0) or 0)
+    if cron and dur > 0:
+        # Check the current minute and each minute in the past `dur` seconds
+        # to see if this cron expression matched at a time that's still within
+        # its duration. We scan backwards in 60s steps — cheap and good enough.
+        for i in range(0, dur, 60):
+            probe = now - i
+            if _cron_match(cron, probe):
+                return True
+    return False
+
+
+def _parse_iso(s):
+    """Parse ISO-8601 timestamp → unix ts. Supports 'Z' suffix and +HH:MM."""
+    if s.endswith('Z'):
+        s = s[:-1] + '+00:00'
+    # Python 3.7+ handles the rest
+    import datetime as _dt
+    return int(_dt.datetime.fromisoformat(s).timestamp())
+
+
+# Events that maintenance windows can suppress
+SUPPRESSIBLE_EVENTS = (
+    'device_offline', 'device_online',
+    'monitor_down',   'monitor_up',
+    'service_down',   'service_up',
+    'patch_alert',    'cve_found',
+    'log_alert',
+)
+
+
+def in_maintenance(event, payload):
+    """
+    Return {'reason': ...} if this (event, device) is under an active
+    maintenance window, else None. Matches on:
+      - payload['device_id']          → device-specific windows
+      - device.group                   → group-wide windows
+      - window.scope == 'global'       → fleet-wide windows
+    """
+    if event not in SUPPRESSIBLE_EVENTS:
+        return None
+
+    maint = load(MAINT_FILE)
+    windows = maint.get('windows') or []
+    if not windows:
+        return None
+
+    now = int(time.time())
+    dev_id = payload.get('device_id', '')
+    dev_group = ''
+    if dev_id:
+        devices = load(DEVICES_FILE)
+        dev_group = (devices.get(dev_id, {}).get('group') or '')
+
+    for w in windows:
+        scope = (w.get('scope') or 'device').lower()
+        # Decide if this window applies to this target
+        applies = False
+        if scope == 'global':
+            applies = True
+        elif scope == 'group' and dev_group and w.get('target') == dev_group:
+            applies = True
+        elif scope == 'device' and dev_id and w.get('target') == dev_id:
+            applies = True
+        if not applies:
+            continue
+        if _window_active(w, now):
+            # Respect an optional per-window event list (defaults to all)
+            allowed = w.get('events')
+            if allowed and event not in allowed:
+                continue
+            return {
+                'window_id': w.get('id', ''),
+                'reason':    w.get('reason', 'maintenance window active'),
+                'scope':     scope,
+                'target':    w.get('target', ''),
+            }
+    return None
+
+
+def log_suppression(event, payload, info):
+    """Append an entry to the maintenance-suppression audit trail."""
+    try:
+        log = load(MAINT_SUPPRESS_LOG)
+        entries = log.get('entries') or []
+        entries.append({
+            'ts':         int(time.time()),
+            'event':      event,
+            'device_id':  payload.get('device_id', ''),
+            'window_id':  info.get('window_id', ''),
+            'reason':     info.get('reason', ''),
+            'scope':      info.get('scope', ''),
+        })
+        entries = entries[-500:]  # keep last 500
+        log['entries'] = entries
+        save(MAINT_SUPPRESS_LOG, log)
+    except Exception:
+        pass
+
+
+def handle_maintenance_list():
+    """GET /api/maintenance — list all defined windows + currently active ones."""
+    require_auth()
+    maint = load(MAINT_FILE)
+    windows = maint.get('windows') or []
+    now = int(time.time())
+    out = []
+    for w in windows:
+        out.append({**w, 'active': _window_active(w, now)})
+    out.sort(key=lambda x: (not x['active'], x.get('reason', '')))
+    respond(200, {'windows': out})
+
+
+def handle_maintenance_add():
+    """POST /api/maintenance — create a window."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body()
+    reason = _sanitize_str(body.get('reason', ''), 128)
+    scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
+    target = _sanitize_str(body.get('target', ''), 128)
+    start  = _sanitize_str(body.get('start', ''), 32)
+    end    = _sanitize_str(body.get('end', ''), 32)
+    cron   = _sanitize_str(body.get('cron', ''), 64)
+
+    try:
+        duration = int(body.get('duration', 0) or 0)
+    except (TypeError, ValueError):
+        duration = 0
+
+    events = body.get('events') or []
+    if not isinstance(events, list):
+        events = []
+    events = [e for e in events if e in SUPPRESSIBLE_EVENTS][:10]
+
+    if scope not in ('device', 'group', 'global'):
+        respond(400, {'error': 'scope must be device, group, or global'})
+    if scope == 'device' and not _validate_id(target):
+        respond(400, {'error': 'device-scoped window requires a valid target device_id'})
+    if scope == 'group' and not target:
+        respond(400, {'error': 'group-scoped window requires a target group name'})
+
+    # Must be either (start+end) or (cron+duration) — not both, not neither
+    has_oneshot = bool(start and end)
+    has_cron    = bool(cron and duration > 0)
+    if has_oneshot == has_cron:
+        respond(400, {'error': 'specify exactly one of (start+end) or (cron+duration)'})
+
+    if has_oneshot:
+        try:
+            s = _parse_iso(start); e = _parse_iso(end)
+            if e <= s:
+                respond(400, {'error': 'end must be after start'})
+        except ValueError:
+            respond(400, {'error': 'invalid ISO-8601 timestamp'})
+
+    if has_cron:
+        if _cron_match(cron, int(time.time())) is False and len(cron.split()) != 5:
+            respond(400, {'error': 'cron must have 5 space-separated fields'})
+        if duration < 60 or duration > 86400 * 7:
+            respond(400, {'error': 'duration must be 60..604800 seconds'})
+
+    window = {
+        'id':       secrets.token_hex(8),
+        'reason':   reason,
+        'scope':    scope,
+        'target':   target,
+        'start':    start,
+        'end':      end,
+        'cron':     cron,
+        'duration': duration,
+        'events':   events,
+        'created_by': actor,
+        'created_at': int(time.time()),
+    }
+
+    maint = load(MAINT_FILE)
+    windows = maint.get('windows') or []
+    windows.append(window)
+    maint['windows'] = windows
+    save(MAINT_FILE, maint)
+    audit_log(actor, 'maintenance_add',
+              detail=f'id={window["id"]} scope={scope} target={target} reason={reason[:60]}')
+    respond(200, {'ok': True, 'window': window})
+
+
+def handle_maintenance_delete(window_id):
+    """DELETE /api/maintenance/{id}"""
+    actor = require_admin_auth()
+    maint = load(MAINT_FILE)
+    windows = maint.get('windows') or []
+    remaining = [w for w in windows if w.get('id') != window_id]
+    if len(remaining) == len(windows):
+        respond(404, {'error': 'Window not found'})
+    maint['windows'] = remaining
+    save(MAINT_FILE, maint)
+    audit_log(actor, 'maintenance_delete', detail=f'id={window_id}')
+    respond(200, {'ok': True})
+
+
+def handle_maintenance_suppressions():
+    """GET /api/maintenance/suppressions — recent suppression audit trail."""
+    require_auth()
+    log = load(MAINT_SUPPRESS_LOG)
+    respond(200, {'entries': (log.get('entries') or [])[-100:][::-1]})
+
+
+# ─── v1.8.0: Service monitoring (agent-reported systemd units) ────────────────
+
+def _sanitize_unit_name(name):
+    """Allow systemd unit names: letters, digits, @.-_+ and must end in .service
+    or have no dot. Just bound length and reject whitespace/path traversal."""
+    if not isinstance(name, str):
+        return None
+    s = name.strip()[:128]
+    if not s or not re.match(r'^[A-Za-z0-9][A-Za-z0-9._@+\-]{0,127}$', s):
+        return None
+    return s
+
+
+def _sanitize_service_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    unit   = _sanitize_unit_name(entry.get('unit', ''))
+    if not unit:
+        return None
+    active = str(entry.get('active', 'unknown'))[:16]
+    sub    = str(entry.get('sub', ''))[:32]
+    since  = entry.get('since') or 0
+    try:
+        since = int(since)
+    except (TypeError, ValueError):
+        since = 0
+    return {'unit': unit, 'active': active, 'sub': sub, 'since': since}
+
+
+def _record_service_transition(dev_id, unit, old_active, new_active, ts):
+    """Append a transition to service_history.json keyed by (device,unit)."""
+    hist = load(SERVICE_HIST_FILE)
+    key = f'{dev_id}:{unit}'
+    entries = hist.get(key) or []
+    entries.append({'ts': ts, 'from': old_active, 'to': new_active})
+    entries = entries[-MAX_SERVICE_HIST:]
+    hist[key] = entries
+    save(SERVICE_HIST_FILE, hist)
+
+
+def _fire_service_webhook(event, dev_id, unit, payload_extra=None):
+    """Wrapper that fires service_up/service_down through fire_webhook."""
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id, {})
+    payload = {
+        'device_id': dev_id,
+        'name':      dev.get('name', dev_id),
+        'group':     dev.get('group', ''),
+        'unit':      unit,
+    }
+    if payload_extra:
+        payload.update(payload_extra)
+    fire_webhook(event, payload)
+
+
+def process_service_report(dev_id, services_payload):
+    """
+    Called from handle_heartbeat. Updates services.json, records transitions,
+    fires webhooks on state changes.
+
+    services_payload: [{unit, active, sub, since}, ...]
+    """
+    if not isinstance(services_payload, list):
+        return
+
+    now = int(time.time())
+    clean = []
+    for entry in services_payload[:MAX_SERVICES_PER_DEVICE]:
+        e = _sanitize_service_entry(entry)
+        if e:
+            clean.append(e)
+    if not clean:
+        return
+
+    store = load(SERVICES_FILE)
+    prev_dev = store.get(dev_id) or {}
+    prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
+
+    cfg = load(CONFIG_FILE)
+    service_webhooks_on = cfg.get('service_webhook_enabled', True)
+
+    for entry in clean:
+        prev = prev_by_unit.get(entry['unit'])
+        if not prev:
+            continue  # first time we see this unit; no transition yet
+        # Normalize: treat anything other than 'active' as "down" for alerting
+        was_up = (prev.get('active') == 'active')
+        is_up  = (entry['active'] == 'active')
+        if was_up != is_up:
+            _record_service_transition(
+                dev_id, entry['unit'], prev.get('active'), entry['active'], now
+            )
+            if service_webhooks_on:
+                event = 'service_up' if is_up else 'service_down'
+                _fire_service_webhook(event, dev_id, entry['unit'], {
+                    'active':    entry['active'],
+                    'sub':       entry['sub'],
+                    'previous':  prev.get('active'),
+                })
+
+    store[dev_id] = {'updated_at': now, 'services': clean}
+    save(SERVICES_FILE, store)
+
+
+def handle_services_get():
+    """GET /api/services — all current service states across the fleet."""
+    require_auth()
+    store = load(SERVICES_FILE)
+    devices = load(DEVICES_FILE)
+    out = []
+    for dev_id, dev in devices.items():
+        entry = store.get(dev_id) or {}
+        services = entry.get('services') or []
+        up = sum(1 for s in services if s.get('active') == 'active')
+        down = len(services) - up
+        out.append({
+            'device_id':  dev_id,
+            'name':       dev.get('name', dev_id),
+            'group':      dev.get('group', ''),
+            'updated_at': entry.get('updated_at', 0),
+            'total':      len(services),
+            'up':         up,
+            'down':       down,
+            'services':   services,
+        })
+    out.sort(key=lambda d: (-d['down'], d['name'].lower()))
+    respond(200, {'devices': out})
+
+
+def handle_services_device(dev_id):
+    """GET /api/devices/{id}/services"""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    store = load(SERVICES_FILE)
+    hist  = load(SERVICE_HIST_FILE)
+    log_buf = load(LOG_WATCH_FILE).get(dev_id) or {}
+    entry = store.get(dev_id) or {}
+    services = entry.get('services') or []
+
+    enriched = []
+    for s in services:
+        key = f'{dev_id}:{s["unit"]}'
+        enriched.append({
+            **s,
+            'history':  (hist.get(key) or [])[-10:],
+            'log_tail': (log_buf.get('units') or {}).get(s['unit'], [])[-50:],
+        })
+    respond(200, {
+        'device_id':  dev_id,
+        'name':       devices[dev_id].get('name', dev_id),
+        'updated_at': entry.get('updated_at', 0),
+        'services':   enriched,
+    })
+
+
+def handle_services_config(dev_id):
+    """
+    GET/POST /api/devices/{id}/services/config
+    Manages services_watched list on the device record.
+    """
+    actor = require_admin_auth() if method() == 'POST' else None
+    if not actor:
+        require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    if method() == 'GET':
+        respond(200, {
+            'services_watched': devices[dev_id].get('services_watched', []),
+            'log_watch':        devices[dev_id].get('log_watch', []),
+        })
+
+    body = get_json_body()
+    raw = body.get('services_watched') or []
+    if not isinstance(raw, list):
+        respond(400, {'error': 'services_watched must be a list'})
+    watched = []
+    for name in raw[:MAX_SERVICES_PER_DEVICE]:
+        unit = _sanitize_unit_name(name)
+        if unit:
+            watched.append(unit)
+
+    # Optional: log_watch rules — [{unit, pattern, threshold}]
+    log_rules_raw = body.get('log_watch') or []
+    log_rules = []
+    if isinstance(log_rules_raw, list):
+        for r in log_rules_raw[:10]:
+            if not isinstance(r, dict):
+                continue
+            unit = _sanitize_unit_name(r.get('unit', ''))
+            pat  = _sanitize_str(r.get('pattern', ''), 128, allow_empty=False)
+            try:
+                thr = int(r.get('threshold', 1) or 1)
+            except (TypeError, ValueError):
+                thr = 1
+            if unit and pat and 1 <= thr <= 100:
+                # Sanity-check the regex compiles
+                try:
+                    re.compile(pat)
+                except re.error:
+                    continue
+                log_rules.append({'unit': unit, 'pattern': pat, 'threshold': thr})
+
+    devices[dev_id]['services_watched'] = watched
+    devices[dev_id]['log_watch']        = log_rules
+    save(DEVICES_FILE, devices)
+    audit_log(actor, 'services_config_update',
+              detail=f'device={dev_id} watched={len(watched)} log_rules={len(log_rules)}')
+    respond(200, {'ok': True, 'services_watched': watched, 'log_watch': log_rules})
+
+
+# ─── v1.8.0: Log tail — called by agent with captured unit logs ───────────────
+
+def handle_log_submit():
+    """
+    POST /api/logs — agent submits per-unit log lines (device-authenticated).
+    Body: {device_id, token, units: {unit_name: [line, line, ...], ...}}
+
+    v1.8.2:
+      - Empty lines[] arrays are now preserved so quiet devices still register
+        as "reporting" on the Logs page (previously they vanished entirely)
+      - Evaluates both device.log_watch (per-device) AND global rules from
+        log_rules_global.json (fleet-wide). Wildcard unit='*' matches any unit.
+      - Dedupes alerts by (scope, unit, pattern) so a line that matches a
+        per-device rule AND a global rule fires only once.
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body()
+    dev_id    = str(body.get('device_id', '')).strip()
+    dev_token = str(body.get('token', '')).strip()
+    if not _validate_id(dev_id):
+        respond(403, {'error': 'Unauthorized device'})
+
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+        respond(403, {'error': 'Unauthorized device'})
+
+    units_in = body.get('units') or {}
+    if not isinstance(units_in, dict):
+        respond(400, {'error': 'units must be an object'})
+
+    now = int(time.time())
+    log_store = load(LOG_WATCH_FILE)
+    dev_buf = log_store.get(dev_id) or {'units': {}, 'updated_at': now}
+    units_buf = dev_buf.get('units') or {}
+
+    alerts_fired = []
+    per_device_rules = dev.get('log_watch') or []
+    global_rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
+
+    # Track which (unit, pattern) pairs have already fired this submission — a
+    # line matching both a per-device and a global rule with the same pattern
+    # should produce one alert, not two.
+    fired_keys = set()
+
+    for unit_raw, lines in units_in.items():
+        unit = _sanitize_unit_name(unit_raw)
+        if not isinstance(unit, str) or unit is None:
+            continue
+        if not isinstance(lines, list):
+            continue
+
+        clean_lines = []
+        for line in lines[:MAX_LOG_LINES_PER_UNIT]:
+            s = str(line)[:1024]
+            clean_lines.append({'ts': now, 'line': s})
+
+        existing = units_buf.get(unit) or []
+        combined = existing + clean_lines
+        # Trim by age
+        cutoff = now - LOG_BUFFER_TTL
+        combined = [e for e in combined if e.get('ts', 0) >= cutoff]
+        # Trim by byte-size
+        total_bytes = sum(len(e.get('line', '')) for e in combined)
+        while total_bytes > MAX_LOG_BUFFER_BYTES and combined:
+            removed = combined.pop(0)
+            total_bytes -= len(removed.get('line', ''))
+        # v1.8.2: always keep the unit key, even if empty — so the device
+        # appears on the Logs page as "watched, quiet in this window"
+        units_buf[unit] = combined
+
+        # Evaluate per-device rules first, then global
+        def _eval_rules(rules, scope):
+            for rule in rules:
+                rule_unit = rule.get('unit', '')
+                # Wildcard '*' matches any unit; otherwise exact match
+                if rule_unit != '*' and rule_unit != unit:
+                    continue
+                pattern = rule.get('pattern', '')
+                key = (scope, unit, pattern)
+                if key in fired_keys:
+                    continue
+                try:
+                    rx = re.compile(pattern)
+                except re.error:
+                    continue
+                matches = [e['line'] for e in clean_lines if rx.search(e['line'])]
+                threshold = rule.get('threshold', 1)
+                try:
+                    threshold = int(threshold)
+                except (TypeError, ValueError):
+                    threshold = 1
+                if len(matches) >= threshold:
+                    fired_keys.add(key)
+                    alerts_fired.append({
+                        'unit': unit, 'pattern': pattern,
+                        'count': len(matches), 'scope': scope,
+                    })
+                    fire_webhook('log_alert', {
+                        'device_id': dev_id,
+                        'name':      dev.get('name', dev_id),
+                        'unit':      unit,
+                        'pattern':   pattern,
+                        'count':     len(matches),
+                        'sample':    matches[:3],
+                        'scope':     scope,  # v1.8.2: 'device' | 'global'
+                    })
+
+        _eval_rules(per_device_rules, 'device')
+        _eval_rules(global_rules,     'global')
+
+    dev_buf['units'] = units_buf
+    dev_buf['updated_at'] = now
+    log_store[dev_id] = dev_buf
+    save(LOG_WATCH_FILE, log_store)
+
+    respond(200, {'ok': True, 'alerts_fired': len(alerts_fired)})
+
+
+def handle_log_search():
+    """
+    GET /api/logs/search?q=<pattern>&device=<id>&limit=<n>
+    Searches the rolling buffer across devices. No indexing — just grep.
+    """
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    q       = (qs.get('q', [''])[0])[:128]
+    device  = (qs.get('device', [''])[0])[:64]
+    limit   = min(int(qs.get('limit', ['200'])[0] or 200), 1000)
+
+    if not q:
+        respond(400, {'error': 'q parameter is required'})
+
+    try:
+        rx = re.compile(q, re.IGNORECASE)
+    except re.error as e:
+        respond(400, {'error': f'invalid regex: {e}'})
+
+    log_store = load(LOG_WATCH_FILE)
+    devices = load(DEVICES_FILE)
+    results = []
+
+    target_devs = [device] if device else list(log_store.keys())
+    for dev_id in target_devs:
+        if dev_id not in devices:
+            continue
+        buf = log_store.get(dev_id) or {}
+        units = buf.get('units') or {}
+        dev_name = devices[dev_id].get('name', dev_id)
+        for unit, lines in units.items():
+            for entry in lines:
+                if rx.search(entry.get('line', '')):
+                    results.append({
+                        'device_id': dev_id,
+                        'name':      dev_name,
+                        'unit':      unit,
+                        'ts':        entry.get('ts', 0),
+                        'line':      entry.get('line', ''),
+                    })
+                    if len(results) >= limit:
+                        break
+            if len(results) >= limit:
+                break
+        if len(results) >= limit:
+            break
+
+    results.sort(key=lambda r: -r['ts'])
+    respond(200, {'query': q, 'count': len(results), 'results': results})
+
+
+def handle_log_device(dev_id):
+    """GET /api/devices/{id}/logs — full captured buffer for one device."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    log_store = load(LOG_WATCH_FILE)
+    buf = log_store.get(dev_id) or {'units': {}, 'updated_at': 0}
+    respond(200, {
+        'device_id':  dev_id,
+        'name':       devices[dev_id].get('name', dev_id),
+        'updated_at': buf.get('updated_at', 0),
+        'units':      buf.get('units', {}),
+    })
+
+
+# ─── v1.8.1: Log alert rules aggregate + live tail ───────────────────────────
+
+def handle_log_rules():
+    """GET /api/logs/rules — cross-fleet view of all per-device log_watch rules."""
+    require_auth()
+    devices = load(DEVICES_FILE)
+    out = []
+    for dev_id, dev in devices.items():
+        for rule in (dev.get('log_watch') or []):
+            out.append({
+                'device_id': dev_id,
+                'device_name': dev.get('name', dev_id),
+                'group':     dev.get('group', ''),
+                'unit':      rule.get('unit', ''),
+                'pattern':   rule.get('pattern', ''),
+                'threshold': rule.get('threshold', 1),
+            })
+    out.sort(key=lambda r: (r['device_name'].lower(), r['unit']))
+    respond(200, {'rules': out})
+
+
+# ─── v1.8.2: Fleet-wide log alert rules ───────────────────────────────────────
+
+def _validate_global_rule(body):
+    """Return (clean_rule, error) — same shape whether valid or not."""
+    unit    = _sanitize_str(body.get('unit', ''), 128, allow_empty=False)
+    pattern = _sanitize_str(body.get('pattern', ''), 128, allow_empty=False)
+    # Don't use `or 1` for threshold — we want to reject 0 explicitly rather
+    # than coerce it to 1 silently, so the user gets a clear error.
+    raw_threshold = body.get('threshold', 1)
+    if raw_threshold is None or raw_threshold == '':
+        raw_threshold = 1
+    try:
+        threshold = int(raw_threshold)
+    except (TypeError, ValueError):
+        return None, 'threshold must be an integer'
+
+    if not unit:
+        return None, 'unit is required (use "*" for any unit)'
+    # Allow '*' OR a valid unit name
+    if unit != '*' and not _sanitize_unit_name(unit):
+        return None, 'invalid unit name'
+    if not pattern:
+        return None, 'pattern is required'
+    if not (1 <= threshold <= 100):
+        return None, 'threshold must be 1..100'
+    try:
+        re.compile(pattern)
+    except re.error as e:
+        return None, f'invalid regex: {e}'
+    return {'unit': unit, 'pattern': pattern, 'threshold': threshold}, None
+
+
+def handle_log_rules_global_list():
+    """GET /api/logs/rules/global — list fleet-wide rules."""
+    require_auth()
+    rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
+    rules = sorted(rules, key=lambda r: (r.get('unit', ''), r.get('pattern', '')))
+    respond(200, {'rules': rules})
+
+
+def handle_log_rules_global_add():
+    """POST /api/logs/rules/global — create a fleet-wide rule."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body()
+    rule, err = _validate_global_rule(body)
+    if err:
+        respond(400, {'error': err})
+
+    store = load(LOG_RULES_GLOBAL_FILE)
+    rules = store.get('rules') or []
+    # Dedup by (unit, pattern) — same rule can't exist twice
+    for existing in rules:
+        if existing.get('unit') == rule['unit'] and existing.get('pattern') == rule['pattern']:
+            respond(409, {'error': 'rule with this unit+pattern already exists'})
+    if len(rules) >= MAX_GLOBAL_LOG_RULES:
+        respond(400, {'error': f'max {MAX_GLOBAL_LOG_RULES} global rules'})
+
+    rule['id']         = secrets.token_hex(8)
+    rule['created_by'] = actor
+    rule['created_at'] = int(time.time())
+    rules.append(rule)
+    store['rules'] = rules
+    save(LOG_RULES_GLOBAL_FILE, store)
+    audit_log(actor, 'log_rule_global_add',
+              detail=f'id={rule["id"]} unit={rule["unit"]} pattern={rule["pattern"][:60]}')
+    respond(200, {'ok': True, 'rule': rule})
+
+
+def handle_log_rules_global_delete(rule_id):
+    """DELETE /api/logs/rules/global/{id}"""
+    actor = require_admin_auth()
+    rule_id = _sanitize_str(rule_id, 32, allow_empty=False)
+    if not rule_id:
+        respond(400, {'error': 'invalid id'})
+
+    store = load(LOG_RULES_GLOBAL_FILE)
+    rules = store.get('rules') or []
+    remaining = [r for r in rules if r.get('id') != rule_id]
+    if len(remaining) == len(rules):
+        respond(404, {'error': 'rule not found'})
+    store['rules'] = remaining
+    save(LOG_RULES_GLOBAL_FILE, store)
+    audit_log(actor, 'log_rule_global_delete', detail=f'id={rule_id}')
+    respond(200, {'ok': True})
+
+
+def handle_log_tail():
+    """
+    GET /api/logs/tail?since=<ts>&device=<id>&unit=<name>&limit=<n>
+    Returns the newest lines across the fleet since a given unix ts.
+    Use-case: live tail page, polls with monotonically-increasing `since`.
+    """
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    try:
+        since = int(qs.get('since', ['0'])[0] or 0)
+    except ValueError:
+        since = 0
+    device = (qs.get('device', [''])[0])[:64]
+    unit   = (qs.get('unit',   [''])[0])[:128]
+    try:
+        limit = min(int(qs.get('limit', ['500'])[0] or 500), 2000)
+    except ValueError:
+        limit = 500
+
+    log_store = load(LOG_WATCH_FILE)
+    devices   = load(DEVICES_FILE)
+    out = []
+    newest_ts = since
+    devices_reporting = 0
+    total_lines = 0
+
+    target_devs = [device] if device else list(log_store.keys())
+    for dev_id in target_devs:
+        if dev_id not in devices:
+            continue
+        buf = log_store.get(dev_id) or {}
+        units = buf.get('units') or {}
+        dev_name = devices[dev_id].get('name', dev_id)
+        had_lines = False
+        for u, lines in units.items():
+            if unit and u != unit:
+                continue
+            for entry in lines:
+                ts = entry.get('ts', 0)
+                total_lines += 1
+                if ts > since:
+                    out.append({
+                        'device_id': dev_id,
+                        'name':      dev_name,
+                        'unit':      u,
+                        'ts':        ts,
+                        'line':      entry.get('line', ''),
+                    })
+                    if ts > newest_ts:
+                        newest_ts = ts
+                    had_lines = True
+        if had_lines or units:
+            devices_reporting += 1
+
+    out.sort(key=lambda r: r['ts'])
+    if len(out) > limit:
+        out = out[-limit:]  # keep the newest
+
+    # For stats, compute totals across the whole buffer, not just new lines
+    respond(200, {
+        'lines':             out,
+        'newest_ts':         newest_ts,
+        'stats': {
+            'total_lines':        total_lines,
+            'devices_reporting':  devices_reporting,
+        },
+    })
+
+
+# ─── v1.8.3: Shared calendar events ──────────────────────────────────────────
+
+# Palette used by the UI — cap allowed colors to prevent CSS injection via
+# arbitrary strings. The UI picker should present these same values.
+ALLOWED_EVENT_COLORS = (
+    'blue', 'green', 'amber', 'red', 'purple', 'teal', 'slate',
+)
+
+
+def _sanitize_event(body):
+    """Sanitize a calendar event submission. Returns (clean, error)."""
+    title = _sanitize_str(body.get('title', ''), 120, allow_empty=False)
+    if not title:
+        return None, 'title is required'
+    description = _sanitize_str(body.get('description', ''), 2000)
+    start = _sanitize_str(body.get('start', ''), 32, allow_empty=False)
+    end   = _sanitize_str(body.get('end', ''), 32)
+    if not start:
+        return None, 'start is required (ISO-8601)'
+    try:
+        start_ts = _parse_iso(start)
+    except ValueError:
+        return None, 'invalid start timestamp'
+    end_ts = None
+    if end:
+        try:
+            end_ts = _parse_iso(end)
+        except ValueError:
+            return None, 'invalid end timestamp'
+        if end_ts < start_ts:
+            return None, 'end must be >= start'
+    all_day = bool(body.get('all_day', False))
+    color = _sanitize_str(body.get('color', 'blue'), 16)
+    if color not in ALLOWED_EVENT_COLORS:
+        color = 'blue'
+    return {
+        'title':       title,
+        'description': description,
+        'start':       start,
+        'end':         end or start,
+        'all_day':     all_day,
+        'color':       color,
+    }, None
+
+
+def handle_calendar_list():
+    """GET /api/calendar — list all events, optionally filtered by date range."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    from_ts = 0
+    to_ts   = 10 ** 10  # far future
+    try:
+        if qs.get('from'):
+            from_ts = _parse_iso(qs['from'][0])
+        if qs.get('to'):
+            to_ts = _parse_iso(qs['to'][0])
+    except ValueError:
+        respond(400, {'error': 'invalid from/to timestamp'})
+
+    store = load(CALENDAR_FILE)
+    events = store.get('events') or []
+    out = []
+    for ev in events:
+        try:
+            ev_start = _parse_iso(ev.get('start', ''))
+            ev_end   = _parse_iso(ev.get('end', '')) if ev.get('end') else ev_start
+        except ValueError:
+            continue
+        # Overlap check
+        if ev_end < from_ts or ev_start > to_ts:
+            continue
+        out.append(ev)
+    out.sort(key=lambda e: e.get('start', ''))
+    respond(200, {'events': out})
+
+
+def handle_calendar_add():
+    """POST /api/calendar — create a new event."""
+    actor = require_auth()  # any authenticated user can create
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    clean, err = _sanitize_event(body)
+    if err:
+        respond(400, {'error': err})
+
+    store = load(CALENDAR_FILE)
+    events = store.get('events') or []
+    if len(events) >= MAX_CALENDAR_EVENTS:
+        respond(400, {'error': f'max {MAX_CALENDAR_EVENTS} events'})
+    clean['id']         = secrets.token_hex(8)
+    clean['created_by'] = actor
+    clean['created_at'] = int(time.time())
+    events.append(clean)
+    store['events'] = events
+    save(CALENDAR_FILE, store)
+    audit_log(actor, 'calendar_add', detail=f'id={clean["id"]} title={clean["title"][:60]}')
+    respond(200, {'ok': True, 'event': clean})
+
+
+def handle_calendar_update(event_id):
+    """PUT /api/calendar/{id} — edit an existing event."""
+    actor = require_auth()
+    event_id = _sanitize_str(event_id, 32, allow_empty=False)
+    if not event_id:
+        respond(400, {'error': 'invalid id'})
+
+    store = load(CALENDAR_FILE)
+    events = store.get('events') or []
+    idx = next((i for i, e in enumerate(events) if e.get('id') == event_id), -1)
+    if idx < 0:
+        respond(404, {'error': 'event not found'})
+
+    body = get_json_body()
+    clean, err = _sanitize_event(body)
+    if err:
+        respond(400, {'error': err})
+    # Preserve id + created_by/at, merge in the new fields
+    clean['id']         = event_id
+    clean['created_by'] = events[idx].get('created_by', '')
+    clean['created_at'] = events[idx].get('created_at', 0)
+    clean['updated_by'] = actor
+    clean['updated_at'] = int(time.time())
+    events[idx] = clean
+    store['events'] = events
+    save(CALENDAR_FILE, store)
+    audit_log(actor, 'calendar_update', detail=f'id={event_id}')
+    respond(200, {'ok': True, 'event': clean})
+
+
+def handle_calendar_delete(event_id):
+    """DELETE /api/calendar/{id}"""
+    actor = require_auth()
+    event_id = _sanitize_str(event_id, 32, allow_empty=False)
+    if not event_id:
+        respond(400, {'error': 'invalid id'})
+
+    store = load(CALENDAR_FILE)
+    events = store.get('events') or []
+    remaining = [e for e in events if e.get('id') != event_id]
+    if len(remaining) == len(events):
+        respond(404, {'error': 'event not found'})
+    store['events'] = remaining
+    save(CALENDAR_FILE, store)
+    audit_log(actor, 'calendar_delete', detail=f'id={event_id}')
+    respond(200, {'ok': True})
+
+
+# ─── v1.8.3: Shared tasks board ───────────────────────────────────────────────
+
+def _sanitize_task(body, require_all=True):
+    """Sanitize a task submission. Returns (clean, error).
+    If require_all=False, allows partial updates (used by /state endpoint)."""
+    title = _sanitize_str(body.get('title', ''), 200, allow_empty=not require_all)
+    if require_all and not title:
+        return None, 'title is required'
+    description = _sanitize_str(body.get('description', ''), 4000)
+    state = _sanitize_str(body.get('state', 'upcoming'), 16)
+    if state and state not in TASK_STATES:
+        return None, f'state must be one of {", ".join(TASK_STATES)}'
+    # Device linking is optional. Empty string = no device; otherwise must be valid.
+    device_id = _sanitize_str(body.get('device_id', ''), 64)
+    if device_id:
+        if not _validate_id(device_id):
+            return None, 'invalid device_id'
+        devices = load(DEVICES_FILE)
+        if device_id not in devices:
+            return None, 'device_id not found'
+    out = {}
+    if title:
+        out['title'] = title
+    if 'description' in body:
+        out['description'] = description
+    if state:
+        out['state'] = state
+    if 'device_id' in body:
+        out['device_id'] = device_id  # '' means explicit unlink
+    return out, None
+
+
+def handle_tasks_list():
+    """GET /api/tasks — all tasks with optional state / device filter."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    state_filter  = (qs.get('state',  [''])[0])[:16]
+    device_filter = (qs.get('device', [''])[0])[:64]
+
+    store = load(TASKS_FILE)
+    tasks = store.get('tasks') or []
+
+    if state_filter and state_filter in TASK_STATES:
+        tasks = [t for t in tasks if t.get('state') == state_filter]
+    if device_filter:
+        tasks = [t for t in tasks if t.get('device_id') == device_filter]
+
+    # Enrich with device names for display (skip lookup if no tasks have devices)
+    if any(t.get('device_id') for t in tasks):
+        devices = load(DEVICES_FILE)
+        for t in tasks:
+            did = t.get('device_id')
+            if did and did in devices:
+                t['_device_name'] = devices[did].get('name', did)
+
+    # Sort: newest first within each state, so kanban columns are fresh at top
+    tasks.sort(key=lambda t: -t.get('updated_at', t.get('created_at', 0)))
+
+    counts = {s: 0 for s in TASK_STATES}
+    for t in tasks:
+        s = t.get('state', 'upcoming')
+        if s in counts:
+            counts[s] += 1
+    respond(200, {'tasks': tasks, 'counts': counts})
+
+
+def handle_tasks_add():
+    """POST /api/tasks — create."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    clean, err = _sanitize_task(body, require_all=True)
+    if err:
+        respond(400, {'error': err})
+
+    store = load(TASKS_FILE)
+    tasks = store.get('tasks') or []
+    if len(tasks) >= MAX_TASKS:
+        respond(400, {'error': f'max {MAX_TASKS} tasks — close some first'})
+
+    now = int(time.time())
+    task = {
+        'id':          secrets.token_hex(8),
+        'title':       clean['title'],
+        'description': clean.get('description', ''),
+        'state':       clean.get('state', 'upcoming'),
+        'device_id':   clean.get('device_id', ''),
+        'created_by':  actor,
+        'created_at':  now,
+        'updated_at':  now,
+    }
+    tasks.append(task)
+    store['tasks'] = tasks
+    save(TASKS_FILE, store)
+    audit_log(actor, 'task_add', detail=f'id={task["id"]} title={task["title"][:60]}')
+    respond(200, {'ok': True, 'task': task})
+
+
+def handle_tasks_update(task_id):
+    """PUT /api/tasks/{id} — edit title/description/state/device."""
+    actor = require_auth()
+    task_id = _sanitize_str(task_id, 32, allow_empty=False)
+    if not task_id:
+        respond(400, {'error': 'invalid id'})
+
+    store = load(TASKS_FILE)
+    tasks = store.get('tasks') or []
+    idx = next((i for i, t in enumerate(tasks) if t.get('id') == task_id), -1)
+    if idx < 0:
+        respond(404, {'error': 'task not found'})
+
+    body = get_json_body()
+    clean, err = _sanitize_task(body, require_all=False)
+    if err:
+        respond(400, {'error': err})
+
+    for k in ('title', 'description', 'state', 'device_id'):
+        if k in clean:
+            tasks[idx][k] = clean[k]
+    tasks[idx]['updated_at'] = int(time.time())
+    tasks[idx]['updated_by'] = actor
+    store['tasks'] = tasks
+    save(TASKS_FILE, store)
+    audit_log(actor, 'task_update',
+              detail=f'id={task_id} fields={",".join(sorted(clean.keys()))}')
+    respond(200, {'ok': True, 'task': tasks[idx]})
+
+
+def handle_tasks_delete(task_id):
+    """DELETE /api/tasks/{id}"""
+    actor = require_auth()
+    task_id = _sanitize_str(task_id, 32, allow_empty=False)
+    if not task_id:
+        respond(400, {'error': 'invalid id'})
+
+    store = load(TASKS_FILE)
+    tasks = store.get('tasks') or []
+    remaining = [t for t in tasks if t.get('id') != task_id]
+    if len(remaining) == len(tasks):
+        respond(404, {'error': 'task not found'})
+    store['tasks'] = remaining
+    save(TASKS_FILE, store)
+    audit_log(actor, 'task_delete', detail=f'id={task_id}')
+    respond(200, {'ok': True})
 
 
 # ─── Router ────────────────────────────────────────────────────────────────────
@@ -2810,7 +4041,8 @@ def main():
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
-                                     '/icon','/monitored','/cve')):
+                                     '/icon','/monitored','/cve','/services',
+                                     '/services/config','/logs')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
@@ -2905,6 +4137,51 @@ def main():
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
+
+    # ── v1.8.0: Service monitoring ─────────────────────────────────────────────
+    elif pi == '/api/services' and m == 'GET': handle_services_get()
+    elif pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET':
+        handle_services_device(pi[len('/api/devices/'):-len('/services')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/services/config'):
+        handle_services_config(pi[len('/api/devices/'):-len('/services/config')])
+
+    # ── v1.8.0: Log tail + pattern alerts ──────────────────────────────────────
+    elif pi == '/api/logs' and m == 'POST': handle_log_submit()
+    elif pi == '/api/logs/search' and m == 'GET': handle_log_search()
+    # ── v1.8.1: live tail + rules aggregate ────────────────────────────────────
+    elif pi == '/api/logs/tail' and m == 'GET': handle_log_tail()
+    elif pi == '/api/logs/rules' and m == 'GET': handle_log_rules()
+    # ── v1.8.2: fleet-wide log alert rules ─────────────────────────────────────
+    elif pi == '/api/logs/rules/global' and m == 'GET': handle_log_rules_global_list()
+    elif pi == '/api/logs/rules/global' and m == 'POST': handle_log_rules_global_add()
+    elif pi.startswith('/api/logs/rules/global/') and m == 'DELETE':
+        handle_log_rules_global_delete(pi[len('/api/logs/rules/global/'):])
+    elif pi.startswith('/api/devices/') and pi.endswith('/logs') and m == 'GET':
+        handle_log_device(pi[len('/api/devices/'):-len('/logs')])
+
+    # ── v1.8.0: Maintenance windows ────────────────────────────────────────────
+    elif pi == '/api/maintenance' and m == 'GET': handle_maintenance_list()
+    elif pi == '/api/maintenance' and m == 'POST': handle_maintenance_add()
+    elif pi == '/api/maintenance/suppressions' and m == 'GET':
+        handle_maintenance_suppressions()
+    elif pi.startswith('/api/maintenance/') and m == 'DELETE':
+        handle_maintenance_delete(pi[len('/api/maintenance/'):])
+
+    # ── v1.8.3: Shared calendar events ─────────────────────────────────────────
+    elif pi == '/api/calendar' and m == 'GET':  handle_calendar_list()
+    elif pi == '/api/calendar' and m == 'POST': handle_calendar_add()
+    elif pi.startswith('/api/calendar/') and m == 'PUT':
+        handle_calendar_update(pi[len('/api/calendar/'):])
+    elif pi.startswith('/api/calendar/') and m == 'DELETE':
+        handle_calendar_delete(pi[len('/api/calendar/'):])
+
+    # ── v1.8.3: Shared tasks board ─────────────────────────────────────────────
+    elif pi == '/api/tasks' and m == 'GET':  handle_tasks_list()
+    elif pi == '/api/tasks' and m == 'POST': handle_tasks_add()
+    elif pi.startswith('/api/tasks/') and m == 'PUT':
+        handle_tasks_update(pi[len('/api/tasks/'):])
+    elif pi.startswith('/api/tasks/') and m == 'DELETE':
+        handle_tasks_delete(pi[len('/api/tasks/'):])
 
     else: respond(404, {'error': 'Not found'})
 

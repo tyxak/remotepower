@@ -1,6 +1,6 @@
 # HELP remotepower_info Server build information.
 # TYPE remotepower_info gauge
-remotepower_info{version="1.7.0"} 1
+remotepower_info{version="1.8.0"} 1
 # HELP remotepower_devices_total Total enrolled devices.
 # TYPE remotepower_devices_total gauge
 remotepower_devices_total 2
@@ -45,6 +45,16 @@ remotepower_monitor_up{label="api",type="http",target="https://example.test"} 1
 # HELP remotepower_monitor_last_check_timestamp_seconds Last check ts per monitor.
 # TYPE remotepower_monitor_last_check_timestamp_seconds gauge
 remotepower_monitor_last_check_timestamp_seconds{label="api",type="http",target="https://example.test"} 1714000000
+# HELP remotepower_service_active Whether a watched systemd unit is active (1/0).
+# TYPE remotepower_service_active gauge
+remotepower_service_active{device="abc123",name="web-1",group="prod",unit="nginx.service",sub="running"} 1
+remotepower_service_active{device="abc123",name="web-1",group="prod",unit="postgresql.service",sub="dead"} 0
+# HELP remotepower_services_down_total Number of watched services currently not active per device.
+# TYPE remotepower_services_down_total gauge
+remotepower_services_down_total{device="abc123",name="web-1",group="prod"} 1
+# HELP remotepower_maintenance_windows_active Number of currently-active maintenance windows.
+# TYPE remotepower_maintenance_windows_active gauge
+remotepower_maintenance_windows_active 1
 # HELP remotepower_commands_pending_total Commands waiting to be picked up.
 # TYPE remotepower_commands_pending_total gauge
 remotepower_commands_pending_total 1

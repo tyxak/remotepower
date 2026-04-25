@@ -1,5 +1,208 @@
 # Changelog
 
+## v1.8.3 - 2026-04-25
+
+### Fixed
+
+- **SSH/sshd alias on Debian/Ubuntu**: `journalctl` doesn't follow systemd unit aliases, so users who typed `sshd.service` (the RHEL-style name) got zero log lines on Debian even though state tracking worked. Agent now calls `systemctl show <unit> --property=Id` to resolve the canonical name before querying journalctl.
+
+### New features
+
+**Calendar — shared events page**
+- Month-grid calendar at the new sidebar entry. Click a day to add an event; click an event pill to edit.
+- Events have title, optional description, ISO-8601 start/end, all-day flag, and a 7-color palette (blue/green/amber/red/purple/teal/slate).
+- Multi-day events span across days; busy days show "+N more".
+- Fully shared — any authenticated user can create, edit, or delete.
+- Endpoints: `GET/POST /api/calendar`, `PUT/DELETE /api/calendar/{id}`. Cap: 1000 events.
+
+**Tasks — shared kanban board**
+- Four-column board: Upcoming / Ongoing / Pending / Closed. Drag-and-drop between columns to change state (optimistic update, resyncs on server failure).
+- Optional device linking — every task can be tied to one device, shown as a badge on the card.
+- Filter the board by device (or "no device linked").
+- Endpoints: `GET/POST /api/tasks`, `PUT/DELETE /api/tasks/{id}`. Cap: 500 tasks. PUT supports partial updates (e.g. just `{"state": "closed"}`).
+
+### New data files
+
+- `calendar.json` — shared events
+- `tasks.json` — shared kanban tasks
+
+### Changed
+
+- All version strings bumped to 1.8.3
+- Agent `get_services()` payload may include a `canonical` key per service when the user-supplied name is an alias
+- Sidebar nav: new "Calendar" and "Tasks" entries between Schedule and the Tools section
+
+### Tests
+
+24 new tests in `tests/test_v183.py` covering calendar event validation, task validation (including state allowlist and partial updates), agent alias resolution with mocked systemctl, and handler wiring. **Full suite: 147 passing, 0 failing** (1 pre-existing skip).
+
+### Compatibility
+
+- v1.8.2 agents still work with a v1.8.3 server but won't benefit from the alias fix until they self-update
+- No data format breakage; existing `services_watched` lists are unchanged
+- New data files (`calendar.json`, `tasks.json`) are created on first write — no migration needed
+
+---
+
+## v1.8.2 - 2026-04-24
+
+### Fixed
+
+- **Log tail: quiet devices were invisible on the Logs page.** Agent skipped units that had no recent `journalctl` output, and skipped the whole submission if every unit was quiet. So a device watching nginx/sshd on an idle box never appeared in `log_watch.json`, indistinguishable from a dead agent.
+  - Agent always includes every watched unit (empty list if quiet) and always POSTs when any unit is watched
+  - Server preserves the unit key with empty array so the device appears as "watched, quiet in this window"
+  - Live tail empty-state distinguishes three cases: no devices submitting, devices reporting but quiet, or filter matches nothing
+
+### New features
+
+**Fleet-wide log alert rules** — new tab on the Logs page. Rules defined centrally that apply to all devices.
+
+- Wildcard `unit="*"` matches any unit on any device (catch-all for patterns like `OOMkilled`)
+- Specific unit name matches that unit wherever it runs
+- `handle_log_submit` evaluates per-device AND fleet-wide rules on every ingest
+- Webhook payload gains `scope: "device" | "global"` so alerts are identifiable downstream
+- Rules deduplicated by `(scope, unit, pattern)` — same rule text matching twice in one submission fires once
+
+**Logs page UI**: per-device / fleet-wide tab switcher above the rules table. "+ Add rule" modal adapts to active tab (hides device picker for fleet-wide, shows wildcard hint).
+
+### New endpoints
+
+- `GET    /api/logs/rules/global` — list fleet-wide rules
+- `POST   /api/logs/rules/global` — create a fleet-wide rule
+- `DELETE /api/logs/rules/global/{id}` — remove a fleet-wide rule
+
+### Changed
+
+- Live tail polls every **30 seconds** (was 10s). Scroll-pause and PAUSED badge removed; uncheck "auto-scroll to newest" to read older lines.
+- All version strings bumped to 1.8.2
+
+### New data files
+
+- `log_rules_global.json` — fleet-wide rules (created on first write)
+
+### Tests
+
+15 new tests in `tests/test_v182.py` — validation cases, empty-array handling, wildcard matching, dedupe semantics. Test_v181's version assertion loosened to `>= 1.8.1` to not break on future bumps. Full suite: **123 passing, 0 failing** (1 pre-existing skip).
+
+### Compatibility
+
+- All v1.8.1 agents **must update** to get the empty-submission fix, or their quiet units will remain invisible on the new server
+- v1.8.0 agents work with a v1.8.2 server but don't benefit from the empty-array fix
+- No schema changes to existing data files
+
+---
+
+## v1.8.1 - 2026-04-24
+
+### New features
+
+**Dedicated Logs page in the sidebar** — the v1.8.0 log tail feature was buried inside the service drill-down and had no UI for configuring alert rules. This release promotes logs to a first-class page with three widgets:
+
+- **Live tail** — polls `/api/logs/tail` every 10s with incremental cursor; pauses auto-scroll when you scroll up, resumes when you return to the bottom; device + unit filters; severity color-coding (red for FATAL, orange for ERROR, amber for WARN)
+- **Search** — regex search across the fleet's rolling 6-hour buffer, results grouped by device with collapsible sections
+- **Alert rules table** — cross-fleet view of all `log_watch` rules with "+ Add rule" button; adding a rule auto-ensures the target unit is in `services_watched`
+
+### New endpoints
+
+- `GET /api/logs/tail?since=<ts>&device=<id>&unit=<n>&limit=<n>` — incremental fetch for live tail with monotonic cursor
+- `GET /api/logs/rules` — cross-fleet aggregate of all log_watch rules
+
+### Fixed
+
+- Service drill-down now always shows "State history" and "Recent logs" sections, even when empty. Empty states include diagnostic hints ("Agent needs v1.8.0+ and journalctl access"). Previously the sections were silently omitted, which looked broken. (Reported post-v1.8.0.)
+- "State history" and "Recent logs" sections now auto-expand when they have content
+
+### Changed
+
+- All version strings bumped to 1.8.1
+- Line severity colouring in the tail uses word-boundary regex to avoid false positives on substrings like "error_count"
+
+### Tests
+
+108 passing, 0 failing (1 pre-existing skip). New tests: `tests/test_v181.py` covering log rules aggregation, tail filtering, and config round-trip.
+
+### Compatibility
+
+No agent changes. v1.8.0 agents work unchanged with v1.8.1 server.
+
+---
+
+## v1.8.0 - 2026-04-23
+
+### New features
+
+**Service monitoring (systemd)**
+- Per-device `services_watched` list — agent calls `systemctl show` on every heartbeat for each watched unit and reports `ActiveState`, `SubState`, and `ActiveEnterTimestamp`
+- Server tracks state per (device, unit) and records every transition (last 100 kept per unit)
+- New webhook events `service_down` (priority 4) and `service_up` (priority 3) fire on state transitions
+- New "Services" page in the dashboard — fleet matrix with up/down counts, per-device drill-down showing state history and recent logs per unit, inline config editor
+- Watched-unit list is pushed from server to agent via heartbeat response — change what you monitor from the UI without restarting any agents
+
+**Log tail + regex pattern alerts**
+- Agent submits recent `journalctl -u <unit>` output to the server every 5 polls
+- Server keeps a rolling per-device per-unit buffer, bounded at 6 hours and 2 MB per device
+- Per-device `log_watch` rules — `[{unit, pattern, threshold}]` — where regex matches fire the new `log_alert` webhook event
+- New `GET /api/logs/search?q=<regex>` endpoint does cross-device grep over the rolling buffer
+- Log lines appear inline in the service drill-down so you can see *why* a service went red without SSH-ing in
+- Deliberately not a log analytics platform — no indexing, no parsing, no retention policies. If you need Loki, run Loki
+
+**Maintenance windows**
+- Suppress webhook alerts during scheduled windows — device-specific, group-specific, or fleet-global
+- One-shot windows (`start` + `end` ISO-8601) or recurring (`cron` + `duration` seconds)
+- Optional per-window event allowlist — suppress only `patch_alert` during a maintenance window, or leave `device_offline` still firing
+- Built-in lightweight cron evaluator (`*`, `*/N`, `a,b,c`, and literals; no ranges or named days)
+- Suppression audit trail in `maint_suppressed.json` — always know why a webhook didn't fire
+- New Prometheus metric `remotepower_maintenance_windows_active`
+
+### New endpoints
+
+- `GET  /api/services` — fleet-wide service state
+- `GET  /api/devices/{id}/services` — per-device view with state history + log tails
+- `GET/POST /api/devices/{id}/services/config` — manage watched units + log rules
+- `POST /api/logs` — agent submits unit log lines (device-authenticated)
+- `GET  /api/logs/search?q=<regex>` — cross-device log search
+- `GET  /api/devices/{id}/logs` — full captured buffer for one device
+- `GET  /api/maintenance` — list all windows + `active` flag
+- `POST /api/maintenance` — create a window
+- `DELETE /api/maintenance/{id}` — remove a window
+- `GET  /api/maintenance/suppressions` — webhook suppression audit trail
+
+### Changed
+
+- All version strings bumped to 1.8.0
+- `fire_webhook()` now runs every event through `in_maintenance()` before dispatching
+- New config key: `service_webhook_enabled` (bool, default `true`)
+- Heartbeat response extended with `services_watched` and `log_watch` so agents can react to config changes between polls
+- Webhook helpers (`_webhook_message`, `_webhook_priority`, `_webhook_tags`) extended for `service_down`, `service_up`, and `log_alert`
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `services.json` | Current service state per device |
+| `service_history.json` | State transition log per (device, unit) |
+| `log_watch.json` | Rolling log buffer per device + unit |
+| `maintenance.json` | Defined windows |
+| `maint_suppressed.json` | Audit trail of suppressed webhook events |
+
+### Agent (Linux)
+
+- `VERSION = '1.8.0'`
+- New functions: `get_services()`, `_parse_systemd_timestamp()`, `get_unit_logs()`, `submit_unit_logs()`
+- New constants: `SERVICE_CHECK_EVERY = 1`, `LOG_SUBMIT_EVERY = 5`, `LOG_LOOKBACK_SECONDS = 360`, `MAX_LOG_LINES_PER_UNIT = 100`
+- Gracefully degrades on non-systemd hosts (reports nothing rather than crashing)
+
+### Cleanup
+
+- Fixed 4 pre-existing test failures in `tests/test_api.py` around `verify_token()` — tests were written for an older `str`-returning signature; function has returned `(username, role)` since v1.6.x
+- Tidied residual comment fragment on `MAX_BODY_BYTES` from v1.7.0 buffer bump
+- Minor deduplication in `_cron_match()`
+- Added 24 new unit tests (`tests/test_v180.py`) covering cron evaluation, maintenance window matching, ISO parsing, service state processing, and the suppressible-events contract
+
+### Test suite: 101 passing, 0 failing (1 pre-existing skip)
+
+---
+
 ## v1.7.0 - 2026-04-23
 
 ### New features

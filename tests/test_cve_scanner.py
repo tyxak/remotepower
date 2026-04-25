@@ -67,10 +67,10 @@ class TestEcosystemDetection(unittest.TestCase):
             cve_scanner.detect_ecosystem({'ID': 'fedora', 'VERSION_ID': '39'}, 'dnf')
         )
 
-    def test_arch(self):
-        self.assertEqual(
-            cve_scanner.detect_ecosystem({'ID': 'arch'}, 'pacman'),
-            'Arch Linux'
+    def test_arch_unsupported(self):
+        # v1.7.0 (tyxak): OSV's Arch Linux coverage is too spotty; treat as unsupported.
+        self.assertIsNone(
+            cve_scanner.detect_ecosystem({'ID': 'arch'}, 'pacman')
         )
 
     def test_alpine(self):
@@ -124,11 +124,15 @@ class TestSeverityExtraction(unittest.TestCase):
         self.assertEqual(s({'database_specific': {'severity': 'negligible'}}), 'low')
 
     def test_cvss_buckets(self):
+        # v1.7.0 (tyxak): parser now requires a proper CVSS vector (score + /CVSS:...)
+        # to avoid misinterpreting bare numbers. Use valid vectors here.
         s = cve_scanner._severity_from_vuln
-        self.assertEqual(s({'severity': [{'score': '9.8/CVSS:3.1/AV:N'}]}), 'critical')
-        self.assertEqual(s({'severity': [{'score': '7.5'}]}),               'high')
-        self.assertEqual(s({'severity': [{'score': '5.0'}]}),               'medium')
-        self.assertEqual(s({'severity': [{'score': '2.0'}]}),               'low')
+        self.assertEqual(s({'severity': [{'score': '9.8/CVSS:3.1/AV:N/AC:L'}]}), 'critical')
+        self.assertEqual(s({'severity': [{'score': '7.5/CVSS:3.1/AV:N'}]}),      'high')
+        self.assertEqual(s({'severity': [{'score': '5.0/CVSS:3.1/AV:L'}]}),      'medium')
+        self.assertEqual(s({'severity': [{'score': '2.0/CVSS:3.1/AV:L'}]}),      'low')
+        # Bare numbers no longer count
+        self.assertEqual(s({'severity': [{'score': '7.5'}]}), 'unknown')
 
     def test_unknown_fallback(self):
         self.assertEqual(cve_scanner._severity_from_vuln({}), 'unknown')

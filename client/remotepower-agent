@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-remotepower-agent  -  Client-side daemon for RemotePower v1.7.0
+remotepower-agent  -  Client-side daemon for RemotePower v1.8.3
 Polls the RemotePower server at a configurable interval (default 60s).
 On first run (or if not enrolled), prompts for server URL + PIN and registers.
 
@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.7.0'
+VERSION      = '1.8.3'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -38,6 +38,12 @@ PATCH_EVERY        = 180
 UPDATE_CHECK_EVERY = 60
 PACKAGE_LIST_EVERY = 360          # ≈ 6 hours at 60s poll
 MAX_PACKAGES_SEND  = 10000        # matches server-side cap
+
+# v1.8.0: service monitoring + log tail
+SERVICE_CHECK_EVERY = 1           # every poll — cheap
+LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of logs
+MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
+LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission
 
 # Metrics collection requires psutil (optional - gracefully skipped if absent)
 try:
@@ -382,6 +388,167 @@ def send_package_list(creds):
         return False
 
 
+# ─── v1.8.0: Service monitoring (systemd) ─────────────────────────────────────
+
+def _resolve_unit_alias(unit):
+    """
+    journalctl does NOT follow systemd unit aliases, but systemctl does.
+    Return the canonical unit name (Id) for a possibly-aliased name.
+
+    Critical on Debian/Ubuntu where 'sshd.service' is an alias for 'ssh.service'
+    — a user typing the RHEL-style 'sshd.service' would otherwise get zero logs.
+    Silently falls through to the original name on error.
+    """
+    try:
+        proc = subprocess.run(
+            ['systemctl', 'show', unit, '--property=Id', '--value'],
+            capture_output=True, text=True, timeout=3,
+        )
+        resolved = (proc.stdout or '').strip()
+        if resolved and resolved != unit:
+            return resolved
+    except Exception:
+        pass
+    return unit
+
+
+def get_services(watched_units):
+    """
+    Query systemd for the given list of unit names.
+    Returns [{unit, active, sub, since, canonical}, ...].
+
+    `unit`:       the name as requested (what the user configured)
+    `canonical`:  the canonical name after alias resolution (may equal `unit`)
+    `active`: "active" | "inactive" | "failed" | "activating" | "unknown"
+    `since`:  unix timestamp of last state change (0 if unknown)
+    """
+    if not watched_units:
+        return []
+    if not Path('/bin/systemctl').exists() and not Path('/usr/bin/systemctl').exists():
+        return []
+
+    out = []
+    # Batch into one systemctl call per unit (simpler + each unit has its own
+    # ActiveEnterTimestamp). Could use --all + --no-pager, but single-shot is
+    # clearer and robust to unknown units.
+    for unit in watched_units[:50]:  # matches server MAX_SERVICES_PER_DEVICE
+        try:
+            proc = subprocess.run(
+                ['systemctl', 'show', unit,
+                 '--property=Id,ActiveState,SubState,ActiveEnterTimestampMonotonic,ActiveEnterTimestamp',
+                 '--no-pager'],
+                capture_output=True, text=True, timeout=5,
+            )
+            props = {}
+            for line in proc.stdout.splitlines():
+                if '=' in line:
+                    k, _, v = line.partition('=')
+                    props[k.strip()] = v.strip()
+            active = props.get('ActiveState', 'unknown')
+            sub    = props.get('SubState', '')
+            since  = _parse_systemd_timestamp(props.get('ActiveEnterTimestamp', ''))
+            canonical = props.get('Id', unit) or unit
+            entry = {'unit': unit, 'active': active, 'sub': sub, 'since': since}
+            if canonical != unit:
+                entry['canonical'] = canonical
+            out.append(entry)
+        except subprocess.TimeoutExpired:
+            out.append({'unit': unit, 'active': 'unknown', 'sub': 'timeout', 'since': 0})
+        except Exception as e:
+            log.debug(f'systemctl show {unit} failed: {e}')
+            out.append({'unit': unit, 'active': 'unknown', 'sub': '', 'since': 0})
+    return out
+
+
+def _parse_systemd_timestamp(s):
+    """Parse systemd's 'Thu 2026-04-23 15:30:12 UTC' format into unix ts."""
+    if not s:
+        return 0
+    # systemd emits timestamps like: "Thu 2026-04-23 15:30:12 UTC"
+    # Strip weekday prefix and timezone suffix; parse the middle.
+    parts = s.split()
+    if len(parts) < 3:
+        return 0
+    # Expected: [Weekday, YYYY-MM-DD, HH:MM:SS, TZ]
+    try:
+        import datetime as _dt
+        dt = _dt.datetime.strptime(f'{parts[1]} {parts[2]}', '%Y-%m-%d %H:%M:%S')
+        # systemd uses local time unless TZ=UTC is seen
+        if len(parts) >= 4 and parts[3] == 'UTC':
+            dt = dt.replace(tzinfo=_dt.timezone.utc)
+            return int(dt.timestamp())
+        return int(dt.timestamp())
+    except Exception:
+        return 0
+
+
+def get_unit_logs(unit, since_seconds=LOG_LOOKBACK_SECONDS, max_lines=MAX_LOG_LINES_PER_UNIT):
+    """
+    Return the last `max_lines` of journalctl output for a unit, going back
+    at most `since_seconds`.
+
+    v1.8.3: resolves systemd unit aliases before querying journalctl, which
+    does not follow aliases. Critical on Debian/Ubuntu where e.g. sshd.service
+    is an alias for ssh.service.
+    """
+    canonical = _resolve_unit_alias(unit)
+    try:
+        proc = subprocess.run(
+            ['journalctl',
+             '-u', canonical,
+             '--since', f'{since_seconds} seconds ago',
+             '--no-pager',
+             '-n', str(max_lines),
+             '-o', 'short-iso'],
+            capture_output=True, text=True, timeout=10,
+        )
+        lines = proc.stdout.splitlines()
+        # Strip boilerplate
+        lines = [ln for ln in lines if ln and not ln.startswith('-- ')]
+        if lines and canonical != unit:
+            log.debug(f'Resolved unit alias {unit} → {canonical} ({len(lines)} lines)')
+        return lines[-max_lines:]
+    except subprocess.TimeoutExpired:
+        return []
+    except Exception as e:
+        log.debug(f'journalctl for {unit} (canonical {canonical}) failed: {e}')
+        return []
+
+
+def submit_unit_logs(creds, units):
+    """
+    Collect recent logs for each watched unit and submit to /api/logs.
+    Server applies log_watch pattern matching and rolling-buffer storage.
+
+    v1.8.2 fix: always include every watched unit (with empty list if quiet) and
+    always POST, even if every unit is quiet.
+
+    v1.8.3: submission activity logged at INFO level so ops can verify
+    from `journalctl -u remotepower-agent` that logs are actually flowing.
+    """
+    if not units:
+        return False
+    units_payload = {}
+    for unit in units[:50]:
+        lines = get_unit_logs(unit)
+        # Always include — empty list means "watched but quiet in this window".
+        units_payload[unit] = lines or []
+    try:
+        http_post(f"{creds['server_url']}/api/logs", {
+            'device_id': creds['device_id'],
+            'token':     creds['token'],
+            'units':     units_payload,
+        }, timeout=15)
+        total = sum(len(v) for v in units_payload.values())
+        quiet = sum(1 for v in units_payload.values() if not v)
+        log.info(f'Logs submitted: {total} lines across {len(units_payload)} unit(s), '
+                 f'{quiet} quiet')
+        return True
+    except Exception as e:
+        log.warning(f'Log submission FAILED: {e}')
+        return False
+
+
 def get_metrics():
     """Collect CPU/RAM/disk percentages via psutil (optional)."""
     if not _PSUTIL:
@@ -543,6 +710,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     log.info(f"Poll: {interval}s | sysinfo every {SYSINFO_EVERY} polls | patches every {PATCH_EVERY} polls")
 
     poll_count = 0; cached_patch = None
+    # v1.8.0: server pushes watched services + log rules in heartbeat response
+    services_watched = []
+    log_watch_rules  = []
+
     # Detect if this is a fresh boot (first heartbeat after restart)
     boot_reason_file = Path('/tmp/remotepower-last-cmd')
     boot_reason = None
@@ -586,6 +757,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'Package submission error: {e}')
 
+        # v1.8.0: report service states if any are configured to watch
+        if services_watched and poll_count % SERVICE_CHECK_EVERY == 0:
+            try:
+                payload['services'] = get_services(services_watched)
+            except Exception as e:
+                log.debug(f'Service check error: {e}')
+
         if send_sysinfo:
             sysinfo = {
                 'uptime':   get_uptime(),
@@ -602,6 +780,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         try:
             resp = http_post(f"{server}/api/heartbeat", payload)
             cmd = resp.get('command')
+            # v1.8.0: pick up server-pushed watch config
+            # v1.8.3: log at info when it *changes* so ops can see config pushes
+            if 'services_watched' in resp:
+                new_sw = resp.get('services_watched') or []
+                if new_sw != services_watched:
+                    log.info(f'Config updated: services_watched = {new_sw}')
+                services_watched = new_sw
+            if 'log_watch' in resp:
+                new_lw = resp.get('log_watch') or []
+                if new_lw != log_watch_rules:
+                    log.info(f'Config updated: log_watch rules = {len(new_lw)}')
+                log_watch_rules = new_lw
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)
@@ -617,6 +807,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.warning(f"HTTP {e.code}")
         except Exception as e:
             log.warning(f"Heartbeat failed: {e}")
+
+        # v1.8.0: submit recent unit logs every N polls if any units are watched
+        # (either as services_watched, or as log_watch targets)
+        log_units = set(services_watched)
+        for r in log_watch_rules:
+            if r.get('unit'):
+                log_units.add(r['unit'])
+        if log_units and poll_count % LOG_SUBMIT_EVERY == 0:
+            try:
+                submit_unit_logs(creds, sorted(log_units))
+            except Exception as e:
+                log.debug(f'Log submission error: {e}')
 
         if poll_count % UPDATE_CHECK_EVERY == 0:
             try:

@@ -218,6 +218,44 @@ def generate_metrics(ctx: dict) -> str:
             state.get('last', 0),
         ))
 
+    # ── v1.8.0: Service monitoring ─────────────────────────────────────────────
+    services_all = ctx.get('services') or {}
+    lines.append('# HELP remotepower_service_active Whether a watched systemd unit is active (1/0).')
+    lines.append('# TYPE remotepower_service_active gauge')
+    for dev_id, entry in services_all.items():
+        dev = devices.get(dev_id) or {}
+        for svc in (entry.get('services') or []):
+            lines.append(_metric(
+                'remotepower_service_active',
+                {
+                    'device': dev_id,
+                    'name':   dev.get('name', dev_id),
+                    'group':  dev.get('group', ''),
+                    'unit':   svc.get('unit', ''),
+                    'sub':    svc.get('sub', ''),
+                },
+                int(svc.get('active') == 'active'),
+            ))
+
+    # Device-level aggregates (useful for "any service down on device X")
+    lines.append('# HELP remotepower_services_down_total Number of watched services currently not active per device.')
+    lines.append('# TYPE remotepower_services_down_total gauge')
+    for dev_id, entry in services_all.items():
+        dev = devices.get(dev_id) or {}
+        svcs = entry.get('services') or []
+        down = sum(1 for s in svcs if s.get('active') != 'active')
+        lines.append(_metric(
+            'remotepower_services_down_total',
+            {'device': dev_id, 'name': dev.get('name', dev_id), 'group': dev.get('group', '')},
+            down,
+        ))
+
+    # ── v1.8.0: Maintenance window status ──────────────────────────────────────
+    maint_active = int(ctx.get('maintenance_active_count', 0))
+    lines.append('# HELP remotepower_maintenance_windows_active Number of currently-active maintenance windows.')
+    lines.append('# TYPE remotepower_maintenance_windows_active gauge')
+    lines.append(f'remotepower_maintenance_windows_active {maint_active}')
+
     # ── Queues and logs ────────────────────────────────────────────────────────
     lines.append('# HELP remotepower_commands_pending_total Commands waiting to be picked up.')
     lines.append('# TYPE remotepower_commands_pending_total gauge')

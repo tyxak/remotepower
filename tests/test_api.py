@@ -111,24 +111,29 @@ class TestTokenVerification(ApiTestBase):
 
     def test_valid_token_returns_username(self):
         token = self._make_token('alice')
-        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'):
-            result = api_module.verify_token(token)
-            self.assertEqual(result, 'alice')
+        # Create a users.json so role lookup succeeds
+        self._save('users.json', {'alice': {'role': 'admin', 'password_hash': 'x'}})
+        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'), \
+             patch.object(api_module, 'USERS_FILE', self.data_dir / 'users.json'), \
+             patch.object(api_module, 'APIKEYS_FILE', self.data_dir / 'apikeys.json'):
+            username, role = api_module.verify_token(token)
+            self.assertEqual(username, 'alice')
+            self.assertEqual(role, 'admin')
 
     def test_expired_token_returns_none(self):
         token = self._make_token('bob', offset=-(api_module.TOKEN_TTL + 1))
-        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'):
-            result = api_module.verify_token(token)
-            self.assertIsNone(result)
+        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'), \
+             patch.object(api_module, 'APIKEYS_FILE', self.data_dir / 'apikeys.json'):
+            self.assertEqual(api_module.verify_token(token), (None, None))
 
     def test_unknown_token_returns_none(self):
         self._save('tokens.json', {})
-        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'):
-            result = api_module.verify_token('nonexistent')
-            self.assertIsNone(result)
+        with patch.object(api_module, 'TOKENS_FILE', self.data_dir / 'tokens.json'), \
+             patch.object(api_module, 'APIKEYS_FILE', self.data_dir / 'apikeys.json'):
+            self.assertEqual(api_module.verify_token('nonexistent'), (None, None))
 
     def test_empty_token_returns_none(self):
-        self.assertIsNone(api_module.verify_token(''))
+        self.assertEqual(api_module.verify_token(''), (None, None))
 
 
 class TestCommandHistory(ApiTestBase):
