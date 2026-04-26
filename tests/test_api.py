@@ -188,7 +188,7 @@ class TestOfflineWebhooks(ApiTestBase):
         devices = {
             'dev1': {
                 'name': 'mypc', 'hostname': 'mypc',
-                'last_seen': now - (api_module.ONLINE_TTL + 60),
+                'last_seen': now - (api_module.DEFAULT_ONLINE_TTL + 60),
             }
         }
         self._save('devices.json', devices)
@@ -219,7 +219,7 @@ class TestOfflineWebhooks(ApiTestBase):
         devices = {
             'dev1': {
                 'name': 'mypc', 'hostname': 'mypc',
-                'last_seen': now - (api_module.ONLINE_TTL + 60),
+                'last_seen': now - (api_module.DEFAULT_ONLINE_TTL + 60),
             }
         }
         self._save('devices.json', devices)
@@ -235,16 +235,27 @@ class TestOfflineWebhooks(ApiTestBase):
 
 class TestDeviceOnlineStatus(ApiTestBase):
     def test_online_within_ttl(self):
+        # v1.8.4: ONLINE_TTL is now a config-driven helper (DEFAULT_ONLINE_TTL is the unconfigured default)
+        ttl = api_module.DEFAULT_ONLINE_TTL
         now = int(time.time())
-        last_seen = now - (api_module.ONLINE_TTL - 10)
-        is_online = (now - last_seen) < api_module.ONLINE_TTL
+        last_seen = now - (ttl - 10)
+        is_online = (now - last_seen) < ttl
         self.assertTrue(is_online)
 
     def test_offline_beyond_ttl(self):
+        ttl = api_module.DEFAULT_ONLINE_TTL
         now = int(time.time())
-        last_seen = now - (api_module.ONLINE_TTL + 10)
-        is_online = (now - last_seen) < api_module.ONLINE_TTL
+        last_seen = now - (ttl + 10)
+        is_online = (now - last_seen) < ttl
         self.assertFalse(is_online)
+
+    def test_helper_clamps_to_minimum(self):
+        # If someone sets online_ttl below MIN_ONLINE_TTL in config, the helper clamps it
+        api_module.save(api_module.CONFIG_FILE, {'online_ttl': 30})
+        try:
+            self.assertEqual(api_module.get_online_ttl(), api_module.MIN_ONLINE_TTL)
+        finally:
+            api_module.save(api_module.CONFIG_FILE, {})
 
 
 class TestUsernameValidation(ApiTestBase):

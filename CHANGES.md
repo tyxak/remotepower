@@ -1,5 +1,133 @@
 # Changelog
 
+## v1.8.4 — 2026-04-25
+
+### Added
+
+**Settings page reorganized into 4 tabs.** The flat scrolling list was getting
+out of hand. New tabs: **General**, **Notifications**, **Security**, **Advanced**.
+URL hash drives tab selection so you can bookmark `#settings/security` etc.
+
+**Server identity** (`server_name`). Display name shown in:
+- Browser title (`<title>`)
+- Login page header
+- Webhook payloads (as `_server_name`)
+- Push notifications (consumers can render it however they like)
+
+**Default poll interval** for new agent enrollments. Was hardcoded to 60s; now
+configurable in 10–3600s range from the General tab. Existing devices keep
+their per-device poll interval — change individual devices from their detail
+page.
+
+**Online TTL** (when a device is considered offline). Was hardcoded `ONLINE_TTL = 180`;
+now a config value with a 90-second floor (`MIN_ONLINE_TTL`) to prevent
+configurations where devices would flap between polls.
+
+**CVE details cache TTL** (`cve_cache_days`, default 7). Was hardcoded in
+`cve_scanner.py`; now passed from the server config to `scan_device()`.
+
+**Per-event webhook toggles.** Replaces the four legacy boolean flags
+(`offline_webhook_enabled`, `monitor_webhook_enabled`, `cve_webhook_enabled`,
+`service_webhook_enabled`) with a single `webhook_events` dict listing all
+11 event types individually:
+
+- `device_offline`, `device_online`
+- `monitor_down`, `monitor_up`
+- `patch_alert` (with embedded threshold input on the same row)
+- `cve_found` (with severity-filter checkboxes for which severities fire)
+- `service_down`, `service_up`
+- `log_alert`
+- `command_queued`, `command_executed`
+
+Disabled events get logged to the webhook log as `"disabled"` so you can see
+what was suppressed.
+
+**CVE severity filter.** `cve_found` webhooks previously fired on critical/high
+hardcoded; now you choose which severities fire from
+`{critical, high, medium, low, unknown}`. Default unchanged.
+
+**Remember-me on the login page.** Tickbox below password field. Two session
+TTLs: short (default 24h, used when unchecked) and long (default 30 days,
+used when checked). Both configurable from Security tab. Server-side
+admin can pre-tick the box via `remember_me_default`.
+
+Tokens now carry their own TTL in `tokens.json`, so a long session created
+with "remember me" doesn't get pruned by the cleanup of short tokens.
+Legacy tokens without a TTL field fall back to the old global `TOKEN_TTL`.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/public-info` | Unauthenticated. Returns `server_name`, `server_version`, `remember_me_default` for the login page |
+
+### New config keys
+
+| Key | Type | Default | Where |
+|-----|------|---------|-------|
+| `server_name` | string | `""` (renders as "RemotePower") | General |
+| `default_poll_interval` | int (seconds) | 60 | General |
+| `online_ttl` | int (seconds) | 180 (min 90) | General |
+| `cve_cache_days` | int | 7 (1–90) | General |
+| `webhook_events` | dict[str, bool] | all true | Notifications |
+| `cve_severity_filter` | list[string] | `["critical", "high"]` | Notifications |
+| `session_ttl_short` | int (seconds) | 86400 | Security |
+| `session_ttl_long` | int (seconds) | 86400 × 30 | Security |
+| `remember_me_default` | bool | false | Security |
+
+### Backward compatibility
+
+All four legacy webhook toggle keys (`offline_webhook_enabled`,
+`monitor_webhook_enabled`, `cve_webhook_enabled`, `service_webhook_enabled`)
+still work as fallbacks when `webhook_events` is not set. When `webhook_events`
+is present, it takes precedence. UI saves to the new key from now on, so
+upgrades from 1.8.3 are seamless on first save.
+
+The `cve_found` webhook used a hardcoded `('critical', 'high')` allowlist
+inside `_detect_new_cve_and_fire_webhook`; this is now driven by
+`get_cve_severity_filter()`. Existing servers without the config key get
+the same behavior they had before.
+
+### Changed
+
+- All version strings bumped to 1.8.4
+- `ONLINE_TTL` (module constant) → `get_online_ttl()` helper. The constant
+  `DEFAULT_ONLINE_TTL` still exists for tests.
+- `_detect_new_cve_and_fire_webhook()` now respects `webhook_events.cve_found`
+  and uses `get_cve_severity_filter()` for severity.
+- `fire_webhook()` runs every event through `is_webhook_event_enabled()` and
+  applies severity filtering for `cve_found`. Suppressed events are logged
+  as `"disabled"` or `"filtered"` for observability.
+- `handle_login` reads `remember_me` from the body and stores per-token TTL.
+- `verify_token` and `cleanup_tokens` honor `entry['ttl']` per token,
+  falling back to `TOKEN_TTL` for legacy tokens.
+
+### Tests
+
+34 new tests in `tests/test_v184.py` covering:
+- All 8 config helpers (defaults, explicit values, clamping)
+- Legacy → new webhook key migration
+- CVE severity filter validation
+- Per-token TTL semantics + legacy token fallback
+- WEBHOOK_EVENTS contract (event set + entry shape)
+
+`tests/test_api.py` updated to use `DEFAULT_ONLINE_TTL` instead of removed
+`ONLINE_TTL` constant. New regression test for the helper clamping behavior.
+
+**Full suite: 182 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- Going from 1.8.3 → 1.8.4 needs no data migration. Settings open with
+  defaults; saving once writes the new keys.
+- The Settings tabs preserve URL hash so `https://server/#settings/security`
+  jumps straight to the right tab.
+- "Remember me" extends the session lifetime on the server side; it does
+  *not* persist credentials anywhere on the client. Logging out still
+  invalidates the token immediately.
+
+---
+
 ## v1.8.3 — 2026-04-25
 
 ### Fixed

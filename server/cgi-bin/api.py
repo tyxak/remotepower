@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.8.3
+RemotePower API backend - v1.8.4
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.8.3'
+SERVER_VERSION = '1.8.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -83,10 +83,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
 import prometheus_export
 
-TOKEN_TTL  = 86400 * 7
-PIN_TTL    = 600
-ONLINE_TTL = 180
-
+# Default values — overridable via /api/config (v1.8.4)
+DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
+DEFAULT_TOKEN_TTL_LONG   = 86400 * 30   # 30 days — when "remember me" is checked
+TOKEN_TTL                = 86400 * 7    # legacy fallback if config has neither
+PIN_TTL                  = 600
+DEFAULT_ONLINE_TTL       = 180
+MIN_ONLINE_TTL           = 90           # lower than this and devices flap between polls
+DEFAULT_POLL_INTERVAL    = 60
+DEFAULT_CVE_CACHE_DAYS   = 7
 MAX_HISTORY       = 200
 MAX_MON_HISTORY   = 50
 MAX_CMD_OUTPUT    = 100
@@ -96,6 +101,120 @@ MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
 MAX_AUDIT_LOG     = 500
 MAX_WEBHOOK_LOG   = 100
+
+
+# v1.8.4: All known webhook events, with metadata used by the UI to render
+# the per-event toggle list. Order matters — drives the order in Settings.
+WEBHOOK_EVENTS = (
+    ('device_offline',   'Device went offline',                  True),
+    ('device_online',    'Device came back online',              True),
+    ('monitor_down',     'Monitor target went down',             True),
+    ('monitor_up',       'Monitor target recovered',             True),
+    ('patch_alert',      'Pending updates exceed threshold',     True),
+    ('cve_found',        'New CVEs detected on a device',        True),
+    ('service_down',     'Watched systemd unit went down',       True),
+    ('service_up',       'Watched systemd unit recovered',       True),
+    ('log_alert',        'Log pattern matched threshold',        True),
+    ('command_queued',   'Command queued for a device',          False),
+    ('command_executed', 'Command executed on a device',         False),
+)
+WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
+
+# CVE severity levels available for cve_found webhook filtering
+CVE_SEVERITIES_ALL  = ('critical', 'high', 'medium', 'low', 'unknown')
+CVE_SEVERITY_FILTER_DEFAULT = ('critical', 'high')
+
+
+def _config():
+    """Load config with merged defaults — call when you need a current value."""
+    cfg = load(CONFIG_FILE)
+    return cfg
+
+
+def get_online_ttl():
+    """Effective online TTL value, clamped to MIN_ONLINE_TTL."""
+    try:
+        v = int(_config().get('online_ttl', DEFAULT_ONLINE_TTL))
+    except (TypeError, ValueError):
+        v = DEFAULT_ONLINE_TTL
+    return max(MIN_ONLINE_TTL, v)
+
+
+def get_default_poll_interval():
+    """Default poll interval used when enrolling new agents."""
+    try:
+        v = int(_config().get('default_poll_interval', DEFAULT_POLL_INTERVAL))
+    except (TypeError, ValueError):
+        v = DEFAULT_POLL_INTERVAL
+    return max(10, min(3600, v))
+
+
+def get_session_ttl(remember_me=False):
+    """Session lifetime in seconds — short by default, long with 'remember me'."""
+    cfg = _config()
+    if remember_me:
+        try:
+            return int(cfg.get('session_ttl_long', DEFAULT_TOKEN_TTL_LONG))
+        except (TypeError, ValueError):
+            return DEFAULT_TOKEN_TTL_LONG
+    try:
+        return int(cfg.get('session_ttl_short', DEFAULT_TOKEN_TTL_SHORT))
+    except (TypeError, ValueError):
+        return DEFAULT_TOKEN_TTL_SHORT
+
+
+def get_remember_me_default():
+    """Whether the 'remember me' checkbox should be pre-ticked on the login page."""
+    return bool(_config().get('remember_me_default', False))
+
+
+def get_cve_cache_seconds():
+    """How long to cache OSV vulnerability details before re-fetching."""
+    try:
+        days = int(_config().get('cve_cache_days', DEFAULT_CVE_CACHE_DAYS))
+    except (TypeError, ValueError):
+        days = DEFAULT_CVE_CACHE_DAYS
+    return max(1, min(90, days)) * 86400
+
+
+def is_webhook_event_enabled(event):
+    """Check the per-event webhook toggle. Backward compatible with legacy keys."""
+    cfg = _config()
+
+    # New (v1.8.4): explicit per-event dict
+    events = cfg.get('webhook_events') or {}
+    if event in events:
+        return bool(events[event])
+
+    # Legacy: device_offline/device_online controlled by offline_webhook_enabled,
+    # monitor_down/monitor_up by monitor_webhook_enabled, etc.
+    if event in ('device_offline', 'device_online'):
+        return cfg.get('offline_webhook_enabled', True)
+    if event in ('monitor_down', 'monitor_up'):
+        return cfg.get('monitor_webhook_enabled', True)
+    if event == 'cve_found':
+        return cfg.get('cve_webhook_enabled', True)
+    if event in ('service_down', 'service_up'):
+        return cfg.get('service_webhook_enabled', True)
+    # Default ON for everything else not explicitly disabled
+    return True
+
+
+def get_cve_severity_filter():
+    """Severity levels that fire cve_found webhooks."""
+    cfg = _config()
+    raw = cfg.get('cve_severity_filter')
+    if isinstance(raw, list) and raw:
+        clean = tuple(s for s in raw if s in CVE_SEVERITIES_ALL)
+        if clean:
+            return clean
+    return CVE_SEVERITY_FILTER_DEFAULT
+
+
+def get_server_name():
+    """Display name for this server — webhook payloads, page title, etc."""
+    name = _config().get('server_name', '').strip()
+    return name or 'RemotePower'
 
 # ── Login brute-force protection ───────────────────────────────────────────────
 LOGIN_FAIL_WINDOW  = 300   # 5-minute rolling window
@@ -236,7 +355,10 @@ def verify_token(token):
     now = int(time.time())
     entry = tokens.get(token)
     if entry:
-        if now - entry['created'] > TOKEN_TTL:
+        # v1.8.4: tokens may have their own ttl (per-session — controlled by
+        # remember-me at login). Fall back to legacy TOKEN_TTL.
+        ttl = entry.get('ttl', TOKEN_TTL)
+        if now - entry['created'] > ttl:
             del tokens[token]
             save(TOKENS_FILE, tokens)
         else:
@@ -271,7 +393,10 @@ def verify_token(token):
 def cleanup_tokens():
     tokens = load(TOKENS_FILE)
     now = int(time.time())
-    pruned = {k: v for k, v in tokens.items() if now - v['created'] <= TOKEN_TTL}
+    pruned = {
+        k: v for k, v in tokens.items()
+        if now - v.get('created', 0) <= v.get('ttl', TOKEN_TTL)
+    }
     if len(pruned) != len(tokens):
         save(TOKENS_FILE, pruned)
 
@@ -511,6 +636,26 @@ def fire_webhook(event, payload):
     if not url:
         return
 
+    # v1.8.4: per-event toggle. If disabled, log it and bail.
+    if not is_webhook_event_enabled(event):
+        _log_webhook(event, url, 'disabled', f'event "{event}" disabled in settings')
+        return
+
+    # v1.8.4: cve_found severity filter
+    if event == 'cve_found':
+        # Filter the payload's high/critical counts by the configured severity allowlist.
+        allowed_sev = set(get_cve_severity_filter())
+        # The payload includes 'critical' and 'high' counts; if neither severity is
+        # in the allowlist, suppress. Per-rule filtering happens at scan time.
+        any_in_allowlist = (
+            ('critical' in allowed_sev and payload.get('critical', 0) > 0) or
+            ('high' in allowed_sev and payload.get('high', 0) > 0)
+        )
+        if not any_in_allowlist:
+            _log_webhook(event, url, 'filtered',
+                         f'no findings match severity filter {sorted(allowed_sev)}')
+            return
+
     # v1.8.0: maintenance-window suppression
     try:
         mw = in_maintenance(event, payload)
@@ -531,6 +676,9 @@ def fire_webhook(event, payload):
         return
     # Sanitize payload values before sending
     safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v) for k, v in payload.items()}
+
+    # v1.8.4: server_name for branding push notifications
+    safe_payload['_server_name'] = get_server_name()
 
     # Build human-readable title + message for push services
     titles = {
@@ -694,8 +842,8 @@ def _ts_fmt(ts):
 
 def check_offline_webhooks():
     cfg = load(CONFIG_FILE)
-    # Skip if offline webhooks are disabled
-    if not cfg.get('offline_webhook_enabled', True):
+    # v1.8.4: prefer per-event toggle from webhook_events dict; legacy keys still respected
+    if not is_webhook_event_enabled('device_offline'):
         return
     devices = load(DEVICES_FILE)
     now = int(time.time())
@@ -706,7 +854,7 @@ def check_offline_webhooks():
         if not dev.get('monitored', True):
             continue
         last = dev.get('last_seen', 0)
-        is_offline = (now - last) > ONLINE_TTL
+        is_offline = (now - last) > get_online_ttl()
         already = notified.get(dev_id, False)
         if is_offline and not already:
             fire_webhook('device_offline', {
@@ -749,6 +897,19 @@ def check_offline_webhooks():
             pass
 
 # ─── Handlers ──────────────────────────────────────────────────────────────────
+
+def handle_public_info():
+    """
+    GET /api/public-info — no auth. Used by the login page to fetch the
+    server's display name and remember-me default before the user logs in.
+    Deliberately exposes only non-sensitive values.
+    """
+    respond(200, {
+        'server_name':         get_server_name(),
+        'server_version':      SERVER_VERSION,
+        'remember_me_default': get_remember_me_default(),
+    })
+
 
 def handle_login():
     if method() != 'POST':
@@ -800,10 +961,23 @@ def handle_login():
     cleanup_tokens()
     audit_log(username, 'login', 'successful login')
     token = make_token()
+    # v1.8.4: remember-me selects between short and long session TTL
+    remember_me = bool(body.get('remember_me', False))
+    ttl = get_session_ttl(remember_me=remember_me)
     tokens = load(TOKENS_FILE)
-    tokens[token] = {'user': username, 'created': int(time.time())}
+    tokens[token] = {
+        'user':    username,
+        'created': int(time.time()),
+        'ttl':     ttl,
+    }
     save(TOKENS_FILE, tokens)
-    respond(200, {'ok': True, 'token': token, 'role': user.get('role', 'admin'), 'username': username})
+    respond(200, {
+        'ok':       True,
+        'token':    token,
+        'role':     user.get('role', 'admin'),
+        'username': username,
+        'ttl':      ttl,        # client may use to set its own expiry hints
+    })
 
 
 def handle_devices_list():
@@ -813,7 +987,7 @@ def handle_devices_list():
     result = []
     for dev_id, dev in devices.items():
         last_ping = dev.get('last_seen', 0)
-        is_online = (now - last_ping) < ONLINE_TTL
+        is_online = (now - last_ping) < get_online_ttl()
         missed = max(0, (now - last_ping) // 60) if last_ping else None
         offline_reason = None
         if not is_online and last_ping:
@@ -1020,7 +1194,7 @@ def handle_enroll_register():
         'name': name, 'hostname': hostname, 'os': os_str,
         'ip': ip, 'mac': mac, 'version': version,
         'tags': [], 'group': '', 'notes': '',
-        'enrolled': now, 'last_seen': now, 'poll_interval': 60,
+        'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
         'token': secrets.token_urlsafe(32),
     }
     save(DEVICES_FILE, devices)
@@ -1419,28 +1593,27 @@ def handle_monitor_run():
         mh = load(MON_HIST_FILE)
         cfg = load(CONFIG_FILE)
         mon_notified = cfg.get('monitor_notified', {})
-        mon_webhook_on = cfg.get('monitor_webhook_enabled', True)
+        # v1.8.4: per-event toggle (down/up are checked individually below)
         mon_changed = False
         for r in results:
             key = r['label']
             if key not in mh: mh[key] = []
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
-            # Fire webhook on monitor state change
-            if mon_webhook_on:
-                was_down = mon_notified.get(key, False)
-                if not r['ok'] and not was_down:
-                    fire_webhook('monitor_down', {
-                        'label': r['label'], 'type': r['type'],
-                        'target': r['target'], 'detail': r['detail'],
-                    })
-                    mon_notified[key] = True; mon_changed = True
-                elif r['ok'] and was_down:
-                    fire_webhook('monitor_up', {
-                        'label': r['label'], 'type': r['type'],
-                        'target': r['target'], 'detail': r['detail'],
-                    })
-                    mon_notified[key] = False; mon_changed = True
+            # Fire webhook on monitor state change. fire_webhook() respects per-event toggles.
+            was_down = mon_notified.get(key, False)
+            if not r['ok'] and not was_down:
+                fire_webhook('monitor_down', {
+                    'label': r['label'], 'type': r['type'],
+                    'target': r['target'], 'detail': r['detail'],
+                })
+                mon_notified[key] = True; mon_changed = True
+            elif r['ok'] and was_down:
+                fire_webhook('monitor_up', {
+                    'label': r['label'], 'type': r['type'],
+                    'target': r['target'], 'detail': r['detail'],
+                })
+                mon_notified[key] = False; mon_changed = True
         save(MON_HIST_FILE, mh)
         if mon_changed:
             cfg['monitor_notified'] = mon_notified
@@ -1471,6 +1644,33 @@ def handle_config_get():
     safe.setdefault('cve_webhook_enabled', True)
     safe.setdefault('service_webhook_enabled', True)
     safe.setdefault('monitor_interval', 300)
+
+    # v1.8.4 — derived/effective values that the UI uses
+    safe.setdefault('server_name', '')
+    safe.setdefault('default_poll_interval', DEFAULT_POLL_INTERVAL)
+    safe.setdefault('online_ttl', DEFAULT_ONLINE_TTL)
+    safe.setdefault('cve_cache_days', DEFAULT_CVE_CACHE_DAYS)
+    safe.setdefault('remember_me_default', False)
+    safe.setdefault('session_ttl_short', DEFAULT_TOKEN_TTL_SHORT)
+    safe.setdefault('session_ttl_long', DEFAULT_TOKEN_TTL_LONG)
+    safe.setdefault('cve_severity_filter', list(CVE_SEVERITY_FILTER_DEFAULT))
+
+    # webhook_events: build from explicit dict, falling back to legacy flags
+    explicit = cfg.get('webhook_events') or {}
+    derived_events = {}
+    for ev, _label, _default in WEBHOOK_EVENTS:
+        if ev in explicit:
+            derived_events[ev] = bool(explicit[ev])
+        else:
+            derived_events[ev] = is_webhook_event_enabled(ev)
+    safe['webhook_events'] = derived_events
+
+    # Static UI metadata (so the front-end doesn't have to hardcode this)
+    safe['_meta'] = {
+        'webhook_event_descriptions': {ev: desc for ev, desc, _ in WEBHOOK_EVENTS},
+        'cve_severities':             list(CVE_SEVERITIES_ALL),
+        'min_online_ttl':             MIN_ONLINE_TTL,
+    }
     respond(200, safe)
 
 
@@ -1498,6 +1698,80 @@ def handle_config_save():
 
     if 'service_webhook_enabled' in body:
         cfg['service_webhook_enabled'] = bool(body['service_webhook_enabled'])
+
+    # v1.8.4: per-event toggles (preferred over legacy flags above)
+    if 'webhook_events' in body and isinstance(body['webhook_events'], dict):
+        clean = {}
+        for ev, _label, _default in WEBHOOK_EVENTS:
+            if ev in body['webhook_events']:
+                clean[ev] = bool(body['webhook_events'][ev])
+        cfg['webhook_events'] = clean
+
+    # v1.8.4: server identity
+    if 'server_name' in body:
+        cfg['server_name'] = _sanitize_str(body['server_name'], 80)
+
+    # v1.8.4: default poll interval (used at enrollment)
+    if 'default_poll_interval' in body:
+        try:
+            v = int(body['default_poll_interval'])
+            if not (10 <= v <= 3600):
+                respond(400, {'error': 'default_poll_interval must be 10–3600 seconds'})
+            cfg['default_poll_interval'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'default_poll_interval must be an integer'})
+
+    # v1.8.4: online TTL
+    if 'online_ttl' in body:
+        try:
+            v = int(body['online_ttl'])
+            if v < MIN_ONLINE_TTL:
+                respond(400, {'error': f'online_ttl must be >= {MIN_ONLINE_TTL} seconds'})
+            if v > 7200:
+                respond(400, {'error': 'online_ttl must be <= 7200 seconds (2h)'})
+            cfg['online_ttl'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'online_ttl must be an integer'})
+
+    # v1.8.4: CVE details cache TTL (in days, internally stored as days)
+    if 'cve_cache_days' in body:
+        try:
+            v = int(body['cve_cache_days'])
+            if not (1 <= v <= 90):
+                respond(400, {'error': 'cve_cache_days must be 1–90'})
+            cfg['cve_cache_days'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'cve_cache_days must be an integer'})
+
+    # v1.8.4: CVE severity filter (which severities fire cve_found webhook)
+    if 'cve_severity_filter' in body:
+        raw = body['cve_severity_filter']
+        if not isinstance(raw, list):
+            respond(400, {'error': 'cve_severity_filter must be a list'})
+        clean = [s for s in raw if s in CVE_SEVERITIES_ALL]
+        if not clean:
+            respond(400, {'error': f'cve_severity_filter must contain at least one of {list(CVE_SEVERITIES_ALL)}'})
+        cfg['cve_severity_filter'] = clean
+
+    # v1.8.4: remember-me semantics
+    if 'remember_me_default' in body:
+        cfg['remember_me_default'] = bool(body['remember_me_default'])
+    if 'session_ttl_short' in body:
+        try:
+            v = int(body['session_ttl_short'])
+            if not (300 <= v <= 86400 * 7):
+                respond(400, {'error': 'session_ttl_short must be 300–604800 seconds'})
+            cfg['session_ttl_short'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'session_ttl_short must be an integer'})
+    if 'session_ttl_long' in body:
+        try:
+            v = int(body['session_ttl_long'])
+            if not (3600 <= v <= 86400 * 90):
+                respond(400, {'error': 'session_ttl_long must be 3600–7776000 seconds'})
+            cfg['session_ttl_long'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'session_ttl_long must be an integer'})
 
     if 'wol_broadcast' in body:
         cfg['wol_broadcast'] = _sanitize_ip(body['wol_broadcast']) or '255.255.255.255'
@@ -2190,7 +2464,7 @@ def handle_longpoll_exec():
 def handle_digest():
     require_auth()
     devices = load(DEVICES_FILE); now = int(time.time())
-    online  = sum(1 for d in devices.values() if (now - d.get('last_seen', 0)) < ONLINE_TTL)
+    online  = sum(1 for d in devices.values() if (now - d.get('last_seen', 0)) < get_online_ttl())
     patches = sum(
         (d.get('sysinfo', {}).get('packages', {}).get('upgradable') or 0)
         for d in devices.values()
@@ -2226,7 +2500,7 @@ def handle_patch_report():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
-        is_online = (now - dev.get('last_seen', 0)) < ONLINE_TTL
+        is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
 
         entry = {
             'device_id': dev_id,
@@ -2282,7 +2556,7 @@ def handle_patch_report_device(dev_id):
     si = dev.get('sysinfo', {})
     pkg = si.get('packages', {})
     upgradable = pkg.get('upgradable')
-    is_online = (now - dev.get('last_seen', 0)) < ONLINE_TTL
+    is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
 
     # All exec output related to patching
     outputs = load(CMD_OUTPUT_FILE).get(dev_id, [])
@@ -2345,7 +2619,7 @@ def handle_patch_report_csv():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
-        is_online = (now - dev.get('last_seen', 0)) < ONLINE_TTL
+        is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         status = 'no_data' if (upgradable is None or not is_online) else ('fully_patched' if upgradable == 0 else 'patches_available')
         last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(dev.get('last_seen', 0))) if dev.get('last_seen') else 'never'
         writer.writerow([
@@ -2386,7 +2660,7 @@ def handle_patch_report_xml():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
-        is_online = (now - dev.get('last_seen', 0)) < ONLINE_TTL
+        is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         d_el = SubElement(devs_el, 'Device')
         d_el.set('id', dev_id)
         SubElement(d_el, 'Name').text = dev.get('name', dev_id)
@@ -2569,37 +2843,37 @@ def handle_packages_submit():
 
 
 def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
-    """Fire webhook if new critical/high CVEs appeared since last scan."""
-    cfg = load(CONFIG_FILE)
-    if not cfg.get('cve_webhook_enabled', True):
+    """Fire webhook if new CVEs in the configured severity filter appeared since last scan."""
+    if not is_webhook_event_enabled('cve_found'):
         return
 
     ignore_data = load(CVE_IGNORE_FILE)
     prev_ids = {f['vuln_id'] for f in previous}
+    severity_filter = set(get_cve_severity_filter())
 
-    new_critical_high = []
+    new_alerted = []
     for f in current:
         if f['vuln_id'] in prev_ids:
             continue
-        if f.get('severity') not in CVE_ALERT_SEVERITY:
+        if f.get('severity') not in severity_filter:
             continue
         ig = ignore_data.get(f['vuln_id'])
         if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
             continue
-        new_critical_high.append(f)
+        new_alerted.append(f)
 
-    if not new_critical_high:
+    if not new_alerted:
         return
 
     dev = devices.get(dev_id, {})
     fire_webhook('cve_found', {
         'device_id':  dev_id,
         'name':       dev.get('name', dev_id),
-        'count':      len(new_critical_high),
-        'critical':   sum(1 for f in new_critical_high if f['severity'] == 'critical'),
-        'high':       sum(1 for f in new_critical_high if f['severity'] == 'high'),
+        'count':      len(new_alerted),
+        'critical':   sum(1 for f in new_alerted if f['severity'] == 'critical'),
+        'high':       sum(1 for f in new_alerted if f['severity'] == 'high'),
         'sample':     [{'id': f['vuln_id'], 'pkg': f['package'], 'sev': f['severity']}
-                       for f in new_critical_high[:5]],
+                       for f in new_alerted[:5]],
     })
 
 
@@ -2641,6 +2915,7 @@ def handle_cve_scan():
             entry.get('packages') or [],
             ecosystem,
             DATA_DIR,
+            cache_ttl=get_cve_cache_seconds(),
         )
 
         if result.get('error') and not result.get('findings'):
@@ -2854,7 +3129,7 @@ def handle_prometheus_metrics():
     ctx = {
         'server_version':  SERVER_VERSION,
         'now':             now,
-        'online_ttl':      ONLINE_TTL,
+        'online_ttl':      get_online_ttl(),
         'devices':         devices,
         'monitors':        cfg.get('monitors') or [],
         'monitor_state':   monitor_state,
@@ -3222,9 +3497,6 @@ def process_service_report(dev_id, services_payload):
     prev_dev = store.get(dev_id) or {}
     prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
 
-    cfg = load(CONFIG_FILE)
-    service_webhooks_on = cfg.get('service_webhook_enabled', True)
-
     for entry in clean:
         prev = prev_by_unit.get(entry['unit'])
         if not prev:
@@ -3236,13 +3508,13 @@ def process_service_report(dev_id, services_payload):
             _record_service_transition(
                 dev_id, entry['unit'], prev.get('active'), entry['active'], now
             )
-            if service_webhooks_on:
-                event = 'service_up' if is_up else 'service_down'
-                _fire_service_webhook(event, dev_id, entry['unit'], {
-                    'active':    entry['active'],
-                    'sub':       entry['sub'],
-                    'previous':  prev.get('active'),
-                })
+            # fire_webhook() respects per-event toggles (v1.8.4)
+            event = 'service_up' if is_up else 'service_down'
+            _fire_service_webhook(event, dev_id, entry['unit'], {
+                'active':    entry['active'],
+                'sub':       entry['sub'],
+                'previous':  prev.get('active'),
+            })
 
     store[dev_id] = {'updated_at': now, 'services': clean}
     save(SERVICES_FILE, store)
@@ -4037,6 +4309,7 @@ def main():
     pi = path_info(); m = method()
 
     if pi == '/api/login': handle_login()
+    elif pi == '/api/public-info' and m == 'GET': handle_public_info()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',

@@ -213,7 +213,8 @@ def _severity_from_vuln(vuln: dict, ecosystem: str = None) -> str:
 
 # ── Main scan entrypoint ─────────────────────────────────────────────────────
 
-def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path) -> dict:
+def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path,
+                cache_ttl: int = None) -> dict:
     """
     Scan one device's package list against OSV (if ecosystem supported).
     """
@@ -275,6 +276,9 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path) ->
             }
         all_results.extend(batch_results)
 
+    # v1.8.4: cache TTL is configurable via the server's settings
+    effective_ttl = cache_ttl if cache_ttl is not None else DETAILS_CACHE_TTL
+
     # Collect hits and uncached vuln IDs
     vuln_ids_to_fetch = set()
     hits = []
@@ -287,7 +291,7 @@ def scan_device(dev_id: str, packages: list, ecosystem: str, cache_dir: Path) ->
             if vid:
                 hits.append((pkg_name, pkg_version, vid))
                 if vid not in details_cache or \
-                   (int(time.time()) - details_cache[vid].get('cached_at', 0)) > DETAILS_CACHE_TTL:
+                   (int(time.time()) - details_cache[vid].get('cached_at', 0)) > effective_ttl:
                     vuln_ids_to_fetch.add(vid)
 
     # Fetch missing details

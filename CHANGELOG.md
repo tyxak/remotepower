@@ -1,5 +1,69 @@
 # Changelog
 
+## v1.8.4 - 2026-04-25
+
+### New features
+
+**Settings reorganized into tabs.** General / Notifications / Security / Advanced. URL hash drives selection (`#settings/security` etc).
+
+**Configurable runtime values** (previously hardcoded constants):
+- **Server identity** — `server_name` shown in title bar, login page, webhook payloads
+- **Default poll interval** for new agent enrollments (10–3600s)
+- **Online TTL** — when a device counts as offline. Min 90s to prevent flap
+- **CVE details cache TTL** — was 7 days hardcoded; now 1–90 days
+
+**Per-event webhook toggles.** All 11 event types individually controllable from the Notifications tab:
+- `device_offline`, `device_online`
+- `monitor_down`, `monitor_up`
+- `patch_alert` (threshold input embedded in row)
+- `cve_found` (severity filter inline: `critical`/`high`/`medium`/`low`/`unknown`)
+- `service_down`, `service_up`
+- `log_alert`
+- `command_queued`, `command_executed`
+
+Disabled events log to webhook log as `"disabled"` so you can see what was suppressed.
+
+**Remember-me on login.** Tickbox below password field. Two session lengths: short (default 24h) used when unchecked, long (default 30 days) when checked. Admin can pre-tick the box via `remember_me_default`.
+
+Tokens now carry their own TTL in `tokens.json`. A long session won't get pruned by the cleanup of short ones. Legacy tokens fall back to the old global `TOKEN_TTL`.
+
+### New endpoint
+
+- `GET /api/public-info` — unauthenticated. Returns `server_name`, `server_version`, `remember_me_default`. Used by the login page to set the title and the remember-me checkbox initial state.
+
+### New config keys
+
+| Key | Default |
+|-----|---------|
+| `server_name` | `""` (renders "RemotePower") |
+| `default_poll_interval` | 60 |
+| `online_ttl` | 180 (min 90) |
+| `cve_cache_days` | 7 |
+| `webhook_events` | dict, all true |
+| `cve_severity_filter` | `["critical", "high"]` |
+| `session_ttl_short` | 86400 (24h) |
+| `session_ttl_long` | 2592000 (30 days) |
+| `remember_me_default` | false |
+
+### Changed
+
+- All version strings bumped to 1.8.4
+- `ONLINE_TTL` constant replaced with `get_online_ttl()` helper. `DEFAULT_ONLINE_TTL` constant still exists for tests.
+- `fire_webhook()` runs every event through `is_webhook_event_enabled()`; respects severity filter for `cve_found`
+- `_detect_new_cve_and_fire_webhook()` uses configurable severity filter (no longer hardcoded `('critical', 'high')`)
+- `handle_login` accepts `remember_me` in the body
+- `verify_token` and `cleanup_tokens` honor per-token `ttl`
+
+### Backward compatibility
+
+All four legacy webhook flags (`offline_webhook_enabled`, `monitor_webhook_enabled`, `cve_webhook_enabled`, `service_webhook_enabled`) still work. When `webhook_events` is set, it takes precedence. Upgrades from 1.8.3 work seamlessly — saving the settings page once writes the new keys.
+
+### Tests
+
+34 new tests in `tests/test_v184.py` covering helpers, legacy-key migration, CVE severity filter, per-token TTL semantics, and the WEBHOOK_EVENTS contract. `tests/test_api.py` updated for the constant rename. **Full suite: 182 passing, 0 failing** (1 pre-existing skip).
+
+---
+
 ## v1.8.3 - 2026-04-25
 
 ### Fixed

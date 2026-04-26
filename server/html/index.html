@@ -847,6 +847,68 @@
     .devices-grid { grid-template-columns: 1fr; }
     .modal { margin: 16px; padding: 24px; }
   }
+  /* ── v1.8.4: Settings tabs + per-event toggle table ────────────────────── */
+  .settings-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .settings-tab {
+    padding: 10px 18px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .settings-tab:hover { color: var(--text); }
+  .settings-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+
+  .event-toggle-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .event-toggle-table tr {
+    border-bottom: 1px solid var(--border);
+  }
+  .event-toggle-table tr:last-child { border-bottom: none; }
+  .event-toggle-table td {
+    padding: 12px 8px;
+    vertical-align: middle;
+  }
+  .event-toggle-table td:first-child {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--accent);
+    width: 180px;
+  }
+  .event-toggle-table td:nth-child(2) {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .event-toggle-table td:last-child {
+    width: 60px;
+    text-align: right;
+  }
+  .event-toggle-table .toggle-switch {
+    width: 18px; height: 18px; accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .event-toggle-table .event-extra {
+    margin-top: 6px;
+  }
+
   /* ── v1.8.3: Calendar + Tasks ─────────────────────────────────────────── */
   .cal-day {
     background: var(--surface);
@@ -963,6 +1025,10 @@
       <label class="form-label">Authenticator Code (2FA)</label>
       <input type="text" id="login-totp" class="form-input" placeholder="123456" maxlength="6" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" style="text-align:center;font-size:20px;letter-spacing:6px;font-weight:700">
     </div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:8px 0 16px;font-size:13px;color:var(--muted)">
+      <input type="checkbox" id="login-remember" style="width:16px;height:16px;accent-color:var(--accent)">
+      Remember me on this device
+    </label>
     <button class="login-btn" onclick="doLogin()">Sign in</button>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </div>
@@ -1166,13 +1232,185 @@
       <div id="page-settings" class="page">
         <div class="page-title">Settings</div>
         <div class="page-subtitle">Server configuration</div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px"><div style="font-size:15px;font-weight:600;margin-bottom:4px">Two-Factor Authentication (2FA)</div><div style="font-size:13px;color:var(--muted);margin-bottom:16px">Protect your account with an authenticator app (Google Authenticator, Authy, etc.)</div><div id="totp-status" style="margin-bottom:12px"></div><div id="totp-setup-area"></div></div>
-        <div class="settings-section"><h3>Webhooks</h3><p class="hint">POST a JSON payload to this URL on events (device offline/online, monitor alerts, patch alerts, commands). Compatible with Ntfy, Gotify, Slack, Discord, Pushover, and any webhook receiver. Push-friendly headers (X-Title, X-Priority, X-Tags) are included automatically.</p><div class="settings-row"><div class="form-group" style="flex:1"><label class="form-label">Webhook URL</label><input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic"></div><div class="form-group" style="flex:0 0 auto;align-self:flex-end"><button class="btn-icon" style="padding:9px 12px" onclick="clearWebhook()" title="Clear webhook URL"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div></div><div id="cfg-webhook-note" style="font-size:12px;color:var(--green);margin-top:4px;display:none">✓ Webhook is currently configured</div><div id="cfg-webhook-current" style="font-size:12px;color:var(--muted);margin-top:6px;font-family:monospace;word-break:break-all;display:none"></div><div style="margin-top:16px;display:flex;flex-direction:column;gap:12px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="cfg-offline-webhook" style="width:18px;height:18px;accent-color:var(--accent)"><div><div style="font-size:13px;font-weight:500">Device offline/online alerts</div><div style="font-size:12px;color:var(--muted)">Fire webhook when a device goes offline or comes back online</div></div></label><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="cfg-monitor-webhook" style="width:18px;height:18px;accent-color:var(--accent)"><div><div style="font-size:13px;font-weight:500">Monitor alerts</div><div style="font-size:12px;color:var(--muted)">Fire webhook when a monitor target goes down or recovers</div></div></label></div></div>
-        <div class="settings-section"><h3>Wake-on-LAN</h3><p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p><div class="settings-row"><div class="form-group"><label class="form-label">Broadcast address</label><input type="text" id="cfg-wol-bcast" class="form-input" placeholder="255.255.255.255"></div><div class="form-group" style="max-width:120px"><label class="form-label">Port</label><input type="number" id="cfg-wol-port" class="form-input" placeholder="9"></div></div></div>
-        <div class="settings-section"><h3>Patch Alert</h3><p class="hint">Fire a webhook when a device has more than this many pending updates. Set to 0 or leave empty to disable.</p><div class="settings-row"><div class="form-group" style="max-width:160px"><label class="form-label">Threshold (updates)</label><input type="number" id="cfg-patch-threshold" class="form-input" placeholder="e.g. 10" min="0"></div></div></div>
-        <div class="settings-section"><h3>Monitor Check Interval</h3><p class="hint">How often monitors auto-check when the Monitor page is open. Also controls the server-side offline/patch check frequency.</p><div class="settings-row"><div class="form-group" style="max-width:180px"><label class="form-label">Interval (seconds)</label><input type="number" id="cfg-monitor-interval" class="form-input" placeholder="300" min="60" max="3600"></div><div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:12px">60s–3600s (default: 300s)</div></div></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px"><button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button><button class="btn-secondary" onclick="loadSettings()">Reload</button><button class="btn-icon" onclick="testWebhook()" id="btn-webhook-test"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button><button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button></div>
-        <div class="settings-section"><div class="section-header" style="margin-bottom:12px"><h3 style="margin:0">Webhook Log</h3><div style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="loadWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="clearWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div><div class="table-card" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th></tr></thead><tbody id="webhook-log-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr></tbody></table></div></div>
+
+        <!-- v1.8.4: tab switcher -->
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-tab="general"  onclick="switchSettingsTab('general')">General</button>
+          <button class="settings-tab"        data-tab="notifs"   onclick="switchSettingsTab('notifs')">Notifications</button>
+          <button class="settings-tab"        data-tab="security" onclick="switchSettingsTab('security')">Security</button>
+          <button class="settings-tab"        data-tab="advanced" onclick="switchSettingsTab('advanced')">Advanced</button>
+        </div>
+
+        <!-- ── General ──────────────────────────────────────────────────── -->
+        <div class="settings-pane active" id="settings-pane-general">
+          <div class="settings-section">
+            <h3>Server identity</h3>
+            <p class="hint">Display name shown in the page title, push notification subject lines, and webhook payloads. Helps tell instances apart when you have more than one.</p>
+            <div class="settings-row">
+              <div class="form-group" style="flex:1;max-width:320px">
+                <label class="form-label">Server name</label>
+                <input type="text" id="cfg-server-name" class="form-input" placeholder="RemotePower" maxlength="80">
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Default poll interval</h3>
+            <p class="hint">How often newly-enrolled agents heartbeat back to the server. Existing devices are not affected — change theirs from the device detail page.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:160px">
+                <label class="form-label">Seconds</label>
+                <input type="number" id="cfg-default-poll" class="form-input" min="10" max="3600" placeholder="60">
+              </div>
+              <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:12px">10–3600 (default 60)</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Online TTL</h3>
+            <p class="hint">A device is considered offline if no heartbeat is received within this window. Should be at least <code>2 × poll_interval</code> to avoid false offline alerts during a single missed poll.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:160px">
+                <label class="form-label">Seconds</label>
+                <input type="number" id="cfg-online-ttl" class="form-input" min="90" max="7200" placeholder="180">
+              </div>
+              <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:12px" id="cfg-online-ttl-hint">90–7200 (default 180)</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Monitor check interval</h3>
+            <p class="hint">How often monitors auto-check when the Monitor page is open. Also controls server-side offline/patch check frequency.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:180px">
+                <label class="form-label">Seconds</label>
+                <input type="number" id="cfg-monitor-interval" class="form-input" placeholder="300" min="60" max="3600">
+              </div>
+              <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:12px">60–3600 (default 300)</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>CVE details cache</h3>
+            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:160px">
+                <label class="form-label">Days</label>
+                <input type="number" id="cfg-cve-cache-days" class="form-input" min="1" max="90" placeholder="7">
+              </div>
+              <div style="font-size:12px;color:var(--muted);align-self:flex-end;padding-bottom:12px">1–90 (default 7)</div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Wake-on-LAN</h3>
+            <p class="hint">Magic packets are sent via UDP broadcast from the server. Adjust if your network uses a directed broadcast address.</p>
+            <div class="settings-row">
+              <div class="form-group">
+                <label class="form-label">Broadcast address</label>
+                <input type="text" id="cfg-wol-bcast" class="form-input" placeholder="255.255.255.255">
+              </div>
+              <div class="form-group" style="max-width:120px">
+                <label class="form-label">Port</label>
+                <input type="number" id="cfg-wol-port" class="form-input" placeholder="9">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Notifications ────────────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-notifs">
+          <div class="settings-section">
+            <h3>Webhook URL</h3>
+            <p class="hint">POST a JSON payload to this URL on events. Compatible with Ntfy, Gotify, Slack, Discord, Pushover, and any webhook receiver. Push-friendly headers (X-Title, X-Priority, X-Tags) are included automatically.</p>
+            <div class="settings-row">
+              <div class="form-group" style="flex:1">
+                <label class="form-label">URL</label>
+                <input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic">
+              </div>
+              <div class="form-group" style="flex:0 0 auto;align-self:flex-end">
+                <button class="btn-icon" style="padding:9px 12px" onclick="clearWebhook()" title="Clear webhook URL">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <div id="cfg-webhook-note" style="font-size:12px;color:var(--green);margin-top:4px;display:none">✓ Webhook is currently configured</div>
+            <div id="cfg-webhook-current" style="font-size:12px;color:var(--muted);margin-top:6px;font-family:monospace;word-break:break-all;display:none"></div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Per-event toggles</h3>
+            <p class="hint">Enable or disable each event type. Disabled events are recorded as "disabled" in the webhook log so you can see what was suppressed.</p>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 16px">
+              <table class="event-toggle-table" id="event-toggle-table">
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Webhook log</h3>
+            <div class="section-header" style="margin-bottom:12px">
+              <div class="section-title" style="margin:0">Recent deliveries</div>
+              <div style="display:flex;gap:6px">
+                <button class="btn-icon" style="padding:4px 8px" onclick="loadWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+                <button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="clearWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
+              </div>
+            </div>
+            <div class="table-card" style="max-height:300px;overflow-y:auto">
+              <table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th></tr></thead>
+              <tbody id="webhook-log-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet.</td></tr></tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Security ─────────────────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-security">
+          <div class="settings-section">
+            <h3>Two-Factor Authentication (2FA)</h3>
+            <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
+            <div id="totp-status" style="margin-bottom:12px"></div>
+            <div id="totp-setup-area"></div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Session length</h3>
+            <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:200px">
+                <label class="form-label">Short session (hours)</label>
+                <input type="number" id="cfg-session-short" class="form-input" min="1" max="168" placeholder="24">
+              </div>
+              <div class="form-group" style="max-width:200px">
+                <label class="form-label">Long session (days)</label>
+                <input type="number" id="cfg-session-long" class="form-input" min="1" max="90" placeholder="30">
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-top:14px">
+              <input type="checkbox" id="cfg-remember-default" style="width:18px;height:18px;accent-color:var(--accent)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Tick "Remember me" by default on the login page</div>
+                <div style="font-size:12px;color:var(--muted)">Convenience setting. Users can still untick it before logging in.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- ── Advanced ─────────────────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-advanced">
+          <div class="settings-section">
+            <h3>Backup &amp; export</h3>
+            <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
+            <button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
+          </div>
+        </div>
+
+        <!-- Save / reload bar at the bottom (always visible) -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+          <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
+          <button class="btn-secondary" onclick="loadSettings()">Reload</button>
+          <button class="btn-icon" onclick="testWebhook()" id="btn-webhook-test"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button>
+        </div>
       </div>
 
       <!-- ── History page (unchanged) ─────────────────────────────────────── -->
@@ -1583,12 +1821,14 @@ async function doLogin() {
   const pass = document.getElementById('login-pass').value;
   const totpInput = document.getElementById('login-totp');
   const totp_code = totpInput ? totpInput.value.trim() : '';
+  const rememberCb = document.getElementById('login-remember');
+  const remember_me = !!(rememberCb && rememberCb.checked);
   const err  = document.getElementById('login-error');
   err.classList.remove('show');
   err.style.color = '';
   if (!user || !pass) return;
   try {
-    const payload = {username: user, password: pass};
+    const payload = {username: user, password: pass, remember_me};
     if (totp_code) payload.totp_code = totp_code;
     const resp = await fetch('/api/login', {
       method: 'POST',
@@ -1816,9 +2056,118 @@ async function createUser() { const username = document.getElementById('new-user
 async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
 async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error'); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
-async function loadSettings() { const data = await api('GET', '/config'); if (!data) return; document.getElementById('cfg-webhook').value = data.webhook_url || ''; document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255'; document.getElementById('cfg-wol-port').value = data.wol_port || '9'; document.getElementById('cfg-patch-threshold').value = data.patch_alert_threshold || ''; document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300; const note = document.getElementById('cfg-webhook-note'); note.style.display = data.webhook_configured ? 'block' : 'none'; const currentEl = document.getElementById('cfg-webhook-current'); if (data.webhook_url) { currentEl.textContent = data.webhook_url; currentEl.style.display = 'block'; } else currentEl.style.display = 'none'; document.getElementById('cfg-offline-webhook').checked = data.offline_webhook_enabled !== false; document.getElementById('cfg-monitor-webhook').checked = data.monitor_webhook_enabled !== false; }
+// ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
+function switchSettingsTab(tab) {
+  document.querySelectorAll('.settings-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.settings-pane').forEach(p =>
+    p.classList.toggle('active', p.id === `settings-pane-${tab}`));
+  if (tab) location.hash = `settings/${tab}`;
+}
+
+function renderEventToggleTable(events, descriptions) {
+  const tbody = document.querySelector('#event-toggle-table tbody');
+  if (!tbody) return;
+  const order = Object.keys(descriptions);
+  tbody.innerHTML = order.map(ev => {
+    const checked = events[ev] === false ? '' : 'checked';
+    const desc = descriptions[ev] || '';
+    let extra = '';
+    if (ev === 'patch_alert') {
+      extra = `<div class="event-extra" style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--muted)">Threshold:</span><input type="number" id="cfg-patch-threshold" min="0" placeholder="e.g. 10" style="width:100px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"><span style="font-size:11px;color:var(--muted)">pending updates</span></div>`;
+    } else if (ev === 'cve_found') {
+      extra = `<div class="event-extra"><div style="font-size:12px;color:var(--muted);margin-bottom:4px">Severities to alert on:</div><div id="cfg-cve-severity-row" style="display:flex;gap:10px;flex-wrap:wrap"></div></div>`;
+    }
+    return `<tr><td><code>${escHtml(ev)}</code></td><td>${escHtml(desc)}${extra}</td><td><input type="checkbox" class="toggle-switch" data-event="${escHtml(ev)}" ${checked}></td></tr>`;
+  }).join('');
+}
+
+function renderCveSeverityRow(severities, current) {
+  const row = document.getElementById('cfg-cve-severity-row');
+  if (!row) return;
+  row.innerHTML = severities.map(s => {
+    const checked = current.includes(s) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px"><input type="checkbox" class="cfg-cve-sev" value="${escHtml(s)}" ${checked} style="accent-color:var(--accent)">${escHtml(s)}</label>`;
+  }).join('');
+}
+
+async function loadSettings() {
+  const data = await api('GET', '/config');
+  if (!data) return;
+  // General
+  document.getElementById('cfg-server-name').value = data.server_name || '';
+  document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
+  document.getElementById('cfg-online-ttl').value = data.online_ttl || 180;
+  document.getElementById('cfg-monitor-interval').value = data.monitor_interval || 300;
+  document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
+  document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
+  document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
+
+  const meta = data._meta || {};
+  if (meta.min_online_ttl) {
+    document.getElementById('cfg-online-ttl-hint').textContent = `${meta.min_online_ttl}–7200 (default 180)`;
+  }
+  // Notifications
+  document.getElementById('cfg-webhook').value = data.webhook_url || '';
+  const note = document.getElementById('cfg-webhook-note');
+  note.style.display = data.webhook_configured ? 'block' : 'none';
+  const currentEl = document.getElementById('cfg-webhook-current');
+  if (data.webhook_url) { currentEl.textContent = data.webhook_url; currentEl.style.display = 'block'; }
+  else                  { currentEl.style.display = 'none'; }
+
+  renderEventToggleTable(data.webhook_events || {}, meta.webhook_event_descriptions || {});
+  const patchInput = document.getElementById('cfg-patch-threshold');
+  if (patchInput) patchInput.value = data.patch_alert_threshold || '';
+  if (meta.cve_severities) {
+    renderCveSeverityRow(meta.cve_severities, data.cve_severity_filter || ['critical', 'high']);
+  }
+
+  // Security
+  document.getElementById('cfg-session-short').value = Math.round((data.session_ttl_short || 86400) / 3600);
+  document.getElementById('cfg-session-long').value  = Math.round((data.session_ttl_long  || 86400 * 30) / 86400);
+  document.getElementById('cfg-remember-default').checked = !!data.remember_me_default;
+
+  // Activate tab from URL hash
+  const hash = (location.hash || '').replace(/^#/, '');
+  if (hash.startsWith('settings/')) {
+    const tab = hash.split('/')[1];
+    if (['general','notifs','security','advanced'].includes(tab)) switchSettingsTab(tab);
+  }
+}
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
-async function saveSettings() { const payload = { wol_broadcast: document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255', wol_port: parseInt(document.getElementById('cfg-wol-port').value) || 9, offline_webhook_enabled: document.getElementById('cfg-offline-webhook').checked, monitor_webhook_enabled: document.getElementById('cfg-monitor-webhook').checked, monitor_interval: parseInt(document.getElementById('cfg-monitor-interval').value) || 300, webhook_url: document.getElementById('cfg-webhook').value.trim(), patch_alert_threshold: parseInt(document.getElementById('cfg-patch-threshold').value) || 0 }; const data = await api('POST', '/config', payload); if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
+async function saveSettings() {
+  const webhook_events = {};
+  document.querySelectorAll('#event-toggle-table .toggle-switch').forEach(cb => {
+    webhook_events[cb.dataset.event] = cb.checked;
+  });
+  const cve_severity_filter = Array.from(document.querySelectorAll('.cfg-cve-sev'))
+    .filter(cb => cb.checked).map(cb => cb.value);
+  if (cve_severity_filter.length === 0) {
+    toast('Pick at least one CVE severity to alert on', 'error');
+    return;
+  }
+  const sessShortHours = parseInt(document.getElementById('cfg-session-short').value) || 24;
+  const sessLongDays   = parseInt(document.getElementById('cfg-session-long').value)  || 30;
+  const payload = {
+    server_name:           document.getElementById('cfg-server-name').value.trim(),
+    default_poll_interval: parseInt(document.getElementById('cfg-default-poll').value) || 60,
+    online_ttl:            parseInt(document.getElementById('cfg-online-ttl').value) || 180,
+    monitor_interval:      parseInt(document.getElementById('cfg-monitor-interval').value) || 300,
+    cve_cache_days:        parseInt(document.getElementById('cfg-cve-cache-days').value) || 7,
+    wol_broadcast:         document.getElementById('cfg-wol-bcast').value.trim() || '255.255.255.255',
+    wol_port:              parseInt(document.getElementById('cfg-wol-port').value) || 9,
+    webhook_url:           document.getElementById('cfg-webhook').value.trim(),
+    webhook_events,
+    cve_severity_filter,
+    patch_alert_threshold: (() => { const el = document.getElementById('cfg-patch-threshold'); return el ? (parseInt(el.value) || 0) : 0; })(),
+    session_ttl_short:     sessShortHours * 3600,
+    session_ttl_long:      sessLongDays * 86400,
+    remember_me_default:   document.getElementById('cfg-remember-default').checked,
+  };
+  const data = await api('POST', '/config', payload);
+  if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); loadWebhookLog(); }
+  else { toast(data?.error || 'Failed', 'error'); }
+}
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
 async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td></tr>`; }).join(''); }
 function startRefreshCycle() { clearInterval(refreshTimer); refreshRemaining = refreshInterval; refreshTimer = setInterval(() => { refreshRemaining--; const pct = (refreshRemaining / refreshInterval) * 100; document.getElementById('refresh-progress').style.width = pct + '%'; if (refreshRemaining <= 0) { refreshRemaining = refreshInterval; loadDevices(); } const m = Math.floor(refreshRemaining / 60); const s = refreshRemaining % 60; document.getElementById('last-refresh-label').textContent = `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`; }, 1000); }
@@ -2960,7 +3309,30 @@ function requestNotifications() { if (!('Notification' in window)) return; if (N
 function sendNotification(title, body) { if (!notificationsEnabled) return; try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) {} }
 let previousDeviceStates = {};
 function checkDeviceNotifications(newDevices) { if (!notificationsEnabled) return; for (const d of newDevices) { const prev = previousDeviceStates[d.id]; if (prev !== undefined && prev !== d.online) sendNotification(`RemotePower: ${d.name}`, d.online ? 'Device came online' : 'Device went offline'); previousDeviceStates[d.id] = d.online; } }
-document.addEventListener('DOMContentLoaded', () => { document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); }); document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); }); document.getElementById('login-user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-pass').focus(); }); checkAuth(); });
+// v1.8.4: fetch unauthenticated public info (server name, remember-me default)
+async function loadPublicInfo() {
+  try {
+    const resp = await fetch('/api/public-info');
+    if (!resp.ok) return;
+    const info = await resp.json();
+    if (info.server_name) {
+      // Update page title and the login header
+      document.title = info.server_name;
+      const loginTitle = document.querySelector('.login-title');
+      if (loginTitle) loginTitle.textContent = info.server_name;
+    }
+    const rememberCb = document.getElementById('login-remember');
+    if (rememberCb) rememberCb.checked = !!info.remember_me_default;
+  } catch (e) { /* ignore */ }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadPublicInfo();
+  document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('login-user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-pass').focus(); });
+  checkAuth();
+});
 </script>
 </body>
 </html>

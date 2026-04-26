@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-remotepower-agent  -  Client-side daemon for RemotePower v1.8.3
+remotepower-agent  -  Client-side daemon for RemotePower v1.8.4
 Polls the RemotePower server at a configurable interval (default 60s).
 On first run (or if not enrolled), prompts for server URL + PIN and registers.
 
@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.8.3'
+VERSION      = '1.8.4'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
