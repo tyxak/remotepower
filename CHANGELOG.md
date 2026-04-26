@@ -1,5 +1,80 @@
 # Changelog
 
+## v1.8.6 - 2026-04-26
+
+### New features
+
+**SMTP / email notifications** — sibling channel to webhooks, same events, same maintenance suppression
+- New SMTP section in Notifications tab: host/port/TLS mode/from/auth/recipients/test button
+- Per-event email toggle in the existing event table (now has Webhook + Email columns)
+- TLS modes: STARTTLS (587), implicit TLS (465), plain (25)
+- Optional auth (empty username = no AUTH for localhost relays)
+- Passwords masked in `GET /api/config`
+- Email is opt-in per event by design (avoids inbox flood)
+
+**LDAP / LDAPS authentication** — external auth source, falls back to local users.json
+- New LDAP section in Security tab: URL, service account DN+password, search base, user filter, required group, admin group, TLS verify, timeout
+- Two test buttons: "Test connection" (verifies service-account bind) and "Test user login" (full auth path)
+- Local users tried first → LDAP unavailable never locks you out
+- Auto-provisions new LDAP users into users.json with role from group membership
+- Auto-promotes existing users to admin if they're in the admin group; never auto-demotes
+- Required-group filter for "only members of this group can log in"
+- Pure-Python `ldap3` library, imported lazily — not needed if you don't enable LDAP
+
+### New endpoints
+
+- `POST /api/smtp/test` — send test email, optional recipient override
+- `POST /api/ldap/test` — verify service-account bind with body-as-config override
+- `POST /api/ldap/test-user` — admin-only full auth path test, no session created
+
+### Changed
+
+- All version strings bumped to 1.8.6
+- `fire_webhook()` is now the single dispatch point for both webhook and email channels — gates (per-event toggle, severity filter, maintenance suppression) run once
+- `handle_login` gains LDAP fallback path; LDAP transient errors log to audit but present as invalid-credentials to the client
+- Per-event email toggles in `email_events` config dict (parallel to `webhook_events`)
+
+### New data files
+
+None. New config keys live in `config.json`. Auto-provisioned LDAP users get extra metadata fields in `users.json`.
+
+### Tests
+
+**Full suite: 212 passing, 0 failing** (1 pre-existing skip). 30 new tests in `tests/test_v186.py` covering recipients parsing, email toggle semantics, SMTP input validation, email rendering, LDAP filter escaping, full LDAP auth paths (using `sys.modules` fake-ldap3 stub), required-group enforcement, and role mapping.
+
+### Compatibility
+
+- v1.8.5 servers work with v1.8.6 clients
+- LDAP/SMTP off by default — no migration, no surprise behavior changes
+- Agent binary unchanged from v1.8.5 except version string
+- LDAP requires `pip3 install ldap3` (or `dnf install python3-ldap3`) only if enabled
+
+---
+
+## v1.8.5 - 2026-04-26
+
+### Fixed
+
+- **"Remember me" was a no-op**: client always saved the session token to `sessionStorage` regardless of checkbox state, so the browser threw away the token on close even though the server-side TTL was correctly 30 days. Particularly visible with 2FA enabled.
+  - Now: checked → `localStorage` (persists across browser restarts), unchecked → `sessionStorage` (cleared with the tab)
+  - `checkAuth()` (called on page load) now reads from both stores so a remembered session is recognized
+  - `doLogout()` and login flow clear both stores so toggling modes doesn't leave stale state
+
+### Changed
+
+- All version strings bumped to 1.8.5
+- Pure client-side fix — no server, agent, or data changes
+
+### Tests
+
+**Full suite: 182 passing, 0 failing** (1 pre-existing skip). No new tests; DOM behavior verified by hand.
+
+### Compatibility
+
+- v1.8.4 servers work with v1.8.5 clients. Agent binary identical except for its version string.
+
+---
+
 ## v1.8.4 - 2026-04-25
 
 ### New features

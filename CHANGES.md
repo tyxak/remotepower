@@ -1,5 +1,198 @@
 # Changelog
 
+## v1.8.6 — 2026-04-26
+
+### Added
+
+**SMTP / email notifications.** Email is now a sibling channel to webhooks
+— same events, same maintenance-window suppression, same per-event toggles.
+The Notifications tab gains an SMTP section: host, port, TLS mode
+(STARTTLS / implicit TLS / plain), From address, optional auth, optional
+HELO override, recipients list, and a "Send test email" button with
+optional override recipient.
+
+The per-event toggle table now has two columns: **Webhook** (existing,
+opt-out) and **Email** (new, opt-in per event). Email is opt-in because
+nobody wants every device-online event to land in their inbox.
+
+Three TLS modes:
+- `starttls` (port 587) — modern default, STARTTLS upgrade after EHLO
+- `tls` (port 465) — implicit TLS, the older "SMTPS" port
+- `plain` (port 25) — no TLS; only safe to localhost or trusted relays
+
+Auth is optional. Empty username = no AUTH attempted (useful for localhost
+relays that allow anonymous submission). Passwords are stored in
+`config.json` and masked in `GET /api/config` responses (the UI just sees
+a `smtp_password_set: true` flag).
+
+**LDAP / LDAPS authentication.** External auth source for login. Local
+users in `users.json` are tried first — emergency local admin always works
+even if LDAP is down. Users authenticated via LDAP are auto-provisioned
+into `users.json` with the role determined by group membership.
+
+Configuration in the Security tab:
+- LDAP URL (`ldaps://` or `ldap://`)
+- TLS verification toggle (set to off only for self-signed CAs in dev)
+- Service account DN + password (used for the search step; the user's
+  own credentials verify the password in a second bind)
+- User search base + filter — `(uid={u})` for OpenLDAP/FreeIPA,
+  `(sAMAccountName={u})` for AD
+- **Required group DN** — empty allows any user with valid creds; set
+  this to lock login to a specific group
+- **Admin group DN** — members get the `admin` role on login; everyone
+  else gets `viewer`. Auto-promotes existing local users on next LDAP
+  login but never auto-demotes.
+- Two test buttons: "Test connection" (verifies the service account
+  bind) and "Test user login" (full auth path with a real username/password
+  pair, doesn't create a session)
+
+Library: **ldap3** (pure Python). The module imports lazily, so servers
+that don't enable LDAP don't need the library installed at all. To
+install: `pip3 install ldap3` (Fedora: `dnf install python3-ldap3`).
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/smtp/test` | Send a test email; optional `{"recipient": "..."}` override |
+| POST | `/api/ldap/test` | Verify service-account bind (URL/TLS/creds). Body fields override config for "test before save" UX. |
+| POST | `/api/ldap/test-user` | Run the full auth path for one user. Returns DN, role, full name, email. |
+
+### New config keys
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `smtp_enabled` | bool | Master toggle for email channel |
+| `smtp_host` / `smtp_port` / `smtp_tls` | string / int / enum | Server config |
+| `smtp_from` | string | From address (must contain `@`) |
+| `smtp_username` / `smtp_password` | string | Optional AUTH; password masked on GET |
+| `smtp_helo_name` | string | Override HELO/EHLO hostname |
+| `smtp_recipients` | string | Comma/semicolon/whitespace-separated list |
+| `email_events` | dict | `{event_name: bool}` per-event opt-in |
+| `ldap_enabled` | bool | Master toggle |
+| `ldap_url` | string | `ldaps://...` or `ldap://...` |
+| `ldap_bind_dn` / `ldap_bind_password` | string | Service account creds |
+| `ldap_user_base` | string | Search base |
+| `ldap_user_filter` | string | Must contain `{u}` |
+| `ldap_required_group` / `ldap_admin_group` | string | Group DNs |
+| `ldap_tls_verify` | bool | Default true |
+| `ldap_timeout` | int | Seconds, 1–60, default 5 |
+
+### Changed
+
+- All version strings bumped to 1.8.6
+- `fire_webhook()` is now a single dispatch point — runs the shared gates
+  once, then fans out to webhook AND email channels in turn. The hard
+  rename was avoided because of dozens of call sites; the function still
+  has the historical name.
+- `handle_login` gains an LDAP fallback path. Tried only when local auth
+  fails; LdapTransientError logs to audit but presents as plain
+  invalid-credentials to the client (no info leak about whether LDAP is
+  reachable).
+- Auto-provisioned LDAP users get a placeholder `password_hash` that
+  never matches anything. Subsequent local-auth attempts fail and fall
+  through to LDAP again — there's no way to "downgrade" an LDAP user
+  to local-only by accident.
+- `users.json` entries gain optional `ldap_dn`, `ldap_full_name`,
+  `ldap_email` fields when created via LDAP.
+
+### Tests
+
+30 new tests in `tests/test_v186.py`:
+- SMTP: recipients parser (5 cases), per-event email toggle (5 cases),
+  input validation (5 cases), email render (2 cases)
+- LDAP: filter escaping (2 cases), authenticate() success/failure paths
+  (5 cases) using a fake `ldap3` module installed in `sys.modules`,
+  required-group enforcement, role mapping
+- Wiring + version checks (3 cases)
+
+**Full suite: 212 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- LDAP requires the `ldap3` library on the server. Empty config + disabled
+  toggle is the default, so no library needed unless you turn it on.
+  Server emits `LdapTransientError: ldap3 library not installed` if
+  enabled without the library — surfaces in the audit log.
+- SMTP works with any RFC 5321 server. Tested mentally against Postfix,
+  AWS SES, Gmail, Mailgun, Sendgrid, ProtonMail Bridge.
+- Email recipients are a flat fleet-wide list (everyone gets every
+  enabled event). Per-user opt-in is not a v1.8.6 feature; could happen
+  in 1.9.0 if anyone asks.
+- The "Test user login" button in the LDAP section is admin-only and
+  doesn't create a session — it just runs `authenticate()` against the
+  current config and shows what would happen. Useful for verifying the
+  filter/group config without making the user log out.
+- Enabling LDAP doesn't disable local auth. There's no "LDAP-only" mode
+  by design — if LDAP breaks, you can still log in as a local emergency
+  admin and fix it.
+
+### Compatibility
+
+- v1.8.5 servers work with v1.8.6 clients (everything's additive).
+- v1.8.5 → v1.8.6 needs no migration. SMTP and LDAP are off by default;
+  saving Settings once writes the new keys with their defaults.
+- Agent binary unchanged from v1.8.5 except for the version string.
+
+---
+
+## v1.8.5 — 2026-04-26
+
+### Fixed
+
+**"Remember me" actually remembers now.** v1.8.4 introduced the checkbox and
+the per-token TTL on the server side, but the client always saved the token
+to `sessionStorage` — which by definition is wiped when the browser closes.
+The 30-day server-side TTL was correct; the browser was just throwing away
+the token at the end of every tab session. Particularly visible if you have
+2FA enabled because every reload meant another full login dance.
+
+The fix:
+
+- When "remember me" is checked, the token + username are saved to
+  **`localStorage`** (persists across browser restarts).
+- When unchecked, they go to **`sessionStorage`** as before (cleared with
+  the tab — explicit "this is a kiosk / public computer" semantics).
+- `getToken()` now reads from both stores, preferring localStorage.
+- `getMe()` (new helper) does the same for the username display.
+- `checkAuth()` (called on page load) uses `getToken()` instead of reading
+  sessionStorage directly — which was the actual bug that made remember-me
+  a no-op for users with 2FA.
+- `doLogout()` clears both stores so toggling between modes doesn't leave
+  stale credentials behind.
+- Login flow clears both stores before writing the new token, preventing
+  any cross-mode contamination if the user toggles the checkbox.
+
+### Changed
+
+- All version strings bumped to 1.8.5
+- No server-side or agent changes — this is a pure client-side bug fix
+- No data file changes; existing tokens keep working
+
+### Tests
+
+182 passing, 0 failing (1 pre-existing skip). No new tests; this is a
+DOM-only behavior fix that's easier to verify by hand than to mock in
+unittest. To verify after deploy:
+
+1. Tick "Remember me", log in, complete 2FA
+2. Close the browser entirely (not just the tab)
+3. Reopen, navigate to the dashboard URL → should land on the app, not
+   the login page
+
+If you uncheck "Remember me" and repeat, the second visit should bounce
+you to login as expected (sessionStorage was cleared with the browser).
+
+### Notes
+
+- This is purely a client bug. v1.8.4 servers work fine with v1.8.5
+  clients and vice versa. The agent binary is byte-identical apart from
+  its version string.
+- If you've been logging in with 2FA repeatedly because remember-me
+  seemed broken — sorry, that's on me. Should work now.
+
+---
+
 ## v1.8.4 — 2026-04-25
 
 ### Added

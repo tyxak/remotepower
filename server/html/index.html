@@ -1348,6 +1348,71 @@
             </div>
           </div>
 
+          <!-- ── v1.8.6: SMTP / email notifications ───────────────────────── -->
+          <div class="settings-section">
+            <h3>Email notifications (SMTP)</h3>
+            <p class="hint">Send the same events via email as a sibling channel to webhooks. Both channels respect maintenance windows. Email is opt-in per event in the table above.</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">
+              <input type="checkbox" id="cfg-smtp-enabled" style="width:18px;height:18px;accent-color:var(--accent)">
+              <span style="font-size:14px">Enable email notifications</span>
+            </label>
+
+            <div class="settings-row">
+              <div class="form-group" style="flex:2">
+                <label class="form-label">SMTP host</label>
+                <input type="text" id="cfg-smtp-host" class="form-input" placeholder="smtp.example.com">
+              </div>
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Port</label>
+                <input type="number" id="cfg-smtp-port" class="form-input" min="1" max="65535" placeholder="587">
+              </div>
+              <div class="form-group" style="flex:1">
+                <label class="form-label">TLS mode</label>
+                <select id="cfg-smtp-tls" class="form-input">
+                  <option value="starttls">STARTTLS (587)</option>
+                  <option value="tls">Implicit TLS (465)</option>
+                  <option value="plain">Plain (25)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="form-group" style="flex:1">
+                <label class="form-label">From address</label>
+                <input type="email" id="cfg-smtp-from" class="form-input" placeholder="remotepower@example.com">
+              </div>
+              <div class="form-group" style="flex:1">
+                <label class="form-label">HELO/EHLO name <span style="font-size:11px;color:var(--muted)">(optional)</span></label>
+                <input type="text" id="cfg-smtp-helo" class="form-input" placeholder="Defaults to hostname">
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Username <span style="font-size:11px;color:var(--muted)">(blank = no auth)</span></label>
+                <input type="text" id="cfg-smtp-username" class="form-input" autocomplete="off" placeholder="">
+              </div>
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Password <span id="cfg-smtp-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
+                <input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Recipients</label>
+              <input type="text" id="cfg-smtp-recipients" class="form-input" placeholder="ops@example.com, admin@example.com">
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Comma-, semicolon- or whitespace-separated list. All listed addresses receive every enabled event.</div>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <input type="email" id="cfg-smtp-test-recipient" class="form-input" placeholder="Send a test to (optional override)" style="flex:1;min-width:240px">
+              <button class="btn-icon" id="btn-smtp-test" onclick="testSmtp()" style="padding:8px 14px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg> Send test email
+              </button>
+            </div>
+            <div id="cfg-smtp-test-result" style="font-size:12px;margin-top:8px;display:none;padding:8px 12px;border-radius:6px"></div>
+          </div>
+
           <div class="settings-section">
             <h3>Webhook log</h3>
             <div class="section-header" style="margin-bottom:12px">
@@ -1393,6 +1458,78 @@
                 <div style="font-size:12px;color:var(--muted)">Convenience setting. Users can still untick it before logging in.</div>
               </div>
             </label>
+          </div>
+
+          <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
+          <div class="settings-section">
+            <h3>LDAP / LDAPS authentication</h3>
+            <p class="hint">External authentication source. Local users in <code>users.json</code> are tried first — emergency access never depends on LDAP being reachable. Users authenticated via LDAP are auto-provisioned with the role determined by group membership.</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer">
+              <input type="checkbox" id="cfg-ldap-enabled" style="width:18px;height:18px;accent-color:var(--accent)">
+              <span style="font-size:14px">Enable LDAP authentication</span>
+            </label>
+
+            <div class="settings-row">
+              <div class="form-group" style="flex:2">
+                <label class="form-label">LDAP URL</label>
+                <input type="url" id="cfg-ldap-url" class="form-input" placeholder="ldaps://ldap.example.com:636">
+                <div style="font-size:11px;color:var(--muted);margin-top:4px"><code>ldaps://</code> for TLS, <code>ldap://</code> for plain (don't).</div>
+              </div>
+              <div class="form-group" style="flex:0 0 auto;align-self:flex-end">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:9px 4px">
+                  <input type="checkbox" id="cfg-ldap-tls-verify" style="width:16px;height:16px;accent-color:var(--accent)" checked>
+                  <span style="font-size:13px">Verify TLS cert</span>
+                </label>
+              </div>
+              <div class="form-group" style="flex:0 0 90px">
+                <label class="form-label">Timeout</label>
+                <input type="number" id="cfg-ldap-timeout" class="form-input" min="1" max="60" placeholder="5">
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Service account DN <span style="font-size:11px;color:var(--muted)">(searches the directory)</span></label>
+                <input type="text" id="cfg-ldap-bind-dn" class="form-input" placeholder="cn=remotepower,ou=services,dc=example,dc=com">
+              </div>
+              <div class="form-group" style="flex:1">
+                <label class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
+                <input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">User search base</label>
+              <input type="text" id="cfg-ldap-user-base" class="form-input" placeholder="ou=Users,dc=example,dc=com">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">User filter <span style="font-size:11px;color:var(--muted)">(use <code>{u}</code> for the username)</span></label>
+              <input type="text" id="cfg-ldap-user-filter" class="form-input" placeholder="(uid={u})">
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">AD: <code>(sAMAccountName={u})</code> · OpenLDAP: <code>(uid={u})</code> · FreeIPA: <code>(uid={u})</code></div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Required group DN <span style="font-size:11px;color:var(--muted)">(optional, leave blank for "anyone with valid creds")</span></label>
+              <input type="text" id="cfg-ldap-required-group" class="form-input" placeholder="cn=remotepower-users,ou=groups,dc=example,dc=com">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Admin group DN <span style="font-size:11px;color:var(--muted)">(members get admin role; others stay viewer)</span></label>
+              <input type="text" id="cfg-ldap-admin-group" class="form-input" placeholder="cn=remotepower-admins,ou=groups,dc=example,dc=com">
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+              <button class="btn-icon" onclick="testLdap()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Test connection
+              </button>
+              <button class="btn-icon" onclick="openLdapTestUserModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                Test user login
+              </button>
+            </div>
+            <div id="cfg-ldap-test-result" style="font-size:12px;margin-top:8px;display:none;padding:8px 12px;border-radius:6px;font-family:monospace"></div>
           </div>
         </div>
 
@@ -1654,6 +1791,14 @@
 </div><!-- /app -->
 
 <!-- ══ MODALS (unchanged) ════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="ldap-test-user-modal"><div class="modal">
+  <div class="modal-title">Test LDAP user login</div>
+  <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>
+  <div class="form-group"><label class="form-label">Username</label><input type="text" id="ldap-test-user-name" class="form-input" autocomplete="off" placeholder="alice"></div>
+  <div class="form-group"><label class="form-label">Password</label><input type="password" id="ldap-test-user-pw" class="form-input" autocomplete="off" placeholder=""></div>
+  <div id="ldap-test-user-result" style="font-size:12px;display:none;padding:8px 12px;border-radius:6px;margin-bottom:8px"></div>
+  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('ldap-test-user-modal')">Close</button><button class="btn-primary" onclick="runLdapTestUser()">Test</button></div>
+</div></div>
 <div class="modal-overlay" id="enroll-modal"><div class="modal"><div class="modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('enroll-modal')">Close</button><button class="btn-primary" onclick="generateNewPin()">Generate new PIN</button></div></div></div>
 <div class="modal-overlay" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></div><div class="modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('shutdown-modal')">Cancel</button><button class="btn-shutdown" style="flex:1" onclick="confirmShutdown()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down</button></div></div></div>
 <div class="modal-overlay" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg></div><div class="modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('reboot-modal')">Cancel</button><button class="btn-reboot" style="flex:1" onclick="confirmReboot()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot</button></div></div></div>
@@ -1810,7 +1955,8 @@ let activeTagFilter = null;
 // Auth
 // ══════════════════════════════════════════════════════════════════════════════
 function checkAuth() {
-  if (sessionStorage.getItem('rp_token')) {
+  // v1.8.5: getToken() checks both localStorage (remember-me) and sessionStorage
+  if (getToken()) {
     showApp();
   } else {
     document.getElementById('login-page').style.display = 'flex';
@@ -1850,8 +1996,14 @@ async function doLogin() {
       return;
     }
     if (data.ok) {
-      sessionStorage.setItem('rp_token', data.token);
-      sessionStorage.setItem('rp_me', data.username || user);
+      // v1.8.5: remember-me uses localStorage (survives browser close);
+      // un-checked uses sessionStorage (cleared with the tab).
+      // Always clear *both* first so toggling between modes doesn't leave stale tokens.
+      sessionStorage.removeItem('rp_token'); sessionStorage.removeItem('rp_me');
+      localStorage.removeItem('rp_token');   localStorage.removeItem('rp_me');
+      const store = remember_me ? localStorage : sessionStorage;
+      store.setItem('rp_token', data.token);
+      store.setItem('rp_me',    data.username || user);
       showApp();
     } else {
       err.textContent = 'Invalid username or password';
@@ -1863,12 +2015,20 @@ async function doLogin() {
   }
 }
 function doLogout() {
-  sessionStorage.removeItem('rp_token');
+  // v1.8.5: clear both stores
+  sessionStorage.removeItem('rp_token'); sessionStorage.removeItem('rp_me');
+  localStorage.removeItem('rp_token');   localStorage.removeItem('rp_me');
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-page').style.display = 'flex';
   clearInterval(refreshTimer);
 }
-function getToken() { return sessionStorage.getItem('rp_token') || ''; }
+function getToken() {
+  // v1.8.5: check both — remember-me persists in localStorage, regular in sessionStorage
+  return localStorage.getItem('rp_token') || sessionStorage.getItem('rp_token') || '';
+}
+function getMe() {
+  return localStorage.getItem('rp_me') || sessionStorage.getItem('rp_me') || '';
+}
 function showApp() {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -2050,7 +2210,7 @@ function openMonitorAdd() { document.getElementById('mon-label').value = ''; doc
 async function addMonitor() { const label = document.getElementById('mon-label').value.trim(); const type = document.getElementById('mon-type').value; const target = document.getElementById('mon-target').value.trim(); if (!target) { toast('Target is required', 'error'); return; } const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = [...(cfg.monitors || []), {label: label || target, type, target}]; const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Monitor added', 'success'); closeModal('monitor-add-modal'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin:2px;background:${h.ok ? 'var(--green)' : 'var(--red)'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value" style="color:${lastCheck.ok?'var(--green)':'var(--red)'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Last ${recent.length} checks (newest right)</div><div style="padding:8px 0">${dots}</div><div class="table-card" style="margin-top:16px;max-height:240px;overflow-y:auto"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td style="font-size:12px;color:var(--muted)">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
-async function loadUsers() { const data = await api('GET', '/users'); if (!data) return; const tbody = document.getElementById('users-tbody'); if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">No users. </td></tr>'; return; } const me = sessionStorage.getItem('rp_me') || ''; tbody.innerHTML = data.map(u => `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button></div></td></tr>`).join(''); }
+async function loadUsers() { const data = await api('GET', '/users'); if (!data) return; const tbody = document.getElementById('users-tbody'); if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">No users. </td></tr>'; return; } const me = getMe(); tbody.innerHTML = data.map(u => `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button></div></td></tr>`).join(''); }
 function openUserAdd() { document.getElementById('new-username').value = ''; document.getElementById('new-password').value = ''; openModal('user-add-modal'); }
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
@@ -2065,12 +2225,27 @@ function switchSettingsTab(tab) {
   if (tab) location.hash = `settings/${tab}`;
 }
 
-function renderEventToggleTable(events, descriptions) {
+function renderEventToggleTable(events, descriptions, emailEvents) {
   const tbody = document.querySelector('#event-toggle-table tbody');
   if (!tbody) return;
+  emailEvents = emailEvents || {};
+  // Header — emit if not already present (re-renders on each loadSettings)
+  const table = document.getElementById('event-toggle-table');
+  let thead = table.querySelector('thead');
+  if (!thead) {
+    thead = document.createElement('thead');
+    thead.innerHTML = `<tr>
+      <th style="text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500">Event</th>
+      <th style="text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500">Description</th>
+      <th style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500;width:70px">Webhook</th>
+      <th style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500;width:70px">Email</th>
+    </tr>`;
+    table.insertBefore(thead, tbody);
+  }
   const order = Object.keys(descriptions);
   tbody.innerHTML = order.map(ev => {
-    const checked = events[ev] === false ? '' : 'checked';
+    const wh    = events[ev] === false ? '' : 'checked';
+    const email = emailEvents[ev] === true ? 'checked' : '';
     const desc = descriptions[ev] || '';
     let extra = '';
     if (ev === 'patch_alert') {
@@ -2078,7 +2253,12 @@ function renderEventToggleTable(events, descriptions) {
     } else if (ev === 'cve_found') {
       extra = `<div class="event-extra"><div style="font-size:12px;color:var(--muted);margin-bottom:4px">Severities to alert on:</div><div id="cfg-cve-severity-row" style="display:flex;gap:10px;flex-wrap:wrap"></div></div>`;
     }
-    return `<tr><td><code>${escHtml(ev)}</code></td><td>${escHtml(desc)}${extra}</td><td><input type="checkbox" class="toggle-switch" data-event="${escHtml(ev)}" ${checked}></td></tr>`;
+    return `<tr>
+      <td><code>${escHtml(ev)}</code></td>
+      <td>${escHtml(desc)}${extra}</td>
+      <td style="text-align:center"><input type="checkbox" class="toggle-switch toggle-webhook" data-event="${escHtml(ev)}" ${wh}></td>
+      <td style="text-align:center"><input type="checkbox" class="toggle-switch toggle-email"   data-event="${escHtml(ev)}" ${email}></td>
+    </tr>`;
   }).join('');
 }
 
@@ -2115,12 +2295,37 @@ async function loadSettings() {
   if (data.webhook_url) { currentEl.textContent = data.webhook_url; currentEl.style.display = 'block'; }
   else                  { currentEl.style.display = 'none'; }
 
-  renderEventToggleTable(data.webhook_events || {}, meta.webhook_event_descriptions || {});
+  renderEventToggleTable(data.webhook_events || {}, meta.webhook_event_descriptions || {}, data.email_events || {});
   const patchInput = document.getElementById('cfg-patch-threshold');
   if (patchInput) patchInput.value = data.patch_alert_threshold || '';
   if (meta.cve_severities) {
     renderCveSeverityRow(meta.cve_severities, data.cve_severity_filter || ['critical', 'high']);
   }
+
+  // v1.8.6: SMTP
+  document.getElementById('cfg-smtp-enabled').checked = !!data.smtp_enabled;
+  document.getElementById('cfg-smtp-host').value      = data.smtp_host || '';
+  document.getElementById('cfg-smtp-port').value      = data.smtp_port || 587;
+  document.getElementById('cfg-smtp-tls').value       = data.smtp_tls || 'starttls';
+  document.getElementById('cfg-smtp-from').value      = data.smtp_from || '';
+  document.getElementById('cfg-smtp-username').value  = data.smtp_username || '';
+  document.getElementById('cfg-smtp-password').value  = '';  // never echo back
+  document.getElementById('cfg-smtp-helo').value      = data.smtp_helo_name || '';
+  document.getElementById('cfg-smtp-recipients').value = data.smtp_recipients || '';
+  document.getElementById('cfg-smtp-pw-set-badge').style.display = data.smtp_password_set ? '' : 'none';
+
+  // v1.8.6: LDAP
+  document.getElementById('cfg-ldap-enabled').checked    = !!data.ldap_enabled;
+  document.getElementById('cfg-ldap-url').value          = data.ldap_url || '';
+  document.getElementById('cfg-ldap-bind-dn').value      = data.ldap_bind_dn || '';
+  document.getElementById('cfg-ldap-bind-password').value = '';
+  document.getElementById('cfg-ldap-user-base').value    = data.ldap_user_base || '';
+  document.getElementById('cfg-ldap-user-filter').value  = data.ldap_user_filter || '(uid={u})';
+  document.getElementById('cfg-ldap-required-group').value = data.ldap_required_group || '';
+  document.getElementById('cfg-ldap-admin-group').value  = data.ldap_admin_group || '';
+  document.getElementById('cfg-ldap-tls-verify').checked = data.ldap_tls_verify !== false;
+  document.getElementById('cfg-ldap-timeout').value      = data.ldap_timeout || 5;
+  document.getElementById('cfg-ldap-pw-set-badge').style.display = data.ldap_bind_password_set ? '' : 'none';
 
   // Security
   document.getElementById('cfg-session-short').value = Math.round((data.session_ttl_short || 86400) / 3600);
@@ -2137,8 +2342,13 @@ async function loadSettings() {
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
 async function saveSettings() {
   const webhook_events = {};
-  document.querySelectorAll('#event-toggle-table .toggle-switch').forEach(cb => {
+  document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
     webhook_events[cb.dataset.event] = cb.checked;
+  });
+  // v1.8.6: per-event email toggles
+  const email_events = {};
+  document.querySelectorAll('#event-toggle-table .toggle-email').forEach(cb => {
+    email_events[cb.dataset.event] = cb.checked;
   });
   const cve_severity_filter = Array.from(document.querySelectorAll('.cfg-cve-sev'))
     .filter(cb => cb.checked).map(cb => cb.value);
@@ -2158,15 +2368,143 @@ async function saveSettings() {
     wol_port:              parseInt(document.getElementById('cfg-wol-port').value) || 9,
     webhook_url:           document.getElementById('cfg-webhook').value.trim(),
     webhook_events,
+    email_events,
     cve_severity_filter,
     patch_alert_threshold: (() => { const el = document.getElementById('cfg-patch-threshold'); return el ? (parseInt(el.value) || 0) : 0; })(),
     session_ttl_short:     sessShortHours * 3600,
     session_ttl_long:      sessLongDays * 86400,
     remember_me_default:   document.getElementById('cfg-remember-default').checked,
+
+    // v1.8.6: SMTP
+    smtp_enabled:    document.getElementById('cfg-smtp-enabled').checked,
+    smtp_host:       document.getElementById('cfg-smtp-host').value.trim(),
+    smtp_port:       parseInt(document.getElementById('cfg-smtp-port').value) || 587,
+    smtp_tls:        document.getElementById('cfg-smtp-tls').value,
+    smtp_from:       document.getElementById('cfg-smtp-from').value.trim(),
+    smtp_username:   document.getElementById('cfg-smtp-username').value.trim(),
+    smtp_helo_name:  document.getElementById('cfg-smtp-helo').value.trim(),
+    smtp_recipients: document.getElementById('cfg-smtp-recipients').value.trim(),
+
+    // v1.8.6: LDAP
+    ldap_enabled:        document.getElementById('cfg-ldap-enabled').checked,
+    ldap_url:            document.getElementById('cfg-ldap-url').value.trim(),
+    ldap_bind_dn:        document.getElementById('cfg-ldap-bind-dn').value.trim(),
+    ldap_user_base:      document.getElementById('cfg-ldap-user-base').value.trim(),
+    ldap_user_filter:    document.getElementById('cfg-ldap-user-filter').value.trim() || '(uid={u})',
+    ldap_required_group: document.getElementById('cfg-ldap-required-group').value.trim(),
+    ldap_admin_group:    document.getElementById('cfg-ldap-admin-group').value.trim(),
+    ldap_tls_verify:     document.getElementById('cfg-ldap-tls-verify').checked,
+    ldap_timeout:        parseInt(document.getElementById('cfg-ldap-timeout').value) || 5,
   };
+  // Only send password fields if the user typed something — empty string
+  // would clear them on the server. Leave key out to preserve existing.
+  const smtpPw = document.getElementById('cfg-smtp-password').value;
+  if (smtpPw) payload.smtp_password = smtpPw;
+  const ldapPw = document.getElementById('cfg-ldap-bind-password').value;
+  if (ldapPw) payload.ldap_bind_password = ldapPw;
+
   const data = await api('POST', '/config', payload);
-  if (data?.ok) { toast('Settings saved', 'success'); loadSettings(); loadWebhookLog(); }
-  else { toast(data?.error || 'Failed', 'error'); }
+  if (data?.ok) {
+    toast('Settings saved', 'success');
+    // Clear password fields after save so they don't sit in the DOM
+    document.getElementById('cfg-smtp-password').value = '';
+    document.getElementById('cfg-ldap-bind-password').value = '';
+    loadSettings(); loadWebhookLog();
+  } else {
+    toast(data?.error || 'Failed', 'error');
+  }
+}
+
+// ─── v1.8.6: SMTP / LDAP test buttons ─────────────────────────────────────────
+
+async function testSmtp() {
+  const btn = document.getElementById('btn-smtp-test');
+  const resultEl = document.getElementById('cfg-smtp-test-result');
+  resultEl.style.display = 'none';
+  btn.disabled = true; btn.style.opacity = '0.5';
+  try {
+    const overrideRecipient = document.getElementById('cfg-smtp-test-recipient').value.trim();
+    const body = overrideRecipient ? {recipient: overrideRecipient} : {};
+    const data = await api('POST', '/smtp/test', body);
+    if (!data) return;
+    resultEl.style.display = 'block';
+    if (data.ok) {
+      const list = (data.recipients || []).join(', ');
+      resultEl.style.background = 'rgba(34,197,94,0.1)';
+      resultEl.style.color = 'var(--green)';
+      resultEl.textContent = `✓ Test email sent to: ${list}`;
+      toast('Test email sent', 'success');
+    } else {
+      resultEl.style.background = 'rgba(239,68,68,0.1)';
+      resultEl.style.color = 'var(--red)';
+      resultEl.textContent = `✕ ${data.error || 'unknown error'}`;
+      toast(`SMTP test failed: ${data.error || 'unknown'}`, 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+async function testLdap() {
+  const resultEl = document.getElementById('cfg-ldap-test-result');
+  resultEl.style.display = 'none';
+  // Send the in-form values so user can test before saving
+  const body = {
+    ldap_url:            document.getElementById('cfg-ldap-url').value.trim(),
+    ldap_bind_dn:        document.getElementById('cfg-ldap-bind-dn').value.trim(),
+    ldap_user_base:      document.getElementById('cfg-ldap-user-base').value.trim(),
+    ldap_user_filter:    document.getElementById('cfg-ldap-user-filter').value.trim() || '(uid={u})',
+    ldap_tls_verify:     document.getElementById('cfg-ldap-tls-verify').checked,
+    ldap_timeout:        parseInt(document.getElementById('cfg-ldap-timeout').value) || 5,
+  };
+  const ldapPw = document.getElementById('cfg-ldap-bind-password').value;
+  if (ldapPw) body.ldap_bind_password = ldapPw;
+  const data = await api('POST', '/ldap/test', body);
+  if (!data) return;
+  resultEl.style.display = 'block';
+  if (data.ok) {
+    resultEl.style.background = 'rgba(34,197,94,0.1)';
+    resultEl.style.color = 'var(--green)';
+    resultEl.textContent = `✓ ${data.detail || 'OK'}`;
+  } else {
+    resultEl.style.background = 'rgba(239,68,68,0.1)';
+    resultEl.style.color = 'var(--red)';
+    resultEl.textContent = `✕ ${data.detail || 'failed'}`;
+  }
+}
+
+function openLdapTestUserModal() {
+  document.getElementById('ldap-test-user-name').value = '';
+  document.getElementById('ldap-test-user-pw').value = '';
+  document.getElementById('ldap-test-user-result').style.display = 'none';
+  openModal('ldap-test-user-modal');
+}
+
+async function runLdapTestUser() {
+  const username = document.getElementById('ldap-test-user-name').value.trim();
+  const password = document.getElementById('ldap-test-user-pw').value;
+  const resultEl = document.getElementById('ldap-test-user-result');
+  if (!username || !password) { toast('Username and password required', 'error'); return; }
+  resultEl.style.display = 'block';
+  resultEl.style.background = 'rgba(100,116,139,0.1)';
+  resultEl.style.color = 'var(--muted)';
+  resultEl.textContent = 'Testing...';
+  const data = await api('POST', '/ldap/test-user', {username, password});
+  if (!data) return;
+  if (data.ok) {
+    resultEl.style.background = 'rgba(34,197,94,0.1)';
+    resultEl.style.color = 'var(--green)';
+    resultEl.innerHTML = `✓ Authenticated successfully<br>` +
+      `<span style="font-family:monospace;font-size:11px">DN: ${escHtml(data.dn)}<br>` +
+      `Role: ${escHtml(data.role)}<br>` +
+      (data.full_name ? `Name: ${escHtml(data.full_name)}<br>` : '') +
+      (data.email ? `Email: ${escHtml(data.email)}` : '') +
+      `</span>`;
+  } else {
+    resultEl.style.background = 'rgba(239,68,68,0.1)';
+    resultEl.style.color = 'var(--red)';
+    resultEl.textContent = `✕ ${data.error || 'unknown error'}`;
+  }
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
 async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td></tr>`; }).join(''); }

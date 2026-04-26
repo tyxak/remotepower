@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.8.4
+RemotePower API backend - v1.8.6
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.8.4'
+SERVER_VERSION = '1.8.6'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -82,6 +82,10 @@ MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # 2 MB per device cap
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
 import prometheus_export
+# v1.8.6: SMTP + LDAP. ldap3 is optional — the module imports it lazily so
+# servers that don't enable LDAP don't need the dependency installed.
+import smtp_notifier
+import ldap_auth
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -630,33 +634,92 @@ def _log_webhook(event, url, status, detail=''):
         pass
 
 
-def fire_webhook(event, payload):
-    cfg = load(CONFIG_FILE)
-    url = cfg.get('webhook_url', '').strip()
-    if not url:
+def is_email_event_enabled(event, cfg=None):
+    """v1.8.6: per-event email toggle. Independent of webhook toggle.
+    SMTP must also be enabled overall and have at least one recipient."""
+    if cfg is None:
+        cfg = _config()
+    if not cfg.get('smtp_enabled'):
+        return False
+    if not (cfg.get('smtp_recipients') or '').strip():
+        return False
+    events = cfg.get('email_events') or {}
+    if event in events:
+        return bool(events[event])
+    # Default: not enabled (opt-in per event). Webhook stays opt-out by default.
+    return False
+
+
+def _smtp_recipients_list(cfg):
+    """Parse the comma/semicolon/whitespace-separated recipients string."""
+    raw = (cfg.get('smtp_recipients') or '')
+    parts = re.split(r'[,;\s]+', raw)
+    return [p.strip() for p in parts if p and '@' in p]
+
+
+def _send_event_email(event, payload, message, cfg, server_name):
+    """Send the email channel for an event. Failures are logged, never raised."""
+    recipients = _smtp_recipients_list(cfg)
+    if not recipients:
         return
+    try:
+        subject, body = smtp_notifier.render_event_email(server_name, event, payload, message)
+        smtp_notifier.send_email(cfg, recipients, subject, body)
+        _log_email(event, recipients, 'ok', '')
+    except smtp_notifier.SmtpError as e:
+        _log_email(event, recipients, 'error', str(e))
+    except Exception as e:
+        _log_email(event, recipients, 'error', f'{type(e).__name__}: {e}')
+
+
+def _log_email(event, recipients, status, detail):
+    """Append to the webhook log file but tag as 'email' channel for visibility."""
+    try:
+        log = load(WEBHOOK_LOG_FILE)
+        if not isinstance(log, list):
+            log = []
+        log.insert(0, {
+            'ts':         int(time.time()),
+            'event':      f'{event} (email)',
+            'status':     status,
+            'detail':     f'{len(recipients)} recipient(s): {detail}'[:300],
+        })
+        save(WEBHOOK_LOG_FILE, log[:MAX_WEBHOOK_LOG])
+    except Exception:
+        pass
+
+
+def fire_webhook(event, payload):
+    """
+    v1.8.6: Despite the historical name, this is now the single dispatch point
+    for both webhook and email notifications. It runs the shared gates
+    (per-event toggle, CVE severity filter, maintenance suppression) once,
+    then fans out to whichever channels are configured.
+    """
+    cfg = load(CONFIG_FILE)
 
     # v1.8.4: per-event toggle. If disabled, log it and bail.
     if not is_webhook_event_enabled(event):
-        _log_webhook(event, url, 'disabled', f'event "{event}" disabled in settings')
+        webhook_url = cfg.get('webhook_url', '').strip()
+        if webhook_url:
+            _log_webhook(event, webhook_url, 'disabled', f'event "{event}" disabled in settings')
         return
 
     # v1.8.4: cve_found severity filter
     if event == 'cve_found':
-        # Filter the payload's high/critical counts by the configured severity allowlist.
         allowed_sev = set(get_cve_severity_filter())
-        # The payload includes 'critical' and 'high' counts; if neither severity is
-        # in the allowlist, suppress. Per-rule filtering happens at scan time.
         any_in_allowlist = (
             ('critical' in allowed_sev and payload.get('critical', 0) > 0) or
             ('high' in allowed_sev and payload.get('high', 0) > 0)
         )
         if not any_in_allowlist:
-            _log_webhook(event, url, 'filtered',
-                         f'no findings match severity filter {sorted(allowed_sev)}')
+            url = cfg.get('webhook_url', '').strip()
+            if url:
+                _log_webhook(event, url, 'filtered',
+                             f'no findings match severity filter {sorted(allowed_sev)}')
             return
 
-    # v1.8.0: maintenance-window suppression
+    # v1.8.0: maintenance-window suppression — applies to BOTH channels
     try:
         mw = in_maintenance(event, payload)
     except Exception:
@@ -666,19 +729,38 @@ def fire_webhook(event, payload):
             log_suppression(event, payload, mw)
         except Exception:
             pass
-        _log_webhook(event, url, 'suppressed', f'maintenance: {mw.get("reason", "")}')
+        url = cfg.get('webhook_url', '').strip()
+        if url:
+            _log_webhook(event, url, 'suppressed', f'maintenance: {mw.get("reason", "")}')
         return
 
-    # Validate URL scheme before firing
+    # Build the human-readable message once — used by both channels
+    server_name = get_server_name()
+    payload_with_branding = dict(payload)
+    payload_with_branding['_server_name'] = server_name
+    message = _webhook_message(event, payload_with_branding)
+
+    # ── Channel 1: Webhook ──────────────────────────────────────────────────────
+    _send_webhook_to_url(event, payload_with_branding, message, cfg)
+
+    # ── Channel 2: Email ────────────────────────────────────────────────────────
+    if is_email_event_enabled(event, cfg):
+        _send_event_email(event, payload_with_branding, message, cfg, server_name)
+
+
+def _send_webhook_to_url(event, safe_payload, message, cfg):
+    """Send the HTTP webhook portion. Was the body of fire_webhook pre-1.8.6."""
+    url = cfg.get('webhook_url', '').strip()
+    if not url:
+        return  # Webhooks disabled (just running for email)
+
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ('http', 'https'):
         _log_webhook(event, url, 'error', 'invalid scheme (must be http or https)')
         return
-    # Sanitize payload values before sending
-    safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v) for k, v in payload.items()}
 
-    # v1.8.4: server_name for branding push notifications
-    safe_payload['_server_name'] = get_server_name()
+    # Sanitize values
+    safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v) for k, v in safe_payload.items()}
 
     # Build human-readable title + message for push services
     titles = {
@@ -696,7 +778,7 @@ def fire_webhook(event, payload):
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
-    message = _webhook_message(event, safe_payload)
+    # message was passed in (computed once for both webhook + email channels)
     priority = _webhook_priority(event)
 
     # ── Auto-detect service and build appropriate payload ─────────────────
@@ -934,6 +1016,55 @@ def handle_login():
     stored = user.get('password_hash', dummy_hash) if user else dummy_hash
     valid = verify_password(password, stored) and bool(user)
 
+    # v1.8.6: LDAP fallback. Local-first means an emergency local admin
+    # always works even when LDAP is down. Only attempt LDAP if local failed.
+    ldap_user_info = None
+    if not valid:
+        cfg = load(CONFIG_FILE)
+        if cfg.get('ldap_enabled'):
+            try:
+                ldap_user_info = ldap_auth.authenticate(cfg, username, password)
+                valid = True
+                # Auto-provision: if user doesn't exist in users.json yet,
+                # create them with the role determined by group membership.
+                if not user:
+                    new_role = ldap_user_info.role
+                    users[username] = {
+                        'role':            new_role,
+                        # Store a placeholder hash that nothing matches —
+                        # subsequent local-auth attempts will fail and fall
+                        # through to LDAP again.
+                        'password_hash':   '!' + secrets.token_hex(32),
+                        'created':         int(time.time()),
+                        'ldap_dn':         ldap_user_info.dn,
+                        'ldap_full_name':  ldap_user_info.full_name,
+                        'ldap_email':      ldap_user_info.email,
+                    }
+                    save(USERS_FILE, users)
+                    user = users[username]
+                    audit_log(username, 'ldap_auto_provision',
+                              f'created from LDAP, role={new_role}, dn={ldap_user_info.dn}')
+                else:
+                    # Existing user — if their role should change based on group
+                    # membership, update it. (Admin may have manually demoted; we
+                    # respect group-driven promotions on each login.)
+                    if user.get('role') != ldap_user_info.role:
+                        # Only auto-promote (viewer→admin) on group match — never auto-demote
+                        if ldap_user_info.role == 'admin' and user.get('role') != 'admin':
+                            user['role'] = 'admin'
+                            users[username] = user
+                            save(USERS_FILE, users)
+                            audit_log(username, 'ldap_role_promoted', 'matched admin group')
+                audit_log(username, 'login_ldap', f'authenticated via LDAP (dn={ldap_user_info.dn})')
+            except ldap_auth.LdapAuthDenied:
+                # LDAP reachable but rejected the user — treat as plain auth failure.
+                pass
+            except ldap_auth.LdapTransientError as e:
+                # LDAP itself is broken. Surface it in the audit log so the admin
+                # can investigate, but to the client this still looks like normal
+                # invalid-credentials (we don't want to leak whether LDAP is up).
+                audit_log(username, 'login_ldap_error', f'LDAP unavailable: {e}')
+
     if not valid:
         _record_login_failure(username)
         audit_log(username, 'login_failed', 'invalid credentials')
@@ -942,7 +1073,9 @@ def handle_login():
         respond(200, {'ok': False})
 
     _clear_login_failures(username)
-    maybe_rehash(username, password, stored)
+    if ldap_user_info is None:
+        # Only rehash on local auth — LDAP users have placeholder hashes
+        maybe_rehash(username, password, stored)
 
     # Check TOTP if user has 2FA enabled
     totp_secret = user.get('totp_secret')
@@ -1665,11 +1798,38 @@ def handle_config_get():
             derived_events[ev] = is_webhook_event_enabled(ev)
     safe['webhook_events'] = derived_events
 
+    # v1.8.6: SMTP + LDAP defaults — passwords are masked in output
+    safe.setdefault('smtp_enabled', False)
+    safe.setdefault('smtp_host', '')
+    safe.setdefault('smtp_port', 587)
+    safe.setdefault('smtp_tls',  'starttls')
+    safe.setdefault('smtp_from', '')
+    safe.setdefault('smtp_username', '')
+    safe.setdefault('smtp_helo_name', '')
+    safe.setdefault('smtp_recipients', '')
+    safe.setdefault('email_events', {})
+    # Mask password — show only whether one is set
+    safe['smtp_password_set'] = bool(cfg.get('smtp_password'))
+    safe.pop('smtp_password', None)
+
+    safe.setdefault('ldap_enabled', False)
+    safe.setdefault('ldap_url', '')
+    safe.setdefault('ldap_bind_dn', '')
+    safe.setdefault('ldap_user_base', '')
+    safe.setdefault('ldap_user_filter', '(uid={u})')
+    safe.setdefault('ldap_required_group', '')
+    safe.setdefault('ldap_admin_group', '')
+    safe.setdefault('ldap_tls_verify', True)
+    safe.setdefault('ldap_timeout', 5)
+    safe['ldap_bind_password_set'] = bool(cfg.get('ldap_bind_password'))
+    safe.pop('ldap_bind_password', None)
+
     # Static UI metadata (so the front-end doesn't have to hardcode this)
     safe['_meta'] = {
         'webhook_event_descriptions': {ev: desc for ev, desc, _ in WEBHOOK_EVENTS},
         'cve_severities':             list(CVE_SEVERITIES_ALL),
         'min_online_ttl':             MIN_ONLINE_TTL,
+        'smtp_tls_modes':             ['starttls', 'tls', 'plain'],
     }
     respond(200, safe)
 
@@ -1772,6 +1932,89 @@ def handle_config_save():
             cfg['session_ttl_long'] = v
         except (ValueError, TypeError):
             respond(400, {'error': 'session_ttl_long must be an integer'})
+
+    # ── v1.8.6: SMTP settings ──────────────────────────────────────────────────
+    if 'smtp_enabled' in body:
+        cfg['smtp_enabled'] = bool(body['smtp_enabled'])
+    if 'smtp_host' in body:
+        cfg['smtp_host'] = _sanitize_str(body['smtp_host'], 255)
+    if 'smtp_port' in body:
+        try:
+            v = int(body['smtp_port'])
+            if not (1 <= v <= 65535):
+                respond(400, {'error': 'smtp_port must be 1–65535'})
+            cfg['smtp_port'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'smtp_port must be an integer'})
+    if 'smtp_tls' in body:
+        v = _sanitize_str(body['smtp_tls'], 16).lower()
+        if v not in ('starttls', 'tls', 'plain'):
+            respond(400, {'error': 'smtp_tls must be starttls, tls, or plain'})
+        cfg['smtp_tls'] = v
+    if 'smtp_from' in body:
+        v = _sanitize_str(body['smtp_from'], 255)
+        if v and '@' not in v:
+            respond(400, {'error': 'smtp_from must be a valid email address'})
+        cfg['smtp_from'] = v
+    if 'smtp_username' in body:
+        cfg['smtp_username'] = _sanitize_str(body['smtp_username'], 255)
+    if 'smtp_password' in body:
+        # Empty string clears it; leaving the key out preserves existing
+        new_pw = body['smtp_password']
+        if new_pw == '':
+            cfg.pop('smtp_password', None)
+        elif isinstance(new_pw, str):
+            cfg['smtp_password'] = new_pw[:1024]
+    if 'smtp_helo_name' in body:
+        cfg['smtp_helo_name'] = _sanitize_str(body['smtp_helo_name'], 255)
+    if 'smtp_recipients' in body:
+        cfg['smtp_recipients'] = _sanitize_str(body['smtp_recipients'], 2000)
+
+    # Per-event email toggles
+    if 'email_events' in body and isinstance(body['email_events'], dict):
+        clean = {}
+        for ev_name in WEBHOOK_EVENT_NAMES:
+            if ev_name in body['email_events']:
+                clean[ev_name] = bool(body['email_events'][ev_name])
+        cfg['email_events'] = clean
+
+    # ── v1.8.6: LDAP settings ──────────────────────────────────────────────────
+    if 'ldap_enabled' in body:
+        cfg['ldap_enabled'] = bool(body['ldap_enabled'])
+    if 'ldap_url' in body:
+        v = _sanitize_str(body['ldap_url'], 255)
+        if v and not (v.startswith('ldap://') or v.startswith('ldaps://')):
+            respond(400, {'error': 'ldap_url must start with ldap:// or ldaps://'})
+        cfg['ldap_url'] = v
+    if 'ldap_bind_dn' in body:
+        cfg['ldap_bind_dn'] = _sanitize_str(body['ldap_bind_dn'], 512)
+    if 'ldap_bind_password' in body:
+        new_pw = body['ldap_bind_password']
+        if new_pw == '':
+            cfg.pop('ldap_bind_password', None)
+        elif isinstance(new_pw, str):
+            cfg['ldap_bind_password'] = new_pw[:1024]
+    if 'ldap_user_base' in body:
+        cfg['ldap_user_base'] = _sanitize_str(body['ldap_user_base'], 512)
+    if 'ldap_user_filter' in body:
+        v = _sanitize_str(body['ldap_user_filter'], 256)
+        if v and '{u}' not in v:
+            respond(400, {'error': 'ldap_user_filter must contain {u} placeholder'})
+        cfg['ldap_user_filter'] = v or '(uid={u})'
+    if 'ldap_required_group' in body:
+        cfg['ldap_required_group'] = _sanitize_str(body['ldap_required_group'], 512)
+    if 'ldap_admin_group' in body:
+        cfg['ldap_admin_group'] = _sanitize_str(body['ldap_admin_group'], 512)
+    if 'ldap_tls_verify' in body:
+        cfg['ldap_tls_verify'] = bool(body['ldap_tls_verify'])
+    if 'ldap_timeout' in body:
+        try:
+            v = int(body['ldap_timeout'])
+            if not (1 <= v <= 60):
+                respond(400, {'error': 'ldap_timeout must be 1–60 seconds'})
+            cfg['ldap_timeout'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'ldap_timeout must be an integer'})
 
     if 'wol_broadcast' in body:
         cfg['wol_broadcast'] = _sanitize_ip(body['wol_broadcast']) or '255.255.255.255'
@@ -2748,6 +2991,119 @@ def handle_webhook_log_clear():
     save(WEBHOOK_LOG_FILE, {'entries': []})
     audit_log(actor, 'clear_webhook_log', 'webhook log cleared')
     respond(200, {'ok': True})
+
+
+# ─── v1.8.6: SMTP test endpoint ───────────────────────────────────────────────
+
+def handle_smtp_test():
+    """
+    POST /api/smtp/test
+    Sends a test email using current settings (or override config in body).
+    Body may include 'recipient' to override the configured recipient list.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    cfg = load(CONFIG_FILE)
+    override_recipient = _sanitize_str(body.get('recipient', ''), 320)
+
+    if override_recipient:
+        if '@' not in override_recipient:
+            respond(400, {'error': 'recipient must be a valid email address'})
+        recipients = [override_recipient]
+    else:
+        recipients = _smtp_recipients_list(cfg)
+    if not recipients:
+        respond(400, {'error': 'No recipients configured. Set "smtp_recipients" or pass {"recipient": "..."}'})
+
+    server_name = get_server_name()
+    try:
+        result = smtp_notifier.send_email(
+            cfg, recipients,
+            subject=f'[{server_name}] Test email from RemotePower',
+            body=(
+                f'This is a test email from {server_name}.\n\n'
+                f'Triggered by: {actor}\n'
+                f'Server version: {SERVER_VERSION}\n'
+                f'Timestamp: {time.strftime("%Y-%m-%d %H:%M:%S %Z")}\n\n'
+                'If you received this, your SMTP configuration works correctly.\n'
+                'If you did NOT request this email, someone with admin access '
+                'on the RemotePower server triggered it. Investigate.\n'
+            ),
+        )
+        _log_email('test', recipients, 'ok', f'test sent to {len(recipients)} recipient(s)')
+        audit_log(actor, 'smtp_test', f'test email sent to {len(recipients)} recipient(s)')
+        respond(200, {'ok': True, 'recipients': recipients, 'result': result})
+    except smtp_notifier.SmtpError as e:
+        _log_email('test', recipients, 'error', str(e))
+        audit_log(actor, 'smtp_test_failed', str(e))
+        respond(200, {'ok': False, 'error': str(e), 'recipients': recipients})
+
+
+# ─── v1.8.6: LDAP test endpoints ──────────────────────────────────────────────
+
+def handle_ldap_test():
+    """
+    POST /api/ldap/test
+    Verifies the service-account bind to LDAP. Doesn't try to authenticate
+    a specific user. Useful for confirming URL/TLS/credentials before
+    enabling LDAP login.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body() if os.environ.get('CONTENT_LENGTH', '0') != '0' else {}
+    cfg = load(CONFIG_FILE)
+
+    # Allow body to override config for "try before save" UX
+    test_cfg = dict(cfg)
+    for k in ('ldap_url', 'ldap_bind_dn', 'ldap_bind_password',
+              'ldap_user_base', 'ldap_user_filter', 'ldap_tls_verify', 'ldap_timeout'):
+        if k in body:
+            test_cfg[k] = body[k]
+
+    result = ldap_auth.test_connection(test_cfg)
+    audit_log(actor, 'ldap_test',
+              f'{"success" if result.get("ok") else "failed"}: {result.get("detail", "")[:200]}')
+    respond(200, result)
+
+
+def handle_ldap_test_user():
+    """
+    POST /api/ldap/test-user {"username":"alice","password":"..."}
+    Runs the full authentication path for one user. Returns the resolved DN,
+    role, and group-derived flags. Doesn't create a session.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body()
+    username = _sanitize_str(body.get('username', ''), 64)
+    password = body.get('password', '')
+    if not username or not isinstance(password, str):
+        respond(400, {'error': 'username and password are required'})
+
+    cfg = load(CONFIG_FILE)
+    if not cfg.get('ldap_enabled'):
+        respond(400, {'error': 'LDAP is not enabled — turn it on first'})
+
+    try:
+        info = ldap_auth.authenticate(cfg, username, password)
+        audit_log(actor, 'ldap_test_user',
+                  f'tested {username} → role={info.role}, dn={info.dn}')
+        respond(200, {
+            'ok':         True,
+            'dn':         info.dn,
+            'role':       info.role,
+            'full_name':  info.full_name,
+            'email':      info.email,
+            'username':   info.username,
+        })
+    except ldap_auth.LdapAuthDenied as e:
+        respond(200, {'ok': False, 'error': f'auth denied: {e}'})
+    except ldap_auth.LdapTransientError as e:
+        respond(200, {'ok': False, 'error': f'LDAP error: {e}'})
 
 
 def handle_monitor_alerts_clear():
@@ -4394,6 +4750,10 @@ def main():
     elif pi == '/api/webhook/test' and m == 'POST': handle_webhook_test()
     elif pi == '/api/webhook/log' and m == 'GET': handle_webhook_log()
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
+    # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
+    elif pi == '/api/smtp/test' and m == 'POST': handle_smtp_test()
+    elif pi == '/api/ldap/test' and m == 'POST': handle_ldap_test()
+    elif pi == '/api/ldap/test-user' and m == 'POST': handle_ldap_test_user()
     elif pi == '/api/monitor/alerts/clear' and m == 'DELETE': handle_monitor_alerts_clear()
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
 
