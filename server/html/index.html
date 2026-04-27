@@ -1061,6 +1061,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       <span>Devices</span>
     </button>
+    <button class="nav-btn" onclick="showPage('cmdb',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
+      <span>CMDB</span>
+    </button>
     <button class="nav-btn" onclick="showPage('monitor',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       <span>Monitor</span>
@@ -1771,7 +1775,57 @@
         </div>
       </div>
 
-      <!-- ── Audit Log page (unchanged) ─────────────────────────────────────── -->
+      <!-- ── v1.9.0: CMDB ─────────────────────────────────────────────────── -->
+      <div id="page-cmdb" class="page">
+        <div class="page-title">CMDB</div>
+        <div class="page-subtitle">Configuration Management Database — asset metadata, documentation, and encrypted credentials per enrolled device.</div>
+
+        <div id="cmdb-vault-bar" style="margin-bottom:16px;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+            <span id="cmdb-vault-icon">🔒</span>
+            <span id="cmdb-vault-state" style="color:var(--muted)">Checking vault status…</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-icon" id="cmdb-vault-action" onclick="cmdbVaultAction()" style="display:none">Unlock vault</button>
+            <button class="btn-icon" id="cmdb-vault-rotate" onclick="cmdbOpenRotateModal()" style="display:none">Rotate passphrase</button>
+            <button class="btn-icon" id="cmdb-vault-lock" onclick="cmdbLockVault()" style="display:none">Lock</button>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px;display:flex;gap:8px;align-items:center">
+            <input type="text" id="cmdb-search" class="form-input" placeholder="Search name, asset_id, IP, function, docs…" oninput="cmdbDebounceSearch()" style="flex:1;max-width:480px">
+            <select id="cmdb-func-filter" class="form-input" onchange="cmdbReloadList()" style="max-width:200px">
+              <option value="">All functions</option>
+            </select>
+          </div>
+          <button class="btn-icon" onclick="cmdbReloadList()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Asset ID</th>
+                <th>Function</th>
+                <th>OS</th>
+                <th>IP</th>
+                <th>Hypervisor</th>
+                <th>Docs</th>
+                <th>Creds</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="cmdb-tbody">
+              <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <datalist id="cmdb-func-datalist"></datalist>
+      </div>
+
+
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
         <div style="display:flex;gap:10px;margin-bottom:20px"><button class="btn-icon" onclick="loadAuditLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button><button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button></div>
@@ -1820,6 +1874,169 @@
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('service-edit-modal')">Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
+
+<!-- ── v1.9.0: CMDB modals ───────────────────────────────────────────── -->
+<div class="modal-overlay" id="cmdb-vault-setup-modal"><div class="modal">
+  <div class="modal-title">Set up CMDB vault</div>
+  <div class="modal-subtitle">Choose a passphrase that will encrypt every credential stored in the CMDB. <strong>This passphrase is never stored on the server</strong> — losing it permanently destroys access to the credentials. All admins share this passphrase.</div>
+  <div class="form-group">
+    <label class="form-label">Vault passphrase (min 12 chars, mixed character classes)</label>
+    <input type="password" id="cmdb-vault-setup-pw" class="form-input" autocomplete="new-password">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Confirm passphrase</label>
+    <input type="password" id="cmdb-vault-setup-pw2" class="form-input" autocomplete="new-password">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cmdb-vault-setup-modal')">Cancel</button>
+    <button class="btn-primary" onclick="cmdbVaultSetup()">Create vault</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="cmdb-vault-unlock-modal"><div class="modal">
+  <div class="modal-title">Unlock CMDB vault</div>
+  <div class="modal-subtitle">The derived key is held only in this browser tab and cleared on logout or page reload.</div>
+  <div class="form-group">
+    <label class="form-label">Passphrase</label>
+    <input type="password" id="cmdb-vault-unlock-pw" class="form-input" autocomplete="current-password">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cmdb-vault-unlock-modal')">Cancel</button>
+    <button class="btn-primary" onclick="cmdbVaultUnlock()">Unlock</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="cmdb-vault-rotate-modal"><div class="modal">
+  <div class="modal-title">Rotate CMDB vault passphrase</div>
+  <div class="modal-subtitle">All stored credentials will be re-encrypted under the new passphrase.</div>
+  <div class="form-group">
+    <label class="form-label">Current passphrase</label>
+    <input type="password" id="cmdb-vault-rotate-old" class="form-input" autocomplete="current-password">
+  </div>
+  <div class="form-group">
+    <label class="form-label">New passphrase</label>
+    <input type="password" id="cmdb-vault-rotate-new" class="form-input" autocomplete="new-password">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Confirm new passphrase</label>
+    <input type="password" id="cmdb-vault-rotate-new2" class="form-input" autocomplete="new-password">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cmdb-vault-rotate-modal')">Cancel</button>
+    <button class="btn-primary" onclick="cmdbVaultRotate()">Rotate</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="cmdb-asset-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="cmdb-asset-title">Asset</div>
+  <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:0">
+    <button class="btn-icon cmdb-tab-btn active" data-tab="props" onclick="cmdbSwitchTab('props')">Properties</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="docs" onclick="cmdbSwitchTab('docs')">Documentation</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="creds" onclick="cmdbSwitchTab('creds')">Credentials</button>
+  </div>
+
+  <div id="cmdb-tab-props">
+    <input type="hidden" id="cmdb-asset-deviceid">
+    <div class="form-group">
+      <label class="form-label">Asset ID (free text, e.g. inventory tag)</label>
+      <input type="text" id="cmdb-asset-id" class="form-input" placeholder="ASSET-12345" maxlength="64">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Server function</label>
+      <input type="text" id="cmdb-asset-function" class="form-input" list="cmdb-func-datalist" placeholder="web, db, logging, dc, …" maxlength="64">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Hypervisor URL (optional)</label>
+      <input type="url" id="cmdb-asset-hypervisor" class="form-input" placeholder="https://esx1.local/" maxlength="512">
+    </div>
+    <div class="form-group" style="font-size:12px;color:var(--muted)">
+      <div><strong>Hostname:</strong> <span id="cmdb-asset-hostname">—</span></div>
+      <div><strong>OS:</strong> <span id="cmdb-asset-os">—</span></div>
+      <div><strong>IP:</strong> <span id="cmdb-asset-ip">—</span></div>
+      <div><strong>MAC:</strong> <span id="cmdb-asset-mac">—</span></div>
+      <div><strong>Group:</strong> <span id="cmdb-asset-group">—</span></div>
+    </div>
+  </div>
+
+  <div id="cmdb-tab-docs" style="display:none">
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <button class="btn-icon" id="cmdb-doc-edit-btn" onclick="cmdbDocSwitch('edit')">Edit</button>
+      <button class="btn-icon active" id="cmdb-doc-preview-btn" onclick="cmdbDocSwitch('preview')">Preview</button>
+    </div>
+    <textarea id="cmdb-asset-doc" class="form-textarea" style="display:none;min-height:320px;font-family:monospace;font-size:13px" placeholder="# Asset notes&#10;&#10;Anything Markdown-ish: hostname history, runbooks, links, ASCII art…"></textarea>
+    <div id="cmdb-asset-doc-preview" style="min-height:320px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.55;overflow-y:auto;max-height:60vh"></div>
+  </div>
+
+  <div id="cmdb-tab-creds" style="display:none">
+    <div id="cmdb-creds-locked-warning" style="display:none;padding:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:6px;color:var(--amber);font-size:13px;margin-bottom:12px">
+      🔒 Vault is locked. Unlock from the CMDB page header to add or reveal credentials.
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-weight:600;font-size:14px">Credentials</div>
+      <button class="btn-icon" id="cmdb-creds-add-btn" onclick="cmdbCredAddOpen()">+ Add credential</button>
+    </div>
+    <div id="cmdb-creds-list">
+      <div style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No credentials yet.</div>
+    </div>
+  </div>
+
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cmdb-asset-modal')">Close</button>
+    <button class="btn-primary" id="cmdb-asset-save-btn" onclick="cmdbAssetSave()">Save changes</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="cmdb-cred-add-modal"><div class="modal">
+  <div class="modal-title" id="cmdb-cred-modal-title">Add credential</div>
+  <input type="hidden" id="cmdb-cred-modal-mode" value="add">
+  <input type="hidden" id="cmdb-cred-modal-deviceid">
+  <input type="hidden" id="cmdb-cred-modal-credid">
+  <div class="form-group">
+    <label class="form-label">Label (e.g. root, ipmi, web-admin)</label>
+    <input type="text" id="cmdb-cred-label" class="form-input" maxlength="64" autocomplete="off">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Username</label>
+    <input type="text" id="cmdb-cred-username" class="form-input" maxlength="128" autocomplete="off">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Password</label>
+    <input type="password" id="cmdb-cred-password" class="form-input" maxlength="1024" autocomplete="new-password">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Note (optional)</label>
+    <input type="text" id="cmdb-cred-note" class="form-input" maxlength="512">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cmdb-cred-add-modal')">Cancel</button>
+    <button class="btn-primary" onclick="cmdbCredSave()">Save</button>
+  </div>
+</div></div>
+
+<div class="modal-overlay" id="cmdb-cred-reveal-modal"><div class="modal">
+  <div class="modal-title">Revealed credential</div>
+  <div class="modal-subtitle">This reveal has been recorded in the audit log. The values below are not stored in the page after this modal closes.</div>
+  <div class="form-group">
+    <label class="form-label">Label</label>
+    <div id="cmdb-cred-reveal-label" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace">—</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Username <button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="cmdbCredCopy('cmdb-cred-reveal-username')">Copy</button></label>
+    <div id="cmdb-cred-reveal-username" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace;word-break:break-all">—</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Password <button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="cmdbCredCopy('cmdb-cred-reveal-password')">Copy</button></label>
+    <div id="cmdb-cred-reveal-password" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace;word-break:break-all">—</div>
+  </div>
+  <div class="form-group" id="cmdb-cred-reveal-note-wrap">
+    <label class="form-label">Note</label>
+    <div id="cmdb-cred-reveal-note" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--muted)">—</div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-primary" onclick="cmdbCredRevealClose()">Close</button>
+  </div>
+</div></div>
+
 
 <!-- ── v1.8.3: Calendar event modal ──────────────────────────────────── -->
 <div class="modal-overlay" id="event-modal"><div class="modal">
@@ -2094,6 +2311,7 @@ function showPage(name, btn) {
   else                     leaveLogsPage();
   if (name === 'calendar') loadCalendar();
   if (name === 'tasks')    loadTasks();
+  if (name === 'cmdb')     enterCMDB();
   if (name === 'audit')    loadAuditLog();
 }
 async function loadDevices() {
@@ -3662,6 +3880,480 @@ async function loadPublicInfo() {
     const rememberCb = document.getElementById('login-remember');
     if (rememberCb) rememberCb.checked = !!info.remember_me_default;
   } catch (e) { /* ignore */ }
+}
+
+// ── v1.9.0: CMDB ─────────────────────────────────────────────────────────────
+// All state is per-tab; the derived vault key is held in a single closure
+// variable and zeroed on logout/page reload.
+let _cmdbVaultKey   = null;     // hex string when unlocked
+let _cmdbVaultMeta  = null;     // {configured, ...}
+let _cmdbAssetCache = null;     // last full list response
+let _cmdbCurrent    = null;     // {device_id, ...} — asset currently in the modal
+let _cmdbSearchTimer = null;
+
+// Send the vault key on every CMDB credential request that needs it.
+async function cmdbApi(method, path, body, sendKey) {
+  const opts = {method, headers: {'X-Token': getToken()}};
+  if (sendKey && _cmdbVaultKey) opts.headers['X-RP-Vault-Key'] = _cmdbVaultKey;
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const r = await fetch('/api' + path, opts);
+  if (r.status === 401) {
+    // Could be auth expiry OR vault locked — only auth-401 should log out.
+    let payload = null;
+    try { payload = await r.clone().json(); } catch (e) {}
+    if (payload && payload.code === 'vault_locked') {
+      _cmdbVaultKey = null;
+      cmdbRenderVaultBar();
+      alert('Vault is locked — please unlock and retry.');
+      return null;
+    }
+    doLogout();
+    return null;
+  }
+  let data;
+  try { data = await r.json(); } catch (e) { data = null; }
+  return {ok: r.ok, status: r.status, data};
+}
+
+function enterCMDB() {
+  cmdbRefreshVaultStatus().then(() => cmdbReloadList());
+  cmdbLoadServerFunctions();
+}
+
+async function cmdbRefreshVaultStatus() {
+  const res = await cmdbApi('GET', '/cmdb/vault/status');
+  if (!res || !res.data) return;
+  _cmdbVaultMeta = res.data;
+  cmdbRenderVaultBar();
+}
+
+function cmdbRenderVaultBar() {
+  const stateEl  = document.getElementById('cmdb-vault-state');
+  const iconEl   = document.getElementById('cmdb-vault-icon');
+  const actionEl = document.getElementById('cmdb-vault-action');
+  const lockEl   = document.getElementById('cmdb-vault-lock');
+  const rotateEl = document.getElementById('cmdb-vault-rotate');
+  if (!_cmdbVaultMeta) {
+    stateEl.textContent = 'Vault status unknown';
+    return;
+  }
+  if (!_cmdbVaultMeta.configured) {
+    iconEl.textContent  = '⚙';
+    stateEl.textContent = 'Vault not yet configured. Set a passphrase to start storing credentials.';
+    actionEl.style.display = 'inline-block';
+    actionEl.textContent = 'Set up vault';
+    actionEl.onclick = cmdbOpenSetupModal;
+    rotateEl.style.display = 'none';
+    lockEl.style.display = 'none';
+    return;
+  }
+  if (_cmdbVaultKey) {
+    iconEl.textContent  = '🔓';
+    stateEl.textContent = 'Vault unlocked. Credential operations enabled in this tab only.';
+    actionEl.style.display = 'none';
+    rotateEl.style.display = 'inline-block';
+    lockEl.style.display = 'inline-block';
+  } else {
+    iconEl.textContent  = '🔒';
+    stateEl.textContent = 'Vault is configured but locked. Unlock to manage credentials.';
+    actionEl.style.display = 'inline-block';
+    actionEl.textContent = 'Unlock vault';
+    actionEl.onclick = cmdbOpenUnlockModal;
+    rotateEl.style.display = 'none';
+    lockEl.style.display = 'none';
+  }
+}
+
+function cmdbVaultAction() { /* dispatch through actionEl.onclick — no-op fallback */ }
+function cmdbOpenSetupModal() {
+  document.getElementById('cmdb-vault-setup-pw').value  = '';
+  document.getElementById('cmdb-vault-setup-pw2').value = '';
+  openModal('cmdb-vault-setup-modal');
+  setTimeout(() => document.getElementById('cmdb-vault-setup-pw').focus(), 50);
+}
+function cmdbOpenUnlockModal() {
+  document.getElementById('cmdb-vault-unlock-pw').value = '';
+  openModal('cmdb-vault-unlock-modal');
+  setTimeout(() => document.getElementById('cmdb-vault-unlock-pw').focus(), 50);
+}
+function cmdbOpenRotateModal() {
+  document.getElementById('cmdb-vault-rotate-old').value  = '';
+  document.getElementById('cmdb-vault-rotate-new').value  = '';
+  document.getElementById('cmdb-vault-rotate-new2').value = '';
+  openModal('cmdb-vault-rotate-modal');
+}
+
+async function cmdbVaultSetup() {
+  const pw  = document.getElementById('cmdb-vault-setup-pw').value;
+  const pw2 = document.getElementById('cmdb-vault-setup-pw2').value;
+  if (pw !== pw2) { alert('Passphrases do not match.'); return; }
+  const res = await cmdbApi('POST', '/cmdb/vault/setup', {passphrase: pw});
+  if (!res) return;
+  if (!res.ok) { alert('Vault setup failed: ' + (res.data && res.data.error || res.status)); return; }
+  _cmdbVaultKey = res.data.key;
+  closeModal('cmdb-vault-setup-modal');
+  await cmdbRefreshVaultStatus();
+  cmdbRenderVaultBar();
+}
+
+async function cmdbVaultUnlock() {
+  const pw = document.getElementById('cmdb-vault-unlock-pw').value;
+  const res = await cmdbApi('POST', '/cmdb/vault/unlock', {passphrase: pw});
+  if (!res) return;
+  if (!res.ok) { alert('Unlock failed: ' + (res.data && res.data.error || res.status)); return; }
+  _cmdbVaultKey = res.data.key;
+  closeModal('cmdb-vault-unlock-modal');
+  cmdbRenderVaultBar();
+  // If a credentials tab is open, reload it now
+  if (_cmdbCurrent) cmdbLoadCreds(_cmdbCurrent.device_id);
+}
+
+async function cmdbVaultRotate() {
+  const oldPw = document.getElementById('cmdb-vault-rotate-old').value;
+  const newPw = document.getElementById('cmdb-vault-rotate-new').value;
+  const new2  = document.getElementById('cmdb-vault-rotate-new2').value;
+  if (newPw !== new2) { alert('New passphrases do not match.'); return; }
+  const res = await cmdbApi('POST', '/cmdb/vault/change',
+    {old_passphrase: oldPw, new_passphrase: newPw});
+  if (!res) return;
+  if (!res.ok) { alert('Rotation failed: ' + (res.data && res.data.error || res.status)); return; }
+  _cmdbVaultKey = res.data.key;
+  closeModal('cmdb-vault-rotate-modal');
+  alert('Passphrase rotated. ' + res.data.rotated + ' credential(s) re-encrypted.');
+  cmdbRenderVaultBar();
+}
+
+function cmdbLockVault() {
+  _cmdbVaultKey = null;
+  cmdbRenderVaultBar();
+}
+
+// ── Asset list / search ──────────────────────────────────────────────────────
+
+function cmdbDebounceSearch() {
+  clearTimeout(_cmdbSearchTimer);
+  _cmdbSearchTimer = setTimeout(cmdbReloadList, 200);
+}
+
+async function cmdbReloadList() {
+  const q  = encodeURIComponent(document.getElementById('cmdb-search').value || '');
+  const fn = encodeURIComponent(document.getElementById('cmdb-func-filter').value || '');
+  const res = await cmdbApi('GET', `/cmdb?q=${q}&function=${fn}`);
+  if (!res || !res.ok) return;
+  _cmdbAssetCache = res.data;
+  cmdbRenderTable(res.data);
+}
+
+function cmdbRenderTable(rows) {
+  const tbody = document.getElementById('cmdb-tbody');
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No matching assets.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const hyp = r.hypervisor_url
+      ? `<a href="${_cmdbEsc(r.hypervisor_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">open ↗</a>`
+      : '<span style="color:var(--muted);font-size:12px">—</span>';
+    const fn = r.server_function
+      ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
+      : '<span style="color:var(--muted);font-size:12px">—</span>';
+    return `<tr>
+      <td style="font-weight:500">${_cmdbEsc(r.name)}</td>
+      <td style="font-family:monospace;font-size:12px">${_cmdbEsc(r.asset_id) || '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${fn}</td>
+      <td style="font-size:12px;color:var(--muted)">${_cmdbEsc(r.os) || '—'}</td>
+      <td style="font-family:monospace;font-size:12px">${_cmdbEsc(r.ip) || '—'}</td>
+      <td>${hyp}</td>
+      <td style="text-align:center">${r.has_documentation ? '<span style="color:var(--green)">●</span>' : '<span style="color:var(--muted)">○</span>'}</td>
+      <td style="text-align:center;font-size:12px;color:var(--muted)">${r.credential_count}</td>
+      <td><button class="btn-icon" onclick="cmdbOpenAsset('${_cmdbEsc(r.device_id)}')">Open</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function cmdbLoadServerFunctions() {
+  const res = await cmdbApi('GET', '/cmdb/server-functions');
+  if (!res || !res.ok) return;
+  const list = res.data || [];
+  const dl = document.getElementById('cmdb-func-datalist');
+  dl.innerHTML = list.map(v => `<option value="${_cmdbEsc(v)}">`).join('');
+  const sel = document.getElementById('cmdb-func-filter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All functions</option>' +
+    list.map(v => `<option value="${_cmdbEsc(v)}">${_cmdbEsc(v)}</option>`).join('');
+  sel.value = cur;
+}
+
+// ── Asset detail modal ───────────────────────────────────────────────────────
+
+async function cmdbOpenAsset(deviceId) {
+  const res = await cmdbApi('GET', '/cmdb/' + encodeURIComponent(deviceId));
+  if (!res || !res.ok) { alert('Failed to load asset.'); return; }
+  _cmdbCurrent = res.data;
+  document.getElementById('cmdb-asset-title').textContent = res.data.name + ' — CMDB';
+  document.getElementById('cmdb-asset-deviceid').value = deviceId;
+  document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
+  document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
+  document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
+  document.getElementById('cmdb-asset-doc').value        = res.data.documentation || '';
+  document.getElementById('cmdb-asset-hostname').textContent = res.data.hostname || '—';
+  document.getElementById('cmdb-asset-os').textContent       = res.data.os || '—';
+  document.getElementById('cmdb-asset-ip').textContent       = res.data.ip || '—';
+  document.getElementById('cmdb-asset-mac').textContent      = res.data.mac || '—';
+  document.getElementById('cmdb-asset-group').textContent    = res.data.group || '—';
+  cmdbSwitchTab('props');
+  cmdbDocSwitch('preview');
+  openModal('cmdb-asset-modal');
+}
+
+function cmdbSwitchTab(tab) {
+  document.querySelectorAll('.cmdb-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  document.getElementById('cmdb-tab-props').style.display = tab === 'props' ? 'block' : 'none';
+  document.getElementById('cmdb-tab-docs').style.display  = tab === 'docs'  ? 'block' : 'none';
+  document.getElementById('cmdb-tab-creds').style.display = tab === 'creds' ? 'block' : 'none';
+  if (tab === 'docs')  cmdbDocSwitch('preview');
+  if (tab === 'creds') cmdbLoadCreds(_cmdbCurrent ? _cmdbCurrent.device_id : null);
+}
+
+function cmdbDocSwitch(mode) {
+  const ta = document.getElementById('cmdb-asset-doc');
+  const pv = document.getElementById('cmdb-asset-doc-preview');
+  document.getElementById('cmdb-doc-edit-btn').classList.toggle('active', mode === 'edit');
+  document.getElementById('cmdb-doc-preview-btn').classList.toggle('active', mode === 'preview');
+  if (mode === 'edit') {
+    ta.style.display = 'block';
+    pv.style.display = 'none';
+  } else {
+    ta.style.display = 'none';
+    pv.style.display = 'block';
+    pv.innerHTML = cmdbRenderMarkdown(ta.value || '');
+  }
+}
+
+// Tiny Markdown renderer — headings, bold, italic, code, links, lists.
+// Deliberately conservative: anything not matched stays as escaped text.
+function cmdbRenderMarkdown(src) {
+  if (!src) return '<div style="color:var(--muted)">No documentation yet.</div>';
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const lines = src.split('\n');
+  const out = [];
+  let inCode = false, inList = false;
+  for (let raw of lines) {
+    if (raw.startsWith('```')) {
+      if (inCode) { out.push('</code></pre>'); inCode = false; }
+      else        { out.push('<pre style="background:var(--surface);padding:10px;border-radius:6px;overflow-x:auto"><code>'); inCode = true; }
+      continue;
+    }
+    if (inCode) { out.push(esc(raw)); continue; }
+    if (/^- /.test(raw)) {
+      if (!inList) { out.push('<ul style="margin:6px 0 6px 22px">'); inList = true; }
+      out.push('<li>' + cmdbInlineMd(esc(raw.slice(2))) + '</li>');
+      continue;
+    } else if (inList) { out.push('</ul>'); inList = false; }
+
+    if (/^### /.test(raw))      out.push('<h4 style="margin:12px 0 6px">' + cmdbInlineMd(esc(raw.slice(4))) + '</h4>');
+    else if (/^## /.test(raw))  out.push('<h3 style="margin:14px 0 6px">' + cmdbInlineMd(esc(raw.slice(3))) + '</h3>');
+    else if (/^# /.test(raw))   out.push('<h2 style="margin:16px 0 8px">' + cmdbInlineMd(esc(raw.slice(2))) + '</h2>');
+    else if (raw.trim() === '') out.push('<br>');
+    else out.push('<div>' + cmdbInlineMd(esc(raw)) + '</div>');
+  }
+  if (inList) out.push('</ul>');
+  if (inCode) out.push('</code></pre>');
+  return out.join('\n');
+}
+
+function cmdbInlineMd(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:0.92em">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent)">$1</a>');
+}
+
+async function cmdbAssetSave() {
+  const deviceId = document.getElementById('cmdb-asset-deviceid').value;
+  const body = {
+    asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
+    server_function: document.getElementById('cmdb-asset-function').value.trim(),
+    hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
+    documentation:   document.getElementById('cmdb-asset-doc').value,
+  };
+  const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
+  if (!res) return;
+  if (!res.ok) { alert('Save failed: ' + (res.data && res.data.error || res.status)); return; }
+  closeModal('cmdb-asset-modal');
+  cmdbReloadList();
+  cmdbLoadServerFunctions();
+}
+
+// ── Credentials sub-tab ──────────────────────────────────────────────────────
+
+async function cmdbLoadCreds(deviceId) {
+  if (!deviceId) return;
+  const warn = document.getElementById('cmdb-creds-locked-warning');
+  const addBtn = document.getElementById('cmdb-creds-add-btn');
+  const locked = !_cmdbVaultKey;
+  warn.style.display = (locked && _cmdbVaultMeta && _cmdbVaultMeta.configured) ? 'block' : 'none';
+  addBtn.disabled = locked;
+  addBtn.style.opacity = locked ? '0.5' : '1';
+
+  const res = await cmdbApi('GET', '/cmdb/' + encodeURIComponent(deviceId) + '/credentials');
+  if (!res || !res.ok) return;
+  const creds = (res.data && res.data.credentials) || [];
+  const list = document.getElementById('cmdb-creds-list');
+  if (creds.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No credentials yet.</div>';
+    return;
+  }
+  list.innerHTML = creds.map(c => {
+    const note = c.note ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${_cmdbEsc(c.note)}</div>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600">${_cmdbEsc(c.label)}</div>
+        <div style="font-family:monospace;font-size:12px;color:var(--muted)">user: ${_cmdbEsc(c.username) || '—'}</div>
+        ${note}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredReveal('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Reveal</button>
+        <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredEditOpen('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}','${_cmdbEsc(c.label)}','${_cmdbEsc(c.username)}','${_cmdbEsc(c.note || '')}')">Edit</button>
+        <button class="btn-icon" style="color:var(--red)" onclick="cmdbCredDelete('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function cmdbCredAddOpen() {
+  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  if (!_cmdbCurrent)  return;
+  document.getElementById('cmdb-cred-modal-mode').value = 'add';
+  document.getElementById('cmdb-cred-modal-deviceid').value = _cmdbCurrent.device_id;
+  document.getElementById('cmdb-cred-modal-credid').value = '';
+  document.getElementById('cmdb-cred-modal-title').textContent = 'Add credential';
+  document.getElementById('cmdb-cred-label').value    = '';
+  document.getElementById('cmdb-cred-username').value = '';
+  document.getElementById('cmdb-cred-password').value = '';
+  document.getElementById('cmdb-cred-note').value     = '';
+  openModal('cmdb-cred-add-modal');
+}
+
+function cmdbCredEditOpen(deviceId, credId, label, username, note) {
+  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  document.getElementById('cmdb-cred-modal-mode').value = 'edit';
+  document.getElementById('cmdb-cred-modal-deviceid').value = deviceId;
+  document.getElementById('cmdb-cred-modal-credid').value = credId;
+  document.getElementById('cmdb-cred-modal-title').textContent = 'Edit credential';
+  document.getElementById('cmdb-cred-label').value    = label || '';
+  document.getElementById('cmdb-cred-username').value = username || '';
+  document.getElementById('cmdb-cred-password').value = '';
+  document.getElementById('cmdb-cred-password').placeholder = '(leave empty to keep current)';
+  document.getElementById('cmdb-cred-note').value     = note || '';
+  openModal('cmdb-cred-add-modal');
+}
+
+async function cmdbCredSave() {
+  const mode     = document.getElementById('cmdb-cred-modal-mode').value;
+  const deviceId = document.getElementById('cmdb-cred-modal-deviceid').value;
+  const credId   = document.getElementById('cmdb-cred-modal-credid').value;
+  const body = {
+    label:    document.getElementById('cmdb-cred-label').value.trim(),
+    username: document.getElementById('cmdb-cred-username').value,
+    note:     document.getElementById('cmdb-cred-note').value,
+  };
+  const pw = document.getElementById('cmdb-cred-password').value;
+  if (mode === 'add') {
+    if (!pw) { alert('Password required.'); return; }
+    body.password = pw;
+    const res = await cmdbApi('POST',
+      '/cmdb/' + encodeURIComponent(deviceId) + '/credentials',
+      body, true);
+    if (!res || !res.ok) { alert('Save failed: ' + (res && res.data && res.data.error || '?')); return; }
+  } else {
+    if (pw) body.password = pw;
+    const res = await cmdbApi('PUT',
+      '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId),
+      body, !!pw);
+    if (!res || !res.ok) { alert('Save failed: ' + (res && res.data && res.data.error || '?')); return; }
+  }
+  closeModal('cmdb-cred-add-modal');
+  cmdbLoadCreds(deviceId);
+  cmdbReloadList();
+}
+
+async function cmdbCredDelete(deviceId, credId) {
+  if (!confirm('Delete this credential? The encrypted password will be permanently removed.')) return;
+  const res = await cmdbApi('DELETE',
+    '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId));
+  if (!res || !res.ok) { alert('Delete failed.'); return; }
+  cmdbLoadCreds(deviceId);
+  cmdbReloadList();
+}
+
+async function cmdbCredReveal(deviceId, credId) {
+  if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
+  const res = await cmdbApi('POST',
+    '/cmdb/' + encodeURIComponent(deviceId) + '/credentials/' + encodeURIComponent(credId) + '/reveal',
+    null, true);
+  if (!res || !res.ok) {
+    alert('Reveal failed: ' + (res && res.data && res.data.error || '?'));
+    return;
+  }
+  document.getElementById('cmdb-cred-reveal-label').textContent    = res.data.label || '—';
+  document.getElementById('cmdb-cred-reveal-username').textContent = res.data.username || '—';
+  document.getElementById('cmdb-cred-reveal-password').textContent = res.data.password || '';
+  const noteWrap = document.getElementById('cmdb-cred-reveal-note-wrap');
+  if (res.data.note) {
+    noteWrap.style.display = 'block';
+    document.getElementById('cmdb-cred-reveal-note').textContent = res.data.note;
+  } else {
+    noteWrap.style.display = 'none';
+  }
+  openModal('cmdb-cred-reveal-modal');
+}
+
+function cmdbCredRevealClose() {
+  // Wipe DOM nodes so the plaintext doesn't linger in the markup.
+  document.getElementById('cmdb-cred-reveal-label').textContent    = '—';
+  document.getElementById('cmdb-cred-reveal-username').textContent = '—';
+  document.getElementById('cmdb-cred-reveal-password').textContent = '—';
+  document.getElementById('cmdb-cred-reveal-note').textContent     = '—';
+  closeModal('cmdb-cred-reveal-modal');
+}
+
+function cmdbCredCopy(elId) {
+  const el = document.getElementById(elId);
+  const txt = el && el.textContent;
+  if (!txt || txt === '—') return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt);
+  } else {
+    // Fallback for older browsers / non-HTTPS dev environments
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+}
+
+// Make the bundle look professional — a tiny CSS hook for active tab styling.
+(function _cmdbInjectCss() {
+  const css = '.cmdb-tab-btn.active{background:rgba(59,126,255,0.12);border-color:var(--accent);color:var(--accent)}';
+  const s = document.createElement('style'); s.textContent = css;
+  document.head.appendChild(s);
+})();
+
+// Helper for CMDB rendering — escapes both quote styles since we interpolate
+// user-supplied labels into single-quoted onclick attributes. The project's
+// own escHtml() doesn't escape single quotes.
+function _cmdbEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

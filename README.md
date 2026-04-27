@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.8.6-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.9.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -71,6 +71,7 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | ⚙️ **Service monitoring** | Agent watches systemd units; dashboard matrix shows up/down state per device; webhooks fire on transitions |
 | 📜 **Log tail + alerts** | Agent submits `journalctl` output per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts to webhook |
 | 🔧 **Maintenance windows** | Suppress webhook alerts during scheduled windows (one-shot or cron); per-device, per-group, or fleet-global; full audit trail of suppressed events |
+| 🗄️ **CMDB** | Per-asset metadata (asset ID, server function, hypervisor URL, Markdown documentation) plus encrypted credential vault (AES-GCM + PBKDF2-SHA256, shared admin passphrase, audit-logged reveals) |
 | ℹ️ **About page** | Server version, agent version, GitHub release check |
 
 ---
@@ -98,6 +99,8 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                               ├── cmd_output.json       # custom command output
                               ├── metrics.json          # CPU/RAM/disk time-series
                               ├── cmd_library.json      # saved command snippets
+                              ├── cmdb.json             # CMDB asset metadata + encrypted creds
+                              ├── cmdb_vault.json       # KDF salt + canary (no plaintext)
                               └── longpoll.json         # pending long-poll slots
 
 Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)

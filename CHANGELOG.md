@@ -1,5 +1,73 @@
 # Changelog
 
+## v1.9.0 - 2026-04-27
+
+### New features
+
+**CMDB — Configuration Management Database** — per-asset metadata and encrypted credentials, scoped to enrolled devices
+- New "CMDB" page in the sidebar nav, between Devices and Monitor
+- Per-asset fields: free-text **asset_id** (inventory tag), **server_function** (web, db, dc, …) with autocomplete from existing fleet values, optional **hypervisor_url** rendered as link, and **Markdown documentation** (≤64 KB) with edit/preview tabs
+- Search box filters across name, asset_id, IP, function, and documentation; function dropdown narrows by exact match
+- Asset table joins `devices.json` with the new `cmdb.json` — every enrolled device implicitly has an empty CMDB record, no separate enrollment step
+
+**Encrypted credential vault** — multiple credentials per asset (root, service accounts, IPMI, …)
+- Symmetric crypto: **AES-GCM 256-bit**, key derived via **PBKDF2-SHA256** with 600 000 iterations (OWASP 2023 minimum), 32-byte random salt, 12-byte random nonce per encryption
+- **Shared admin passphrase** — set once, all admins use the same passphrase; rotation re-encrypts every credential atomically
+- Passphrase is **never persisted server-side**: admin enters it via the unlock modal, server returns the derived key, browser holds it in a single closure variable in JS memory and clears it on logout, page reload, or explicit "Lock" button
+- Subsequent credential ops send the key in an `X-RP-Vault-Key` request header
+- Encrypted canary blob in `cmdb_vault.json` lets the server verify a candidate key without touching real credentials
+- Per-credential metadata (label, username, note) is plaintext for searchability; only the password is encrypted; revealed credentials never appear in `cmdb.json` outbound responses
+- **Reveal is admin-only and audit-logged** with actor, source IP, asset, credential label
+- Hard caps: 25 credentials per asset, 1 KB max password, 64-char labels, 128-char usernames, 512-char notes
+- All vault crypto lives in `cmdb_vault.py` (sibling module, lazy `cryptography` import) — the rest of the API stays alive even if `cryptography` is missing
+
+### New endpoints
+
+- `GET    /api/cmdb` — list assets joined with CMDB metadata; `?q=` and `?function=` filters; credentials returned as count only
+- `GET    /api/cmdb/{device_id}` — full asset detail (credentials redacted)
+- `PUT    /api/cmdb/{device_id}` — patch asset_id / server_function / hypervisor_url / documentation
+- `GET    /api/cmdb/server-functions` — distinct server_function values for the autocomplete datalist
+- `GET    /api/cmdb/vault/status` — vault configured? KDF? created_at/by?
+- `POST   /api/cmdb/vault/setup` — admin; one-shot, fails 409 if already configured; returns derived key
+- `POST   /api/cmdb/vault/unlock` — any auth user; returns derived key on success, 403 + audit on bad passphrase
+- `POST   /api/cmdb/vault/change` — admin; rotates passphrase and re-encrypts all credentials atomically
+- `GET    /api/cmdb/{device_id}/credentials` — metadata only (no ciphertext, no plaintext)
+- `POST   /api/cmdb/{device_id}/credentials` — admin + `X-RP-Vault-Key`; encrypt and store
+- `PUT    /api/cmdb/{device_id}/credentials/{cred_id}` — admin; key required only if password is changing
+- `DELETE /api/cmdb/{device_id}/credentials/{cred_id}` — admin
+- `POST   /api/cmdb/{device_id}/credentials/{cred_id}/reveal` — admin + key, **audit-logged**, returns plaintext
+
+### New data files
+
+- `cmdb.json` — keyed by device_id; per-asset record with metadata, documentation, and credentials list (each credential is `{id, label, username, note, nonce, ct, created_by/at, updated_by/at}`)
+- `cmdb_vault.json` — vault metadata only: `{kdf, iterations, salt, canary_nonce, canary_ct, created_by/at, rotated_by/at}`. Contains zero plaintext, zero key material; safe to back up.
+
+### New audit-log actions
+
+`cmdb_update`, `cmdb_vault_setup`, `cmdb_vault_unlock`, `cmdb_vault_unlock_failed`, `cmdb_vault_change`, `cmdb_vault_change_failed`, `cmdb_vault_change_drop`, `cmdb_credential_add`, `cmdb_credential_update`, `cmdb_credential_delete`, `cmdb_credential_reveal`, `cmdb_credential_reveal_failed`
+
+### New dependency
+
+- `cryptography` (Python) — installed automatically by `install-server.sh` via pip with distro-package fallback (`python3-cryptography` on Debian/Ubuntu/Fedora, `python-cryptography` on Arch). Vault is the only feature that requires it; without it, asset metadata still works.
+
+### Changed
+
+- All version strings bumped to 1.9.0
+- Sidebar gains a CMDB button (database icon) directly after Devices
+- `install-server.sh` adds a cryptography install block mirroring the bcrypt/reportlab pattern
+
+### Tests
+
+**Full suite: 244 passing, 0 failing** (1 pre-existing skip). 32 new tests in `tests/test_v190.py` covering: PBKDF2 + AES-GCM round-trips, fresh-nonce-per-encrypt, canary verification, parse_key_header strictness, full vault lifecycle (setup → unlock → status → wrong passphrase → audit), asset CRUD (404s, asset_id charset, hypervisor URL scheme, oversized documentation), search filtering, credential add/list/update/delete/reveal, redaction of ciphertext from list endpoint, vault-locked vs auth-locked 401 distinction, max-credentials cap, and full passphrase rotation with credential re-encryption.
+
+### Compatibility
+
+- v1.8.x servers work with v1.9.0 clients (CMDB is server-side only — agent binary unchanged)
+- v1.9.0 server starts cleanly on a v1.8.6 data directory: `cmdb.json` and `cmdb_vault.json` are created on first write
+- Vault is opt-in: feature works in read-only mode (asset metadata only) until an admin calls `/api/cmdb/vault/setup`
+
+---
+
 ## v1.8.6 - 2026-04-26
 
 ### New features

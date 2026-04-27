@@ -73,6 +73,28 @@ else
       || warn "reportlab unavailable — install later with: pip3 install reportlab"
 fi
 
+# ── cryptography (for v1.9.0 CMDB credential vault) ──────────────────────────
+info "Installing cryptography for the CMDB credential vault..."
+if python3 -c "import cryptography" 2>/dev/null; then
+    success "cryptography already available"
+else
+    case $PKG_MGR in
+      apt)    pip3 install cryptography --break-system-packages 2>/dev/null \
+                || pip3 install cryptography \
+                || apt-get install -y python3-cryptography \
+                || warn "cryptography install failed — CMDB credential storage will be unavailable" ;;
+      dnf)    pip3 install cryptography 2>/dev/null \
+                || dnf install -y python3-cryptography \
+                || warn "cryptography install failed — CMDB credential storage will be unavailable" ;;
+      pacman) pip install cryptography 2>/dev/null \
+                || pacman -S --noconfirm python-cryptography \
+                || warn "cryptography install failed — CMDB credential storage will be unavailable" ;;
+    esac
+    python3 -c "import cryptography" 2>/dev/null \
+      && success "cryptography installed" \
+      || warn "cryptography unavailable — CMDB asset metadata will work but credentials cannot be stored"
+fi
+
 # ── Nginx user (differs by distro) ──────────────────────────────────────────────
 case $PKG_MGR in
   apt)    NGINX_USER=www-data ;;

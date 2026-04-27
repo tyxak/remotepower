@@ -32,7 +32,7 @@ from urllib import request, error
 CONF_DIR     = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'RemotePower'
 CREDS_FILE   = CONF_DIR / 'credentials.json'
 LOG_FILE     = CONF_DIR / 'agent.log'
-VERSION      = '1.8.6'
+VERSION      = '1.9.0'
 AGENT_SCRIPT = Path(sys.argv[0]).resolve()
 
 POLL_INTERVAL      = 60

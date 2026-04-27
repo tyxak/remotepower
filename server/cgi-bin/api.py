@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower API backend - v1.8.6
+RemotePower API backend - v1.9.0
 Runs via fcgiwrap as a CGI script behind Nginx.
 Flat-file storage in /var/lib/remotepower/
 """
@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.8.6'
+SERVER_VERSION = '1.9.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -72,6 +72,24 @@ TASKS_FILE          = DATA_DIR / 'tasks.json'
 MAX_TASKS           = 500
 TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
 
+# ── v1.9.0: CMDB (asset metadata + encrypted credentials) ─────────────────────
+CMDB_FILE           = DATA_DIR / 'cmdb.json'
+CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
+
+MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
+MAX_CMDB_FUNC_LEN   = 64
+MAX_CMDB_ASSET_ID   = 64
+MAX_CMDB_URL_LEN    = 512
+MAX_CMDB_LABEL      = 64
+MAX_CMDB_USERNAME   = 128
+MAX_CMDB_PASSWORD   = 1024
+MAX_CMDB_CRED_NOTE  = 512
+MAX_CMDB_CREDS      = 25            # per-asset cap
+
+# server_function is a free-text field, but we restrict the charset so we can
+# safely use it in the searchbox / autocomplete without escaping every char.
+_CMDB_FUNC_RE       = re.compile(r'^[A-Za-z0-9 _\-/]{0,64}$')
+
 MAX_SERVICES_PER_DEVICE = 50       # sanity cap
 MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
 MAX_LOG_LINES_PER_UNIT  = 100      # per-poll capture window
@@ -86,6 +104,9 @@ import prometheus_export
 # servers that don't enable LDAP don't need the dependency installed.
 import smtp_notifier
 import ldap_auth
+# v1.9.0: CMDB vault — symmetric crypto for asset credentials. The cryptography
+# library is imported lazily inside the module so this import always succeeds.
+import cmdb_vault
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -4655,6 +4676,596 @@ def handle_tasks_delete(task_id):
     respond(200, {'ok': True})
 
 
+# ─── v1.9.0: CMDB ──────────────────────────────────────────────────────────────
+# Asset metadata + encrypted credentials, scoped to enrolled devices only.
+# Vault crypto details live in cmdb_vault.py — this section is plumbing.
+
+def _cmdb_load():
+    """Return the {device_id -> record} mapping, always a dict."""
+    store = load(CMDB_FILE)
+    if not isinstance(store, dict):
+        return {}
+    return store
+
+
+def _cmdb_record_default():
+    """Empty CMDB record skeleton — every device implicitly has one of these."""
+    return {
+        'asset_id':        '',
+        'server_function': '',
+        'hypervisor_url':  '',
+        'documentation':   '',
+        'credentials':     [],
+        'updated_by':      '',
+        'updated_at':      0,
+    }
+
+
+def _cmdb_strip_creds(record):
+    """Return a copy of `record` with credentials reduced to safe metadata.
+    Ciphertext never leaves the server unless the caller hits /reveal."""
+    out = dict(record)
+    safe = []
+    for c in record.get('credentials') or []:
+        safe.append({
+            'id':         c.get('id', ''),
+            'label':      c.get('label', ''),
+            'username':   c.get('username', ''),
+            'note':       c.get('note', ''),
+            'created_by': c.get('created_by', ''),
+            'created_at': c.get('created_at', 0),
+            'updated_by': c.get('updated_by', ''),
+            'updated_at': c.get('updated_at', 0),
+        })
+    out['credentials'] = safe
+    return out
+
+
+def _cmdb_validate_url(url):
+    """Hypervisor URLs must be http(s) and reasonably short. Empty allowed."""
+    if not url:
+        return ''
+    url = str(url).strip()
+    if len(url) > MAX_CMDB_URL_LEN:
+        return None
+    if not (url.startswith('http://') or url.startswith('https://')):
+        return None
+    # Reject control characters / whitespace inside the URL
+    if any(c.isspace() or ord(c) < 0x20 for c in url):
+        return None
+    return url
+
+
+def _cmdb_validate_function(fn):
+    """server_function is free text but charset-restricted."""
+    if fn is None:
+        return ''
+    fn = str(fn).strip()
+    if not fn:
+        return ''
+    if not _CMDB_FUNC_RE.match(fn):
+        return None
+    return fn
+
+
+def _cmdb_get_vault_meta():
+    return load(CMDB_VAULT_FILE)
+
+
+def _cmdb_get_request_key():
+    """Pull the derived vault key from the X-RP-Vault-Key request header.
+    Raises VaultLockedError / VaultKeyError on missing or malformed values."""
+    raw = os.environ.get('HTTP_X_RP_VAULT_KEY', '')
+    return cmdb_vault.parse_key_header(raw)
+
+
+def _cmdb_require_unlocked():
+    """Common preamble for credential ops: load+verify vault key, return key bytes.
+    Calls respond() and exits on any failure."""
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
+    try:
+        key = _cmdb_get_request_key()
+    except cmdb_vault.VaultLockedError:
+        respond(401, {'error': 'vault locked', 'code': 'vault_locked'})
+    except cmdb_vault.VaultKeyError as e:
+        respond(400, {'error': str(e)})
+    if not cmdb_vault.verify_key(key, meta):
+        respond(403, {'error': 'invalid vault key', 'code': 'vault_key_invalid'})
+    return key, meta
+
+
+def handle_cmdb_list():
+    """GET /api/cmdb — list all enrolled devices joined with their CMDB record."""
+    require_auth()
+    devices = load(DEVICES_FILE)
+    cmdb = _cmdb_load()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    q = (qs.get('q', [''])[0] or '').strip().lower()
+    func_filter = (qs.get('function', [''])[0] or '').strip().lower()
+
+    out = []
+    for dev_id, dev in devices.items():
+        rec = cmdb.get(dev_id) or _cmdb_record_default()
+        rec_safe = _cmdb_strip_creds(rec)
+        entry = {
+            'device_id':       dev_id,
+            'name':            dev.get('name', dev_id),
+            'hostname':        dev.get('hostname', ''),
+            'os':              dev.get('os', ''),
+            'ip':              dev.get('ip', ''),
+            'mac':             dev.get('mac', ''),
+            'group':           dev.get('group', ''),
+            'tags':            dev.get('tags', []),
+            'asset_id':        rec_safe.get('asset_id', ''),
+            'server_function': rec_safe.get('server_function', ''),
+            'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
+            'has_documentation': bool(rec_safe.get('documentation')),
+            'credential_count': len(rec_safe.get('credentials') or []),
+        }
+        if func_filter and entry['server_function'].lower() != func_filter:
+            continue
+        if q:
+            haystack = ' '.join([
+                entry['name'], entry['hostname'], entry['os'], entry['ip'],
+                entry['mac'], entry['group'], entry['asset_id'],
+                entry['server_function'], entry['hypervisor_url'],
+                ' '.join(entry['tags'] or []),
+                rec_safe.get('documentation', ''),
+            ]).lower()
+            if q not in haystack:
+                continue
+        out.append(entry)
+    out.sort(key=lambda x: (x.get('server_function') or '~', x['name'].lower()))
+    respond(200, out)
+
+
+def handle_cmdb_get(dev_id):
+    """GET /api/cmdb/{device_id} — full asset detail (credentials redacted)."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id) or _cmdb_record_default()
+    dev = devices[dev_id]
+    payload = _cmdb_strip_creds(rec)
+    payload['device_id'] = dev_id
+    payload['name']      = dev.get('name', dev_id)
+    payload['hostname']  = dev.get('hostname', '')
+    payload['os']        = dev.get('os', '')
+    payload['ip']        = dev.get('ip', '')
+    payload['mac']       = dev.get('mac', '')
+    payload['version']   = dev.get('version', '')
+    payload['group']     = dev.get('group', '')
+    payload['tags']      = dev.get('tags', [])
+    payload['sysinfo']   = dev.get('sysinfo', {})
+    respond(200, payload)
+
+
+def handle_cmdb_update(dev_id):
+    """PUT /api/cmdb/{device_id} — patch asset_id / server_function / hypervisor_url / documentation."""
+    actor = require_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    body = get_json_body()
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id) or _cmdb_record_default()
+
+    changed = []
+
+    if 'asset_id' in body:
+        asset_id = str(body.get('asset_id') or '').strip()
+        if asset_id and not _SAFE_ID_RE.match(asset_id):
+            respond(400, {'error': 'asset_id must match [A-Za-z0-9_-]{1,64}'})
+        if len(asset_id) > MAX_CMDB_ASSET_ID:
+            respond(400, {'error': f'asset_id too long (max {MAX_CMDB_ASSET_ID})'})
+        rec['asset_id'] = asset_id
+        changed.append('asset_id')
+
+    if 'server_function' in body:
+        fn = _cmdb_validate_function(body.get('server_function'))
+        if fn is None:
+            respond(400, {'error': 'server_function: alphanumerics/spaces/_-/, max 64 chars'})
+        rec['server_function'] = fn
+        changed.append('server_function')
+
+    if 'hypervisor_url' in body:
+        url = _cmdb_validate_url(body.get('hypervisor_url'))
+        if url is None:
+            respond(400, {'error': 'hypervisor_url must be http(s)://… and ≤512 chars'})
+        rec['hypervisor_url'] = url
+        changed.append('hypervisor_url')
+
+    if 'documentation' in body:
+        doc = body.get('documentation') or ''
+        if not isinstance(doc, str):
+            respond(400, {'error': 'documentation must be a string'})
+        if len(doc) > MAX_CMDB_DOC_LEN:
+            respond(400, {'error': f'documentation too large (max {MAX_CMDB_DOC_LEN} bytes)'})
+        rec['documentation'] = doc
+        changed.append('documentation')
+
+    if not changed:
+        respond(400, {'error': 'no recognised fields to update'})
+
+    rec['updated_by'] = actor
+    rec['updated_at'] = int(time.time())
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_update', detail=f'device={dev_id} fields={",".join(changed)}')
+    respond(200, {'ok': True, 'record': _cmdb_strip_creds(rec)})
+
+
+def handle_cmdb_server_functions():
+    """GET /api/cmdb/server-functions — distinct values, for the autocomplete datalist."""
+    require_auth()
+    cmdb = _cmdb_load()
+    seen = set()
+    for rec in cmdb.values():
+        fn = (rec or {}).get('server_function') or ''
+        if fn:
+            seen.add(fn)
+    respond(200, sorted(seen, key=str.lower))
+
+
+# ── Vault management endpoints ─────────────────────────────────────────────────
+
+def handle_cmdb_vault_status():
+    """GET /api/cmdb/vault/status — has the vault been initialised?"""
+    require_auth()
+    meta = _cmdb_get_vault_meta()
+    respond(200, {
+        'configured': cmdb_vault.is_configured(meta),
+        'kdf':        meta.get('kdf') if meta else None,
+        'iterations': meta.get('iterations') if meta else None,
+        'created_at': meta.get('created_at') if meta else None,
+        'created_by': meta.get('created_by') if meta else None,
+    })
+
+
+def handle_cmdb_vault_setup():
+    """POST /api/cmdb/vault/setup — admin-only; one-shot, fails if already configured."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    meta = _cmdb_get_vault_meta()
+    if cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault already configured'})
+    body = get_json_body()
+    passphrase = body.get('passphrase') or ''
+    try:
+        new_meta = cmdb_vault.setup_vault(passphrase)
+    except cmdb_vault.VaultNotInstalledError as e:
+        respond(500, {'error': str(e)})
+    except cmdb_vault.VaultKeyError as e:
+        respond(400, {'error': str(e)})
+    new_meta['created_at'] = int(time.time())
+    new_meta['created_by'] = actor
+    save(CMDB_VAULT_FILE, new_meta)
+    audit_log(actor, 'cmdb_vault_setup', detail=f'kdf={new_meta["kdf"]}')
+    # Derive and return the key so the caller doesn't have to re-unlock
+    key = cmdb_vault.derive_key_from_meta(passphrase, new_meta)
+    respond(200, {'ok': True, 'key': key.hex()})
+
+
+def handle_cmdb_vault_unlock():
+    """POST /api/cmdb/vault/unlock — any auth user; returns derived key on success."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
+    body = get_json_body()
+    passphrase = body.get('passphrase') or ''
+    try:
+        key = cmdb_vault.derive_key_from_meta(passphrase, meta)
+    except cmdb_vault.VaultNotInstalledError as e:
+        respond(500, {'error': str(e)})
+    except cmdb_vault.VaultKeyError as e:
+        respond(400, {'error': str(e)})
+    if not cmdb_vault.verify_key(key, meta):
+        audit_log(actor, 'cmdb_vault_unlock_failed', detail='bad passphrase',
+                  source_ip=_get_client_ip())
+        respond(403, {'error': 'invalid passphrase'})
+    audit_log(actor, 'cmdb_vault_unlock', source_ip=_get_client_ip())
+    respond(200, {'ok': True, 'key': key.hex()})
+
+
+def handle_cmdb_vault_change():
+    """POST /api/cmdb/vault/change — admin; rotate passphrase + re-encrypt all credentials."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    meta = _cmdb_get_vault_meta()
+    if not cmdb_vault.is_configured(meta):
+        respond(409, {'error': 'vault not configured'})
+    body = get_json_body()
+    old_pw = body.get('old_passphrase') or ''
+    new_pw = body.get('new_passphrase') or ''
+
+    try:
+        old_key = cmdb_vault.derive_key_from_meta(old_pw, meta)
+    except cmdb_vault.VaultNotInstalledError as e:
+        respond(500, {'error': str(e)})
+    except cmdb_vault.VaultKeyError as e:
+        respond(400, {'error': str(e)})
+    if not cmdb_vault.verify_key(old_key, meta):
+        audit_log(actor, 'cmdb_vault_change_failed', detail='bad old passphrase',
+                  source_ip=_get_client_ip())
+        respond(403, {'error': 'invalid old passphrase'})
+
+    try:
+        new_meta = cmdb_vault.setup_vault(new_pw)
+    except cmdb_vault.VaultKeyError as e:
+        respond(400, {'error': str(e)})
+    new_key = cmdb_vault.derive_key_from_meta(new_pw, new_meta)
+
+    # Re-encrypt every credential in cmdb.json. We build the new file fully
+    # before persisting it so a crash mid-rotation can't corrupt the vault.
+    cmdb = _cmdb_load()
+    rotated = 0
+    for dev_id, rec in cmdb.items():
+        new_creds = []
+        for c in (rec.get('credentials') or []):
+            try:
+                pw_pt = cmdb_vault.decrypt(old_key,
+                                           {'nonce': c.get('nonce', ''), 'ct': c.get('ct', '')})
+            except cmdb_vault.VaultError:
+                # Corrupt entry — drop it but log so the admin notices
+                audit_log(actor, 'cmdb_vault_change_drop',
+                          detail=f'device={dev_id} cred={c.get("id","?")} reason=decrypt_failed')
+                continue
+            blob = cmdb_vault.encrypt(new_key, pw_pt)
+            new_c = dict(c)
+            new_c['nonce'] = blob['nonce']
+            new_c['ct']    = blob['ct']
+            new_creds.append(new_c)
+            rotated += 1
+        rec['credentials'] = new_creds
+
+    new_meta['created_at']   = meta.get('created_at') or int(time.time())
+    new_meta['created_by']   = meta.get('created_by') or actor
+    new_meta['rotated_at']   = int(time.time())
+    new_meta['rotated_by']   = actor
+
+    save(CMDB_VAULT_FILE, new_meta)
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_vault_change', detail=f'rotated_credentials={rotated}')
+    respond(200, {'ok': True, 'key': new_key.hex(), 'rotated': rotated})
+
+
+# ── Credentials CRUD (require admin + unlocked vault) ──────────────────────────
+
+def handle_cmdb_credentials_list(dev_id):
+    """GET /api/cmdb/{device_id}/credentials — metadata only, no plaintext."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id) or _cmdb_record_default()
+    safe = _cmdb_strip_creds(rec)
+    respond(200, {'credentials': safe.get('credentials') or []})
+
+
+def handle_cmdb_credentials_add(dev_id):
+    """POST /api/cmdb/{device_id}/credentials — admin; vault key required."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    key, _meta = _cmdb_require_unlocked()
+    body = get_json_body()
+    label    = _sanitize_str(body.get('label', ''),    MAX_CMDB_LABEL,    allow_empty=False)
+    username = _sanitize_str(body.get('username', ''), MAX_CMDB_USERNAME, allow_empty=True) or ''
+    password = body.get('password', '')
+    note     = _sanitize_str(body.get('note', ''),     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
+
+    if not label:
+        respond(400, {'error': 'label required'})
+    if not isinstance(password, str):
+        respond(400, {'error': 'password must be a string'})
+    if len(password) > MAX_CMDB_PASSWORD:
+        respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
+    if not password:
+        respond(400, {'error': 'password required'})
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id) or _cmdb_record_default()
+    creds = rec.get('credentials') or []
+    if len(creds) >= MAX_CMDB_CREDS:
+        respond(400, {'error': f'max {MAX_CMDB_CREDS} credentials per asset'})
+
+    try:
+        blob = cmdb_vault.encrypt(key, password)
+    except cmdb_vault.VaultError as e:
+        respond(500, {'error': f'encrypt failed: {e}'})
+
+    now = int(time.time())
+    new_id = 'cred_' + secrets.token_hex(8)
+    creds.append({
+        'id':         new_id,
+        'label':      label,
+        'username':   username,
+        'note':       note,
+        'nonce':      blob['nonce'],
+        'ct':         blob['ct'],
+        'created_by': actor,
+        'created_at': now,
+        'updated_by': actor,
+        'updated_at': now,
+    })
+    rec['credentials'] = creds
+    rec['updated_by']  = actor
+    rec['updated_at']  = now
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_credential_add',
+              detail=f'device={dev_id} cred={new_id} label={label[:40]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_cmdb_credentials_update(dev_id, cred_id):
+    """PUT /api/cmdb/{device_id}/credentials/{cred_id} — admin; vault key required if password changes."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
+        respond(404, {'error': 'credential not found'})
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id)
+    if not rec:
+        respond(404, {'error': 'credential not found'})
+    creds = rec.get('credentials') or []
+    idx = next((i for i, c in enumerate(creds) if c.get('id') == cred_id), -1)
+    if idx < 0:
+        respond(404, {'error': 'credential not found'})
+
+    body = get_json_body()
+    cred = dict(creds[idx])
+    changed = []
+
+    if 'label' in body:
+        label = _sanitize_str(body.get('label', ''), MAX_CMDB_LABEL, allow_empty=False)
+        if not label:
+            respond(400, {'error': 'label cannot be empty'})
+        cred['label'] = label
+        changed.append('label')
+    if 'username' in body:
+        cred['username'] = _sanitize_str(body.get('username', ''),
+                                         MAX_CMDB_USERNAME, allow_empty=True) or ''
+        changed.append('username')
+    if 'note' in body:
+        cred['note'] = _sanitize_str(body.get('note', ''),
+                                     MAX_CMDB_CRED_NOTE, allow_empty=True) or ''
+        changed.append('note')
+    if 'password' in body:
+        password = body.get('password', '')
+        if not isinstance(password, str):
+            respond(400, {'error': 'password must be a string'})
+        if len(password) > MAX_CMDB_PASSWORD:
+            respond(400, {'error': f'password too long (max {MAX_CMDB_PASSWORD})'})
+        if not password:
+            respond(400, {'error': 'password cannot be empty'})
+        key, _meta = _cmdb_require_unlocked()
+        try:
+            blob = cmdb_vault.encrypt(key, password)
+        except cmdb_vault.VaultError as e:
+            respond(500, {'error': f'encrypt failed: {e}'})
+        cred['nonce'] = blob['nonce']
+        cred['ct']    = blob['ct']
+        changed.append('password')
+
+    if not changed:
+        respond(400, {'error': 'no recognised fields to update'})
+
+    cred['updated_by'] = actor
+    cred['updated_at'] = int(time.time())
+    creds[idx] = cred
+    rec['credentials'] = creds
+    rec['updated_by']  = actor
+    rec['updated_at']  = int(time.time())
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_credential_update',
+              detail=f'device={dev_id} cred={cred_id} fields={",".join(changed)}')
+    respond(200, {'ok': True})
+
+
+def handle_cmdb_credentials_delete(dev_id, cred_id):
+    """DELETE /api/cmdb/{device_id}/credentials/{cred_id} — admin only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
+        respond(404, {'error': 'credential not found'})
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id)
+    if not rec:
+        respond(404, {'error': 'credential not found'})
+    creds = rec.get('credentials') or []
+    remaining = [c for c in creds if c.get('id') != cred_id]
+    if len(remaining) == len(creds):
+        respond(404, {'error': 'credential not found'})
+    rec['credentials'] = remaining
+    rec['updated_by']  = actor
+    rec['updated_at']  = int(time.time())
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_credential_delete',
+              detail=f'device={dev_id} cred={cred_id}')
+    respond(200, {'ok': True})
+
+
+def handle_cmdb_credentials_reveal(dev_id, cred_id):
+    """POST /api/cmdb/{device_id}/credentials/{cred_id}/reveal — admin; returns plaintext.
+    Every reveal is audit-logged with actor + asset + credential label."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    if not cred_id.startswith('cred_') or not _validate_id(cred_id[len('cred_'):]):
+        respond(404, {'error': 'credential not found'})
+
+    key, _meta = _cmdb_require_unlocked()
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id)
+    if not rec:
+        respond(404, {'error': 'credential not found'})
+    cred = next((c for c in (rec.get('credentials') or []) if c.get('id') == cred_id), None)
+    if not cred:
+        respond(404, {'error': 'credential not found'})
+
+    try:
+        plaintext = cmdb_vault.decrypt(key,
+                                       {'nonce': cred.get('nonce', ''), 'ct': cred.get('ct', '')})
+    except cmdb_vault.VaultKeyError:
+        audit_log(actor, 'cmdb_credential_reveal_failed',
+                  detail=f'device={dev_id} cred={cred_id} reason=decrypt',
+                  source_ip=_get_client_ip())
+        respond(403, {'error': 'decryption failed — vault key may be stale'})
+    except cmdb_vault.VaultError as e:
+        respond(500, {'error': f'decrypt failed: {e}'})
+
+    audit_log(actor, 'cmdb_credential_reveal',
+              detail=f'device={dev_id} cred={cred_id} label={cred.get("label","")[:40]}',
+              source_ip=_get_client_ip())
+    respond(200, {
+        'ok':       True,
+        'id':       cred_id,
+        'label':    cred.get('label', ''),
+        'username': cred.get('username', ''),
+        'password': plaintext,
+        'note':     cred.get('note', ''),
+    })
+
+
 # ─── Router ────────────────────────────────────────────────────────────────────
 def main():
     try: check_offline_webhooks()
@@ -4815,6 +5426,39 @@ def main():
         handle_tasks_update(pi[len('/api/tasks/'):])
     elif pi.startswith('/api/tasks/') and m == 'DELETE':
         handle_tasks_delete(pi[len('/api/tasks/'):])
+
+    # ── v1.9.0: CMDB ───────────────────────────────────────────────────────────
+    # Vault management — order matters, more specific paths first
+    elif pi == '/api/cmdb/vault/status'  and m == 'GET':  handle_cmdb_vault_status()
+    elif pi == '/api/cmdb/vault/setup'   and m == 'POST': handle_cmdb_vault_setup()
+    elif pi == '/api/cmdb/vault/unlock'  and m == 'POST': handle_cmdb_vault_unlock()
+    elif pi == '/api/cmdb/vault/change'  and m == 'POST': handle_cmdb_vault_change()
+    # Server-function autocomplete list
+    elif pi == '/api/cmdb/server-functions' and m == 'GET': handle_cmdb_server_functions()
+    # Per-device credential CRUD — match before the generic /api/cmdb/{id} route
+    elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'GET':
+        handle_cmdb_credentials_list(pi[len('/api/cmdb/'):-len('/credentials')])
+    elif pi.startswith('/api/cmdb/') and pi.endswith('/credentials') and m == 'POST':
+        handle_cmdb_credentials_add(pi[len('/api/cmdb/'):-len('/credentials')])
+    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and pi.endswith('/reveal') and m == 'POST':
+        # /api/cmdb/{dev}/credentials/{cred}/reveal
+        rest = pi[len('/api/cmdb/'):-len('/reveal')]
+        dev_id, _, cred_id = rest.partition('/credentials/')
+        handle_cmdb_credentials_reveal(dev_id, cred_id)
+    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'PUT':
+        rest = pi[len('/api/cmdb/'):]
+        dev_id, _, cred_id = rest.partition('/credentials/')
+        handle_cmdb_credentials_update(dev_id, cred_id)
+    elif pi.startswith('/api/cmdb/') and '/credentials/' in pi and m == 'DELETE':
+        rest = pi[len('/api/cmdb/'):]
+        dev_id, _, cred_id = rest.partition('/credentials/')
+        handle_cmdb_credentials_delete(dev_id, cred_id)
+    # Asset list + per-asset metadata
+    elif pi == '/api/cmdb' and m == 'GET':  handle_cmdb_list()
+    elif pi.startswith('/api/cmdb/') and m == 'GET':
+        handle_cmdb_get(pi[len('/api/cmdb/'):])
+    elif pi.startswith('/api/cmdb/') and m == 'PUT':
+        handle_cmdb_update(pi[len('/api/cmdb/'):])
 
     else: respond(404, {'error': 'Not found'})
 

@@ -1,5 +1,144 @@
 # Changelog
 
+## v1.9.0 — 2026-04-27
+
+### Added
+
+**CMDB — Configuration Management Database.** A new "CMDB" page in the
+sidebar (between Devices and Monitor) gives every enrolled device an
+optional metadata layer: a free-text **asset_id** for inventory tags, a
+**server_function** field (web, db, dc, logging, …) with autocomplete
+populated from the existing fleet, an optional **hypervisor_url**
+rendered as a click-through link, and **Markdown documentation** up to
+64 KB per asset with side-by-side edit and rendered-preview tabs. The
+page joins `devices.json` with the new `cmdb.json` so every enrolled
+device is implicitly an asset — no separate enrollment step. A search
+box filters across name, asset_id, IP, function, and documentation; a
+function dropdown narrows the table to a single role.
+
+**Encrypted credential vault.** Each asset can store up to 25
+credentials — root, service accounts, IPMI, web admin panels, whatever
+— with per-credential label, username, optional note, and an encrypted
+password. The crypto stack is **AES-GCM 256-bit** with **PBKDF2-SHA256
+key derivation** at 600 000 iterations (OWASP 2023 minimum), a 32-byte
+random salt, and a fresh 12-byte nonce on every encryption. The model
+is a **shared admin passphrase** rather than per-user keys: the team
+sets one passphrase at vault setup, all admins use it, and rotation
+re-encrypts every credential atomically.
+
+The passphrase is **never persisted server-side**. An admin enters it
+in the unlock modal, the server derives the key and returns it as hex,
+the browser holds it in a single closure variable in JS memory, and
+clears it on logout, page reload, or an explicit "Lock" button.
+Subsequent credential operations send the key in an `X-RP-Vault-Key`
+request header. The server checks every key against an encrypted
+canary blob stored in `cmdb_vault.json` so a wrong key never touches
+real credentials.
+
+Reveal (the API call that actually returns plaintext) is **admin-only
+and audit-logged** with the actor, source IP, asset, and credential
+label. Per-credential metadata stays plaintext for searchability — only
+the password ciphertext is encrypted. List endpoints redact the
+ciphertext entirely; only `/reveal` ever decrypts.
+
+The crypto module (`cmdb_vault.py`) is a sibling of `cve_scanner.py`
+and `prometheus_export.py`. It imports the `cryptography` library
+lazily, so the rest of the API stays fully alive on servers that don't
+have it installed yet — vault operations return a clear error in that
+case, but everything else (asset metadata, documentation, search) keeps
+working.
+
+**Passphrase rotation.** `POST /api/cmdb/vault/change` takes the old
+passphrase, verifies it against the canary, derives the new key, walks
+every credential in `cmdb.json`, decrypts with the old key, and
+re-encrypts with the new key in memory before persisting. If a
+credential fails to decrypt during rotation (corrupt entry), it's
+dropped and the event is recorded as `cmdb_vault_change_drop` in the
+audit log so the admin can investigate. The new vault metadata is
+written first; the new credential file second; a crash mid-rotation
+leaves the vault recoverable with the old passphrase.
+
+### Endpoints
+
+```
+GET    /api/cmdb                                          list assets + metadata
+GET    /api/cmdb/{device_id}                              full asset detail (creds redacted)
+PUT    /api/cmdb/{device_id}                              patch metadata + documentation
+GET    /api/cmdb/server-functions                         distinct functions for autocomplete
+GET    /api/cmdb/vault/status                             configured? KDF? created_at?
+POST   /api/cmdb/vault/setup                              admin; one-shot
+POST   /api/cmdb/vault/unlock                             returns derived key
+POST   /api/cmdb/vault/change                             admin; rotates + re-encrypts
+GET    /api/cmdb/{device_id}/credentials                  metadata only
+POST   /api/cmdb/{device_id}/credentials                  admin + X-RP-Vault-Key
+PUT    /api/cmdb/{device_id}/credentials/{cred_id}        admin (key required only if pw changes)
+DELETE /api/cmdb/{device_id}/credentials/{cred_id}        admin
+POST   /api/cmdb/{device_id}/credentials/{cred_id}/reveal admin + key, audit-logged
+```
+
+### New data files
+
+- `cmdb.json` — `{device_id → record}`, where each record has
+  `asset_id`, `server_function`, `hypervisor_url`, `documentation`,
+  and a `credentials` list. Each credential is
+  `{id, label, username, note, nonce, ct, created_by/at, updated_by/at}`.
+- `cmdb_vault.json` — vault metadata only:
+  `{kdf, iterations, salt, canary_nonce, canary_ct, created_by/at, rotated_by/at}`.
+  Contains zero plaintext, zero key material — safe to back up to the
+  same place as the rest of `/var/lib/remotepower`.
+
+### New audit-log actions
+
+`cmdb_update`, `cmdb_vault_setup`, `cmdb_vault_unlock`,
+`cmdb_vault_unlock_failed`, `cmdb_vault_change`, `cmdb_vault_change_failed`,
+`cmdb_vault_change_drop`, `cmdb_credential_add`, `cmdb_credential_update`,
+`cmdb_credential_delete`, `cmdb_credential_reveal`,
+`cmdb_credential_reveal_failed`.
+
+### New dependency
+
+`cryptography` (Python). `install-server.sh` installs it via pip with a
+distro-package fallback (`python3-cryptography` on Debian/Ubuntu/Fedora,
+`python-cryptography` on Arch). It's the only feature that needs it; if
+the install fails the rest of the server still runs and CMDB metadata
+remains usable — only credential ops report a clean
+"vault not installed" error.
+
+### Limits
+
+- 64 KB Markdown documentation per asset
+- 25 credentials per asset
+- 1 KB max password length
+- 64-char labels, 128-char usernames, 512-char notes
+- `server_function`: 64 chars, charset `[A-Za-z0-9 _\-/]`
+- Vault passphrase: 12-256 chars, must contain at least 2 of
+  {lowercase, uppercase, digit, symbol}
+
+### Tests
+
+**244 passing, 0 failing** (1 pre-existing skip). The new suite
+`tests/test_v190.py` adds 32 tests across five classes:
+`TestVaultCrypto` (KDF derivation, canary verification, fresh nonces,
+key-header parsing strictness), `TestVaultEndpoints` (status, setup,
+unlock with audit on bad passphrase), `TestAssetCrud` (404 paths,
+asset_id charset, hypervisor URL scheme rejection, oversized doc,
+search filtering), `TestCredentials` (add/list/delete/reveal,
+ciphertext redaction in list, vault-locked vs auth-locked 401
+distinction, max-credential cap, full passphrase rotation
+re-encrypting two credentials and verifying reveal under the new key),
+and `TestServerFunctions` (autocomplete distinct-value sorting).
+
+### Compatibility
+
+v1.8.x clients are fully compatible with v1.9.0 servers — CMDB is a
+server-side feature, the agent binary is unchanged. A v1.9.0 server
+started against an existing v1.8.x data directory creates `cmdb.json`
+and `cmdb_vault.json` lazily on first write. The vault is opt-in: the
+CMDB page works in read-only metadata mode until an admin calls
+`/api/cmdb/vault/setup`.
+
+---
+
 ## v1.8.6 — 2026-04-26
 
 ### Added
