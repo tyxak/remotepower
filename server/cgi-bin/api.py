@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.9.0'
+SERVER_VERSION = '1.10.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -34,6 +34,12 @@ SCHEDULE_FILE    = DATA_DIR / 'schedule.json'
 UPTIME_FILE      = DATA_DIR / 'uptime.json'
 MON_HIST_FILE    = DATA_DIR / 'monitor_history.json'
 CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
+# v1.10.0: Update output captures from `update` commands (apt/dnf/pacman runs).
+# Stored separately from generic exec output so the Patches page can filter
+# without scanning thousands of unrelated entries.
+UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
+MAX_UPDATE_LOGS_PER_DEVICE = 10                # rolling buffer
+MAX_UPDATE_LOG_BYTES       = 256 * 1024        # apt update -y can spew a lot
 METRICS_FILE     = DATA_DIR / 'metrics.json'
 CMD_LIBRARY_FILE = DATA_DIR / 'cmd_library.json'
 LONGPOLL_FILE    = DATA_DIR / 'longpoll.json'
@@ -90,6 +96,11 @@ MAX_CMDB_CREDS      = 25            # per-asset cap
 # safely use it in the searchbox / autocomplete without escaping every char.
 _CMDB_FUNC_RE       = re.compile(r'^[A-Za-z0-9 _\-/]{0,64}$')
 
+# v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
+CMDB_DEFAULT_SSH_PORT = 22
+CMDB_SSH_PORT_MIN     = 1
+CMDB_SSH_PORT_MAX     = 65535
+
 MAX_SERVICES_PER_DEVICE = 50       # sanity cap
 MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
 MAX_LOG_LINES_PER_UNIT  = 100      # per-poll capture window
@@ -107,6 +118,9 @@ import ldap_auth
 # v1.9.0: CMDB vault — symmetric crypto for asset credentials. The cryptography
 # library is imported lazily inside the module so this import always succeeds.
 import cmdb_vault
+# v1.10.0: OpenAPI spec — handwritten dict served at /api/openapi.json,
+# rendered by the Swagger UI page at /swagger.html.
+import openapi_spec
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -492,20 +506,65 @@ def method():
     return os.environ.get('REQUEST_METHOD', 'GET').upper()
 
 # ── Response helpers ───────────────────────────────────────────────────────────
-def respond(status, data):
-    reason = {
-        200: 'OK', 201: 'Created', 400: 'Bad Request', 401: 'Unauthorized',
-        403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed',
-        413: 'Request Entity Too Large', 429: 'Too Many Requests',
-        500: 'Internal Server Error',
-    }
-    print(f"Status: {status} {reason.get(status, '')}")
+
+
+class HTTPError(Exception):
+    """
+    Short-circuit a handler with an HTTP status + JSON body.
+
+    Replaces the older ``respond(...); sys.exit(0)`` pattern. Handlers that
+    raise ``HTTPError`` are unwound by ``main()`` and rendered identically
+    to a successful response — same status, same JSON envelope, same
+    headers.
+
+    The exception form is purely an internal control-flow tool. Callers
+    that want to *return* an error response should still use
+    ``respond(status, body)`` — ``respond`` raises ``HTTPError`` itself,
+    which is then caught one level up.
+
+    Why an exception instead of ``sys.exit``? Tests can catch ``HTTPError``
+    and inspect ``status``/``body`` directly without monkey-patching
+    ``sys.exit`` or capturing stdout. In production it's a wash — the
+    process still terminates after rendering the response.
+    """
+
+    def __init__(self, status: int, body):
+        super().__init__(f"HTTP {status}")
+        self.status = status
+        self.body = body
+
+
+_HTTP_STATUS_REASONS = {
+    200: 'OK', 201: 'Created', 400: 'Bad Request', 401: 'Unauthorized',
+    403: 'Forbidden', 404: 'Not Found', 405: 'Method Not Allowed',
+    409: 'Conflict', 413: 'Request Entity Too Large', 429: 'Too Many Requests',
+    500: 'Internal Server Error',
+}
+
+
+def _render_response(status: int, data) -> None:
+    """Render an HTTP response to stdout. Used by main() — handlers should
+    use respond()/HTTPError instead so the response is uniformly handled."""
+    print(f"Status: {status} {_HTTP_STATUS_REASONS.get(status, '')}")
     print("Content-Type: application/json")
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
     print()
     print(json.dumps(data))
-    sys.exit(0)
+
+
+def respond(status, data):
+    """
+    Short-circuit the current handler with an HTTP response.
+
+    Despite the name, this does **not** return — it raises ``HTTPError``
+    which is unwound at the top of ``main()``. The signature is
+    preserved for backward compatibility with the ~100 existing call
+    sites; new code should prefer ``raise HTTPError(status, data)``
+    directly.
+    """
+    raise HTTPError(status, data)
+
 
 def require_auth(require_admin=False):
     token = get_token_from_request()
@@ -1014,6 +1073,19 @@ def handle_public_info():
     })
 
 
+def handle_openapi_spec() -> None:
+    """
+    GET /api/openapi.json — return the OpenAPI 3.1 specification.
+
+    Auth-gated like every other endpoint: the spec describes the surface
+    that auth tokens grant access to, so it makes no sense to expose it
+    publicly. The Swagger UI page (``/swagger.html``) fetches this
+    endpoint with the user's existing session token.
+    """
+    require_auth()
+    respond(200, openapi_spec.build_spec(SERVER_VERSION))
+
+
 def handle_login():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -1454,6 +1526,56 @@ def handle_heartbeat():
         outputs[dev_id] = outputs[dev_id][-MAX_CMD_OUTPUT:]
         save(CMD_OUTPUT_FILE, outputs)
         _resolve_longpoll(dev_id, body['cmd_output'])
+
+        # v1.10.0: if this output is from a package-upgrade run, also archive
+        # it in the dedicated update_logs.json file. The Patches page can
+        # then surface it without scanning every exec result the device has
+        # ever produced. We detect the upgrade by matching the synthetic
+        # shell script the server queues in handle_upgrade_device — anything
+        # containing the 'apt-get -y upgrade' or 'dnf -y upgrade' or
+        # 'pacman -Syu' fragments counts.
+        cmd_text = str(co.get('cmd', ''))
+        if any(needle in cmd_text for needle in
+               ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu')):
+            pkg_mgr = ('apt' if 'apt-get' in cmd_text
+                       else 'dnf' if 'dnf' in cmd_text
+                       else 'pacman' if 'pacman' in cmd_text
+                       else 'unknown')
+            ulogs = load(UPDATE_LOGS_FILE)
+            if dev_id not in ulogs:
+                ulogs[dev_id] = []
+            ulogs[dev_id].append({
+                'started_at':  now - 1,            # we don't know exactly
+                'finished_at': now,
+                'exit_code':   int(co['rc']) if isinstance(co.get('rc'), int) else -1,
+                'output':      raw_output[:MAX_UPDATE_LOG_BYTES],
+                'package_manager': pkg_mgr,
+                'triggered_by': '',                # actor info already in audit log
+            })
+            ulogs[dev_id] = ulogs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
+            save(UPDATE_LOGS_FILE, ulogs)
+
+    # ── v1.10.0: dedicated update output channel ───────────────────────────
+    # Agent posts {'update_log': {started_at, finished_at, exit_code,
+    # output, triggered_by, package_manager}} after running an `update`
+    # command. We keep these separate from cmd_output so the Patches page
+    # can list "last update on this device" without scanning unrelated
+    # exec results.
+    if 'update_log' in body and isinstance(body['update_log'], dict):
+        ul = body['update_log']
+        logs = load(UPDATE_LOGS_FILE)
+        if dev_id not in logs:
+            logs[dev_id] = []
+        logs[dev_id].append({
+            'started_at':  int(ul.get('started_at') or now),
+            'finished_at': int(ul.get('finished_at') or now),
+            'exit_code':   int(ul['exit_code']) if isinstance(ul.get('exit_code'), int) else -1,
+            'output':      str(ul.get('output', ''))[:MAX_UPDATE_LOG_BYTES],
+            'package_manager': _sanitize_str(ul.get('package_manager', ''), 32),
+            'triggered_by': _sanitize_str(ul.get('triggered_by', ''), 64),
+        })
+        logs[dev_id] = logs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
+        save(UPDATE_LOGS_FILE, logs)
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
@@ -2524,6 +2646,32 @@ def handle_cmd_output(dev_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     outputs = load(CMD_OUTPUT_FILE)
     respond(200, {'outputs': outputs.get(dev_id, [])})
+
+
+def handle_device_update_logs(dev_id: str) -> None:
+    """
+    GET /api/devices/{id}/update-logs.
+
+    Returns the rolling buffer of `update` command runs for this device.
+
+    Each entry: ``{started_at, finished_at, exit_code, output,
+    package_manager, triggered_by}``. Most recent runs are at the end of
+    the list. Capped at :data:`MAX_UPDATE_LOGS_PER_DEVICE` entries per
+    device with the oldest evicted on overflow.
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    logs = load(UPDATE_LOGS_FILE)
+    respond(200, {
+        'device_id': dev_id,
+        'name':      devices[dev_id].get('name', dev_id),
+        'logs':      logs.get(dev_id, []),
+        'capacity':  MAX_UPDATE_LOGS_PER_DEVICE,
+    })
 
 
 def handle_device_allowlist(dev_id):
@@ -4680,20 +4828,35 @@ def handle_tasks_delete(task_id):
 # Asset metadata + encrypted credentials, scoped to enrolled devices only.
 # Vault crypto details live in cmdb_vault.py — this section is plumbing.
 
-def _cmdb_load():
-    """Return the {device_id -> record} mapping, always a dict."""
+def _cmdb_load() -> dict:
+    """Load the CMDB store from disk.
+
+    Returns:
+        Mapping of ``device_id`` to record dict. Returns an empty dict if
+        the store file is missing or corrupt — never raises.
+    """
     store = load(CMDB_FILE)
     if not isinstance(store, dict):
         return {}
     return store
 
 
-def _cmdb_record_default():
-    """Empty CMDB record skeleton — every device implicitly has one of these."""
+def _cmdb_record_default() -> dict:
+    """Build an empty CMDB record skeleton.
+
+    Every enrolled device implicitly has one of these — the storage layer
+    only persists records the user has actually edited, but the API
+    presents a uniform shape.
+
+    Returns:
+        Dict with all CMDB fields set to their type-appropriate empties
+        (empty string, empty list, default port, zero timestamp).
+    """
     return {
         'asset_id':        '',
         'server_function': '',
         'hypervisor_url':  '',
+        'ssh_port':        CMDB_DEFAULT_SSH_PORT,
         'documentation':   '',
         'credentials':     [],
         'updated_by':      '',
@@ -4701,9 +4864,21 @@ def _cmdb_record_default():
     }
 
 
-def _cmdb_strip_creds(record):
-    """Return a copy of `record` with credentials reduced to safe metadata.
-    Ciphertext never leaves the server unless the caller hits /reveal."""
+def _cmdb_strip_creds(record: dict) -> dict:
+    """Redact credential ciphertext from a CMDB record.
+
+    Returns a shallow copy of ``record`` where each credential keeps only
+    its plaintext-safe metadata (``id``, ``label``, ``username``, ``note``,
+    timestamps). The ``nonce`` and ``ct`` fields — the AES-GCM ciphertext
+    — are never returned by list endpoints; only ``/reveal`` decrypts and
+    surfaces plaintext.
+
+    Args:
+        record: The full CMDB record as stored in ``cmdb.json``.
+
+    Returns:
+        A new dict safe to serialise to API clients.
+    """
     out = dict(record)
     safe = []
     for c in record.get('credentials') or []:
@@ -4721,8 +4896,23 @@ def _cmdb_strip_creds(record):
     return out
 
 
-def _cmdb_validate_url(url):
-    """Hypervisor URLs must be http(s) and reasonably short. Empty allowed."""
+def _cmdb_validate_url(url) -> 'str | None':
+    """Validate a hypervisor URL.
+
+    Empty is acceptable (resets the field). Anything else must be
+    ``http://`` or ``https://``, ≤512 characters, and free of whitespace
+    or control characters. The latter is a defence against header /
+    response splitting if the URL is later interpolated unsafely.
+
+    Args:
+        url: Raw value from the request body. Strings, ints, ``None`` —
+            anything stringifiable.
+
+    Returns:
+        The cleaned URL string on success, an empty string for falsy
+        input, or ``None`` to indicate a validation failure (caller
+        should respond with 400).
+    """
     if not url:
         return ''
     url = str(url).strip()
@@ -4736,8 +4926,20 @@ def _cmdb_validate_url(url):
     return url
 
 
-def _cmdb_validate_function(fn):
-    """server_function is free text but charset-restricted."""
+def _cmdb_validate_function(fn) -> 'str | None':
+    """Validate a ``server_function`` value.
+
+    Free text but charset-restricted to ``[A-Za-z0-9 _\\-/]`` (max 64
+    chars) so the value is safe to splice into autocomplete dropdowns
+    without HTML escaping every code path.
+
+    Args:
+        fn: Raw value from the request body.
+
+    Returns:
+        Cleaned string on success, empty string for falsy input,
+        ``None`` to signal validation failure.
+    """
     if fn is None:
         return ''
     fn = str(fn).strip()
@@ -4748,20 +4950,36 @@ def _cmdb_validate_function(fn):
     return fn
 
 
-def _cmdb_get_vault_meta():
+def _cmdb_get_vault_meta() -> dict:
+    """Load vault metadata (KDF params + canary) from disk."""
     return load(CMDB_VAULT_FILE)
 
 
-def _cmdb_get_request_key():
-    """Pull the derived vault key from the X-RP-Vault-Key request header.
-    Raises VaultLockedError / VaultKeyError on missing or malformed values."""
+def _cmdb_get_request_key() -> bytes:
+    """Extract the derived vault key from the request headers.
+
+    Returns:
+        The 32-byte key as raw bytes.
+
+    Raises:
+        cmdb_vault.VaultLockedError: Header is missing.
+        cmdb_vault.VaultKeyError: Header is malformed (not hex, wrong length).
+    """
     raw = os.environ.get('HTTP_X_RP_VAULT_KEY', '')
     return cmdb_vault.parse_key_header(raw)
 
 
-def _cmdb_require_unlocked():
-    """Common preamble for credential ops: load+verify vault key, return key bytes.
-    Calls respond() and exits on any failure."""
+def _cmdb_require_unlocked() -> 'tuple[bytes, dict]':
+    """Common preamble for credential operations.
+
+    Loads the vault metadata, extracts and verifies the request's vault
+    key, and returns both for the caller to use. Short-circuits via
+    :func:`respond` (which raises :class:`HTTPError`) on any failure.
+
+    Returns:
+        A ``(key, vault_meta)`` tuple. ``key`` is 32 bytes; ``vault_meta``
+        is the dict from ``cmdb_vault.json``.
+    """
     meta = _cmdb_get_vault_meta()
     if not cmdb_vault.is_configured(meta):
         respond(409, {'error': 'vault not configured', 'code': 'vault_not_configured'})
@@ -4776,8 +4994,26 @@ def _cmdb_require_unlocked():
     return key, meta
 
 
-def handle_cmdb_list():
-    """GET /api/cmdb — list all enrolled devices joined with their CMDB record."""
+def handle_cmdb_list() -> None:
+    """``GET /api/cmdb`` — list assets joined with their CMDB metadata.
+
+    Returns one entry per enrolled device (devices with no CMDB record
+    appear with empty fields). Supports two query-string filters:
+
+    ``?q=<text>``
+        Free-text search across name, hostname, OS, IP, MAC, group,
+        asset_id, server_function, hypervisor_url, tags, and the
+        documentation body. Case-insensitive substring match.
+
+    ``?function=<value>``
+        Exact match on ``server_function`` (case-insensitive).
+
+    Results are sorted by ``server_function`` then by ``name``;
+    unspecified-function assets sort last.
+
+    Side effects:
+        Calls :func:`respond` with status 200 and the asset list.
+    """
     require_auth()
     devices = load(DEVICES_FILE)
     cmdb = _cmdb_load()
@@ -4801,6 +5037,7 @@ def handle_cmdb_list():
             'asset_id':        rec_safe.get('asset_id', ''),
             'server_function': rec_safe.get('server_function', ''),
             'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
+            'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
             'has_documentation': bool(rec_safe.get('documentation')),
             'credential_count': len(rec_safe.get('credentials') or []),
         }
@@ -4821,8 +5058,46 @@ def handle_cmdb_list():
     respond(200, out)
 
 
-def handle_cmdb_get(dev_id):
-    """GET /api/cmdb/{device_id} — full asset detail (credentials redacted)."""
+def _trim_sysinfo(sysinfo) -> dict:
+    """Return only the sysinfo fields the CMDB modal actually displays.
+
+    The full sysinfo dict from a heartbeat can run 50+ KB (kernel,
+    services, NICs, mountpoints, etc.). The CMDB asset modal only needs
+    CPU/RAM/disk headlines and uptime. Trimming keeps page loads snappy
+    when assets have rich sysinfo.
+
+    Args:
+        sysinfo: Anything — non-dict input is treated as empty.
+
+    Returns:
+        Dict with at most nine whitelisted fields. Missing fields are
+        included with ``None`` values for shape stability on the client.
+    """
+    if not isinstance(sysinfo, dict):
+        return {}
+    return {
+        'kernel':         sysinfo.get('kernel', ''),
+        'cpu':            sysinfo.get('cpu', ''),
+        'cores':          sysinfo.get('cores'),
+        'mem_total_mb':   sysinfo.get('mem_total_mb'),
+        'mem_free_mb':    sysinfo.get('mem_free_mb'),
+        'disk_total_gb':  sysinfo.get('disk_total_gb'),
+        'disk_free_gb':   sysinfo.get('disk_free_gb'),
+        'uptime_seconds': sysinfo.get('uptime_seconds'),
+        'boot_time':      sysinfo.get('boot_time'),
+    }
+
+
+def handle_cmdb_get(dev_id: str) -> None:
+    """``GET /api/cmdb/{device_id}`` — full asset detail with credentials redacted.
+
+    Args:
+        dev_id: The enrolled device's ID.
+
+    Side effects:
+        Calls :func:`respond` with 200 + asset detail, or 404 if the
+        device is unknown.
+    """
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
@@ -4831,6 +5106,9 @@ def handle_cmdb_get(dev_id):
         respond(404, {'error': 'device not found'})
     cmdb = _cmdb_load()
     rec = cmdb.get(dev_id) or _cmdb_record_default()
+    # Backfill ssh_port for records created before v1.10.0.
+    if 'ssh_port' not in rec:
+        rec['ssh_port'] = CMDB_DEFAULT_SSH_PORT
     dev = devices[dev_id]
     payload = _cmdb_strip_creds(rec)
     payload['device_id'] = dev_id
@@ -4842,12 +5120,29 @@ def handle_cmdb_get(dev_id):
     payload['version']   = dev.get('version', '')
     payload['group']     = dev.get('group', '')
     payload['tags']      = dev.get('tags', [])
-    payload['sysinfo']   = dev.get('sysinfo', {})
+    # v1.10.0: send a trimmed sysinfo subset rather than the full dict.
+    # Saves ~50 KB on busy assets, cuts CMDB modal load time noticeably.
+    payload['sysinfo']   = _trim_sysinfo(dev.get('sysinfo', {}))
     respond(200, payload)
 
 
-def handle_cmdb_update(dev_id):
-    """PUT /api/cmdb/{device_id} — patch asset_id / server_function / hypervisor_url / documentation."""
+def handle_cmdb_update(dev_id: str) -> None:
+    """``PUT /api/cmdb/{device_id}`` — patch CMDB metadata for an asset.
+
+    Accepts a JSON body with any subset of the writable fields.
+    Unrecognised keys are silently ignored; recognised keys that fail
+    validation cause a 400. At least one recognised key is required.
+
+    Writable fields:
+        ``asset_id``: Free text, ``[A-Za-z0-9_-]{0,64}``.
+        ``server_function``: Free text, ``[A-Za-z0-9 _\\-/]{0,64}``.
+        ``hypervisor_url``: ``http(s)://…``, max 512 chars.
+        ``ssh_port``: 1-65535. Empty/0 resets to default 22.
+        ``documentation``: Markdown, max 64 KB.
+
+    Args:
+        dev_id: The enrolled device's ID.
+    """
     actor = require_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
@@ -4886,6 +5181,22 @@ def handle_cmdb_update(dev_id):
         rec['hypervisor_url'] = url
         changed.append('hypervisor_url')
 
+    if 'ssh_port' in body:
+        # Accept int, numeric string, or empty/None → reset to default.
+        raw = body.get('ssh_port')
+        if raw in (None, '', 0):
+            port = CMDB_DEFAULT_SSH_PORT
+        else:
+            try:
+                port = int(raw)
+            except (TypeError, ValueError):
+                respond(400, {'error': 'ssh_port must be an integer'})
+            if port < CMDB_SSH_PORT_MIN or port > CMDB_SSH_PORT_MAX:
+                respond(400, {'error': f'ssh_port must be between '
+                                       f'{CMDB_SSH_PORT_MIN} and {CMDB_SSH_PORT_MAX}'})
+        rec['ssh_port'] = port
+        changed.append('ssh_port')
+
     if 'documentation' in body:
         doc = body.get('documentation') or ''
         if not isinstance(doc, str):
@@ -4906,8 +5217,13 @@ def handle_cmdb_update(dev_id):
     respond(200, {'ok': True, 'record': _cmdb_strip_creds(rec)})
 
 
-def handle_cmdb_server_functions():
-    """GET /api/cmdb/server-functions — distinct values, for the autocomplete datalist."""
+def handle_cmdb_server_functions() -> None:
+    """``GET /api/cmdb/server-functions`` — distinct values for autocomplete.
+
+    Returns the set of ``server_function`` values currently in use across
+    all assets, sorted case-insensitively. The frontend feeds this into a
+    ``<datalist>`` for the asset-edit modal.
+    """
     require_auth()
     cmdb = _cmdb_load()
     seen = set()
@@ -4920,8 +5236,13 @@ def handle_cmdb_server_functions():
 
 # ── Vault management endpoints ─────────────────────────────────────────────────
 
-def handle_cmdb_vault_status():
-    """GET /api/cmdb/vault/status — has the vault been initialised?"""
+def handle_cmdb_vault_status() -> None:
+    """``GET /api/cmdb/vault/status`` — has the vault been initialised?
+
+    Returns a ``VaultStatus`` payload (see OpenAPI schema). Safe to call
+    pre-login from the frontend bootstrap path — though it currently
+    requires auth like every other endpoint.
+    """
     require_auth()
     meta = _cmdb_get_vault_meta()
     respond(200, {
@@ -4933,8 +5254,24 @@ def handle_cmdb_vault_status():
     })
 
 
-def handle_cmdb_vault_setup():
-    """POST /api/cmdb/vault/setup — admin-only; one-shot, fails if already configured."""
+def handle_cmdb_vault_setup() -> None:
+    """``POST /api/cmdb/vault/setup`` — initialise the credential vault.
+
+    One-shot operation: subsequent calls return 409 even from the same
+    admin. Use ``/cmdb/vault/change`` to rotate the passphrase later.
+
+    The derived AES-GCM key is returned in the response so the browser
+    doesn't need to re-unlock immediately after setup. The passphrase
+    itself is never persisted.
+
+    Audit:
+        Logs ``cmdb_vault_setup`` with the chosen KDF.
+
+    Raises:
+        HTTPError 400: Passphrase fails strength validation.
+        HTTPError 409: Vault already configured.
+        HTTPError 500: ``cryptography`` package not installed.
+    """
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -4958,8 +5295,18 @@ def handle_cmdb_vault_setup():
     respond(200, {'ok': True, 'key': key.hex()})
 
 
-def handle_cmdb_vault_unlock():
-    """POST /api/cmdb/vault/unlock — any auth user; returns derived key on success."""
+def handle_cmdb_vault_unlock() -> None:
+    """``POST /api/cmdb/vault/unlock`` — derive the vault key from a passphrase.
+
+    Any authenticated user can attempt to unlock; it's only the
+    *credential operations* that require admin role. This split lets
+    viewers see encrypted credential metadata (label, username) without
+    being able to decrypt the password.
+
+    Audit:
+        Logs ``cmdb_vault_unlock`` on success, ``cmdb_vault_unlock_failed``
+        on bad passphrase. Source IP recorded in both cases.
+    """
     actor = require_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -4982,8 +5329,20 @@ def handle_cmdb_vault_unlock():
     respond(200, {'ok': True, 'key': key.hex()})
 
 
-def handle_cmdb_vault_change():
-    """POST /api/cmdb/vault/change — admin; rotate passphrase + re-encrypt all credentials."""
+def handle_cmdb_vault_change() -> None:
+    """``POST /api/cmdb/vault/change`` — rotate passphrase, re-encrypt credentials.
+
+    Walks every credential in the CMDB, decrypts under the old key, and
+    re-encrypts under the new key. The new vault metadata is written
+    first so a crash mid-rotation leaves the vault openable with the
+    old passphrase. Credentials that fail to decrypt during rotation
+    (corrupt entries) are dropped and logged as
+    ``cmdb_vault_change_drop`` for the admin to investigate.
+
+    Returns:
+        ``{'ok': True, 'key': <hex>, 'rotated': <int>}`` where ``rotated``
+        is the count of credentials successfully re-encrypted.
+    """
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -5047,8 +5406,16 @@ def handle_cmdb_vault_change():
 
 # ── Credentials CRUD (require admin + unlocked vault) ──────────────────────────
 
-def handle_cmdb_credentials_list(dev_id):
-    """GET /api/cmdb/{device_id}/credentials — metadata only, no plaintext."""
+def handle_cmdb_credentials_list(dev_id: str) -> None:
+    """``GET /api/cmdb/{device_id}/credentials`` — list credentials, metadata only.
+
+    Returns each credential with ``id``, ``label``, ``username``, ``note``,
+    and timestamps. The encrypted ciphertext is never included; callers
+    that need plaintext use the dedicated ``/reveal`` endpoint.
+
+    Args:
+        dev_id: The enrolled device's ID.
+    """
     require_auth()
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
@@ -5061,8 +5428,25 @@ def handle_cmdb_credentials_list(dev_id):
     respond(200, {'credentials': safe.get('credentials') or []})
 
 
-def handle_cmdb_credentials_add(dev_id):
-    """POST /api/cmdb/{device_id}/credentials — admin; vault key required."""
+def handle_cmdb_credentials_add(dev_id: str) -> None:
+    """``POST /api/cmdb/{device_id}/credentials`` — encrypt and store a credential.
+
+    Requires admin role and an unlocked vault (via the
+    ``X-RP-Vault-Key`` request header). The plaintext password is
+    AES-GCM-encrypted with a fresh nonce and stored alongside the
+    plaintext metadata.
+
+    Args:
+        dev_id: The enrolled device's ID.
+
+    Audit:
+        Logs ``cmdb_credential_add`` with the credential ID + label.
+
+    Raises:
+        HTTPError 400: Missing/empty label or password, or password too long.
+        HTTPError 401: Vault not unlocked (``code=vault_locked``).
+        HTTPError 403: Bad vault key.
+    """
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -5123,8 +5507,18 @@ def handle_cmdb_credentials_add(dev_id):
     respond(200, {'ok': True, 'id': new_id})
 
 
-def handle_cmdb_credentials_update(dev_id, cred_id):
-    """PUT /api/cmdb/{device_id}/credentials/{cred_id} — admin; vault key required if password changes."""
+def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
+    """``PUT /api/cmdb/{device_id}/credentials/{cred_id}`` — update a credential.
+
+    Sends only the fields you want to change. The vault key is required
+    only if the password is being changed; metadata-only edits skip
+    the unlock check. This lets viewers (in some configurations) update
+    their own labels without touching ciphertext.
+
+    Args:
+        dev_id: The enrolled device's ID.
+        cred_id: The credential's ``cred_<hex>`` identifier.
+    """
     actor = require_admin_auth()
     if method() != 'PUT':
         respond(405, {'error': 'Method not allowed'})
@@ -5193,8 +5587,17 @@ def handle_cmdb_credentials_update(dev_id, cred_id):
     respond(200, {'ok': True})
 
 
-def handle_cmdb_credentials_delete(dev_id, cred_id):
-    """DELETE /api/cmdb/{device_id}/credentials/{cred_id} — admin only."""
+def handle_cmdb_credentials_delete(dev_id: str, cred_id: str) -> None:
+    """``DELETE /api/cmdb/{device_id}/credentials/{cred_id}`` — hard-delete.
+
+    The encrypted blob is removed from ``cmdb.json`` on save. The audit
+    log keeps the ``cmdb_credential_delete`` entry but the ciphertext
+    itself is gone — there's no trash can.
+
+    Args:
+        dev_id: The enrolled device's ID.
+        cred_id: The credential's ``cred_<hex>`` identifier.
+    """
     actor = require_admin_auth()
     if method() != 'DELETE':
         respond(405, {'error': 'Method not allowed'})
@@ -5221,9 +5624,23 @@ def handle_cmdb_credentials_delete(dev_id, cred_id):
     respond(200, {'ok': True})
 
 
-def handle_cmdb_credentials_reveal(dev_id, cred_id):
-    """POST /api/cmdb/{device_id}/credentials/{cred_id}/reveal — admin; returns plaintext.
-    Every reveal is audit-logged with actor + asset + credential label."""
+def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
+    """``POST /api/cmdb/{device_id}/credentials/{cred_id}/reveal`` — return plaintext.
+
+    The audit-logged moment of truth. Decrypts the credential's
+    ciphertext using the vault key from the request header and returns
+    the plaintext. Every reveal is recorded with actor, source IP,
+    asset, and credential label so post-incident review can answer
+    "who looked at the IPMI password last Thursday".
+
+    Args:
+        dev_id: The enrolled device's ID.
+        cred_id: The credential's ``cred_<hex>`` identifier.
+
+    Audit:
+        ``cmdb_credential_reveal`` on success,
+        ``cmdb_credential_reveal_failed`` on decrypt failure.
+    """
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -5277,12 +5694,13 @@ def main():
 
     if pi == '/api/login': handle_login()
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
+    elif pi == '/api/openapi.json' and m == 'GET': handle_openapi_spec()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
                                      '/icon','/monitored','/cve','/services',
-                                     '/services/config','/logs')):
+                                     '/services/config','/logs','/update-logs')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
@@ -5335,6 +5753,8 @@ def main():
     elif pi == '/api/exec/wait' and m == 'POST': handle_longpoll_exec()
     elif pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET':
         handle_cmd_output(pi[len('/api/devices/'):-len('/output')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/update-logs') and m == 'GET':
+        handle_device_update_logs(pi[len('/api/devices/'):-len('/update-logs')])
     elif pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET':
         handle_uptime(pi[len('/api/devices/'):-len('/uptime')])
     elif pi == '/api/monitor/history' and m == 'GET':
@@ -5466,12 +5886,15 @@ def main():
 if __name__ == '__main__':
     try:
         main()
+    except HTTPError as e:
+        # Normal short-circuit from a handler — render the planned response.
+        _render_response(e.status, e.body)
     except SystemExit:
+        # Some legacy code paths still use sys.exit() during initialisation.
+        # Honour them rather than swallowing.
         raise
     except Exception:
-        # Do NOT leak exception details to the client
-        print("Status: 500 Internal Server Error")
-        print("Content-Type: application/json")
-        print("Cache-Control: no-store")
-        print()
-        print(json.dumps({'error': 'Internal server error'}))
+        # Anything else is unexpected. Render a generic 500 — never leak
+        # exception details to the client. Stack traces, if needed, are
+        # available via fcgiwrap's stderr capture.
+        _render_response(500, {'error': 'Internal server error'})

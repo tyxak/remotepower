@@ -1,0 +1,42 @@
+# RemotePower — Python tooling configuration.
+# Used by `make lint`, `make format`, and `make typecheck`.
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+# We don't want black reformatting the bundled vendored libs (none yet, but
+# leave the stanza so we don't have to scramble later).
+extend-exclude = '''
+/(
+    \.git
+  | __pycache__
+  | client/__pycache__
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["api", "cmdb_vault", "cve_scanner", "prometheus_export", "smtp_notifier", "ldap_auth"]
+# CGI scripts often import sibling modules with no package — make isort tolerate that.
+default_section = "THIRDPARTY"
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true   # cryptography, ldap3, reportlab, psutil are all optional
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# The codebase predates type hints — start permissive and tighten later.
+check_untyped_defs = false
+disallow_untyped_defs = false
+# Per-module strictness (tightened gradually as code is annotated).
+[[tool.mypy.overrides]]
+module = ["cmdb_vault"]
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["openapi_spec"]
+disallow_untyped_defs = true
+check_untyped_defs = true

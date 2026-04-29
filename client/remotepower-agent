@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.9.0'
+VERSION      = '1.10.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -692,7 +692,15 @@ def execute_command(cmd):
             result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=exec_timeout)
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")
-            return {'cmd': shell_cmd, 'output': output[:4096], 'rc': result.returncode}
+            # v1.10.0: bump output cap to 256 KB for package-upgrade runs.
+            # `apt -y upgrade` and `dnf -y upgrade` routinely produce 30-80 KB
+            # of useful output; 4 KB used to truncate it mid-package and the
+            # new update-logs feature would lose half the diagnostic info.
+            # The server independently caps at MAX_UPDATE_LOG_BYTES.
+            is_pkg_upgrade = any(needle in shell_cmd for needle in
+                                 ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu'))
+            cap = 256 * 1024 if is_pkg_upgrade else 4096
+            return {'cmd': shell_cmd, 'output': output[:cap], 'rc': result.returncode}
         except subprocess.TimeoutExpired:
             log.warning(f"Command timed out: {shell_cmd!r}")
             return {'cmd': shell_cmd, 'output': 'TIMEOUT', 'rc': -1}

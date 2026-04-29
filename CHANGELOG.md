@@ -1,5 +1,91 @@
 # Changelog
 
+## v1.10.0 - 2026-04-29
+
+### New features
+
+**Swagger / OpenAPI** — interactive API documentation
+- New `openapi_spec.py` sibling module: hand-written OpenAPI 3.1 spec covering 22 endpoints across 7 tags (Auth, Devices, Commands, CMDB, Vault, Credentials, Reporting)
+- `GET /api/openapi.json` returns the spec (auth-gated)
+- New page `/swagger.html` renders Swagger UI from a pinned CDN with the user's session token auto-injected so "Try it out" works without re-authenticating
+- "API Docs" link in the sidebar
+
+**SSH link from credentials** — connect directly from the web UI
+- New per-asset `ssh_port` field in CMDB record (default 22, validated 1-65535)
+- Each credential row in the Credentials tab gets an SSH button: clickable `ssh://user@host:port` URI for handlers that support it (PuTTY, iTerm, Terminal.app), plus a "Copy" button that copies `ssh user@host -p port` to the clipboard
+- Password is **never** included in the URI — it stays in the reveal modal where it belongs
+
+**OS icons on Devices and CMDB pages**
+- Two icons total: Linux (Tux) and Windows. Inline SVG, uses `currentColor` so it inherits the surrounding text colour
+- Linux detection covers Ubuntu, Debian, Fedora, RHEL/Rocky/CentOS/AlmaLinux, Arch, CachyOS, Manjaro, Alpine, openSUSE, Mint, Pop!_OS, Gentoo, Slackware, NixOS, plus any agent string containing "linux" or "gnu"
+- Windows detection covers any agent string containing "windows", "microsoft", "win10", or "win11"
+- Anything else gets a question-mark glyph so detection failures are visually obvious rather than silent
+- Icons appear on the device card OS field and the CMDB asset table name column
+
+**Update history** — see what `apt`/`dnf`/`pacman` actually said
+- New `update_logs.json` rolling buffer, capped at 10 runs per device
+- `GET /api/devices/{id}/update-logs` endpoint surfaces the history
+- Heartbeat handler dual-routes upgrade output: lands in both `cmd_output.json` (existing) and `update_logs.json` (new)
+- "Update history" link added to the device dropdown menu opens a modal with collapsed/expanded run output, exit codes, durations, and per-run package manager
+- Agent: bumped output cap from 4 KB to 256 KB for upgrade commands so `apt -y upgrade` output isn't truncated mid-package
+
+**Audit log filtering**
+- Free-text search box matches across actor / action / detail
+- Action-type dropdown auto-populated from the distinct actions in the data
+- Both filters work client-side; data is loaded once per page visit
+
+### Code quality / "enterprise-ish" pass
+
+- New `pyproject.toml` configures `black` (line length 100), `isort` (black profile), and `mypy` (strict on `cmdb_vault` and `openapi_spec`, permissive on the legacy `api.py` until a separate refactor)
+- New `Makefile` with `make test`, `make lint`, `make format`, `make typecheck`, `make check`, `make install-dev`, `make clean`
+- `HTTPError` exception pattern replaces `respond(); sys.exit(0)` — handlers are now testable as plain function calls; no more `SystemExit` shenanigans in test helpers (the legacy helpers monkey-patched `respond` and continue to work)
+- Type hints + Google-style docstrings on the v1.9.0 CMDB handlers and the new v1.10.0 endpoints
+- `cmdb_vault.py` and `openapi_spec.py` pass strict mypy + black + isort
+
+### Bonus / smaller items
+
+- **Sysinfo trim on CMDB GET** — `_trim_sysinfo()` reduces the per-asset payload from 50+ KB to under 1 KB by whitelisting just the fields the modal actually displays
+- Type hints on `cmdb_vault.py`'s public surface tightened: `validate_passphrase` now declares `'str | None'`, `_crypto` declares `tuple` return
+- **Deploy fixes**: `deploy-server.sh` and `install-server.sh` now auto-discover all `server/html/*.html` files (was hardcoded to `index.html`); the Dockerfile copies the whole `server/html/` directory. Without this, the new `swagger.html` would not be deployed and the API Docs page would 404.
+- **Swagger token fix**: the Swagger UI page reads the session token from the correct `localStorage.rp_token` / `sessionStorage.rp_token` key (was reading non-existent `remotepower-token` keys, causing every visitor to see "Not logged in" even when authenticated on the dashboard).
+
+### New endpoints
+
+- `GET /api/openapi.json` — OpenAPI 3.1 spec
+- `GET /api/devices/{device_id}/update-logs` — rolling buffer of upgrade output
+
+### Modified endpoints
+
+- `PUT /api/cmdb/{device_id}` — accepts new `ssh_port` field
+- `GET /api/cmdb` — response includes `ssh_port`
+- `GET /api/cmdb/{device_id}` — response includes `ssh_port`; `sysinfo` now trimmed
+
+### New files
+
+- `server/cgi-bin/openapi_spec.py` — handwritten OpenAPI 3.1 spec
+- `server/html/swagger.html` — Swagger UI page
+- `pyproject.toml` — black/isort/mypy config
+- `Makefile` — developer convenience targets
+- `tests/test_v1100.py` — 24 new tests across 6 classes
+
+### Tests
+
+**Full suite: 268 passing, 0 failing** (244 from v1.9.0 + 24 new). The new tests cover: `HTTPError` raising and rendering, ssh_port default + validation + persistence + list surfacing, sysinfo trim (whitelist + non-dict input), update logs (empty / runs in order / 404 / capacity cap), OpenAPI spec building (structural validity, security schemes, critical endpoints documented, fresh objects), and tooling files exist.
+
+### Compatibility
+
+- **Backwards-compatible.** v1.9.0 servers work with v1.10.0 clients and vice versa. CMDB records without `ssh_port` are backfilled with the default at GET time.
+- **Agent compatibility.** v1.10.0 agents are required only if you want the full 256 KB upgrade output cap; older agents work fine but truncate at 4 KB.
+- **Data files.** `update_logs.json` is created lazily on first heartbeat with `cmd_output` matching an upgrade command. No migration needed.
+
+### Known limitations
+
+- Update logs are populated only after the next heartbeat (~60s). No live streaming — that's a separate feature involving long-polling or SSE that wasn't worth the complexity for this release.
+- Swagger UI assets load from CDN. On fully-offline servers the page falls back to a plain-text "raw spec is at /api/openapi.json" message.
+- `make lint` only checks the v1.10.0 baseline files. Full-codebase formatting is deferred to avoid an unreviewable diff in this release.
+
+---
+
 ## v1.9.0 - 2026-04-27
 
 ### New features

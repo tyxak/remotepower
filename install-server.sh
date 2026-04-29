@@ -114,7 +114,11 @@ success "Directories created"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 info "Installing web files..."
-cp    "$SCRIPT_DIR/server/html/index.html"    /var/www/remotepower/index.html
+# Auto-discover all HTML pages — keeps this in sync when new ones are added.
+for f in "$SCRIPT_DIR"/server/html/*.html; do
+    name="$(basename "$f")"
+    cp "$f" /var/www/remotepower/"$name"
+done
 install -m 755 "$SCRIPT_DIR/server/cgi-bin/api.py" /var/www/remotepower/cgi-bin/api.py
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 success "Web files installed"

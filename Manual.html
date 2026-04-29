@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RemotePower Manual – The Code-Derived Guide</title>
+<style>
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    max-width: 900px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 2.4rem; border-bottom: 3px solid #2c3e50; padding-bottom: 0.3rem; color: #2c3e50; }
+  h2 { font-size: 1.7rem; margin-top: 2.5rem; color: #2c3e50; border-bottom: 1px solid #ccc; padding-bottom: 0.2rem; }
+  h3 { font-size: 1.3rem; margin-top: 1.8rem; color: #34495e; }
+  p { margin: 0.8rem 0; }
+  code {
+    background: #f4f4f4;
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+  }
+  pre {
+    background: #2d2d2d;
+    color: #f8f8f2;
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.2rem 0;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 0.5rem;
+    text-align: left;
+  }
+  th {
+    background: #f0f0f0;
+  }
+  blockquote {
+    margin-left: 0;
+    padding-left: 1rem;
+    border-left: 4px solid #2c3e50;
+    color: #555;
+  }
+  @media print {
+    body { max-width: 100%; }
+    h1, h2, h3 { page-break-after: avoid; }
+    pre, table { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<h1>RemotePower: A No-Nonsense Manual</h1>
+<p><em>Written by someone who actually read the code</em></p>
+
+<p>So you've got a bunch of Linux boxes (and maybe a Windows machine you're forced to keep around) and you want to reboot them, run commands, and check their vitals without opening a dozen SSH terminals. RemotePower does that. It's a small, self-hosted web dashboard that talks to a lightweight agent on each client. The agent phones home every minute to ask "got any work for me?" If you queued a reboot, shutdown, or a custom command, the agent picks it up, runs it, and reports back. No inbound firewall holes. No message brokers. Just a CGI script and some JSON files held together with determination.</p>
+<p>This manual is based entirely on reading the source code—no marketing fluff, no README regurgitation. I'll show you how to get it running, how to use it effectively, and where the sharp edges are.</p>
+
+<h2>1. What you're actually installing</h2>
+<p>Three components:</p>
+<ol>
+  <li><strong>Server</strong>: A single Python CGI script (<code>server.py</code>) that lives behind Nginx. It serves the dashboard HTML and handles every API call. It stores all its data as flat JSON files in <code>/var/lib/remotepower/</code>.</li>
+  <li><strong>Agent</strong>: A single Python script (<code>agent.py</code>) that runs on every client, usually as a systemd service (or NSSM on Windows). It polls the server, executes commands, collects metrics. It runs as root because it eventually needs to call <code>shutdown</code> and <code>reboot</code>.</li>
+  <li><strong>Monitor</strong> (optional): A separate Python daemon (<code>monitor.py</code>) that does ICMP/TCP/HTTP checks from the server. It's triggered by a systemd timer, not part of the CGI.</li>
+</ol>
+<p>The whole thing is about 2500 lines of Python, no framework, no database—just <code>cgi</code>, <code>json</code>, <code>fcntl</code> for file locking, and raw sockets for Wake‑on‑LAN.</p>
+
+<h2>2. Hardware and software requirements</h2>
+<ul>
+  <li><strong>Server</strong>: Any Linux with Python 3.8+, Nginx, <code>fcgiwrap</code>, and systemd. (A Raspberry Pi works fine.)</li>
+  <li><strong>Client</strong>: Python 3.8+. Linux or Windows. The agent needs root to run commands.</li>
+  <li>Your server needs a static IP or hostname reachable from clients. HTTPS strongly recommended (the install script sets up a self‑signed certificate; you can replace it).</li>
+</ul>
+
+<h2>3. Installation – the real steps</h2>
+<p>I'm going to walk through what the install scripts actually do, so you can fix things when they go sideways.</p>
+
+<h3>3.1 Server</h3>
+<p>Clone the repo:</p>
+<pre><code>git clone https://github.com/tyxak/remotepower
+cd remotepower</code></pre>
+
+<p>Run the server installer as root:</p>
+<pre><code>sudo bash install-server.sh</code></pre>
+
+<p>Here's what it does, in order:</p>
+<ul>
+  <li>Detects your distro (apt, dnf, pacman) and installs packages: <code>nginx</code>, <code>fcgiwrap</code>, <code>python3</code>, <code>python3-pip</code>, <code>python3-venv</code> (or <code>virtualenv</code>), and <code>bcrypt</code> via pip.</li>
+  <li>Creates a system user <code>remotepower</code> if it doesn't exist, otherwise uses <code>www-data</code>. The data directory <code>/var/lib/remotepower/</code> ends up owned by that user with mode <code>700</code>.</li>
+  <li>Copies <code>server.py</code> to <code>/usr/lib/cgi-bin/remotepower/api</code> (the file literally becomes the endpoint). It's executable, with a shebang pointing to <code>python3</code>.</li>
+  <li>Writes an Nginx config to <code>/etc/nginx/sites-available/remotepower</code> (and symlinks it). This config:
+    <ul>
+      <li>Serves static dashboard files from <code>/var/www/remotepower/</code>.</li>
+      <li>Passes anything under <code>/api/</code> to <code>fcgiwrap</code> via a Unix socket.</li>
+      <li>Sets <code>fastcgi_read_timeout</code> to 130s (needed for long‑poll exec).</li>
+    </ul>
+  </li>
+  <li>Enables and starts Nginx and fcgiwrap.</li>
+  <li>Generates a random admin password, stores it in <code>/var/lib/remotepower/users.json</code> as a bcrypt hash with a <code>"must_change": true</code> flag. The dashboard will force you to change it on first login.</li>
+  <li>Prints the server's IP address and tells you to open <code>https://that-ip/</code> in a browser.</li>
+</ul>
+
+<p>If you prefer Docker, there's a <code>docker-compose.yml</code> that builds a container running Python's built‑in HTTP server on port 8080. You need to put a reverse proxy in front for SSL. Data lives in a Docker volume.</p>
+
+<h3>3.2 Client (Linux)</h3>
+<p>On each machine you want to manage, run:</p>
+<pre><code>sudo bash install-client.sh</code></pre>
+
+<p>That script:</p>
+<ul>
+  <li>Copies <code>agent.py</code> to <code>/usr/local/bin/remotepower-agent</code> and makes it executable.</li>
+  <li>Creates <code>/etc/remotepower/</code> (the agent stores its config there later).</li>
+  <li>Installs a systemd unit file <code>remotepower-agent.service</code> that executes the agent as root with the <code>--daemon</code> flag.</li>
+  <li>Enables and starts the service, but <strong>the agent won't work yet</strong> because it hasn't enrolled. The script then prompts you to run enrollment manually.</li>
+</ul>
+
+<p>After the install script finishes, enroll the client:</p>
+<pre><code>sudo remotepower-agent enroll</code></pre>
+
+<p>You'll be asked for the server URL (e.g., <code>https://my.server.lan</code>) and a 6‑digit PIN. Get the PIN from the dashboard: log in as admin, click the <strong>+ Enroll device</strong> button. The PIN is single‑use and expires in 10 minutes.</p>
+
+<p>Once enrolled, the agent saves the device token to <code>/etc/remotepower/config.json</code> (permissions 600) and starts polling. Within 60 seconds the dashboard shows the device as online.</p>
+
+<h3>3.3 Client (Windows)</h3>
+<p>Run PowerShell as Administrator and execute:</p>
+<pre><code>powershell -ExecutionPolicy Bypass -File install-client.ps1</code></pre>
+
+<p>It installs <code>agent.py</code> to <code>C:\Program Files\RemotePower\</code>, installs NSSM if needed, and creates a Windows service called <code>RemotePowerAgent</code>. Then enroll similarly by running <code>python agent.py enroll</code> from that directory.</p>
+
+<h2>4. Using the dashboard</h2>
+<p>Open <code>https://your-server/</code> and log in with admin credentials. The dashboard is a single-page vanilla‑JS application. No frameworks, just a pile of <code>fetch()</code> calls and DOM manipulation. Every 60 seconds it asks the server for device statuses.</p>
+
+<p>Each device is shown as a card with hostname, online/offline indicator, group, tags, and a row of tiny buttons. Hover over them to see tooltips. The main ones:</p>
+<ul>
+  <li><strong>Reboot</strong> – queues a reboot. The agent picks it up on its next heartbeat.</li>
+  <li><strong>Shutdown</strong> – same, but shutdown.</li>
+  <li><strong>&gt;_ Execute</strong> – opens a modal where you can type a shell command. The output appears in the history a bit later.</li>
+  <li><strong>WoL</strong> – sends a Wake‑on‑LAN magic packet. Works only if the server and client are in the same broadcast domain, or if you've set up directed broadcast on your router. The code uses the client's last known IP, falling back to broadcast if configured.</li>
+  <li><strong>Update agent</strong> – tells the agent to download and replace itself from the server.</li>
+  <li><strong>Metrics</strong> – if the client has <code>psutil</code> installed, you'll see sparklines of CPU/RAM/disk.</li>
+</ul>
+
+<p>The navigation menu (gear icon) gives access to:</p>
+<ul>
+  <li><strong>Settings</strong> – global config, webhooks, monitors, maintenance windows.</li>
+  <li><strong>API Keys</strong> – create named keys that never expire. Use them for scripts.</li>
+  <li><strong>Schedule</strong> – define one‑shot or cron‑based jobs to reboot/shutdown devices.</li>
+  <li><strong>Command Library</strong> – save your favorite shell commands for quick reuse.</li>
+  <li><strong>CMDB</strong> – attach notes, tags, asset info, and even encrypted credentials (AES‑GCM vault) to each device.</li>
+</ul>
+
+<p>Groups and tags are just strings you assign. You can filter the dashboard by them, and batch‑command an entire group (e.g., reboot all "lab" machines at once).</p>
+
+<h2>5. How the heartbeat and command queue actually work</h2>
+<p>This part is important if you want to understand delays.</p>
+
+<p>The agent wakes up every 60 seconds (configurable via environment variable <code>RP_POLL_INTERVAL</code>). It sends a <code>POST /api/heartbeat</code> with its device ID, auth token, and system info (hostname, IPs, MAC, metrics). The server records the heartbeat timestamp and immediately checks <code>commands.json</code> for any pending command with that device ID.</p>
+
+<p>If a command is pending, the server returns it in the heartbeat response and marks it "in‑flight". The agent receives the command, executes it, and on the <strong>next</strong> heartbeat (60 seconds later) sends the result back. So a simple reboot command takes about 1 minute to start and another minute to report success. If you want faster feedback, use the long‑poll exec (explained below).</p>
+
+<p>Shutdown/reboot commands are slightly special: the agent runs the OS shutdown command (<code>shutdown -h +0</code> on Linux, <code>shutdown /s /t 0</code> on Windows) and immediately reports success on the next heartbeat—before the machine actually powers off. That's why you sometimes see "executed" but the device stays online for another few seconds. You can set a shutdown delay in server settings (which prepends a <code>+</code> argument or changes the <code>/t</code> value).</p>
+
+<p>If a command fails or the agent never reports back, the command remains "in‑flight" forever in <code>commands.json</code>. The dashboard shows a spinner. There's no timeout or automatic cancellation; you have to manually clear it from the history (the dashboard has a "discard" button that deletes the command entry).</p>
+
+<h2>6. The API – endpoints that matter</h2>
+<p>All API calls go to <code>https://your-server/api/&lt;endpoint&gt;</code>. Authentication is via the <code>X-Token</code> header (session token from login, or API key). Admin role required for destructive actions.</p>
+
+<h3>6.1 List devices</h3>
+<pre><code>curl -k https://your-server/api/devices \
+  -H "X-Token: YOUR_API_KEY"</code></pre>
+<p>Returns an array of devices with <code>device_id</code>, <code>hostname</code>, <code>online</code> (bool), <code>group</code>, <code>tags</code>, <code>last_seen_epoch</code>, and metrics if available.</p>
+
+<h3>6.2 Reboot a single device or a whole group</h3>
+<pre><code># single device
+curl -k -X POST https://your-server/api/reboot \
+  -H "X-Token: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "abc123"}'
+
+# by group
+curl -k -X POST https://your-server/api/reboot \
+  -H "X-Token: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"group": "lab"}'</code></pre>
+<p>Response: <code>{"status": "queued", "commands": 3}</code>.</p>
+
+<h3>6.3 Execute a command and wait for output</h3>
+<pre><code>curl -k -X POST https://your-server/api/exec/wait \
+  -H "X-Token: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "mybox", "cmd": "df -h /", "timeout": 90}'</code></pre>
+<p>This keeps the HTTP connection open for up to <code>timeout</code> seconds. As soon as the agent returns the command output, you get it in the response. If the client is offline or the agent doesn't check in, the request hangs until the timeout, then returns an error. Nginx's <code>fastcgi_read_timeout</code> must be greater than your timeout.</p>
+
+<h3>6.4 Queue a regular command (without waiting)</h3>
+<pre><code>curl -k -X POST https://your-server/api/exec \
+  -H "X-Token: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "mybox", "cmd": "apt-get update && apt-get -y upgrade"}'</code></pre>
+<p>Returns a UUID. Check the result later via <code>/api/history</code>.</p>
+
+<h3>6.5 Send Wake‑on‑LAN</h3>
+<pre><code>curl -k -X POST https://your-server/api/wol \
+  -H "X-Token: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "mybox"}'</code></pre>
+<p>The server sends a magic packet from your server, not from the dashboard browser.</p>
+
+<h3>6.6 Get a quick digest (for email or scripts)</h3>
+<pre><code>curl -k https://your-server/api/digest \
+  -H "X-Token: YOUR_API_KEY"</code></pre>
+<p>Returns JSON: <code>total</code>, <code>online</code>, <code>offline</code>, <code>pending_patches</code>, <code>recent_commands</code>.</p>
+
+<h3>6.7 Prometheus metrics</h3>
+<pre><code>curl -k https://your-server/api/metrics</code></pre>
+<p>No auth needed (configurable in settings). Returns text/plain metrics for scraping.</p>
+
+<h2>7. Real‑life examples</h2>
+<p><strong>Morning ritual:</strong> Check that everything came back after a power outage.</p>
+<pre><code>curl -s https://my.server/api/digest -H "X-Token: abc123" | jq '.'
+# If offline > 0, panic.</code></pre>
+
+<p><strong>Patching a bunch of servers without leaving your coffee:</strong> Push a full upgrade command to your "homelab" group.</p>
+<pre><code>curl -k -X POST https://my.server/api/exec \
+  -H "X-Token: myadminapikey" \
+  -H "Content-Type: application/json" \
+  -d '{"group": "homelab", "cmd": "apt-get update && apt-get -y upgrade && [ -f /var/run/reboot-required ] && reboot || true"}'</code></pre>
+<p>(The <code>&& reboot</code> trick works because the agent runs as root; the command will trigger a reboot if the file exists.)</p>
+
+<p><strong>Scheduling a weekly reboot:</strong> Use a cron expression to bounce a flaky media server every Sunday at 3 AM.</p>
+<pre><code>curl -k -X POST https://my.server/api/schedule \
+  -H "X-Token: myadminapikey" \
+  -H "Content-Type: application/json" \
+  -d '{"cron": "0 3 * * 0", "action": "reboot", "device_id": "media-server", "label": "weekly bounce"}'</code></pre>
+
+<p><strong>Enabling metrics:</strong> SSH into client, install <code>psutil</code>, restart agent.</p>
+<pre><code>pip3 install psutil
+sudo systemctl restart remotepower-agent</code></pre>
+<p>After a minute, sparklines appear on the dashboard.</p>
+
+<p><strong>Adding a new device to an existing group via API:</strong></p>
+<pre><code>curl -k -X POST https://my.server/api/groups \
+  -H "X-Token: ..." \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "newbox", "group": "homelab"}'</code></pre>
+
+<h2>8. Troubleshooting with the source code in mind</h2>
+<table>
+  <tr><th>Symptom</th><th>What the code says</th></tr>
+  <tr><td>Dashboard shows device offline but agent is running</td><td>The server marks a device offline if <code>last_heartbeat</code> is older than 120 seconds. Check <code>journalctl -u remotepower-agent -f</code>. Likely network issue or token mismatch. The agent logs HTTP errors, including 403 if token invalid.</td></tr>
+  <tr><td>Enrollment says "invalid PIN"</td><td>PIN is stored in <code>enroll.json</code> with a <code>created_epoch</code>. Server rejects if current time &gt; created + 600 seconds, or if PIN already used.</td></tr>
+  <tr><td>Reboot command never executes</td><td>The agent only runs commands received in a heartbeat response. Make sure the device ID in <code>commands.json</code> matches exactly. Use the dashboard to issue the command. Check agent logs: it prints "received command: reboot".</td></tr>
+  <tr><td>Long‑poll exec always times out</td><td>Nginx <code>fastcgi_read_timeout</code> must be ≥ your <code>timeout</code> parameter. The install script sets it to 130s. If you changed it, fix it. Also, the agent must pick up the command within that window.</td></tr>
+  <tr><td>Wake‑on‑LAN does nothing</td><td>Server code uses the device's last known IP from heartbeat, constructs a broadcast address by replacing the last octet with 255 (or uses the <code>wol_broadcast</code> config if set). If the server and target are on different subnets, you need directed broadcast enabled on your router, or use a WoL relay. Check the Nginx access log for the <code>/api/wol</code> call and any errors.</td></tr>
+  <tr><td>Agent won't start after installation</td><td>The systemd service expects the binary at <code>/usr/local/bin/remotepower-agent</code>. Verify it exists and is executable. Run <code>sudo remotepower-agent run</code> in foreground to see tracebacks.</td></tr>
+  <tr><td>Dashboard cannot change admin password</td><td>The first login forces a password change because <code>users.json</code> has <code>"must_change": true</code>. After that, <code>POST /api/change-password</code> updates the bcrypt hash.</td></tr>
+  <tr><td>Metrics not showing</td><td>Agent only collects metrics if <code>psutil</code> is importable. Install it, restart agent. Metrics are sent every heartbeat if available. The server stores up to 1440 snapshots.</td></tr>
+  <tr><td>Server uses a lot of CPU</td><td>Not from the code—it's CGI, so a process spawns per request. High traffic could stress the server; add caching or use a reverse proxy. The monitor script is separate and runs periodically via cron.</td></tr>
+</table>
+
+<h2>9. A few quirks you should know about</h2>
+<ul>
+  <li><strong>No database, just JSON files locked with <code>fcntl.flock</code>.</strong> If two simultaneous requests try to write, one waits. It's robust enough for a handful of devices, but don't expect enterprise throughput.</li>
+  <li><strong>The agent update downloads the new script over whatever URL the server gives.</strong> The install script sets up HTTPS, but if you misconfigure Nginx, the agent might download in plain text. The SHA‑256 check still protects integrity, but the agent's code is visible on the wire. Not a big deal on a trusted LAN.</li>
+  <li><strong>The agent runs as root all the time.</strong> There's no privilege dropping. Custom commands execute as root. Set a per‑device command allowlist in the CMDB if you have other people using the dashboard.</li>
+  <li><strong>The long‑poll exec hack</strong> is clever but fragile: the CGI script writes to <code>longpoll.json</code>, the heartbeat handler reads it and sets a threading.Event, which the waiting CGI thread picks up. If the file gets corrupted or the timing is off, the long poll hangs until Nginx kills it.</li>
+  <li><strong>WoL might not work if the IP changes while the device is asleep.</strong> The server remembers the last IP, but if DHCP reassigns it, the magic packet goes into the void. Assign static reservations.</li>
+  <li><strong>The dashboard has no logout button.</strong> Seriously, there's no logout in the code. Close the browser or delete the session cookie manually.</li>
+  <li><strong>API keys never expire.</strong> Rotate them manually. They're stored alongside a bcrypt hash for verification, but the plain key is returned on creation and never shown again, so it's okay.</li>
+</ul>
+
+<h2>10. Backups and disaster recovery</h2>
+<p>Everything lives in <code>/var/lib/remotepower/</code>. Back it up:</p>
+<pre><code>sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/</code></pre>
+<p>The dashboard has an <strong>Export backup</strong> button that zips the same files (minus session tokens). You can import by extracting into a fresh installation on another server.</p>
+<p>If you lose everything, reinstall the server, then re‑enroll each client. Clients keep their tokens, but the server won't know them until they re‑enroll. Use <code>sudo remotepower-agent re-enroll</code> to keep device history.</p>
+
+<h2>11. Summary</h2>
+<p>RemotePower is a straightforward, file‑based remote management tool that does exactly what it says on the tin. It's not pretty inside—one giant CGI script, no framework, some threading hacks—but it works reliably for home labs and small deployments. The agent's polling design means zero firewall headaches, and the API is simple enough to integrate with your cron jobs or monitoring stack.</p>
+<p>Read the source if something breaks; the logic is linear and well‑commented. And if you're still stuck, re‑enroll the client—it fixes 90% of problems.</p>
+<p>Now go manage your machines from the comfort of your browser, and remember: with great power comes great "oops, I just rebooted production."</p>
+</body>
+</html>

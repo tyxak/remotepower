@@ -26,8 +26,15 @@ for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     echo "      → cgi-bin/$name"
 done
 
-info "Deploying index.html..."
-cp "$SCRIPT_DIR/server/html/index.html" /var/www/remotepower/index.html
+info "Deploying static HTML files..."
+# Auto-discovers index.html plus any sibling pages (swagger.html in v1.10.0,
+# whatever future pages get added) — no need to edit this script when adding
+# a new HTML file.
+for f in "$SCRIPT_DIR"/server/html/*.html; do
+    name="$(basename "$f")"
+    install -m 644 "$f" /var/www/remotepower/"$name"
+    echo "      → $name"
+done
 
 info "Deploying remotepower-passwd..."
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd

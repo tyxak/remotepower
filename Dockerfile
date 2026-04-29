@@ -19,7 +19,7 @@ RUN mkdir -p /var/www/remotepower/cgi-bin \
     chmod 700 /var/lib/remotepower
 
 # Copy server files
-COPY server/html/index.html        /var/www/remotepower/index.html
+COPY server/html/                   /var/www/remotepower/
 COPY server/cgi-bin/api.py          /var/www/remotepower/cgi-bin/api.py
 COPY server/remotepower-passwd      /var/www/remotepower/cgi-bin/remotepower-passwd
 COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent

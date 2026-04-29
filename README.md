@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.9.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -72,6 +72,10 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | 📜 **Log tail + alerts** | Agent submits `journalctl` output per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts to webhook |
 | 🔧 **Maintenance windows** | Suppress webhook alerts during scheduled windows (one-shot or cron); per-device, per-group, or fleet-global; full audit trail of suppressed events |
 | 🗄️ **CMDB** | Per-asset metadata (asset ID, server function, hypervisor URL, Markdown documentation) plus encrypted credential vault (AES-GCM + PBKDF2-SHA256, shared admin passphrase, audit-logged reveals) |
+| 📖 **Swagger / OpenAPI** | Hand-written OpenAPI 3.1 spec at `/api/openapi.json`, interactive Swagger UI at `/swagger.html` with auto-injected session token for "Try it out" |
+| 🔗 **SSH from credentials** | Per-asset `ssh_port` field; each credential row has `ssh://user@host:port` link + Copy button for the equivalent `ssh` command |
+| 🐧 **OS icons** | Auto-detected inline-SVG glyphs: Linux (Tux) for anything Linux-shaped, Windows tile for Windows, question-mark fallback for the rest |
+| 📜 **Update history** | Rolling 10-run buffer of `apt`/`dnf`/`pacman` output per device; modal viewer with timestamps, exit codes, durations, full output |
 | ℹ️ **About page** | Server version, agent version, GitHub release check |
 
 ---
@@ -101,6 +105,7 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                               ├── cmd_library.json      # saved command snippets
                               ├── cmdb.json             # CMDB asset metadata + encrypted creds
                               ├── cmdb_vault.json       # KDF salt + canary (no plaintext)
+                              ├── update_logs.json      # rolling buffer of upgrade-output per device
                               └── longpoll.json         # pending long-poll slots
 
 Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
@@ -261,6 +266,22 @@ Clients self-update automatically within ~1 hour, or push from the dashboard wit
 ---
 
 ## Feature Guide
+
+### API documentation (Swagger)
+Click **API Docs** in the sidebar to open `/swagger.html` — Swagger UI rendering the OpenAPI 3.1 spec for every public endpoint. The page auto-injects your existing session token, so "Try it out" works without an Authorize step. The raw spec is at `/api/openapi.json`. Reference: **[docs/swagger.md](docs/swagger.md)**.
+
+### SSH from credentials
+Set the per-asset SSH port on the CMDB asset modal (Properties tab). Each credential row in the Credentials tab gets an SSH button that opens `ssh://user@host:port` in your default handler, plus a Copy button for the equivalent `ssh user@host -p port` command. Passwords are deliberately not in the URI.
+
+### Update history
+The device dropdown menu has an "Update history" link that opens the rolling buffer of the last 10 package-upgrade runs on that device — full output, exit codes, timestamps. Output is captured automatically on the next heartbeat after a run completes (~60s). Reference: **[docs/update-history.md](docs/update-history.md)**.
+
+### CMDB & credential vault
+The **CMDB** tab gives every enrolled device an asset record: free-text asset ID, server function (web, db, dc…) with autocomplete, optional hypervisor URL, and Markdown documentation up to 64 KB. Underneath that sits an opt-in encrypted credential vault: AES-GCM 256-bit, PBKDF2-SHA256 key derivation, shared admin passphrase, audit-logged reveals.
+
+Setup is a one-time **Set up vault** click on the CMDB page. The passphrase is never persisted server-side — the derived key lives in the browser tab and clears on logout or page reload.
+
+Full reference, threat model, API examples, and backup story: **[docs/cmdb.md](docs/cmdb.md)**.
 
 ### Device Groups
 Assign a namespace to a device via the group button (👥) on the device card. Groups like `dc1/prod`, `homelab`, `office` cause the device grid to sort and visually group by namespace. Batch commands (`device_ids`, `tag`, or `group` field) can target an entire group at once.

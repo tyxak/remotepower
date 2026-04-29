@@ -1127,6 +1127,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Audit</span>
     </button>
+    <button class="nav-btn" onclick="window.open('/swagger.html', '_blank')" title="Open the OpenAPI / Swagger UI documentation in a new tab">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
+      <span>API Docs</span>
+    </button>
     <button class="nav-btn" onclick="showPage('about',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       <span>About</span>
@@ -1828,7 +1832,15 @@
 
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
-        <div style="display:flex;gap:10px;margin-bottom:20px"><button class="btn-icon" onclick="loadAuditLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button><button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button></div>
+        <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="audit-filter-text" class="form-input" placeholder="Filter by actor, action, or detail…" oninput="renderAuditLog()" style="flex:1;min-width:240px;max-width:380px">
+          <select id="audit-filter-action" class="form-input" onchange="renderAuditLog()" style="max-width:240px">
+            <option value="">All actions</option>
+          </select>
+          <button class="btn-icon" onclick="loadAuditLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
+          <button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
+        </div>
         <div class="table-card"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th><th>Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
@@ -1949,6 +1961,11 @@
       <label class="form-label">Hypervisor URL (optional)</label>
       <input type="url" id="cmdb-asset-hypervisor" class="form-input" placeholder="https://esx1.local/" maxlength="512">
     </div>
+    <div class="form-group">
+      <label class="form-label">SSH port</label>
+      <input type="number" id="cmdb-asset-ssh-port" class="form-input" min="1" max="65535" placeholder="22" style="max-width:160px">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Default 22. Used by the SSH link buttons on credentials.</div>
+    </div>
     <div class="form-group" style="font-size:12px;color:var(--muted)">
       <div><strong>Hostname:</strong> <span id="cmdb-asset-hostname">—</span></div>
       <div><strong>OS:</strong> <span id="cmdb-asset-os">—</span></div>
@@ -2010,6 +2027,19 @@
   <div class="modal-actions">
     <button class="btn-secondary" onclick="closeModal('cmdb-cred-add-modal')">Cancel</button>
     <button class="btn-primary" onclick="cmdbCredSave()">Save</button>
+  </div>
+</div></div>
+
+<!-- v1.10.0: Update logs viewer ─────────────────────────────────────── -->
+<div class="modal-overlay" id="update-logs-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="update-logs-title">Update history</div>
+  <div class="modal-subtitle">Last <span id="update-logs-capacity">10</span> package-upgrade runs from this device. Output is captured by the agent and sent on the next heartbeat after the run completes.</div>
+  <div id="update-logs-body" style="min-height:120px;max-height:65vh;overflow-y:auto">
+    <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-icon" onclick="reloadUpdateLogs()">Refresh</button>
+    <button class="btn-secondary" onclick="closeModal('update-logs-modal')">Close</button>
   </div>
 </div></div>
 
@@ -2167,6 +2197,58 @@ let refreshTimer    = null;
 let refreshInterval = 60;
 let refreshRemaining = refreshInterval;
 let activeTagFilter = null;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v1.10.0: OS icons
+// ══════════════════════════════════════════════════════════════════════════════
+// Two icons total: Linux (Tux) and Windows. Anything that doesn't match
+// either gets a question-mark glyph so detection failures are visible
+// rather than silent. Detection is a coarse string match against the
+// agent-reported `os` field — most distros report something containing
+// "Linux" or a distro name we can recognise; Windows reports "Windows".
+//
+// The SVGs are kept tiny (16×16) and use currentColor so they inherit the
+// surrounding text colour. Stylised glyphs, not full-fidelity logos.
+const _OS_ICONS = {
+  // Tux silhouette, very stylised
+  linux:   '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Linux"><path d="M12 3c-2.2 0-3.5 1.8-3.5 4 0 1.5.5 2.5.5 3.5 0 1-1.5 1.5-2.5 3-1 1.5-1.5 3.5-1.5 5 0 1.5 1 2.5 2 2.5h10c1 0 2-1 2-2.5 0-1.5-.5-3.5-1.5-5-1-1.5-2.5-2-2.5-3 0-1 .5-2 .5-3.5C15.5 4.8 14.2 3 12 3zm-1.5 4.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5zm3 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/></svg>',
+  // Windows tile
+  windows: '<svg viewBox="0 0 24 24" fill="currentColor" aria-label="Windows"><path d="M3 5.5l8-1.1v7.4H3V5.5zm0 7.6h8v7.4l-8-1.1v-6.3zm9-8.8 9-1.3v9H12V4.3zm0 9h9v9l-9-1.3v-7.7z"/></svg>',
+  unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-label="Unknown OS"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 4 2c-.7.5-1.5 1-1.5 2v.5"/><circle cx="12" cy="17" r=".7" fill="currentColor"/></svg>',
+};
+
+function osIconKey(osStr) {
+  // Returns 'linux', 'windows', or 'unknown' for the given OS string.
+  // Linux detection is broad: distro names, kernel hints, and "GNU"
+  // all count. macOS, BSD, and unknowns fall through to 'unknown' —
+  // we only ship the two icons the user asked for.
+  if (!osStr) return 'unknown';
+  const s = String(osStr).toLowerCase();
+  if (s.includes('windows') || s.includes('microsoft')
+      || s.includes('win10') || s.includes('win11')
+      || s.includes('win 10') || s.includes('win 11')) {
+    return 'windows';
+  }
+  // Linux and friends — distro names included so e.g. a misconfigured
+  // agent that reports "Ubuntu 22.04" without the word "Linux" still
+  // gets the right icon.
+  const linuxHints = [
+    'linux', 'gnu', 'ubuntu', 'debian', 'fedora', 'rhel', 'red hat',
+    'redhat', 'rocky', 'alma', 'centos', 'arch', 'cachyos', 'manjaro',
+    'alpine', 'suse', 'opensuse', 'mint', 'pop!_os', 'pop_os',
+    'gentoo', 'slackware', 'nixos',
+  ];
+  if (linuxHints.some(h => s.includes(h))) return 'linux';
+  return 'unknown';
+}
+
+function osIcon(osStr, sizePx) {
+  // Returns an inline SVG span sized to `sizePx` (default 16).
+  const px = sizePx || 16;
+  const svg = _OS_ICONS[osIconKey(osStr)] || _OS_ICONS.unknown;
+  const sized = svg.replace(/<svg /, `<svg width="${px}" height="${px}" `);
+  return `<span class="os-icon" title="${(osStr || 'Unknown OS').replace(/"/g,'&quot;')}" style="display:inline-flex;vertical-align:middle;line-height:0;color:var(--muted)">${sized}</span>`;
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Auth
@@ -2378,8 +2460,8 @@ function renderDevices() {
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -3443,7 +3525,54 @@ async function deleteGlobalLogRule(ruleId) {
   if (result && result.ok) { toast('Fleet-wide rule removed', 'success'); loadGlobalLogRules(); }
 }
 
-async function loadAuditLog() { const tbody = document.getElementById('audit-tbody'); tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/audit-log'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet. </td></tr>'; return; } tbody.innerHTML = data.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`).join(''); }
+// v1.10.0: Audit log gets client-side filtering. The data is loaded once
+// and re-rendered whenever the filter inputs change. Two filters: a free-
+// text "search anywhere" box (matches against actor + action + detail) and
+// an action-type dropdown that pulls its options from the distinct actions
+// in the loaded data. Server-side filtering would be cleaner long-term but
+// the audit log is small enough that client-side is fine.
+let _auditLogCache = [];
+
+async function loadAuditLog() {
+  const tbody = document.getElementById('audit-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  const data = await api('GET', '/audit-log');
+  _auditLogCache = Array.isArray(data) ? data : [];
+  // Repopulate the action-filter dropdown with whatever actions appear in
+  // the data. Sorted alphabetically so the order is stable across reloads.
+  const sel = document.getElementById('audit-filter-action');
+  if (sel) {
+    const actions = [...new Set(_auditLogCache.map(e => e.action).filter(Boolean))].sort();
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All actions</option>'
+      + actions.map(a => `<option value="${escHtml(a)}">${escHtml(a)}</option>`).join('');
+    if (actions.includes(cur)) sel.value = cur;
+  }
+  renderAuditLog();
+}
+
+function renderAuditLog() {
+  const tbody = document.getElementById('audit-tbody');
+  if (!_auditLogCache.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet. </td></tr>';
+    return;
+  }
+  const txt    = (document.getElementById('audit-filter-text')?.value || '').trim().toLowerCase();
+  const action = document.getElementById('audit-filter-action')?.value || '';
+  const filtered = _auditLogCache.filter(e => {
+    if (action && e.action !== action) return false;
+    if (txt) {
+      const hay = `${e.actor || ''} ${e.action || ''} ${e.detail || ''}`.toLowerCase();
+      if (!hay.includes(txt)) return false;
+    }
+    return true;
+  });
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No entries match the current filter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`).join('');
+}
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
 
@@ -4061,7 +4190,7 @@ function cmdbRenderTable(rows) {
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
       : '<span style="color:var(--muted);font-size:12px">—</span>';
     return `<tr>
-      <td style="font-weight:500">${_cmdbEsc(r.name)}</td>
+      <td style="font-weight:500">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
       <td style="font-family:monospace;font-size:12px">${_cmdbEsc(r.asset_id) || '<span style="color:var(--muted)">—</span>'}</td>
       <td>${fn}</td>
       <td style="font-size:12px;color:var(--muted)">${_cmdbEsc(r.os) || '—'}</td>
@@ -4098,6 +4227,7 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
   document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
+  document.getElementById('cmdb-asset-ssh-port').value   = res.data.ssh_port || 22;
   document.getElementById('cmdb-asset-doc').value        = res.data.documentation || '';
   document.getElementById('cmdb-asset-hostname').textContent = res.data.hostname || '—';
   document.getElementById('cmdb-asset-os').textContent       = res.data.os || '—';
@@ -4182,6 +4312,7 @@ async function cmdbAssetSave() {
     asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
+    ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
     documentation:   document.getElementById('cmdb-asset-doc').value,
   };
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
@@ -4213,19 +4344,54 @@ async function cmdbLoadCreds(deviceId) {
   }
   list.innerHTML = creds.map(c => {
     const note = c.note ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${_cmdbEsc(c.note)}</div>` : '';
+    // v1.10.0: per-credential SSH link. Builds ssh://user@host:port for the
+    // anchor + plain `ssh user@host -p port` for the copy button. Host comes
+    // from the current asset's hostname (preferred) falling back to its IP.
+    // The ssh:// URI deliberately omits the password — the password lives in
+    // the reveal modal where it belongs, not in browser history.
+    const sshHost = (_cmdbCurrent && (_cmdbCurrent.hostname || _cmdbCurrent.ip)) || '';
+    const sshPort = (_cmdbCurrent && _cmdbCurrent.ssh_port) || 22;
+    const sshUser = c.username || '';
+    let sshButtons = '';
+    if (sshHost && sshUser) {
+      const portFrag = sshPort && sshPort !== 22 ? `:${sshPort}` : '';
+      const sshUri = `ssh://${encodeURIComponent(sshUser)}@${sshHost}${portFrag}`;
+      const sshCmd = sshPort && sshPort !== 22
+        ? `ssh ${sshUser}@${sshHost} -p ${sshPort}`
+        : `ssh ${sshUser}@${sshHost}`;
+      sshButtons =
+        `<a class="btn-icon" href="${_cmdbEsc(sshUri)}" title="Open ssh:// link in your default handler" style="text-decoration:none">SSH</a>
+         <button class="btn-icon" title="Copy: ${_cmdbEsc(sshCmd)}" onclick="cmdbSshCopy('${_cmdbEsc(sshCmd)}')">Copy</button>`;
+    }
     return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600">${_cmdbEsc(c.label)}</div>
         <div style="font-family:monospace;font-size:12px;color:var(--muted)">user: ${_cmdbEsc(c.username) || '—'}</div>
         ${note}
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
+      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+        ${sshButtons}
         <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredReveal('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Reveal</button>
         <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredEditOpen('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}','${_cmdbEsc(c.label)}','${_cmdbEsc(c.username)}','${_cmdbEsc(c.note || '')}')">Edit</button>
         <button class="btn-icon" style="color:var(--red)" onclick="cmdbCredDelete('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Delete</button>
       </div>
     </div>`;
   }).join('');
+}
+
+function cmdbSshCopy(cmd) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).then(
+      () => toast && toast('SSH command copied', 'success'),
+      () => alert('Copy failed — your browser may block clipboard access on http://')
+    );
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = cmd; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); if (typeof toast === 'function') toast('SSH command copied', 'success'); }
+    catch (e) { alert('Copy failed.'); }
+    document.body.removeChild(ta);
+  }
 }
 
 function cmdbCredAddOpen() {
@@ -4339,6 +4505,58 @@ function cmdbCredCopy(elId) {
     document.body.removeChild(ta);
   }
 }
+
+// ── v1.10.0: Update logs viewer ──────────────────────────────────────────────
+// Independent of the CMDB system — this hangs off the device dropdown menu
+// and shows the rolling buffer of package-upgrade output captured by the
+// agent. Each run is collapsed by default; the most recent is auto-expanded.
+let _updateLogsCurrent = null;     // {id, name}
+
+async function openUpdateLogs(deviceId, name) {
+  _updateLogsCurrent = {id: deviceId, name: name};
+  document.getElementById('update-logs-title').textContent = `Update history — ${name}`;
+  document.getElementById('update-logs-body').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('update-logs-modal');
+  await reloadUpdateLogs();
+}
+
+async function reloadUpdateLogs() {
+  if (!_updateLogsCurrent) return;
+  const r = await api('GET', `/devices/${encodeURIComponent(_updateLogsCurrent.id)}/update-logs`);
+  const body = document.getElementById('update-logs-body');
+  if (!r) return;   // api() handled 401
+  document.getElementById('update-logs-capacity').textContent = r.capacity || 10;
+  const logs = (r.logs || []).slice().reverse();   // newest first
+  if (!logs.length) {
+    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No update runs captured yet. Run "Upgrade packages" on this device — the output will land here on the next heartbeat (~60s).</div>';
+    return;
+  }
+  body.innerHTML = logs.map((entry, idx) => {
+    const ok = entry.exit_code === 0;
+    const status = ok
+      ? '<span style="color:var(--green)">● success</span>'
+      : `<span style="color:var(--red)">● failed (rc=${entry.exit_code})</span>`;
+    const when = entry.finished_at
+      ? new Date(entry.finished_at * 1000).toLocaleString()
+      : '—';
+    const duration = (entry.finished_at && entry.started_at)
+      ? `${Math.max(0, entry.finished_at - entry.started_at)}s`
+      : '?';
+    const pm = entry.package_manager || 'unknown';
+    const out = entry.output || '(no output captured)';
+    const open = idx === 0 ? 'open' : '';
+    return `<details ${open} style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;background:var(--surface2)">
+      <summary style="padding:10px 12px;cursor:pointer;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <span style="font-weight:500">${escHtml(when)}</span>
+        <span style="color:var(--muted);font-size:12px">${escHtml(pm)} · ${escHtml(duration)}</span>
+        <span style="margin-left:auto">${status}</span>
+      </summary>
+      <pre style="margin:0;padding:12px;background:var(--surface);border-top:1px solid var(--border);font-family:monospace;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word;max-height:400px;overflow-y:auto">${escHtml(out)}</pre>
+    </details>`;
+  }).join('');
+}
+
 
 // Make the bundle look professional — a tiny CSS hook for active tab styling.
 (function _cmdbInjectCss() {

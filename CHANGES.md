@@ -1,5 +1,163 @@
 # Changelog
 
+## v1.10.0 — 2026-04-29
+
+### Added
+
+**Swagger / OpenAPI documentation.** The full public API surface is now
+documented in an OpenAPI 3.1 specification served at
+`/api/openapi.json`. A new "API Docs" link in the sidebar opens
+`/swagger.html`, a Swagger UI page that renders the spec and lets you
+make real authenticated requests against your live server with a
+single click — the page injects your existing session token into every
+"Try it out" request, so there's no Authorize button to fiddle with.
+The spec covers 22 endpoints across seven tags: Auth, Devices,
+Commands, CMDB, Vault, Credentials, and Reporting. It's hand-written
+rather than auto-generated from the CGI dispatch table, on the theory
+that hand-written specs stay accurate where auto-generated ones drift
+silently when handler internals change.
+
+**SSH link from credentials.** Every credential row in the CMDB
+Credentials tab gets two new buttons: a clickable `ssh://user@host:port`
+link that opens in your default SSH-URI handler (PuTTY on Windows,
+iTerm or Terminal.app on macOS, whatever you've configured on Linux),
+and a Copy button that puts a plain `ssh user@host -p port` command
+on your clipboard. The host comes from the asset's hostname (or IP if
+hostname is empty), the port from a new per-asset `ssh_port` field
+(default 22, validated 1-65535), and the username from the credential.
+The password is **deliberately not** included in the URI — `ssh://`
+URIs technically can carry one but that ends up in browser history
+and process tables, so the password stays in the reveal modal where
+it belongs.
+
+**OS icons.** Both the Devices page and the CMDB asset table now show
+a small inline-SVG icon next to each device's OS string. Two icons,
+total: Tux for anything Linux-shaped (Ubuntu, Debian, Fedora,
+RHEL/Rocky/CentOS, Arch, Alpine, openSUSE, Mint, NixOS, plus
+anything containing "linux" or "gnu"), and a tile for Windows. Other
+operating systems — macOS, BSD, exotic things — get a question-mark
+glyph so detection failures are visible rather than silently shown
+as a generic icon. The glyphs use `currentColor` so they inherit
+the surrounding text colour.
+
+**Update history.** The Patches feature has been a one-way street
+since v1.7 — push an upgrade and hope. v1.10.0 captures the output.
+The agent's exec output cap is bumped from 4 KB to 256 KB for
+upgrade commands (`apt -y upgrade`, `dnf -y upgrade`, `pacman -Syu`)
+so the output isn't truncated mid-package; the heartbeat handler
+dual-routes that output into a new `update_logs.json` file with a
+rolling buffer of the last 10 runs per device. The device dropdown
+menu has a new "Update history" link that opens a modal showing each
+run with timestamp, package manager, exit code, duration, and full
+output (collapsed by default; the most recent expanded). New endpoint
+`GET /api/devices/{id}/update-logs` for scripting access.
+
+**Audit log filtering.** The audit log page gained two filter inputs:
+a free-text search box that matches across actor, action, and detail,
+and an action-type dropdown auto-populated from whatever actions
+appear in the data. Both filters are client-side — the data is small
+enough that server-side filtering would be over-engineering — and
+combine: pick `cmdb_credential_reveal` from the dropdown to see
+nothing but reveals, then type a username in the search box to narrow
+to that admin's reveals.
+
+### Code quality
+
+This release introduces the project's first formal lint pipeline.
+A new `pyproject.toml` configures `black` (100-char lines), `isort`
+(black profile), and `mypy` (strict on the new modules
+`cmdb_vault.py` and `openapi_spec.py`, permissive on the legacy
+`api.py`). A new `Makefile` adds `make test`, `make lint`, `make
+format`, `make typecheck`, `make check`, and `make install-dev`. The
+`make lint` target is intentionally scoped to the v1.10.0 baseline
+files — running black across the entire 5800-line `api.py` would
+produce an unreviewable diff in this release; broadening the scope
+is its own deliberate effort.
+
+A small but meaningful cleanup: the long-standing `respond(); sys.exit(0)`
+pattern is replaced by a proper `HTTPError(status, body)` exception
+that bubbles up to a single handler at the top of `main()`. The
+public behaviour is identical — same HTTP envelope, same status
+codes, same JSON bodies — but handlers are now testable as plain
+function calls without monkey-patching `sys.exit`. The legacy test
+helpers continue to work because they monkey-patch `respond` at
+import time and never see the exception. Tests added: 24 new in
+`tests/test_v1100.py`, taking the suite from 244 to 268 passing.
+
+The v1.9.0 CMDB handlers received type hints and Google-style
+docstrings as the start of a wider documentation pass. Strict mypy
+catches both flagged issues in `cmdb_vault.py` (a missing return
+annotation on `_crypto`, an `Optional[str]` mis-typed as `str`).
+
+### Bonus
+
+`GET /api/cmdb/{device_id}` now trims the embedded `sysinfo` dict
+from the heartbeat (50+ KB on rich systems) to nine whitelisted
+fields totalling under 1 KB. The CMDB modal only displays
+CPU/RAM/disk/uptime headlines anyway; trimming makes the modal pop
+open instantly even on assets with elaborate sysinfo.
+
+### New endpoints
+
+```
+GET  /api/openapi.json                         OpenAPI 3.1 spec
+GET  /api/devices/{device_id}/update-logs      rolling buffer of upgrade output
+```
+
+### Modified endpoints
+
+```
+PUT  /api/cmdb/{device_id}                     accepts new ssh_port field
+GET  /api/cmdb                                 response includes ssh_port
+GET  /api/cmdb/{device_id}                     response includes ssh_port; sysinfo trimmed
+```
+
+### New files
+
+`server/cgi-bin/openapi_spec.py`, `server/html/swagger.html`,
+`pyproject.toml`, `Makefile`, `tests/test_v1100.py`,
+`docs/swagger.md`, `docs/update-history.md`.
+
+### Tests
+
+**268 passing** (244 from v1.9.0 + 24 new). The new suite covers:
+`HTTPError` exception + rendering, the full ssh_port lifecycle
+(default, set, reset-to-default via 0, range validation, list
+surfacing), sysinfo trim (whitelist behaviour, non-dict input,
+end-to-end through the GET handler), update logs (empty state,
+ordered runs, 404 on unknown device, capacity-cap enforcement),
+and OpenAPI spec generation (structure, security schemes, critical
+endpoints documented, fresh-object-per-call, handler returns 200
+with the spec, handler requires auth).
+
+### Compatibility
+
+v1.9.0 and v1.10.0 are mutually compatible. The agent binary is
+unchanged in shape — older agents work with the new server, just
+truncating upgrade output at the 4 KB the older code allowed.
+CMDB records created before v1.10.0 are missing the `ssh_port`
+field; the server backfills it with the default 22 on read, so
+nothing migrates and nothing breaks.
+
+### Known limitations
+
+- Update logs are populated on the next heartbeat (~60s) after a run
+  completes. There's no live streaming. A streaming implementation
+  via long-polling or SSE was discussed and deferred — the simpler
+  heartbeat approach reuses what already works and the latency is
+  acceptable for the actual use case (post-hoc review of what
+  happened).
+- Swagger UI loads its assets from a pinned CDN version. Fully-air-
+  gapped servers will fall back to a plain-text "raw spec at
+  /api/openapi.json" message rather than rendering. Bundling Swagger
+  UI inline would add ~700 KB to every dashboard page load, which is
+  a worse trade-off than the offline degradation.
+- `make lint` is scoped to the v1.10.0 baseline files. Expanding to
+  the full codebase is its own effort and shouldn't share a release
+  with feature work.
+
+---
+
 ## v1.9.0 — 2026-04-27
 
 ### Added
