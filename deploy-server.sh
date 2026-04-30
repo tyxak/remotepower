@@ -26,6 +26,18 @@ for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
     echo "      → cgi-bin/$name"
 done
 
+# v1.11.0: extension-less helper scripts (remotepower-tls-check is the cron
+# runner for the TLS expiry probe). Same directory as api.py because they
+# need to import the sibling modules with the same sys.path layout.
+info "Deploying cgi-bin helper scripts..."
+for helper in remotepower-tls-check; do
+    src="$SCRIPT_DIR/server/cgi-bin/$helper"
+    if [[ -f "$src" ]]; then
+        install -m 755 "$src" /var/www/remotepower/cgi-bin/"$helper"
+        echo "      → cgi-bin/$helper"
+    fi
+done
+
 info "Deploying static HTML files..."
 # Auto-discovers index.html plus any sibling pages (swagger.html in v1.10.0,
 # whatever future pages get added) — no need to edit this script when adding
@@ -71,4 +83,9 @@ success "Done. Changes are live immediately (CGI — no restart needed)."
 echo ""
 echo "  Enrolled agents will self-update within ~1 hour."
 echo "  To trigger immediately on a client: remotepower-agent update"
+echo ""
+echo "  v1.11.0: TLS / DNS expiry probe is at:"
+echo "    /var/www/remotepower/cgi-bin/remotepower-tls-check"
+echo "  To run it on a schedule, add a systemd timer or cron entry, e.g.:"
+echo "    0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check"
 echo ""

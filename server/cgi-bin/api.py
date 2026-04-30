@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.10.0'
+SERVER_VERSION = '1.11.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -94,12 +94,52 @@ MAX_CMDB_CREDS      = 25            # per-asset cap
 
 # server_function is a free-text field, but we restrict the charset so we can
 # safely use it in the searchbox / autocomplete without escaping every char.
+# server_function is a free-text field, but we restrict the charset so we can
+# safely use it in the searchbox / autocomplete without escaping every char.
 _CMDB_FUNC_RE       = re.compile(r'^[A-Za-z0-9 _\-/]{0,64}$')
 
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
 CMDB_SSH_PORT_MIN     = 1
 CMDB_SSH_PORT_MAX     = 65535
+
+# ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
+CONTAINERS_FILE = DATA_DIR / 'containers.json'
+TLS_TARGETS_FILE = DATA_DIR / 'tls_targets.json'
+TLS_RESULTS_FILE = DATA_DIR / 'tls_results.json'
+# Agentless devices live in the regular devices.json with a special marker
+# (`agentless: True`). Network map is rendered from the existing devices
+# data plus a new `connected_to: <device_id>` field on each record. No
+# separate storage files for either.
+
+MAX_TLS_TARGETS = 200
+MAX_TLS_HOST_LEN = 255
+TLS_DEFAULT_WARN_DAYS = 14
+TLS_DEFAULT_CRIT_DAYS = 3
+
+# ── v1.11.1: network-map tunnels + draggable positions ───────────────────────
+# Tunnels are a second kind of edge between two devices — distinct from the
+# physical `connected_to` parent-child relationship. Stored as a flat list
+# rather than per-device because they're peer relationships (no clear "owner").
+# Positions live on the device record itself (pos_x, pos_y) — they're a
+# rendering hint, not a separate concern.
+TUNNELS_FILE = DATA_DIR / 'tunnels.json'
+MAX_TUNNELS = 200
+
+# ── v1.11.2: shared link dashboard ───────────────────────────────────────────
+# A simple bookmark dashboard, shared across all admins. Card grid grouped by
+# category. Each link has a `scope` ("internal" / "external") that's purely
+# a display hint — we don't probe internal links from the server, and we don't
+# enforce anything based on the field. It's just a label so the user can see
+# at a glance "this link works on the LAN only."
+LINKS_FILE = DATA_DIR / 'links.json'
+MAX_LINKS = 500
+MAX_LINK_TITLE_LEN       = 128
+MAX_LINK_URL_LEN         = 1024
+MAX_LINK_DESCRIPTION_LEN = 512
+MAX_LINK_CATEGORY_LEN    = 64
+LINK_SCOPES = ('internal', 'external')
+LINK_DEFAULT_CATEGORY    = 'Uncategorised'
 
 MAX_SERVICES_PER_DEVICE = 50       # sanity cap
 MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
@@ -121,6 +161,12 @@ import cmdb_vault
 # v1.10.0: OpenAPI spec — handwritten dict served at /api/openapi.json,
 # rendered by the Swagger UI page at /swagger.html.
 import openapi_spec
+# v1.11.0: container/pod awareness. Agent posts a normalised list in
+# heartbeats; this module validates and summarises.
+import containers as containers_mod
+# v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
+# stored alongside the watchlist for UI rendering and webhook alerting.
+import tls_monitor
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -1213,11 +1259,19 @@ def handle_devices_list():
     result = []
     for dev_id, dev in devices.items():
         last_ping = dev.get('last_seen', 0)
-        is_online = (now - last_ping) < get_online_ttl()
-        missed = max(0, (now - last_ping) // 60) if last_ping else None
-        offline_reason = None
-        if not is_online and last_ping:
-            offline_reason = 'missed_polls' if (now - last_ping) < 300 else 'offline'
+        # v1.11.0: agentless devices don't have a heartbeat. They're "online"
+        # if the user marked them so manually; offline_reason is None either way.
+        agentless = bool(dev.get('agentless', False))
+        if agentless:
+            is_online = bool(dev.get('manual_status', True))
+            missed = None
+            offline_reason = None
+        else:
+            is_online = (now - last_ping) < get_online_ttl()
+            missed = max(0, (now - last_ping) // 60) if last_ping else None
+            offline_reason = None
+            if not is_online and last_ping:
+                offline_reason = 'missed_polls' if (now - last_ping) < 300 else 'offline'
         result.append({
             'id': dev_id, 'name': dev.get('name', dev_id), 'hostname': dev.get('hostname', ''),
             'os': dev.get('os', ''), 'ip': dev.get('ip', ''), 'mac': dev.get('mac', ''),
@@ -1227,6 +1281,10 @@ def handle_devices_list():
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60), 'sysinfo': dev.get('sysinfo', {}),
+            # v1.11.0: agentless flag + network-map link
+            'agentless':    agentless,
+            'connected_to': dev.get('connected_to', ''),
+            'device_type':  dev.get('device_type', ''),
         })
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
     respond(200, result)
@@ -1576,6 +1634,17 @@ def handle_heartbeat():
         })
         logs[dev_id] = logs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
         save(UPDATE_LOGS_FILE, logs)
+
+    # ── v1.11.0: container/k8s listing ─────────────────────────────────────
+    # Agent posts {'containers': [<list of normalised entries>]} when it has
+    # detected a runtime. We overwrite the per-device list (last-write-wins)
+    # rather than append — container state changes too often for history
+    # to be useful, and the next heartbeat refreshes it.
+    if 'containers' in body:
+        normalised = containers_mod.normalize_listing(body.get('containers'))
+        store = load(CONTAINERS_FILE)
+        store[dev_id] = {'ts': now, 'items': normalised}
+        save(CONTAINERS_FILE, store)
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
@@ -2672,6 +2741,700 @@ def handle_device_update_logs(dev_id: str) -> None:
         'logs':      logs.get(dev_id, []),
         'capacity':  MAX_UPDATE_LOGS_PER_DEVICE,
     })
+
+
+def handle_device_containers(dev_id: str) -> None:
+    """``GET /api/devices/{id}/containers`` — return last reported containers.
+
+    The list is overwritten on every heartbeat (state, not history) and
+    capped at :data:`containers_mod.MAX_CONTAINERS_PER_DEVICE` items.
+
+    Args:
+        dev_id: The enrolled device's ID.
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    store = load(CONTAINERS_FILE)
+    entry = store.get(dev_id) or {}
+    items = entry.get('items', [])
+    respond(200, {
+        'device_id': dev_id,
+        'name':      devices[dev_id].get('name', dev_id),
+        'reported_at': entry.get('ts', 0),
+        'items':     items,
+        'summary':   containers_mod.summarise(items),
+    })
+
+
+def handle_containers_overview() -> None:
+    """``GET /api/containers`` — fleet-wide container overview.
+
+    Returns one entry per device that has reported containers, with
+    summary counts. The Containers page uses this for the "all
+    containers across the fleet" landing view.
+    """
+    require_auth()
+    devices = load(DEVICES_FILE)
+    store = load(CONTAINERS_FILE)
+    out = []
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        items = entry.get('items', []) if isinstance(entry, dict) else []
+        out.append({
+            'device_id':   dev_id,
+            'name':        devices[dev_id].get('name', dev_id),
+            'os':          devices[dev_id].get('os', ''),
+            'reported_at': entry.get('ts', 0) if isinstance(entry, dict) else 0,
+            'summary':     containers_mod.summarise(items),
+        })
+    out.sort(key=lambda r: r['name'].lower())
+    respond(200, out)
+
+
+# ─── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────────
+
+
+def _tls_targets() -> dict:
+    """Load the TLS watchlist."""
+    s = load(TLS_TARGETS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _tls_results() -> dict:
+    """Load the last-probe results store."""
+    s = load(TLS_RESULTS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def handle_tls_list() -> None:
+    """``GET /api/tls/targets`` — list watchlist + last results.
+
+    Joins the watchlist with the last probe result for each entry so
+    the UI can render in one round-trip.
+    """
+    require_auth()
+    targets = _tls_targets()
+    results = _tls_results()
+    out = []
+    for tid, t in targets.items():
+        if not isinstance(t, dict):
+            continue
+        r = results.get(tid) or {}
+        warn = int(t.get('warn_days', TLS_DEFAULT_WARN_DAYS))
+        crit = int(t.get('crit_days', TLS_DEFAULT_CRIT_DAYS))
+        out.append({
+            'id':              tid,
+            'host':            t.get('host', ''),
+            'port':            int(t.get('port', 443)),
+            'label':           t.get('label', ''),
+            'warn_days':       warn,
+            'crit_days':       crit,
+            # v1.11.2: connect override + DANE config + DANE result fields
+            'connect_address': t.get('connect_address', ''),
+            'dane_check':      bool(t.get('dane_check', False)),
+            # v1.11.3: STARTTLS protocol selection
+            'starttls':        t.get('starttls', 'none'),
+            'last_check':      r.get('checked_at', 0),
+            'expires_at':      r.get('expires_at', 0),
+            'days_left':       tls_monitor.days_until_expiry(r) if r else 0,
+            'status':          tls_monitor.status_for(r, warn, crit) if r else 'unknown',
+            'addresses':       r.get('addresses', []),
+            'issuer':          r.get('issuer', ''),
+            'subject':         r.get('subject', ''),
+            'san':             r.get('san', []),
+            'hostname_match':  r.get('hostname_match'),
+            'dns_error':       r.get('dns_error', ''),
+            'tls_error':       r.get('tls_error', ''),
+            'verify_error':    r.get('verify_error', ''),
+            'dane_status':     r.get('dane_status', 'not_checked'),
+            'dane_records':    r.get('dane_records', []),
+            'dane_error':      r.get('dane_error', ''),
+        })
+    out.sort(key=lambda x: (x['status'] != 'critical',
+                            x['status'] != 'warning',
+                            (x['host'] or '').lower()))
+    respond(200, out)
+
+
+def handle_tls_add() -> None:
+    """``POST /api/tls/targets`` — add a watchlist entry. Admin only.
+
+    Body: ``{host, port?, label?, warn_days?, crit_days?}``.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    parsed = tls_monitor.parse_target(body)
+    if parsed is None:
+        respond(400, {'error': 'invalid target — host required, port 1-65535'})
+    targets = _tls_targets()
+    if len(targets) >= MAX_TLS_TARGETS:
+        respond(400, {'error': f'max {MAX_TLS_TARGETS} TLS targets'})
+    new_id = 'tls_' + secrets.token_hex(6)
+    targets[new_id] = parsed
+    save(TLS_TARGETS_FILE, targets)
+    audit_log(actor, 'tls_target_add',
+              detail=f'host={parsed["host"]}:{parsed["port"]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_tls_delete(target_id: str) -> None:
+    """``DELETE /api/tls/targets/{id}`` — remove from watchlist."""
+    actor = require_admin_auth()
+    if not target_id.startswith('tls_'):
+        respond(404, {'error': 'target not found'})
+    targets = _tls_targets()
+    if target_id not in targets:
+        respond(404, {'error': 'target not found'})
+    host = targets[target_id].get('host', '?')
+    del targets[target_id]
+    save(TLS_TARGETS_FILE, targets)
+    # Also clean the result if present
+    results = _tls_results()
+    results.pop(target_id, None)
+    save(TLS_RESULTS_FILE, results)
+    audit_log(actor, 'tls_target_delete', detail=f'host={host}')
+    respond(200, {'ok': True})
+
+
+def handle_tls_scan() -> None:
+    """``POST /api/tls/scan`` — probe all targets now (synchronous).
+
+    This is intentionally synchronous so the UI can render the fresh
+    results immediately. The cron runner uses the same code path. Each
+    probe has a hard 5+5s timeout, so even with 200 targets the worst
+    case is ~30 minutes; in practice it's seconds.
+
+    Admin only because probing makes outbound network requests from
+    the server, and someone with viewer access shouldn't be able to
+    trigger 200 outbound connections.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    targets = _tls_targets()
+    results = tls_monitor.probe_all(targets)
+    save(TLS_RESULTS_FILE, results)
+    audit_log(actor, 'tls_scan', detail=f'targets={len(targets)}')
+    respond(200, {'ok': True, 'scanned': len(results)})
+
+
+# ─── v1.11.0: agentless devices + network map ────────────────────────────────
+
+
+# Allowed device types — used for the icon mapping on the network map and
+# for sanity checks at the API layer. Free-text would be tempting but limits
+# the icon switch in the UI; if you need a new type add it here and to the
+# UI's icon picker.
+AGENTLESS_DEVICE_TYPES = (
+    'switch', 'router', 'firewall', 'access_point', 'ap',
+    'printer', 'camera', 'ipmi', 'ups', 'pdu', 'nas',
+    'iot', 'smart_plug', 'phone', 'other',
+)
+
+
+def handle_agentless_create() -> None:
+    """``POST /api/devices/agentless`` — create a manual (no-agent) device.
+
+    Body: ``{name, hostname?, ip?, mac?, os?, device_type?, group?, tags?,
+    notes?, connected_to?, manual_status?}``.
+
+    The created record gets ``agentless: True`` so it bypasses the heartbeat-
+    based online/offline logic and shows whatever ``manual_status`` (default
+    True) says it shows. Otherwise it's a regular device — same audit log,
+    same CMDB metadata, same vault credentials.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+
+    name = _sanitize_str(body.get('name', ''), 64, allow_empty=False)
+    if not name:
+        respond(400, {'error': 'name required'})
+
+    hostname     = _sanitize_str(body.get('hostname', ''), 128, allow_empty=True) or ''
+    ip           = _sanitize_str(body.get('ip', ''), 64, allow_empty=True) or ''
+    mac          = _sanitize_str(body.get('mac', ''), 32, allow_empty=True) or ''
+    os_str       = _sanitize_str(body.get('os', ''), 64, allow_empty=True) or ''
+    group        = _sanitize_str(body.get('group', ''), 64, allow_empty=True) or ''
+    notes        = _sanitize_str(body.get('notes', ''), 1024, allow_empty=True) or ''
+    connected_to = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
+
+    dtype = str(body.get('device_type', '')).strip().lower()
+    if dtype and dtype not in AGENTLESS_DEVICE_TYPES:
+        respond(400, {'error': f'device_type must be one of {",".join(AGENTLESS_DEVICE_TYPES)}'})
+
+    tags = body.get('tags') or []
+    if not isinstance(tags, list):
+        respond(400, {'error': 'tags must be a list'})
+    tags = [_sanitize_str(t, 32, allow_empty=False) for t in tags[:20]]
+    tags = [t for t in tags if t]
+
+    devices = load(DEVICES_FILE)
+    if connected_to and connected_to not in devices:
+        respond(400, {'error': f'connected_to: device {connected_to} not found'})
+
+    new_id = 'al_' + secrets.token_hex(6)
+    devices[new_id] = {
+        'name':          name,
+        'hostname':      hostname,
+        'ip':            ip,
+        'mac':           mac,
+        'os':            os_str,
+        'group':         group,
+        'tags':          tags,
+        'notes':         notes,
+        'device_type':   dtype,
+        'connected_to':  connected_to,
+        'manual_status': bool(body.get('manual_status', True)),
+        'agentless':     True,
+        # No token — agentless devices can't post heartbeats
+        'token':         '',
+        'last_seen':     0,
+        'enrolled':      int(time.time()),
+        'monitored':     True,
+        'sysinfo':       {},
+    }
+    save(DEVICES_FILE, devices)
+    audit_log(actor, 'agentless_create',
+              detail=f'id={new_id} name={name} type={dtype}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_device_connected_to(dev_id: str) -> None:
+    """``PUT /api/devices/{id}/connected-to`` — set the upstream link.
+
+    The ``connected_to`` field is the device-id this one connects to
+    upstream — typically a switch or AP. Used by the network map to
+    render edges.
+
+    Body: ``{connected_to: <device_id> | ''}``. Empty string clears it.
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    target = _sanitize_str(body.get('connected_to', ''), 64, allow_empty=True) or ''
+    if target == dev_id:
+        respond(400, {'error': 'a device cannot connect to itself'})
+    if target and target not in devices:
+        respond(400, {'error': f'device {target} not found'})
+    devices[dev_id]['connected_to'] = target
+    save(DEVICES_FILE, devices)
+    audit_log(actor, 'device_connected_to', detail=f'{dev_id} → {target or "(cleared)"}')
+    respond(200, {'ok': True})
+
+
+def handle_network_map() -> None:
+    """``GET /api/network-map`` — nodes, edges, tunnels, positions.
+
+    Returns a graph-friendly shape that the UI renders directly:
+
+    ::
+
+        {
+          "nodes": [
+            {"id": ..., "name": ..., "type": ..., "online": ...,
+             "agentless": ..., "pos_x": <int|null>, "pos_y": <int|null>},
+            ...
+          ],
+          "edges": [
+            {"from": "<device_id>", "to": "<device_id>"},
+            ...
+          ],
+          "tunnels": [
+            {"id": "tun_<hex>", "endpoints": ["<device_id>", "<device_id>"]},
+            ...
+          ]
+        }
+
+    Edges follow ``connected_to``: physical / wired link, parent-child.
+    Tunnels are peer relationships — order of endpoints isn't meaningful.
+    Edges and tunnels referencing non-existent devices are silently dropped
+    (a device may have been deleted since the link/tunnel was set).
+    """
+    require_auth()
+    devices = load(DEVICES_FILE)
+    now = int(time.time())
+    nodes = []
+    for dev_id, dev in devices.items():
+        agentless = bool(dev.get('agentless', False))
+        if agentless:
+            online = bool(dev.get('manual_status', True))
+        else:
+            online = (now - dev.get('last_seen', 0)) < get_online_ttl()
+        # Position fields — None means "no manual position set, fall back
+        # to the auto layout in the renderer".
+        px = dev.get('pos_x')
+        py = dev.get('pos_y')
+        nodes.append({
+            'id':        dev_id,
+            'name':      dev.get('name', dev_id),
+            'hostname':  dev.get('hostname', ''),
+            'ip':        dev.get('ip', ''),
+            'os':        dev.get('os', ''),
+            'type':      dev.get('device_type', '') or ('host' if not agentless else 'other'),
+            'group':     dev.get('group', ''),
+            'agentless': agentless,
+            'online':    online,
+            'pos_x':     int(px) if isinstance(px, (int, float)) else None,
+            'pos_y':     int(py) if isinstance(py, (int, float)) else None,
+        })
+    edges = []
+    for dev_id, dev in devices.items():
+        target = dev.get('connected_to', '')
+        if target and target in devices:
+            edges.append({'from': dev_id, 'to': target})
+    nodes.sort(key=lambda n: (n['type'], n['name'].lower()))
+
+    # v1.11.1: tunnels (peer relationships, second-class edges)
+    tunnels_raw = load(TUNNELS_FILE)
+    tunnels: list[dict] = []
+    if isinstance(tunnels_raw, dict):
+        for tid, t in tunnels_raw.items():
+            if not isinstance(t, dict):
+                continue
+            ends = t.get('endpoints') or []
+            if not (isinstance(ends, list) and len(ends) == 2):
+                continue
+            if ends[0] not in devices or ends[1] not in devices:
+                continue
+            tunnels.append({'id': tid, 'endpoints': [ends[0], ends[1]]})
+
+    respond(200, {'nodes': nodes, 'edges': edges, 'tunnels': tunnels})
+
+
+# ── v1.11.1: persisted node positions ─────────────────────────────────────────
+
+
+def handle_network_positions() -> None:
+    """``PUT /api/network-map/positions`` — batch-save node positions.
+
+    Body: ``{"positions": [{"id": "<device_id>", "x": <int>, "y": <int>}, ...]}``.
+
+    Positions are stored on each device's record (``pos_x``, ``pos_y``)
+    rather than in a separate file because they're inherently tied to
+    the device and disappear when the device is deleted. Sending ``null``
+    for either coordinate clears that field, returning the node to the
+    auto-layout.
+
+    Admin-only because positions are shared across all users — letting
+    viewers move things around would be confusing for everyone else.
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    positions = body.get('positions')
+    if not isinstance(positions, list):
+        respond(400, {'error': 'positions must be a list'})
+    if len(positions) > 1000:
+        respond(400, {'error': 'too many positions in one batch'})
+    devices = load(DEVICES_FILE)
+    changed = 0
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        dev_id = p.get('id')
+        if not dev_id or dev_id not in devices:
+            continue
+        x, y = p.get('x'), p.get('y')
+        # Allow null to clear, otherwise must be numeric and in a sane range.
+        # The render-side SVG defaults to a few hundred pixels each side so
+        # millions are wasted; cap defensively.
+        if x is None and y is None:
+            devices[dev_id].pop('pos_x', None)
+            devices[dev_id].pop('pos_y', None)
+        else:
+            try:
+                xi = int(x); yi = int(y)
+            except (TypeError, ValueError):
+                continue
+            if not (-10000 <= xi <= 10000 and -10000 <= yi <= 10000):
+                continue
+            devices[dev_id]['pos_x'] = xi
+            devices[dev_id]['pos_y'] = yi
+        changed += 1
+    save(DEVICES_FILE, devices)
+    audit_log(actor, 'network_positions_save', detail=f'count={changed}')
+    respond(200, {'ok': True, 'updated': changed})
+
+
+# ── v1.11.1: VPN-style tunnels (peer links between devices) ──────────────────
+
+
+def _tunnels_load() -> dict:
+    """Load the tunnels store, normalised to a dict (empty on bad data)."""
+    s = load(TUNNELS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def handle_tunnels_list() -> None:
+    """``GET /api/network-map/tunnels`` — list all tunnels.
+
+    Tunnels referencing devices that no longer exist are filtered out
+    so the UI never has to deal with dangling endpoints.
+    """
+    require_auth()
+    devices = load(DEVICES_FILE)
+    raw = _tunnels_load()
+    out = []
+    for tid, t in raw.items():
+        if not isinstance(t, dict):
+            continue
+        ends = t.get('endpoints') or []
+        if not (isinstance(ends, list) and len(ends) == 2):
+            continue
+        if ends[0] not in devices or ends[1] not in devices:
+            continue
+        out.append({'id': tid, 'endpoints': [ends[0], ends[1]]})
+    out.sort(key=lambda x: (x['endpoints'][0], x['endpoints'][1]))
+    respond(200, out)
+
+
+def handle_tunnel_add() -> None:
+    """``POST /api/network-map/tunnels`` — create a tunnel between two devices.
+
+    Body: ``{"endpoints": ["<device_id_a>", "<device_id_b>"]}``.
+
+    Tunnels are peer relationships, so the order of endpoints isn't
+    meaningful — we normalise to ``[min, max]`` so duplicate-detection
+    is symmetric. A tunnel from A to B and a tunnel from B to A are the
+    same tunnel and the second create attempt returns 409.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    ends = body.get('endpoints') or []
+    if not (isinstance(ends, list) and len(ends) == 2):
+        respond(400, {'error': 'endpoints must be a list of exactly 2 device IDs'})
+    a, b = ends
+    if not isinstance(a, str) or not isinstance(b, str) or not a or not b:
+        respond(400, {'error': 'endpoints must be two non-empty strings'})
+    if a == b:
+        respond(400, {'error': 'a tunnel cannot have the same device on both ends'})
+    devices = load(DEVICES_FILE)
+    for ep in (a, b):
+        if ep not in devices:
+            respond(400, {'error': f'device {ep} not found'})
+    # Normalise to canonical order so duplicate-detection works regardless
+    # of which end the user clicked first.
+    canonical = sorted([a, b])
+    raw = _tunnels_load()
+    if len(raw) >= MAX_TUNNELS:
+        respond(400, {'error': f'max {MAX_TUNNELS} tunnels'})
+    for t in raw.values():
+        existing = sorted(t.get('endpoints') or [])
+        if existing == canonical:
+            respond(409, {'error': 'tunnel already exists between these devices'})
+    new_id = 'tun_' + secrets.token_hex(6)
+    raw[new_id] = {'endpoints': canonical, 'created_at': int(time.time()), 'created_by': actor}
+    save(TUNNELS_FILE, raw)
+    audit_log(actor, 'tunnel_add', detail=f'{canonical[0]} ↔ {canonical[1]}')
+    respond(200, {'ok': True, 'id': new_id, 'endpoints': canonical})
+
+
+def handle_tunnel_delete(tunnel_id: str) -> None:
+    """``DELETE /api/network-map/tunnels/{id}`` — remove a tunnel."""
+    actor = require_admin_auth()
+    if not tunnel_id.startswith('tun_'):
+        respond(404, {'error': 'tunnel not found'})
+    raw = _tunnels_load()
+    if tunnel_id not in raw:
+        respond(404, {'error': 'tunnel not found'})
+    ends = raw[tunnel_id].get('endpoints') or ['?', '?']
+    del raw[tunnel_id]
+    save(TUNNELS_FILE, raw)
+    audit_log(actor, 'tunnel_delete', detail=f'{ends[0]} ↔ {ends[1]}')
+    respond(200, {'ok': True})
+
+
+# ─── v1.11.2: shared link dashboard ───────────────────────────────────────────
+#
+# Simple bookmark dashboard. Global, not per-user — the "shared admin"
+# convention used everywhere else in the project. Stored as a flat dict
+# keyed by ``lnk_<hex>`` for stable IDs across renames.
+
+
+def _links_load() -> dict:
+    """Return the {link_id -> link} mapping, always a dict."""
+    s = load(LINKS_FILE)
+    return s if isinstance(s, dict) else {}
+
+
+def _validate_link_url(raw) -> 'str | None':
+    """Validate a candidate URL.
+
+    Args:
+        raw: User-supplied URL string. Anything else returns ``None``.
+
+    Returns:
+        Cleaned URL on success, ``None`` if invalid.
+
+    Rules:
+        - http:// or https:// only (no javascript:, file://, ftp:// etc.)
+        - max 1024 chars
+        - no whitespace or control characters anywhere in the URL
+        - no quote characters that would break attribute interpolation
+    """
+    if not isinstance(raw, str):
+        return None
+    url = raw.strip()
+    if not url or len(url) > MAX_LINK_URL_LEN:
+        return None
+    if not (url.startswith('http://') or url.startswith('https://')):
+        return None
+    if any(c.isspace() or ord(c) < 0x20 for c in url):
+        return None
+    # Don't allow quote chars; they get HTML-escaped in the renderer but
+    # belt-and-braces — a clean URL never contains them.
+    if any(c in url for c in ('"', "'", '<', '>')):
+        return None
+    return url
+
+
+def _normalize_link(payload: dict) -> 'tuple[dict | None, str]':
+    """Validate a request body into a clean link record.
+
+    Returns a tuple of ``(record, error)`` — exactly one will be truthy.
+    Used by both the create and update handlers so they don't have to
+    duplicate field validation.
+    """
+    if not isinstance(payload, dict):
+        return None, 'body must be a JSON object'
+    title = _sanitize_str(payload.get('title', ''), MAX_LINK_TITLE_LEN, allow_empty=False)
+    if not title:
+        return None, 'title required'
+    url = _validate_link_url(payload.get('url'))
+    if url is None:
+        return None, 'url must be http(s)://… (max 1024 chars, no whitespace/quotes)'
+    description = _sanitize_str(payload.get('description', ''),
+                                MAX_LINK_DESCRIPTION_LEN, allow_empty=True) or ''
+    category = _sanitize_str(payload.get('category', ''),
+                             MAX_LINK_CATEGORY_LEN, allow_empty=True) or LINK_DEFAULT_CATEGORY
+    scope = str(payload.get('scope', 'external')).strip().lower()
+    if scope not in LINK_SCOPES:
+        return None, f'scope must be one of {",".join(LINK_SCOPES)}'
+    return {
+        'title':       title,
+        'url':         url,
+        'description': description,
+        'category':    category,
+        'scope':       scope,
+    }, ''
+
+
+def handle_links_list() -> None:
+    """``GET /api/links`` — list all links plus the distinct category set.
+
+    Returns one entry per link, sorted by category then title (case-insensitive).
+    The frontend uses the category list to populate a datalist for the
+    "+ Add link" modal — same autocomplete pattern as ``server_function``.
+    """
+    require_auth()
+    store = _links_load()
+    links = []
+    cats = set()
+    for lid, l in store.items():
+        if not isinstance(l, dict):
+            continue
+        cats.add(l.get('category') or LINK_DEFAULT_CATEGORY)
+        links.append({
+            'id':          lid,
+            'title':       l.get('title', ''),
+            'url':         l.get('url', ''),
+            'description': l.get('description', ''),
+            'category':    l.get('category') or LINK_DEFAULT_CATEGORY,
+            'scope':       l.get('scope', 'external'),
+            'created_by':  l.get('created_by', ''),
+            'created_at':  l.get('created_at', 0),
+        })
+    links.sort(key=lambda x: (x['category'].lower(), x['title'].lower()))
+    respond(200, {'links': links, 'categories': sorted(cats, key=str.lower)})
+
+
+def handle_link_add() -> None:
+    """``POST /api/links`` — admin only.
+
+    Body: ``{title, url, description?, category?, scope}``. Returns the
+    new link's ID for the frontend to use in subsequent edits.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    record, err = _normalize_link(body)
+    if err:
+        respond(400, {'error': err})
+    store = _links_load()
+    if len(store) >= MAX_LINKS:
+        respond(400, {'error': f'max {MAX_LINKS} links'})
+    new_id = 'lnk_' + secrets.token_hex(6)
+    record['created_by'] = actor
+    record['created_at'] = int(time.time())
+    store[new_id] = record
+    save(LINKS_FILE, store)
+    audit_log(actor, 'link_add',
+              detail=f'id={new_id} title={record["title"][:40]} scope={record["scope"]}')
+    respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_link_update(link_id: str) -> None:
+    """``PUT /api/links/{id}`` — replace a link's contents.
+
+    All fields are required (it's a PUT, not a PATCH). The link's
+    ``created_by`` and ``created_at`` are preserved across the update.
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not link_id.startswith('lnk_'):
+        respond(404, {'error': 'link not found'})
+    store = _links_load()
+    if link_id not in store:
+        respond(404, {'error': 'link not found'})
+    body = get_json_body()
+    record, err = _normalize_link(body)
+    if err:
+        respond(400, {'error': err})
+    # Preserve original creation metadata
+    record['created_by'] = store[link_id].get('created_by', '')
+    record['created_at'] = store[link_id].get('created_at', 0)
+    record['updated_by'] = actor
+    record['updated_at'] = int(time.time())
+    store[link_id] = record
+    save(LINKS_FILE, store)
+    audit_log(actor, 'link_update',
+              detail=f'id={link_id} title={record["title"][:40]}')
+    respond(200, {'ok': True})
+
+
+def handle_link_delete(link_id: str) -> None:
+    """``DELETE /api/links/{id}`` — remove a link."""
+    actor = require_admin_auth()
+    if not link_id.startswith('lnk_'):
+        respond(404, {'error': 'link not found'})
+    store = _links_load()
+    if link_id not in store:
+        respond(404, {'error': 'link not found'})
+    title = store[link_id].get('title', '?')
+    del store[link_id]
+    save(LINKS_FILE, store)
+    audit_log(actor, 'link_delete', detail=f'id={link_id} title={title[:40]}')
+    respond(200, {'ok': True})
 
 
 def handle_device_allowlist(dev_id):
@@ -5696,11 +6459,15 @@ def main():
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
     elif pi == '/api/openapi.json' and m == 'GET': handle_openapi_spec()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
+    # v1.11.0: agentless device creation. Must precede the prefix-DELETE
+    # check so a POST to /api/devices/agentless doesn't get misrouted.
+    elif pi == '/api/devices/agentless' and m == 'POST': handle_agentless_create()
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
                                      '/icon','/monitored','/cve','/services',
-                                     '/services/config','/logs','/update-logs')):
+                                     '/services/config','/logs','/update-logs',
+                                     '/containers','/connected-to')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
@@ -5879,6 +6646,38 @@ def main():
         handle_cmdb_get(pi[len('/api/cmdb/'):])
     elif pi.startswith('/api/cmdb/') and m == 'PUT':
         handle_cmdb_update(pi[len('/api/cmdb/'):])
+
+    # ── v1.11.0: containers ────────────────────────────────────────────────
+    elif pi == '/api/containers' and m == 'GET': handle_containers_overview()
+    elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'GET':
+        handle_device_containers(pi[len('/api/devices/'):-len('/containers')])
+
+    # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
+    elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()
+    elif pi == '/api/tls/targets' and m == 'POST': handle_tls_add()
+    elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
+        handle_tls_delete(pi[len('/api/tls/targets/'):])
+    elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
+
+    # ── v1.11.0: network map + agentless device link ──────────────────────
+    elif pi == '/api/network-map' and m == 'GET': handle_network_map()
+    elif pi.startswith('/api/devices/') and pi.endswith('/connected-to') and m == 'PUT':
+        handle_device_connected_to(pi[len('/api/devices/'):-len('/connected-to')])
+
+    # ── v1.11.1: positions + tunnels ───────────────────────────────────────
+    elif pi == '/api/network-map/positions' and m == 'PUT': handle_network_positions()
+    elif pi == '/api/network-map/tunnels'   and m == 'GET':  handle_tunnels_list()
+    elif pi == '/api/network-map/tunnels'   and m == 'POST': handle_tunnel_add()
+    elif pi.startswith('/api/network-map/tunnels/') and m == 'DELETE':
+        handle_tunnel_delete(pi[len('/api/network-map/tunnels/'):])
+
+    # ── v1.11.2: shared link dashboard ────────────────────────────────────
+    elif pi == '/api/links' and m == 'GET':  handle_links_list()
+    elif pi == '/api/links' and m == 'POST': handle_link_add()
+    elif pi.startswith('/api/links/') and m == 'PUT':
+        handle_link_update(pi[len('/api/links/'):])
+    elif pi.startswith('/api/links/') and m == 'DELETE':
+        handle_link_delete(pi[len('/api/links/'):])
 
     else: respond(404, {'error': 'Not found'})
 

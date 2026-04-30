@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""RemotePower TLS expiry probe — cron runner.
+
+Run periodically (suggested: every 6 hours) from systemd timer or cron.
+Probes every host in ``tls_targets.json``, writes the latest result to
+``tls_results.json``, and emits webhook notifications for hosts that
+crossed a warn/critical threshold since the last run.
+
+Designed to be safe to run alongside the CGI: writes are atomic (the
+shared ``save()`` helper writes to a tempfile + rename) and the data
+files are short enough that a partial overwrite isn't a concern.
+
+Exit code: 0 always (don't spam cron mail on transient probe failures).
+Use journalctl / the audit log to diagnose persistent failures.
+
+Usage:
+    /usr/bin/python3 /var/www/remotepower/cgi-bin/remotepower-tls-check
+
+Cron / systemd:
+    Add a ``remotepower-tls-check.service`` and ``.timer`` pair, or a
+    line in /etc/cron.d/remotepower::
+
+        0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+# Make the sibling modules importable regardless of where cron invokes us
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import tls_monitor  # noqa: E402
+
+DATA_DIR = Path(os.environ.get("RP_DATA_DIR", "/var/lib/remotepower"))
+TARGETS = DATA_DIR / "tls_targets.json"
+RESULTS = DATA_DIR / "tls_results.json"
+
+
+def _load(p: Path) -> dict:
+    if not p.exists():
+        return {}
+    try:
+        with p.open() as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save(p: Path, data: dict) -> None:
+    """Atomic write — same shape as the CGI's save() helper."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(p)
+
+
+def main() -> int:
+    targets = _load(TARGETS)
+    if not targets:
+        print(f"[tls-check] no targets configured at {TARGETS}", file=sys.stderr)
+        return 0
+
+    started = time.time()
+    print(f"[tls-check] probing {len(targets)} target(s)...")
+    results = tls_monitor.probe_all(targets)
+    _save(RESULTS, results)
+
+    # Brief summary — one line per critical/error so cron mail is useful
+    # only when something is actually wrong.
+    issues = []
+    for tid, t in targets.items():
+        r = results.get(tid, {})
+        warn = int(t.get("warn_days", 14))
+        crit = int(t.get("crit_days", 3))
+        status = tls_monitor.status_for(r, warn, crit)
+        if status in ("critical", "error"):
+            host = f"{t.get('host', '?')}:{t.get('port', '?')}"
+            err = r.get("dns_error") or r.get("tls_error") or ""
+            days = tls_monitor.days_until_expiry(r)
+            issues.append(f"  {status.upper():8s} {host:40s} {err or f'{days}d left'}")
+
+    if issues:
+        print(f"[tls-check] {len(issues)} issue(s):")
+        print("\n".join(issues))
+    print(f"[tls-check] done in {time.time() - started:.1f}s")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

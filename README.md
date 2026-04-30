@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.10.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.11.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -76,6 +76,10 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | 🔗 **SSH from credentials** | Per-asset `ssh_port` field; each credential row has `ssh://user@host:port` link + Copy button for the equivalent `ssh` command |
 | 🐧 **OS icons** | Auto-detected inline-SVG glyphs: Linux (Tux) for anything Linux-shaped, Windows tile for Windows, question-mark fallback for the rest |
 | 📜 **Update history** | Rolling 10-run buffer of `apt`/`dnf`/`pacman` output per device; modal viewer with timestamps, exit codes, durations, full output |
+| 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods on every agent. Read-only — image, status, restart count, ports, namespace |
+| 🌐 **Network map** | Manual topology graph from per-device `connected_to` links. Switches and APs as agentless devices |
+| 🔐 **TLS / DNS expiry** | Server-side probes against a configurable watchlist. Stdlib-only, cron-driven, alerts via existing webhooks |
+| 🔌 **Agentless devices** | Manual device records for switches, APs, printers, IPMI, cameras — same CMDB / vault / SSH-link as agented devices |
 | ℹ️ **About page** | Server version, agent version, GitHub release check |
 
 ---
@@ -106,6 +110,9 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                               ├── cmdb.json             # CMDB asset metadata + encrypted creds
                               ├── cmdb_vault.json       # KDF salt + canary (no plaintext)
                               ├── update_logs.json      # rolling buffer of upgrade-output per device
+                              ├── containers.json       # per-device container/pod state (last seen)
+                              ├── tls_targets.json      # TLS / DNS watchlist
+                              ├── tls_results.json      # last probe result per target
                               └── longpoll.json         # pending long-poll slots
 
 Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
@@ -266,6 +273,18 @@ Clients self-update automatically within ~1 hour, or push from the dashboard wit
 ---
 
 ## Feature Guide
+
+### Container awareness *(v1.11.0)*
+Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes pods on its host and posts a normalised list to the server every ~5 minutes. The Containers tab in the sidebar shows fleet-wide status; per-device drill-down shows image, tag, ports, restart count, and namespace. Read-only — RemotePower surfaces what's running, doesn't manage it. Reference: **[docs/containers.md](docs/containers.md)**.
+
+### Network map *(v1.11.0)*
+Set `connected_to` on each device (Edit links button on the Network page) to record what plugs into what. The map renders nodes coloured by online/offline status and outlined by agent vs. agentless. Manual topology only — no auto-discovery. Reference: **[docs/network-map.md](docs/network-map.md)**.
+
+### Agentless devices *(v1.11.0)*
+"+ Agentless device" on the Devices toolbar adds a record for things that can't run the agent — switches, APs, printers, IPMI cards, cameras, smart plugs. Same CMDB metadata, vault credentials, SSH link as agented devices. Status is whatever you set it to. Reference: **[docs/agentless-devices.md](docs/agentless-devices.md)**.
+
+### TLS / DNS expiry monitor *(v1.11.0)*
+Add hostnames to the TLS / DNS page. The server runs a probe via `cgi-bin/remotepower-tls-check` (cron, every 6 hours suggested) or "Scan now" from the page. Default thresholds: warn at 14 days, critical at 3 days. Stdlib-only — no extra dependencies. Reference: **[docs/tls-monitor.md](docs/tls-monitor.md)**.
 
 ### API documentation (Swagger)
 Click **API Docs** in the sidebar to open `/swagger.html` — Swagger UI rendering the OpenAPI 3.1 spec for every public endpoint. The page auto-injects your existing session token, so "Try it out" works without an Authorize step. The raw spec is at `/api/openapi.json`. Reference: **[docs/swagger.md](docs/swagger.md)**.

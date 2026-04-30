@@ -1065,6 +1065,18 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
       <span>CMDB</span>
     </button>
+    <button class="nav-btn" onclick="showPage('containers',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
+      <span>Containers</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('netmap',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
+      <span>Network</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('tls',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>TLS / DNS</span>
+    </button>
     <button class="nav-btn" onclick="showPage('monitor',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       <span>Monitor</span>
@@ -1126,6 +1138,10 @@
     <button class="nav-btn" onclick="showPage('audit',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       <span>Audit</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('links',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <span>Links</span>
     </button>
     <button class="nav-btn" onclick="window.open('/swagger.html', '_blank')" title="Open the OpenAPI / Swagger UI documentation in a new tab">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
@@ -1209,6 +1225,7 @@
           <select id="device-group-filter" class="form-input" onchange="filterDevices()" style="width:auto;padding:8px 12px;font-size:13px">
             <option value="all">All groups</option>
           </select>
+          <button class="btn-icon" style="margin-left:auto" onclick="agentlessAddOpen()" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
         </div>
         <div id="devices-container" class="devices-grid"></div>
       </div>
@@ -1829,6 +1846,74 @@
         <datalist id="cmdb-func-datalist"></datalist>
       </div>
 
+      <!-- ── v1.11.0: Containers ────────────────────────────────────────── -->
+      <div id="page-containers" class="page">
+        <div class="page-title">Containers</div>
+        <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="containers-search" class="form-input" placeholder="Filter by device or container name…" oninput="renderContainersOverview()" style="flex:1;min-width:240px;max-width:380px">
+          <button class="btn-icon" onclick="loadContainersOverview()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Device</th><th>OS</th><th>Total</th><th>Running</th><th>Stopped</th><th>Restarting (≥5)</th><th>Runtimes</th><th>Reported</th><th></th></tr></thead>
+            <tbody id="containers-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v1.11.0: Network map ───────────────────────────────────────── -->
+      <div id="page-netmap" class="page">
+        <div class="page-title">Network map</div>
+        <div class="page-subtitle">Topology view from manually-set <code>connected_to</code> links and tunnels (peer links). Drag nodes to reposition — positions persist across refresh. Add agentless devices on the Devices page.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+          <button class="btn-icon" onclick="loadNetmap()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" onclick="netmapEditOpen()">Edit links</button>
+          <button class="btn-icon" onclick="netmapTunnelsOpen()">Tunnels</button>
+          <button class="btn-icon" onclick="netmapResetPositions()" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
+          <span id="netmap-stats" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
+        </div>
+        <div class="table-card" style="padding:16px">
+          <svg id="netmap-svg" width="100%" height="600" style="background:var(--surface);border-radius:6px"></svg>
+        </div>
+      </div>
+
+      <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
+      <div id="page-tls" class="page">
+        <div class="page-title">TLS / DNS expiry</div>
+        <div class="page-subtitle">Server-side cert and DNS watchlist. Probes run from the RemotePower server. Defaults: warn at 14 days, critical at 3 days.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn-icon" onclick="tlsAddOpen()">+ Add target</button>
+          <button class="btn-icon" onclick="tlsScanNow()">Scan now</button>
+          <button class="btn-icon" onclick="loadTLS()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="tls-status-summary" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr><th>Status</th><th>Host</th><th>Port</th><th>Days left</th><th>Expires</th><th>Issuer</th><th>Last check</th><th></th></tr></thead>
+            <tbody id="tls-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v1.11.2: Links dashboard ────────────────────────────────────── -->
+      <div id="page-links" class="page">
+        <div class="page-title">Links</div>
+        <div class="page-subtitle">Shared bookmark dashboard. Card grid grouped by category. Click any card to open the link in a new tab. <strong>Internal</strong> links (LAN-only, behind VPN, etc.) are amber-bordered; <strong>external</strong> links are accent-bordered.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="links-search" class="form-input" placeholder="Filter by title, URL, or description…" oninput="renderLinks()" style="flex:1;min-width:240px;max-width:380px">
+          <select id="links-scope-filter" class="form-input" onchange="renderLinks()" style="max-width:160px">
+            <option value="">All scopes</option>
+            <option value="internal">Internal only</option>
+            <option value="external">External only</option>
+          </select>
+          <button class="btn-icon" onclick="loadLinks()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" onclick="linkAddOpen()" style="margin-left:auto">+ Add link</button>
+          <button class="btn-icon" id="links-edit-toggle" onclick="linksToggleEditMode()" title="Toggle edit/delete buttons on each card">Edit mode</button>
+        </div>
+        <div id="links-grid" style="display:flex;flex-direction:column;gap:24px"></div>
+        <datalist id="links-category-datalist"></datalist>
+      </div>
 
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
@@ -2064,6 +2149,219 @@
   </div>
   <div class="modal-actions">
     <button class="btn-primary" onclick="cmdbCredRevealClose()">Close</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.0: TLS target add ─────────────────────────────────────────── -->
+<div class="modal-overlay" id="tls-add-modal"><div class="modal">
+  <div class="modal-title">Add TLS / DNS watch target</div>
+  <div class="modal-subtitle">The server will probe this host periodically (cron) and on demand. Empty cert / connection errors show as red regardless of expiry.</div>
+  <div class="form-group">
+    <label class="form-label">Hostname (SNI / cert name)</label>
+    <input type="text" id="tls-add-host" class="form-input" placeholder="example.com" maxlength="255">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Connect address (optional — IP or host)</label>
+    <input type="text" id="tls-add-connect-addr" class="form-input" placeholder="leave empty to resolve hostname" maxlength="255">
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Override DNS resolution. Useful when probing a local cert by IP — the hostname above is still sent as SNI in the handshake.</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">STARTTLS protocol</label>
+    <select id="tls-add-starttls" class="form-input">
+      <option value="auto">Auto-detect from port (recommended)</option>
+      <option value="none">None / direct TLS (HTTPS, IMAPS, etc.)</option>
+      <option value="smtp">SMTP STARTTLS (port 25 / 587 / 2525)</option>
+      <option value="imap">IMAP STARTTLS (port 143)</option>
+      <option value="pop3">POP3 STLS (port 110)</option>
+      <option value="ldap">LDAP StartTLS (port 389)</option>
+    </select>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Auto-detect maps well-known ports to their STARTTLS protocol. Pick a specific protocol if you're running a service on a non-standard port.</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="form-group">
+      <label class="form-label">Port</label>
+      <input type="number" id="tls-add-port" class="form-input" min="1" max="65535" value="443">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Warn (days)</label>
+      <input type="number" id="tls-add-warn" class="form-input" min="0" max="365" value="14">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Critical (days)</label>
+      <input type="number" id="tls-add-crit" class="form-input" min="0" max="365" value="3">
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Label (optional)</label>
+    <input type="text" id="tls-add-label" class="form-input" placeholder="e.g. Production app frontend" maxlength="128">
+  </div>
+  <div class="form-group">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="tls-add-dane">
+      <span>Check DANE / TLSA records (requires DNSSEC-validating resolver and dnspython)</span>
+    </label>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:24px">Looks up <code>_PORT._tcp.HOSTNAME</code> for TLSA records, validates DNSSEC, and compares the cert against them. Without DNSSEC the check refuses to trust the records (status: <code>insecure</code>).</div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('tls-add-modal')">Cancel</button>
+    <button class="btn-primary" onclick="tlsAddSave()">Add</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.0: TLS detail (read-only) ──────────────────────────────────── -->
+<div class="modal-overlay" id="tls-detail-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="tls-detail-title">Certificate detail</div>
+  <div id="tls-detail-body" style="font-size:13px"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('tls-detail-modal')">Close</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.0: Agentless device add ────────────────────────────────────── -->
+<div class="modal-overlay" id="agentless-add-modal"><div class="modal">
+  <div class="modal-title">Add agentless device</div>
+  <div class="modal-subtitle">For devices that can't run the agent — switches, APs, printers, IPMI, cameras, smart plugs. They appear in the device list, get CMDB metadata + vault credentials, and show on the Network map. Status is whatever you set it to.</div>
+  <div class="form-group">
+    <label class="form-label">Name</label>
+    <input type="text" id="al-name" class="form-input" placeholder="e.g. core-switch-1" maxlength="64">
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group">
+      <label class="form-label">Type</label>
+      <select id="al-type" class="form-input">
+        <option value="">— pick —</option>
+        <option value="switch">Switch</option>
+        <option value="router">Router</option>
+        <option value="firewall">Firewall</option>
+        <option value="access_point">Access point</option>
+        <option value="ap">AP (alias)</option>
+        <option value="printer">Printer</option>
+        <option value="camera">Camera</option>
+        <option value="ipmi">IPMI / BMC</option>
+        <option value="ups">UPS</option>
+        <option value="pdu">PDU</option>
+        <option value="nas">NAS</option>
+        <option value="iot">IoT</option>
+        <option value="smart_plug">Smart plug</option>
+        <option value="phone">Phone</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Connected to (upstream)</label>
+      <select id="al-connected-to" class="form-input"><option value="">— none —</option></select>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group">
+      <label class="form-label">Hostname</label>
+      <input type="text" id="al-hostname" class="form-input" maxlength="128">
+    </div>
+    <div class="form-group">
+      <label class="form-label">IP</label>
+      <input type="text" id="al-ip" class="form-input" maxlength="64" placeholder="10.0.0.42">
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group">
+      <label class="form-label">MAC</label>
+      <input type="text" id="al-mac" class="form-input" maxlength="32" placeholder="aa:bb:cc:dd:ee:ff">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Group</label>
+      <input type="text" id="al-group" class="form-input" maxlength="64" placeholder="optional">
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Notes</label>
+    <textarea id="al-notes" class="form-textarea" maxlength="1024" rows="3"></textarea>
+  </div>
+  <div class="form-group">
+    <label><input type="checkbox" id="al-status" checked> Mark as currently up</label>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('agentless-add-modal')">Cancel</button>
+    <button class="btn-primary" onclick="agentlessSave()">Add device</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.0: Network map link editor ─────────────────────────────────── -->
+<div class="modal-overlay" id="netmap-edit-modal"><div class="modal modal-wide">
+  <div class="modal-title">Edit network links</div>
+  <div class="modal-subtitle">Set <code>connected_to</code> for each device — what it plugs into upstream (typically a switch or AP). Leave blank for devices with no parent (the internet gateway, root switch, etc.).</div>
+  <div id="netmap-edit-body" style="max-height:60vh;overflow-y:auto"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('netmap-edit-modal')">Close</button>
+    <button class="btn-primary" onclick="netmapEditSaveAll()">Save changes</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.2: Link add / edit ───────────────────────────────────────────── -->
+<div class="modal-overlay" id="link-edit-modal"><div class="modal">
+  <div class="modal-title" id="link-edit-title">Add link</div>
+  <input type="hidden" id="link-edit-mode" value="add">
+  <input type="hidden" id="link-edit-id">
+  <div class="form-group">
+    <label class="form-label">Title</label>
+    <input type="text" id="link-edit-title-input" class="form-input" maxlength="128" placeholder="e.g. Proxmox cluster">
+  </div>
+  <div class="form-group">
+    <label class="form-label">URL</label>
+    <input type="url" id="link-edit-url" class="form-input" maxlength="1024" placeholder="https://…">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Category</label>
+    <input type="text" id="link-edit-category" class="form-input" list="links-category-datalist" maxlength="64" placeholder="Uncategorised">
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Pick an existing category or type a new one. Empty = "Uncategorised".</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Scope</label>
+    <div style="display:flex;gap:14px;font-size:13px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="link-edit-scope" value="external" checked> External (public internet)
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="link-edit-scope" value="internal"> Internal (LAN / VPN only)
+      </label>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Description (optional)</label>
+    <input type="text" id="link-edit-description" class="form-input" maxlength="512" placeholder="Short note shown on hover">
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('link-edit-modal')">Cancel</button>
+    <button class="btn-primary" onclick="linkSave()">Save</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.1: Tunnels (peer links) ──────────────────────────────────────── -->
+<div class="modal-overlay" id="netmap-tunnels-modal"><div class="modal modal-wide">
+  <div class="modal-title">Tunnels</div>
+  <div class="modal-subtitle">Peer links between devices, drawn as dashed amber lines on the map. Use these for VPN tunnels, site-to-site links, or anything else that isn't physical wiring.</div>
+  <div style="display:flex;gap:10px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap">
+    <div style="flex:1;min-width:160px">
+      <label class="form-label" style="font-size:12px">From</label>
+      <select id="tun-from" class="form-input"><option value="">— pick —</option></select>
+    </div>
+    <div style="flex:1;min-width:160px">
+      <label class="form-label" style="font-size:12px">To</label>
+      <select id="tun-to" class="form-input"><option value="">— pick —</option></select>
+    </div>
+    <button class="btn-icon" onclick="tunnelAdd()">+ Add tunnel</button>
+  </div>
+  <div id="tun-list" style="max-height:50vh;overflow-y:auto"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('netmap-tunnels-modal')">Close</button>
+  </div>
+</div></div>
+
+<!-- ── v1.11.0: Container detail (per-device drilldown) ─────────────────── -->
+<div class="modal-overlay" id="containers-detail-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="containers-detail-title">Containers</div>
+  <div id="containers-detail-body" style="max-height:60vh;overflow-y:auto"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('containers-detail-modal')">Close</button>
   </div>
 </div></div>
 
@@ -2394,6 +2692,10 @@ function showPage(name, btn) {
   if (name === 'calendar') loadCalendar();
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
+  if (name === 'containers') enterContainers();
+  if (name === 'netmap')   enterNetmap();
+  if (name === 'tls')      enterTLS();
+  if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
 }
 async function loadDevices() {
@@ -4555,6 +4857,940 @@ async function reloadUpdateLogs() {
       <pre style="margin:0;padding:12px;background:var(--surface);border-top:1px solid var(--border);font-family:monospace;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word;max-height:400px;overflow-y:auto">${escHtml(out)}</pre>
     </details>`;
   }).join('');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v1.11.0: Containers / Network map / TLS monitor / Agentless devices
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Containers ───────────────────────────────────────────────────────────────
+let _containersOverview = [];
+
+async function enterContainers() {
+  await loadContainersOverview();
+}
+
+async function loadContainersOverview() {
+  const tbody = document.getElementById('containers-tbody');
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  const data = await api('GET', '/containers');
+  _containersOverview = Array.isArray(data) ? data : [];
+  renderContainersOverview();
+}
+
+function renderContainersOverview() {
+  const tbody = document.getElementById('containers-tbody');
+  const q = (document.getElementById('containers-search')?.value || '').trim().toLowerCase();
+  const rows = _containersOverview.filter(r => !q || r.name.toLowerCase().includes(q) || (r.os || '').toLowerCase().includes(q));
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices have reported containers yet. The agent reports every 5 polls (~5 minutes).</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const s = r.summary || {total: 0, running: 0, stopped: 0, restarting: 0, by_runtime: {}};
+    const runtimes = Object.entries(s.by_runtime || {})
+      .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
+      .join(', ') || '—';
+    const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
+    const restartingCell = s.restarting > 0
+      ? `<span style="color:var(--red)">${s.restarting}</span>`
+      : `<span style="color:var(--muted)">0</span>`;
+    return `<tr>
+      <td style="font-weight:500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(r.os || '—')}</td>
+      <td style="font-weight:500">${s.total}</td>
+      <td style="color:var(--green)">${s.running}</td>
+      <td style="color:var(--muted)">${s.stopped}</td>
+      <td>${restartingCell}</td>
+      <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}</td>
+      <td><button class="btn-icon" onclick="containersOpen('${escHtml(r.device_id)}','${escHtml(r.name)}')">View</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function containersOpen(deviceId, name) {
+  document.getElementById('containers-detail-title').textContent = `Containers — ${name}`;
+  const body = document.getElementById('containers-detail-body');
+  body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  openModal('containers-detail-modal');
+  const data = await api('GET', `/devices/${encodeURIComponent(deviceId)}/containers`);
+  if (!data) return;
+  const items = data.items || [];
+  if (!items.length) {
+    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No containers reported.</div>';
+    return;
+  }
+  body.innerHTML = items.map(c => {
+    const statusColor = (c.status || '').toLowerCase().includes('running') || (c.status || '').toLowerCase().includes('up ')
+      ? 'var(--green)'
+      : (c.status || '').toLowerCase().includes('exit') ? 'var(--red)' : 'var(--muted)';
+    const ports = (c.ports || []).map(p => `<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:11px">${escHtml(p)}</code>`).join(' ');
+    const restart = c.restart_count > 0
+      ? `<span style="color:${c.restart_count >= 5 ? 'var(--red)' : 'var(--amber)'}">restart×${c.restart_count}</span>`
+      : '';
+    const ns = c.namespace ? `<span style="color:var(--muted)">${escHtml(c.namespace)}/</span>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-weight:600">${ns}${escHtml(c.name)}</div>
+        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+          <span style="color:${statusColor}">${escHtml(c.status || '?')}</span>
+          ${restart}
+          <span class="cmd-badge ${escHtml(c.runtime)}" style="font-size:10px;padding:2px 6px">${escHtml(c.runtime)}</span>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:monospace">${escHtml(c.image)}${c.tag ? ':' + escHtml(c.tag) : ''}</div>
+      ${ports ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ports}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ── Network map ──────────────────────────────────────────────────────────────
+// v1.11.1: Now also carries `tunnels` (peer links) and per-node positions.
+// Render-time the data is mutated in place — `_netmapNodes` is the source
+// of truth for current screen position, kept separate so we don't rebuild
+// the whole array every drag event.
+let _netmapData = {nodes: [], edges: [], tunnels: []};
+let _netmapNodes = [];          // working copy with x/y for rendering
+let _netmapDirty = new Set();   // device IDs whose position has been moved
+
+async function enterNetmap() {
+  await loadNetmap();
+}
+
+async function loadNetmap() {
+  const data = await api('GET', '/network-map');
+  if (!data) return;
+  _netmapData = data;
+  _netmapDirty.clear();
+  // Auto-layout for nodes without a saved position. We keep saved positions
+  // exactly as the server returned them so a refresh shows the same picture.
+  const w = document.getElementById('netmap-svg')?.clientWidth || 900;
+  const byType = {};
+  _netmapNodes = data.nodes.map(n => ({...n}));
+  _netmapNodes.forEach(n => { (byType[n.type] = byType[n.type] || []).push(n); });
+  const types = Object.keys(byType).sort();
+  let yPos = 80;
+  types.forEach(t => {
+    const list = byType[t];
+    const stepX = w / (list.length + 1);
+    list.forEach((n, i) => {
+      // Use saved position if present, otherwise fall back to auto-layout
+      if (n.pos_x == null || n.pos_y == null) {
+        n.x = stepX * (i + 1);
+        n.y = yPos;
+      } else {
+        n.x = n.pos_x;
+        n.y = n.pos_y;
+      }
+    });
+    yPos += 120;
+  });
+  renderNetmap();
+  document.getElementById('netmap-stats').textContent =
+    `${data.nodes.length} node(s), ${data.edges.length} link(s), ${(data.tunnels||[]).length} tunnel(s)`;
+}
+
+// SVG renderer — physical edges as solid lines, tunnels as dashed amber.
+// Each node lives in a <g> that we can move with `transform=translate(...)`
+// during drag, instead of regenerating innerHTML (which would orphan the
+// pointer-captured element and limit drags to a single pointermove).
+function renderNetmap() {
+  const svg = document.getElementById('netmap-svg');
+  if (!svg) return;
+  if (!_netmapNodes.length) {
+    svg.innerHTML = '<text x="50%" y="50%" fill="currentColor" opacity="0.6" font-size="14" text-anchor="middle">No devices yet. Enroll an agent or add an agentless device.</text>';
+    return;
+  }
+  const lookup = Object.fromEntries(_netmapNodes.map(n => [n.id, n]));
+  // Edges first so they're behind the nodes. We give each edge an id so
+  // _netmapUpdateEdges() can locate and update its endpoints in place
+  // during a drag without touching the node DOM.
+  const edgeMarkup = (_netmapData.edges || []).map((e, i) => {
+    const a = lookup[e.from], b = lookup[e.to];
+    if (!a || !b) return '';
+    return `<line data-edge-from="${escHtml(e.from)}" data-edge-to="${escHtml(e.to)}" data-edge-kind="phys" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--border)" stroke-width="1.5" opacity="0.65"/>`;
+  }).join('');
+  const tunnelMarkup = (_netmapData.tunnels || []).map((t, i) => {
+    const a = lookup[t.endpoints[0]], b = lookup[t.endpoints[1]];
+    if (!a || !b) return '';
+    return `<line data-edge-from="${escHtml(t.endpoints[0])}" data-edge-to="${escHtml(t.endpoints[1])}" data-edge-kind="tun" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"><title>Tunnel: ${escHtml(a.name)} ↔ ${escHtml(b.name)}</title></line>`;
+  }).join('');
+  // Nodes — single <g class="netmap-node"> per device. The shapes inside use
+  // coordinates relative to the node's centre (0,0); the <g> itself is
+  // positioned via `transform="translate(x, y)"`. This way a drag updates
+  // a single attribute instead of rewriting the whole subtree.
+  const nodeMarkup = _netmapNodes.map(n => {
+    const fill   = n.online ? 'var(--green)' : 'var(--red)';
+    const stroke = n.agentless ? 'var(--amber)' : 'var(--accent)';
+    const r = 14;
+    return `<g class="netmap-node" data-node-id="${escHtml(n.id)}" transform="translate(${n.x}, ${n.y})" style="cursor:grab">
+      <circle cx="0" cy="0" r="${r}" fill="${fill}" fill-opacity="0.18" stroke="${stroke}" stroke-width="2"/>
+      <text x="0" y="4" font-size="10" fill="currentColor" text-anchor="middle" font-weight="600" pointer-events="none">${escHtml((n.type || '?').slice(0,3).toUpperCase())}</text>
+      <text x="0" y="${r + 14}" font-size="11" fill="currentColor" text-anchor="middle" pointer-events="none">${escHtml(n.name)}</text>
+      <text x="0" y="${r + 28}" font-size="10" fill="currentColor" opacity="0.55" text-anchor="middle" pointer-events="none">${escHtml(n.ip || '')}</text>
+    </g>`;
+  }).join('');
+  svg.innerHTML = edgeMarkup + tunnelMarkup + nodeMarkup;
+  netmapInstallDrag(svg);
+}
+
+// Update the visual position of a single node and any edges/tunnels touching
+// it. Called from pointermove during a drag — does NOT rebuild innerHTML, so
+// the node element with our captured pointer keeps existing.
+function _netmapMoveNode(id, x, y) {
+  // Update the working data so the next renderNetmap() (refresh, page
+  // re-enter) shows the latest position.
+  const n = _netmapNodes.find(x => x.id === id);
+  if (!n) return;
+  n.x = x; n.y = y;
+
+  const svg = document.getElementById('netmap-svg');
+  if (!svg) return;
+  // Device IDs are [A-Za-z0-9_-] so attribute selectors don't need escaping.
+  // Avoid CSS.escape() because it's missing on some older runtimes.
+  const g = svg.querySelector(`.netmap-node[data-node-id="${id}"]`);
+  if (g) g.setAttribute('transform', `translate(${x}, ${y})`);
+
+  // Update every edge/tunnel touching this node — both as `from` and `to`.
+  svg.querySelectorAll(`line[data-edge-from="${id}"]`).forEach(line => {
+    line.setAttribute('x1', x); line.setAttribute('y1', y);
+  });
+  svg.querySelectorAll(`line[data-edge-to="${id}"]`).forEach(line => {
+    line.setAttribute('x2', x); line.setAttribute('y2', y);
+  });
+}
+
+// Hand-rolled drag. Listeners live on the SVG, not on each node — that way
+// they survive any future re-render and pointer movement off the node circle
+// (onto the label, into empty space) keeps tracking rather than stopping.
+//
+// We use pointer events for mouse + touch + stylus uniformly. Pointer
+// capture is essential: it routes every move event to the original target
+// even if the cursor leaves it, which is exactly what drag needs.
+function netmapInstallDrag(svg) {
+  // Wipe any previous handlers from a prior render
+  if (svg.__netmapDragInstalled) return;
+  svg.__netmapDragInstalled = true;
+
+  let dragging = null;   // {id, offX, offY, moved, startEvtX, startEvtY}
+
+  function svgPoint(evt) {
+    // Convert client coords to SVG coords accounting for viewBox/scaling.
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return {x: evt.clientX, y: evt.clientY};
+    const inv = ctm.inverse();
+    return pt.matrixTransform(inv);
+  }
+
+  svg.addEventListener('pointerdown', (evt) => {
+    if (evt.button !== 0) return;
+    // Walk up to find the .netmap-node group (the actual click target may
+    // be the inner <circle>).
+    let target = evt.target;
+    while (target && target !== svg && !(target.classList && target.classList.contains('netmap-node'))) {
+      target = target.parentNode;
+    }
+    if (!target || target === svg) return;
+    const id = target.getAttribute('data-node-id');
+    const node = _netmapNodes.find(n => n.id === id);
+    if (!node) return;
+    evt.preventDefault();
+    const p = svgPoint(evt);
+    dragging = {
+      id,
+      offX: p.x - node.x,
+      offY: p.y - node.y,
+      moved: false,
+      startEvtX: evt.clientX,
+      startEvtY: evt.clientY,
+      target,
+    };
+    target.style.cursor = 'grabbing';
+    // Capture on the SVG, not the node — capture on a removed-and-replaced
+    // element silently breaks. The SVG persists across re-renders.
+    try { svg.setPointerCapture(evt.pointerId); } catch (e) {}
+  });
+
+  svg.addEventListener('pointermove', (evt) => {
+    if (!dragging) return;
+    const dx = evt.clientX - dragging.startEvtX;
+    const dy = evt.clientY - dragging.startEvtY;
+    if (!dragging.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+      dragging.moved = true;
+    }
+    if (!dragging.moved) return;
+    const p = svgPoint(evt);
+    _netmapMoveNode(dragging.id,
+                    Math.round(p.x - dragging.offX),
+                    Math.round(p.y - dragging.offY));
+  });
+
+  function endDrag(evt) {
+    if (!dragging) return;
+    const wasMoved = dragging.moved;
+    const id = dragging.id;
+    if (dragging.target) dragging.target.style.cursor = 'grab';
+    try { svg.releasePointerCapture(evt.pointerId); } catch (e) {}
+    dragging = null;
+    if (wasMoved) {
+      _netmapDirty.add(id);
+      netmapSavePositionsDebounced();
+    } else {
+      // Pure click — open the device modal
+      netmapNodeClick(id);
+    }
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+}
+
+// Debounced batch save — if you drag five nodes in a row we send one PUT,
+// not five. 400ms of no further drags triggers the flush.
+let _netmapSaveTimer = null;
+function netmapSavePositionsDebounced() {
+  clearTimeout(_netmapSaveTimer);
+  _netmapSaveTimer = setTimeout(netmapFlushPositions, 400);
+}
+
+async function netmapFlushPositions() {
+  if (!_netmapDirty.size) return;
+  const positions = [];
+  for (const id of _netmapDirty) {
+    const n = _netmapNodes.find(x => x.id === id);
+    if (n) positions.push({id, x: n.x, y: n.y});
+  }
+  _netmapDirty.clear();
+  const r = await api('PUT', '/network-map/positions', {positions});
+  if (!r || !r.ok) {
+    toast('Failed to save positions — they may not survive refresh', 'error');
+  }
+}
+
+function netmapNodeClick(deviceId) {
+  if (typeof openDeviceInfo === 'function') {
+    openDeviceInfo(deviceId);
+  } else {
+    cmdbOpenAsset(deviceId);
+  }
+}
+
+async function netmapEditOpen() {
+  // Refresh data first so the editor has the current shape
+  await loadNetmap();
+  const body = document.getElementById('netmap-edit-body');
+  const nodes = _netmapData.nodes;
+  if (!nodes.length) {
+    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No devices to link.</div>';
+    openModal('netmap-edit-modal');
+    return;
+  }
+  // Build an option list of all devices for the dropdowns
+  const optsHtml = '<option value="">— none —</option>' +
+    nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
+  body.innerHTML = `<table style="width:100%"><thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th style="padding:6px 8px">Device</th><th style="padding:6px 8px">Type</th><th style="padding:6px 8px">Connected to (upstream)</th></tr></thead><tbody>${
+    nodes.map(n => {
+      const cur = (_netmapData.edges.find(e => e.from === n.id) || {}).to || '';
+      // Build per-row options where the current value is selected and self-link is removed
+      const rowOpts = '<option value="">— none —</option>' +
+        nodes.filter(o => o.id !== n.id).map(o =>
+          `<option value="${escHtml(o.id)}"${o.id === cur ? ' selected' : ''}>${escHtml(o.name)} (${escHtml(o.type || 'host')})</option>`
+        ).join('');
+      return `<tr>
+        <td style="padding:6px 8px;font-weight:500">${escHtml(n.name)}</td>
+        <td style="padding:6px 8px;color:var(--muted);font-size:12px">${escHtml(n.type || 'host')}</td>
+        <td style="padding:6px 8px"><select class="form-input netmap-link-sel" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}" style="width:100%">${rowOpts}</select></td>
+      </tr>`;
+    }).join('')
+  }</tbody></table>`;
+  openModal('netmap-edit-modal');
+}
+
+async function netmapEditSaveAll() {
+  const sels = Array.from(document.querySelectorAll('.netmap-link-sel'));
+  let changed = 0, failed = 0;
+  for (const s of sels) {
+    const deviceId = s.getAttribute('data-device-id');
+    const orig = s.getAttribute('data-original') || '';
+    const newVal = s.value || '';
+    if (newVal === orig) continue;
+    const r = await api('PUT', `/devices/${encodeURIComponent(deviceId)}/connected-to`, {connected_to: newVal});
+    if (r && r.ok) {
+      changed++;
+      s.setAttribute('data-original', newVal);
+    } else {
+      failed++;
+    }
+  }
+  if (changed) toast(`${changed} link(s) updated`, 'success');
+  if (failed) toast(`${failed} link(s) failed to update`, 'error');
+  if (!changed && !failed) toast('No changes', 'info');
+  closeModal('netmap-edit-modal');
+  loadNetmap();
+}
+
+// ── v1.11.1: tunnels (peer links) ────────────────────────────────────────────
+
+async function netmapTunnelsOpen() {
+  // Refresh node list so the dropdowns are current
+  await loadNetmap();
+  // Populate the From/To dropdowns
+  const fromSel = document.getElementById('tun-from');
+  const toSel   = document.getElementById('tun-to');
+  const optHtml = '<option value="">— pick —</option>' +
+    _netmapData.nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
+  fromSel.innerHTML = optHtml;
+  toSel.innerHTML   = optHtml;
+  await tunnelRenderList();
+  openModal('netmap-tunnels-modal');
+}
+
+async function tunnelRenderList() {
+  const list = document.getElementById('tun-list');
+  const tunnels = await api('GET', '/network-map/tunnels');
+  if (!Array.isArray(tunnels) || !tunnels.length) {
+    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px">No tunnels yet.</div>';
+    return;
+  }
+  // Build a name lookup for friendlier rendering
+  const nameOf = id => {
+    const n = _netmapData.nodes.find(x => x.id === id);
+    return n ? n.name : id;
+  };
+  list.innerHTML = tunnels.map(t => `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <div style="font-weight:500">${escHtml(nameOf(t.endpoints[0]))} <span style="color:var(--amber)">↔</span> ${escHtml(nameOf(t.endpoints[1]))}</div>
+    <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tunnelDelete('${escHtml(t.id)}')">✕</button>
+  </div>`).join('');
+}
+
+async function tunnelAdd() {
+  const a = document.getElementById('tun-from').value;
+  const b = document.getElementById('tun-to').value;
+  if (!a || !b) { toast('Pick both endpoints', 'error'); return; }
+  if (a === b)  { toast('Endpoints must differ',  'error'); return; }
+  const r = await api('POST', '/network-map/tunnels', {endpoints: [a, b]});
+  if (!r || !r.ok) {
+    toast(r?.error || 'Add failed', 'error');
+    return;
+  }
+  document.getElementById('tun-from').value = '';
+  document.getElementById('tun-to').value = '';
+  await tunnelRenderList();
+  // Refresh the underlying netmap data so the dashed line shows immediately
+  // when the modal closes
+  await loadNetmap();
+  await netmapTunnelsOpen.__refresh?.();   // no-op, kept for symmetry
+}
+
+async function tunnelDelete(id) {
+  if (!confirm('Delete this tunnel?')) return;
+  const r = await api('DELETE', '/network-map/tunnels/' + encodeURIComponent(id));
+  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
+  await tunnelRenderList();
+  await loadNetmap();
+}
+
+async function netmapResetPositions() {
+  if (!confirm('Clear all manual positions and revert to auto-layout?')) return;
+  // Send null for every node — server treats that as "clear"
+  const positions = _netmapData.nodes.map(n => ({id: n.id, x: null, y: null}));
+  const r = await api('PUT', '/network-map/positions', {positions});
+  if (!r || !r.ok) { toast('Failed to reset', 'error'); return; }
+  toast('Positions cleared', 'info');
+  await loadNetmap();
+}
+
+// ── TLS / DNS ────────────────────────────────────────────────────────────────
+let _tlsTargets = [];
+
+async function enterTLS() {
+  await loadTLS();
+}
+
+async function loadTLS() {
+  const tbody = document.getElementById('tls-tbody');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  const data = await api('GET', '/tls/targets');
+  _tlsTargets = Array.isArray(data) ? data : [];
+  renderTLS();
+}
+
+function renderTLS() {
+  const tbody = document.getElementById('tls-tbody');
+  if (!_tlsTargets.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">No TLS targets yet. Click "+ Add target" to start.</td></tr>';
+    document.getElementById('tls-status-summary').textContent = '';
+    return;
+  }
+  let crit = 0, warn = 0, err = 0, ok = 0;
+  for (const t of _tlsTargets) {
+    if (t.status === 'critical') crit++;
+    else if (t.status === 'warning') warn++;
+    else if (t.status === 'error') err++;
+    else if (t.status === 'ok') ok++;
+  }
+  document.getElementById('tls-status-summary').textContent =
+    `${_tlsTargets.length} target(s): ${ok} OK · ${warn} warn · ${crit} critical · ${err} error`;
+
+  tbody.innerHTML = _tlsTargets.map(t => {
+    const statusBadge = (() => {
+      if (t.status === 'critical') return '<span style="color:var(--red);font-weight:600">● critical</span>';
+      if (t.status === 'warning')  return '<span style="color:var(--amber);font-weight:600">● warn</span>';
+      if (t.status === 'error')    return '<span style="color:var(--red)">● error</span>';
+      if (t.status === 'ok')       return '<span style="color:var(--green)">● ok</span>';
+      return '<span style="color:var(--muted)">— never scanned</span>';
+    })();
+    // v1.11.2: DANE indicator beside main status. Only render when the
+    // target opted in (dane_check = true) — otherwise it's noise.
+    const daneBadge = (() => {
+      if (!t.dane_check) return '';
+      const s = t.dane_status || 'not_checked';
+      const colours = { ok: 'var(--green)', mismatch: 'var(--amber)', insecure: 'var(--red)', error: 'var(--red)', missing: 'var(--muted)', not_checked: 'var(--muted)' };
+      const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
+      return `<span style="color:${colours[s] || 'var(--muted)'};font-size:11px;margin-left:8px;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px">${labels[s] || s}</span>`;
+    })();
+    const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
+    const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
+    const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
+      ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
+    const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';
+    const labelHtml = t.label ? `<span style="color:var(--muted);font-size:11px;margin-left:6px">${escHtml(t.label)}</span>` : '';
+    const connectHtml = t.connect_address ? `<div style="color:var(--muted);font-size:11px;margin-top:2px">via ${escHtml(t.connect_address)}</div>` : '';
+    const starttlsHtml = (t.starttls && t.starttls !== 'none')
+      ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
+      : '';
+    return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escHtml(t.id)}')">
+      <td>${statusBadge}${daneBadge}</td>
+      <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
+      <td style="font-family:monospace;color:var(--muted)">${t.port}</td>
+      <td style="font-weight:500">${days}</td>
+      <td style="font-size:12px;color:var(--muted)">${expires}</td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
+      <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escHtml(t.id)}','${escHtml(t.host)}')">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function tlsAddOpen() {
+  document.getElementById('tls-add-host').value = '';
+  document.getElementById('tls-add-connect-addr').value = '';
+  document.getElementById('tls-add-starttls').value = 'auto';
+  document.getElementById('tls-add-port').value = '443';
+  document.getElementById('tls-add-warn').value = '14';
+  document.getElementById('tls-add-crit').value = '3';
+  document.getElementById('tls-add-label').value = '';
+  document.getElementById('tls-add-dane').checked = false;
+  openModal('tls-add-modal');
+  setTimeout(() => document.getElementById('tls-add-host').focus(), 50);
+}
+
+async function tlsAddSave() {
+  const body = {
+    host:            document.getElementById('tls-add-host').value.trim(),
+    connect_address: document.getElementById('tls-add-connect-addr').value.trim(),
+    starttls:        document.getElementById('tls-add-starttls').value || 'auto',
+    port:            parseInt(document.getElementById('tls-add-port').value, 10) || 443,
+    warn_days:       parseInt(document.getElementById('tls-add-warn').value, 10),
+    crit_days:       parseInt(document.getElementById('tls-add-crit').value, 10),
+    label:           document.getElementById('tls-add-label').value.trim(),
+    dane_check:      document.getElementById('tls-add-dane').checked,
+  };
+  if (!body.host) { toast('Host required', 'error'); return; }
+  const r = await api('POST', '/tls/targets', body);
+  if (!r || !r.ok) { toast(r?.error || 'Add failed', 'error'); return; }
+  closeModal('tls-add-modal');
+  toast('Target added — click "Scan now" to probe it', 'success');
+  loadTLS();
+}
+
+async function tlsDelete(id, host) {
+  if (!confirm(`Remove TLS target ${host}?`)) return;
+  const r = await api('DELETE', '/tls/targets/' + encodeURIComponent(id));
+  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
+  toast('Target removed', 'info');
+  loadTLS();
+}
+
+async function tlsScanNow() {
+  toast('Probing — this can take a while for many targets', 'info');
+  const r = await api('POST', '/tls/scan');
+  if (!r || !r.ok) { toast('Scan failed', 'error'); return; }
+  toast(`Scanned ${r.scanned} target(s)`, 'success');
+  loadTLS();
+}
+
+function tlsDetailOpen(id) {
+  const t = _tlsTargets.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('tls-detail-title').textContent = `${t.host}:${t.port}`;
+  const fmt = (v, fallback) => v ? escHtml(v) : `<span style="color:var(--muted)">${fallback}</span>`;
+  const sans = (t.san && t.san.length)
+    ? t.san.map(s => `<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:11px;margin-right:4px">${escHtml(s)}</code>`).join('')
+    : '<span style="color:var(--muted)">none</span>';
+  const errs = [
+    t.dns_error    ? `<div style="color:var(--red);margin-top:4px">DNS: ${escHtml(t.dns_error)}</div>`    : '',
+    t.tls_error    ? `<div style="color:var(--red);margin-top:4px">TLS: ${escHtml(t.tls_error)}</div>`    : '',
+    t.verify_error ? `<div style="color:var(--amber);margin-top:4px">Verification: ${escHtml(t.verify_error)}</div>` : '',
+  ].join('');
+
+  // v1.11.2: hostname-match indicator. Useful when probing by IP — helps
+  // distinguish "wrong cert" from "right cert, wrong IP."
+  const hostnameMatchHtml = (() => {
+    if (t.hostname_match === null || t.hostname_match === undefined) {
+      return '<span style="color:var(--muted)">—</span>';
+    }
+    return t.hostname_match
+      ? '<span style="color:var(--green)">✓ matches</span>'
+      : '<span style="color:var(--amber)">✗ no match</span>';
+  })();
+
+  // Connect-address row only renders when overridden — otherwise it's noise
+  const connectAddrRow = t.connect_address
+    ? `<div style="color:var(--muted)">Connect address</div><div style="font-family:monospace">${escHtml(t.connect_address)}</div>`
+    : '';
+
+  // STARTTLS row only renders when not 'none' — direct TLS doesn't need a label
+  const starttlsRow = (t.starttls && t.starttls !== 'none')
+    ? `<div style="color:var(--muted)">STARTTLS</div><div style="font-family:monospace">${escHtml(t.starttls.toUpperCase())}</div>`
+    : '';
+
+  // DANE block — render the records in a compact table when present.
+  // Status colour mirrors the regular cert status semantics:
+  //   ok        green
+  //   missing   muted ("not configured")
+  //   insecure  red ("found but DNSSEC failed")
+  //   mismatch  amber ("found but didn't match")
+  //   error     red (DNS lookup failed, etc)
+  //   not_checked  muted (DANE not enabled for this target)
+  let daneHtml = '';
+  if (t.dane_check || t.dane_status === 'ok' || t.dane_status === 'mismatch' || t.dane_status === 'insecure') {
+    const daneStatusColors = {
+      ok:          'var(--green)',
+      mismatch:    'var(--amber)',
+      insecure:    'var(--red)',
+      error:       'var(--red)',
+      missing:     'var(--muted)',
+      not_checked: 'var(--muted)',
+    };
+    const daneStatusText = {
+      ok:          '✓ records found and cert matches',
+      mismatch:    '✗ records published but cert does not match',
+      insecure:    '✗ records found but DNSSEC validation failed',
+      error:       '✗ DNS lookup failed',
+      missing:     'No TLSA records published',
+      not_checked: 'Not enabled for this target',
+    };
+    const status = t.dane_status || 'not_checked';
+    const colour = daneStatusColors[status] || 'var(--muted)';
+    const text   = daneStatusText[status]   || status;
+    let recordsHtml = '';
+    if ((t.dane_records || []).length) {
+      recordsHtml = `<table style="width:100%;margin-top:8px;font-family:monospace;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
+          <th style="padding:4px 8px">Usage</th>
+          <th style="padding:4px 8px">Selector</th>
+          <th style="padding:4px 8px">Match</th>
+          <th style="padding:4px 8px">Data</th>
+        </tr></thead><tbody>
+        ${t.dane_records.map(r => `<tr>
+          <td style="padding:4px 8px">${r.usage}</td>
+          <td style="padding:4px 8px">${r.selector}</td>
+          <td style="padding:4px 8px">${r.matching_type}</td>
+          <td style="padding:4px 8px;word-break:break-all">${escHtml(String(r.data || '').slice(0, 64))}${(r.data || '').length > 64 ? '…' : ''}</td>
+        </tr>`).join('')}
+        </tbody></table>`;
+    }
+    daneHtml = `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="font-weight:600;margin-bottom:6px">DANE / TLSA</div>
+      <div style="color:${colour};font-size:13px">${escHtml(text)}</div>
+      ${t.dane_error ? `<div style="color:var(--red);font-size:12px;margin-top:4px">${escHtml(t.dane_error)}</div>` : ''}
+      ${recordsHtml}
+    </div>`;
+  }
+
+  const body = document.getElementById('tls-detail-body');
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:8px 14px">
+      <div style="color:var(--muted)">Host (SNI)</div><div style="font-family:monospace">${escHtml(t.host)}:${t.port}</div>
+      ${connectAddrRow}
+      ${starttlsRow}
+      <div style="color:var(--muted)">Hostname match</div><div>${hostnameMatchHtml}</div>
+      <div style="color:var(--muted)">Label</div><div>${fmt(t.label, '—')}</div>
+      <div style="color:var(--muted)">Status</div><div>${escHtml(t.status)}</div>
+      <div style="color:var(--muted)">Days left</div><div>${t.days_left}d</div>
+      <div style="color:var(--muted)">Expires</div><div>${t.expires_at ? new Date(t.expires_at*1000).toLocaleString() : '—'}</div>
+      <div style="color:var(--muted)">Issuer</div><div>${fmt(t.issuer, '—')}</div>
+      <div style="color:var(--muted)">Subject</div><div>${fmt(t.subject, '—')}</div>
+      <div style="color:var(--muted)">SAN</div><div>${sans}</div>
+      <div style="color:var(--muted)">DNS A/AAAA</div><div style="font-family:monospace">${(t.addresses || []).map(escHtml).join(', ') || '—'}</div>
+      <div style="color:var(--muted)">Warn / Critical</div><div>${t.warn_days}d / ${t.crit_days}d</div>
+    </div>
+    ${errs}
+    ${daneHtml}
+  `;
+  openModal('tls-detail-modal');
+}
+
+// ── Agentless devices (modal opener used from Devices page) ──────────────────
+
+async function agentlessAddOpen() {
+  document.getElementById('al-name').value = '';
+  document.getElementById('al-hostname').value = '';
+  document.getElementById('al-ip').value = '';
+  document.getElementById('al-mac').value = '';
+  document.getElementById('al-group').value = '';
+  document.getElementById('al-notes').value = '';
+  document.getElementById('al-type').value = '';
+  document.getElementById('al-status').checked = true;
+  // Populate connected-to dropdown
+  const sel = document.getElementById('al-connected-to');
+  sel.innerHTML = '<option value="">— none —</option>';
+  if (Array.isArray(devices)) {
+    for (const d of devices) {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = `${d.name} (${d.device_type || (d.agentless ? 'other' : 'host')})`;
+      sel.appendChild(opt);
+    }
+  }
+  openModal('agentless-add-modal');
+  setTimeout(() => document.getElementById('al-name').focus(), 50);
+}
+
+async function agentlessSave() {
+  const body = {
+    name:          document.getElementById('al-name').value.trim(),
+    hostname:      document.getElementById('al-hostname').value.trim(),
+    ip:            document.getElementById('al-ip').value.trim(),
+    mac:           document.getElementById('al-mac').value.trim(),
+    group:         document.getElementById('al-group').value.trim(),
+    notes:         document.getElementById('al-notes').value,
+    device_type:   document.getElementById('al-type').value || '',
+    connected_to:  document.getElementById('al-connected-to').value || '',
+    manual_status: document.getElementById('al-status').checked,
+  };
+  if (!body.name) { toast('Name required', 'error'); return; }
+  const r = await api('POST', '/devices/agentless', body);
+  if (!r || !r.ok) { toast(r?.error || 'Failed to add', 'error'); return; }
+  closeModal('agentless-add-modal');
+  toast(`Added ${escHtml(body.name)}`, 'success');
+  if (typeof loadDevices === 'function') loadDevices();
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v1.11.2: Shared link dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+// Card grid grouped by category. Internal links (LAN/VPN-only) get an amber
+// border to distinguish from external links — same visual language as the
+// network map (amber = "different, special, doesn't reach the internet").
+//
+// Edit mode is a UI toggle that surfaces edit/delete buttons on each card.
+// We deliberately keep the cards mouse-friendly when not in edit mode — a
+// click anywhere on the card opens the link in a new tab. Adding edit
+// buttons to every card all the time clutters the dashboard for the 99%
+// of the time users want to click links, not edit them.
+
+let _linksData = {links: [], categories: []};
+let _linksEditMode = false;
+
+async function enterLinks() {
+  await loadLinks();
+}
+
+async function loadLinks() {
+  const data = await api('GET', '/links');
+  if (!data) return;
+  _linksData = data;
+  // Update the datalist for the add/edit modal's category autocomplete
+  const dl = document.getElementById('links-category-datalist');
+  if (dl) {
+    dl.innerHTML = (data.categories || []).map(c => `<option value="${escHtml(c)}">`).join('');
+  }
+  renderLinks();
+}
+
+function renderLinks() {
+  const grid = document.getElementById('links-grid');
+  if (!grid) return;
+  const all = _linksData.links || [];
+  const q = (document.getElementById('links-search')?.value || '').trim().toLowerCase();
+  const scopeFilter = document.getElementById('links-scope-filter')?.value || '';
+
+  // Apply filters
+  const filtered = all.filter(l => {
+    if (scopeFilter && l.scope !== scopeFilter) return false;
+    if (q) {
+      const hay = `${l.title} ${l.url} ${l.description} ${l.category}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    if (!all.length) {
+      grid.innerHTML = '<div style="color:var(--muted);text-align:center;padding:60px">No links yet. Click "+ Add link" to start.</div>';
+    } else {
+      grid.innerHTML = '<div style="color:var(--muted);text-align:center;padding:60px">No links match the current filter.</div>';
+    }
+    return;
+  }
+
+  // Group by category
+  const byCat = {};
+  for (const l of filtered) {
+    (byCat[l.category] = byCat[l.category] || []).push(l);
+  }
+  // Render each category as a section. Sort categories case-insensitively
+  // but keep "Uncategorised" last regardless — it's the catch-all bucket.
+  const cats = Object.keys(byCat).sort((a, b) => {
+    if (a === 'Uncategorised') return 1;
+    if (b === 'Uncategorised') return -1;
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+
+  grid.innerHTML = cats.map(cat => {
+    const items = byCat[cat];
+    const cards = items.map(l => _renderLinkCard(l)).join('');
+    return `<div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <h3 style="margin:0;font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${escHtml(cat)}</h3>
+        <span style="font-size:11px;color:var(--muted);opacity:0.7">${items.length}</span>
+        <div style="flex:1;height:1px;background:var(--border)"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px">${cards}</div>
+    </div>`;
+  }).join('');
+}
+
+function _renderLinkCard(l) {
+  const isInternal = l.scope === 'internal';
+  const borderColor = isInternal ? 'var(--amber)' : 'var(--accent)';
+  const borderStyle = isInternal ? 'dashed' : 'solid';
+  const scopeBadge = isInternal
+    ? '<span style="font-size:10px;color:var(--amber);background:rgba(245,158,11,0.12);padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Internal</span>'
+    : '<span style="font-size:10px;color:var(--accent);background:rgba(59,126,255,0.12);padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">External</span>';
+
+  // Display the URL's hostname (stripped) for visual reference. Falls back
+  // to the full URL if it can't be parsed.
+  let displayUrl = l.url;
+  try {
+    const u = new URL(l.url);
+    displayUrl = u.hostname + (u.pathname !== '/' ? u.pathname : '');
+  } catch (e) { /* keep original */ }
+
+  // Edit-mode actions overlay the bottom-right corner. In normal mode the
+  // entire card is clickable; in edit mode the click is intercepted to
+  // avoid accidentally opening the link while editing.
+  const editButtons = _linksEditMode
+    ? `<div style="display:flex;gap:6px;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+         <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();linkEditOpen('${escHtml(l.id)}')">Edit</button>
+         <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="event.stopPropagation();linkDelete('${escHtml(l.id)}','${escHtml(l.title)}')">Delete</button>
+       </div>`
+    : '';
+
+  // The whole card is the click target when not in edit mode. We use an
+  // <a> wrapper rather than onclick=window.open so middle-click and
+  // ctrl-click work naturally for power users.
+  const cardInner = `<div style="border:1px ${borderStyle} ${borderColor};border-radius:8px;padding:12px 14px;background:var(--surface2);transition:background 0.1s;cursor:${_linksEditMode ? 'default' : 'pointer'};height:100%;display:flex;flex-direction:column;justify-content:space-between"
+    onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface2)'"
+    title="${escHtml(l.description || l.url)}">
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
+        <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.title)}</div>
+        ${scopeBadge}
+      </div>
+      <div style="font-family:monospace;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(displayUrl)}</div>
+      ${l.description ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escHtml(l.description)}</div>` : ''}
+    </div>
+    ${editButtons}
+  </div>`;
+
+  if (_linksEditMode) {
+    // No anchor — clicks go through stopPropagation on edit buttons above.
+    return cardInner;
+  }
+  return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit;display:block">${cardInner}</a>`;
+}
+
+function linksToggleEditMode() {
+  _linksEditMode = !_linksEditMode;
+  const btn = document.getElementById('links-edit-toggle');
+  if (btn) {
+    btn.textContent = _linksEditMode ? 'Done editing' : 'Edit mode';
+    btn.style.background = _linksEditMode ? 'rgba(59,126,255,0.12)' : '';
+    btn.style.borderColor = _linksEditMode ? 'var(--accent)' : '';
+    btn.style.color = _linksEditMode ? 'var(--accent)' : '';
+  }
+  renderLinks();
+}
+
+function linkAddOpen() {
+  document.getElementById('link-edit-mode').value = 'add';
+  document.getElementById('link-edit-id').value = '';
+  document.getElementById('link-edit-title').textContent = 'Add link';
+  document.getElementById('link-edit-title-input').value = '';
+  document.getElementById('link-edit-url').value = '';
+  document.getElementById('link-edit-category').value = '';
+  document.getElementById('link-edit-description').value = '';
+  // Reset radio to 'external' default
+  const ext = document.querySelector('input[name="link-edit-scope"][value="external"]');
+  if (ext) ext.checked = true;
+  openModal('link-edit-modal');
+  setTimeout(() => document.getElementById('link-edit-title-input').focus(), 50);
+}
+
+function linkEditOpen(linkId) {
+  const l = (_linksData.links || []).find(x => x.id === linkId);
+  if (!l) { toast('Link not found', 'error'); return; }
+  document.getElementById('link-edit-mode').value = 'edit';
+  document.getElementById('link-edit-id').value = linkId;
+  document.getElementById('link-edit-title').textContent = 'Edit link';
+  document.getElementById('link-edit-title-input').value = l.title || '';
+  document.getElementById('link-edit-url').value = l.url || '';
+  document.getElementById('link-edit-category').value = (l.category && l.category !== 'Uncategorised') ? l.category : '';
+  document.getElementById('link-edit-description').value = l.description || '';
+  const target = document.querySelector(`input[name="link-edit-scope"][value="${l.scope || 'external'}"]`);
+  if (target) target.checked = true;
+  openModal('link-edit-modal');
+}
+
+async function linkSave() {
+  const mode = document.getElementById('link-edit-mode').value;
+  const id   = document.getElementById('link-edit-id').value;
+  const scopeRadio = document.querySelector('input[name="link-edit-scope"]:checked');
+  const body = {
+    title:       document.getElementById('link-edit-title-input').value.trim(),
+    url:         document.getElementById('link-edit-url').value.trim(),
+    category:    document.getElementById('link-edit-category').value.trim(),
+    description: document.getElementById('link-edit-description').value.trim(),
+    scope:       scopeRadio ? scopeRadio.value : 'external',
+  };
+  if (!body.title) { toast('Title required', 'error'); return; }
+  if (!body.url)   { toast('URL required', 'error'); return; }
+
+  let r;
+  if (mode === 'edit' && id) {
+    r = await api('PUT', '/links/' + encodeURIComponent(id), body);
+  } else {
+    r = await api('POST', '/links', body);
+  }
+  if (!r || !r.ok) { toast(r?.error || 'Save failed', 'error'); return; }
+  closeModal('link-edit-modal');
+  toast(mode === 'edit' ? 'Link updated' : 'Link added', 'success');
+  loadLinks();
+}
+
+async function linkDelete(linkId, title) {
+  if (!confirm(`Delete link "${title}"?`)) return;
+  const r = await api('DELETE', '/links/' + encodeURIComponent(linkId));
+  if (!r || !r.ok) { toast('Delete failed', 'error'); return; }
+  toast('Link deleted', 'info');
+  loadLinks();
 }
 
 

@@ -17,6 +17,18 @@ need more than a paragraph.
 - **[Update history](update-history.md)** — capture and review
   output from `apt`/`dnf`/`pacman` upgrades. Why it works the way
   it does, what's captured, and the API for scripting. *(v1.10.0)*
+- **[Container awareness](containers.md)** — Docker / Podman /
+  Kubernetes pod listings reported by agents. Detection logic,
+  caps, what's not captured, troubleshooting. *(v1.11.0)*
+- **[Network map](network-map.md)** — manual topology graph from
+  `connected_to` links. Why manual, what the layout looks like,
+  why agentless devices matter for it. *(v1.11.0)*
+- **[Agentless devices](agentless-devices.md)** — manual records
+  for switches, APs, printers, IPMI cards, cameras. What works
+  and what doesn't (no probing in v1.11.0). *(v1.11.0)*
+- **[TLS / DNS expiry](tls-monitor.md)** — server-side probes
+  with cron schedule, status thresholds, internal-vs-external
+  considerations. *(v1.11.0)*
 - **[Prometheus metrics sample](prometheus-metrics-sample.txt)** —
   example output of `/api/metrics` for Grafana scrape config
   reference.

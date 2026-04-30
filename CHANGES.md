@@ -1,5 +1,188 @@
 # Changelog
 
+## v1.11.0 — 2026-04-29
+
+### Added
+
+**Container awareness.** Every enrolled agent now detects Docker,
+Podman, and Kubernetes pods independently — three try/except blocks
+around three runtime probes, none of which can break the heartbeat
+if a runtime is missing or stuck. Each runtime gets at most a
+five-second timeout on its listing command. The agent normalises
+output across all three (Docker's `--format '{{json .}}'` lines,
+Podman's similar output, kubectl's `-o json` document) into a single
+schema and posts a list of up to 100 entries every five polls,
+roughly five minutes at the default cadence.
+
+The server stores last-seen state, not history. Container state
+changes too often for a rolling buffer to be useful, and "when did
+this restart" is answered cheaply by the `restart_count` field
+itself. A new "Containers" page in the sidebar shows fleet-wide
+overview — device, OS, total/running/stopped counts, restart-flagged
+counts (≥5 restarts is highlighted), and the runtimes present.
+Click through to a per-device modal with image, tag, status,
+namespace (for k8s), ports, and per-container restart count.
+
+This is read-only by design. Start, stop, exec, logs — Portainer
+exists, k9s exists, kubectl exists. RemotePower's job is "what's
+running and is it healthy"; managing containers is a different
+product entirely.
+
+**Network map.** A new `connected_to: <device_id>` field on every
+device, plus a "Network" page that renders the resulting graph as a
+node-and-edge diagram. Manual topology only — no auto-discovery.
+The user fills in "this switch is connected to that router" once,
+and the graph reflects it. Nodes coloured by online status,
+outlined by whether they're agent-driven or agentless. An "Edit
+links" modal exposes a single table where every device's upstream
+can be set in one place; changes save in batch.
+
+The graph rendering is a small force-style layout that ships in
+the SPA — no D3 dependency. It's not pretty for hundred-node
+fleets, but the homelab/small-business audience tops out around 20
+to 30 nodes where it works fine.
+
+**Agentless devices.** Switches, APs, printers, IPMI cards,
+cameras, smart plugs — all the infrastructure that can't run a
+Python agent. A new `POST /api/devices/agentless` creates a device
+record with `agentless: True`, no token, no heartbeat. Status is
+whatever the user sets it to (`manual_status` field). Same CMDB
+metadata, same vault credentials, same SSH link feature, same
+documentation, same audit trail as agented devices — they're just
+records the user maintains by hand. Fifteen device types are
+validated server-side (switch, router, firewall, AP, printer,
+camera, IPMI, UPS, PDU, NAS, IoT, smart plug, phone, plus "other"
+as the safety valve). A "+ Agentless device" button on the Devices
+page toolbar opens the create modal.
+
+This is the first time RemotePower can model an entire homelab
+rack rather than only the boxes that run Linux. It also makes the
+network map useful — until you can model a switch, the topology
+view has nowhere to root.
+
+**TLS / DNS expiry monitor.** Server-side, cron-driven probes
+against a configurable watchlist. Each probe does a TCP connect
+(5s timeout) plus TLS handshake (5s timeout), parses the cert,
+runs a separate verification pass against the system trust store,
+and records DNS A/AAAA addresses. Errors at any layer become a
+recorded result with the appropriate `dns_error`, `tls_error`, or
+`verify_error` field rather than an exception — the next refresh
+will retry.
+
+Watchlist and results live in two flat files. Default thresholds
+are 14-day warn / 3-day critical, overridable per target. A new
+"TLS / DNS" page lists targets with status colour, days remaining,
+issuer, and last-check timestamp; clicking a row opens a detail
+modal with the full cert info (subject, SAN list, A/AAAA records).
+"Scan now" runs the probe synchronously from the CGI; the
+`remotepower-tls-check` helper script in `cgi-bin/` runs the same
+code from cron or a systemd timer for the scheduled case.
+
+The probe uses the Python stdlib's `ssl` module — no extra
+dependency. The `cryptography` package was already pulled in for
+the CMDB vault and would have been overkill here.
+
+### Fixed
+
+`Dockerfile` had a long-standing bug: it only copied `api.py` to
+the container, missing every sibling module. This silently broke
+the CMDB feature in Docker deployments since v1.9.0 (the import of
+`cmdb_vault` would fail) and the OpenAPI page since v1.10.0 (same
+for `openapi_spec`). v1.11.0 fixes the COPY directive to grab the
+entire `server/cgi-bin/` directory.
+
+`install-server.sh` had the same bug — only `api.py` was installed
+on a fresh machine, sibling modules silently missing. Both v1.9.0
+and v1.10.0 worked because users were typically using
+`deploy-server.sh` (which already auto-discovered the modules) for
+upgrades, but a fresh install via `install-server.sh` would have
+been broken. v1.11.0 auto-discovers all `*.py` files in
+`server/cgi-bin/` plus the new helper scripts.
+
+These fixes ship with v1.11.0 but apply equally to anyone running
+v1.9.0 or v1.10.0 in Docker — upgrading to v1.11.0 fixes the
+silently-broken CMDB feature.
+
+### New endpoints
+
+```
+GET    /api/containers                          fleet overview
+GET    /api/devices/{id}/containers             per-device list
+GET    /api/network-map                         nodes + edges for the map
+PUT    /api/devices/{id}/connected-to           set upstream link
+POST   /api/devices/agentless                   create manual device
+GET    /api/tls/targets                         watchlist + last results
+POST   /api/tls/targets                         add target
+DELETE /api/tls/targets/{id}                    remove target
+POST   /api/tls/scan                            probe all targets now
+```
+
+### New files
+
+- `server/cgi-bin/containers.py` — container normalisation
+- `server/cgi-bin/tls_monitor.py` — TLS/DNS probe logic
+- `server/cgi-bin/remotepower-tls-check` — cron runner
+- `tests/test_v1110.py` — 33 new tests
+- `docs/containers.md`, `docs/network-map.md`, `docs/tls-monitor.md`,
+  `docs/agentless-devices.md`
+
+### New data files
+
+- `containers.json` — `{device_id → {ts, items: [...]}}` last-seen state
+- `tls_targets.json` — `{tls_<hex> → {host, port, label, warn_days, crit_days}}`
+- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer, ...}}`
+
+### Modified data files
+
+`devices.json` records gain four optional fields:
+`agentless` (bool), `connected_to` (device_id), `device_type` (string),
+`manual_status` (bool). Missing fields default to empty/False at
+read time — fully backwards-compatible with v1.9.x and v1.10.x data.
+
+### Tests
+
+**301 passing.** The new test file covers containers module
+(normalisation, runtime aliases, port caps, listing caps, garbage
+input handling, summarisation), TLS module (target validation,
+threshold logic, days-until-expiry math), heartbeat acceptance
+(containers field, overwrite behaviour), container endpoints
+(empty state, summary correctness, per-device retrieval, 404 on
+unknown device), network map (graph shape, dangling-edge dropping,
+self-link rejection, nonexistent-target rejection, clearing),
+agentless creation (minimal, type validation, connected-to
+validation, devices-list surfacing), and TLS endpoints (add,
+delete, list with status, 404 on unknown).
+
+### Compatibility
+
+Forwards- and backwards-compatible in both directions between
+v1.10.0 and v1.11.0. Servers running either version accept agents
+running either version. Older agents don't populate the
+`containers` field; older servers ignore it if posted. The new
+fields on `devices.json` default to empty when missing, so
+existing data files continue to work unmodified.
+
+No new request headers — the existing nginx config works
+unchanged. No new outbound connections from the agent (containers
+listing is local-only). The TLS probe is server-initiated, so any
+firewall rules controlling outbound from the RemotePower server
+itself need to allow connections to the targets being probed.
+
+### Suggested cron
+
+A systemd timer or cron entry for the TLS probe, every six hours:
+
+```
+0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check
+```
+
+The probe is idempotent — running it more often is safe but
+mostly wastes outbound connections. Less often is fine too;
+"warn at 14 days" gives plenty of headroom for a daily probe
+schedule if you prefer.
+
+---
+
 ## v1.10.0 — 2026-04-29
 
 ### Added

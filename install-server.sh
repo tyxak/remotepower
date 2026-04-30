@@ -95,6 +95,28 @@ else
       || warn "cryptography unavailable — CMDB asset metadata will work but credentials cannot be stored"
 fi
 
+# ── dnspython (for v1.11.2 DANE/TLSA checks) ────────────────────────────────────
+info "Installing dnspython for the DANE/TLSA checker..."
+if python3 -c "import dns.resolver" 2>/dev/null; then
+    success "dnspython already available"
+else
+    case $PKG_MGR in
+      apt)    pip3 install dnspython --break-system-packages 2>/dev/null \
+                || pip3 install dnspython \
+                || apt-get install -y python3-dnspython \
+                || warn "dnspython install failed — DANE checks will be unavailable" ;;
+      dnf)    pip3 install dnspython 2>/dev/null \
+                || dnf install -y python3-dns \
+                || warn "dnspython install failed — DANE checks will be unavailable" ;;
+      pacman) pip install dnspython 2>/dev/null \
+                || pacman -S --noconfirm python-dnspython \
+                || warn "dnspython install failed — DANE checks will be unavailable" ;;
+    esac
+    python3 -c "import dns.resolver" 2>/dev/null \
+      && success "dnspython installed" \
+      || warn "dnspython unavailable — TLS expiry monitor still works, only DANE checks need it"
+fi
+
 # ── Nginx user (differs by distro) ──────────────────────────────────────────────
 case $PKG_MGR in
   apt)    NGINX_USER=www-data ;;
@@ -119,7 +141,24 @@ for f in "$SCRIPT_DIR"/server/html/*.html; do
     name="$(basename "$f")"
     cp "$f" /var/www/remotepower/"$name"
 done
-install -m 755 "$SCRIPT_DIR/server/cgi-bin/api.py" /var/www/remotepower/cgi-bin/api.py
+# Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
+# cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
+# api.py needs +x for CGI; others are imports so 644 is fine.
+for f in "$SCRIPT_DIR"/server/cgi-bin/*.py; do
+    name="$(basename "$f")"
+    if [[ "$name" == "api.py" ]]; then
+        install -m 755 "$f" /var/www/remotepower/cgi-bin/"$name"
+    else
+        install -m 644 "$f" /var/www/remotepower/cgi-bin/"$name"
+    fi
+done
+# v1.11.0: extension-less helper scripts (cron runners, etc.)
+for helper in remotepower-tls-check; do
+    src="$SCRIPT_DIR/server/cgi-bin/$helper"
+    if [[ -f "$src" ]]; then
+        install -m 755 "$src" /var/www/remotepower/cgi-bin/"$helper"
+    fi
+done
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 success "Web files installed"
 

@@ -1,5 +1,238 @@
 # Changelog
 
+## v1.11.3 - 2026-04-30
+
+### New features
+
+**STARTTLS support in the TLS monitor.** Probe SMTP / IMAP / POP3 / LDAP services that upgrade to TLS via a plaintext negotiation step rather than running TLS from byte zero. Adds an "Auto-detect from port" option (default for new targets — port 25 / 587 / 2525 → SMTP; 143 → IMAP; 110 → POP3; 389 → LDAP; everything else → direct TLS). Each protocol can also be picked explicitly for non-standard ports.
+
+The big one this unblocks: **DANE/TLSA checks against mail servers**. DANE was originally designed for SMTP, and most DANE-published TLSA records out there are for `_25._tcp.mail.example.com`. The v1.11.2 DANE feature couldn't actually probe these because it spoke immediate TLS to port 25. Now it can.
+
+### What works, what doesn't
+
+- ✓ SMTP STARTTLS — EHLO + STARTTLS handshake, full reply parsing
+- ✓ IMAP STARTTLS — A001 STARTTLS command, reply parsed for OK
+- ✓ POP3 STLS — STLS command, reply parsed for +OK
+- ✓ LDAP StartTLS — extended request OID 1.3.6.1.4.1.1466.20037, hand-encoded BER (no `ldap3` dependency)
+- ✓ Auto-detect for the well-known ports listed above
+- ✗ XMPP (`<starttls/>`) — not implemented; rare in homelab use
+- ✗ FTP `AUTH TLS` — not implemented; rare and FTP-over-TLS adoption is low
+- ✗ NNTP STARTTLS — not implemented
+
+If you have a service speaking one of the unsupported protocols and want it added, the handler pattern is small: ~15 lines in `tls_monitor.py` per protocol. PRs welcome.
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts new `starttls` field (`"auto"` / `"none"` / `"smtp"` / `"imap"` / `"pop3"` / `"ldap"`)
+- `GET /api/tls/targets` — response includes the resolved `starttls` value per target
+
+### Modified data files
+
+- `tls_targets.json` — gains optional `starttls` field. Records without it default to `"auto"` on next read, which means **v1.11.2 targets at port 25 / 587 / 143 / 110 / 389 will start working correctly without any manual reconfiguration**.
+
+### UI changes
+
+- New "STARTTLS protocol" dropdown in the Add TLS target modal
+- TLS list table shows a small `SMTP` / `IMAP` / `POP3` / `LDAP` badge in the host column when the protocol isn't `none`
+- Detail modal shows a STARTTLS row when a non-none protocol is in use
+
+### Tests
+
+**362 passing** (347 from v1.11.2 + 15 new). New tests cover: parse_target STARTTLS validation and auto-detection across all six well-known ports, default-to-auto behaviour for missing field (backwards compatibility), invalid-protocol rejection, end-to-end probe against a local SMTP-with-STARTTLS server (full handshake), end-to-end IMAP, end-to-end POP3, server-refusal-of-STARTTLS landing in `tls_error` cleanly, direct-TLS on a STARTTLS port failing without crashing.
+
+The end-to-end tests spin up real socket servers in threads with self-signed certs minted in-memory — so the bytes the prober actually sends through the STARTTLS handshakes are tested for real, not just the field-validation logic.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.2. Existing targets without the `starttls` field default to `auto` on next read — meaning targets at port 25 / 587 / 143 / 110 / 389 that were previously **broken** (immediate TLS on a STARTTLS port) will start **working** automatically. Direct-TLS targets at port 443 / 465 / 993 / etc. continue to work exactly as before.
+
+No new dependencies. No new request headers. No nginx changes.
+
+### Known limitations
+
+- The SMTP STARTTLS handler sends the SNI hostname in EHLO. Some pedantic servers reject EHLO from an IP-shaped argument. This shouldn't matter for normal use (you'd rarely set `host` to a bare IP for an SMTP target — that breaks the cert hostname match anyway), but worth knowing.
+- LDAP StartTLS uses a hand-encoded BER message rather than `ldap3`. The encoded bytes are correct for LDAPv3 ExtendedRequest with the standard StartTLS OID, but unusual LDAP servers that require additional pre-StartTLS setup (binding, sending a different MessageID, etc.) won't work. PRs welcome.
+- The connection timeout is shared across the STARTTLS handshake and the TLS handshake (5+5 seconds, same as v1.11.2). A slow SMTP server doing greylist delays could blow this budget. Bump `CONNECT_TIMEOUT_S` and `HANDSHAKE_TIMEOUT_S` in `tls_monitor.py` if needed.
+
+---
+
+## v1.11.2 - 2026-04-30
+
+### New features
+
+**Shared link dashboard.** New "Links" page in the sidebar — a simple bookmark dashboard, shared across admins. Card grid grouped by category. Each link has title, URL, optional description, optional category (defaults to "Uncategorised"), and an internal/external scope flag. Internal links (LAN-only, behind VPN) get an amber dashed border; external links get an accent solid border — same colour language as the network map. Click any card to open in a new tab; "Edit mode" toggle reveals edit/delete buttons. Free-text search and scope filter at the top.
+
+**TLS monitor: connect address override.** New optional `connect_address` field on TLS targets. Connect to a specific IP while sending the configured hostname as SNI. Useful for probing internal certs by IP when DNS doesn't resolve from the server's network position. Empty = "use hostname for DNS lookup" (the v1.11.0 behaviour). The detail modal shows a "via &lt;address&gt;" line when overridden, and the row gets a small subtitle in the host column.
+
+**TLS monitor: DANE/TLSA checks.** New optional `dane_check` flag per target. When enabled, looks up `_PORT._tcp.HOSTNAME` for TLSA records via DNSSEC, validates the AD flag on the response, and compares the cert against the published records. Status reported as one of `ok` / `missing` / `insecure` / `mismatch` / `error`. Without DNSSEC, records are explicitly NOT trusted (status = `insecure`) — DANE without DNSSEC is theatre. Detail modal shows the published TLSA records (usage / selector / matching_type / data) for debugging.
+
+**TLS monitor: hostname-vs-cert match.** Now reported separately from full-chain verification. Lets you distinguish "wrong cert" from "right cert, wrong IP" when probing by `connect_address`. Wildcard handling per RFC 6125; falls back to the cert CN when SANs are absent (legacy certs).
+
+### New endpoints
+
+- `GET /api/links` — list + distinct-category summary
+- `POST /api/links` — admin creates a link
+- `PUT /api/links/{id}` — admin updates
+- `DELETE /api/links/{id}` — admin deletes
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts `connect_address` and `dane_check`
+- `GET /api/tls/targets` — response now includes the new fields plus DANE result, hostname match, connect_address echo
+
+### New / modified data files
+
+- `links.json` — new file, keyed by `lnk_<hex>` IDs
+- `tls_targets.json` — gains `connect_address` (string) and `dane_check` (bool) on records that opt in
+- `tls_results.json` — gains `connect_address`, `hostname_match`, `dane_status`, `dane_records`, `dane_error`
+
+### New dependency
+
+- `dnspython` — only required for DANE checks. The TLS expiry monitor and everything else still work without it. `install-server.sh` adds it via pip with a distro-package fallback (`python3-dnspython` / `python3-dns` / `python-dnspython`); Dockerfile pulls it via pip.
+
+### Tests
+
+**347 passing** (319 from v1.11.1 + 28 new). New tests cover: link CRUD with URL/scope validation (rejects javascript:/ftp://, oversize, quote-injected URLs), parse_target backwards compatibility plus connect_address and dane_check, hostname matching (exact SAN, wildcard, CN fallback, case-insensitive, empty inputs), TLSA cert matching across selector × matching_type combinations using a real in-memory generated cert, and DANE check shape consistency.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.1. Existing TLS targets without `connect_address`/`dane_check` continue to work unchanged. Records without DANE simply don't get checked — status field reads `not_checked`. No new request headers; no nginx changes.
+
+### Known limitations
+
+- DANE checks query the system resolver. If your `/etc/resolv.conf` points at a non-DNSSEC-validating resolver, all checks return `insecure` regardless of the upstream DNS. For Fedora server use systemd-resolved with DNSSEC=allow-downgrade or yes; for Debian/Ubuntu unbound is the easy choice.
+- The DANE checker only compares against the leaf cert, not the chain. So `usage=2` (DANE-TA, trust-anchor) records that point at a CA cert will report `mismatch` even when valid. Most homelab DANE setups use `usage=3` (DANE-EE, end-entity) which is what we handle correctly.
+- The connect-address feature only changes where we connect — it does NOT change SNI. The hostname is always sent as SNI in the handshake, and the cert is parsed from whatever the server presents. Probing `192.168.1.1` with `host=router.lan` gets you the cert your router serves for `router.lan`.
+
+---
+
+## v1.11.1 - 2026-04-30
+
+### New features
+
+**Network map: drag to reposition + persist.** Click and drag any node to move it. Positions are saved to the server (per-device `pos_x`/`pos_y` fields) and survive refresh. Debounced save (400ms) batches multi-node drags into a single API call. New "Reset positions" button reverts everything to the auto-layout.
+
+**Network map: tunnels.** A second kind of edge — peer links between two devices, drawn as dashed amber lines. Use them for VPN tunnels, site-to-site links, or anything else that isn't physical wiring. New "Tunnels" button on the Network page opens a modal to add/remove. No protocol/type/label complexity in this release — just "these two devices have a tunnel."
+
+### New endpoints
+
+- `PUT /api/network-map/positions` — batch save, accepts `null` to clear
+- `GET /api/network-map/tunnels` — list (filters dangling endpoints)
+- `POST /api/network-map/tunnels` — add (normalises endpoint order, rejects duplicates)
+- `DELETE /api/network-map/tunnels/{id}` — remove
+
+### Modified endpoints
+
+- `GET /api/network-map` — response now includes `pos_x`/`pos_y` per node and a top-level `tunnels` array
+
+### New / modified data files
+
+- `tunnels.json` — new file, keyed by `tun_<hex>` IDs
+- `devices.json` — gains `pos_x`/`pos_y` (optional ints) on records the user has dragged
+
+### Tests
+
+**319 passing** (303 from v1.11.0 + 16 new). New tests cover position batch save / clear / validation, position out-of-range rejection, unknown-device skipping, network-map surfacing of positions, tunnel add / canonical ordering / duplicate detection in either direction, self-tunnel rejection, unknown-endpoint rejection, wrong-shape rejection, delete + 404, and dangling-endpoint filtering.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.0. Existing devices without `pos_x`/`pos_y` fall back to the auto-layout exactly as before. No new request headers, no nginx changes.
+
+---
+
+## v1.11.0 - 2026-04-29
+
+### New features
+
+**Containers (Docker / Podman / Kubernetes)** — visibility-only
+- New sibling module `containers.py`: validation, normalisation, summarise()
+- Agent detects Docker, Podman, and kubectl independently; each runtime is probed in a try/except so a stuck or absent runtime can't break the heartbeat
+- Agent posts a normalised list of up to 100 entries every 5 polls (~5 minutes at default cadence)
+- Server stores last-seen list per device (overwrite on every heartbeat — no history)
+- New "Containers" page in the sidebar shows fleet-wide overview with per-device drill-down: image, tag, status, restart count, ports, runtime, namespace
+- Read-only — no start/stop/exec/logs. That's Portainer's job. RemotePower's job is "what's running and is it healthy"
+- Endpoints: `GET /api/containers` (fleet overview), `GET /api/devices/{id}/containers` (full list)
+
+**Network map** — manual topology view
+- New `connected_to: <device_id>` field on every device record
+- New "Network" page renders a force-laid-out node-and-edge graph; nodes coloured by online status, outlined by agent vs. agentless
+- "Edit links" modal lets admins set the `connected_to` for every device in one place; saves them in batch
+- Endpoints: `GET /api/network-map`, `PUT /api/devices/{id}/connected-to`
+- Agentless devices included automatically once they exist
+
+**Agentless devices** — track what can't run an agent
+- New `POST /api/devices/agentless` creates a device record with `agentless: True`, no token, no heartbeat
+- Same CMDB metadata, same vault credentials, same SSH-link feature as agented devices
+- 15 device types validated server-side: switch, router, firewall, AP, printer, camera, IPMI, UPS, PDU, NAS, IoT, smart plug, phone, other
+- Online status is whatever the user sets it to (`manual_status: True/False`); no probing
+- "+ Agentless device" button in the Devices page toolbar
+- Endpoints: `POST /api/devices/agentless`
+
+**TLS / DNS expiry monitor** — server-side cron-driven probes
+- New sibling module `tls_monitor.py`: stdlib-only TLS probe, DNS resolution check, status thresholds
+- Each probe: TCP connect (5s timeout), TLS handshake (5s timeout), parse cert, separate verification pass against system trust store
+- Watchlist + last-result storage in `tls_targets.json` and `tls_results.json`
+- Default thresholds: warn at 14 days, critical at 3 days; per-target overrides
+- New cron runner `cgi-bin/remotepower-tls-check` for periodic scanning (recommended: every 6 hours)
+- New "TLS / DNS" page lists targets with status colour, days-left, expiry date, issuer, last check
+- Detail modal shows full cert info: issuer, subject, SAN, DNS A/AAAA, all error states
+- Endpoints: `GET /api/tls/targets`, `POST /api/tls/targets`, `DELETE /api/tls/targets/{id}`, `POST /api/tls/scan`
+
+### Internal / fixes
+
+- **Dockerfile fixed**: was only copying `api.py`, missing all sibling modules since v1.9.0 (`cmdb_vault`, `cve_scanner`, etc.). Now copies the entire `server/cgi-bin/` directory. Docker deployments of v1.9.0 and v1.10.0 had a broken CMDB feature; this is the fix.
+- **install-server.sh fixed**: was also only installing `api.py`, missing all sibling modules. Now auto-discovers all `.py` files plus the v1.11.0 helper scripts.
+- **deploy-server.sh** updated to deploy the new `remotepower-tls-check` cron helper alongside the Python modules.
+- Container output cap on the agent already allowed 256 KB for upgrade commands (v1.10.0); container listings are tiny by comparison and use the standard 4 KB cap.
+
+### New files
+
+- `server/cgi-bin/containers.py` — container normalisation
+- `server/cgi-bin/tls_monitor.py` — TLS/DNS probe logic
+- `server/cgi-bin/remotepower-tls-check` — cron runner
+- `tests/test_v1110.py` — 33 new tests across 7 test classes
+
+### New / modified data files
+
+- `containers.json` — keyed by device_id, last-seen list per device (state, not history)
+- `tls_targets.json` — watchlist, keyed by `tls_<hex>` IDs
+- `tls_results.json` — last probe result per target ID
+- `devices.json` — gains `agentless: bool`, `connected_to: <device_id>`, `device_type: str`, `manual_status: bool` on relevant records (backwards-compatible: missing fields default to empty)
+
+### Tests
+
+**Full suite: 301 passing, 0 failing** (268 from v1.10.0 + 33 new). New tests cover containers normalisation + summarise + caps, TLS target validation + thresholds + days-until-expiry, heartbeat acceptance and overwrite behaviour, container endpoints, network map shape + edge dropping, connected-to validation (self-link, nonexistent target, clearing), agentless device creation + validation + flag surfacing, TLS targets CRUD.
+
+### Compatibility
+
+- v1.10.0 servers/agents are forwards-compatible with v1.11.0 servers/agents in either direction
+- Existing devices.json records work unmodified (new fields default to empty)
+- Containers feature requires v1.11.0 agent to populate (older agents simply don't post the field)
+- TLS monitor requires no agent involvement
+- No new request headers — existing nginx config works unchanged
+
+### Suggested cron / systemd timer
+
+```
+0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check
+```
+
+Or as a systemd timer in `/etc/systemd/system/remotepower-tls-check.timer`:
+
+```ini
+[Unit]
+Description=RemotePower TLS expiry probe
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+
+[Install]
+WantedBy=timers.target
+```
+
+---
+
 ## v1.10.0 - 2026-04-29
 
 ### New features

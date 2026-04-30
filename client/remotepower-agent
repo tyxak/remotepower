@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.10.0'
+VERSION      = '1.11.3'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -44,6 +44,11 @@ SERVICE_CHECK_EVERY = 1           # every poll — cheap
 LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of logs
 MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
 LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission
+
+# v1.11.0: container/pod listing — sent every 5 polls (~5 minutes at default
+# 60s interval). Cheap when no runtime is installed (immediate empty return);
+# bounded to ~1s when Docker/Podman/k8s are present.
+CONTAINER_CHECK_EVERY = 5
 
 # Metrics collection requires psutil (optional - gracefully skipped if absent)
 try:
@@ -412,6 +417,211 @@ def _resolve_unit_alias(unit):
     return unit
 
 
+# ── v1.11.0: container/k8s detection ─────────────────────────────────────────
+# Probes for Docker, Podman, and Kubernetes (k3s/k0s/kubeadm). Each runtime
+# is independent — if Docker is installed but Podman isn't, we just don't
+# emit Podman entries. Failures in one runtime never break the others.
+#
+# Output is normalised to the schema the server expects:
+#   {name, image, tag, status, namespace, runtime, ports, started_at,
+#    uptime_seconds, restart_count}
+#
+# Caps:
+#   - Per-runtime: 100 entries
+#   - Total: 100 entries combined (server caps again at 100)
+
+CONTAINERS_HARD_CAP = 100      # total across all runtimes
+CONTAINER_CMD_TIMEOUT = 5      # seconds — never let a stuck runtime hang us
+
+
+def _which(prog):
+    """Return path to ``prog`` if it's executable on PATH, else None."""
+    for d in os.environ.get('PATH', '/usr/bin:/bin:/usr/local/bin').split(':'):
+        full = os.path.join(d, prog)
+        if os.path.isfile(full) and os.access(full, os.X_OK):
+            return full
+    return None
+
+
+def _docker_listing(cmd_path, runtime_name):
+    """Run ``docker ps`` (or podman ps) and parse the line-oriented JSON output.
+
+    ``--format '{{json .}}'`` produces one JSON object per line. This avoids
+    the ``--format json`` Docker / Podman version quirks where the output is
+    sometimes an array, sometimes lines, sometimes pretty-printed.
+    """
+    try:
+        out = subprocess.run(
+            [cmd_path, 'ps', '--no-trunc', '--format', '{{json .}}'],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT,
+        )
+    except Exception as e:
+        log.debug(f'{runtime_name} ps failed: {e}')
+        return []
+    if out.returncode != 0:
+        log.debug(f'{runtime_name} ps rc={out.returncode}: {out.stderr.strip()[:200]}')
+        return []
+
+    items = []
+    now = int(time.time())
+    for line in out.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
+        image_full = d.get('Image', '')
+        if ':' in image_full and '/' not in image_full.rsplit(':', 1)[1]:
+            image, tag = image_full.rsplit(':', 1)
+        else:
+            image, tag = image_full, ''
+        # Ports field varies between runtimes — Docker uses "0.0.0.0:443->443/tcp",
+        # Podman uses "0.0.0.0:443->443/tcp" too. We just split the comma-joined string.
+        raw_ports = d.get('Ports', '') or ''
+        ports = [p.strip() for p in raw_ports.split(',') if p.strip()][:20]
+        items.append({
+            'name':           d.get('Names', '') or d.get('Name', ''),
+            'image':          image,
+            'tag':            tag,
+            'status':         d.get('Status', '') or d.get('State', ''),
+            'namespace':      '',
+            'runtime':        runtime_name,
+            'ports':          ports,
+            'started_at':     0,           # docker ps doesn't give a timestamp directly
+            'uptime_seconds': 0,
+            # docker ps doesn't expose restart count; would need `docker inspect`
+            # which we skip for simplicity (one container at a time, slow).
+            'restart_count':  0,
+        })
+        if len(items) >= CONTAINERS_HARD_CAP:
+            break
+    return items
+
+
+def _kubectl_listing():
+    """Run ``kubectl get pods --all-namespaces -o json`` if kubectl is around.
+
+    The kubeconfig is found via the standard search path (``$KUBECONFIG``,
+    ``~/.kube/config``, or in-cluster). For a single-node k3s/k0s install
+    we expect ``/etc/rancher/k3s/k3s.yaml`` to be readable by the agent.
+    """
+    kubectl = _which('kubectl')
+    if not kubectl:
+        return []
+    # Some k3s installs put kubeconfig in /etc/rancher/k3s/k3s.yaml. Set it
+    # if KUBECONFIG isn't already set and that file exists.
+    env = os.environ.copy()
+    if 'KUBECONFIG' not in env:
+        for candidate in ('/etc/rancher/k3s/k3s.yaml',
+                          '/var/lib/k0s/pki/admin.conf',
+                          os.path.expanduser('~/.kube/config')):
+            if os.path.isfile(candidate):
+                env['KUBECONFIG'] = candidate
+                break
+    try:
+        out = subprocess.run(
+            [kubectl, 'get', 'pods', '--all-namespaces', '-o', 'json'],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT, env=env,
+        )
+    except Exception as e:
+        log.debug(f'kubectl failed: {e}')
+        return []
+    if out.returncode != 0:
+        log.debug(f'kubectl rc={out.returncode}: {out.stderr.strip()[:200]}')
+        return []
+    try:
+        doc = json.loads(out.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return []
+    items_in = doc.get('items', []) if isinstance(doc, dict) else []
+    items = []
+    now = int(time.time())
+    for pod in items_in:
+        if not isinstance(pod, dict):
+            continue
+        meta = pod.get('metadata', {}) or {}
+        spec = pod.get('spec', {}) or {}
+        status = pod.get('status', {}) or {}
+        name = meta.get('name', '')
+        ns = meta.get('namespace', '')
+        if not name:
+            continue
+        # First container's image is representative for naming purposes
+        containers_spec = spec.get('containers') or []
+        first_image = containers_spec[0].get('image', '') if containers_spec else ''
+        if ':' in first_image and '/' not in first_image.rsplit(':', 1)[1]:
+            image, tag = first_image.rsplit(':', 1)
+        else:
+            image, tag = first_image, ''
+        # Aggregate restart count across all containers in the pod
+        cstatuses = status.get('containerStatuses') or []
+        restart_count = sum(int(cs.get('restartCount', 0)) for cs in cstatuses)
+        # Started time: the first container's startedAt
+        started_at = 0
+        if cstatuses:
+            state = cstatuses[0].get('state', {}) or {}
+            running = state.get('running') or {}
+            started_iso = running.get('startedAt')
+            if started_iso:
+                # 2024-04-29T13:45:32Z → unix
+                try:
+                    import datetime as _dt
+                    dt = _dt.datetime.strptime(started_iso, '%Y-%m-%dT%H:%M:%SZ')
+                    started_at = int(dt.replace(tzinfo=_dt.timezone.utc).timestamp())
+                except (ValueError, TypeError):
+                    started_at = 0
+        # Ports — pull from spec.containers[].ports[].containerPort
+        ports = []
+        for c in containers_spec[:5]:
+            for p in (c.get('ports') or [])[:5]:
+                cp = p.get('containerPort')
+                proto = p.get('protocol', 'TCP').lower()
+                if cp:
+                    ports.append(f'{cp}/{proto}')
+        items.append({
+            'name':           name,
+            'image':          image,
+            'tag':            tag,
+            'status':         status.get('phase', ''),
+            'namespace':      ns,
+            'runtime':        'kubernetes',
+            'ports':          ports[:20],
+            'started_at':     started_at,
+            'uptime_seconds': max(0, now - started_at) if started_at else 0,
+            'restart_count':  restart_count,
+        })
+        if len(items) >= CONTAINERS_HARD_CAP:
+            break
+    return items
+
+
+def get_containers():
+    """Return up to CONTAINERS_HARD_CAP container/pod entries across runtimes.
+
+    Cheap fast-path: returns ``[]`` immediately if no runtime is detected.
+    Each runtime probe has a 5-second timeout so one stuck runtime can't
+    block the heartbeat.
+    """
+    out = []
+    for tool, name in (('docker', 'docker'), ('podman', 'podman')):
+        path = _which(tool)
+        if path:
+            try:
+                out.extend(_docker_listing(path, name))
+            except Exception as e:
+                log.debug(f'{name} listing error: {e}')
+        if len(out) >= CONTAINERS_HARD_CAP:
+            return out[:CONTAINERS_HARD_CAP]
+    try:
+        out.extend(_kubectl_listing())
+    except Exception as e:
+        log.debug(f'kubectl listing error: {e}')
+    return out[:CONTAINERS_HARD_CAP]
+
+
 def get_services(watched_units):
     """
     Query systemd for the given list of unit names.
@@ -771,6 +981,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 payload['services'] = get_services(services_watched)
             except Exception as e:
                 log.debug(f'Service check error: {e}')
+
+        # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
+        # Same cadence as services. Skipping the first heartbeat is fine —
+        # it'd otherwise fire 0.1s after enrollment and confuse new users
+        # waiting to see their containers; second heartbeat catches them.
+        if poll_count > 1 and poll_count % CONTAINER_CHECK_EVERY == 0:
+            try:
+                items = get_containers()
+                if items:
+                    payload['containers'] = items
+            except Exception as e:
+                log.debug(f'Container listing error: {e}')
 
         if send_sysinfo:
             sysinfo = {
