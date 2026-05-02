@@ -2361,6 +2361,10 @@
   <div class="modal-title" id="containers-detail-title">Containers</div>
   <div id="containers-detail-body" style="max-height:60vh;overflow-y:auto"></div>
   <div class="modal-actions">
+    <!-- v1.11.4: clear stored container data for this device. Useful for
+         decommissioning or for forcing a redraw without waiting ~5 min for
+         the next heartbeat. The agent will repopulate on its next report. -->
+    <button class="btn-secondary" onclick="containersClearCurrent()" id="containers-detail-clear" style="margin-right:auto">Clear data</button>
     <button class="btn-secondary" onclick="closeModal('containers-detail-modal')">Close</button>
   </div>
 </div></div>
@@ -4866,6 +4870,10 @@ async function reloadUpdateLogs() {
 
 // ── Containers ───────────────────────────────────────────────────────────────
 let _containersOverview = [];
+// v1.11.4: id of the device whose detail modal is currently open. Used by
+// the "Clear data" button to know which device's containers.json entry to
+// wipe.
+let _containersOpenDeviceId = null;
 
 async function enterContainers() {
   await loadContainersOverview();
@@ -4884,7 +4892,7 @@ function renderContainersOverview() {
   const q = (document.getElementById('containers-search')?.value || '').trim().toLowerCase();
   const rows = _containersOverview.filter(r => !q || r.name.toLowerCase().includes(q) || (r.os || '').toLowerCase().includes(q));
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices have reported containers yet. The agent reports every 5 polls (~5 minutes).</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
@@ -4893,10 +4901,16 @@ function renderContainersOverview() {
       .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
       .join(', ') || '—';
     const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
+    // v1.11.4: stale-data indicator. The server flags rows whose reported_at
+    // is older than container_stale_ttl (default 15 min). Show an amber pill
+    // next to the timestamp so it's obvious without reading the date.
+    const staleBadge = r.is_stale
+      ? '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;font-size:10px;background:var(--amber);color:#000;font-weight:600">STALE</span>'
+      : '';
     const restartingCell = s.restarting > 0
       ? `<span style="color:var(--red)">${s.restarting}</span>`
       : `<span style="color:var(--muted)">0</span>`;
-    return `<tr>
+    return `<tr${r.is_stale ? ' style="opacity:.75"' : ''}>
       <td style="font-weight:500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
       <td style="font-size:12px;color:var(--muted)">${escHtml(r.os || '—')}</td>
       <td style="font-weight:500">${s.total}</td>
@@ -4904,13 +4918,14 @@ function renderContainersOverview() {
       <td style="color:var(--muted)">${s.stopped}</td>
       <td>${restartingCell}</td>
       <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
-      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}</td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
       <td><button class="btn-icon" onclick="containersOpen('${escHtml(r.device_id)}','${escHtml(r.name)}')">View</button></td>
     </tr>`;
   }).join('');
 }
 
 async function containersOpen(deviceId, name) {
+  _containersOpenDeviceId = deviceId;
   document.getElementById('containers-detail-title').textContent = `Containers — ${name}`;
   const body = document.getElementById('containers-detail-body');
   body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
@@ -4918,11 +4933,20 @@ async function containersOpen(deviceId, name) {
   const data = await api('GET', `/devices/${encodeURIComponent(deviceId)}/containers`);
   if (!data) return;
   const items = data.items || [];
+  // v1.11.4: stale-data warning at the top of the modal.
+  const reportedHuman = data.reported_at ? new Date(data.reported_at * 1000).toLocaleString() : 'never';
+  const staleBanner = data.is_stale
+    ? `<div style="background:var(--amber);color:#000;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;font-weight:500">
+         ⚠ Container data is stale (last reported: ${escHtml(reportedHuman)}).
+         Agent reports every ~5 min when a runtime is installed; check
+         <code>journalctl -u remotepower-agent</code> on the device.
+       </div>`
+    : '';
   if (!items.length) {
-    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No containers reported.</div>';
+    body.innerHTML = staleBanner + '<div style="color:var(--muted);text-align:center;padding:40px">No containers reported.</div>';
     return;
   }
-  body.innerHTML = items.map(c => {
+  body.innerHTML = staleBanner + items.map(c => {
     const statusColor = (c.status || '').toLowerCase().includes('running') || (c.status || '').toLowerCase().includes('up ')
       ? 'var(--green)'
       : (c.status || '').toLowerCase().includes('exit') ? 'var(--red)' : 'var(--muted)';
@@ -4944,6 +4968,27 @@ async function containersOpen(deviceId, name) {
       ${ports ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ports}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+// v1.11.4: clear stored container data for the currently-open device.
+// The agent will repopulate on its next heartbeat (~5 min by default), so
+// this is safe to use during decommissioning or just to force a refresh
+// after deliberately removing containers via `docker rm`.
+async function containersClearCurrent() {
+  if (!_containersOpenDeviceId) return;
+  if (!confirm('Clear stored container data for this device?\n\nThis only clears the dashboard snapshot — it does NOT touch any actual containers on the host. The agent will repopulate the list on its next heartbeat (~5 min).')) {
+    return;
+  }
+  const deviceId = _containersOpenDeviceId;
+  const res = await api('DELETE', `/devices/${encodeURIComponent(deviceId)}/containers`);
+  if (res?.ok) {
+    toast(res.cleared ? 'Container data cleared' : 'Nothing to clear', 'success');
+    closeModal('containers-detail-modal');
+    // Refresh overview so the row disappears (or shows "—" until next report)
+    await loadContainersOverview();
+  } else {
+    toast('Failed to clear container data', 'error');
+  }
 }
 
 // ── Network map ──────────────────────────────────────────────────────────────

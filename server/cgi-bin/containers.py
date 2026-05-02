@@ -50,6 +50,33 @@ MAX_PORTS_PER_CONTAINER = 20
 # Allowed runtime tags. Anything else falls through to 'unknown'.
 ALLOWED_RUNTIMES = ("docker", "podman", "kubernetes", "unknown")
 
+# v1.11.4: how old a container report can be before we consider it stale
+# and surface that in the UI / fire a webhook. 900s = 15 minutes, which
+# leaves comfortable headroom over the agent's CONTAINER_CHECK_EVERY=5
+# polls (≈5 minutes at default 60s poll). Servers can override via the
+# ``container_stale_ttl`` config key.
+DEFAULT_STALE_TTL = 900
+
+
+def is_stale(reported_at: int, now: int, ttl: int = DEFAULT_STALE_TTL) -> bool:
+    """Return True if a container report is older than ``ttl`` seconds.
+
+    Args:
+        reported_at: Unix timestamp from the last heartbeat that posted
+            containers. Zero means "never reported", which counts as stale.
+        now: Current Unix time.
+        ttl: Threshold in seconds. Reports older than this are stale.
+
+    Returns:
+        True if ``reported_at`` is missing or older than ``now - ttl``.
+    """
+    if not reported_at:
+        return True
+    try:
+        return (int(now) - int(reported_at)) > int(ttl)
+    except (TypeError, ValueError):
+        return True
+
 
 def _str(value: Any, cap: int) -> str:
     """Coerce to string, strip, truncate. Returns empty for None/non-str."""

@@ -11,7 +11,7 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.11.3-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-1.11.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 </div>
 
@@ -76,7 +76,7 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 | 🔗 **SSH from credentials** | Per-asset `ssh_port` field; each credential row has `ssh://user@host:port` link + Copy button for the equivalent `ssh` command |
 | 🐧 **OS icons** | Auto-detected inline-SVG glyphs: Linux (Tux) for anything Linux-shaped, Windows tile for Windows, question-mark fallback for the rest |
 | 📜 **Update history** | Rolling 10-run buffer of `apt`/`dnf`/`pacman` output per device; modal viewer with timestamps, exit codes, durations, full output |
-| 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods on every agent. Read-only — image, status, restart count, ports, namespace |
+| 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods on every agent. Read-only — image, status, restart count, ports, namespace. v1.11.4: alerts on stop / restart / stale data |
 | 🌐 **Network map** | Manual topology graph from per-device `connected_to` links. Switches and APs as agentless devices |
 | 🔐 **TLS / DNS expiry** | Server-side probes against a configurable watchlist. Stdlib-only, cron-driven, alerts via existing webhooks |
 | 🔌 **Agentless devices** | Manual device records for switches, APs, printers, IPMI, cameras — same CMDB / vault / SSH-link as agented devices |
@@ -274,8 +274,10 @@ Clients self-update automatically within ~1 hour, or push from the dashboard wit
 
 ## Feature Guide
 
-### Container awareness *(v1.11.0)*
-Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes pods on its host and posts a normalised list to the server every ~5 minutes. The Containers tab in the sidebar shows fleet-wide status; per-device drill-down shows image, tag, ports, restart count, and namespace. Read-only — RemotePower surfaces what's running, doesn't manage it. Reference: **[docs/containers.md](docs/containers.md)**.
+### Container awareness *(v1.11.0, alerts in v1.11.4)*
+Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes pods on its host and posts a normalised list to the server every ~5 minutes. The Containers tab in the sidebar shows fleet-wide status; per-device drill-down shows image, tag, ports, restart count, and namespace. Read-only — RemotePower surfaces what's running, doesn't manage it.
+
+**v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — Kubernetes-only in practice), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[docs/containers.md](docs/containers.md)**.
 
 ### Network map *(v1.11.0)*
 Set `connected_to` on each device (Edit links button on the Network page) to record what plugs into what. The map renders nodes coloured by online/offline status and outlined by agent vs. agentless. Manual topology only — no auto-discovery. Reference: **[docs/network-map.md](docs/network-map.md)**.

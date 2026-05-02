@@ -1,5 +1,79 @@
 # Changelog
 
+## v1.11.4 - 2026-05-03
+
+### Bug fixes
+
+**Container data went stale and never refreshed.** The agent's container-listing path silently skipped sending the heartbeat field whenever the list was empty (`if items: payload['containers'] = items`). Hosts that went from "1 container running" to "0 containers running" — daemon restarts, transient `docker ps` failures, or just somebody running `docker stop` on the last container — never overwrote the server's stored list. The Containers page kept rendering whatever last non-empty snapshot the agent had reported, in some cases for days.
+
+Fixed by always sending the (possibly empty) list when a runtime is installed on the host. The server's existing ingest path (`api.py:1643`) already handled empty lists correctly — the bug was purely on the agent side. Hosts with no runtime installed at all still skip the field entirely, so we don't pollute `containers.json` with empty rows for machines that never had Docker.
+
+If your dashboard currently shows ancient container snapshots, the fix takes effect on the first heartbeat after the agent self-updates (≤1 hour, or push from the dashboard ↺ button).
+
+### New features
+
+**Container alerts.** Three new webhook events:
+
+- `container_stopped` — fires when a previously-running container is gone or its status flipped from running to exited/dead/terminated. Detected by diffing each heartbeat against the previous one.
+- `container_restarting` — fires when a container's `restart_count` climbed by 1 or more since the last report. Mainly useful for Kubernetes pods (Docker `ps` doesn't expose restart counts without `inspect`).
+- `containers_stale` — fires when a device hasn't sent fresh container data within `container_stale_ttl` seconds (default 900s = 15 min). Fired once per stale period; auto-resets when fresh data arrives. Skipped for already-offline devices (the existing `device_offline` webhook covers those) and for devices with `monitored=false`.
+
+All three default to enabled, respect the existing per-event toggle in Settings → Notifications, and route through the same `fire_webhook()` machinery — so they work with Ntfy, Gotify, Pushover, Slack, Discord, and generic JSON receivers without further wiring. Discord embeds use red for stopped, amber for restarting / stale.
+
+**Stale-data UI indicators.** The Containers page tags each row with an amber `STALE` pill and dims the row when its last heartbeat is over the TTL. The per-device modal shows a banner explaining what stale means and suggesting `journalctl -u remotepower-agent` as the first place to look.
+
+### New config keys
+
+- `container_stale_ttl` — seconds before a device's container data is considered stale. Default 900 (15 min). Range 300–86400. Floors at 300s at read time even if the stored value is lower (prevents alert-storms from misconfiguration).
+
+### New endpoints / response fields
+
+- `GET /api/containers` — each entry now includes `is_stale: bool`.
+- `GET /api/devices/{id}/containers` — response now includes `is_stale: bool` and `stale_ttl: int`.
+- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've deliberately removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
+- `POST /api/config` — accepts `container_stale_ttl` (300–86400 seconds).
+
+### Modified behaviour
+
+- `DELETE /api/devices/{id}` — also cleans up `containers.json` and the `containers_stale_notified` flag for the deleted device. Pre-v1.11.4 these orphans lingered indefinitely; if you re-enrolled a device with the same id, you'd inherit ghost container data from its previous life. (Cleanup is best-effort: if any of the cleanup steps throws, the device delete still succeeds.)
+
+### Modified data files
+
+- `config.json` — gains `container_stale_ttl` (optional, defaults to 900) and `containers_stale_notified` (internal — tracks which devices already received a stale-alert, cleared on fresh report). Both fields are stripped from `GET /api/config` responses where appropriate.
+
+### Webhook event registry order
+
+The three new events are inserted between `log_alert` and `command_queued` in the `WEBHOOK_EVENTS` tuple. The Settings page renders toggles in tuple order, so the new events appear at the bottom of the alert section above the audit-trail section.
+
+### Tests
+
+**397 passing** (362 from v1.11.3 + 35 new in `test_v1114.py`). Coverage:
+
+- `containers.is_stale` — boundary cases (zero timestamp, just under/over threshold, garbage input, default TTL constant).
+- `process_container_report` — first-report-no-fire, container-vanished, status-flip-to-exited, already-stopped-stays-quiet, restart-count-delta, no-restart-no-fire.
+- The empty-list bugfix end-to-end: a heartbeat with `containers: []` clears previously-stored entries.
+- `check_container_webhooks` — fresh-report-quiet, stale-report-fires-once, offline-device-skipped, unmonitored-device-skipped, notified-flag-deduplication.
+- API responses expose `is_stale` and `stale_ttl` correctly.
+- Heartbeat clears `containers_stale_notified` on fresh report (closes the loop).
+- `get_container_stale_ttl` floors at 300s, clamps garbage to default.
+- `DELETE /api/devices/{id}/containers` — happy path, idempotency, 404 on unknown device, admin-required.
+- `DELETE /api/devices/{id}` cleans up `containers.json` and the stale-notified flag (no orphan leaks on re-enrollment).
+- One contract test (`test_v184.test_expected_event_set`) updated to reflect the three new webhook events.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.3. No new dependencies. No nginx changes. No data migration — the new config key has a default, the new internal `containers_stale_notified` field is created lazily on first stale alert, and devices with no `is_stale` field in older clients will simply not show the badge until they self-update.
+
+The webhook payload schema for `container_stopped` and `container_restarting` is new (no v1.11.3 listener can have been built against it), so no breakage there. Existing webhook receivers will start seeing extra event types, which Ntfy / Gotify / Slack / Discord all handle gracefully (each event has its own title and tags).
+
+### Known limitations
+
+- **Restart-count alerts are essentially Kubernetes-only.** The agent reads `docker ps` output, which doesn't include restart counts. Adding `docker inspect` per container would be one syscall per container per heartbeat — fine for 5 containers, painful for 50. If you really want Docker restart alerts, run `docker events` to a separate log shipper.
+- **`container_stopped` can't distinguish "stopped" from "removed and recreated quickly".** If a container restart happens between heartbeats so the new instance has a different ID but the same name, we see the old one disappear and the new one appear — and we fire `container_stopped` for the disappearance. In practice this is an alert for "something restarted suspiciously" which is usually what you want anyway, but be aware.
+- **No history.** Container state is overwritten on every heartbeat. Webhook log retains the alerts (`webhook_log.json`, last 100 entries), but if you need full timeline, point Prometheus at `/metrics` and let it do its thing.
+
+---
+
 ## v1.11.3 - 2026-04-30
 
 ### New features

@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.11.3'
+VERSION      = '1.11.4'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -986,11 +986,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # Same cadence as services. Skipping the first heartbeat is fine —
         # it'd otherwise fire 0.1s after enrollment and confuse new users
         # waiting to see their containers; second heartbeat catches them.
+        #
+        # v1.11.4: previously this only sent ``containers`` when the list
+        # was non-empty. That caused stale data: a host going from "1
+        # docker container" to "0 docker containers" (stopped, daemon
+        # restart, etc.) never overwrote the server's last report, so
+        # the dashboard showed "1 running" forever. Fix: always send
+        # the (possibly empty) list when a runtime is detected on the
+        # host, so the server can clear out the previous state. Hosts
+        # with no runtime installed at all still skip — no point
+        # creating empty rows in containers.json for those.
         if poll_count > 1 and poll_count % CONTAINER_CHECK_EVERY == 0:
             try:
-                items = get_containers()
-                if items:
-                    payload['containers'] = items
+                if _which('docker') or _which('podman') or _which('kubectl'):
+                    payload['containers'] = get_containers()
             except Exception as e:
                 log.debug(f'Container listing error: {e}')
 

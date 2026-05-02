@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.11.3'
+SERVER_VERSION = '1.11.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -190,18 +190,27 @@ MAX_WEBHOOK_LOG   = 100
 
 # v1.8.4: All known webhook events, with metadata used by the UI to render
 # the per-event toggle list. Order matters — drives the order in Settings.
+#
+# v1.11.4: container alerts. Modeled on the service_up/service_down pair —
+# transitions are detected by comparing the new heartbeat's container list
+# against the previous one. ``containers_stale`` is fired by the periodic
+# offline-check sweep when no fresh report has arrived within the configured
+# TTL.
 WEBHOOK_EVENTS = (
-    ('device_offline',   'Device went offline',                  True),
-    ('device_online',    'Device came back online',              True),
-    ('monitor_down',     'Monitor target went down',             True),
-    ('monitor_up',       'Monitor target recovered',             True),
-    ('patch_alert',      'Pending updates exceed threshold',     True),
-    ('cve_found',        'New CVEs detected on a device',        True),
-    ('service_down',     'Watched systemd unit went down',       True),
-    ('service_up',       'Watched systemd unit recovered',       True),
-    ('log_alert',        'Log pattern matched threshold',        True),
-    ('command_queued',   'Command queued for a device',          False),
-    ('command_executed', 'Command executed on a device',         False),
+    ('device_offline',     'Device went offline',                  True),
+    ('device_online',      'Device came back online',              True),
+    ('monitor_down',       'Monitor target went down',             True),
+    ('monitor_up',         'Monitor target recovered',             True),
+    ('patch_alert',        'Pending updates exceed threshold',     True),
+    ('cve_found',          'New CVEs detected on a device',        True),
+    ('service_down',       'Watched systemd unit went down',       True),
+    ('service_up',         'Watched systemd unit recovered',       True),
+    ('log_alert',          'Log pattern matched threshold',        True),
+    ('container_stopped',  'Container/pod disappeared or stopped', True),
+    ('container_restarting', 'Container restart count climbing',   True),
+    ('containers_stale',   'No container report for >TTL',         True),
+    ('command_queued',     'Command queued for a device',          False),
+    ('command_executed',   'Command executed on a device',         False),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -901,6 +910,10 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
+        # v1.11.4
+        'container_stopped':    'Container Stopped',
+        'container_restarting': 'Container Restarting',
+        'containers_stale':     'Container Data Stale',
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
@@ -917,6 +930,10 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
             'monitor_down': 0xEF4444, 'monitor_up': 0x22C55E,
             'patch_alert': 0xF59E0B, 'command_queued': 0x3B7EFF,
             'command_executed': 0x3B7EFF, 'test': 0x7C3AED,
+            # v1.11.4
+            'container_stopped': 0xEF4444,
+            'container_restarting': 0xF59E0B,
+            'containers_stale': 0xF59E0B,
         }
         body = json.dumps({
             'username': 'RemotePower',
@@ -1003,6 +1020,19 @@ def _webhook_message(event, payload):
         return f'{name}: {payload.get("unit", "?")} is active again'
     elif event == 'log_alert':
         return f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {payload.get("count", "?")} times'
+    # ── v1.11.4: container events ──────────────────────────────────────────
+    elif event == 'container_stopped':
+        return (f'{name}: container "{payload.get("container", "?")}" '
+                f'({payload.get("runtime", "?")}) stopped '
+                f'(was {payload.get("previous_status", "?")}, now {payload.get("status", "gone")})')
+    elif event == 'container_restarting':
+        return (f'{name}: container "{payload.get("container", "?")}" '
+                f'restarted {payload.get("delta", "?")} time(s) since last report '
+                f'(total restart_count={payload.get("restart_count", "?")})')
+    elif event == 'containers_stale':
+        return (f'{name}: no container report for {payload.get("age_minutes", "?")} '
+                f'minutes (TTL: {payload.get("ttl_minutes", "?")} min). '
+                f'Last seen {_ts_fmt(payload.get("reported_at", 0))}.')
     elif event == 'test':
         return f'This is a test notification from RemotePower ({payload.get("server_version", "?")}). If you see this, webhooks are working!'
     return f'{event}: {name}'
@@ -1012,7 +1042,8 @@ def _webhook_priority(event):
     """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
     if event == 'cve_found':
         return 5
-    if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down', 'log_alert'):
+    if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
+                 'log_alert', 'container_stopped', 'containers_stale'):
         return 4
     if event in ('device_online', 'monitor_up', 'service_up'):
         return 3
@@ -1033,6 +1064,10 @@ def _webhook_tags(event):
         'service_down':    'red_circle,gear',
         'service_up':      'green_circle,gear',
         'log_alert':       'warning,scroll',
+        # v1.11.4
+        'container_stopped':    'red_circle,whale',
+        'container_restarting': 'warning,whale',
+        'containers_stale':     'warning,hourglass',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -1302,6 +1337,23 @@ def handle_device_delete(dev_id):
     del devices[dev_id]
     save(DEVICES_FILE, devices)
     cmds = load(CMDS_FILE); cmds.pop(dev_id, None); save(CMDS_FILE, cmds)
+    # v1.11.4: clean up the per-device container snapshot too. Without
+    # this, deleting and re-enrolling the same device id (rare but
+    # possible) would resurrect a stale container list. Same applies to
+    # the stale-notified flag in config.
+    try:
+        cstore = load(CONTAINERS_FILE)
+        if dev_id in cstore:
+            cstore.pop(dev_id, None)
+            save(CONTAINERS_FILE, cstore)
+        cfg = load(CONFIG_FILE)
+        notified = cfg.get('containers_stale_notified') or {}
+        if isinstance(notified, dict) and dev_id in notified:
+            notified.pop(dev_id, None)
+            cfg['containers_stale_notified'] = notified
+            save(CONFIG_FILE, cfg)
+    except Exception:
+        pass  # device delete must succeed even if cleanup hits an edge case
     respond(200, {'ok': True})
 
 
@@ -1640,11 +1692,29 @@ def handle_heartbeat():
     # detected a runtime. We overwrite the per-device list (last-write-wins)
     # rather than append — container state changes too often for history
     # to be useful, and the next heartbeat refreshes it.
+    #
+    # v1.11.4: agent now sends an empty list when a runtime is installed but
+    # no containers are running, so this branch fires every report — not just
+    # non-empty ones. Before storing, we diff against the previous report
+    # and fire container_stopped / container_restarting webhooks.
     if 'containers' in body:
         normalised = containers_mod.normalize_listing(body.get('containers'))
+        try:
+            process_container_report(dev_id, normalised, now)
+        except Exception:
+            pass  # never let container processing break heartbeat
         store = load(CONTAINERS_FILE)
         store[dev_id] = {'ts': now, 'items': normalised}
         save(CONTAINERS_FILE, store)
+        # v1.11.4: this device just gave us fresh container data, so clear
+        # any "containers_stale" notified flag — the next time it goes stale
+        # we want a new webhook to fire (matches device_offline pattern).
+        cfg_now = load(CONFIG_FILE)
+        stale_notified = cfg_now.get('containers_stale_notified') or {}
+        if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
+            stale_notified[dev_id] = False
+            cfg_now['containers_stale_notified'] = stale_notified
+            save(CONFIG_FILE, cfg_now)
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
@@ -1982,6 +2052,7 @@ def handle_config_get():
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
             if k not in ('offline_notified', 'patch_alerted', 'monitor_notified',
+                         'containers_stale_notified',
                          '_github_latest_version', '_github_latest_ts')}
     safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
     safe.setdefault('offline_webhook_enabled', True)
@@ -1999,6 +2070,9 @@ def handle_config_get():
     safe.setdefault('session_ttl_short', DEFAULT_TOKEN_TTL_SHORT)
     safe.setdefault('session_ttl_long', DEFAULT_TOKEN_TTL_LONG)
     safe.setdefault('cve_severity_filter', list(CVE_SEVERITY_FILTER_DEFAULT))
+    # v1.11.4 — container staleness threshold (seconds). Floor of 300s
+    # is enforced at read time by get_container_stale_ttl().
+    safe.setdefault('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL)
 
     # webhook_events: build from explicit dict, falling back to legacy flags
     explicit = cfg.get('webhook_events') or {}
@@ -2114,6 +2188,18 @@ def handle_config_save():
             cfg['cve_cache_days'] = v
         except (ValueError, TypeError):
             respond(400, {'error': 'cve_cache_days must be an integer'})
+
+    # v1.11.4: container staleness TTL (seconds). Floor at 300s so we don't
+    # alert on normal poll-interval jitter; cap at 24h so a misclick can't
+    # silently break alerting.
+    if 'container_stale_ttl' in body:
+        try:
+            v = int(body['container_stale_ttl'])
+            if not (300 <= v <= 86400):
+                respond(400, {'error': 'container_stale_ttl must be 300–86400 seconds'})
+            cfg['container_stale_ttl'] = v
+        except (ValueError, TypeError):
+            respond(400, {'error': 'container_stale_ttl must be an integer'})
 
     # v1.8.4: CVE severity filter (which severities fire cve_found webhook)
     if 'cve_severity_filter' in body:
@@ -2761,10 +2847,17 @@ def handle_device_containers(dev_id: str) -> None:
     store = load(CONTAINERS_FILE)
     entry = store.get(dev_id) or {}
     items = entry.get('items', [])
+    reported_at = entry.get('ts', 0)
+    # v1.11.4: surface staleness so the UI can flag old data without each
+    # caller having to recompute the threshold.
+    ttl = get_container_stale_ttl()
+    now = int(time.time())
     respond(200, {
         'device_id': dev_id,
         'name':      devices[dev_id].get('name', dev_id),
-        'reported_at': entry.get('ts', 0),
+        'reported_at': reported_at,
+        'is_stale':  containers_mod.is_stale(reported_at, now, ttl),
+        'stale_ttl': ttl,
         'items':     items,
         'summary':   containers_mod.summarise(items),
     })
@@ -2776,24 +2869,90 @@ def handle_containers_overview() -> None:
     Returns one entry per device that has reported containers, with
     summary counts. The Containers page uses this for the "all
     containers across the fleet" landing view.
+
+    v1.11.4: each entry now carries an ``is_stale`` flag, set when the
+    device's last container report is older than the configured TTL
+    (``container_stale_ttl``, default 900s). The UI uses this to badge
+    stale rows.
     """
     require_auth()
     devices = load(DEVICES_FILE)
     store = load(CONTAINERS_FILE)
+    ttl = get_container_stale_ttl()
+    now = int(time.time())
     out = []
     for dev_id, entry in store.items():
         if dev_id not in devices:
             continue
         items = entry.get('items', []) if isinstance(entry, dict) else []
+        ts = entry.get('ts', 0) if isinstance(entry, dict) else 0
         out.append({
             'device_id':   dev_id,
             'name':        devices[dev_id].get('name', dev_id),
             'os':          devices[dev_id].get('os', ''),
-            'reported_at': entry.get('ts', 0) if isinstance(entry, dict) else 0,
+            'reported_at': ts,
+            'is_stale':    containers_mod.is_stale(ts, now, ttl),
             'summary':     containers_mod.summarise(items),
         })
     out.sort(key=lambda r: r['name'].lower())
     respond(200, out)
+
+
+def handle_device_containers_clear(dev_id: str) -> None:
+    """``DELETE /api/devices/{id}/containers`` — clear stored container data.
+
+    v1.11.4: useful in two scenarios:
+
+    1. **Decommissioning a host** but you want to keep the device record
+       around (e.g. agentless conversion). The container entry would
+       otherwise sit forever in ``containers.json`` and keep showing up
+       with whatever its last-known list was.
+    2. **You ran ``docker rm`` on a container and don't want to wait the
+       ~5 minutes for the next heartbeat.** Clearing forces the
+       Containers page to show "no data" until the next report rebuilds
+       the list with current state.
+
+    This is *not* a way to suppress webhooks — the
+    ``container_stopped`` / ``container_restarting`` webhooks have
+    already fired by the time you'd hit this. It's purely a cosmetic /
+    cleanup operation against the stored snapshot. If a live agent is
+    still polling, the next heartbeat will repopulate the list within
+    one ``CONTAINER_CHECK_EVERY`` window.
+
+    Also clears the ``containers_stale_notified`` flag so the next
+    staleness can fire a fresh webhook (without this you'd have to
+    wait for a fresh report → stale again before re-firing).
+
+    Args:
+        dev_id: Enrolled device ID.
+    """
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    store = load(CONTAINERS_FILE)
+    had_entry = dev_id in store
+    store.pop(dev_id, None)
+    save(CONTAINERS_FILE, store)
+
+    # Also clear any lingering stale-notified flag so the next time this
+    # device goes stale we generate a fresh webhook rather than thinking
+    # we already notified.
+    cfg = load(CONFIG_FILE)
+    notified = cfg.get('containers_stale_notified') or {}
+    if isinstance(notified, dict) and dev_id in notified:
+        notified.pop(dev_id, None)
+        cfg['containers_stale_notified'] = notified
+        save(CONFIG_FILE, cfg)
+
+    audit_log(actor, 'containers_clear',
+              f'cleared container data for {dev_id} (had_entry={had_entry})')
+    respond(200, {'ok': True, 'cleared': had_entry})
 
 
 # ─── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────────
@@ -4808,6 +4967,225 @@ def process_service_report(dev_id, services_payload):
     save(SERVICES_FILE, store)
 
 
+# ─── v1.11.4: container alerting ────────────────────────────────────────────
+#
+# Same shape as the service report processor: diff this heartbeat against the
+# previous one and fire webhooks on transitions. The transitions we care about:
+#
+#   1. A previously-seen container is now missing or has a non-running status
+#      → fire ``container_stopped``. Restart-during-the-poll-window is
+#      indistinguishable from a real stop here (we'd need ``docker events``
+#      for that), but the webhook lets the operator decide if it's noise.
+#
+#   2. ``restart_count`` climbed since the last report → fire
+#      ``container_restarting``. Only meaningful for Kubernetes pods (Docker
+#      ``ps`` doesn't expose it; agent reports 0). Threshold: ``delta >= 1``.
+#
+# We don't fire ``container_started`` for new entries, mirroring the
+# service-up convention of "transitions back to a known state are quieter
+# than transitions away from it." Add later if anyone asks.
+
+# Threshold for the restart-count delta to fire the restarting webhook.
+# A bare 1 is enough — if a pod restarted, that's something to know.
+CONTAINER_RESTART_DELTA_THRESHOLD = 1
+
+
+def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
+    """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id, {})
+    payload = {
+        'device_id': dev_id,
+        'name':      dev.get('name', dev_id),
+        'group':     dev.get('group', ''),
+        'container': container_name,
+    }
+    if payload_extra:
+        payload.update(payload_extra)
+    fire_webhook(event, payload)
+
+
+def _container_is_running(status_str):
+    """Return True if the agent-reported status string suggests "running".
+
+    Mirrors :func:`containers_mod.summarise`'s permissive matching — different
+    runtimes phrase status differently ("Up 2 hours", "running", "Ready").
+    """
+    s = (status_str or '').lower()
+    return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
+
+
+def process_container_report(dev_id, normalised, now):
+    """Diff a heartbeat's container list against the previous one and fire webhooks.
+
+    Called from :func:`handle_heartbeat` *before* the new list overwrites the
+    stored one. Side-effects: zero or more webhook fires. Storage is the
+    caller's responsibility — we read CONTAINERS_FILE for the previous state
+    but never write it.
+
+    Args:
+        dev_id: The reporting device ID.
+        normalised: The new list of normalised container dicts (already
+            passed through :func:`containers_mod.normalize_listing`).
+        now: Current Unix timestamp.
+    """
+    if not isinstance(normalised, list):
+        return
+
+    store = load(CONTAINERS_FILE)
+    prev_entry = store.get(dev_id) or {}
+    prev_items = prev_entry.get('items') or []
+    if not isinstance(prev_items, list):
+        prev_items = []
+
+    # First report ever for this device — nothing to diff against.
+    # Skip transition detection but DO let storage proceed (caller's job).
+    if not prev_items:
+        return
+
+    # Index by (runtime, name) to make k8s pods in different namespaces
+    # collide-free, and to keep docker/podman containers separate even
+    # when they happen to share a name.
+    def _key(c):
+        return (c.get('runtime', 'unknown'), c.get('namespace', ''), c.get('name', ''))
+
+    new_by_key = {_key(c): c for c in normalised if c.get('name')}
+    prev_by_key = {_key(c): c for c in prev_items if c.get('name')}
+
+    # 1) Containers that disappeared or transitioned out of "running"
+    for key, prev in prev_by_key.items():
+        prev_was_running = _container_is_running(prev.get('status'))
+        if not prev_was_running:
+            continue  # already-stopped containers don't generate noise
+        cur = new_by_key.get(key)
+        if cur is None:
+            # vanished entirely — docker rm / kubectl delete pod / crashed and
+            # was cleaned up by the runtime. Either way: alertable.
+            _fire_container_webhook('container_stopped', dev_id, prev.get('name', '?'), {
+                'runtime':         prev.get('runtime', 'unknown'),
+                'namespace':       prev.get('namespace', ''),
+                'image':           prev.get('image', ''),
+                'previous_status': prev.get('status', ''),
+                'status':          'gone',
+            })
+        elif not _container_is_running(cur.get('status')):
+            # still listed, but no longer running (e.g. "Exited (1) 3s ago")
+            _fire_container_webhook('container_stopped', dev_id, prev.get('name', '?'), {
+                'runtime':         prev.get('runtime', 'unknown'),
+                'namespace':       prev.get('namespace', ''),
+                'image':           prev.get('image', ''),
+                'previous_status': prev.get('status', ''),
+                'status':          cur.get('status', ''),
+            })
+
+    # 2) Containers whose restart_count climbed since the last report.
+    # Mostly meaningful for Kubernetes (Docker doesn't expose this without
+    # `docker inspect`, which the agent skips for performance).
+    for key, cur in new_by_key.items():
+        prev = prev_by_key.get(key)
+        if not prev:
+            continue
+        try:
+            cur_n = int(cur.get('restart_count', 0))
+            prev_n = int(prev.get('restart_count', 0))
+        except (TypeError, ValueError):
+            continue
+        delta = cur_n - prev_n
+        if delta >= CONTAINER_RESTART_DELTA_THRESHOLD:
+            _fire_container_webhook('container_restarting', dev_id, cur.get('name', '?'), {
+                'runtime':       cur.get('runtime', 'unknown'),
+                'namespace':     cur.get('namespace', ''),
+                'image':         cur.get('image', ''),
+                'restart_count': cur_n,
+                'delta':         delta,
+            })
+
+
+def get_container_stale_ttl():
+    """Effective container-staleness TTL in seconds, clamped to a sane minimum.
+
+    The default of 900s (15 min) gives comfortable headroom over the agent's
+    5-minute container-report cadence. Operators can tune via the
+    ``container_stale_ttl`` config key. Anything under 300s would alert on
+    every brief network hiccup, so we floor at that.
+    """
+    try:
+        v = int(_config().get('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL))
+    except (TypeError, ValueError):
+        v = containers_mod.DEFAULT_STALE_TTL
+    return max(300, v)
+
+
+def check_container_webhooks():
+    """Fire ``containers_stale`` for devices whose last container report is old.
+
+    Called from :func:`main` on every CGI request, alongside
+    :func:`check_offline_webhooks`. A device fires the webhook at most once
+    per stale period — the ``containers_stale_notified`` flag is cleared in
+    the heartbeat handler whenever fresh container data arrives.
+
+    Devices that have never reported containers (no entry in
+    ``containers.json``) are skipped — they probably just have no runtime
+    installed. This is checked, not assumed: an entry with ``ts > 0``
+    proves the device once had a runtime, so its silence now is a
+    regression worth alerting on.
+    """
+    if not is_webhook_event_enabled('containers_stale'):
+        return
+    store = load(CONTAINERS_FILE)
+    if not isinstance(store, dict) or not store:
+        return
+    devices = load(DEVICES_FILE)
+    cfg = load(CONFIG_FILE)
+    notified = cfg.get('containers_stale_notified') or {}
+    if not isinstance(notified, dict):
+        notified = {}
+    ttl = get_container_stale_ttl()
+    now = int(time.time())
+    changed = False
+
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        dev = devices[dev_id]
+        # Don't bother for devices the operator deliberately stopped monitoring.
+        if not dev.get('monitored', True):
+            continue
+        # And don't fire while the device itself is offline — there's already
+        # a device_offline webhook for that, no point double-paging.
+        last_seen = dev.get('last_seen', 0)
+        if (now - last_seen) > get_online_ttl():
+            continue
+
+        ts = entry.get('ts', 0) if isinstance(entry, dict) else 0
+        stale = containers_mod.is_stale(ts, now, ttl)
+        already = bool(notified.get(dev_id, False))
+
+        if stale and not already:
+            age = max(0, now - int(ts)) if ts else 0
+            fire_webhook('containers_stale', {
+                'device_id':    dev_id,
+                'name':         dev.get('name', dev_id),
+                'hostname':     dev.get('hostname', ''),
+                'reported_at':  int(ts),
+                'age_seconds':  age,
+                'age_minutes':  age // 60,
+                'ttl_minutes':  ttl // 60,
+            })
+            notified[dev_id] = True
+            changed = True
+        elif not stale and already:
+            # Already cleared on heartbeat ingest, but keep this branch for
+            # safety in case the heartbeat path missed it (e.g. config rewrite
+            # race). No webhook on the recovery — same convention as patch_alert.
+            notified[dev_id] = False
+            changed = True
+
+    if changed:
+        cfg['containers_stale_notified'] = notified
+        save(CONFIG_FILE, cfg)
+
+
 def handle_services_get():
     """GET /api/services — all current service states across the fleet."""
     require_auth()
@@ -6450,6 +6828,10 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
 def main():
     try: check_offline_webhooks()
     except Exception: pass
+    # v1.11.4: container-data-stale sweep, mirroring the offline check.
+    # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
+    try: check_container_webhooks()
+    except Exception: pass
     try: process_schedule()
     except Exception: pass
 
@@ -6651,6 +7033,11 @@ def main():
     elif pi == '/api/containers' and m == 'GET': handle_containers_overview()
     elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'GET':
         handle_device_containers(pi[len('/api/devices/'):-len('/containers')])
+    # v1.11.4: manual clear of a device's container snapshot. Useful for
+    # decommissioning, or for forcing a redraw without waiting for the next
+    # heartbeat after deliberate `docker rm`.
+    elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'DELETE':
+        handle_device_containers_clear(pi[len('/api/devices/'):-len('/containers')])
 
     # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
     elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()

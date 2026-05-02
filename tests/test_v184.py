@@ -254,6 +254,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'patch_alert', 'cve_found',
             'service_down', 'service_up',
             'log_alert',
+            # v1.11.4: container alerts
+            'container_stopped', 'container_restarting', 'containers_stale',
             'command_queued', 'command_executed',
         }
         self.assertEqual(names, expected)
