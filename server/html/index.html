@@ -486,6 +486,139 @@
     position: relative;
     overflow: visible;
   }
+  /* v1.11.5: density modes for the devices grid. The container gets a
+     `dens-<mode>` class; descendants restyle accordingly. Compact halves
+     padding and shrinks fonts; spacious goes the other way. The dropdown
+     menu and modals are unaffected — only the card chrome itself. */
+  .devices-grid.dens-compact { gap: 8px; }
+  .devices-grid.dens-compact .device-card { padding: 12px 14px; border-radius: 10px; }
+  .devices-grid.dens-compact .device-header { margin-bottom: 8px; }
+  .devices-grid.dens-compact .device-icon { width: 32px; height: 32px; border-radius: 7px; }
+  .devices-grid.dens-compact .device-name { font-size: 14px; }
+  .devices-grid.dens-compact .device-hostname { font-size: 11px; }
+  .devices-grid.dens-compact .device-meta { gap: 6px; }
+  .devices-grid.dens-compact .device-meta .meta-label { font-size: 10px; }
+  .devices-grid.dens-compact .device-meta .meta-value { font-size: 12px; }
+  .devices-grid.dens-compact .status-badge { padding: 2px 6px; font-size: 10px; }
+
+  .devices-grid.dens-spacious { gap: 24px; }
+  .devices-grid.dens-spacious .device-card { padding: 32px; }
+  .devices-grid.dens-spacious .device-name { font-size: 18px; }
+  .devices-grid.dens-spacious .device-icon { width: 52px; height: 52px; }
+
+  /* v1.11.6: minimal mode = one device per row. Single-column grid,
+     row-height card with everything inline. The classic data-table look:
+     useful when you have 50+ devices and want to scan them at a glance.
+     Works with the existing dropdown (⋯ button) — no markup change in
+     renderDevices(), just CSS. */
+  .devices-grid.dens-minimal {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .devices-grid.dens-minimal .device-card {
+    padding: 6px 12px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+  }
+  /* the colored top stripe doesn't make sense on row layout — show as a
+     left border instead */
+  .devices-grid.dens-minimal .device-card::before {
+    top: 0; left: 0; right: auto; bottom: 0;
+    height: auto; width: 3px;
+    border-radius: 6px 0 0 6px;
+  }
+  .devices-grid.dens-minimal .device-header {
+    flex: 0 0 auto;
+    margin: 0;
+    min-width: 0;
+  }
+  .devices-grid.dens-minimal .device-info { gap: 8px; }
+  .devices-grid.dens-minimal .device-icon {
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .devices-grid.dens-minimal .device-icon svg { width: 14px; height: 14px; }
+  .devices-grid.dens-minimal .device-name {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+  }
+  .devices-grid.dens-minimal .device-hostname {
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+  }
+  /* the status badge moves out of the header (right-aligned) and into
+     the row flow */
+  .devices-grid.dens-minimal .device-header > .status-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .devices-grid.dens-minimal .status-badge {
+    padding: 2px 8px;
+    font-size: 10px;
+  }
+  .devices-grid.dens-minimal .device-meta {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 16px;
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .devices-grid.dens-minimal .device-meta .meta-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .devices-grid.dens-minimal .device-meta .meta-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .devices-grid.dens-minimal .device-meta .meta-value {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+  }
+  /* hide the lower-priority meta items in narrow viewports — keeping
+     OS, IP, and Version visible by default; Poll/Enrolled is the first
+     to drop. */
+  @media (max-width: 1100px) {
+    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+4) { display: none; }
+  }
+  @media (max-width: 880px) {
+    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+3) { display: none; }
+  }
+  @media (max-width: 700px) {
+    .devices-grid.dens-minimal .device-hostname { display: none; }
+    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+2) { display: none; }
+  }
+  /* the dropdown ⋯ button stays bottom-right in card layouts; in minimal
+     it should be inline at the end of the row. */
+  .devices-grid.dens-minimal .device-dropdown {
+    position: static;
+    flex-shrink: 0;
+  }
+  .devices-grid.dens-minimal .dropdown-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
   .device-card::before {
     content: '';
     position: absolute;
@@ -1225,7 +1358,11 @@
           <select id="device-group-filter" class="form-input" onchange="filterDevices()" style="width:auto;padding:8px 12px;font-size:13px">
             <option value="all">All groups</option>
           </select>
-          <button class="btn-icon" style="margin-left:auto" onclick="agentlessAddOpen()" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
+          <!-- v1.11.5: density toggle. Rendered programmatically so the
+               selected state matches the user's stored preference on first
+               paint. Empty placeholder; populated by renderDevices(). -->
+          <span id="devices-density-toggle" style="margin-left:auto"></span>
+          <button class="btn-icon" onclick="agentlessAddOpen()" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
         </div>
         <div id="devices-container" class="devices-grid"></div>
       </div>
@@ -1242,7 +1379,9 @@
             <button class="enroll-btn" onclick="openMonitorAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add target</button>
           </div>
         </div>
-        <div class="table-card"><table><thead><tr><th>Label</th><th>Type</th><th>Target</th><th>Status</th><th>Detail</th><th>Checked</th><th></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr></tbody></table></div>
+        <!-- v1.11.5: filter input -->
+        <div style="margin-bottom:16px"><input type="text" id="monitor-filter" class="form-input" placeholder="Filter by label, type, target, status…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="monitor-thead"><tr><th data-col="label">Label</th><th data-col="type">Type</th><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th data-col="checked">Checked</th><th></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr></tbody></table></div>
       </div>
 
       <!-- ── Users page (unchanged) ───────────────────────────────────────── -->
@@ -1250,7 +1389,9 @@
         <div class="page-title">Admin Users</div>
         <div class="page-subtitle">Manage who can access this dashboard</div>
         <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" onclick="openUserAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
-        <div class="table-card"><table><thead><tr><th>Username</th><th>Created</th><th>Role</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <!-- v1.11.6: filter -->
+        <div style="margin-bottom:16px"><input type="text" id="users-filter" class="form-input" placeholder="Filter by username or role…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
       <!-- ── Settings page (unchanged) ────────────────────────────────────── -->
@@ -1579,14 +1720,18 @@
       <div id="page-history" class="page">
         <div class="page-title">Command History</div><div class="page-subtitle">Log of all commands sent to devices</div>
         <div class="section-header"><div class="section-title">Recent commands</div><div style="display:flex;gap:8px"><button class="btn-icon" onclick="loadHistory()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearHistory()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
-        <div class="table-card"><table><thead><tr><th>Time</th><th>Actor</th><th>Device</th><th>Command</th></tr></thead><tbody id="history-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <!-- v1.11.5: filter + sortable headers via tableCtl -->
+        <div style="margin-bottom:16px"><input type="text" id="history-filter" class="form-input" placeholder="Filter by actor, device, or command…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="history-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="device_name">Device</th><th data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
       <!-- ── Schedule page (unchanged) ────────────────────────────────────── -->
       <div id="page-schedule" class="page">
         <div class="page-title">Scheduled Commands</div><div class="page-subtitle">Queue shutdown or reboot at a specific time</div>
         <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" onclick="openScheduleAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add job</button></div>
-        <div class="table-card"><table><thead><tr><th>Device</th><th>Command</th><th>Scheduled for</th><th>By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr></tbody></table></div>
+        <!-- v1.11.5: filter -->
+        <div style="margin-bottom:16px"><input type="text" id="schedule-filter" class="form-input" placeholder="Filter by device, command, or actor…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="schedule-thead"><tr><th data-col="device_name">Device</th><th data-col="command">Command</th><th data-col="run_at">Scheduled for</th><th data-col="actor">By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── About page (unchanged) ───────────────────────────────────────── -->
@@ -1601,7 +1746,9 @@
       <div id="page-apikeys" class="page">
         <div class="page-title">API Keys</div><div class="page-subtitle">Named non-expiring keys for scripts and CI pipelines</div>
         <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" onclick="openApiKeyCreate()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>
-        <div class="table-card"><table><thead><tr><th>Name</th><th>Role</th><th>User</th><th>Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <!-- v1.11.6: filter -->
+        <div style="margin-bottom:16px"><input type="text" id="apikeys-filter" class="form-input" placeholder="Filter by name, role, or user…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
@@ -1610,15 +1757,17 @@
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><div style="position:relative;flex:1;max-width:280px"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="patch-search-input" class="form-input" placeholder="Search patches…" oninput="renderPatchTable()" style="padding:8px 12px 8px 34px;font-size:13px"></div><select id="patch-group-filter" class="form-input" onchange="renderPatchTable()" style="width:auto;padding:8px 12px;font-size:13px"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input" onchange="renderPatchTable()" style="width:auto;padding:8px 12px;font-size:13px;max-width:220px"><option value="all">All devices</option></select><button class="btn-icon" onclick="loadPatchReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button></div>
         <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--muted)">Export (filtered):</span><button class="btn-icon" onclick="exportPatchFiltered('csv')">CSV</button><button class="btn-icon" onclick="exportPatchFiltered('xml')">XML</button></div>
         <div class="stats-row" id="patch-summary" style="grid-template-columns:repeat(5,1fr)"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value" id="patch-patched" style="color:var(--green)">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value" id="patch-pending" style="color:var(--amber)">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-value" id="patch-count" style="color:var(--red)">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value" id="patch-pct" style="color:var(--green)">—</div><div class="stat-label">Patch Rate</div></div></div></div>
-        <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Status</th><th>Pkg Manager</th><th>Pending</th><th>Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load patch report. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="patch-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pkg_manager">Pkg Manager</th><th data-col="upgradable">Pending</th><th data-col="patch_status">Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load patch report. </td></tr></tbody></table></div>
       </div>
 
       <div id="page-cve" class="page">
         <div class="page-title">CVE Findings</div>
         <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" style="color:var(--accent)">OSV.dev</a> — scan checks installed packages against known CVEs.</div>
-        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
           <button class="btn-icon" onclick="loadCVEReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-primary" style="max-width:200px" onclick="triggerCVEScan()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
+          <!-- v1.11.5: filter -->
+          <input type="text" id="cve-filter" class="form-input" placeholder="Filter by device, group, ecosystem…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:24px">
           <div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value" id="cve-stat-critical" style="color:var(--red)">0</div><div class="stat-label">Critical</div></div></div>
@@ -1627,15 +1776,17 @@
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value" id="cve-stat-low" style="color:var(--muted)">0</div><div class="stat-label">Low</div></div></div>
           <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg></div><div><div class="stat-value" id="cve-stat-devices">0</div><div class="stat-label">Devices Scanned</div></div></div>
         </div>
-        <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>Ecosystem</th><th style="text-align:center">Critical</th><th style="text-align:center">High</th><th style="text-align:center">Medium</th><th style="text-align:center">Low</th><th>Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load findings. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="cve-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="ecosystem">Ecosystem</th><th data-col="critical" style="text-align:center">Critical</th><th data-col="high" style="text-align:center">High</th><th data-col="medium" style="text-align:center">Medium</th><th data-col="low" style="text-align:center">Low</th><th data-col="last_scan">Last scan</th><th></th></tr></thead><tbody id="cve-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load findings. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->
       <div id="page-services" class="page">
         <div class="page-title">Services <span id="services-maint-badge" style="display:none;font-size:12px;color:var(--amber);margin-left:12px">🔧 <span id="services-maint-count">0</span> maintenance window(s) active</span></div>
         <div class="page-subtitle">systemd units watched per device. Click a row to see history, logs, and configuration.</div>
-        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
           <button class="btn-icon" onclick="loadServicesReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <!-- v1.11.5: filter input — substring match across visible columns. -->
+          <input type="text" id="services-filter" class="form-input" placeholder="Filter by device, group, unit…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
           <div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div><div><div class="stat-value" id="services-stat-up" style="color:var(--green)">0</div><div class="stat-label">Services Up</div></div></div>
@@ -1643,7 +1794,7 @@
           <div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="services-stat-devices">0</div><div class="stat-label">Devices Reporting</div></div></div>
           <div class="stat-card"><div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></div><div><div class="stat-value" id="services-stat-total">0</div><div class="stat-label">Units Watched</div></div></div>
         </div>
-        <div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>Watched</th><th style="text-align:center">Up</th><th style="text-align:center">Down</th><th>Last report</th><th></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="services-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="watched">Watched</th><th data-col="up" style="text-align:center">Up</th><th data-col="down" style="text-align:center">Down</th><th data-col="last_report">Last report</th><th></th></tr></thead><tbody id="services-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load. </td></tr></tbody></table></div>
       </div>
 
       <!-- ── v1.8.1: Logs page ─────────────────────────────────────────────── -->
@@ -1722,12 +1873,14 @@
       <div id="page-maintenance" class="page">
         <div class="page-title">Maintenance Windows</div>
         <div class="page-subtitle">Scheduled windows suppress webhook alerts for specific devices, groups, or the whole fleet.</div>
-        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
           <button class="btn-icon" onclick="loadMaintenance()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-primary" style="max-width:200px" onclick="openNewMaintModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New window</button>
           <button class="btn-icon" onclick="loadMaintSuppressions()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Suppression log</button>
+          <!-- v1.11.6: filter -->
+          <input type="text" id="maint-filter" class="form-input" placeholder="Filter by reason, scope, target…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
-        <div class="table-card"><table><thead><tr><th>Reason</th><th>Scope</th><th>Target</th><th>When</th><th>Events</th><th style="text-align:center">Status</th><th></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh. </td></tr></tbody></table></div>
+        <div class="table-card"><table><thead id="maint-thead"><tr><th data-col="reason">Reason</th><th data-col="scope">Scope</th><th data-col="target">Target</th><th data-col="when">When</th><th data-col="events">Events</th><th data-col="status" style="text-align:center">Status</th><th></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Click Refresh. </td></tr></tbody></table></div>
         <div id="maint-suppressions" style="margin-top:24px;display:none">
           <div class="page-title" style="font-size:16px;margin-top:24px">Recent Suppressions</div>
           <div class="table-card"><table><thead><tr><th>When</th><th>Event</th><th>Device</th><th>Window</th><th>Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
@@ -1851,12 +2004,12 @@
         <div class="page-title">Containers</div>
         <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <input type="text" id="containers-search" class="form-input" placeholder="Filter by device or container name…" oninput="renderContainersOverview()" style="flex:1;min-width:240px;max-width:380px">
+          <input type="text" id="containers-search" class="form-input" placeholder="Filter by device or container name…" style="flex:1;min-width:240px;max-width:380px">
           <button class="btn-icon" onclick="loadContainersOverview()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
         <div class="table-card">
           <table>
-            <thead><tr><th>Device</th><th>OS</th><th>Total</th><th>Running</th><th>Stopped</th><th>Restarting (≥5)</th><th>Runtimes</th><th>Reported</th><th></th></tr></thead>
+            <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
             <tbody id="containers-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
           </table>
         </div>
@@ -1886,11 +2039,12 @@
           <button class="btn-icon" onclick="tlsAddOpen()">+ Add target</button>
           <button class="btn-icon" onclick="tlsScanNow()">Scan now</button>
           <button class="btn-icon" onclick="loadTLS()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <span id="tls-status-summary" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
+          <input type="text" id="tls-filter" class="form-input" placeholder="Filter by host, issuer, status…" style="flex:1;min-width:200px;max-width:340px;padding:8px 12px;font-size:13px">
+          <span id="tls-status-summary" style="color:var(--muted);font-size:13px"></span>
         </div>
         <div class="table-card">
           <table>
-            <thead><tr><th>Status</th><th>Host</th><th>Port</th><th>Days left</th><th>Expires</th><th>Issuer</th><th>Last check</th><th></th></tr></thead>
+            <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
             <tbody id="tls-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
           </table>
         </div>
@@ -1918,7 +2072,7 @@
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
         <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
-          <input type="text" id="audit-filter-text" class="form-input" placeholder="Filter by actor, action, or detail…" oninput="renderAuditLog()" style="flex:1;min-width:240px;max-width:380px">
+          <input type="text" id="audit-filter-text" class="form-input" placeholder="Filter by actor, action, or detail…" style="flex:1;min-width:240px;max-width:380px">
           <select id="audit-filter-action" class="form-input" onchange="renderAuditLog()" style="max-width:240px">
             <option value="">All actions</option>
           </select>
@@ -1926,13 +2080,15 @@
           <button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
         </div>
-        <div class="table-card"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th><th>Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead id="audit-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="action">Action</th><th data-col="detail">Detail</th><th data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
       </div>
 
       <div id="page-cmdlib" class="page">
         <div class="page-title">Command Library</div><div class="page-subtitle">Saved shell command snippets — pick from the exec modal</div>
         <div class="section-header"><div class="section-title">Snippets</div><button class="enroll-btn" onclick="openCmdLibAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add snippet</button></div>
-        <div class="table-card"><table><thead><tr><th>Name</th><th>Command</th><th>Description</th><th></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet. </td></tr></tbody></table></div>
+        <!-- v1.11.6: filter -->
+        <div style="margin-bottom:16px"><input type="text" id="cmdlib-filter" class="form-input" placeholder="Filter by name, command, or description…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
+        <div class="table-card"><table><thead id="cmdlib-thead"><tr><th data-col="name">Name</th><th data-col="cmd">Command</th><th data-col="description">Description</th><th></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet. </td></tr></tbody></table></div>
       </div>
 
     </div><!-- /container -->
@@ -2501,6 +2657,328 @@ let refreshRemaining = refreshInterval;
 let activeTagFilter = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
+// v1.11.5: per-user UI prefs (density, persistent filter strings, multi-column
+// sort). One source of truth (`_uiPrefs`); `tableCtl` and `densityCtl` read
+// from / write to it; a debounced `flushUiPrefs()` POSTs the whole document
+// back to the server. The server replaces the user's `ui_prefs` field on each
+// POST — partial updates would race when the same user has two tabs open.
+//
+// Schema, mirrored in api.py::_sanitise_ui_prefs:
+//   _uiPrefs = {
+//     <table_name>: {
+//        density: 'compact'|'comfortable'|'spacious',
+//        filter:  string,
+//        sort:    [{col: string, dir: 'asc'|'desc'}, ...]
+//     }
+//   }
+// ══════════════════════════════════════════════════════════════════════════════
+let _uiPrefs = {};
+let _uiPrefsLoaded = false;     // true once we've fetched at least once
+let _uiPrefsFlushTimer = null;
+
+async function loadUiPrefs() {
+  // Best-effort. If the server is on an older version that doesn't have
+  // /api/ui-prefs yet, the api() helper returns null and we proceed with
+  // empty prefs — the page still works, just without persistence.
+  try {
+    const data = await api('GET', '/ui-prefs');
+    _uiPrefs = (data && typeof data === 'object') ? data : {};
+  } catch (e) {
+    _uiPrefs = {};
+  }
+  _uiPrefsLoaded = true;
+}
+
+function _scheduleFlushUiPrefs() {
+  // Debounce — typing into a filter box generates an event per keystroke.
+  // 600ms after the last change feels right: long enough that we don't
+  // spam the server, short enough that closing the tab in a hurry still
+  // saves.
+  if (_uiPrefsFlushTimer) clearTimeout(_uiPrefsFlushTimer);
+  _uiPrefsFlushTimer = setTimeout(flushUiPrefs, 600);
+}
+
+async function flushUiPrefs() {
+  if (!_uiPrefsLoaded) return;     // don't overwrite server state with empty
+  _uiPrefsFlushTimer = null;
+  try {
+    await api('POST', '/ui-prefs', _uiPrefs);
+  } catch (e) {
+    // Non-fatal — prefs persistence is cosmetic. The current session still
+    // works from the in-memory _uiPrefs object.
+  }
+}
+
+function getTablePrefs(tableName) {
+  if (!_uiPrefs[tableName] || typeof _uiPrefs[tableName] !== 'object') {
+    _uiPrefs[tableName] = {};
+  }
+  return _uiPrefs[tableName];
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v1.11.5: tableCtl — a small wrapper that gives any tbody filter + sort
+// behaviour without each page rewriting the same boilerplate.
+//
+// Pages register their table by calling tableCtl.register(opts). On each
+// data refresh they call tableCtl.render(tableName, rows). The ctl handles
+// applying the persistent filter string, applying the multi-column sort,
+// rendering the rows via the page-supplied row-builder, and rendering an
+// empty-state message when the filter eliminates everything.
+//
+// Usage from a page:
+//   tableCtl.register({
+//     name: 'cves_overview',                   // unique key, becomes prefs key
+//     tbody: 'cve-tbody',                      // <tbody id="...">
+//     filterInput: 'cve-filter-input',         // <input id="..."> (optional)
+//     sortHeaders: 'cve-thead',                // <thead id="..."> with data-col attrs
+//     columns: ['name', 'group', 'critical'],  // sortable column ids
+//     // Required: build a row from one record. Receives normalised columns
+//     // map (see `getColumns` below). Returns innerHTML for the <tr>.
+//     row: (rec) => `<tr><td>${escHtml(rec.name)}</td>…</tr>`,
+//     // How to extract sortable values for each column. Defaults to
+//     // rec[col]; override for derived columns ('total_cves' -> sum of
+//     // critical+high+medium+low, etc.).
+//     getColumns: (rec) => ({...}),  // optional
+//     // How to filter — receives the lowercased filter string and a
+//     // record. Default checks all primitive fields stringified.
+//     match: (rec, q) => boolean,    // optional
+//     emptyMsg: 'No CVE findings found.',
+//     emptyMsgFiltered: 'No findings match the filter.',
+//   });
+//
+// Reasoning for the structure:
+// - Server-roundtrip on every keystroke would be silly when filtering 50
+//   rows. Filter+sort is fully client-side; only the prefs are server-side.
+// - Sort state lives in prefs (multi-column, persistent). Click a header
+//   and it's the only sort; shift+click to add as secondary; click an
+//   already-sorted column to flip its direction; click while it's
+//   descending to remove it from the sort list.
+// - Filter is a single substring match. Power users can use the dropdown
+//   filters that already exist on some pages (status, group, severity).
+// ══════════════════════════════════════════════════════════════════════════════
+const tableCtl = (() => {
+  const _registry = {};
+
+  function register(opts) {
+    _registry[opts.name] = opts;
+    // Wire the filter input if present — restore stored value, attach
+    // listener that re-renders + persists.
+    if (opts.filterInput) {
+      const el = document.getElementById(opts.filterInput);
+      if (el) {
+        const stored = (getTablePrefs(opts.name).filter) || '';
+        if (stored && !el.value) el.value = stored;
+        el.addEventListener('input', () => {
+          getTablePrefs(opts.name).filter = el.value;
+          _scheduleFlushUiPrefs();
+          // v1.11.6: pages that compose multiple filters (e.g. audit
+          // log's action dropdown + free-text) supply their own
+          // re-render via opts.refresh. Without it, fall back to
+          // re-rendering the last-known rows.
+          if (opts.refresh) {
+            opts.refresh();
+          } else if (opts._lastRows) {
+            render(opts.name, opts._lastRows);
+          }
+        });
+      }
+    }
+    // Wire sort headers if present.
+    if (opts.sortHeaders) {
+      _wireHeaders(opts);
+    }
+  }
+
+  function _wireHeaders(opts) {
+    const thead = document.getElementById(opts.sortHeaders);
+    if (!thead) return;
+    thead.querySelectorAll('th[data-col]').forEach(th => {
+      th.style.cursor = 'pointer';
+      th.style.userSelect = 'none';
+      th.addEventListener('click', (ev) => {
+        const col = th.getAttribute('data-col');
+        const prefs = getTablePrefs(opts.name);
+        if (!Array.isArray(prefs.sort)) prefs.sort = [];
+        const existing = prefs.sort.find(s => s.col === col);
+        if (ev.shiftKey) {
+          // Multi-column: append, or flip if it's already in the list
+          if (existing) {
+            existing.dir = existing.dir === 'asc' ? 'desc' : 'asc';
+          } else {
+            prefs.sort.push({col, dir: 'asc'});
+          }
+        } else {
+          // Single-column: replace the whole list with this one,
+          // unless we're already sorting only by this and need to
+          // either flip or clear.
+          if (prefs.sort.length === 1 && prefs.sort[0].col === col) {
+            if (prefs.sort[0].dir === 'asc') {
+              prefs.sort[0].dir = 'desc';
+            } else {
+              // third click on the same column — clear sort
+              prefs.sort = [];
+            }
+          } else {
+            prefs.sort = [{col, dir: 'asc'}];
+          }
+        }
+        _renderSortIndicators(opts);
+        _scheduleFlushUiPrefs();
+        // v1.11.6: same pattern as the filter handler — page can
+        // compose multiple filters and supply a refresh function.
+        if (opts.refresh) {
+          opts.refresh();
+        } else if (opts._lastRows) {
+          render(opts.name, opts._lastRows);
+        }
+      });
+    });
+    _renderSortIndicators(opts);
+  }
+
+  function _renderSortIndicators(opts) {
+    const thead = document.getElementById(opts.sortHeaders);
+    if (!thead) return;
+    const sort = getTablePrefs(opts.name).sort || [];
+    thead.querySelectorAll('th[data-col]').forEach(th => {
+      const col = th.getAttribute('data-col');
+      const idx = sort.findIndex(s => s.col === col);
+      // Strip any old indicator
+      const baseLabel = th.getAttribute('data-label') || th.textContent.replace(/[▲▼²³⁴⁵\s]+$/g,'').trim();
+      th.setAttribute('data-label', baseLabel);
+      if (idx === -1) {
+        th.innerHTML = baseLabel + ' <span style="color:var(--muted);opacity:.3;font-size:10px">↕</span>';
+      } else {
+        const arrow = sort[idx].dir === 'asc' ? '▲' : '▼';
+        // Multi-column: show the priority order as a small superscript
+        const prio = sort.length > 1 ? `<sup style="font-size:9px;opacity:.7">${idx+1}</sup>` : '';
+        th.innerHTML = baseLabel + ` <span style="color:var(--accent);font-size:10px">${arrow}${prio}</span>`;
+      }
+    });
+  }
+
+  // Default substring match: lowercase the filter, lowercase every primitive
+  // value on the record, check inclusion. Good enough for almost every use
+  // case; pages that need smarter matching (e.g. ranges) supply their own.
+  function _defaultMatch(rec, q) {
+    if (!q) return true;
+    for (const k in rec) {
+      const v = rec[k];
+      if (v == null) continue;
+      const t = typeof v;
+      if (t === 'string' || t === 'number' || t === 'boolean') {
+        if (String(v).toLowerCase().includes(q)) return true;
+      } else if (Array.isArray(v)) {
+        for (const x of v) {
+          if (x != null && String(x).toLowerCase().includes(q)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function _applySort(rows, sortKeys, getColumns) {
+    if (!sortKeys || !sortKeys.length) return rows;
+    const sorted = rows.slice();
+    sorted.sort((a, b) => {
+      const colsA = getColumns ? getColumns(a) : a;
+      const colsB = getColumns ? getColumns(b) : b;
+      for (const {col, dir} of sortKeys) {
+        let va = colsA[col];
+        let vb = colsB[col];
+        // Empty/null sorts to the end regardless of direction
+        const aEmpty = (va == null || va === '');
+        const bEmpty = (vb == null || vb === '');
+        if (aEmpty && bEmpty) continue;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        // Numeric vs string compare
+        if (typeof va === 'number' && typeof vb === 'number') {
+          if (va !== vb) return dir === 'asc' ? va - vb : vb - va;
+        } else {
+          const sa = String(va).toLowerCase();
+          const sb = String(vb).toLowerCase();
+          if (sa < sb) return dir === 'asc' ? -1 : 1;
+          if (sa > sb) return dir === 'asc' ? 1 : -1;
+        }
+      }
+      return 0;
+    });
+    return sorted;
+  }
+
+  function render(name, rows) {
+    const opts = _registry[name];
+    if (!opts) return;
+    opts._lastRows = rows;          // cached for re-render on filter change
+    const prefs = getTablePrefs(name);
+    const tbody = document.getElementById(opts.tbody);
+    if (!tbody) return;
+
+    const filter = (prefs.filter || '').toLowerCase().trim();
+    const matchFn = opts.match || _defaultMatch;
+    let filtered = filter ? rows.filter(r => matchFn(r, filter)) : rows;
+
+    filtered = _applySort(filtered, prefs.sort || [], opts.getColumns);
+
+    if (!filtered.length) {
+      const colspan = opts.colspan || 9;
+      const msg = filter
+        ? (opts.emptyMsgFiltered || `No matches for "${escHtml(filter)}".`)
+        : (opts.emptyMsg || 'No data.');
+      tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:var(--muted);padding:40px">${msg}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtered.map(opts.row).join('');
+  }
+
+  function getStoredFilter(name) {
+    return (getTablePrefs(name).filter) || '';
+  }
+
+  return { register, render, getStoredFilter };
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
+// Currently only used on the front Devices index. Future-proofed so any
+// page can opt in by setting a different `name`.
+// ══════════════════════════════════════════════════════════════════════════════
+const densityCtl = (() => {
+  function getDensity(name) {
+    return getTablePrefs(name).density || 'comfortable';
+  }
+  function setDensity(name, value, onChange) {
+    // v1.11.6: 'minimal' added as a 4th mode for the Devices grid (one
+    // device per row). Server-side UI_DENSITY_VALUES is also extended.
+    if (!['minimal','compact','comfortable','spacious'].includes(value)) return;
+    getTablePrefs(name).density = value;
+    _scheduleFlushUiPrefs();
+    if (onChange) onChange(value);
+  }
+  // Render a 4-button segmented control. Returns an HTML string the caller
+  // can drop into a toolbar.
+  function renderControl(name, onChange) {
+    const cur = getDensity(name);
+    const btn = (val, label, title) => {
+      const sel = cur === val;
+      return `<button onclick="densityCtl.set('${escHtml(name)}','${val}', window.__densityCb_${escHtml(name)})" title="${escHtml(title)}" style="padding:6px 10px;font-size:11px;font-weight:500;background:${sel ? 'var(--accent)' : 'var(--surface)'};color:${sel ? '#fff' : 'var(--muted)'};border:1px solid var(--border);cursor:pointer">${escHtml(label)}</button>`;
+    };
+    // Stash the callback under a deterministic global so the inline onclick
+    // can find it. Slightly hacky, but avoids needing a UUID per control.
+    window['__densityCb_' + name] = onChange;
+    return `<div style="display:inline-flex;border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+      ${btn('minimal', '☰', 'Minimal — one device per line')}
+      ${btn('compact', '▤', 'Compact — denser cards')}
+      ${btn('comfortable', '⊞', 'Comfortable — default')}
+      ${btn('spacious', '⊟', 'Spacious — larger, roomier')}
+    </div>`;
+  }
+  return { get: getDensity, set: setDensity, renderControl };
+})();
+
+// ══════════════════════════════════════════════════════════════════════════════
 // v1.10.0: OS icons
 // ══════════════════════════════════════════════════════════════════════════════
 // Two icons total: Linux (Tux) and Windows. Anything that doesn't match
@@ -2616,6 +3094,15 @@ async function doLogin() {
   }
 }
 function doLogout() {
+  // v1.11.5: synchronously flush any pending prefs save before we toss the
+  // token. The fetch is fire-and-forget — we don't await it because logout
+  // should be snappy even on slow networks. If it fails the user keeps the
+  // unsaved prefs in their browser session if they log back in within a
+  // session lifetime (server still has the previous saved version).
+  if (_uiPrefsLoaded) {
+    try { flushUiPrefs(); } catch(e) {}
+  }
+  _uiPrefs = {}; _uiPrefsLoaded = false;
   // v1.8.5: clear both stores
   sessionStorage.removeItem('rp_token'); sessionStorage.removeItem('rp_me');
   localStorage.removeItem('rp_token');   localStorage.removeItem('rp_me');
@@ -2630,9 +3117,14 @@ function getToken() {
 function getMe() {
   return localStorage.getItem('rp_me') || sessionStorage.getItem('rp_me') || '';
 }
-function showApp() {
+async function showApp() {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  // v1.11.5: load per-user UI prefs before any table renders so the
+  // first paint already reflects density / filters / sort. Best-effort —
+  // a server that doesn't support /api/ui-prefs (older release) just
+  // returns null and we proceed with empty prefs.
+  await loadUiPrefs();
   loadDevices();
   startRefreshCycle();
   checkServerVersion();
@@ -2714,6 +3206,29 @@ async function loadDevices() {
 }
 function renderDevices() {
   const container = document.getElementById('devices-container');
+  // v1.11.5: apply density class so card padding/font-size match the
+  // user's stored preference. The renderControl() call returns innerHTML
+  // for the segmented control; the callback re-applies the class and
+  // re-renders so the change is instant.
+  const dens = densityCtl.get('devices');
+  // v1.11.6: 'dens-minimal' added (one device per line). Strip all
+  // four before adding the current one to avoid stale-state issues
+  // when toggling between modes rapidly.
+  container.classList.remove('dens-minimal', 'dens-compact', 'dens-comfortable', 'dens-spacious');
+  container.classList.add('dens-' + dens);
+  const densHolder = document.getElementById('devices-density-toggle');
+  if (densHolder) {
+    densHolder.innerHTML = densityCtl.renderControl('devices', () => renderDevices());
+  }
+  // v1.11.5: restore stored search term on first render. After that the
+  // input is the source of truth and we sync back into prefs whenever
+  // it changes (via filterDevices()).
+  const searchEl = document.getElementById('device-search-input');
+  if (searchEl && _uiPrefsLoaded && !searchEl.dataset.prefsRestored) {
+    const stored = (getTablePrefs('devices').filter) || '';
+    if (stored && !searchEl.value) searchEl.value = stored;
+    searchEl.dataset.prefsRestored = '1';
+  }
   const online = devices.filter(d => d.online).length;
   checkDeviceNotifications(devices);
   const allGroups = [...new Set(devices.map(d => d.group).filter(g => g))].sort();
@@ -2811,12 +3326,85 @@ async function generateNewPin() { document.getElementById('pin-code').textConten
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
 function updatePinDisplay() { const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0'); const s = (pinSeconds % 60).toString().padStart(2, '0'); document.getElementById('pin-countdown').textContent = `${m}:${s}`; }
 let monitorTargets = [];
-async function runMonitor() { const tbody = document.getElementById('monitor-tbody'); tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Checking…</td></tr>'; const data = await api('GET', '/monitor'); if (!data) return; const results = data.monitors || []; if (!results.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured. </td></tr>'; return; } monitorTargets = results; tbody.innerHTML = results.map((m, i) => `<tr><td style="font-weight:500">${escHtml(m.label)}</td><td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td><td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td><td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escHtml(m.label)}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`).join(''); }
+// v1.11.5: monitor table gets filter+sort via tableCtl. Same pattern as
+// the other tables — register on first call, then push rows in.
+let _monitorRegistered = false;
+function _registerMonitorTable() {
+  if (_monitorRegistered) return;
+  _monitorRegistered = true;
+  tableCtl.register({
+    name: 'monitor',
+    tbody: 'monitor-tbody',
+    filterInput: 'monitor-filter',
+    sortHeaders: 'monitor-thead',
+    colspan: 7,
+    columns: ['label', 'type', 'target', 'status', 'detail', 'checked'],
+    getColumns: (m) => ({
+      label:   m.label || '',
+      type:    m.type || '',
+      target:  m.target || '',
+      // Sort 'up' before 'down' alphabetically by accident — fine; users
+      // who want all-down at the top can click descending.
+      status:  m.ok ? 'up' : 'down',
+      detail:  m.detail || '',
+      checked: m.checked || 0,
+    }),
+    row: (m) => {
+      const i = (window.monitorTargets || []).indexOf(m);
+      return `<tr><td style="font-weight:500">${escHtml(m.label)}</td><td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td><td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td><td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escHtml(m.label)}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
+    },
+    emptyMsg: 'No monitors configured.',
+    emptyMsgFiltered: 'No monitors match the filter.',
+  });
+}
+async function runMonitor() {
+  _registerMonitorTable();
+  const tbody = document.getElementById('monitor-tbody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Checking…</td></tr>';
+  const data = await api('GET', '/monitor');
+  if (!data) return;
+  const results = data.monitors || [];
+  monitorTargets = results;
+  // Set on window so the row builder can find indexes for the remove
+  // button (its onclick uses the array index, not an id).
+  window.monitorTargets = results;
+  tableCtl.render('monitor', results);
+}
 function openMonitorAdd() { document.getElementById('mon-label').value = ''; document.getElementById('mon-type').value = 'ping'; document.getElementById('mon-target').value = ''; openModal('monitor-add-modal'); }
 async function addMonitor() { const label = document.getElementById('mon-label').value.trim(); const type = document.getElementById('mon-type').value; const target = document.getElementById('mon-target').value.trim(); if (!target) { toast('Target is required', 'error'); return; } const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = [...(cfg.monitors || []), {label: label || target, type, target}]; const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Monitor added', 'success'); closeModal('monitor-add-modal'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin:2px;background:${h.ok ? 'var(--green)' : 'var(--red)'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value" style="color:${lastCheck.ok?'var(--green)':'var(--red)'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Last ${recent.length} checks (newest right)</div><div style="padding:8px 0">${dots}</div><div class="table-card" style="margin-top:16px;max-height:240px;overflow-y:auto"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td style="font-size:12px;color:var(--muted)">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
-async function loadUsers() { const data = await api('GET', '/users'); if (!data) return; const tbody = document.getElementById('users-tbody'); if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:40px">No users. </td></tr>'; return; } const me = getMe(); tbody.innerHTML = data.map(u => `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button></div></td></tr>`).join(''); }
+// v1.11.6: users page gets filter+sort
+let _usersRegistered = false;
+function _registerUsersTable() {
+  if (_usersRegistered) return;
+  _usersRegistered = true;
+  tableCtl.register({
+    name: 'users',
+    tbody: 'users-tbody',
+    filterInput: 'users-filter',
+    sortHeaders: 'users-thead',
+    colspan: 4,
+    columns: ['username', 'created', 'role'],
+    getColumns: (u) => ({
+      username: u.username || '',
+      created:  u.created || 0,
+      role:     u.role || 'admin',
+    }),
+    row: (u) => {
+      const me = getMe();
+      return `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button></div></td></tr>`;
+    },
+    emptyMsg: 'No users.',
+    emptyMsgFiltered: 'No users match the filter.',
+  });
+}
+async function loadUsers() {
+  _registerUsersTable();
+  const data = await api('GET', '/users');
+  if (!data) return;
+  tableCtl.render('users', data);
+}
 function openUserAdd() { document.getElementById('new-username').value = ''; document.getElementById('new-password').value = ''; openModal('user-add-modal'); }
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
@@ -3123,7 +3711,65 @@ function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts))
 let toastId = 0;
 function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: '✓', error: '✕', info: 'ℹ'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
 function setTagFilter(tag) { activeTagFilter = tag; renderDevices(); }
-async function loadSchedule() { const tbody = document.getElementById('schedule-tbody'); const data = await api('GET', '/schedule'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr>'; return; } tbody.innerHTML = data.map(j => `<tr><td style="font-weight:500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td style="font-family:monospace;font-size:12px">${j.recurring ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td></tr>`).join(''); }
+// v1.11.5: schedule and history get filter+sort via tableCtl. Minimal
+// refactor — register once on first load, then push rows in.
+let _scheduleRegistered = false;
+function _registerScheduleTable() {
+  if (_scheduleRegistered) return;
+  _scheduleRegistered = true;
+  tableCtl.register({
+    name: 'schedule',
+    tbody: 'schedule-tbody',
+    filterInput: 'schedule-filter',
+    sortHeaders: 'schedule-thead',
+    colspan: 5,
+    columns: ['device_name', 'command', 'run_at', 'actor'],
+    getColumns: (j) => ({
+      device_name: j.device_name || '',
+      command:     j.command || '',
+      run_at:      j.run_at || 0,
+      actor:       j.actor || '',
+    }),
+    row: (j) => `<tr><td style="font-weight:500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td style="font-family:monospace;font-size:12px">${j.recurring ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td></tr>`,
+    emptyMsg: 'No scheduled jobs.',
+    emptyMsgFiltered: 'No jobs match the filter.',
+  });
+}
+async function loadSchedule() {
+  _registerScheduleTable();
+  const data = await api('GET', '/schedule');
+  tableCtl.render('schedule', data || []);
+}
+
+let _historyRegistered = false;
+function _registerHistoryTable() {
+  if (_historyRegistered) return;
+  _historyRegistered = true;
+  tableCtl.register({
+    name: 'history',
+    tbody: 'history-tbody',
+    filterInput: 'history-filter',
+    sortHeaders: 'history-thead',
+    colspan: 4,
+    columns: ['ts', 'actor', 'device_name', 'command'],
+    getColumns: (e) => ({
+      ts:          e.ts || 0,
+      actor:       e.actor || '',
+      device_name: e.device_name || '',
+      command:     e.command || '',
+    }),
+    row: (e) => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td style="font-family:monospace;font-size:12px">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`,
+    emptyMsg: 'No commands logged yet.',
+    emptyMsgFiltered: 'No commands match the filter.',
+  });
+}
+async function loadHistory() {
+  _registerHistoryTable();
+  const tbody = document.getElementById('history-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  const data = await api('GET', '/history');
+  tableCtl.render('history', data || []);
+}
 async function addScheduleJob() { const dev_id = document.getElementById('sched-device').value; const command = document.getElementById('sched-command').value; const dt = document.getElementById('sched-datetime').value; const cron = document.getElementById('sched-cron').value.trim(); if (!dt && !cron) { toast('Provide a date/time or cron expression', 'error'); return; } const payload = {device_id: dev_id, command}; if (cron) payload.cron = cron; else payload.run_at = Math.floor(new Date(dt).getTime() / 1000); const data = await api('POST', '/schedule', payload); if (data?.ok) { toast(cron ? `Recurring ${command} scheduled (${cron})` : `${command} scheduled`, 'success'); closeModal('schedule-add-modal'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteJob(id) { const data = await api('DELETE', '/schedule/' + id); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
 function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
@@ -3134,7 +3780,7 @@ async function loadAbout() { try { const v = await api('GET', '/version'); if (v
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
-async function loadHistory() { const tbody = document.getElementById('history-tbody'); tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/history'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No commands logged yet. </td></tr>'; return; } tbody.innerHTML = data.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td style="font-family:monospace;font-size:12px">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`).join(''); }
+
 async function clearHistory() { if (!confirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();
 function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
@@ -3151,11 +3797,66 @@ async function openAllowlistModal(id) { document.getElementById('allowlist-devic
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
 async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span style="color:var(--muted);font-size:12px">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" style="vertical-align:middle">${bars}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row" style="margin-bottom:20px"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value" style="font-size:11px">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div style="display:grid;gap:16px"><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">CPU</div>${spark('cpu','var(--accent)')}</div><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Memory</div>${spark('mem','var(--green)')}</div><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Disk</div>${spark('disk','var(--amber)')}</div></div><p style="font-size:12px;color:var(--muted);margin-top:12px">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
-async function loadApiKeys() { const tbody = document.getElementById('apikeys-tbody'); const data = await api('GET', '/apikeys'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No API keys. Create one for scripting access. </td></tr>'; return; } tbody.innerHTML = data.map(k => `<tr><td style="font-weight:600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td><td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button></td></tr>`).join(''); }
+// v1.11.6: API keys page gets filter+sort
+let _apikeysRegistered = false;
+function _registerApiKeysTable() {
+  if (_apikeysRegistered) return;
+  _apikeysRegistered = true;
+  tableCtl.register({
+    name: 'apikeys',
+    tbody: 'apikeys-tbody',
+    filterInput: 'apikeys-filter',
+    sortHeaders: 'apikeys-thead',
+    colspan: 5,
+    columns: ['name', 'role', 'user', 'created'],
+    getColumns: (k) => ({
+      name:    k.name || '',
+      role:    k.role || '',
+      user:    k.user || '',
+      created: k.created || 0,
+    }),
+    row: (k) => `<tr><td style="font-weight:600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td><td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button></td></tr>`,
+    emptyMsg: 'No API keys. Create one for scripting access.',
+    emptyMsgFiltered: 'No keys match the filter.',
+  });
+}
+async function loadApiKeys() {
+  _registerApiKeysTable();
+  const data = await api('GET', '/apikeys');
+  if (!data) return;
+  tableCtl.render('apikeys', data);
+}
 function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
 async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const data = await api('POST', '/apikeys', {name, role}); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!confirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
-async function loadCmdLib() { const tbody = document.getElementById('cmdlib-tbody'); const data = await api('GET', '/cmd-library'); if (!data || !data.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet. </td></tr>'; return; } tbody.innerHTML = data.map(s => `<tr><td style="font-weight:600">${escHtml(s.name)}</td><td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td><td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escHtml(s.cmd)}')">Use</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escHtml(s.id)}')">✕</button></tr>`).join(''); }
+// v1.11.6: command library gets filter+sort
+let _cmdlibRegistered = false;
+function _registerCmdLibTable() {
+  if (_cmdlibRegistered) return;
+  _cmdlibRegistered = true;
+  tableCtl.register({
+    name: 'cmdlib',
+    tbody: 'cmdlib-tbody',
+    filterInput: 'cmdlib-filter',
+    sortHeaders: 'cmdlib-thead',
+    colspan: 4,
+    columns: ['name', 'cmd', 'description'],
+    getColumns: (s) => ({
+      name:        s.name || '',
+      cmd:         s.cmd || '',
+      description: s.description || '',
+    }),
+    row: (s) => `<tr><td style="font-weight:600">${escHtml(s.name)}</td><td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td><td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escHtml(s.cmd)}')">Use</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escHtml(s.id)}')">✕</button></tr>`,
+    emptyMsg: 'No snippets yet.',
+    emptyMsgFiltered: 'No snippets match the filter.',
+  });
+}
+async function loadCmdLib() {
+  _registerCmdLibTable();
+  const data = await api('GET', '/cmd-library');
+  if (!data) return;
+  tableCtl.render('cmdlib', data);
+}
 function openCmdLibAdd() { document.getElementById('cmdlib-name').value = ''; document.getElementById('cmdlib-cmd').value = ''; document.getElementById('cmdlib-desc').value = ''; openModal('cmdlib-add-modal'); }
 async function addCmdSnippet() { const name = document.getElementById('cmdlib-name').value.trim(); const cmd = document.getElementById('cmdlib-cmd').value.trim(); const desc = document.getElementById('cmdlib-desc').value.trim(); if (!name || !cmd) { toast('Name and command required', 'error'); return; } const data = await api('POST', '/cmd-library', {name, cmd, description: desc}); if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
@@ -3166,17 +3867,123 @@ async function loadTotpStatus() { const data = await api('GET', '/totp/status');
 async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px"><div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap"><div id="${qrContainerId}" style="background:#fff;padding:8px;border-radius:8px;flex-shrink:0;min-width:168px;min-height:168px;display:flex;align-items:center;justify-content:center"><span style="color:#999;font-size:12px">Generating…</span></div><div style="flex:1;min-width:200px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Scan with your authenticator app</div><div style="font-size:12px;color:var(--muted);margin-bottom:12px">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Or enter manually:</div><div style="font-family:monospace;font-size:14px;letter-spacing:2px;color:var(--accent);word-break:break-all;background:var(--surface2);padding:10px;border-radius:6px;cursor:pointer" onclick="navigator.clipboard?.writeText('${data.secret}');toast('Secret copied','success')" title="Click to copy">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input" placeholder="123456" maxlength="6" inputmode="numeric" style="max-width:200px;text-align:center;font-size:18px;letter-spacing:4px"></div><button class="btn-primary" onclick="confirmTotp()" style="max-width:200px">Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); loadTotpStatus(); } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = prompt('Enter your password to disable 2FA:'); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
-function filterDevices() { renderDevices(); }
+function filterDevices() {
+  // v1.11.5: persist filter input across reloads. The actual filter logic
+  // still lives in renderDevices(); this just captures the current value
+  // and schedules a debounced server save.
+  const el = document.getElementById('device-search-input');
+  if (el && _uiPrefsLoaded) {
+    getTablePrefs('devices').filter = el.value || '';
+    _scheduleFlushUiPrefs();
+  }
+  renderDevices();
+}
 let patchReportData = null;
-async function loadPatchReport() { const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }
+// v1.11.6: register patches table for sort. The existing 3-control filter
+// system (text + group dropdown + device dropdown) keeps owning filter
+// logic — we pass `match: () => true` and rely on getFilteredPatchDevices()
+// to do the filtering before handing the rows to tableCtl.
+let _patchRegistered = false;
+function _registerPatchTable() {
+  if (_patchRegistered) return;
+  _patchRegistered = true;
+  tableCtl.register({
+    name: 'patches',
+    tbody: 'patch-tbody',
+    sortHeaders: 'patch-thead',
+    colspan: 9,
+    columns: ['name', 'group', 'os', 'status', 'pkg_manager', 'upgradable', 'patch_status'],
+    refresh: () => renderPatchTable(),
+    getColumns: (d) => ({
+      name:         d.name || '',
+      group:        d.group || '',
+      os:           d.os || '',
+      // Online > Offline alphabetically — clicking column flips dir.
+      status:       d.online ? 'online' : 'offline',
+      pkg_manager:  d.pkg_manager || '',
+      upgradable:   typeof d.upgradable === 'number' ? d.upgradable : -1,
+      patch_status: d.patch_status || '',
+    }),
+    match: () => true,  // patches has its own filter chain
+    row: (d) => {
+      const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
+      const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
+      const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
+      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escHtml(d.name)}')">Detail</button></tr>`;
+    },
+    emptyMsg: 'No devices match the current filter.',
+    emptyMsgFiltered: 'No devices match the current filter.',
+  });
+}
+
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }
-function renderPatchTable() { if (!patchReportData) return; const filtered = getFilteredPatchDevices(); let total = filtered.length, patched = 0, withPatches = 0, pending = 0; for (const d of filtered) { if (d.patch_status === 'fully_patched') patched++; else if (d.patch_status === 'patches_available') { withPatches++; pending += (d.upgradable || 0); } } const onlineWithData = patched + withPatches; const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0; document.getElementById('patch-total').textContent = total; document.getElementById('patch-patched').textContent = patched; document.getElementById('patch-pending').textContent = withPatches; document.getElementById('patch-count').textContent = pending; document.getElementById('patch-pct').textContent = pct + '%'; const tbody = document.getElementById('patch-tbody'); if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices match the current filter. </td></tr>'; return; } tbody.innerHTML = filtered.map(d => { const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : ''; const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data'); const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join(''); return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escHtml(d.name)}')">Detail</button></tr>`; }).join(''); }
+function renderPatchTable() {
+  if (!patchReportData) return;
+  const filtered = getFilteredPatchDevices();
+  let total = filtered.length, patched = 0, withPatches = 0, pending = 0;
+  for (const d of filtered) {
+    if (d.patch_status === 'fully_patched') patched++;
+    else if (d.patch_status === 'patches_available') { withPatches++; pending += (d.upgradable || 0); }
+  }
+  const onlineWithData = patched + withPatches;
+  const pct = onlineWithData > 0 ? Math.round((patched / onlineWithData) * 1000) / 10 : 0;
+  document.getElementById('patch-total').textContent = total;
+  document.getElementById('patch-patched').textContent = patched;
+  document.getElementById('patch-pending').textContent = withPatches;
+  document.getElementById('patch-count').textContent = pending;
+  document.getElementById('patch-pct').textContent = pct + '%';
+  // v1.11.6: tableCtl handles the empty state and applies sort — but it
+  // only renders if registered. Guard against edge case where renderPatchTable
+  // is called before _registerPatchTable() (shouldn't happen, but defensive).
+  _registerPatchTable();
+  tableCtl.render('patches', filtered);
+}
 function exportPatchFiltered(format) { const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; if (df !== 'all' && format !== 'csv' && format !== 'xml') { openDevicePatchReport(df, ''); return; } let url = `/api/patch-report/${format}`; const params = []; if (gf !== 'all') params.push(`group=${encodeURIComponent(gf)}`); if (df !== 'all') params.push(`device_id=${encodeURIComponent(df)}`); if (params.length) url += '?' + params.join('&'); fetch(url, {headers: {'X-Token': getToken()}}).then(r => { if (!r.ok) throw new Error('Export failed'); return r.blob(); }).then(blob => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; const suffix = gf !== 'all' ? `-${gf}` : df !== 'all' ? `-device` : ''; a.download = `patch-report${suffix}-${new Date().toISOString().slice(0,10)}.${format}`; a.click(); URL.revokeObjectURL(u); toast(`${format.toUpperCase()} downloaded`, 'success'); }).catch(() => toast('Export failed', 'error')); }
 async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Status</div><div class="value" style="color:${statusColor}">${statusLabel}</div></div><div class="sysinfo-pill"><div class="label">OS</div><div class="value" style="font-size:11px">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value" style="color:${data.online?'var(--green)':'var(--red)'}">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code><span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div style="color:var(--muted);font-size:13px;padding:12px">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
+let _cveRegistered = false;
+
+function _registerCveTable() {
+  if (_cveRegistered) return;
+  _cveRegistered = true;
+  tableCtl.register({
+    name: 'cves',
+    tbody: 'cve-tbody',
+    filterInput: 'cve-filter',
+    sortHeaders: 'cve-thead',
+    colspan: 9,
+    columns: ['name', 'group', 'ecosystem', 'critical', 'high', 'medium', 'low', 'last_scan'],
+    getColumns: (d) => ({
+      name:      d.name || '',
+      group:     d.group || '',
+      ecosystem: d.ecosystem || '',
+      critical:  d.counts?.critical || 0,
+      high:      d.counts?.high || 0,
+      medium:    d.counts?.medium || 0,
+      low:       d.counts?.low || 0,
+      last_scan: d.scanned_at || 0,
+    }),
+    row: (d) => {
+      const statusBadge = {
+        'scanned':     '<span style="color:var(--green)">●</span>',
+        'not_scanned': '<span style="color:var(--muted)">●</span> not scanned',
+        'no_packages': '<span style="color:var(--muted)">●</span> no package list',
+        'unsupported': '<span style="color:var(--amber)">●</span> unsupported',
+      }[d.status] || d.status;
+      const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
+      const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escHtml(d.device_id)}','${escHtml(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escHtml(d.device_id)}')">Scan</button></td></tr>`;
+    },
+    emptyMsg: 'No devices enrolled.',
+    emptyMsgFiltered: 'No CVE rows match the filter.',
+  });
+}
+
 async function loadCVEReport() {
+  _registerCveTable();
   const tbody = document.getElementById('cve-tbody');
   tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
   const data = await api('GET', '/cve/findings');
@@ -3187,18 +3994,7 @@ async function loadCVEReport() {
   document.getElementById('cve-stat-medium').textContent = data.summary.medium;
   document.getElementById('cve-stat-low').textContent = data.summary.low;
   document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
-  if (!data.devices.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices enrolled. </td></tr>'; return; }
-  tbody.innerHTML = data.devices.map(d => {
-    const statusBadge = {
-      'scanned':     '<span style="color:var(--green)">●</span>',
-      'not_scanned': '<span style="color:var(--muted)">●</span> not scanned',
-      'no_packages': '<span style="color:var(--muted)">●</span> no package list',
-      'unsupported': '<span style="color:var(--amber)">●</span> unsupported',
-    }[d.status] || d.status;
-    const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
-    const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-    return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escHtml(d.device_id)}','${escHtml(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escHtml(d.device_id)}')">Scan</button></td></tr>`;
-  }).join('');
+  tableCtl.render('cves', data.devices || []);
 }
 async function triggerCVEScan(devId) {
   const label = devId ? 'device' : 'all devices';
@@ -3244,8 +4040,66 @@ async function ignoreCVE(vulnId, devId, devName) {
 
 // ─── v1.8.0: Services ─────────────────────────────────────────────────────────
 let servicesCurrentDeviceId = null;
+let _servicesRegistered = false;
+
+function _registerServicesTable() {
+  // v1.11.5: tableCtl wires up filter, sort, and stale-state restoration.
+  // Called once on first load — re-registering rebinds the listeners
+  // unnecessarily and would double-fire change handlers.
+  if (_servicesRegistered) return;
+  _servicesRegistered = true;
+  tableCtl.register({
+    name: 'services',
+    tbody: 'services-tbody',
+    filterInput: 'services-filter',
+    sortHeaders: 'services-thead',
+    colspan: 7,
+    columns: ['name', 'group', 'watched', 'up', 'down', 'last_report'],
+    // Map record to sortable column values. 'watched' is total
+    // unit-count; 'last_report' is unix epoch (numeric, sorts cleanly).
+    getColumns: (d) => ({
+      name:        d.name || '',
+      group:       d.group || '',
+      watched:     d.total || 0,
+      up:          d.up || 0,
+      down:        d.down || 0,
+      last_report: d.updated_at || 0,
+    }),
+    match: (d, q) => {
+      // Substring across the visible textual data plus unit names so
+      // searching "nginx" finds devices whose nginx unit is being watched.
+      if ((d.name || '').toLowerCase().includes(q)) return true;
+      if ((d.group || '').toLowerCase().includes(q)) return true;
+      for (const s of (d.services || [])) {
+        if ((s.unit || '').toLowerCase().includes(q)) return true;
+      }
+      return false;
+    },
+    row: (d) => {
+      const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span style="color:var(--muted);font-size:11px">never</span>';
+      const unitList = (d.services || []).map(s => {
+        const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
+        return `<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;margin:1px;font-family:monospace"><span style="color:${color}">●</span> ${escHtml(s.unit)}</span>`;
+      }).join('');
+      const watchedCell = d.total > 0 ? unitList : '<span style="color:var(--muted);font-size:11px">(none configured)</span>';
+      const upCell   = d.up > 0 ? `<td style="text-align:center;color:var(--green);font-weight:600">${d.up}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+      const downCell = d.down > 0 ? `<td style="text-align:center;color:var(--red);font-weight:600">${d.down}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
+      return `<tr style="cursor:pointer" onclick="openServiceDetail('${escHtml(d.device_id)}','${escHtml(d.name)}')">
+        <td style="font-weight:500">${escHtml(d.name)}</td>
+        <td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
+        <td>${watchedCell}</td>
+        ${upCell}${downCell}
+        <td style="font-size:11px;color:var(--muted)">${reportText}</td>
+        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escHtml(d.device_id)}','${escHtml(d.name)}')">Configure</button></td>
+      </tr>`;
+    },
+    emptyMsg: 'No devices enrolled.',
+    emptyMsgFiltered: 'No services match the filter.',
+  });
+}
 
 async function loadServicesReport() {
+  _registerServicesTable();
   const tbody = document.getElementById('services-tbody');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
   const data = await api('GET', '/services');
@@ -3270,26 +4124,7 @@ async function loadServicesReport() {
   document.getElementById('services-stat-devices').textContent = devsReporting;
   document.getElementById('services-stat-total').textContent = totalUnits;
 
-  if (!data.devices.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No devices enrolled.</td></tr>'; return; }
-
-  tbody.innerHTML = data.devices.map(d => {
-    const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span style="color:var(--muted);font-size:11px">never</span>';
-    const unitList = (d.services || []).map(s => {
-      const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-      return `<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;margin:1px;font-family:monospace"><span style="color:${color}">●</span> ${escHtml(s.unit)}</span>`;
-    }).join('');
-    const watchedCell = d.total > 0 ? unitList : '<span style="color:var(--muted);font-size:11px">(none configured)</span>';
-    const upCell   = d.up > 0 ? `<td style="text-align:center;color:var(--green);font-weight:600">${d.up}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-    const downCell = d.down > 0 ? `<td style="text-align:center;color:var(--red);font-weight:600">${d.down}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-    return `<tr style="cursor:pointer" onclick="openServiceDetail('${escHtml(d.device_id)}','${escHtml(d.name)}')">
-      <td style="font-weight:500">${escHtml(d.name)}</td>
-      <td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
-      <td>${watchedCell}</td>
-      ${upCell}${downCell}
-      <td style="font-size:11px;color:var(--muted)">${reportText}</td>
-      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escHtml(d.device_id)}','${escHtml(d.name)}')">Configure</button></td>
-    </tr>`;
-  }).join('');
+  tableCtl.render('services', data.devices || []);
 }
 
 async function openServiceDetail(devId, devName) {
@@ -3353,30 +4188,60 @@ async function editServicesConfig(devId, devName) {
 
 // ─── v1.8.0: Maintenance ──────────────────────────────────────────────────────
 
+// v1.11.6: maintenance windows get filter+sort via tableCtl.
+let _maintRegistered = false;
+function _registerMaintTable() {
+  if (_maintRegistered) return;
+  _maintRegistered = true;
+  tableCtl.register({
+    name: 'maintenance',
+    tbody: 'maint-tbody',
+    filterInput: 'maint-filter',
+    sortHeaders: 'maint-thead',
+    colspan: 7,
+    columns: ['reason', 'scope', 'target', 'when', 'events', 'status'],
+    getColumns: (w) => ({
+      reason: w.reason || '',
+      scope:  w.scope || '',
+      target: w.target || '',
+      // 'when' as a sortable thing is messy — for cron we sort by the
+      // cron string; for fixed windows we sort by start. Good enough.
+      when:   w.cron || w.start || '',
+      events: (w.events || []).join(','),
+      // active first when ascending → sort 'active' before 'scheduled'
+      // alphabetically. Fine.
+      status: w.active ? 'active' : 'scheduled',
+    }),
+    row: (w) => {
+      const when = w.cron ? `<code style="font-size:11px">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
+                          : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
+      const events = (w.events && w.events.length) ? w.events.join(', ') : '<em style="color:var(--muted)">all</em>';
+      const status = w.active
+        ? '<span style="color:var(--amber);font-weight:600">🔧 ACTIVE</span>'
+        : '<span style="color:var(--muted)">scheduled</span>';
+      const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
+      return `<tr>
+        <td style="font-weight:500">${escHtml(w.reason || '(no reason)')}</td>
+        <td><span class="group-badge">${escHtml(w.scope)}</span></td>
+        <td style="font-size:12px;font-family:monospace;color:var(--muted)">${target}</td>
+        <td style="font-size:12px">${when}</td>
+        <td style="font-size:11px;color:var(--muted)">${events}</td>
+        <td style="text-align:center">${status}</td>
+        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escHtml(w.id)}')">Delete</button></td>
+      </tr>`;
+    },
+    emptyMsg: 'No maintenance windows defined.',
+    emptyMsgFiltered: 'No windows match the filter.',
+  });
+}
+
 async function loadMaintenance() {
+  _registerMaintTable();
   const tbody = document.getElementById('maint-tbody');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
   const data = await api('GET', '/maintenance');
   if (!data) return;
-  if (!data.windows.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No maintenance windows defined.</td></tr>'; return; }
-  tbody.innerHTML = data.windows.map(w => {
-    const when = w.cron ? `<code style="font-size:11px">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
-                        : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
-    const events = (w.events && w.events.length) ? w.events.join(', ') : '<em style="color:var(--muted)">all</em>';
-    const status = w.active
-      ? '<span style="color:var(--amber);font-weight:600">🔧 ACTIVE</span>'
-      : '<span style="color:var(--muted)">scheduled</span>';
-    const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
-    return `<tr>
-      <td style="font-weight:500">${escHtml(w.reason || '(no reason)')}</td>
-      <td><span class="group-badge">${escHtml(w.scope)}</span></td>
-      <td style="font-size:12px;font-family:monospace;color:var(--muted)">${target}</td>
-      <td style="font-size:12px">${when}</td>
-      <td style="font-size:11px;color:var(--muted)">${events}</td>
-      <td style="text-align:center">${status}</td>
-      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escHtml(w.id)}')">Delete</button></td>
-    </tr>`;
-  }).join('');
+  tableCtl.render('maintenance', data.windows || []);
 }
 
 async function loadMaintSuppressions() {
@@ -3839,7 +4704,44 @@ async function deleteGlobalLogRule(ruleId) {
 // the audit log is small enough that client-side is fine.
 let _auditLogCache = [];
 
+let _auditRegistered = false;
+
+function _registerAuditTable() {
+  if (_auditRegistered) return;
+  _auditRegistered = true;
+  // v1.11.5: tableCtl handles the text filter and column sort. The action
+  // dropdown filter stays separate (page-level filter, not generic) and
+  // still triggers a re-render via renderAuditLog().
+  tableCtl.register({
+    name: 'audit',
+    tbody: 'audit-tbody',
+    filterInput: 'audit-filter-text',
+    sortHeaders: 'audit-thead',
+    colspan: 5,
+    columns: ['ts', 'actor', 'action', 'detail', 'source_ip'],
+    // v1.11.6: page composes a free-text filter with a per-action
+    // dropdown — the dropdown isn't part of tableCtl's substring
+    // match, so we route both through renderAuditLog().
+    refresh: () => renderAuditLog(),
+    getColumns: (e) => ({
+      ts:        e.ts || 0,
+      actor:     e.actor || '',
+      action:    e.action || '',
+      detail:    e.detail || '',
+      source_ip: e.source_ip || '',
+    }),
+    match: (e, q) => {
+      const hay = `${e.actor || ''} ${e.action || ''} ${e.detail || ''}`.toLowerCase();
+      return hay.includes(q);
+    },
+    row: (e) => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`,
+    emptyMsg: 'No audit entries yet.',
+    emptyMsgFiltered: 'No entries match the current filter.',
+  });
+}
+
 async function loadAuditLog() {
+  _registerAuditTable();
   const tbody = document.getElementById('audit-tbody');
   tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
   const data = await api('GET', '/audit-log');
@@ -3858,26 +4760,14 @@ async function loadAuditLog() {
 }
 
 function renderAuditLog() {
-  const tbody = document.getElementById('audit-tbody');
-  if (!_auditLogCache.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No audit entries yet. </td></tr>';
-    return;
-  }
-  const txt    = (document.getElementById('audit-filter-text')?.value || '').trim().toLowerCase();
+  // The action-dropdown filter is page-specific (not part of tableCtl's
+  // generic substring filter). Apply it first, then hand the surviving
+  // rows to tableCtl, which applies the persisted text filter and sort.
   const action = document.getElementById('audit-filter-action')?.value || '';
-  const filtered = _auditLogCache.filter(e => {
-    if (action && e.action !== action) return false;
-    if (txt) {
-      const hay = `${e.actor || ''} ${e.action || ''} ${e.detail || ''}`.toLowerCase();
-      if (!hay.includes(txt)) return false;
-    }
-    return true;
-  });
-  if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No entries match the current filter.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = filtered.map(e => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`).join('');
+  const rows = action
+    ? _auditLogCache.filter(e => e.action === action)
+    : _auditLogCache;
+  tableCtl.render('audit', rows);
 }
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
@@ -4887,41 +5777,73 @@ async function loadContainersOverview() {
   renderContainersOverview();
 }
 
+// v1.11.5: containers overview now goes through tableCtl. The existing
+// containers-search input keeps working, but we also wire up sortable
+// headers (data-col attrs in the <thead>), and the filter is persisted
+// per-user. The old in-memory filter input keeps its existing behaviour
+// — we wire it as the tableCtl filterInput so persistence is automatic.
+let _containersOverviewRegistered = false;
+function _registerContainersOverviewTable() {
+  if (_containersOverviewRegistered) return;
+  _containersOverviewRegistered = true;
+  tableCtl.register({
+    name: 'containers',
+    tbody: 'containers-tbody',
+    filterInput: 'containers-search',
+    sortHeaders: 'containers-thead',
+    colspan: 9,
+    columns: ['name', 'os', 'total', 'running', 'stopped', 'restarting', 'runtimes', 'reported_at'],
+    getColumns: (r) => {
+      const s = r.summary || {};
+      return {
+        name:       r.name || '',
+        os:         r.os || '',
+        total:      s.total || 0,
+        running:    s.running || 0,
+        stopped:    s.stopped || 0,
+        restarting: s.restarting || 0,
+        // Concatenate runtime names so sorting groups same-runtime hosts
+        runtimes:   Object.keys(s.by_runtime || {}).sort().join(','),
+        reported_at: r.reported_at || 0,
+      };
+    },
+    match: (r, q) => {
+      if ((r.name || '').toLowerCase().includes(q)) return true;
+      if ((r.os || '').toLowerCase().includes(q)) return true;
+      return false;
+    },
+    row: (r) => {
+      const s = r.summary || {total: 0, running: 0, stopped: 0, restarting: 0, by_runtime: {}};
+      const runtimes = Object.entries(s.by_runtime || {})
+        .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
+        .join(', ') || '—';
+      const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
+      const staleBadge = r.is_stale
+        ? '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;font-size:10px;background:var(--amber);color:#000;font-weight:600">STALE</span>'
+        : '';
+      const restartingCell = s.restarting > 0
+        ? `<span style="color:var(--red)">${s.restarting}</span>`
+        : `<span style="color:var(--muted)">0</span>`;
+      return `<tr${r.is_stale ? ' style="opacity:.75"' : ''}>
+        <td style="font-weight:500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
+        <td style="font-size:12px;color:var(--muted)">${escHtml(r.os || '—')}</td>
+        <td style="font-weight:500">${s.total}</td>
+        <td style="color:var(--green)">${s.running}</td>
+        <td style="color:var(--muted)">${s.stopped}</td>
+        <td>${restartingCell}</td>
+        <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
+        <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
+        <td><button class="btn-icon" onclick="containersOpen('${escHtml(r.device_id)}','${escHtml(r.name)}')">View</button></td>
+      </tr>`;
+    },
+    emptyMsg: 'No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',
+    emptyMsgFiltered: 'No containers match the filter.',
+  });
+}
+
 function renderContainersOverview() {
-  const tbody = document.getElementById('containers-tbody');
-  const q = (document.getElementById('containers-search')?.value || '').trim().toLowerCase();
-  const rows = _containersOverview.filter(r => !q || r.name.toLowerCase().includes(q) || (r.os || '').toLowerCase().includes(q));
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = rows.map(r => {
-    const s = r.summary || {total: 0, running: 0, stopped: 0, restarting: 0, by_runtime: {}};
-    const runtimes = Object.entries(s.by_runtime || {})
-      .map(([rt, n]) => `${escHtml(rt)}: ${n}`)
-      .join(', ') || '—';
-    const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
-    // v1.11.4: stale-data indicator. The server flags rows whose reported_at
-    // is older than container_stale_ttl (default 15 min). Show an amber pill
-    // next to the timestamp so it's obvious without reading the date.
-    const staleBadge = r.is_stale
-      ? '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;font-size:10px;background:var(--amber);color:#000;font-weight:600">STALE</span>'
-      : '';
-    const restartingCell = s.restarting > 0
-      ? `<span style="color:var(--red)">${s.restarting}</span>`
-      : `<span style="color:var(--muted)">0</span>`;
-    return `<tr${r.is_stale ? ' style="opacity:.75"' : ''}>
-      <td style="font-weight:500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
-      <td style="font-size:12px;color:var(--muted)">${escHtml(r.os || '—')}</td>
-      <td style="font-weight:500">${s.total}</td>
-      <td style="color:var(--green)">${s.running}</td>
-      <td style="color:var(--muted)">${s.stopped}</td>
-      <td>${restartingCell}</td>
-      <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
-      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
-      <td><button class="btn-icon" onclick="containersOpen('${escHtml(r.device_id)}','${escHtml(r.name)}')">View</button></td>
-    </tr>`;
-  }).join('');
+  _registerContainersOverviewTable();
+  tableCtl.render('containers', _containersOverview || []);
 }
 
 async function containersOpen(deviceId, name) {
@@ -5363,13 +6285,74 @@ async function loadTLS() {
   renderTLS();
 }
 
+// v1.11.5: TLS table now goes through tableCtl
+let _tlsRegistered = false;
+function _registerTlsTable() {
+  if (_tlsRegistered) return;
+  _tlsRegistered = true;
+  tableCtl.register({
+    name: 'tls',
+    tbody: 'tls-tbody',
+    filterInput: 'tls-filter',
+    sortHeaders: 'tls-thead',
+    colspan: 8,
+    columns: ['status', 'host', 'port', 'days_left', 'expires_at', 'issuer', 'last_check'],
+    getColumns: (t) => ({
+      // Order matters here — sort 'critical' / 'warning' to top by mapping
+      // them to numeric ranks rather than relying on alphabetical order.
+      status:     ({critical: 0, error: 1, warning: 2, ok: 3}[t.status] ?? 9),
+      host:       t.host || '',
+      port:       t.port || 0,
+      days_left:  (typeof t.days_left === 'number') ? t.days_left : 99999,
+      expires_at: t.expires_at || 0,
+      issuer:     t.issuer || '',
+      last_check: t.last_check || 0,
+    }),
+    row: (t) => {
+      const statusBadge = (() => {
+        if (t.status === 'critical') return '<span style="color:var(--red);font-weight:600">● critical</span>';
+        if (t.status === 'warning')  return '<span style="color:var(--amber);font-weight:600">● warn</span>';
+        if (t.status === 'error')    return '<span style="color:var(--red)">● error</span>';
+        if (t.status === 'ok')       return '<span style="color:var(--green)">● ok</span>';
+        return '<span style="color:var(--muted)">— never scanned</span>';
+      })();
+      const daneBadge = (() => {
+        if (!t.dane_check) return '';
+        const s = t.dane_status || 'not_checked';
+        const colours = { ok: 'var(--green)', mismatch: 'var(--amber)', insecure: 'var(--red)', error: 'var(--red)', missing: 'var(--muted)', not_checked: 'var(--muted)' };
+        const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
+        return `<span style="color:${colours[s] || 'var(--muted)'};font-size:11px;margin-left:8px;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px">${labels[s] || s}</span>`;
+      })();
+      const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
+      const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
+      const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
+        ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
+      const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';
+      const labelHtml = t.label ? `<span style="color:var(--muted);font-size:11px;margin-left:6px">${escHtml(t.label)}</span>` : '';
+      const connectHtml = t.connect_address ? `<div style="color:var(--muted);font-size:11px;margin-top:2px">via ${escHtml(t.connect_address)}</div>` : '';
+      const starttlsHtml = (t.starttls && t.starttls !== 'none')
+        ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
+        : '';
+      return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escHtml(t.id)}')">
+        <td>${statusBadge}${daneBadge}</td>
+        <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
+        <td style="font-family:monospace;color:var(--muted)">${t.port}</td>
+        <td style="font-weight:500">${days}</td>
+        <td style="font-size:12px;color:var(--muted)">${expires}</td>
+        <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
+        <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
+        <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escHtml(t.id)}','${escHtml(t.host)}')">✕</button></td>
+      </tr>`;
+    },
+    emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
+    emptyMsgFiltered: 'No TLS targets match the filter.',
+  });
+}
+
 function renderTLS() {
-  const tbody = document.getElementById('tls-tbody');
-  if (!_tlsTargets.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">No TLS targets yet. Click "+ Add target" to start.</td></tr>';
-    document.getElementById('tls-status-summary').textContent = '';
-    return;
-  }
+  _registerTlsTable();
+  // Update summary first so it reflects total counts, not filtered counts —
+  // the summary lives outside the table and shows fleet-wide health.
   let crit = 0, warn = 0, err = 0, ok = 0;
   for (const t of _tlsTargets) {
     if (t.status === 'critical') crit++;
@@ -5377,47 +6360,13 @@ function renderTLS() {
     else if (t.status === 'error') err++;
     else if (t.status === 'ok') ok++;
   }
-  document.getElementById('tls-status-summary').textContent =
-    `${_tlsTargets.length} target(s): ${ok} OK · ${warn} warn · ${crit} critical · ${err} error`;
-
-  tbody.innerHTML = _tlsTargets.map(t => {
-    const statusBadge = (() => {
-      if (t.status === 'critical') return '<span style="color:var(--red);font-weight:600">● critical</span>';
-      if (t.status === 'warning')  return '<span style="color:var(--amber);font-weight:600">● warn</span>';
-      if (t.status === 'error')    return '<span style="color:var(--red)">● error</span>';
-      if (t.status === 'ok')       return '<span style="color:var(--green)">● ok</span>';
-      return '<span style="color:var(--muted)">— never scanned</span>';
-    })();
-    // v1.11.2: DANE indicator beside main status. Only render when the
-    // target opted in (dane_check = true) — otherwise it's noise.
-    const daneBadge = (() => {
-      if (!t.dane_check) return '';
-      const s = t.dane_status || 'not_checked';
-      const colours = { ok: 'var(--green)', mismatch: 'var(--amber)', insecure: 'var(--red)', error: 'var(--red)', missing: 'var(--muted)', not_checked: 'var(--muted)' };
-      const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
-      return `<span style="color:${colours[s] || 'var(--muted)'};font-size:11px;margin-left:8px;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px">${labels[s] || s}</span>`;
-    })();
-    const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
-    const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
-    const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
-      ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
-    const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';
-    const labelHtml = t.label ? `<span style="color:var(--muted);font-size:11px;margin-left:6px">${escHtml(t.label)}</span>` : '';
-    const connectHtml = t.connect_address ? `<div style="color:var(--muted);font-size:11px;margin-top:2px">via ${escHtml(t.connect_address)}</div>` : '';
-    const starttlsHtml = (t.starttls && t.starttls !== 'none')
-      ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
-      : '';
-    return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escHtml(t.id)}')">
-      <td>${statusBadge}${daneBadge}</td>
-      <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
-      <td style="font-family:monospace;color:var(--muted)">${t.port}</td>
-      <td style="font-weight:500">${days}</td>
-      <td style="font-size:12px;color:var(--muted)">${expires}</td>
-      <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
-      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
-      <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escHtml(t.id)}','${escHtml(t.host)}')">✕</button></td>
-    </tr>`;
-  }).join('');
+  if (_tlsTargets.length) {
+    document.getElementById('tls-status-summary').textContent =
+      `${_tlsTargets.length} target(s): ${ok} OK · ${warn} warn · ${crit} critical · ${err} error`;
+  } else {
+    document.getElementById('tls-status-summary').textContent = '';
+  }
+  tableCtl.render('tls', _tlsTargets);
 }
 
 function tlsAddOpen() {
@@ -5860,6 +6809,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   document.getElementById('login-user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-pass').focus(); });
+  // v1.11.5: best-effort flush on tab close. Browsers limit what fetch()
+  // can do in 'beforeunload', but a fire-and-forget request often makes
+  // it out before the page is gone. The 600ms debounce already covers
+  // every other case; this is just for "user closed the tab mid-typing".
+  window.addEventListener('beforeunload', () => {
+    if (_uiPrefsFlushTimer && _uiPrefsLoaded) {
+      try { flushUiPrefs(); } catch(e) {}
+    }
+  });
   checkAuth();
 });
 </script>

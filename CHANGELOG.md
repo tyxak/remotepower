@@ -1,5 +1,106 @@
 # Changelog
 
+## v1.11.6 - 2026-05-03
+
+### Bug fixes
+
+**Audit log filter input had a duplicate event listener.** The `<input id="audit-filter-text">` had an inline `oninput="renderAuditLog()"` that fought with the listener `tableCtl.register()` had already attached. The race meant: on every keystroke, the inline handler re-rendered against the *previous* filter value (the one already in `_uiPrefs`), then tableCtl's listener captured the *new* value into prefs but the render had already happened. End result was a one-character lag, and after Clear-then-type-into-filter the data looked like nothing changed.
+
+Fixed by removing the inline handler and adding a `refresh:` callback to `tableCtl.register({...})`. Pages that compose multiple filters (audit log's free-text + action dropdown is the only case today) supply their own re-render function; tableCtl calls it instead of the default `render(name, _lastRows)`. The same hook flows through sort changes, so multi-filter tables behave consistently for both filtering and sorting.
+
+If you saw "clear history is broken" on the audit page or command history page in v1.11.5, this is the fix. The Clear button itself was always working — the visible symptom was that filter state from before the clear stayed sticky, so the table looked unchanged.
+
+### New features
+
+**Patch report got sortable column headers.** Click any column header to sort ascending; click again for descending; click a third time to clear. Patches kept its existing 3-control filter chain (text + group dropdown + device dropdown) — that filter system is bespoke and complex enough that wiring it through tableCtl's substring matcher would lose features. We added the sort wiring on top via tableCtl's `match: () => true` mode and a `refresh: () => renderPatchTable()` callback so the page composes both pipelines cleanly.
+
+**Maintenance windows page got filter + sort.** New `<input id="maint-filter">` above the table (substring match across reason, scope, target, when, events, status). Headers wired up sortable via tableCtl. Same UX as the other tables.
+
+**Filter + sort added to the admin tables: Users, API Keys, Command Library.** All three were inline one-liner functions in v1.11.5; refactored into the now-standard register-helper pattern. Each has a per-column `getColumns` that exposes sortable values (created timestamps, role strings, names) so headers sort correctly. Filter is substring across name/role/user-or-equivalent.
+
+**"Minimal" density mode on the Devices grid — one device per row.** New 4th option in the Devices toolbar density toggle, alongside Compact / Comfortable / Spacious. Each device renders as a single horizontal row (~32px tall) with icon, name, hostname, status badge, and inline meta (OS, IP, Version, Poll/Enrolled). The colored top stripe on standard cards becomes a left border. Built for fleets where you want to scan 50+ devices at a glance without scrolling.
+
+Responsive breakpoints drop the lower-priority meta items as the viewport narrows: Poll/Enrolled goes first (≤1100px), Version next (≤880px), then IP and the hostname (≤700px). The dropdown menu, status badge, and device actions all keep working — no markup change in `renderDevices()`, just CSS overrides on `.devices-grid.dens-minimal`.
+
+### Schema additions
+
+- `UI_DENSITY_VALUES` extends from `('compact', 'comfortable', 'spacious')` to `('minimal', 'compact', 'comfortable', 'spacious')`. `UI_DENSITY_DEFAULT` stays `'comfortable'` — minimal is opt-in.
+- `tableCtl.register({...})` accepts a new optional `refresh` callback. When set, both filter-input changes and column-header clicks call `refresh()` instead of the default `render(name, _lastRows)`. Pages that expose multiple filters (free-text + dropdown) or layered filtering (patches' 3 controls) use this to compose pipelines without dropping into tableCtl's substring-only world.
+
+### Tests
+
+**425 passing** (420 from v1.11.5 + 5 new in `test_v1115.py`'s `TestMinimalDensityMode` class). Coverage: minimal-density round-trip through POST /api/ui-prefs, `'minimal' in UI_DENSITY_VALUES`, default unchanged at `'comfortable'`, regression checks for the existing three modes, and the allowlist still rejects unknown values like `'ultracompact'`.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.5. No new dependencies, no nginx changes, no data migration. Existing user records keep their `'compact'`/`'comfortable'`/`'spacious'` density values intact. The new 4-button toggle renders selecting the user's existing 3-mode value correctly. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Minimal mode is Devices-only for now.** The other tables remain in their existing card/table layouts. The `densityCtl` infrastructure is generic, so any table can opt in by adding the matching CSS — but I didn't proactively add it to every page because most of them are already tabular and have nowhere denser to go.
+- **Patches and Audit retain their dropdown filters separately.** They aren't part of the persisted filter pref, so changing the dropdown selection isn't remembered across reloads. Substring filter and sort are persisted as before. If you want dropdown persistence too, that's a v1.11.7 follow-up.
+- **The "stack" multi-column sort tooltip** isn't shown anywhere obvious. Users have to know about shift+click. Adding a small `?` hint near the column headers is on the v1.11.7 list.
+
+---
+
+## v1.11.5 - 2026-05-03
+
+### New features
+
+**Filter + sort on every fleet table.** Each of the main category pages — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — now has a substring filter input above the table. Click any column header to sort ascending; click again to flip to descending; click a third time to clear. Hold shift and click a second header to sort by it as a secondary key (priority shown as a small superscript). State persists per user — log in on a different browser, your filter and sort survive.
+
+**Density toggle on the Devices grid.** Three modes — Compact, Comfortable (default), Spacious — picked via a small segmented control in the Devices toolbar. Compact halves the card padding, shrinks fonts, and tightens the grid gap; Spacious goes the other way for users on very large displays. Persists per user.
+
+**Per-user UI preferences endpoint.** New `/api/ui-prefs` (GET / POST / DELETE). Stores density, filter strings, and multi-column sort state under the user's record in `users.json`. Schema sanitised on the server side — unknown fields are dropped, lengths capped, total payload bounded at 16 KB. Whole-document replacement (not patch) on POST so two tabs can't merge-conflict each other.
+
+### How this is built
+
+- **Server** — minimal: one new sanitiser function (`_sanitise_ui_prefs`), three thin handlers, three new routes. Stored under `users[username]['ui_prefs']` so password changes / user deletes automatically clean up the prefs.
+- **Frontend** — two new helpers in `index.html`: `tableCtl` and `densityCtl`. Pages register a tbody with a column map and a row builder; the helper handles filter, sort, empty-state, and persistence. Existing inline render code refactored to use the helper. Server-roundtrip on every keystroke would be silly when filtering 50 rows, so filtering and sorting are fully client-side; only the pref values themselves go to the server, debounced 600 ms.
+- **Empty-state messaging** — pages now distinguish "no data at all" from "no rows match the filter" so users don't think their fleet is empty when they typed `xyz` into the filter.
+
+### Caps and limits (server-side)
+
+- `MAX_UI_PREFS_BYTES = 16 * 1024` — total per user
+- `MAX_UI_PREFS_FILTER_LEN = 256` — per-filter string
+- `MAX_UI_PREFS_SORT_KEYS = 5` — multi-column sort depth
+- `MAX_UI_PREFS_TABLES = 50` — distinct tables we'll remember prefs for
+
+### New endpoints
+
+- `GET /api/ui-prefs` — current user's stored prefs (returns `{}` if none).
+- `POST /api/ui-prefs` — replace current user's prefs. Body is the full document; whatever's not in the body is gone after the request. Returns `{ok, prefs}` with the sanitised version.
+- `DELETE /api/ui-prefs` — wipe current user's prefs.
+
+### Modified data files
+
+- `users.json` — entries gain an optional `ui_prefs` field. Old user records without it work fine; the field is created lazily on first POST. Removed automatically when `DELETE /api/users/{name}` runs (no extra cleanup code needed — the field lives inside the user record).
+
+### Tests
+
+**420 passing** (397 from v1.11.4 + 23 new in `test_v1115.py`). Coverage:
+
+- `_sanitise_ui_prefs` — non-dict input returns `{}`; valid density round-trips; invalid density dropped; filter strings truncated to cap; sort lists capped to 5 keys; invalid sort directions default to `asc`; unknown table fields stripped silently; table names with `/` `\` `..` characters sanitised; empty-after-sanitisation table names dropped; >50 tables capped at 50; payloads exceeding 16 KB total return `{}` (no partial save); realistic round-trip preserved.
+- `GET /api/ui-prefs` — returns `{}` for fresh user; returns persisted dict after POST.
+- `POST /api/ui-prefs` — replaces (not merges) on subsequent calls; sanitises input; rejects non-object body with 400; requires auth; rejects wrong HTTP method with 405.
+- `DELETE /api/ui-prefs` — clears stored prefs; subsequent GET returns `{}`; method check.
+- Per-user isolation — User A's prefs invisible to User B and vice versa.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.4. No new dependencies. No nginx changes. No data migration — `users.json` records without a `ui_prefs` field work identically to before. Older clients that don't know about `/api/ui-prefs` simply don't see filter/sort persistence; the fallback in the frontend gracefully proceeds with empty prefs if the endpoint returns nothing.
+
+The frontend is the same `index.html` file — no new build step, no Node, no bundler. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Devices density only — for now.** The other tables (services / CVEs / monitor / etc.) all sort and filter, but they don't yet have the three-mode density toggle. The plumbing is there (`densityCtl` works for any table name) but I haven't added the controls or CSS to those pages. Easy follow-up if you want it.
+- **Filter is substring only.** No regex, no field-scoped filters (`name:foo group:prod`). The dropdown filters that already exist on some pages (status, group, severity) keep working as before; this change is additive.
+- **Sort is in-memory only.** Loading 10,000 audit log entries and sorting them is fine in the browser, but loading 100,000 might lag on weak hardware. Pagination lives in the API for the audit log already; if you really hit that, we'd need server-side sorting. Not for v1.11.5.
+- **Two tabs racing.** Whole-document replacement means if you have two tabs open and change filter in one, the other tab's older state could overwrite it on its next save. Compare-and-swap would fix this but adds complexity for a workflow nobody seems to actually have. Filed under "if it becomes a problem."
+
+---
+
 ## v1.11.4 - 2026-05-03
 
 ### Bug fixes

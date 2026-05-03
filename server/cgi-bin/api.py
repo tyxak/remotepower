@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.11.4'
+SERVER_VERSION = '1.11.6'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -146,6 +146,16 @@ MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
 MAX_LOG_LINES_PER_UNIT  = 100      # per-poll capture window
 LOG_BUFFER_TTL          = 6 * 3600 # rolling N-hour buffer
 MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # 2 MB per device cap
+
+# v1.11.5: per-user UI preferences (density, persistent filter strings,
+# column sort state). Stored in users.json under the 'ui_prefs' key, keyed
+# by table name. Total size capped to keep users.json manageable.
+MAX_UI_PREFS_BYTES         = 16 * 1024     # 16 KB total per user — generous
+MAX_UI_PREFS_FILTER_LEN    = 256           # per-filter string cap
+MAX_UI_PREFS_SORT_KEYS     = 5             # multi-column sort depth limit
+MAX_UI_PREFS_TABLES        = 50            # distinct tables we'll remember prefs for
+UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
+UI_DENSITY_DEFAULT         = 'comfortable'
 
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
@@ -2462,6 +2472,147 @@ def handle_user_passwd():
     tokens = {k: v for k, v in tokens.items() if v.get('user') != username}
     save(TOKENS_FILE, tokens)
 
+    respond(200, {'ok': True})
+
+
+# ─── v1.11.5: per-user UI preferences ────────────────────────────────────────
+#
+# Stored under users[username]['ui_prefs'] as a dict keyed by table name. Each
+# table entry can carry:
+#
+#   density   — 'compact' / 'comfortable' / 'spacious'
+#   filter    — string, the live filter input value
+#   sort      — list of {col: str, dir: 'asc'|'desc'}, in priority order
+#
+# Schema enforced by :func:`_sanitise_ui_prefs` — the client can send anything,
+# but we strip everything we don't recognise so a future field rename or
+# malicious payload can't blow up users.json. Stored together with the user
+# record (rather than a separate file) so password changes / user deletes
+# automatically clean up the prefs too.
+
+
+def _sanitise_ui_prefs(raw):
+    """Validate and trim a UI prefs payload before persisting.
+
+    Args:
+        raw: Whatever the client sent. Expected to be a dict keyed by
+            table name. Anything else returns an empty dict.
+
+    Returns:
+        A clean dict safe to drop into ``users[username]['ui_prefs']``.
+        Drops unknown keys silently — old clients sending now-removed
+        fields don't break, new clients sending unknown fields don't
+        bloat the store.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    # Cap how many distinct table prefs we'll persist for one user. Stops
+    # a misbehaving client from filling users.json with junk keys.
+    for table_name, prefs in list(raw.items())[:MAX_UI_PREFS_TABLES]:
+        # Table names are short alphanumeric identifiers (e.g. 'devices',
+        # 'cves_overview'). Strip anything not in that vocabulary.
+        clean_name = re.sub(r'[^a-zA-Z0-9_]', '', str(table_name))[:64]
+        if not clean_name or not isinstance(prefs, dict):
+            continue
+        clean = {}
+
+        density = prefs.get('density')
+        if density in UI_DENSITY_VALUES:
+            clean['density'] = density
+
+        filt = prefs.get('filter')
+        if isinstance(filt, str) and filt:
+            clean['filter'] = filt[:MAX_UI_PREFS_FILTER_LEN]
+
+        sort = prefs.get('sort')
+        if isinstance(sort, list):
+            clean_sort = []
+            for entry in sort[:MAX_UI_PREFS_SORT_KEYS]:
+                if not isinstance(entry, dict):
+                    continue
+                col = entry.get('col')
+                dirn = entry.get('dir')
+                if not isinstance(col, str) or not col:
+                    continue
+                # Column identifiers are short alphanumeric strings — same
+                # rule as table names above.
+                clean_col = re.sub(r'[^a-zA-Z0-9_]', '', col)[:64]
+                if not clean_col:
+                    continue
+                if dirn not in ('asc', 'desc'):
+                    dirn = 'asc'
+                clean_sort.append({'col': clean_col, 'dir': dirn})
+            if clean_sort:
+                clean['sort'] = clean_sort
+
+        if clean:
+            out[clean_name] = clean
+
+    # Final size enforcement — JSON-encode and check. Cheap insurance
+    # against pathological payloads that pass field-level checks but
+    # bloat the file.
+    encoded = json.dumps(out)
+    if len(encoded) > MAX_UI_PREFS_BYTES:
+        # Bail out cleanly rather than silently truncating — easier to debug.
+        return {}
+    return out
+
+
+def handle_ui_prefs_get():
+    """``GET /api/ui-prefs`` — return current user's stored UI prefs.
+
+    Returns ``{}`` if the user has none yet (fresh sign-up). Never errors
+    on missing data — UI prefs are best-effort cosmetics, the page must
+    work without them.
+    """
+    username = require_auth()
+    users = load(USERS_FILE)
+    user = users.get(username) or {}
+    prefs = user.get('ui_prefs') or {}
+    if not isinstance(prefs, dict):
+        prefs = {}
+    respond(200, prefs)
+
+
+def handle_ui_prefs_set():
+    """``POST /api/ui-prefs`` — overwrite current user's UI prefs.
+
+    Whole-document replacement, not patch. The client is the source of
+    truth (it has the latest filter strings, sort orders, etc.); the
+    server just stores. This avoids the merge-conflict trap of partial
+    updates when the same user has two tabs open.
+    """
+    username = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    if not isinstance(body, dict):
+        respond(400, {'error': 'body must be a JSON object'})
+
+    clean = _sanitise_ui_prefs(body)
+    users = load(USERS_FILE)
+    if username not in users:
+        # Should be impossible — auth just succeeded — but defend anyway.
+        respond(404, {'error': 'User not found'})
+    users[username]['ui_prefs'] = clean
+    save(USERS_FILE, users)
+    respond(200, {'ok': True, 'prefs': clean})
+
+
+def handle_ui_prefs_clear():
+    """``DELETE /api/ui-prefs`` — wipe current user's UI prefs.
+
+    Useful for "reset to defaults" buttons in the UI without forcing the
+    client to know what 'defaults' means.
+    """
+    username = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    users = load(USERS_FILE)
+    if username in users and 'ui_prefs' in users[username]:
+        users[username].pop('ui_prefs', None)
+        save(USERS_FILE, users)
     respond(200, {'ok': True})
 
 
@@ -6887,6 +7038,10 @@ def main():
     elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE':
         handle_user_delete(pi[len('/api/users/'):])
     elif pi == '/api/users/passwd' and m == 'POST': handle_user_passwd()
+    # v1.11.5: per-user UI preferences (density / filter / sort persistence)
+    elif pi == '/api/ui-prefs' and m == 'GET':    handle_ui_prefs_get()
+    elif pi == '/api/ui-prefs' and m == 'POST':   handle_ui_prefs_set()
+    elif pi == '/api/ui-prefs' and m == 'DELETE': handle_ui_prefs_clear()
     elif pi == '/api/totp/setup' and m == 'POST': handle_totp_setup()
     elif pi == '/api/totp/confirm' and m == 'POST': handle_totp_confirm()
     elif pi == '/api/totp/disable' and m == 'POST': handle_totp_disable()

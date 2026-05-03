@@ -1,5 +1,169 @@
 # Changelog
 
+## v1.11.6 — 2026-05-03
+
+### Fixed
+
+**Audit filter input lag.** The `<input id="audit-filter-text">`
+had both an inline `oninput` and a listener attached by
+`tableCtl.register()`, fighting each other. Result was a
+one-keystroke lag and a confusing "nothing changed after Clear"
+symptom. Fixed by removing the inline handler and adding a
+`refresh:` hook to `tableCtl.register({...})` so pages that
+compose multiple filters (free-text + action dropdown) re-render
+through their own function rather than tableCtl's default. Same
+hook flows through sort-header clicks.
+
+### Added
+
+**Patch report got sortable headers.** Existing 3-control filter
+chain (text + group + device dropdown) keeps owning filtering;
+sort layered on top via `match: () => true` and the new
+`refresh:` hook.
+
+**Maintenance windows got filter + sort.** New
+`<input id="maint-filter">` above the table; header columns
+wired sortable via tableCtl. Same UX as the other tables.
+
+**Users, API Keys, Command Library got filter + sort.** All
+three were inline one-liners in v1.11.5; refactored into the
+register-helper pattern with per-column `getColumns` exposing
+created timestamps, roles, and names as sortable values.
+
+**Minimal density mode on the Devices grid — one device per
+row.** New 4th option alongside Compact / Comfortable / Spacious.
+~32px-tall horizontal row per device with icon, name, hostname,
+status badge, and inline meta (OS, IP, Version, Poll/Enrolled).
+The colored top stripe becomes a left border. Responsive
+breakpoints drop lower-priority meta as the viewport narrows.
+Built for scanning 50+ devices at a glance.
+
+### Schema
+
+- `UI_DENSITY_VALUES` extends to `('minimal', 'compact',
+  'comfortable', 'spacious')`. Default stays `'comfortable'`.
+- `tableCtl.register({...})` accepts a new optional `refresh:`
+  callback used in place of the default re-render when set.
+
+### Tests
+
+425 passing (420 from v1.11.5 + 5 new for minimal density mode).
+No regressions in the v1.11.4/5 suites.
+
+
+## v1.11.5 — 2026-05-03
+
+### Added
+
+**Filter and sort on every fleet table.** Devices, Services, CVE
+Findings, Containers, Monitor, TLS, Audit Log, Command History,
+Schedule, and Maintenance all gained a substring filter input
+above the table and clickable sortable column headers. First click
+sorts ascending; second descending; third clears. Shift+click adds
+a secondary sort key with a small superscript priority number.
+The filter and sort state survive across reloads — they're
+persisted per user via a new `/api/ui-prefs` endpoint.
+
+**Density toggle on the Devices grid.** Three modes — Compact,
+Comfortable (default), Spacious — accessible via a segmented
+control in the Devices toolbar. Compact halves padding and
+shrinks fonts; Spacious does the opposite. Per-user persistence.
+
+**`/api/ui-prefs` endpoint.** GET reads, POST replaces (whole
+document, not patch — avoids two-tab merge conflicts), DELETE
+wipes. Stored as `users[username]['ui_prefs']` so it tags along
+with user creation/deletion automatically. Sanitised server-side:
+unknown fields silently stripped, filter strings capped to 256
+chars, sort lists capped to 5 keys, total payload bounded at 16
+KB. Three new constants: `UI_DENSITY_VALUES`, `UI_DENSITY_DEFAULT`,
+`MAX_UI_PREFS_*`.
+
+### Architecture
+
+Two new vanilla-JS helpers in `index.html`: `tableCtl` (register
+a tbody → get filter, sort, empty-state, and persistence) and
+`densityCtl` (3-button segmented control with persistence). All
+filtering and sorting is client-side; only pref values
+roundtrip to the server, debounced 600 ms after the last change.
+Logout flushes any pending save synchronously; `beforeunload` is
+a fire-and-forget best-effort backup. Eight tables refactored to
+use the helper.
+
+### Tests
+
+420 passing (397 from v1.11.4 + 23 new in `test_v1115.py`).
+Coverage: sanitiser edge cases (empty input, unknown fields,
+length caps, table-name path traversal, oversized payloads), all
+three endpoint methods, per-user isolation, regression checks
+against v1.11.4 functionality.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.4. No new dependencies, no nginx
+changes, no data migration. `users.json` records without the
+`ui_prefs` field work identically to before; the field is
+created lazily on first POST.
+
+
+## v1.11.4 — 2026-05-03
+
+### Fixed
+
+**Container data went stale and never refreshed.** The agent's
+container-listing path silently skipped sending the heartbeat
+field whenever the list was empty (`if items:` gate). Hosts
+going from "1 container" to "0 containers" — daemon restarts,
+transient `docker ps` failures, or just the last container being
+stopped — never overwrote the server's stored list. The
+dashboard kept rendering whatever last non-empty snapshot the
+agent had reported.
+
+Fixed by always sending the (possibly empty) list when a runtime
+is detected on the host. Hosts with no runtime installed at all
+still skip entirely so we don't pollute `containers.json` with
+empty rows.
+
+### Added
+
+**Container alerts.** Three new webhook events:
+
+- `container_stopped` — running container is now gone or has a
+  non-running status. Detected by diffing each heartbeat against
+  the previous one, keyed on `(runtime, namespace, name)` so
+  same-named containers in different k8s namespaces don't
+  cross-fire.
+- `container_restarting` — `restart_count` climbed by ≥1 since
+  the last report. Mainly useful for Kubernetes pods (Docker
+  `ps` doesn't expose this).
+- `containers_stale` — no fresh report within
+  `container_stale_ttl` (default 900s = 15 min). Fires once per
+  stale period; auto-resets on fresh data. Suppressed for
+  already-offline devices and unmonitored devices.
+
+**Manual clear of stored container data.** `DELETE /api/devices/
+{id}/containers` wipes one device's stored container snapshot
+without affecting actual containers on the host. Useful for
+decommissioning, forcing a redraw, or re-arming the
+`containers_stale` webhook. UI button: "Clear data" in the
+per-device modal.
+
+**Stale-data UI indicators.** Amber `STALE` pill on Containers
+overview rows, banner in the per-device modal explaining what
+it means and where to look (`journalctl -u remotepower-agent`).
+
+### Modified behaviour
+
+- `DELETE /api/devices/{id}` now also cleans up the orphan
+  `containers.json` entry and the `containers_stale_notified`
+  flag. Pre-v1.11.4 these lingered and would resurrect on
+  re-enrolment with the same id.
+
+### Tests
+
+397 passing (362 from v1.11.3 + 35 new in `test_v1114.py`).
+
+---
+
 ## v1.11.0 — 2026-04-29
 
 ### Added

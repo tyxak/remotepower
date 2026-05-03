@@ -166,6 +166,21 @@ cd remotepower</code></pre>
 
 <p>Groups and tags are just strings you assign. You can filter the dashboard by them, and batch‑command an entire group (e.g., reboot all "lab" machines at once).</p>
 
+<h3>4.1 Filter, sort, and density (v1.11.5, expanded in v1.11.6)</h3>
+<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — has a substring filter input above the table. Type any text, the table updates as you go. As of v1.11.6 the admin tables (Users, API Keys, Command Library) also have filter inputs.</p>
+
+<p>Click any column header to sort by that column. The first click sorts ascending, the second descending, the third clears the sort. Hold <kbd>Shift</kbd> and click a second column header to sort by that as a secondary key — useful for things like "sort by group, then by status within each group". A small superscript number shows the priority order when you have a multi-column sort.</p>
+
+<p>The Devices grid additionally has a four-button density toggle in the toolbar:</p>
+<ul>
+  <li><strong>Minimal</strong> (v1.11.6) — one device per row, ~32px tall. Built for scanning 50+ devices at a glance. Hostname / IP / Version meta is shown inline; on narrow viewports the lower-priority meta items drop out automatically.</li>
+  <li><strong>Compact</strong> — denser cards with smaller padding and tighter grid gap.</li>
+  <li><strong>Comfortable</strong> — the default card layout.</li>
+  <li><strong>Spacious</strong> — larger padding and bigger fonts for very large displays.</li>
+</ul>
+
+<p>All of this — density, filter strings, sort orders — is stored per user, server-side, under the <code>ui_prefs</code> key in <code>users.json</code>. Log into the same account on a different browser, your filters and sort orders come with you. The server-side schema is sanitised: anything you don't recognise gets dropped silently, individual filter strings cap at 256 chars, sort lists cap at 5 columns, total per-user prefs cap at 16 KB. The <code>/api/ui-prefs</code> endpoint accepts <code>GET</code> (read), <code>POST</code> (replace whole document), and <code>DELETE</code> (wipe) — useful if you ever need to reset somebody's UI to defaults from a script.</p>
+
 <h2>5. How the heartbeat and command queue actually work</h2>
 <p>This part is important if you want to understand delays.</p>
 
