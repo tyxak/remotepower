@@ -20,7 +20,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.11.6'
+SERVER_VERSION = '1.11.9'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -1970,34 +1970,54 @@ def handle_metrics(dev_id):
     respond(200, {'device_id': dev_id, 'metrics': metrics.get(dev_id, [])})
 
 
-def handle_monitor_run():
-    require_auth()
-    cfg = load(CONFIG_FILE); monitors = cfg.get('monitors', []); results = []
-    for m in monitors:
-        mtype  = m.get('type', 'ping')
-        raw_target = m.get('target', '')
-        label  = _sanitize_str(m.get('label', raw_target), 128)
+def _execute_monitor_checks(monitors):
+    """Run every configured monitor and return the result list.
 
-        # Validate target before use
+    Pure check logic — no auth, no HTTP response, no persistence beyond
+    what callers do with the results. Shared by:
+
+    - :func:`handle_monitor_run` (synchronous: a user opened the
+      Monitor page and we run them right now to give an instantaneous
+      view).
+    - :func:`run_monitors_if_due` (background: called from
+      :func:`main` on every CGI request, runs at most once every
+      ``monitor_interval`` seconds).
+
+    v1.11.8: extracted from handle_monitor_run because monitors used to
+    only run when somebody loaded the Monitor page. Long gaps between
+    page loads meant long gaps between checks — and webhooks for down
+    services never fired during those gaps. Now there's a periodic
+    runner that calls this on every CGI hit, gated on the configured
+    interval.
+    """
+    results = []
+    for m in monitors:
+        mtype = m.get('type', 'ping')
+        raw_target = m.get('target', '')
+        label = _sanitize_str(m.get('label', raw_target), 128)
+
         target = _sanitize_monitor_target(mtype, raw_target)
         if target is None:
-            results.append({'label': label, 'type': mtype, 'target': raw_target,
-                            'ok': False, 'detail': 'blocked: invalid target', 'checked': int(time.time())})
+            results.append({
+                'label': label, 'type': mtype, 'target': raw_target,
+                'ok': False, 'detail': 'blocked: invalid target',
+                'checked': int(time.time()),
+            })
             continue
 
         ok = False; detail = ''
         if mtype == 'ping':
             try:
                 r = subprocess.run(
-                    ['ping', '-c', '1', '-W', '2', '--', target],  # '--' prevents flag injection
+                    ['ping', '-c', '1', '-W', '2', '--', target],
                     capture_output=True, timeout=5)
                 ok = r.returncode == 0; detail = 'up' if ok else 'no reply'
-            except Exception as e:
+            except Exception:
                 detail = 'error'
         elif mtype == 'tcp':
             host, _, port_s = target.partition(':')
-            port = int(port_s)
             try:
+                port = int(port_s)
                 with socket.create_connection((host, port), timeout=3):
                     ok = True; detail = 'open'
             except Exception:
@@ -2012,20 +2032,29 @@ def handle_monitor_run():
                 detail = str(e.code)
             except Exception:
                 detail = 'error'
-        results.append({'label': label, 'type': mtype, 'target': target,
-                        'ok': ok, 'detail': detail, 'checked': int(time.time())})
+        results.append({
+            'label': label, 'type': mtype, 'target': target,
+            'ok': ok, 'detail': detail, 'checked': int(time.time()),
+        })
+    return results
+
+
+def _persist_monitor_results(results):
+    """Append results to history, fire webhooks on transitions, save flags.
+
+    Shared sink for monitor results — same logic regardless of whether
+    they came from a user-triggered run or the periodic auto-runner.
+    """
     try:
         mh = load(MON_HIST_FILE)
         cfg = load(CONFIG_FILE)
         mon_notified = cfg.get('monitor_notified', {})
-        # v1.8.4: per-event toggle (down/up are checked individually below)
         mon_changed = False
         for r in results:
             key = r['label']
             if key not in mh: mh[key] = []
             mh[key].append({'ts': r['checked'], 'ok': r['ok'], 'detail': r['detail']})
             mh[key] = mh[key][-MAX_MON_HISTORY:]
-            # Fire webhook on monitor state change. fire_webhook() respects per-event toggles.
             was_down = mon_notified.get(key, False)
             if not r['ok'] and not was_down:
                 fire_webhook('monitor_down', {
@@ -2045,6 +2074,70 @@ def handle_monitor_run():
             save(CONFIG_FILE, cfg)
     except Exception:
         pass
+
+
+def run_monitors_if_due():
+    """Run all configured monitors if it's been longer than monitor_interval
+    since the last run.
+
+    Called from :func:`main` on every CGI request. Cheap when not due
+    (one CONFIG_FILE read + a timestamp compare). When due, runs the
+    same logic as the user-triggered run — same webhook firing, same
+    history append. Idempotent in the sense that running twice within
+    the same interval is a no-op.
+
+    The "last run" timestamp is stored in CONFIG_FILE under
+    ``last_monitor_run`` so it survives CGI process restarts (no shared
+    in-memory state in CGI). Race condition: two concurrent CGI
+    requests can both see "due" and run monitors twice. Acceptable —
+    the duplicate writes to history just mean two consecutive entries
+    a few seconds apart, and the webhook notification flag prevents
+    duplicate alerts.
+
+    Skipped if no monitors are configured (saves the config write).
+    """
+    cfg = load(CONFIG_FILE)
+    monitors = cfg.get('monitors', [])
+    if not monitors:
+        return
+    interval = max(60, int(cfg.get('monitor_interval', 300)))
+    last_run = int(cfg.get('last_monitor_run', 0))
+    now = int(time.time())
+    if (now - last_run) < interval:
+        return
+
+    # Mark as in-progress *before* running so a long-running monitor
+    # check doesn't trigger a parallel run from another CGI request.
+    cfg['last_monitor_run'] = now
+    save(CONFIG_FILE, cfg)
+
+    results = _execute_monitor_checks(monitors)
+    _persist_monitor_results(results)
+
+
+def handle_monitor_run():
+    """``GET /api/monitor`` — run monitors NOW and return current state.
+
+    User-triggered: somebody opened the Monitor page and wants the
+    freshest possible data, not the cached output of the last
+    background sweep. We run all monitors synchronously (which can
+    take seconds for ping/http with timeouts) and return the results.
+
+    Side effect: also updates ``last_monitor_run`` so the periodic
+    runner doesn't immediately re-run. This means refreshing the
+    Monitor page resets the background-run schedule, which is fine —
+    the user just got fresh data.
+    """
+    require_auth()
+    cfg = load(CONFIG_FILE)
+    monitors = cfg.get('monitors', [])
+    results = _execute_monitor_checks(monitors)
+    _persist_monitor_results(results)
+    # Update the timestamp so the background runner doesn't immediately
+    # re-check what we just returned.
+    cfg2 = load(CONFIG_FILE)
+    cfg2['last_monitor_run'] = int(time.time())
+    save(CONFIG_FILE, cfg2)
     respond(200, {'monitors': results})
 
 
@@ -6982,6 +7075,14 @@ def main():
     # v1.11.4: container-data-stale sweep, mirroring the offline check.
     # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
     try: check_container_webhooks()
+    except Exception: pass
+    # v1.11.8: monitor checks used to only run when somebody opened
+    # the Monitor page in the dashboard. Now they run on every CGI hit
+    # but gated to the configured interval (default 300s). For low-
+    # traffic servers this means monitors run whenever an agent
+    # heartbeats — typically every 60s, so the gate kicks in and the
+    # actual checks happen every interval.
+    try: run_monitors_if_due()
     except Exception: pass
     try: process_schedule()
     except Exception: pass

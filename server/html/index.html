@@ -506,118 +506,148 @@
   .devices-grid.dens-spacious .device-name { font-size: 18px; }
   .devices-grid.dens-spacious .device-icon { width: 52px; height: 52px; }
 
-  /* v1.11.6: minimal mode = one device per row. Single-column grid,
-     row-height card with everything inline. The classic data-table look:
-     useful when you have 50+ devices and want to scan them at a glance.
-     Works with the existing dropdown (⋯ button) — no markup change in
-     renderDevices(), just CSS. */
+  /* v1.11.7: Minimal density on the Devices grid renders as a real
+     <table> instead of a flex-row override on each card. The v1.11.6
+     attempt couldn't keep columns aligned because each card was its
+     own flex container — variable cell widths made "Online" not appear
+     under "Online" across rows. Tables are the correct primitive here:
+     each <tr> shares the same <td> structure, and the browser handles
+     column alignment for us. The table also gets sortable headers via
+     tableCtl, matching the other category pages. */
   .devices-grid.dens-minimal {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .devices-grid.dens-minimal .device-card {
-    padding: 6px 12px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    overflow: hidden;
-  }
-  /* the colored top stripe doesn't make sense on row layout — show as a
-     left border instead */
-  .devices-grid.dens-minimal .device-card::before {
-    top: 0; left: 0; right: auto; bottom: 0;
-    height: auto; width: 3px;
-    border-radius: 6px 0 0 6px;
-  }
-  .devices-grid.dens-minimal .device-header {
-    flex: 0 0 auto;
+    display: block;
+    padding: 0;
     margin: 0;
-    min-width: 0;
   }
-  .devices-grid.dens-minimal .device-info { gap: 8px; }
-  .devices-grid.dens-minimal .device-icon {
-    width: 24px; height: 24px;
-    border-radius: 4px;
-    flex-shrink: 0;
+  .devices-minimal-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    /* v1.11.8: was `overflow: hidden`, which clipped the dropdown menu
+       on rows near the right edge or bottom of the table. The rounded
+       corners worked because of `border-radius` alone — overflow:hidden
+       was extra insurance that turned out to be too aggressive. The
+       dropdown must escape the wrap when it pops, so we accept that the
+       very corners might briefly show a non-rounded artifact for that
+       rare case where the menu opens and the row backgound colour
+       extends to the wrap edge. The thead has its own background so
+       there's no visible artifact at the top corners; the bottom corners
+       only matter when the menu is open and its z-index puts it
+       above the wrap edge anyway. */
+    overflow: visible;
   }
-  .devices-grid.dens-minimal .device-icon svg { width: 14px; height: 14px; }
-  .devices-grid.dens-minimal .device-name {
+  /* v1.11.8: keep the rounded corners by clipping the table's own edges.
+     Browsers don't honour border-radius on <table> directly without
+     border-collapse:separate, so we apply it to the outer <thead> and
+     last <tr> instead. */
+  .devices-minimal-table thead tr:first-child th:first-child { border-top-left-radius: 10px; }
+  .devices-minimal-table thead tr:first-child th:last-child  { border-top-right-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:first-child  { border-bottom-left-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:last-child   { border-bottom-right-radius: 10px; }
+  .devices-minimal-table {
+    width: 100%;
+    /* v1.11.9: table-layout:fixed forces the browser to honour the
+       column widths we set on <th> rather than auto-stretching cells
+       to fit the longest content. Without this, long OS strings like
+       "Debian GNU/Linux 12 (bookworm)" pushed the table past the
+       container's right edge — visible as the table being 5–15px
+       wider than the stats row above it. With fixed layout, our
+       max-widths and ellipsis on <td> finally take effect. */
+    table-layout: fixed;
+    border-collapse: collapse;
     font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 180px;
   }
-  .devices-grid.dens-minimal .device-hostname {
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 220px;
-  }
-  /* the status badge moves out of the header (right-aligned) and into
-     the row flow */
-  .devices-grid.dens-minimal .device-header > .status-badge {
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-  .devices-grid.dens-minimal .status-badge {
-    padding: 2px 8px;
-    font-size: 10px;
-  }
-  .devices-grid.dens-minimal .device-meta {
-    flex: 1 1 auto;
-    display: flex;
-    gap: 16px;
-    margin: 0;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .devices-grid.dens-minimal .device-meta .meta-item {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    min-width: 0;
-  }
-  .devices-grid.dens-minimal .device-meta .meta-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
+  .devices-minimal-table thead th {
+    background: var(--surface2);
     color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
     white-space: nowrap;
   }
-  .devices-grid.dens-minimal .device-meta .meta-value {
-    font-size: 12px;
-    white-space: nowrap;
+  .devices-minimal-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+  }
+  .devices-minimal-table tbody tr:last-child { border-bottom: none; }
+  .devices-minimal-table tbody tr:hover {
+    background: rgba(59,126,255,0.04);
+  }
+  .devices-minimal-table tbody tr.offline {
+    opacity: 0.7;
+  }
+  .devices-minimal-table tbody td {
+    padding: 8px 12px;
+    vertical-align: middle;
+    /* v1.11.9: with table-layout:fixed on the table, each <td> is sized
+       to its column header's width. We only need overflow:hidden +
+       text-overflow:ellipsis on the cell to clip overflowing content
+       — no max-width needed (it was a no-op under auto-layout anyway,
+       and now would conflict with the column-width-driven layout). */
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 200px;
+    white-space: nowrap;
   }
-  /* hide the lower-priority meta items in narrow viewports — keeping
-     OS, IP, and Version visible by default; Poll/Enrolled is the first
-     to drop. */
-  @media (max-width: 1100px) {
-    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+4) { display: none; }
+  /* slightly tighter row height for the dropdown column (no padding) */
+  .devices-minimal-table .dev-actions-cell {
+    padding: 4px 8px;
+    overflow: visible;          /* the ⋯ menu pops out of the cell */
+    position: relative;          /* z-index anchor for the dropdown */
   }
-  @media (max-width: 880px) {
-    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+3) { display: none; }
+  .devices-minimal-table .dev-actions-cell .device-dropdown {
+    position: relative;
   }
-  @media (max-width: 700px) {
-    .devices-grid.dens-minimal .device-hostname { display: none; }
-    .devices-grid.dens-minimal .device-meta .meta-item:nth-child(n+2) { display: none; }
+  /* v1.11.8: when the dropdown is OPEN, hoist the entire row above the
+     surrounding table chrome so the menu can't get clipped by other
+     rows or the wrap edge. The .device-dropdown.active class gets
+     toggled by toggleDropdown() in JS; tr:has() finds the row that
+     contains it. Falls back gracefully on browsers without :has()
+     support — the menu would still render via z-index on the cell
+     itself, just possibly clipped on the bottom row. Safari, Chrome,
+     Firefox 121+ all support :has() now. */
+  .devices-minimal-table tbody tr:has(.device-dropdown.active) {
+    position: relative;
+    z-index: 100;
   }
-  /* the dropdown ⋯ button stays bottom-right in card layouts; in minimal
-     it should be inline at the end of the row. */
-  .devices-grid.dens-minimal .device-dropdown {
-    position: static;
-    flex-shrink: 0;
+  .devices-minimal-table .dev-actions-cell .device-dropdown.active {
+    z-index: 101;               /* above the row's z-index */
   }
-  .devices-grid.dens-minimal .dropdown-btn {
-    width: 28px;
-    height: 28px;
-    font-size: 14px;
+  .devices-minimal-table .dev-actions-cell .dropdown-content {
+    /* Anchor to the right edge of the cell so the menu drops down-and-
+       to-the-left rather than pushing off the right side of the page.
+       The default rule from the cards-mode CSS positions it differently;
+       override here for the table layout. */
+    right: 0;
+    left: auto;
+    z-index: 102;
+  }
+  /* responsive — drop low-priority columns on narrow viewports.
+     Order of importance, kept-most → dropped-first:
+       Status, Name, [Hostname], [Group], OS, [IP], [Version], [Last seen], Actions
+     We start dropping the bracketed ones at 1100px and below. */
+  @media (max-width: 1280px) {
+    .devices-minimal-table .dev-host-cell,
+    .devices-minimal-table th[data-col="hostname"] { display: none; }
+  }
+  @media (max-width: 1080px) {
+    .devices-minimal-table .dev-version-cell,
+    .devices-minimal-table th[data-col="version"] { display: none; }
+  }
+  @media (max-width: 920px) {
+    .devices-minimal-table .dev-group-cell,
+    .devices-minimal-table th[data-col="group"] { display: none; }
+  }
+  @media (max-width: 760px) {
+    .devices-minimal-table .dev-ip-cell,
+    .devices-minimal-table th[data-col="ip"] { display: none; }
+  }
+  @media (max-width: 620px) {
+    .devices-minimal-table .dev-os-cell,
+    .devices-minimal-table th[data-col="os"] { display: none; }
   }
   .device-card::before {
     content: '';
@@ -3259,6 +3289,16 @@ function renderDevices() {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div class="empty-title">No devices enrolled</div><div class="empty-text">Click "Enroll device" to generate a PIN,<br>then run the client installer on your machine.</div></div>`;
     return;
   }
+  // v1.11.7: split path. Minimal density renders as a real table with
+  // sortable column headers and aligned columns — the v1.11.6 attempt
+  // used flex on a per-card basis which made columns ragged across rows
+  // (the user reported "Online" not appearing under "Online" and so on).
+  // A table is the correct primitive: each <tr> has the same <td> layout,
+  // browsers handle alignment, headers click-to-sort via tableCtl.
+  if (dens === 'minimal') {
+    _renderDevicesMinimal(filtered);
+    return;
+  }
   container.innerHTML = filtered.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
@@ -3282,12 +3322,112 @@ function renderDevices() {
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('');
 }
+
+// v1.11.7: render Devices as an aligned, sortable table. This is the new
+// 'minimal' density layout — replaces the old flex-row hacky one that
+// couldn't keep columns aligned when cell contents had different widths.
+let _devicesMinimalRegistered = false;
+function _registerDevicesMinimalTable() {
+  if (_devicesMinimalRegistered) return;
+  _devicesMinimalRegistered = true;
+  // Filter is already applied upstream by the existing devices-search /
+  // status / group / tag filter chain, so we tell tableCtl `match: () => true`.
+  // Sort is handled here. We use a separate prefs key ('devices_minimal')
+  // from the cards view ('devices') so a sort applied in minimal doesn't
+  // bleed into the cards' filter-string state.
+  tableCtl.register({
+    name: 'devices_minimal',
+    tbody: 'devices-minimal-tbody',
+    sortHeaders: 'devices-minimal-thead',
+    columns: ['name', 'group', 'os', 'ip', 'version', 'status', 'last_seen', 'enrolled'],
+    refresh: () => renderDevices(),     // re-render through the parent path
+    match: () => true,
+    getColumns: (d) => ({
+      name:      d.name || '',
+      group:     d.group || '',
+      os:        d.os || '',
+      ip:        d.ip || '',
+      version:   d.version || '',
+      // online → 'a' / offline → 'z' so "asc" puts online first
+      status:    d.online ? 'a-online' : 'z-offline',
+      last_seen: d.last_seen || 0,
+      enrolled:  d.enrolled || 0,
+    }),
+    row: (d) => {
+      const isOnline = d.online;
+      const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
+      const isMonitored = d.monitored !== false;
+      const si = d.sysinfo || {};
+      const pkg = si.packages;
+      let patchHtml = '';
+      if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
+        const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
+        patchHtml = ` <span class="patch-badge ${cls}" style="font-size:10px;padding:1px 5px">${pkg.upgradable}</span>`;
+      }
+      const groupHtml = d.group ? `<span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : '<span style="color:var(--muted)">—</span>';
+      // v1.11.7: dropdown HTML is identical to the cards path — exact same
+      // menu items, same handlers, same `dropdown-${d.id}` id so
+      // toggleDropdown() works without changes. Just wrapped in a <td>.
+      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      return `<tr class="dev-row ${isOnline ? 'online' : 'offline'}" data-dev-id="${d.id}">
+        <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
+        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
+        <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}</td>
+        <td class="dev-group-cell">${groupHtml}</td>
+        <td class="dev-os-cell" style="font-size:12px">${osIcon(d.os, 12)} ${escHtml(d.os || '—')}</td>
+        <td class="dev-ip-cell" style="font-family:monospace;font-size:12px">${escHtml(d.ip || '—')}</td>
+        <td class="dev-version-cell" style="font-size:12px">${escHtml(d.version || '—')}${patchHtml}</td>
+        <td class="dev-lastseen-cell" style="font-size:12px;color:var(--muted)">${lastSeen}</td>
+        <td class="dev-actions-cell" style="text-align:right">${dropdownHtml}</td>
+      </tr>`;
+    },
+    // We don't use tableCtl's empty-state because parent renderDevices
+    // already handles the "no devices match filter" case — by the time
+    // we get here we always have ≥1 row.
+    emptyMsg: 'No devices.',
+    colspan: 9,
+  });
+}
+
+function _renderDevicesMinimal(filtered) {
+  const container = document.getElementById('devices-container');
+  // v1.11.9: column widths now explicitly sized so `table-layout: fixed`
+  // can compute the layout deterministically. The OS column has no
+  // width set, so it gets the remaining space — that's the column most
+  // likely to have long content ("Debian GNU/Linux 12 (bookworm)") and
+  // benefits most from flex sizing within an ellipsis cap. Total of
+  // fixed widths is ~900px; in a 1052px container that leaves ~152px
+  // for OS, which is enough for OS short names plus an ellipsis on the
+  // longer ones. Narrower viewports drop columns via the @media rules
+  // before things get cramped.
+  container.innerHTML = `<div class="devices-minimal-wrap">
+    <table class="devices-minimal-table">
+      <thead id="devices-minimal-thead">
+        <tr>
+          <th data-col="status" style="width:90px">Status</th>
+          <th data-col="name" style="width:190px">Name</th>
+          <th data-col="hostname" style="width:160px">Hostname</th>
+          <th data-col="group" style="width:100px">Group</th>
+          <th data-col="os">OS</th>
+          <th data-col="ip" style="width:130px">IP</th>
+          <th data-col="version" style="width:90px">Version</th>
+          <th data-col="last_seen" style="width:100px">Last seen</th>
+          <th style="width:50px"></th>
+        </tr>
+      </thead>
+      <tbody id="devices-minimal-tbody"></tbody>
+    </table>
+  </div>`;
+  _registerDevicesMinimalTable();
+  tableCtl.render('devices_minimal', filtered);
+}
+
 function toggleDropdown(id) {
   const el = document.getElementById(`dropdown-${id}`);
   if (el) {
@@ -3780,6 +3920,16 @@ async function loadAbout() { try { const v = await api('GET', '/version'); if (v
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
+// v1.11.7: per-device upgrade packages from the dropdown menu. Mirrors
+// the existing batch-upgrade flow but for one device at a time. Used to
+// require selecting the device first, then clicking the toolbar batch
+// button — now available directly from the ⋯ menu on each row.
+async function upgradePackages(id, name) {
+  if (!confirm(`Upgrade packages on "${name}"?\nThis will run apt / dnf / pacman upgrade on the device. Output arrives on the next heartbeat after the run completes (typically 30–120s for apt upgrade, longer for big upgrade sets). View progress under "Update history".`)) return;
+  const data = await api('POST', '/upgrade-device', {device_ids: [id]});
+  if (data?.ok) toast(`Package upgrade queued for ${name}. Output will appear in Update history shortly.`, 'success');
+  else toast(data?.error || 'Failed', 'error');
+}
 
 async function clearHistory() { if (!confirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();

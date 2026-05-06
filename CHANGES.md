@@ -1,5 +1,124 @@
 # Changelog
 
+## v1.11.9 — 2026-05-06
+
+### Fixed
+
+**Minimal table extended past the right edge.** v1.11.7 set
+`width: 100%` on the minimal table but no `table-layout: fixed`,
+so browsers used auto layout and sized columns to fit the
+longest content (e.g. "Debian GNU/Linux 12 (bookworm)") instead
+of honouring the `max-width: 200px` on `<td>` cells. Result: the
+table was a few pixels wider than the stats row and headers
+above it.
+
+Fix: added `table-layout: fixed`, set explicit widths on every
+header column except OS (which stays auto and absorbs the
+remaining space), removed the no-longer-useful `max-width` on
+`<td>`. With fixed layout the table now sits exactly at the
+container's content width and overflow is clipped via the
+existing ellipsis rule.
+
+### Tests
+
+444 passing — unchanged. Pure CSS fix, no Python changes.
+
+
+## v1.11.8 — 2026-05-06
+
+### Fixed
+
+**Monitor checks only ran when the dashboard was open.** Critical
+since the monitor feature shipped. The `monitor_interval` config
+existed but was never actually used by the server — checks ran
+synchronously inside `GET /api/monitor`, so they only happened
+when somebody loaded the Monitor page. `monitor_down` and
+`monitor_up` webhooks miss the entire window when nobody is
+browsing.
+
+Fix: extracted the check logic into `_execute_monitor_checks()`
+and added `run_monitors_if_due()` called from `main()` on every
+CGI hit, gated on `monitor_interval` (60s floor). Agents
+heartbeating every 60s trigger the dispatcher, which triggers
+the monitor sweep, so monitors run on schedule as long as any
+agent is alive.
+
+Service monitoring was always real-time (rides every heartbeat)
+and is unaffected.
+
+**Dropdown menu clipped in minimal mode.** v1.11.7's
+`overflow: hidden` on `.devices-minimal-wrap` clipped the ⋯
+dropdown when it popped out of cells near the table edge. Fixed
+with per-corner `border-radius` instead of overflow clipping,
+plus z-index hoisting on the row containing an open dropdown via
+`tr:has(.device-dropdown.active)`. Dropdown also re-anchored to
+the right edge of the cell so it drops down-and-to-the-left
+instead of pushing off the page.
+
+### Tests
+
+444 passing (433 from v1.11.7 + 11 new for periodic monitor
+runner): gate logic (empty config, first call, within/past
+interval, timestamp updates, back-to-back, sub-60s clamping),
+webhook firing on transitions through the new path, no-double-
+fire on persistent state.
+
+
+## v1.11.7 — 2026-05-04
+
+### Fixed
+
+**Update history was always empty.** Critical bug shipped in
+v1.10.0. The agent received the upgrade command, ran it, and
+captured the output — but the result was assigned to a `payload`
+dict *after* it had already been POSTed to the server. The next
+loop iteration reset the dict and the data was discarded. Symptom:
+`journalctl -u remotepower-agent` showed `Command output (rc=0):
+...` correctly, but the dashboard's "Update history" panel said
+"No update runs captured yet" forever.
+
+Fix: agent now sends a dedicated minimal follow-up heartbeat right
+after the command finishes, carrying just `device_id`, `token`,
+`cmd_output`, and `executed_command`. Failed POSTs stash the
+output to `/var/lib/remotepower-pending-cmd.json` for retry on the
+next successful heartbeat.
+
+The `command_executed` webhook had the same bug — same fix.
+
+### Added
+
+**Per-device "Upgrade packages" in the dropdown menu.**
+Previously required selecting the device first or opening the
+device modal. Now lives in the ⋯ menu on every device row,
+between "Agent update" and "Update history".
+
+**Minimal density rebuilt as a real `<table>`.** v1.11.6's
+flex-row layout couldn't keep columns aligned across rows. Now
+renders as a proper HTML table — Status / Name / Hostname / Group
+/ OS / IP / Version / Last seen / Actions — with sortable
+headers (asc / desc / clear; shift+click for secondary sort,
+same UX as Services / CVEs / Containers tables). Responsive
+breakpoints drop low-priority columns instead of letting them
+overflow. The dropdown menu and all device actions work
+identically to the cards path.
+
+### Tests
+
+433 passing (425 from v1.11.6 + 8 new for the cmd_output
+follow-up flow): minimal payload acceptance, regression check on
+no-cmd_output heartbeats, apt upgrade detector lands in
+update_logs.json, ls/non-upgrade does not, three sequential
+upgrades all captured, overflow trims oldest at the cap.
+
+### Compatibility
+
+Drop-in upgrade. Pre-v1.11.7 agents will still hit the bug —
+agents must self-update to v1.11.7 for "Update history" to start
+populating. Existing upgrade output that was lost on prior
+versions cannot be recovered (the data never crossed the network).
+From v1.11.7 forward, new upgrades are captured correctly.
+
+
 ## v1.11.6 — 2026-05-03
 
 ### Fixed

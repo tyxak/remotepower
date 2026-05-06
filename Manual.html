@@ -76,7 +76,7 @@
 <ol>
   <li><strong>Server</strong>: A single Python CGI script (<code>server.py</code>) that lives behind Nginx. It serves the dashboard HTML and handles every API call. It stores all its data as flat JSON files in <code>/var/lib/remotepower/</code>.</li>
   <li><strong>Agent</strong>: A single Python script (<code>agent.py</code>) that runs on every client, usually as a systemd service (or NSSM on Windows). It polls the server, executes commands, collects metrics. It runs as root because it eventually needs to call <code>shutdown</code> and <code>reboot</code>.</li>
-  <li><strong>Monitor</strong> (optional): A separate Python daemon (<code>monitor.py</code>) that does ICMP/TCP/HTTP checks from the server. It's triggered by a systemd timer, not part of the CGI.</li>
+  <li><strong>Monitor</strong> (optional): ICMP/TCP/HTTP probes the server runs against external targets — not the same as agent service monitoring. Pre-v1.11.8 these only ran when somebody loaded the Monitor page (a real bug — see CHANGELOG). From v1.11.8 onwards a periodic runner inside <code>main()</code> sweeps all configured monitors at most once every <code>monitor_interval</code> seconds (default 300s). The runner is triggered piggyback on every incoming CGI request — agent heartbeats every 60s keep it ticking even when no users are browsing.</li>
 </ol>
 <p>The whole thing is about 2500 lines of Python, no framework, no database—just <code>cgi</code>, <code>json</code>, <code>fcntl</code> for file locking, and raw sockets for Wake‑on‑LAN.</p>
 
@@ -166,18 +166,20 @@ cd remotepower</code></pre>
 
 <p>Groups and tags are just strings you assign. You can filter the dashboard by them, and batch‑command an entire group (e.g., reboot all "lab" machines at once).</p>
 
-<h3>4.1 Filter, sort, and density (v1.11.5, expanded in v1.11.6)</h3>
+<h3>4.1 Filter, sort, and density (v1.11.5, expanded in v1.11.6 and v1.11.7)</h3>
 <p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — has a substring filter input above the table. Type any text, the table updates as you go. As of v1.11.6 the admin tables (Users, API Keys, Command Library) also have filter inputs.</p>
 
 <p>Click any column header to sort by that column. The first click sorts ascending, the second descending, the third clears the sort. Hold <kbd>Shift</kbd> and click a second column header to sort by that as a secondary key — useful for things like "sort by group, then by status within each group". A small superscript number shows the priority order when you have a multi-column sort.</p>
 
 <p>The Devices grid additionally has a four-button density toggle in the toolbar:</p>
 <ul>
-  <li><strong>Minimal</strong> (v1.11.6) — one device per row, ~32px tall. Built for scanning 50+ devices at a glance. Hostname / IP / Version meta is shown inline; on narrow viewports the lower-priority meta items drop out automatically.</li>
+  <li><strong>Minimal</strong> (v1.11.6, rebuilt as a real <code>&lt;table&gt;</code> in v1.11.7) — one device per row in an aligned table layout. Columns: Status, Name, Hostname, Group, OS, IP, Version, Last seen, Actions. Headers click-to-sort like every other table. Responsive breakpoints drop low-priority columns rather than letting them overflow: hostname goes at ≤ 1280px, version at ≤ 1080px, group at ≤ 920px, IP at ≤ 760px, OS at ≤ 620px. Built for fleets where you want to scan 50+ devices at a glance.</li>
   <li><strong>Compact</strong> — denser cards with smaller padding and tighter grid gap.</li>
   <li><strong>Comfortable</strong> — the default card layout.</li>
   <li><strong>Spacious</strong> — larger padding and bigger fonts for very large displays.</li>
 </ul>
+
+<p>The dropdown menu on each device (the ⋯ button) is identical across all four density modes — same handlers, same items. As of v1.11.7 the menu includes a per-device <strong>Upgrade packages</strong> option that runs apt / dnf / pacman upgrade on that single device without needing to select the checkbox first. Output appears in the device's "Update history" panel ~30–120s after the run completes.</p>
 
 <p>All of this — density, filter strings, sort orders — is stored per user, server-side, under the <code>ui_prefs</code> key in <code>users.json</code>. Log into the same account on a different browser, your filters and sort orders come with you. The server-side schema is sanitised: anything you don't recognise gets dropped silently, individual filter strings cap at 256 chars, sort lists cap at 5 columns, total per-user prefs cap at 16 KB. The <code>/api/ui-prefs</code> endpoint accepts <code>GET</code> (read), <code>POST</code> (replace whole document), and <code>DELETE</code> (wipe) — useful if you ever need to reset somebody's UI to defaults from a script.</p>
 
@@ -186,7 +188,9 @@ cd remotepower</code></pre>
 
 <p>The agent wakes up every 60 seconds (configurable via environment variable <code>RP_POLL_INTERVAL</code>). It sends a <code>POST /api/heartbeat</code> with its device ID, auth token, and system info (hostname, IPs, MAC, metrics). The server records the heartbeat timestamp and immediately checks <code>commands.json</code> for any pending command with that device ID.</p>
 
-<p>If a command is pending, the server returns it in the heartbeat response and marks it "in‑flight". The agent receives the command, executes it, and on the <strong>next</strong> heartbeat (60 seconds later) sends the result back. So a simple reboot command takes about 1 minute to start and another minute to report success. If you want faster feedback, use the long‑poll exec (explained below).</p>
+<p>If a command is pending, the server returns it in the heartbeat response and marks it "in‑flight". The agent receives the command, executes it, and immediately sends a follow‑up heartbeat with just the result (a minimal payload: device id, token, cmd_output). For commands that take a while — apt upgrade, dnf upgrade, custom shell scripts — the follow‑up arrives whenever the command finishes, not at the next 60s tick. Result is typically visible in the dashboard within a couple of seconds of the command completing.</p>
+
+<p>Before v1.11.7 the agent assigned the result to the heartbeat payload it had <em>already sent</em>, then reset the payload on the next loop iteration — the result silently disappeared. If you ran upgrades on v1.10.0–v1.11.6 and the "Update history" panel stayed empty, that's why. The fix in v1.11.7 sends the dedicated follow-up heartbeat. If the follow-up POST itself fails (network blip, server restart at the wrong moment), the result is stashed to <code>/var/lib/remotepower-pending-cmd.json</code> and replayed on the next successful heartbeat.</p>
 
 <p>Shutdown/reboot commands are slightly special: the agent runs the OS shutdown command (<code>shutdown -h +0</code> on Linux, <code>shutdown /s /t 0</code> on Windows) and immediately reports success on the next heartbeat—before the machine actually powers off. That's why you sometimes see "executed" but the device stays online for another few seconds. You can set a shutdown delay in server settings (which prepends a <code>+</code> argument or changes the <code>/t</code> value).</p>
 

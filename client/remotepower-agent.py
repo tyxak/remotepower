@@ -32,7 +32,7 @@ from urllib import request, error
 CONF_DIR     = Path(os.environ.get('PROGRAMDATA', 'C:\\ProgramData')) / 'RemotePower'
 CREDS_FILE   = CONF_DIR / 'credentials.json'
 LOG_FILE     = CONF_DIR / 'agent.log'
-VERSION      = '1.11.6'
+VERSION      = '1.11.9'
 AGENT_SCRIPT = Path(sys.argv[0]).resolve()
 
 POLL_INTERVAL      = 60
@@ -443,9 +443,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)
+                # v1.11.7: send a follow-up heartbeat carrying the
+                # output. See remotepower-agent for the full reasoning.
                 if result is not None:
-                    payload['cmd_output'] = result
-                payload['executed_command'] = cmd
+                    follow_up = {
+                        'device_id': dev_id, 'token': token,
+                        'ip': get_local_ip(), 'os': get_os_info(),
+                        'version': VERSION,
+                        'cmd_output': result,
+                        'executed_command': cmd,
+                    }
+                    try:
+                        http_post(f"{server}/api/heartbeat", follow_up)
+                    except Exception as e:
+                        log.warning(f"Follow-up heartbeat failed: {e}")
 
         except error.HTTPError as e:
             if e.code == 403:

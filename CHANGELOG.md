@@ -1,5 +1,165 @@
 # Changelog
 
+## v1.11.9 - 2026-05-06
+
+### Bug fixes
+
+**Minimal table extended past the right edge of the page.** Visible as the table being a few pixels wider than the stats row and section headers above it. Reported with screenshot showing the table's right edge sitting outside the column the rest of the page content occupied.
+
+The cause: I set `width: 100%` on the table but didn't set `table-layout: fixed`. CSS tables default to `table-layout: auto`, where the browser sizes columns based on the longest content in each. The `max-width: 200px` I'd put on `<td>` cells was a hint that auto-layout silently ignored — long content like "Debian GNU/Linux 12 (bookworm)" pushed the OS column wider than I'd budgeted for, and the table grew past the container's content width.
+
+Fix: added `table-layout: fixed` to `.devices-minimal-table`, set explicit widths on every column header except OS (which stays auto and gets the remaining space), and dropped the now-redundant `max-width: 200px` on `<td>` cells. With fixed layout, columns are sized strictly by header widths and any overflowing cell content gets clipped with the existing ellipsis rule.
+
+Total of fixed widths comes to ~900px (Status 90 + Name 190 + Hostname 160 + Group 100 + IP 130 + Version 90 + Last seen 100 + Actions 50), which leaves ~152px for OS in a 1052px content area (the standard `max-width: 1100px` container with 24px padding on each side). On narrower viewports the responsive `@media` rules drop low-priority columns before things get cramped.
+
+### Tests
+
+Test suite unchanged at **444 passing** — no Python code changed. The fix is CSS-only.
+
+### Compatibility
+
+Drop-in upgrade. No new dependencies, no schema changes, no agent update needed. Refresh the dashboard after deploying. Affects only the Devices page in minimal density mode; cards, compact, and spacious modes are untouched.
+
+---
+
+## v1.11.8 - 2026-05-06
+
+### Bug fixes
+
+**Monitor checks only ran when the dashboard was open.** Critical bug that's been there since the monitor feature was introduced. The `monitor_interval` config setting (default 300s) was honored by the UI but not by the server — the dashboard refetched `/api/monitor` on a timer, and `/api/monitor` ran the checks synchronously and returned the result. So the actual ping/tcp/http probes only happened when somebody had the page open. Close the tab, walk away for 4 hours, the next page-load showed a 4-hour gap in the history with no checks in between.
+
+The webhook implication is more serious. `monitor_down` and `monitor_up` events fire from inside the same code path. So if a service went down at 14:00 and recovered at 16:00, and nobody had the dashboard open during that window, **neither webhook fired**. The downtime was invisible to anyone relying on alerts.
+
+Symptoms in your case:
+```
+6.5.2026, 14.50.27  ↑ up  200
+6.5.2026, 14.50.13  ↑ up  200
+4.5.2026, 20.53.56  ↑ up  200      ← gap of ~18 hours
+4.5.2026, 18.40.26  ↑ up  200      ← gap of ~2 hours
+```
+
+The gaps are exactly when nobody had the Monitor page loaded.
+
+Fix: extracted the actual check logic into `_execute_monitor_checks(monitors)` and added a periodic runner `run_monitors_if_due()` that's called from `main()` on every CGI request. The periodic runner is gated by `monitor_interval` (clamped to a 60s minimum to prevent CGI-flood disasters). Most CGI hits do nothing — when the gate expires, the same check logic runs and fires the same webhooks as before.
+
+In practice this means monitors run roughly every `monitor_interval` seconds as long as **anything** hits the server. With agents heartbeating every 60s, the trigger frequency is at least once a minute, so monitors will run on schedule. If all agents are offline AND no users are browsing, monitors won't run — but in that scenario you have bigger problems anyway (a `device_offline` webhook will fire from the next-due agent, which will trigger the dispatcher, which will trigger the monitor sweep).
+
+If you've been getting "monitor history shows checks at random times only" — that's why. From v1.11.8 onwards, history fills in regularly.
+
+**Service monitoring was always real-time and is unaffected.** Service state changes ride along in every agent heartbeat (the agent reports unit states every poll), so `service_down` and `service_up` webhooks always fired correctly. No bug here. Mentioning it because the question naturally comes up alongside the monitor bug.
+
+**Dropdown menu in minimal mode was clipped by the table.** v1.11.7 introduced the table-based minimal layout with `overflow: hidden` on the wrap to keep rounded corners working. That overflow rule clipped the ⋯ dropdown menu when it tried to pop out of cells near the bottom or right edge of the table. Reported with screenshot showing the menu cut off mid-item.
+
+Fix: replaced `overflow: hidden` with a per-corner `border-radius` on the first/last `<th>` and `<td>` so the rounded corners survive without an enclosing clip. Then added z-index hoisting on the row `:has()` an open dropdown so the menu sits above all sibling rows. Repositioned the dropdown to anchor right-aligned (it was sometimes pushing off the right edge of the page on narrow viewports).
+
+Tested in Chrome, Safari, Firefox 121+. The `:has()` selector is required for the row-hoist; older browsers fall back to per-cell z-index, which works for everything except possibly the very-bottom row. If you're on Firefox <121 and see the bottom-row menu still clipping, update Firefox.
+
+### Refactor
+
+`handle_monitor_run()` is now a thin wrapper around `_execute_monitor_checks()` + `_persist_monitor_results()`. Both helpers are also called from `run_monitors_if_due()`. No behaviour change for the user-triggered path: pressing Refresh on the Monitor page still runs all checks synchronously and returns them, and side-effect-updates the timestamp so the next periodic sweep doesn't immediately re-check what you just saw.
+
+### Tests
+
+**444 passing** (433 from v1.11.7 + 11 new in `test_v1118.py`):
+- Gate logic: empty config no-op, first-call runs, within-interval skips, past-interval runs, timestamp gets updated, back-to-back calls only run once, sub-60s interval clamped at 60.
+- Webhook firing: first failure fires `monitor_down`, recovery fires `monitor_up`, persistent state doesn't double-fire.
+- User-triggered path still works (regression check).
+
+### Compatibility
+
+Drop-in upgrade. Existing `config.json` keeps working — the new `last_monitor_run` field is created lazily on first run. Existing `monitor_notified` state is preserved. Refresh the dashboard after deploying.
+
+### Known limitations
+
+- **Periodic checks are still gated on CGI requests reaching the server.** A truly idle server (no agents heartbeating, no users browsing) won't run monitors. In practice every install has at least one agent doing 60s heartbeats so this is academic, but if you point this at a server with zero agents and just monitors, you'd want a real cron job. Future v1.12 work could add an out-of-band runner via systemd timer.
+- **The `:has()` CSS selector covers the dropdown z-index hoist.** Chrome 105+, Safari 15.4+, Firefox 121+ all support it. Older browsers fall back to per-cell z-index which works for most rows but might clip the very-bottom menu. Modern browser baseline is fine.
+
+---
+
+## v1.11.7 - 2026-05-04
+
+### Bug fixes
+
+**Update history was always empty.** This was a critical agent bug that shipped in v1.10.0 and went unnoticed until somebody actually tried to use the per-device "Update history" panel after running an upgrade.
+
+The flow was supposed to be:
+1. Dashboard pushes `exec:apt-get -y upgrade ...` to the device.
+2. Server's heartbeat response includes `command: <the script>`.
+3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade && ...`).
+4. Agent puts the result in the next heartbeat → server detects it's a package upgrade → archives to `update_logs.json` → "Update history" shows it.
+
+Step 4 is what was broken. Look at `client/remotepower-agent` line 1037–1040 (v1.11.6):
+
+```python
+if cmd:
+    log.info(f"Received command: {cmd}")
+    result = execute_command(cmd)
+    if result is not None:
+        payload['cmd_output'] = result      # <- bug
+    payload['executed_command'] = cmd       # <- same bug
+```
+
+`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0): ...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
+
+Fix: send a dedicated minimal follow-up heartbeat right after the command finishes. Carries just `device_id`, `token`, `ip`, `os`, `version`, `cmd_output`, `executed_command` — no sysinfo or journal, those are already on the server from the first heartbeat in this iteration. If the follow-up POST itself fails (network blip, server restart at exactly the wrong moment), the cmd_output gets stashed to `/var/lib/remotepower-pending-cmd.json` (or `/tmp/` if `/var/lib` isn't writable) and picked up by the next successful heartbeat.
+
+If you've been pressing "Upgrade packages" since v1.10.0 and seeing nothing in Update history: the upgrades did run, the data just never came back. From v1.11.7 onwards everything is captured correctly.
+
+The `executed_command` webhook (`command_executed` event) had the same bug — same fix.
+
+### New features
+
+**Per-device "Upgrade packages" in the dropdown menu.** Previously you had to either (a) tick the device's checkbox and use the toolbar batch-action button, or (b) click into the device modal. Both worked but were a step out of the way for what's a common single-device action.
+
+Now there's a direct "Upgrade packages" item in the ⋯ menu on every device, sitting between "Agent update" and "Update history". Same flow as the batch path under the hood — calls `POST /api/upgrade-device` with one device ID. Confirmation dialog explains the `~30–120s` typical wait and where to find the output.
+
+**Minimal density rebuilt as a real `<table>`.** v1.11.6's minimal mode laid out each device as a flex row, which couldn't keep columns aligned across rows — different content widths in OS / IP / Version meant "Online" wasn't under "Online" between rows. Reported by users with multi-line metadata.
+
+Replaced with an actual HTML `<table>`. Each device is one `<tr>` with the same column structure. Columns: Status / Name / Hostname / Group / OS / IP / Version / Last seen / Actions. Sortable by clicking any column header (same UX as the Services / CVEs / Containers / etc. tables — first click ascending, second descending, third clears, shift+click for secondary sort). Rows alternate-tinted on hover. Offline rows are dimmed.
+
+Responsive breakpoints drop columns rather than letting them overflow:
+- ≤ 1280px → drops Hostname (Name carries enough)
+- ≤ 1080px → drops Version (covered by the per-row patch badge)
+- ≤ 920px → drops Group
+- ≤ 760px → drops IP
+- ≤ 620px → drops OS — at this point the table is only Status / Name / Last seen / Actions
+
+The dropdown ⋯ menu is identical to the cards path — same handlers, same items, same `dropdown-${id}` element id, so `toggleDropdown()` works without modification. The whole behaviour is preserved; just the layout changed.
+
+### Schema additions
+
+- New stash file `/var/lib/remotepower-pending-cmd.json` (or `/tmp/remotepower-pending-cmd.json` for non-root deploys). Holds one cmd_output payload between agent restarts/network failures. Cleared on successful follow-up POST. Schema: `{cmd_output: {...}, executed_command: str, stashed_at: int}`. Permissions: 600 by default, root-only on standard deploys.
+
+- Server-side: no schema changes. The follow-up heartbeat is a regular heartbeat with a subset of fields populated. `update_logs.json` schema unchanged.
+
+### Tests
+
+**433 passing** (425 from v1.11.6 + 8 new in `test_v1117.py`):
+- Minimal follow-up payload (`device_id` + `token` + `cmd_output` only) is accepted and stored.
+- Heartbeat without cmd_output still works (no regression).
+- apt upgrade command lands in `update_logs.json` correctly.
+- Non-upgrade command (e.g. `ls /tmp`) lands in `cmd_output.json` but NOT `update_logs.json`.
+- `GET /api/devices/{id}/update-logs` returns the archived entry end-to-end.
+- Three sequential upgrades all recorded in chronological order.
+- Overflow at `MAX_UPDATE_LOGS_PER_DEVICE` evicts the oldest, keeps the most recent.
+
+### Compatibility
+
+Drop-in upgrade. The server is unchanged for all existing flows — it doesn't care whether cmd_output arrives in the same heartbeat as a sysinfo dump or in a dedicated follow-up. So:
+
+- v1.11.7 server + v1.10.0–v1.11.6 agents: still broken (the bug is in the agent), update history still empty. Agent must self-update to v1.11.7.
+- v1.11.7 agent + v1.11.0+ server: works correctly. The server happily accepts the follow-up heartbeat.
+- v1.11.7 agent + pre-v1.11.0 server: works for cmd_output in general but won't archive to update_logs.json (that file was added in v1.10.0). Out of scope — anyone running v1.11.7 agents will have a recent server.
+
+Refresh the dashboard after the agent self-updates — the next upgrade you trigger will populate Update history within ~60s.
+
+### Known limitations
+
+- **The agent does NOT retroactively recover lost upgrade history.** If you ran an upgrade on v1.10.0–v1.11.6 and the output was dropped, that data is gone forever. The journal on the device still has it (`journalctl -u remotepower-agent | grep "Command output"`), but there's no way to reconstruct an entry from there into `update_logs.json` retroactively. From v1.11.7 onwards, new upgrades are captured.
+- **The stash file isn't automatically pruned.** If a stash file gets written and the agent never gets the chance to retry (e.g. you decommission the device with a pending stash), `/var/lib/remotepower-pending-cmd.json` will sit there forever. It's small (16 KB max for an upgrade output payload) and root-readable, so this is mostly cosmetic. The next upgrade overwrites it.
+
+---
+
 ## v1.11.6 - 2026-05-03
 
 ### Bug fixes

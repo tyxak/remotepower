@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.11.6'
+VERSION      = '1.11.9'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -943,6 +943,48 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             pass
     interval_override_file = Path('/tmp/remotepower-poll-interval')
 
+    # v1.11.7: stash file for cmd_output that couldn't be POSTed in its
+    # follow-up heartbeat (network blip, server restart). The next
+    # successful heartbeat picks it up and sends it through. /var/lib
+    # is preferred (survives /tmp clearing on reboot, which would lose
+    # the upgrade output across a reboot triggered by the upgrade
+    # itself), with /tmp as a fallback for non-root deploys.
+    pending_cmd_output_file = Path('/var/lib/remotepower-pending-cmd.json')
+    if not pending_cmd_output_file.parent.exists() or not os.access(
+            pending_cmd_output_file.parent, os.W_OK):
+        pending_cmd_output_file = Path('/tmp/remotepower-pending-cmd.json')
+
+    def _stash_pending_cmd_output(result, cmd):
+        """Persist cmd_output to disk so the next heartbeat can retry it."""
+        pending_cmd_output_file.write_text(json.dumps({
+            'cmd_output': result,
+            'executed_command': cmd,
+            'stashed_at': int(time.time()),
+        }))
+        log.info(f"Stashed cmd_output for retry: {pending_cmd_output_file}")
+
+    def _load_pending_cmd_output():
+        """Pop any stashed cmd_output. Returns dict or None.
+
+        We delete the file *before* the heartbeat goes out so a server
+        that's still flapping doesn't cause us to retry forever and pile
+        up duplicate entries. If the heartbeat then fails, the data is
+        lost — but the alternative (replay until success) is worse for
+        an upgrade log that might already be partially recorded.
+        """
+        if not pending_cmd_output_file.exists():
+            return None
+        try:
+            data = json.loads(pending_cmd_output_file.read_text())
+            pending_cmd_output_file.unlink()
+            log.info("Loaded stashed cmd_output for retry")
+            return data
+        except Exception as e:
+            log.warning(f"Failed to read stashed cmd_output: {e}")
+            try: pending_cmd_output_file.unlink()
+            except Exception: pass
+            return None
+
     while True:
         poll_count += 1
         # Check for dynamically updated interval
@@ -958,6 +1000,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
         payload = {'device_id': dev_id, 'token': token, 'ip': get_local_ip(),
                    'os': get_os_info(), 'version': VERSION}
+
+        # v1.11.7: pick up any cmd_output that couldn't be sent in its
+        # follow-up heartbeat last cycle. Piggybacks on this heartbeat.
+        pending = _load_pending_cmd_output()
+        if pending:
+            payload['cmd_output'] = pending.get('cmd_output')
+            payload['executed_command'] = pending.get('executed_command', '')
         if poll_count == 1 and boot_reason:
             payload['boot_reason'] = boot_reason
 
@@ -1034,10 +1083,43 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)
+                # v1.11.7: BUG FIX. Previously this code did
+                # `payload['cmd_output'] = result` and relied on the
+                # next heartbeat to ship it — but `payload` is reset
+                # at the top of every loop iteration, so the result was
+                # silently dropped on the floor. Symptom: "Update
+                # history" stayed empty even though the upgrade ran
+                # successfully (the journal showed `Command output
+                # (rc=0): ...` but `update_logs.json` got nothing).
+                #
+                # Fix: send a dedicated follow-up heartbeat immediately
+                # after the command finishes, carrying just the bits
+                # the server needs (cmd_output + executed_command for
+                # the webhook). We don't repeat the full sysinfo /
+                # journal payload — that's already on the server from
+                # the first heartbeat in this iteration.
                 if result is not None:
-                    payload['cmd_output'] = result
-                # Report which command was executed (for webhook)
-                payload['executed_command'] = cmd
+                    follow_up = {
+                        'device_id': dev_id,
+                        'token':     token,
+                        'ip':        get_local_ip(),
+                        'os':        get_os_info(),
+                        'version':   VERSION,
+                        'cmd_output': result,
+                        'executed_command': cmd,
+                    }
+                    try:
+                        http_post(f"{server}/api/heartbeat", follow_up)
+                        log.debug("Follow-up heartbeat with cmd_output sent")
+                    except Exception as e:
+                        log.warning(f"Follow-up heartbeat failed: {e} "
+                                    f"(cmd_output will be retried on next poll)")
+                        # Stash on disk so the next heartbeat picks it up.
+                        # See pending_cmd_output handling below.
+                        try:
+                            _stash_pending_cmd_output(result, cmd)
+                        except Exception:
+                            pass
 
         except error.HTTPError as e:
             if e.code == 403:
