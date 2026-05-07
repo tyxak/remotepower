@@ -592,6 +592,17 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* v1.12.1: highlight selected rows in minimal mode. Matches the
+     batch-select visual treatment in cards mode (subtle blue glow on
+     the selected card). Subdued so a 100-device selection isn't
+     visually overwhelming. */
+  .devices-minimal-table tbody tr.selected {
+    background: rgba(99, 179, 237, 0.08);
+  }
+  .devices-minimal-table tbody tr.selected td {
+    border-top: 1px solid rgba(99, 179, 237, 0.3);
+    border-bottom: 1px solid rgba(99, 179, 237, 0.3);
+  }
   /* slightly tighter row height for the dropdown column (no padding) */
   .devices-minimal-table .dev-actions-cell {
     padding: 4px 8px;
@@ -1412,6 +1423,44 @@
         <!-- v1.11.5: filter input -->
         <div style="margin-bottom:16px"><input type="text" id="monitor-filter" class="form-input" placeholder="Filter by label, type, target, status…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="monitor-thead"><tr><th data-col="label">Label</th><th data-col="type">Type</th><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th data-col="checked">Checked</th><th></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No monitors configured.</td></tr></tbody></table></div>
+
+        <!-- v1.12.0: live device metrics. The Monitor page used to only
+             show external probes (ping/tcp/http). Now also surfaces the
+             current sysinfo state of every enrolled device — disk, memory,
+             CPU load — annotated with the alert level computed against
+             the per-device thresholds. Click a row to jump straight to
+             the device's threshold editor.
+
+             Data source: /api/devices (the same call the dashboard makes
+             to populate the Devices grid). No new endpoint needed; the
+             metric_state field on each device tells us whether anything's
+             firing right now. -->
+        <div class="section-header" style="margin-top:32px">
+          <div class="section-title">Device metrics</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="device-metrics-summary" style="font-size:12px;color:var(--muted)"></span>
+            <button class="btn-icon" onclick="loadDeviceMetrics()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+        </div>
+        <div style="margin-bottom:12px">
+          <input type="text" id="device-metrics-filter" class="form-input" placeholder="Filter by name, group, mount path…" style="max-width:400px;padding:8px 12px;font-size:13px">
+        </div>
+        <div class="table-card">
+          <table>
+            <thead id="device-metrics-thead">
+              <tr>
+                <th data-col="name">Device</th>
+                <th data-col="status">Alert</th>
+                <th data-col="memory" style="text-align:right">Memory</th>
+                <th data-col="swap" style="text-align:right">Swap</th>
+                <th data-col="cpu" style="text-align:right">CPU load</th>
+                <th data-col="disks">Disks</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="device-metrics-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- ── Users page (unchanged) ───────────────────────────────────────── -->
@@ -2146,6 +2195,58 @@
 <div class="modal-overlay" id="passwd-modal"><div class="modal"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username"><div class="form-group" id="passwd-old-wrap"><label class="form-label">Current password</label><input type="password" id="passwd-old" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label">New password</label><input type="password" id="passwd-new" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('passwd-modal')">Cancel</button><button class="btn-primary" onclick="submitPasswd()">Update</button></div></div></div>
 <div class="modal-overlay" id="schedule-add-modal"><div class="modal"><div class="modal-title">Schedule command</div><div class="form-group"><label class="form-label">Device</label><select id="sched-device" class="form-input"></select></div><div class="form-group"><label class="form-label">Command</label><select id="sched-command" class="form-input"><option value="shutdown">Shut down</option><option value="reboot">Reboot</option></select></div><div class="form-group"><label class="form-label">Date &amp; time (one-shot)</label><input type="datetime-local" id="sched-datetime" class="form-input"></div><div class="form-group"><label class="form-label">— or — Cron expression (recurring)</label><input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace"><div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button><button class="btn-primary" onclick="addScheduleJob()">Schedule</button></div></div></div>
 <div class="modal-overlay" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" onchange="pickFromLibrary()"><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button><button class="btn-primary" onclick="sendExecCmd()">Run</button></div></div></div>
+
+<!-- v1.12.0: per-device metric thresholds editor -->
+<div class="modal-overlay" id="metric-thresholds-modal">
+  <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+    <div class="modal-title" id="metric-thresholds-title">Metric thresholds</div>
+    <div class="modal-subtitle">When a metric crosses a threshold, RemotePower fires the corresponding webhook event. Hysteresis: a metric must drop 5 points below "warn" before "recovered" fires.</div>
+    <input type="hidden" id="metric-thresholds-device-id">
+
+    <div style="background:var(--surface2);padding:12px;border-radius:6px;margin:12px 0;font-size:11px;color:var(--muted)">
+      <div id="metric-thresholds-current" style="font-family:monospace"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);text-transform:uppercase">
+      <div>Metric</div><div>Warning</div><div>Critical</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center">
+      <label style="font-size:13px">Memory %</label>
+      <input type="number" class="form-input" id="thr-mem-warn" min="1" max="99" placeholder="85">
+      <input type="number" class="form-input" id="thr-mem-crit" min="1" max="99" placeholder="95">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center">
+      <label style="font-size:13px">Swap %</label>
+      <input type="number" class="form-input" id="thr-swap-warn" min="1" max="99" placeholder="20">
+      <input type="number" class="form-input" id="thr-swap-crit" min="1" max="99" placeholder="50">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;align-items:center">
+      <label style="font-size:13px">Disk % (default)</label>
+      <input type="number" class="form-input" id="thr-disk-warn" min="1" max="99" placeholder="80">
+      <input type="number" class="form-input" id="thr-disk-crit" min="1" max="99" placeholder="90">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;align-items:center">
+      <label style="font-size:13px">CPU load ratio</label>
+      <input type="number" step="0.1" class="form-input" id="thr-cpu-warn" min="0.1" max="100" placeholder="1.5">
+      <input type="number" step="0.1" class="form-input" id="thr-cpu-crit" min="0.1" max="100" placeholder="3.0">
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Per-mount disk overrides</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Different thresholds for specific mount points. Useful when /var fills with logs (lower threshold) or /backup is meant to fill (higher threshold).</div>
+      <div id="thr-mounts-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button class="btn-icon" type="button" onclick="addMountThresholdRow()" style="margin-top:8px;font-size:12px">+ Add mount</button>
+    </div>
+
+    <div id="metric-thresholds-error" style="color:var(--red);font-size:13px;margin:8px 0;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('metric-thresholds-modal')">Cancel</button>
+      <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="resetMetricThresholds()">Reset to defaults</button>
+      <button class="btn-primary" onclick="saveMetricThresholds()">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- v1.11.11: web terminal modal — phase 1 (auth dialog) -->
 <div class="modal-overlay" id="webterm-modal">
@@ -3242,7 +3343,7 @@ function showPage(name, btn) {
   const el = document.getElementById('page-' + name);
   if (el) el.classList.add('active');
   if (btn) btn.classList.add('active');
-  if (name === 'monitor')  runMonitor();
+  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
@@ -3363,7 +3464,7 @@ function renderDevices() {
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -3415,8 +3516,13 @@ function _registerDevicesMinimalTable() {
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
-      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
-      return `<tr class="dev-row ${isOnline ? 'online' : 'offline'}" data-dev-id="${d.id}">
+      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      // v1.12.1: leading checkbox cell mirrors the cards-mode batch-select
+      // experience. Reuses the same selectedDevices Set so cards/minimal
+      // share state — switch density mid-selection, your selection survives.
+      const isSel = selectedDevices.has(d.id);
+      return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
+        <td style="text-align:center;padding:0 6px"><input type="checkbox" ${isSel ? 'checked' : ''} onclick="toggleSelect('${d.id}')" style="margin:0"></td>
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
         <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
         <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}</td>
@@ -3432,7 +3538,7 @@ function _registerDevicesMinimalTable() {
     // already handles the "no devices match filter" case — by the time
     // we get here we always have ≥1 row.
     emptyMsg: 'No devices.',
-    colspan: 9,
+    colspan: 10,
   });
 }
 
@@ -3451,6 +3557,7 @@ function _renderDevicesMinimal(filtered) {
     <table class="devices-minimal-table">
       <thead id="devices-minimal-thead">
         <tr>
+          <th style="width:36px;text-align:center"><input type="checkbox" id="dev-min-select-all" onclick="toggleSelectAllMinimal(this)" title="Select all visible" style="margin:0"></th>
           <th data-col="status" style="width:90px">Status</th>
           <th data-col="name" style="width:190px">Name</th>
           <th data-col="hostname" style="width:160px">Hostname</th>
@@ -3972,6 +4079,301 @@ async function upgradePackages(id, name) {
   else toast(data?.error || 'Failed', 'error');
 }
 
+// ─── v1.12.0: per-device metric thresholds editor ───────────────────────────
+//
+// Modal accessible from the device dropdown. Loads current overrides + defaults
+// from GET /api/devices/{id}/metric-thresholds, lets the user adjust values
+// (including per-mount disk overrides), saves via PATCH. The reset button
+// DELETEs the overrides so the device falls back to fleet-wide defaults.
+
+let _currentMetricThresholdsDevice = null;
+
+async function openMetricThresholds(id, name) {
+  _currentMetricThresholdsDevice = id;
+  document.getElementById('metric-thresholds-device-id').value = id;
+  document.querySelector('#metric-thresholds-modal .modal-title').textContent =
+    `Metric thresholds — ${name}`;
+  document.getElementById('metric-thresholds-error').style.display = 'none';
+
+  // Clear the form before loading — avoids flashing stale values
+  ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit']
+    .forEach(k => document.getElementById('thr-' + k).value = '');
+  document.getElementById('thr-mounts-list').innerHTML = '';
+
+  openModal('metric-thresholds-modal');
+
+  const data = await api('GET', `/devices/${id}/metric-thresholds`);
+  if (!data) return;
+
+  // The form shows EFFECTIVE values (overrides ?? defaults). The placeholder
+  // shows the default; we leave the field blank if there's no override so
+  // the user can see at a glance what's customised vs. inherited.
+  const o = data.overrides || {};
+  const d = data.defaults  || {};
+
+  const fillField = (fieldId, key) => {
+    const el = document.getElementById(fieldId);
+    el.placeholder = String(d[key]);
+    el.value = (key in o) ? String(o[key]) : '';
+  };
+  fillField('thr-mem-warn',  'mem_warn_percent');
+  fillField('thr-mem-crit',  'mem_crit_percent');
+  fillField('thr-swap-warn', 'swap_warn_percent');
+  fillField('thr-swap-crit', 'swap_crit_percent');
+  fillField('thr-disk-warn', 'disk_warn_percent');
+  fillField('thr-disk-crit', 'disk_crit_percent');
+  fillField('thr-cpu-warn',  'cpu_warn_load_ratio');
+  fillField('thr-cpu-crit',  'cpu_crit_load_ratio');
+
+  // Per-mount overrides
+  const perMount = (o.disk_per_mount || {});
+  for (const [path, vals] of Object.entries(perMount)) {
+    addMountThresholdRow(path, vals.warn, vals.crit);
+  }
+
+  // Show the device's current sysinfo metrics so the user knows what
+  // thresholds make sense. (Pulled from the cached devices array — no
+  // extra API call.)
+  const dev = (typeof devices !== 'undefined' ? devices : []).find(x => x.id === id);
+  const si = dev?.sysinfo || {};
+  const lines = [];
+  if (si.mem_percent !== undefined)    lines.push(`current mem: ${si.mem_percent}%`);
+  if (si.swap_percent !== undefined)   lines.push(`swap: ${si.swap_percent}%`);
+  if (si.loadavg_1m !== undefined && si.cpu_count) {
+    lines.push(`load: ${si.loadavg_1m} on ${si.cpu_count} cpu (ratio ${(si.loadavg_1m / si.cpu_count).toFixed(2)})`);
+  }
+  if (Array.isArray(si.mounts)) {
+    for (const m of si.mounts.slice(0, 6)) {
+      lines.push(`disk ${m.path}: ${m.percent}%`);
+    }
+  }
+  document.getElementById('metric-thresholds-current').textContent =
+    lines.length ? lines.join('  •  ') : 'No metrics yet — agent hasn\'t reported sysinfo.';
+}
+
+function addMountThresholdRow(path = '', warn = '', crit = '') {
+  const container = document.getElementById('thr-mounts-list');
+  const row = document.createElement('div');
+  row.className = 'mount-row';
+  row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center';
+  row.innerHTML = `
+    <input type="text" class="form-input mount-path" placeholder="/var" value="${escHtml(path)}" style="font-family:monospace;font-size:12px">
+    <input type="number" class="form-input mount-warn" placeholder="warn %" min="1" max="99" value="${warn === '' ? '' : warn}">
+    <input type="number" class="form-input mount-crit" placeholder="crit %" min="1" max="99" value="${crit === '' ? '' : crit}">
+    <button class="btn-icon" type="button" onclick="this.parentElement.remove()" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:14px;padding:4px 8px">×</button>
+  `;
+  container.appendChild(row);
+}
+
+async function saveMetricThresholds() {
+  const id = _currentMetricThresholdsDevice;
+  if (!id) return;
+  const errEl = document.getElementById('metric-thresholds-error');
+  errEl.style.display = 'none';
+
+  const payload = {};
+
+  const readPair = (warnId, critId, warnKey, critKey) => {
+    const w = document.getElementById(warnId).value.trim();
+    const c = document.getElementById(critId).value.trim();
+    if (w !== '') payload[warnKey] = parseFloat(w);
+    if (c !== '') payload[critKey] = parseFloat(c);
+  };
+  readPair('thr-mem-warn',  'thr-mem-crit',  'mem_warn_percent',   'mem_crit_percent');
+  readPair('thr-swap-warn', 'thr-swap-crit', 'swap_warn_percent',  'swap_crit_percent');
+  readPair('thr-disk-warn', 'thr-disk-crit', 'disk_warn_percent',  'disk_crit_percent');
+  readPair('thr-cpu-warn',  'thr-cpu-crit',  'cpu_warn_load_ratio', 'cpu_crit_load_ratio');
+
+  // Per-mount overrides
+  const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');
+  if (mountRows.length > 0) {
+    const perMount = {};
+    for (const row of mountRows) {
+      const path = row.querySelector('.mount-path').value.trim();
+      const warn = row.querySelector('.mount-warn').value.trim();
+      const crit = row.querySelector('.mount-crit').value.trim();
+      if (!path) continue;
+      if (!path.startsWith('/')) {
+        errEl.textContent = `Mount path must start with / (got "${path}")`;
+        errEl.style.display = 'block';
+        return;
+      }
+      if (!warn || !crit) {
+        errEl.textContent = `Both warn and crit required for mount ${path}`;
+        errEl.style.display = 'block';
+        return;
+      }
+      perMount[path] = {warn: parseFloat(warn), crit: parseFloat(crit)};
+    }
+    payload.disk_per_mount = perMount;
+  }
+
+  const resp = await api('PATCH', `/devices/${id}/metric-thresholds`, payload);
+  if (resp?.ok) {
+    toast('Metric thresholds saved', 'success');
+    closeModal('metric-thresholds-modal');
+  } else {
+    errEl.textContent = resp?.error || 'Save failed';
+    errEl.style.display = 'block';
+  }
+}
+
+async function resetMetricThresholds() {
+  const id = _currentMetricThresholdsDevice;
+  if (!id) return;
+  if (!confirm('Reset all metric thresholds for this device to fleet defaults?\n\nPer-device overrides AND per-mount disk overrides will be cleared.')) return;
+  const resp = await api('DELETE', `/devices/${id}/metric-thresholds`);
+  if (resp?.ok) {
+    toast('Reset to defaults', 'success');
+    closeModal('metric-thresholds-modal');
+  } else {
+    toast(resp?.error || 'Reset failed', 'error');
+  }
+}
+
+// ─── v1.12.0: device metrics on the Monitor page ────────────────────────────
+//
+// Surfaces each device's current sysinfo (memory, swap, CPU loadavg, per-mount
+// disk) alongside the alert level computed from metric_state. Click a row to
+// jump straight to the threshold editor for that device.
+
+let _deviceMetricsRegistered = false;
+
+function _registerDeviceMetricsTable() {
+  if (_deviceMetricsRegistered) return;
+  _deviceMetricsRegistered = true;
+  tableCtl.register({
+    name: 'device_metrics',
+    tbody: 'device-metrics-tbody',
+    filterInput: 'device-metrics-filter',
+    sortHeaders: 'device-metrics-thead',
+    colspan: 7,
+    columns: ['name', 'status', 'memory', 'swap', 'cpu', 'disks'],
+    getColumns: (d) => {
+      const si = d.sysinfo || {};
+      const state = d.metric_state || {};
+      // Aggregate alert level: critical > warning > ok. We compute it
+      // here so the row can sort by severity in addition to per-metric.
+      let level = 'ok';
+      for (const [, v] of Object.entries(state)) {
+        if (v === 'critical') { level = 'critical'; break; }
+        if (v === 'warning')  { level = 'warning'; }
+      }
+      return {
+        name:   d.name || '',
+        // sort: critical first when ascending
+        status: level === 'critical' ? 'a-critical' : level === 'warning' ? 'b-warning' : 'c-ok',
+        memory: si.mem_percent ?? -1,
+        swap:   si.swap_percent ?? -1,
+        // Sort CPU by ratio (load / cpus), not raw load — comparable across hosts
+        cpu:    (si.loadavg_1m && si.cpu_count) ? si.loadavg_1m / si.cpu_count : -1,
+        // Disks: highest mount usage of the device
+        disks:  Array.isArray(si.mounts) && si.mounts.length
+                  ? Math.max(...si.mounts.map(m => m.percent || 0))
+                  : (si.disk_percent ?? -1),
+      };
+    },
+    match: (d, q) => {
+      const hay = `${d.name || ''} ${d.hostname || ''} ${d.group || ''} ${(d.tags||[]).join(' ')}`.toLowerCase();
+      if (hay.includes(q)) return true;
+      // Also match against mount paths so people can search "/var" etc.
+      const mounts = (d.sysinfo?.mounts || []).map(m => (m.path || '').toLowerCase()).join(' ');
+      return mounts.includes(q);
+    },
+    row: (d) => {
+      const si = d.sysinfo || {};
+      const state = d.metric_state || {};
+      // Aggregate alert level
+      let level = 'ok';
+      for (const [, v] of Object.entries(state)) {
+        if (v === 'critical') { level = 'critical'; break; }
+        if (v === 'warning')  level = 'warning';
+      }
+      const levelBadge =
+        level === 'critical' ? '<span class="patch-badge" style="background:rgba(239,68,68,0.18);color:var(--red);font-size:10px">CRIT</span>' :
+        level === 'warning'  ? '<span class="patch-badge warn" style="font-size:10px">WARN</span>' :
+        d.online ? '<span class="patch-badge ok" style="font-size:10px">OK</span>' : '<span style="color:var(--muted);font-size:11px">offline</span>';
+
+      const fmtPct = (v, key) => {
+        if (v === undefined || v === null) return '<span style="color:var(--muted)">—</span>';
+        const lv = state[key] || 'ok';
+        const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
+        return `<span style="color:${color};font-family:monospace">${Number(v).toFixed(1)}%</span>`;
+      };
+
+      const memCell  = fmtPct(si.mem_percent,  'memory:');
+      const swapCell = fmtPct(si.swap_percent, 'swap:');
+
+      let cpuCell = '<span style="color:var(--muted)">—</span>';
+      if (si.loadavg_1m !== undefined && si.cpu_count) {
+        const ratio = si.loadavg_1m / si.cpu_count;
+        const lv = state['cpu:'] || 'ok';
+        const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
+        cpuCell = `<span style="color:${color};font-family:monospace">${si.loadavg_1m.toFixed(2)} / ${si.cpu_count} (${ratio.toFixed(2)}×)</span>`;
+      }
+
+      // Disks: list each mount with its percent + alert state
+      let diskCell = '<span style="color:var(--muted)">—</span>';
+      const mounts = Array.isArray(si.mounts) ? si.mounts : [];
+      if (mounts.length > 0) {
+        const items = mounts.map(m => {
+          const lv = state[`disk:${m.path}`] || 'ok';
+          const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
+          return `<span style="color:${color};font-family:monospace;font-size:11px;margin-right:10px" title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
+        });
+        diskCell = items.join('');
+      } else if (si.disk_percent !== undefined) {
+        // Pre-v1.11.10 agent: only legacy root disk
+        const lv = state['disk:/'] || 'ok';
+        const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
+        diskCell = `<span style="color:${color};font-family:monospace">/ ${si.disk_percent.toFixed(1)}%</span>`;
+      }
+
+      return `<tr>
+        <td style="font-weight:500"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}</td>
+        <td>${levelBadge}</td>
+        <td style="text-align:right">${memCell}</td>
+        <td style="text-align:right">${swapCell}</td>
+        <td style="text-align:right">${cpuCell}</td>
+        <td>${diskCell}</td>
+        <td><button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}')">Thresholds</button></td>
+      </tr>`;
+    },
+    emptyMsg: 'No devices to show metrics for.',
+    emptyMsgFiltered: 'No devices match the filter.',
+  });
+}
+
+async function loadDeviceMetrics() {
+  _registerDeviceMetricsTable();
+  const data = await api('GET', '/devices');
+  if (!data) return;
+  // Update the global cache so other code paths see fresh sysinfo too
+  if (typeof devices !== 'undefined') devices = data;
+
+  // Summary line: count of devices in each alert level
+  let warn = 0, crit = 0;
+  for (const d of data) {
+    const state = d.metric_state || {};
+    let level = 'ok';
+    for (const [, v] of Object.entries(state)) {
+      if (v === 'critical') { level = 'critical'; break; }
+      if (v === 'warning')  level = 'warning';
+    }
+    if (level === 'critical') crit++;
+    else if (level === 'warning') warn++;
+  }
+  const summary = document.getElementById('device-metrics-summary');
+  if (summary) {
+    const parts = [];
+    if (crit) parts.push(`<span style="color:var(--red);font-weight:600">${crit} critical</span>`);
+    if (warn) parts.push(`<span style="color:var(--amber);font-weight:600">${warn} warning</span>`);
+    if (!parts.length) parts.push(`<span style="color:var(--green)">all clear</span>`);
+    summary.innerHTML = parts.join('  •  ');
+  }
+  tableCtl.render('device_metrics', data);
+}
+
 // ─── v1.11.11: web terminal ─────────────────────────────────────────────────
 //
 // Opens a modal asking for SSH host/user/password + admin password.
@@ -4215,6 +4617,26 @@ async function clearHistory() { if (!confirm('Clear all command history? This ca
 let selectedDevices = new Set();
 function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
 function clearSelection() { selectedDevices.clear(); updateBatchBar(); renderDevices(); }
+// v1.12.1: select-all checkbox in the minimal table's header. Selects /
+// deselects every currently-rendered row (i.e. respects the visible filter,
+// not the entire device fleet). If you've filtered to "production" tag,
+// the checkbox toggles only those rows.
+function toggleSelectAllMinimal(checkbox) {
+  const rows = document.querySelectorAll('#devices-minimal-tbody tr.dev-row');
+  if (checkbox.checked) {
+    rows.forEach(tr => {
+      const id = tr.getAttribute('data-dev-id');
+      if (id) selectedDevices.add(id);
+    });
+  } else {
+    rows.forEach(tr => {
+      const id = tr.getAttribute('data-dev-id');
+      if (id) selectedDevices.delete(id);
+    });
+  }
+  updateBatchBar();
+  renderDevices();
+}
 function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
 async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }

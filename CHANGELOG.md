@@ -1,5 +1,176 @@
 # Changelog
 
+## v1.12.1 - 2026-05-08
+
+A targeted hardening release after a real-world incident: a user's `devices.json` got corrupted by a concurrent-write race between two CGI processes, leaving the file with a complete first JSON document followed by trailing garbage. Effects: dashboard showed no devices, all agents got 403 "Credentials rejected" because the heartbeat handler couldn't find them in the empty-on-load file.
+
+This release makes that class of corruption impossible going forward.
+
+### Storage hardening (the main thing)
+
+`save()` now does:
+
+1. **Round-trip integrity check before any disk write.** Serialise with `allow_nan=False`, then parse the result back. If the data won't round-trip, raise `ValueError` immediately instead of writing it. Catches NaN/Infinity (Python's json silently allows them, but most other tools reject them) and any logic bug producing a malformed structure.
+
+2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE, ...)` will queue on the lock instead of racing.
+
+3. **Per-process unique tmp filename.** `<file>.tmp.<pid>.<nonce>` instead of just `<file>.tmp`. Even with the lock, this is belt-and-braces — if two writers ever did manage to be in `save()` simultaneously (lock file deleted, filesystem weirdness), they wouldn't share a tmp file and couldn't trample each other's bytes.
+
+4. **fsync before rename.** Forces the bytes to durable storage before the atomic rename, so a power loss right after the rename doesn't return to a zero-length file. tmpfs and a few other filesystems don't support fsync; we tolerate that gracefully.
+
+5. **Rolling backup.** The current file is copied to `<file>.bak` before every replace. Single rolling backup, not history — if the live file ever ends up corrupted, we have one known-good prior state to fall back to.
+
+`load()` automatically falls back to `.bak` if the canonical file is corrupt:
+
+- Tries `<file>` first
+- On `JSONDecodeError`, tries `<file>.bak`
+- If `.bak` parses, returns its content and logs a warning to stderr (visible in nginx error log via fcgiwrap)
+- If both are corrupt, returns `{}` — same as a missing file — so the rest of the code keeps working in degraded mode rather than crashing the whole CGI
+
+The fallback is the difference between v1.12.0's "one bad write makes the dashboard unusable until manual recovery" and v1.12.1's "one bad write is silently absorbed using the previous heartbeat's state, with a warning logged."
+
+### Why not SQLite?
+
+I considered migrating the hot-path files (`devices.json`, `services.json`, `containers.json`, `metrics.json`, `history.json`) to SQLite. Real analysis:
+
+- ✅ ACID transactions, the corruption you saw is fundamentally impossible
+- ❌ Major refactor — 2-3 sessions of work
+- ❌ Backup/restore changes (`tar czf` stops being a complete backup)
+- ❌ Debugging tools change (no more `jq` over your data)
+- ❌ Schema migrations become a thing forever
+
+At the user's scale (~9 devices, 60-second heartbeats = ~9 writes/min), `flock` handles serialisation trivially. SQLite's wins (queries, indexes, joins, large-scale concurrency) don't apply to a key/value lookup workload where the whole dataset fits in memory anyway. The hardening above gives the same correctness guarantee for this scale without losing the ability to `jq` your way through everything during incidents.
+
+If RemotePower ever grows past 1000 devices or the data shape changes meaningfully, SQLite is the right migration. For now, the boring-architecture philosophy wins.
+
+### Multi-select in minimal devices view
+
+The cards mode had checkbox-driven batch select since v1.10; minimal mode shipped without it in v1.11.7. Now minimal has parity:
+
+- Leading checkbox column on every row
+- Header checkbox with select-all-visible (respects the active filter — if you've filtered to "production" tag, select-all toggles only those rows)
+- Selected rows get a subtle blue background highlight
+- Reuses the same `selectedDevices` Set as cards mode, so switching density mid-selection preserves your selection
+
+### Recovery tool for files corrupted before this upgrade
+
+`packaging/recover-corrupted-json.py` is a one-shot fix for any JSON file already corrupted by the v1.12.0 bug. It:
+
+- Scans `/var/lib/remotepower/*.json` (or specific files passed as args)
+- Uses `json.JSONDecoder.raw_decode()` to find the first valid JSON document and treat anything trailing as garbage
+- Reports what it would do in dry-run mode (the default)
+- With `--apply`, makes a `.broken-<ts>` backup and writes the recovered content over the live file
+
+```bash
+sudo -u www-data python3 packaging/recover-corrupted-json.py            # dry-run scan
+sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
+```
+
+### Tests
+
+**529 passing** (513 from v1.12.0 + 16 new in `test_v1121.py`):
+
+Atomic save (8 tests): basic round-trip, lock sidecar created, .bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
+
+Load with fallback (4 tests): missing returns empty, corrupt falls back to .bak, no .bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
+
+End-to-end recovery (1 test): plant corruption, verify load() falls back, verify next save() re-establishes clean state with both files valid.
+
+Concurrent save (1 test): 8-process `multiprocessing.Pool` (spawn context) all writing the same file with read-modify-write loop. Without v1.12.1 hardening, this reliably reproduces a `JSONDecodeError` by the time it finishes; with the hardening, every load returns valid data and every key has the right value.
+
+`test_save_unique_tmp_per_process` (2 tests) — verifies the tmp filename is parameterised by `(pid, nonce)`. Reaches into the implementation intentionally to validate the hardening property described in the module-level comment.
+
+### Compatibility
+
+Drop-in upgrade from v1.12.0. The on-disk format is unchanged — `.bak` and `.lock` sidecars get created on the next save of each file. Existing JSON files keep working as-is.
+
+If you hit the v1.12.0 corruption bug, run `recover-corrupted-json.py --apply` once after upgrading to clean up any leftover damaged files.
+
+### Performance impact
+
+Each `save()` now does:
+- One additional file open + flock (~50µs)
+- One `shutil.copy2()` for the rolling backup (~1ms for files up to 100KB)
+- One `fsync()` (depends on filesystem; typically 1-10ms on a real disk, free on tmpfs)
+
+Heartbeat handler does ~2-3 saves; total added latency per heartbeat: ~5-30ms. Negligible at scale up to thousands of devices/minute.
+
+---
+
+## v1.12.0 - 2026-05-07
+
+A polish release wrapping up the loose ends from v1.11.11 — proper deploy automation, the per-device metric thresholds UI that v1.11.10 only exposed via API, surfacing live metrics on the Monitor page, and a comprehensive manual rewrite. No new server endpoints.
+
+### New: install-webterm.sh
+
+`packaging/install-webterm.sh` handles the v1.11.11 deploy that didn't go smoothly. The original instructions assumed `rp-www`/`rp-webterm` users that don't exist on Debian/Ubuntu (which uses `www-data`); the script now auto-detects the actual CGI user via process heuristic plus fallback through `www-data` → `nginx` → `http` → `rp-www` → `apache`.
+
+What it handles:
+- Detects the CGI user by looking for processes (`pgrep -u USER -f '(fcgi|nginx|cgi|php-fpm)'`) and falls back to existence-only if no match.
+- Detects the package manager (apt/dnf/pacman/apk/zypper) and installs `python3-websockets` + `python3-asyncssh`.
+- Creates the `rp-webterm` daemon user (idempotent — re-runs are safe).
+- Adds the daemon user to the CGI user's group so it can read the ticket file.
+- Sets up directories with correct ownership: `/var/lib/remotepower/webterm-sessions/` (daemon-owned, mode 750), `/var/lib/remotepower/webterm_tickets.json` (CGI-owned, mode 640).
+- Generates the daemon ↔ CGI shared secret to `/etc/remotepower/webterm-secret` and writes it to `config.json` (using `sudo -u $CGI_USER` so file ownership stays correct).
+- Renders the systemd unit with the right `User=` / `Group=` / `ReadWritePaths=` substituted in.
+- Prints the nginx snippet you need to add (with the right port substituted in) plus the `$connection_upgrade` map docs.
+- `--dry-run` mode shows everything it would do without touching the system.
+
+Run as `sudo bash packaging/install-webterm.sh` (or with `--cgi-user www-data` to override detection). At the end it tells you what to paste into nginx and what to verify.
+
+### New: per-device metric thresholds UI
+
+The endpoint shipped in v1.11.10 (`GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`) but had no UI — you had to use `curl`. v1.12.0 adds a full editor accessible from the device dropdown menu (both cards and minimal modes). The modal:
+
+- Shows the device's current sysinfo readings at the top so you know what thresholds make sense (memory %, swap %, load ratio + cpu count, every mount with current %).
+- Has warn/crit fields for memory, swap, default-disk, and CPU load ratio. Empty means "use default"; placeholder shows the inherited value, so customised vs. inherited is visually distinct.
+- Has a per-mount disk overrides section with add/remove rows. Common case: `/var` at 70/85 (logs grow fast), `/backup` at 95/98 (designed to fill).
+- Reset-to-defaults button DELETEs all overrides.
+- Validation: paths must start with `/`, both warn+crit required for each mount, warn must be < crit (server-side enforced; client also pre-checks).
+
+Saving clears the device's `metric_state` so the next heartbeat re-evaluates under the new thresholds (this was already in v1.11.10 — just calling it out because it matters when you're tuning live).
+
+### New: live metrics on the Monitor page
+
+The Monitor page used to show only external probes (ping/TCP/HTTP). Now it has a "Device metrics" section underneath that shows every enrolled device's current sysinfo state, color-coded by alert level:
+
+- **Device** column with group badge
+- **Alert** column showing aggregate level: critical ⨯ red, warning ⨯ amber, OK ⨯ green, offline (muted gray for non-reporting devices)
+- **Memory / Swap / CPU load** columns, each individually colored by that metric's specific alert state
+- **Disks** column listing every mount with its percent, each colored by its own state. Long paths are truncated; tooltip shows the full path plus used/total GB.
+- **Thresholds** button on each row jumps straight to the per-device threshold editor for that device.
+
+Sortable, filterable (by name, group, tags, or mount path). When sorting by status ascending, critical-state devices come first. Summary line above the table: "N critical • M warning" or "all clear".
+
+The data source is the existing `/api/devices` endpoint — no new server work required. The `metric_state` field already populated by v1.11.10's threshold processor tells us which alerts are live.
+
+### New: comprehensive manual
+
+`Manual.html` rewritten from scratch — was 328 lines of fragmented legacy notes; now a coherent ~470-line document covering everything from the architecture overview through web terminal deployment to troubleshooting. 11 sections with a clickable TOC. Replaces both `Manual.html` and `docs/Manual.html` (kept identical to avoid drift).
+
+New coverage:
+- Section 2 (Install): proper subsections for server, web terminal daemon, agent, with the `install-webterm.sh` recommended path
+- Section 3 (Enrollment): both PIN and API token flows side-by-side, with the three token-resolution methods explained
+- Section 7 (Metrics): all four flows covered — the modal UI, the Monitor-page surfacing, the API, and direct `devices.json` inspection
+- Section 8 (Web terminal): full architecture diagram, auth flow walkthrough, security model summary, session-recording details with replay command, retention cron suggestion
+- Section 11 (Troubleshooting): the actual symptoms users will hit (404, 502, 1006 close codes, missing per-mount data, CSP blocking xterm.js)
+
+### Tests
+
+**513 passing — unchanged.** No new server endpoints, so no new test coverage required. The install script is bash so wasn't unit-tested; manually verified with `--dry-run --cgi-user www-data` that it produces the right output and doesn't crash.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.11. No schema changes. Existing per-device metric overrides set via API in v1.11.10 work without modification — the new UI just makes them visible and editable. The webterm daemon binary is unchanged from v1.11.11; only the install script around it is new.
+
+### Known limitations carried forward
+
+- xterm.js still loads from cdn.jsdelivr.net (CSP issue if blocked; manual instructions for self-hosting in Manual.html)
+- Web terminal session recordings still aren't auto-pruned (cron suggestion in manual)
+- Web terminal SSH host-key checking still off by design
+
+---
+
 ## v1.11.11 - 2026-05-07
 
 ### New feature: web terminal

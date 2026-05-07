@@ -15,12 +15,14 @@ import hmac
 import secrets
 import socket
 import subprocess
+import shutil
+import fcntl
 import urllib.request
 import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.11.11'
+SERVER_VERSION = '1.12.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -465,29 +467,183 @@ def _totp_provisioning_uri(secret, username, issuer='RemotePower'):
 # ── Storage ────────────────────────────────────────────────────────────────────
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+
+# v1.12.1: hardened against the concurrent-write corruption that made
+# devices.json a problem in the wild. The bug pattern was:
+#
+#   Process A: opens devices.json.tmp with O_TRUNC, starts writing
+#   Process B: opens devices.json.tmp with O_TRUNC (truncates A's bytes),
+#              writes its own content
+#   Both processes' writes interleave on the same fd offset, producing
+#   a file that contains a complete first JSON document followed by
+#   trailing garbage — exactly what we saw.
+#
+# Three layers of defence now:
+#   1. Per-process unique tmp filename (`.tmp.<pid>.<nonce>`) — two writers
+#      never share a tmp file, so even without locking they can't trample
+#      each other.
+#   2. Exclusive flock on a sidecar lock file — serialises writers cleanly,
+#      so we don't even create the second tmp until the first has renamed.
+#      This solves last-update races as a bonus.
+#   3. Rolling .bak preserved before each rename — if a write somehow still
+#      manages to corrupt the file (filesystem failure, full disk mid-write,
+#      or a process killed between rename and chmod), load() automatically
+#      falls back to the .bak.
+#
+# Plus an integrity check before write: we serialise + round-trip-parse
+# the data before touching disk, so a logic bug producing malformed JSON
+# fails fast instead of writing garbage.
+
+
+def _backup_path(path):
+    """Return the rolling-backup path for a data file."""
+    return path.with_name(path.name + '.bak')
+
+
+def _lock_path(path):
+    """Return the lock-coordination sidecar path for a data file."""
+    return path.with_name(path.name + '.lock')
+
+
 def load(path):
+    """Robust load: try the canonical file, fall back to the rolling .bak.
+
+    On corruption, logs a warning to stderr (which goes to nginx error log
+    via fcgiwrap) and returns the .bak content if it parses. As a last
+    resort, returns {} — same as a missing file — so the rest of the code
+    keeps working in degraded mode rather than crashing the whole CGI.
+
+    The fallback path is the difference between "one bad write makes
+    devices invisible until manual recovery" (v1.12.0) and "one bad write
+    is silently absorbed using the previous heartbeat's state" (v1.12.1).
+    """
+    if not path.exists():
+        return {}
     try:
-        return json.loads(path.read_text()) if path.exists() else {}
-    except Exception:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        bak = _backup_path(path)
+        if bak.exists():
+            try:
+                data = json.loads(bak.read_text())
+                # Log to stderr so this shows up in nginx error log.
+                # Don't try to "auto-heal" by writing the .bak back over
+                # the corrupted file here — that's load()'s caller's job
+                # if they decide to. Read paths shouldn't have side
+                # effects on disk.
+                sys.stderr.write(
+                    f"[remotepower] WARN: {path} corrupted ({exc}); "
+                    f"served from {bak.name}\n")
+                return data
+            except json.JSONDecodeError:
+                pass
+        sys.stderr.write(
+            f"[remotepower] ERROR: {path} corrupted and no usable "
+            f".bak ({exc}); returning empty dict\n")
+        return {}
+    except Exception as exc:
+        sys.stderr.write(f"[remotepower] WARN: {path} read failed: {exc}\n")
         return {}
 
+
 def save(path, data):
-    """Atomic write with restrictive permissions (owner read/write only)."""
-    tmp = path.with_name(path.name + '.tmp')
+    """Concurrent-safe atomic save. See module-level comment for the
+    threat model. Steps:
+
+      1. Round-trip serialise to catch logic bugs before any disk write
+      2. Acquire exclusive flock on a sidecar lock file
+      3. Rotate current file to .bak (if it exists)
+      4. Write to a per-process unique .tmp file with fsync
+      5. Atomic rename to the canonical path
+      6. Release the lock
+
+    The lock sidecar is a small zero-byte file that lives alongside the
+    data file. It exists only as a coordination point — never read for
+    its content. If it gets deleted between save() calls, it's just
+    re-created on the next call.
+    """
+    # Step 1: serialise + validate before any disk write
     try:
-        # Write to temp with mode 600
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'w') as f:
-            f.write(json.dumps(data, indent=2))
-        tmp.replace(path)
-        # Ensure final file has correct permissions regardless of umask
-        os.chmod(str(path), 0o600)
-    except Exception:
+        # allow_nan=False rejects NaN, Infinity, -Infinity. Standard JSON
+        # doesn't allow them; Python's default does. Letting them through
+        # would mean other tools (jq, browsers, anything not Python) fail
+        # to parse our files.
+        serialised = json.dumps(data, indent=2, allow_nan=False)
+        json.loads(serialised)   # round-trip parse
+    except (TypeError, ValueError) as exc:
+        # This is a logic bug somewhere upstream — we'd be writing data
+        # we can't read back. Refuse rather than corrupt.
+        raise ValueError(f"Refusing to save unparseable data to {path}: {exc}")
+
+    # Step 2: acquire flock. The lock file lives in the same directory
+    # so it ends up on the same filesystem (matters for atomic rename).
+    lock_p = _lock_path(path)
+    lock_fd = None
+    try:
+        # mode=0o600, but tolerate it already existing
         try:
-            tmp.unlink(missing_ok=True)
+            lock_p.touch(mode=0o600, exist_ok=True)
+        except FileNotFoundError:
+            # Parent dir doesn't exist; create it
+            lock_p.parent.mkdir(parents=True, exist_ok=True)
+            lock_p.touch(mode=0o600, exist_ok=True)
+        lock_fd = os.open(str(lock_p), os.O_RDWR)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
+        # Step 3: rolling backup. Copy (not rename) so a reader concurrently
+        # opening the canonical file doesn't get a hole. shutil.copy2
+        # preserves mode/owner/timestamps — close enough for backup.
+        if path.exists():
+            try:
+                shutil.copy2(str(path), str(_backup_path(path)))
+            except OSError:
+                # Backup failure shouldn't block the primary write —
+                # losing one rolling backup is recoverable; failing the
+                # save is not.
+                pass
+
+        # Step 4: write to per-process unique tmp file. {pid}.{nonce}
+        # guarantees no collision across CGI processes or threads.
+        tmp = path.with_name(
+            f'{path.name}.tmp.{os.getpid()}.{secrets.token_hex(4)}')
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, 'w') as f:
+                f.write(serialised)
+                f.flush()
+                # fsync forces the bytes to durable storage. Without it,
+                # the rename can complete before the data is on disk;
+                # a power loss right after returns to a zero-length file.
+                # Cost is small for our file sizes; correctness is worth it.
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    # tmpfs and a few other filesystems don't support
+                    # fsync. Not worth failing the write over.
+                    pass
+
+            # Step 5: atomic rename
+            os.replace(str(tmp), str(path))
+            try:
+                os.chmod(str(path), 0o600)
+            except OSError:
+                pass
         except Exception:
-            pass
-        raise
+            # Clean up orphan tmp on any failure
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+
+    finally:
+        # Step 6: release lock (always, even on exception)
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                os.close(lock_fd)
+            except OSError:
+                pass
 
 def ensure_default_user():
     users = load(USERS_FILE)

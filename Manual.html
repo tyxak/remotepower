@@ -2,327 +2,397 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual – The Code-Derived Guide</title>
+<title>RemotePower Manual — v1.12.0</title>
 <style>
-  body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    line-height: 1.6;
-    max-width: 900px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-    color: #1a1a1a;
-    background: #fff;
-  }
-  h1 { font-size: 2.4rem; border-bottom: 3px solid #2c3e50; padding-bottom: 0.3rem; color: #2c3e50; }
-  h2 { font-size: 1.7rem; margin-top: 2.5rem; color: #2c3e50; border-bottom: 1px solid #ccc; padding-bottom: 0.2rem; }
-  h3 { font-size: 1.3rem; margin-top: 1.8rem; color: #34495e; }
-  p { margin: 0.8rem 0; }
-  code {
-    background: #f4f4f4;
-    padding: 0.2em 0.4em;
-    border-radius: 3px;
-    font-family: 'Fira Code', 'Consolas', monospace;
-    font-size: 0.9em;
-  }
-  pre {
-    background: #2d2d2d;
-    color: #f8f8f2;
-    padding: 1rem;
-    border-radius: 6px;
-    overflow-x: auto;
-    font-size: 0.9em;
-    line-height: 1.5;
-  }
-  pre code {
-    background: none;
-    color: inherit;
-    padding: 0;
-  }
-  table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 1.2rem 0;
-  }
-  th, td {
-    border: 1px solid #ddd;
-    padding: 0.5rem;
-    text-align: left;
-  }
-  th {
-    background: #f0f0f0;
-  }
-  blockquote {
-    margin-left: 0;
-    padding-left: 1rem;
-    border-left: 4px solid #2c3e50;
-    color: #555;
-  }
-  @media print {
-    body { max-width: 100%; }
-    h1, h2, h3 { page-break-after: avoid; }
-    pre, table { page-break-inside: avoid; }
-  }
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.55; background: #fafafa; }
+  h1 { font-size: 2em; border-bottom: 2px solid #444; padding-bottom: 6px; }
+  h2 { margin-top: 2em; padding-top: 6px; border-top: 1px solid #ddd; color: #2a3f5f; }
+  h3 { color: #2a3f5f; margin-top: 1.6em; }
+  code { background: #eee; padding: 2px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #2a2a2a; color: #e8e8e8; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.88em; line-height: 1.4; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { border-collapse: collapse; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: left; }
+  th { background: #eaeaea; }
+  .toc { background: #f0f4f8; padding: 14px 24px; border-radius: 6px; }
+  .toc ul { margin: 4px 0; }
+  .note { background: #fff8dc; border-left: 4px solid #d4a017; padding: 8px 14px; margin: 12px 0; }
+  .warn { background: #fde8e8; border-left: 4px solid #b03030; padding: 8px 14px; margin: 12px 0; }
+  kbd { background: #eee; border: 1px solid #aaa; border-radius: 3px; padding: 1px 5px; font-size: 0.9em; }
 </style>
 </head>
 <body>
-<h1>RemotePower: A No-Nonsense Manual</h1>
-<p><em>Written by someone who actually read the code</em></p>
 
-<p>So you've got a bunch of Linux boxes (and maybe a Windows machine you're forced to keep around) and you want to reboot them, run commands, and check their vitals without opening a dozen SSH terminals. RemotePower does that. It's a small, self-hosted web dashboard that talks to a lightweight agent on each client. The agent phones home every minute to ask "got any work for me?" If you queued a reboot, shutdown, or a custom command, the agent picks it up, runs it, and reports back. No inbound firewall holes. No message brokers. Just a CGI script and some JSON files held together with determination.</p>
-<p>This manual is based entirely on reading the source code—no marketing fluff, no README regurgitation. I'll show you how to get it running, how to use it effectively, and where the sharp edges are.</p>
+<h1>RemotePower Manual</h1>
+<p><em>Version 1.12.0 — covers everything from the CGI architecture to the web terminal daemon.</em></p>
 
-<h2>1. What you're actually installing</h2>
-<p>Three components:</p>
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+  <li><a href="#overview">1. What it is, what it isn't</a></li>
+  <li><a href="#install">2. Install &amp; deploy</a></li>
+  <li><a href="#enrollment">3. Device enrollment (PIN + API tokens)</a></li>
+  <li><a href="#agent">4. The agent &amp; heartbeat</a></li>
+  <li><a href="#commands">5. Commands &amp; the queue</a></li>
+  <li><a href="#monitor">6. External monitors (ping/TCP/HTTP)</a></li>
+  <li><a href="#metrics">7. Device metrics &amp; alert thresholds</a></li>
+  <li><a href="#webterm">8. Web terminal (browser SSH)</a></li>
+  <li><a href="#webhooks">9. Webhooks</a></li>
+  <li><a href="#ui">10. Dashboard UI: filter, sort, density</a></li>
+  <li><a href="#troubleshooting">11. Troubleshooting</a></li>
+</ul>
+</div>
+
+
+<h2 id="overview">1. What it is, what it isn't</h2>
+
+<p>RemotePower is a self-hosted fleet manager for Linux/Windows boxes. Each managed machine runs an agent that polls a central server every 60s. The dashboard lets you reboot, shutdown, run commands, monitor patches/services/CVEs/containers, and (v1.11.10+) alert on metric thresholds, plus (v1.11.11+) open browser-based SSH terminals.</p>
+
+<p>What it isn't: a configuration-management system. It runs ad-hoc commands and reports back; it doesn't enforce desired state. Pair with Ansible/Puppet/Salt/Rudder for that.</p>
+
+<p>The architecture is deliberately boring:</p>
+<ul>
+  <li><strong>Server:</strong> Python CGI scripts behind nginx + fcgiwrap. State in flat JSON files under <code>/var/lib/remotepower/</code>. No database. Scales to 50–500 devices comfortably; beyond that look at SQLite.</li>
+  <li><strong>Agent:</strong> Single Python script polled via HTTPS. Heartbeats every 60s with sysinfo, services, containers, and any pending command output.</li>
+  <li><strong>Web terminal daemon (v1.11.11+):</strong> Separate systemd unit for the WebSocket+SSH bits, because CGI can't hold persistent connections. Optional — skip the install and the rest still works.</li>
+</ul>
+
+
+<h2 id="install">2. Install &amp; deploy</h2>
+
+<h3>2.1 Server</h3>
+<pre><code>tar xzf remotepower-1.12.0.tar.gz
+cd remotepower-1.12.0
+sudo bash deploy-server.sh
+</code></pre>
+
+<p>The script writes:</p>
+<ul>
+  <li><code>/var/www/remotepower/</code> — CGI scripts and the dashboard HTML</li>
+  <li><code>/var/lib/remotepower/</code> — state files (JSON), owned by your nginx user (<code>www-data</code> on Debian/Ubuntu, <code>nginx</code> on Fedora/RHEL, <code>http</code> on Arch)</li>
+  <li><code>/etc/nginx/sites-available/remotepower</code> — server block</li>
+</ul>
+
+<p>After deploy, browse to <code>https://your-host/</code> and log in with the default admin password (printed on first run). Change it immediately under Settings.</p>
+
+<h3>2.2 Web terminal daemon (optional, v1.11.11+)</h3>
+<pre><code>sudo bash packaging/install-webterm.sh
+</code></pre>
+
+<p>The script auto-detects your CGI user, installs Python dependencies via apt/dnf/pacman/apk/zypper, creates the <code>rp-webterm</code> daemon user, generates the daemon ↔ CGI shared secret, installs the systemd unit, and prints the nginx snippet you need to add. Run with <code>--dry-run</code> first if you want to see what it'll do.</p>
+
+<p>Then add the printed snippet to your nginx server block <strong>above</strong> any catch-all <code>location ^~ /api/</code> rule:</p>
+
+<pre><code>location = /api/webterm/connect {
+    proxy_pass http://127.0.0.1:8765;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    # … (full snippet shown by install-webterm.sh)
+}
+</code></pre>
+
+<p>And ensure your <code>http { … }</code> block has the upgrade map (only needed once globally):</p>
+
+<pre><code>map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+</code></pre>
+
+<p>Then <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>.</p>
+
+<h3>2.3 Agent</h3>
+<p>On each managed machine:</p>
+<pre><code>sudo install -m 755 client/remotepower-agent /usr/local/bin/
+sudo cp packaging/remotepower-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo remotepower-agent enroll        # interactive PIN-based
+sudo systemctl enable --now remotepower-agent
+</code></pre>
+
+
+<h2 id="enrollment">3. Device enrollment</h2>
+
+<p>Two flows: interactive PIN for hand-installs, API tokens for automation.</p>
+
+<h3>3.1 Interactive PIN</h3>
+<p>Click <strong>Enroll device</strong> in the dashboard. You get a 6-digit PIN, valid for 10 minutes. Run <code>sudo remotepower-agent enroll</code> on the target machine, paste the PIN. Done.</p>
+
+<h3>3.2 API tokens (v1.11.10+)</h3>
+<p>For Ansible / cloud-init / golden-image stamping. Create a token via API:</p>
+
+<pre><code>curl -X POST https://remote.example.com/api/enrollment-tokens \
+  -H "X-Token: $YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "label":         "ansible-batch-2026-05-07",
+    "default_group": "prod",
+    "default_tags":  ["linux"],
+    "expires_in":    3600
+  }'
+# Returns: {"token": "...", "expires": ..., ...}
+</code></pre>
+
+<p>Tokens are <strong>one-time use</strong> and expire after the specified duration (default 24h, max 7 days). The full token is shown ONCE in the create response; the list endpoint only returns 8-character prefixes.</p>
+
+<p>On the target machine, the agent reads the token from one of three sources, in order:</p>
 <ol>
-  <li><strong>Server</strong>: A single Python CGI script (<code>server.py</code>) that lives behind Nginx. It serves the dashboard HTML and handles every API call. It stores all its data as flat JSON files in <code>/var/lib/remotepower/</code>.</li>
-  <li><strong>Agent</strong>: A single Python script (<code>agent.py</code>) that runs on every client, usually as a systemd service (or NSSM on Windows). It polls the server, executes commands, collects metrics. It runs as root because it eventually needs to call <code>shutdown</code> and <code>reboot</code>.</li>
-  <li><strong>Monitor</strong> (optional): ICMP/TCP/HTTP probes the server runs against external targets — not the same as agent service monitoring. Pre-v1.11.8 these only ran when somebody loaded the Monitor page (a real bug — see CHANGELOG). From v1.11.8 onwards a periodic runner inside <code>main()</code> sweeps all configured monitors at most once every <code>monitor_interval</code> seconds (default 300s). The runner is triggered piggyback on every incoming CGI request — agent heartbeats every 60s keep it ticking even when no users are browsing.</li>
+  <li><code>--token</code> CLI arg — <strong>visible in <code>ps</code></strong>, only use for testing</li>
+  <li><code>$REMOTEPOWER_ENROLL_TOKEN</code> environment variable — good for systemd <code>EnvironmentFile=</code></li>
+  <li><code>/etc/remotepower/enroll-token</code> file (must be mode 600) — auto-deleted after success, best for golden images</li>
 </ol>
-<p>The whole thing is about 2500 lines of Python, no framework, no database—just <code>cgi</code>, <code>json</code>, <code>fcntl</code> for file locking, and raw sockets for Wake‑on‑LAN.</p>
 
-<h2>2. Hardware and software requirements</h2>
+<pre><code>sudo remotepower-agent enroll-token --server https://remote.example.com
+# (with token in /etc/remotepower/enroll-token, auto-deleted on success)
+</code></pre>
+
+<p>If the token has <code>default_group</code> or <code>default_tags</code> set, those are applied to the device at enrollment.</p>
+
+<p>To revoke a token before it's used:</p>
+<pre><code>curl -X DELETE https://remote.example.com/api/enrollment-tokens/PREFIX \
+  -H "X-Token: $YOUR_ADMIN_TOKEN"
+# PREFIX is the first 8+ chars shown in the GET listing
+</code></pre>
+
+
+<h2 id="agent">4. The agent &amp; heartbeat</h2>
+
+<p>The agent polls the server every <code>poll_interval</code> seconds (default 60). On each heartbeat it sends:</p>
 <ul>
-  <li><strong>Server</strong>: Any Linux with Python 3.8+, Nginx, <code>fcgiwrap</code>, and systemd. (A Raspberry Pi works fine.)</li>
-  <li><strong>Client</strong>: Python 3.8+. Linux or Windows. The agent needs root to run commands.</li>
-  <li>Your server needs a static IP or hostname reachable from clients. HTTPS strongly recommended (the install script sets up a self‑signed certificate; you can replace it).</li>
+  <li>Identity: <code>device_id</code>, <code>token</code>, OS version, IP, MAC</li>
+  <li>System info: cpu/memory/swap percentages, 1-min load average, cpu count, per-mount disk usage (v1.11.10+)</li>
+  <li>Watched services and log-pattern matches (configured server-side, pushed to agent in heartbeat response)</li>
+  <li>Container list (Docker/Podman/Kubernetes pods, if available on the host)</li>
+  <li>Any pending command output from the previous run (v1.11.7+ uses a dedicated follow-up heartbeat for this)</li>
 </ul>
 
-<h2>3. Installation – the real steps</h2>
-<p>I'm going to walk through what the install scripts actually do, so you can fix things when they go sideways.</p>
-
-<h3>3.1 Server</h3>
-<p>Clone the repo:</p>
-<pre><code>git clone https://github.com/tyxak/remotepower
-cd remotepower</code></pre>
-
-<p>Run the server installer as root:</p>
-<pre><code>sudo bash install-server.sh</code></pre>
-
-<p>Here's what it does, in order:</p>
+<p>The server responds with:</p>
 <ul>
-  <li>Detects your distro (apt, dnf, pacman) and installs packages: <code>nginx</code>, <code>fcgiwrap</code>, <code>python3</code>, <code>python3-pip</code>, <code>python3-venv</code> (or <code>virtualenv</code>), and <code>bcrypt</code> via pip.</li>
-  <li>Creates a system user <code>remotepower</code> if it doesn't exist, otherwise uses <code>www-data</code>. The data directory <code>/var/lib/remotepower/</code> ends up owned by that user with mode <code>700</code>.</li>
-  <li>Copies <code>server.py</code> to <code>/usr/lib/cgi-bin/remotepower/api</code> (the file literally becomes the endpoint). It's executable, with a shebang pointing to <code>python3</code>.</li>
-  <li>Writes an Nginx config to <code>/etc/nginx/sites-available/remotepower</code> (and symlinks it). This config:
-    <ul>
-      <li>Serves static dashboard files from <code>/var/www/remotepower/</code>.</li>
-      <li>Passes anything under <code>/api/</code> to <code>fcgiwrap</code> via a Unix socket.</li>
-      <li>Sets <code>fastcgi_read_timeout</code> to 130s (needed for long‑poll exec).</li>
-    </ul>
-  </li>
-  <li>Enables and starts Nginx and fcgiwrap.</li>
-  <li>Generates a random admin password, stores it in <code>/var/lib/remotepower/users.json</code> as a bcrypt hash with a <code>"must_change": true</code> flag. The dashboard will force you to change it on first login.</li>
-  <li>Prints the server's IP address and tells you to open <code>https://that-ip/</code> in a browser.</li>
+  <li>Optional <code>command</code> the agent should execute next (shutdown/reboot/exec/upgrade)</li>
+  <li>Updated services-watch list and log-watch rules</li>
+  <li>Optional <code>poll_interval</code> override (the server can ask the agent to poll faster or slower)</li>
 </ul>
 
-<p>If you prefer Docker, there's a <code>docker-compose.yml</code> that builds a container running Python's built‑in HTTP server on port 8080. You need to put a reverse proxy in front for SSL. Data lives in a Docker volume.</p>
+<p>For long-running commands (apt upgrade can take minutes), the agent runs the command synchronously, then sends a separate follow-up heartbeat with just the output. Output appears under the device's "Update history" panel.</p>
 
-<h3>3.2 Client (Linux)</h3>
-<p>On each machine you want to manage, run:</p>
-<pre><code>sudo bash install-client.sh</code></pre>
 
-<p>That script:</p>
+<h2 id="commands">5. Commands &amp; the queue</h2>
+
+<p>From the dashboard you can:</p>
 <ul>
-  <li>Copies <code>agent.py</code> to <code>/usr/local/bin/remotepower-agent</code> and makes it executable.</li>
-  <li>Creates <code>/etc/remotepower/</code> (the agent stores its config there later).</li>
-  <li>Installs a systemd unit file <code>remotepower-agent.service</code> that executes the agent as root with the <code>--daemon</code> flag.</li>
-  <li>Enables and starts the service, but <strong>the agent won't work yet</strong> because it hasn't enrolled. The script then prompts you to run enrollment manually.</li>
+  <li><strong>Shutdown</strong>, <strong>Reboot</strong> — reported success on next heartbeat</li>
+  <li><strong>Wake-on-LAN</strong> — server sends a magic packet to the device's MAC. Device must support WoL and be on the same broadcast domain as your RemotePower server.</li>
+  <li><strong>Custom command</strong> — runs as root on the agent; output limited to 64 KB</li>
+  <li><strong>Upgrade packages</strong> (per-device or batch) — runs <code>apt-get -y upgrade</code> / <code>dnf -y upgrade</code> / <code>pacman -Syu --noconfirm</code> depending on what the host has</li>
+  <li><strong>Agent update</strong> — the agent fetches a new copy of itself from the server and restarts</li>
 </ul>
 
-<p>After the install script finishes, enroll the client:</p>
-<pre><code>sudo remotepower-agent enroll</code></pre>
+<p>Commands are queued in <code>/var/lib/remotepower/cmds.json</code> per device. Only one command per device is in flight at a time; the agent acknowledges by sending the output back, which clears the queue slot.</p>
 
-<p>You'll be asked for the server URL (e.g., <code>https://my.server.lan</code>) and a 6‑digit PIN. Get the PIN from the dashboard: log in as admin, click the <strong>+ Enroll device</strong> button. The PIN is single‑use and expires in 10 minutes.</p>
 
-<p>Once enrolled, the agent saves the device token to <code>/etc/remotepower/config.json</code> (permissions 600) and starts polling. Within 60 seconds the dashboard shows the device as online.</p>
+<h2 id="monitor">6. External monitors (ping/TCP/HTTP)</h2>
 
-<h3>3.3 Client (Windows)</h3>
-<p>Run PowerShell as Administrator and execute:</p>
-<pre><code>powershell -ExecutionPolicy Bypass -File install-client.ps1</code></pre>
-
-<p>It installs <code>agent.py</code> to <code>C:\Program Files\RemotePower\</code>, installs NSSM if needed, and creates a Windows service called <code>RemotePowerAgent</code>. Then enroll similarly by running <code>python agent.py enroll</code> from that directory.</p>
-
-<h2>4. Using the dashboard</h2>
-<p>Open <code>https://your-server/</code> and log in with admin credentials. The dashboard is a single-page vanilla‑JS application. No frameworks, just a pile of <code>fetch()</code> calls and DOM manipulation. Every 60 seconds it asks the server for device statuses.</p>
-
-<p>Each device is shown as a card with hostname, online/offline indicator, group, tags, and a row of tiny buttons. Hover over them to see tooltips. The main ones:</p>
+<p>The Monitor page lets you configure ICMP / TCP / HTTP probes that the <em>server</em> runs against external targets — not the same as the agent-side metrics or service watches. Useful for:</p>
 <ul>
-  <li><strong>Reboot</strong> – queues a reboot. The agent picks it up on its next heartbeat.</li>
-  <li><strong>Shutdown</strong> – same, but shutdown.</li>
-  <li><strong>&gt;_ Execute</strong> – opens a modal where you can type a shell command. The output appears in the history a bit later.</li>
-  <li><strong>WoL</strong> – sends a Wake‑on‑LAN magic packet. Works only if the server and client are in the same broadcast domain, or if you've set up directed broadcast on your router. The code uses the client's last known IP, falling back to broadcast if configured.</li>
-  <li><strong>Update agent</strong> – tells the agent to download and replace itself from the server.</li>
-  <li><strong>Metrics</strong> – if the client has <code>psutil</code> installed, you'll see sparklines of CPU/RAM/disk.</li>
+  <li>Checking your ISP's gateway is up (ping)</li>
+  <li>Verifying a web service still responds (HTTP HEAD)</li>
+  <li>Confirming an SSH port is open before alerting humans (TCP)</li>
 </ul>
 
-<p>The navigation menu (gear icon) gives access to:</p>
-<ul>
-  <li><strong>Settings</strong> – global config, webhooks, monitors, maintenance windows.</li>
-  <li><strong>API Keys</strong> – create named keys that never expire. Use them for scripts.</li>
-  <li><strong>Schedule</strong> – define one‑shot or cron‑based jobs to reboot/shutdown devices.</li>
-  <li><strong>Command Library</strong> – save your favorite shell commands for quick reuse.</li>
-  <li><strong>CMDB</strong> – attach notes, tags, asset info, and even encrypted credentials (AES‑GCM vault) to each device.</li>
-</ul>
+<p>From v1.11.8 monitors run on a periodic schedule (<code>monitor_interval</code>, default 300s, minimum 60s) — not just when the page is open. The schedule is piggy-backed on incoming CGI requests, so as long as <em>any</em> agent is heartbeating or anyone's browsing the dashboard, monitors run on time. A truly idle server (no agents, no users) won't run them, but in practice that doesn't happen.</p>
 
-<p>Groups and tags are just strings you assign. You can filter the dashboard by them, and batch‑command an entire group (e.g., reboot all "lab" machines at once).</p>
+<p>State transitions fire the <code>monitor_down</code> and <code>monitor_up</code> webhook events.</p>
 
-<h3>4.1 Filter, sort, and density (v1.11.5, expanded in v1.11.6 and v1.11.7)</h3>
-<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — has a substring filter input above the table. Type any text, the table updates as you go. As of v1.11.6 the admin tables (Users, API Keys, Command Library) also have filter inputs.</p>
 
-<p>Click any column header to sort by that column. The first click sorts ascending, the second descending, the third clears the sort. Hold <kbd>Shift</kbd> and click a second column header to sort by that as a secondary key — useful for things like "sort by group, then by status within each group". A small superscript number shows the priority order when you have a multi-column sort.</p>
+<h2 id="metrics">7. Device metrics &amp; alert thresholds</h2>
 
-<p>The Devices grid additionally has a four-button density toggle in the toolbar:</p>
-<ul>
-  <li><strong>Minimal</strong> (v1.11.6, rebuilt as a real <code>&lt;table&gt;</code> in v1.11.7) — one device per row in an aligned table layout. Columns: Status, Name, Hostname, Group, OS, IP, Version, Last seen, Actions. Headers click-to-sort like every other table. Responsive breakpoints drop low-priority columns rather than letting them overflow: hostname goes at ≤ 1280px, version at ≤ 1080px, group at ≤ 920px, IP at ≤ 760px, OS at ≤ 620px. Built for fleets where you want to scan 50+ devices at a glance.</li>
-  <li><strong>Compact</strong> — denser cards with smaller padding and tighter grid gap.</li>
-  <li><strong>Comfortable</strong> — the default card layout.</li>
-  <li><strong>Spacious</strong> — larger padding and bigger fonts for very large displays.</li>
-</ul>
-
-<p>The dropdown menu on each device (the ⋯ button) is identical across all four density modes — same handlers, same items. As of v1.11.7 the menu includes a per-device <strong>Upgrade packages</strong> option that runs apt / dnf / pacman upgrade on that single device without needing to select the checkbox first. Output appears in the device's "Update history" panel ~30–120s after the run completes.</p>
-
-<p>All of this — density, filter strings, sort orders — is stored per user, server-side, under the <code>ui_prefs</code> key in <code>users.json</code>. Log into the same account on a different browser, your filters and sort orders come with you. The server-side schema is sanitised: anything you don't recognise gets dropped silently, individual filter strings cap at 256 chars, sort lists cap at 5 columns, total per-user prefs cap at 16 KB. The <code>/api/ui-prefs</code> endpoint accepts <code>GET</code> (read), <code>POST</code> (replace whole document), and <code>DELETE</code> (wipe) — useful if you ever need to reset somebody's UI to defaults from a script.</p>
-
-<h3>4.2 API enrollment via one-time tokens (v1.11.10)</h3>
-<p>For non-interactive enrollment from Ansible / cloud-init / golden-image scripts. Admin creates a one-time-use token via <code>POST /api/enrollment-tokens</code> (or the dashboard), passes it to the agent via <code>--token</code>, <code>$REMOTEPOWER_ENROLL_TOKEN</code>, or <code>/etc/remotepower/enroll-token</code> (mode 600, auto-deleted after use). Agent runs <code>remotepower-agent enroll-token --server https://... --token TOKEN</code>. Token consumed atomically — same token can't enroll twice.</p>
-
-<p>Tokens carry optional <code>default_group</code>, <code>default_tags</code>, <code>label</code>, and <code>expires_in</code> (seconds, default 24h, capped at 7 days). The defaults are applied at enrollment if the agent doesn't override them. List endpoint <code>GET /api/enrollment-tokens</code> only returns 8-char prefixes — the full token value is shown ONCE in the create response and never again.</p>
-
-<h3>4.3 Metric alerting (v1.11.10)</h3>
-<p>Three webhook events fire when resources cross thresholds: <code>metric_warning</code>, <code>metric_critical</code>, <code>metric_recovered</code>. Defaults are 80/90% disk per mount, 85/95% memory, 20/50% swap, 1.5×/3.0× CPU loadavg ratio (1-min loadavg divided by cpu_count). Hysteresis: a metric must drop 5 percentage points below warn before "recovered" fires — prevents oscillation spam.</p>
-
-<p>Per-device overrides via <code>GET|PATCH|DELETE /api/devices/{id}/metric-thresholds</code>. PATCH accepts any subset of the percentage / ratio fields, plus <code>disk_per_mount</code> (a dict keyed by mount path → <code>{warn, crit}</code>) for per-mount disk overrides. Validates that warn &lt; crit for every kind. PATCH also clears the device's <code>metric_state</code> so the next heartbeat re-evaluates under the new thresholds.</p>
-
-<p>State is tracked in <code>devices.json</code> under <code>metric_state</code> keyed by <code>kind:target</code> (e.g. <code>disk:/var</code>, <code>memory:</code>, <code>cpu:</code>). Orphan disk entries (a mount disappears between heartbeats) are cleaned up automatically. Need the agent at v1.11.10+ for per-mount alerting; older agents only report root-disk and overall percentages.</p>
-
-<h2>5. How the heartbeat and command queue actually work</h2>
-<p>This part is important if you want to understand delays.</p>
-
-<p>The agent wakes up every 60 seconds (configurable via environment variable <code>RP_POLL_INTERVAL</code>). It sends a <code>POST /api/heartbeat</code> with its device ID, auth token, and system info (hostname, IPs, MAC, metrics). The server records the heartbeat timestamp and immediately checks <code>commands.json</code> for any pending command with that device ID.</p>
-
-<p>If a command is pending, the server returns it in the heartbeat response and marks it "in‑flight". The agent receives the command, executes it, and immediately sends a follow‑up heartbeat with just the result (a minimal payload: device id, token, cmd_output). For commands that take a while — apt upgrade, dnf upgrade, custom shell scripts — the follow‑up arrives whenever the command finishes, not at the next 60s tick. Result is typically visible in the dashboard within a couple of seconds of the command completing.</p>
-
-<p>Before v1.11.7 the agent assigned the result to the heartbeat payload it had <em>already sent</em>, then reset the payload on the next loop iteration — the result silently disappeared. If you ran upgrades on v1.10.0–v1.11.6 and the "Update history" panel stayed empty, that's why. The fix in v1.11.7 sends the dedicated follow-up heartbeat. If the follow-up POST itself fails (network blip, server restart at the wrong moment), the result is stashed to <code>/var/lib/remotepower-pending-cmd.json</code> and replayed on the next successful heartbeat.</p>
-
-<p>Shutdown/reboot commands are slightly special: the agent runs the OS shutdown command (<code>shutdown -h +0</code> on Linux, <code>shutdown /s /t 0</code> on Windows) and immediately reports success on the next heartbeat—before the machine actually powers off. That's why you sometimes see "executed" but the device stays online for another few seconds. You can set a shutdown delay in server settings (which prepends a <code>+</code> argument or changes the <code>/t</code> value).</p>
-
-<p>If a command fails or the agent never reports back, the command remains "in‑flight" forever in <code>commands.json</code>. The dashboard shows a spinner. There's no timeout or automatic cancellation; you have to manually clear it from the history (the dashboard has a "discard" button that deletes the command entry).</p>
-
-<h2>6. The API – endpoints that matter</h2>
-<p>All API calls go to <code>https://your-server/api/&lt;endpoint&gt;</code>. Authentication is via the <code>X-Token</code> header (session token from login, or API key). Admin role required for destructive actions.</p>
-
-<h3>6.1 List devices</h3>
-<pre><code>curl -k https://your-server/api/devices \
-  -H "X-Token: YOUR_API_KEY"</code></pre>
-<p>Returns an array of devices with <code>device_id</code>, <code>hostname</code>, <code>online</code> (bool), <code>group</code>, <code>tags</code>, <code>last_seen_epoch</code>, and metrics if available.</p>
-
-<h3>6.2 Reboot a single device or a whole group</h3>
-<pre><code># single device
-curl -k -X POST https://your-server/api/reboot \
-  -H "X-Token: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "abc123"}'
-
-# by group
-curl -k -X POST https://your-server/api/reboot \
-  -H "X-Token: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"group": "lab"}'</code></pre>
-<p>Response: <code>{"status": "queued", "commands": 3}</code>.</p>
-
-<h3>6.3 Execute a command and wait for output</h3>
-<pre><code>curl -k -X POST https://your-server/api/exec/wait \
-  -H "X-Token: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "mybox", "cmd": "df -h /", "timeout": 90}'</code></pre>
-<p>This keeps the HTTP connection open for up to <code>timeout</code> seconds. As soon as the agent returns the command output, you get it in the response. If the client is offline or the agent doesn't check in, the request hangs until the timeout, then returns an error. Nginx's <code>fastcgi_read_timeout</code> must be greater than your timeout.</p>
-
-<h3>6.4 Queue a regular command (without waiting)</h3>
-<pre><code>curl -k -X POST https://your-server/api/exec \
-  -H "X-Token: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "mybox", "cmd": "apt-get update && apt-get -y upgrade"}'</code></pre>
-<p>Returns a UUID. Check the result later via <code>/api/history</code>.</p>
-
-<h3>6.5 Send Wake‑on‑LAN</h3>
-<pre><code>curl -k -X POST https://your-server/api/wol \
-  -H "X-Token: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "mybox"}'</code></pre>
-<p>The server sends a magic packet from your server, not from the dashboard browser.</p>
-
-<h3>6.6 Get a quick digest (for email or scripts)</h3>
-<pre><code>curl -k https://your-server/api/digest \
-  -H "X-Token: YOUR_API_KEY"</code></pre>
-<p>Returns JSON: <code>total</code>, <code>online</code>, <code>offline</code>, <code>pending_patches</code>, <code>recent_commands</code>.</p>
-
-<h3>6.7 Prometheus metrics</h3>
-<pre><code>curl -k https://your-server/api/metrics</code></pre>
-<p>No auth needed (configurable in settings). Returns text/plain metrics for scraping.</p>
-
-<h2>7. Real‑life examples</h2>
-<p><strong>Morning ritual:</strong> Check that everything came back after a power outage.</p>
-<pre><code>curl -s https://my.server/api/digest -H "X-Token: abc123" | jq '.'
-# If offline > 0, panic.</code></pre>
-
-<p><strong>Patching a bunch of servers without leaving your coffee:</strong> Push a full upgrade command to your "homelab" group.</p>
-<pre><code>curl -k -X POST https://my.server/api/exec \
-  -H "X-Token: myadminapikey" \
-  -H "Content-Type: application/json" \
-  -d '{"group": "homelab", "cmd": "apt-get update && apt-get -y upgrade && [ -f /var/run/reboot-required ] && reboot || true"}'</code></pre>
-<p>(The <code>&& reboot</code> trick works because the agent runs as root; the command will trigger a reboot if the file exists.)</p>
-
-<p><strong>Scheduling a weekly reboot:</strong> Use a cron expression to bounce a flaky media server every Sunday at 3 AM.</p>
-<pre><code>curl -k -X POST https://my.server/api/schedule \
-  -H "X-Token: myadminapikey" \
-  -H "Content-Type: application/json" \
-  -d '{"cron": "0 3 * * 0", "action": "reboot", "device_id": "media-server", "label": "weekly bounce"}'</code></pre>
-
-<p><strong>Enabling metrics:</strong> SSH into client, install <code>psutil</code>, restart agent.</p>
-<pre><code>pip3 install psutil
-sudo systemctl restart remotepower-agent</code></pre>
-<p>After a minute, sparklines appear on the dashboard.</p>
-
-<p><strong>Adding a new device to an existing group via API:</strong></p>
-<pre><code>curl -k -X POST https://my.server/api/groups \
-  -H "X-Token: ..." \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "newbox", "group": "homelab"}'</code></pre>
-
-<h2>8. Troubleshooting with the source code in mind</h2>
+<h3>7.1 What's measured</h3>
+<p>Each agent reports the following via sysinfo on every heartbeat (v1.11.10+):</p>
 <table>
-  <tr><th>Symptom</th><th>What the code says</th></tr>
-  <tr><td>Dashboard shows device offline but agent is running</td><td>The server marks a device offline if <code>last_heartbeat</code> is older than 120 seconds. Check <code>journalctl -u remotepower-agent -f</code>. Likely network issue or token mismatch. The agent logs HTTP errors, including 403 if token invalid.</td></tr>
-  <tr><td>Enrollment says "invalid PIN"</td><td>PIN is stored in <code>enroll.json</code> with a <code>created_epoch</code>. Server rejects if current time &gt; created + 600 seconds, or if PIN already used.</td></tr>
-  <tr><td>Reboot command never executes</td><td>The agent only runs commands received in a heartbeat response. Make sure the device ID in <code>commands.json</code> matches exactly. Use the dashboard to issue the command. Check agent logs: it prints "received command: reboot".</td></tr>
-  <tr><td>Long‑poll exec always times out</td><td>Nginx <code>fastcgi_read_timeout</code> must be ≥ your <code>timeout</code> parameter. The install script sets it to 130s. If you changed it, fix it. Also, the agent must pick up the command within that window.</td></tr>
-  <tr><td>Wake‑on‑LAN does nothing</td><td>Server code uses the device's last known IP from heartbeat, constructs a broadcast address by replacing the last octet with 255 (or uses the <code>wol_broadcast</code> config if set). If the server and target are on different subnets, you need directed broadcast enabled on your router, or use a WoL relay. Check the Nginx access log for the <code>/api/wol</code> call and any errors.</td></tr>
-  <tr><td>Agent won't start after installation</td><td>The systemd service expects the binary at <code>/usr/local/bin/remotepower-agent</code>. Verify it exists and is executable. Run <code>sudo remotepower-agent run</code> in foreground to see tracebacks.</td></tr>
-  <tr><td>Dashboard cannot change admin password</td><td>The first login forces a password change because <code>users.json</code> has <code>"must_change": true</code>. After that, <code>POST /api/change-password</code> updates the bcrypt hash.</td></tr>
-  <tr><td>Metrics not showing</td><td>Agent only collects metrics if <code>psutil</code> is importable. Install it, restart agent. Metrics are sent every heartbeat if available. The server stores up to 1440 snapshots.</td></tr>
-  <tr><td>Server uses a lot of CPU</td><td>Not from the code—it's CGI, so a process spawns per request. High traffic could stress the server; add caching or use a reverse proxy. The monitor script is separate and runs periodically via cron.</td></tr>
+  <tr><th>Metric</th><th>What it is</th></tr>
+  <tr><td>Memory %</td><td>Virtual memory in use</td></tr>
+  <tr><td>Swap %</td><td>Swap in use (0 if no swap)</td></tr>
+  <tr><td>Disk % per mount</td><td>Each non-pseudo mount (skipping tmpfs/squashfs/overlay)</td></tr>
+  <tr><td>CPU load ratio</td><td>1-minute load average ÷ logical CPU count</td></tr>
 </table>
 
-<h2>9. A few quirks you should know about</h2>
+<h3>7.2 Default thresholds</h3>
+<table>
+  <tr><th>Metric</th><th>Warning</th><th>Critical</th></tr>
+  <tr><td>Disk usage (per mount)</td><td>80%</td><td>90%</td></tr>
+  <tr><td>Memory usage</td><td>85%</td><td>95%</td></tr>
+  <tr><td>Swap usage</td><td>20%</td><td>50%</td></tr>
+  <tr><td>CPU load ratio</td><td>1.5×</td><td>3.0×</td></tr>
+</table>
+
+<p><strong>Hysteresis:</strong> a metric must drop 5 points below its warn threshold before <code>metric_recovered</code> fires. Without this, a metric oscillating around 80% would generate a webhook every ~60s.</p>
+
+<h3>7.3 Per-device + per-mount overrides (v1.12.0 UI)</h3>
+<p>From the device dropdown menu, click <strong>Metric thresholds</strong>. The modal shows:</p>
 <ul>
-  <li><strong>No database, just JSON files locked with <code>fcntl.flock</code>.</strong> If two simultaneous requests try to write, one waits. It's robust enough for a handful of devices, but don't expect enterprise throughput.</li>
-  <li><strong>The agent update downloads the new script over whatever URL the server gives.</strong> The install script sets up HTTPS, but if you misconfigure Nginx, the agent might download in plain text. The SHA‑256 check still protects integrity, but the agent's code is visible on the wire. Not a big deal on a trusted LAN.</li>
-  <li><strong>The agent runs as root all the time.</strong> There's no privilege dropping. Custom commands execute as root. Set a per‑device command allowlist in the CMDB if you have other people using the dashboard.</li>
-  <li><strong>The long‑poll exec hack</strong> is clever but fragile: the CGI script writes to <code>longpoll.json</code>, the heartbeat handler reads it and sets a threading.Event, which the waiting CGI thread picks up. If the file gets corrupted or the timing is off, the long poll hangs until Nginx kills it.</li>
-  <li><strong>WoL might not work if the IP changes while the device is asleep.</strong> The server remembers the last IP, but if DHCP reassigns it, the magic packet goes into the void. Assign static reservations.</li>
-  <li><strong>The dashboard has no logout button.</strong> Seriously, there's no logout in the code. Close the browser or delete the session cookie manually.</li>
-  <li><strong>API keys never expire.</strong> Rotate them manually. They're stored alongside a bcrypt hash for verification, but the plain key is returned on creation and never shown again, so it's okay.</li>
+  <li>Current sysinfo values (memory %, swap %, load ratio, disk per mount) so you can see what thresholds make sense</li>
+  <li>Per-metric warn/crit fields. Empty means "use default", so you only need to fill in the ones you want to override.</li>
+  <li>A "per-mount disk overrides" section. Add a row for each mount where you want different thresholds. Common case: <code>/var</code> at 70/85% (logs grow fast), <code>/backup</code> at 95/98% (designed to fill).</li>
+  <li><strong>Reset to defaults</strong> — wipes all overrides for the device.</li>
 </ul>
 
-<h2>10. Backups and disaster recovery</h2>
-<p>Everything lives in <code>/var/lib/remotepower/</code>. Back it up:</p>
-<pre><code>sudo tar czf remotepower-backup-$(date +%F).tar.gz /var/lib/remotepower/</code></pre>
-<p>The dashboard has an <strong>Export backup</strong> button that zips the same files (minus session tokens). You can import by extracting into a fresh installation on another server.</p>
-<p>If you lose everything, reinstall the server, then re‑enroll each client. Clients keep their tokens, but the server won't know them until they re‑enroll. Use <code>sudo remotepower-agent re-enroll</code> to keep device history.</p>
+<p>Validation: warn must be less than crit for every kind. Percentages are 1–99 (0 and 100 don't make sense as alerts). Load ratios are 0.1–100. Out-of-range values are rejected rather than silently clamped.</p>
 
-<h2>11. Summary</h2>
-<p>RemotePower is a straightforward, file‑based remote management tool that does exactly what it says on the tin. It's not pretty inside—one giant CGI script, no framework, some threading hacks—but it works reliably for home labs and small deployments. The agent's polling design means zero firewall headaches, and the API is simple enough to integrate with your cron jobs or monitoring stack.</p>
-<p>Read the source if something breaks; the logic is linear and well‑commented. And if you're still stuck, re‑enroll the client—it fixes 90% of problems.</p>
-<p>Now go manage your machines from the comfort of your browser, and remember: with great power comes great "oops, I just rebooted production."</p>
+<p>Setting thresholds clears the device's <code>metric_state</code>, so the next heartbeat re-evaluates under the new values. Otherwise a metric currently at "warning" would silently stay there even after you raised the threshold.</p>
+
+<h3>7.4 Live metrics on the Monitor page (v1.12.0)</h3>
+<p>The Monitor page now has a <strong>Device metrics</strong> section below the external probes. It shows every device's current memory/swap/CPU/disk numbers, color-coded by alert level (green/amber/red), with clickable thresholds buttons that jump straight to the editor.</p>
+
+<p>Filter by name, group, tag, or mount path. Sort by any column. Critical-state devices sort to the top when sorting by status ascending.</p>
+
+<h3>7.5 Direct API access</h3>
+<pre><code># Get current overrides + effective values for a device
+curl -H "X-Token: $TOKEN" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds
+
+# Set overrides (any subset of fields; empty fields stay at default)
+curl -X PATCH -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds \
+  -d '{
+    "mem_warn_percent": 70,
+    "mem_crit_percent": 85,
+    "disk_per_mount": {
+      "/var": {"warn": 70, "crit": 85}
+    }
+  }'
+
+# Reset all overrides
+curl -X DELETE -H "X-Token: $TOKEN" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds
+</code></pre>
+
+
+<h2 id="webterm">8. Web terminal (v1.11.11+)</h2>
+
+<h3>8.1 Architecture</h3>
+
+<p>RemotePower's CGI model can't hold persistent WebSocket connections — fcgiwrap is request-response. So the web terminal is a separate <code>remotepower-webterm</code> daemon listening on <code>127.0.0.1:8765</code>, with nginx proxying <code>/api/webterm/connect</code> to it. The CGI handles auth and audit logging via <code>/api/webterm/auth</code> and <code>/api/webterm/audit</code>; the daemon handles the actual SSH proxy.</p>
+
+<pre><code>Browser ──wss──&gt; nginx :443 ──ws──&gt; remotepower-webterm :8765 ──ssh──&gt; device
+                       │
+                       └─http──&gt; remotepower CGI (existing) for auth + audit
+</code></pre>
+
+<h3>8.2 Auth flow</h3>
+<ol>
+  <li>Click <strong>Web terminal</strong> on a device. Modal asks for SSH host (pre-filled from device IP), user, port, password, plus your admin password.</li>
+  <li>Frontend POSTs to <code>/api/webterm/auth</code>. CGI re-validates your admin password (every time — by design). On success, issues a 32-byte URL-safe ticket with 60-second TTL and stores it in <code>webterm_tickets.json</code>. On failure: 403 + <code>webterm_auth_failed</code> audit entry.</li>
+  <li>Frontend opens a WebSocket to <code>wss://host/api/webterm/connect?ticket=…</code>. nginx proxies to the daemon.</li>
+  <li>Daemon validates the ticket against the file, deletes it (single-use), and waits for the first WS message: a JSON blob with <code>{host, user, port, password, cols, rows}</code>.</li>
+  <li>Daemon SSH-connects via <code>asyncssh</code>. Bytes pump until either side disconnects.</li>
+  <li>On session end, daemon POSTs metadata back to <code>/api/webterm/audit</code>. Authenticated via shared secret in <code>/etc/remotepower/webterm-secret</code> (matches <code>config.json[webterm_daemon_secret]</code>).</li>
+</ol>
+
+<h3>8.3 Security model</h3>
+<ul>
+  <li>SSH credentials never persist. Live in browser memory while you type, then in WS frame for one second, then in daemon memory for the session, then garbage-collected.</li>
+  <li>Tickets are single-use, 60-second TTL, ~256 bits of entropy.</li>
+  <li>Daemon binds to 127.0.0.1 only — only nginx can reach it. nginx terminates TLS so the browser-to-nginx hop is wss; nginx-to-daemon is plaintext over loopback (acceptable threat model).</li>
+  <li>Daemon ↔ CGI authenticated via shared secret, not session tokens (the daemon is a system service).</li>
+  <li>systemd hardening on the daemon: <code>NoNewPrivileges</code>, <code>ProtectSystem=strict</code>, <code>RestrictNamespaces</code>, dedicated user, <code>ReadWritePaths</code> limited to the recordings dir + ticket file.</li>
+</ul>
+
+<div class="warn"><strong>Heads up:</strong> SSH host-key verification is OFF by design — the user explicitly chose the device through the dashboard, and adding strict <code>known_hosts</code> management would mean a first-connect prompt for every device. If you reinstall a device, you won't get a "host key changed" warning. If that's a concern for your environment, this is the right discussion to have.</div>
+
+<h3>8.4 Session recording</h3>
+<p>Every session is recorded to <code>/var/lib/remotepower/webterm-sessions/&lt;session_id&gt;.cast</code> in <a href="https://docs.asciinema.org/manual/asciicast/v2/">asciinema v2</a> format. Replayable in any asciinema player; also greppable as plain text JSON Lines.</p>
+
+<p><strong>Output-only by default.</strong> Keystrokes are excluded because they could include <code>sudo SECRET_VALUE</code> and similar. Set <code>RECORD_INPUT=1</code> in the daemon's environment if you have compliance reasons that require keystroke capture; only do this if you've thought through who can read the recordings directory.</p>
+
+<p>10 MiB cap per recording — at the cap we stop recording but keep proxying bytes. To replay:</p>
+<pre><code>asciinema play /var/lib/remotepower/webterm-sessions/&lt;id&gt;.cast
+</code></pre>
+
+<p>Recordings aren't auto-pruned. Manage retention with cron:</p>
+<pre><code>0 3 * * * find /var/lib/remotepower/webterm-sessions -mtime +30 -delete
+</code></pre>
+
+
+<h2 id="webhooks">9. Webhooks</h2>
+
+<p>RemotePower can fire webhooks for any of the following events. Configure the URL and per-event toggles in Settings.</p>
+
+<table>
+  <tr><th>Event</th><th>Default</th><th>Trigger</th></tr>
+  <tr><td><code>device_offline</code></td><td>on</td><td>No heartbeat in 2× poll_interval</td></tr>
+  <tr><td><code>device_online</code></td><td>on</td><td>Heartbeat resumed after offline</td></tr>
+  <tr><td><code>monitor_down</code></td><td>on</td><td>External monitor target down</td></tr>
+  <tr><td><code>monitor_up</code></td><td>on</td><td>External monitor target recovered</td></tr>
+  <tr><td><code>service_down</code></td><td>on</td><td>Watched systemd unit went inactive</td></tr>
+  <tr><td><code>service_up</code></td><td>on</td><td>Watched systemd unit recovered</td></tr>
+  <tr><td><code>patch_alert</code></td><td>on</td><td>Pending updates exceed configured threshold</td></tr>
+  <tr><td><code>cve_found</code></td><td>on</td><td>OSV scan turned up new CVEs</td></tr>
+  <tr><td><code>log_alert</code></td><td>on</td><td>Watched log pattern matched</td></tr>
+  <tr><td><code>container_stopped</code></td><td>on</td><td>Container/pod disappeared or stopped</td></tr>
+  <tr><td><code>container_restarting</code></td><td>on</td><td>Container restart count climbed</td></tr>
+  <tr><td><code>containers_stale</code></td><td>on</td><td>No container report for &gt;TTL</td></tr>
+  <tr><td><code>metric_warning</code> (v1.11.10)</td><td>on</td><td>Resource crossed warning threshold</td></tr>
+  <tr><td><code>metric_critical</code> (v1.11.10)</td><td>on</td><td>Resource crossed critical threshold</td></tr>
+  <tr><td><code>metric_recovered</code> (v1.11.10)</td><td>on</td><td>Resource dropped below warn − buffer</td></tr>
+  <tr><td><code>command_queued</code></td><td>off</td><td>Command sent to a device</td></tr>
+  <tr><td><code>command_executed</code></td><td>off</td><td>Command completed on a device</td></tr>
+</table>
+
+<p>Output formats: generic JSON, Discord-flavoured embeds, and Ntfy-flavoured (with priority + emoji tags). Format auto-detected from URL.</p>
+
+
+<h2 id="ui">10. Dashboard UI</h2>
+
+<h3>10.1 Filter, sort, density (v1.11.5+)</h3>
+<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables (Users, API Keys, Command Library) — has a substring filter input and clickable column headers.</p>
+<ul>
+  <li>First click sorts ascending</li>
+  <li>Second click descending</li>
+  <li>Third click clears</li>
+  <li>Hold <kbd>Shift</kbd> while clicking a second header to add a secondary sort key (small superscript shows the priority)</li>
+</ul>
+
+<h3>10.2 Density (v1.11.6+, table layout in v1.11.7+)</h3>
+<p>The Devices grid has four density modes: Minimal (table layout, one device per row, sortable), Compact, Comfortable (default), Spacious. Selection persists per user.</p>
+
+<p>Filter / sort / density preferences are stored under <code>users[username].ui_prefs</code> server-side, so they follow you across browsers and devices. Sanitised: 256-char filter cap, 5-key sort cap, 16 KB total per user.</p>
+
+
+<h2 id="troubleshooting">11. Troubleshooting</h2>
+
+<h3>WebSocket fails with 404</h3>
+<p>The <code>^~ /api/</code> location is winning over the exact-match <code>= /api/webterm/connect</code>. Make sure the exact-match location appears in the file <em>before</em> the prefix-match.</p>
+
+<h3>WebSocket fails with 502 Bad Gateway</h3>
+<p>nginx is correctly trying to reach the daemon but the daemon isn't running. Check:</p>
+<pre><code>sudo systemctl status remotepower-webterm
+sudo journalctl -u remotepower-webterm -n 50
+ss -tlnp | grep 8765
+</code></pre>
+
+<h3>WebSocket closes immediately with 1006</h3>
+<p>Daemon process crashed mid-session. <code>journalctl -u remotepower-webterm</code> will show the traceback. Common causes: SSH server unreachable, password wrong, idle longer than the daemon's keepalive.</p>
+
+<h3>Update history is empty</h3>
+<p>Pre-v1.11.7 agents have a bug where command output never reached the server. Push agent self-updates: <strong>Update</strong> button in the toolbar, or per-device <strong>Agent update</strong> menu item. Once on v1.11.7+, the next upgrade you trigger will populate Update history within ~60s of completion.</p>
+
+<h3>Monitor history has gaps</h3>
+<p>Pre-v1.11.8 monitors only ran when the page was open. Upgrade to v1.11.8+. From there onwards, monitors run on schedule as long as any CGI request hits the server.</p>
+
+<h3>Per-mount disk thresholds aren't taking effect</h3>
+<p>The <em>agent</em> needs to be v1.11.10+ to report per-mount data. Older agents only report a single root-disk percentage. Push an agent self-update.</p>
+
+<h3>Devices vanished from the dashboard, agents getting "Credentials rejected"</h3>
+<p>Symptom of the v1.12.0 concurrent-write corruption (fixed in v1.12.1). One of your JSON files in <code>/var/lib/remotepower/</code> got corrupted, <code>load()</code> returns <code>{}</code> on parse failure, the dashboard shows nothing and heartbeats can't validate device tokens.</p>
+<p>v1.12.1+ adds automatic <code>.bak</code> fallback to <code>load()</code>, so this can't happen silently anymore. To clean up files damaged before the upgrade:</p>
+<pre><code>sudo -u www-data python3 packaging/recover-corrupted-json.py            # dry-run scan
+sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
+</code></pre>
+<p>The tool uses <code>json.JSONDecoder.raw_decode()</code> to find the first valid JSON document and discards trailing garbage, making a <code>.broken-&lt;timestamp&gt;</code> backup before overwriting.</p>
+
+<h3>Web terminal modal says "Could not load xterm.js"</h3>
+<p>Your CSP blocks <code>cdn.jsdelivr.net</code>. Either relax CSP for that origin, or self-host xterm.js — download <code>@xterm/xterm@5.5.0/css/xterm.min.css</code>, <code>@xterm/xterm@5.5.0/lib/xterm.min.js</code>, and <code>@xterm/addon-fit@0.10.0/lib/addon-fit.min.js</code> into <code>/var/www/remotepower/static/</code>, then edit the <code>_loadXtermOnce()</code> function in <code>index.html</code> to point there.</p>
+
 </body>
 </html>

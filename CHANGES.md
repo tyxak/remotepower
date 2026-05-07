@@ -1,5 +1,124 @@
 # Changelog
 
+## v1.12.1 — 2026-05-08
+
+### Fixed
+
+**Concurrent-write race in `save()` could corrupt JSON files.** Two
+CGI processes both writing the same `.tmp` filename interleaved
+their bytes, leaving a complete first JSON document followed by
+trailing garbage. `load()` would then return `{}` for all callers,
+making devices invisible and rejecting all agent heartbeats.
+
+Three layers of defence now:
+
+1. **flock on a sidecar `<file>.lock`** — serialises writers via
+   `fcntl.flock(LOCK_EX)`. Two saves to the same file queue
+   instead of racing.
+2. **Per-process unique tmp filename** (`.tmp.<pid>.<nonce>`) —
+   even if the lock somehow doesn't apply, two writers can't
+   share a tmp file and trample each other.
+3. **Rolling `.bak` preserved before each rename** — `load()`
+   automatically falls back to `.bak` if the canonical file is
+   corrupt, with a warning to nginx error log. One bad write
+   no longer breaks the dashboard.
+
+Plus integrity check: `save()` round-trip-parses serialised data
+with `allow_nan=False` before any disk write. Catches NaN/Inf and
+any logic bug producing malformed structures.
+
+Plus `fsync()` before rename, so a power loss doesn't return to
+zero-length file.
+
+### Added
+
+**Multi-select in minimal devices view.** Cards mode had this
+since v1.10; minimal didn't. Now has leading checkbox column,
+header select-all (respects the active filter), selected-row
+highlight. Reuses the same `selectedDevices` Set as cards, so
+switching density mid-selection survives.
+
+**`packaging/recover-corrupted-json.py`** — one-shot tool for
+files already damaged by the v1.12.0 race. Uses `raw_decode()` to
+find the first valid JSON document, makes a `.broken-<ts>`
+backup, writes the recovered content. Dry-run by default;
+`--apply` to fix.
+
+### SQLite — considered, not chosen
+
+Considered migrating hot-path files to SQLite. ACID would solve
+this corruption fundamentally, but at this scale (~9 devices,
+60-second heartbeats = ~9 writes/min) the flock-based approach
+is sufficient. SQLite's wins (queries, indexes, large-scale
+concurrency) don't apply to a key/value workload where the
+whole dataset fits in memory. Trade-off: keep `jq` debugging,
+keep `tar czf` backup, keep boring architecture. If the project
+ever grows past 1000 devices, SQLite is the right migration.
+
+### Tests
+
+529 passing (513 from v1.12.0 + 16 new in `test_v1121.py`):
+atomic-save mechanics, NaN/Inf rejection, .bak fallback,
+end-to-end recovery, 8-process concurrent writers (without
+hardening reproduces the corruption; with hardening every load
+returns valid data).
+
+### Compatibility
+
+Drop-in. On-disk format unchanged. `.bak` and `.lock` sidecars
+get created on next save of each file. Performance: ~5-30ms
+extra per heartbeat (flock + copy + fsync); negligible.
+
+
+## v1.12.0 — 2026-05-07
+
+### Added
+
+**`packaging/install-webterm.sh`.** v1.11.11 deploy assumed
+`rp-www`/`rp-webterm` users that don't exist on Debian/Ubuntu
+(uses `www-data`). Script auto-detects the CGI user via process
+heuristic (`pgrep -u USER -f '(fcgi|nginx|cgi|php-fpm)'`),
+detects the package manager, creates the daemon user, generates
+the shared secret, renders the systemd unit with correct
+substitutions, prints the nginx snippet. `--dry-run` available.
+
+**Per-device metric thresholds UI.** The v1.11.10 endpoint had
+no UI — you had to use curl. Modal in the device dropdown menu
+shows current sysinfo for context, warn/crit fields per metric
+(empty = use default; placeholder shows inherited value),
+per-mount disk override rows with add/remove, reset-to-defaults.
+Saving clears `metric_state` so the next heartbeat re-evaluates.
+
+**Live device metrics on the Monitor page.** New section under
+the existing external monitors table. Per-device row with
+aggregate alert level + memory/swap/CPU/per-mount disk numbers,
+each color-coded by its specific state. Filter by name/group/
+tag/mount path, sort by any column, click "Thresholds" to jump
+to the editor. Data source: existing `/api/devices` (no new
+endpoint).
+
+**Manual.html rewrite.** From 328 lines of fragmented notes to
+~470 lines of coherent documentation. 11 sections with TOC:
+overview, install (incl. webterm daemon + install script),
+enrollment (PIN + API tokens), agent/heartbeat, commands,
+external monitors, device metrics (4 flows: UI/Monitor-page/
+API/direct file), web terminal (architecture, auth flow,
+security, session recording), webhooks, dashboard UI,
+troubleshooting. Replaces both `Manual.html` and
+`docs/Manual.html`.
+
+### Tests
+
+513 passing — unchanged. No new server endpoints. Install
+script syntax-checked; manually verified `--dry-run`.
+
+### Compatibility
+
+Drop-in from v1.11.11. No schema changes. v1.11.10 overrides
+work as-is; UI just makes them visible. Webterm daemon binary
+unchanged; only the install wrapper is new.
+
+
 ## v1.11.11 — 2026-05-07
 
 ### Added
