@@ -20,12 +20,17 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.11.9'
+SERVER_VERSION = '1.11.11'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
 DEVICES_FILE     = DATA_DIR / 'devices.json'
 PINS_FILE        = DATA_DIR / 'pins.json'
+# v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
+# Created via POST /api/enrollment-tokens (admin-only). Same shape as
+# pins.json but tokens are 32-char URL-safe random strings instead of
+# 6-digit PINs, and they carry optional default group/tags/expiry.
+ENROLL_TOKENS_FILE = DATA_DIR / 'enrollment_tokens.json'
 TOKENS_FILE      = DATA_DIR / 'tokens.json'
 CMDS_FILE        = DATA_DIR / 'commands.json'
 CONFIG_FILE      = DATA_DIR / 'config.json'
@@ -157,6 +162,56 @@ MAX_UI_PREFS_TABLES        = 50            # distinct tables we'll remember pref
 UI_DENSITY_VALUES          = ('minimal', 'compact', 'comfortable', 'spacious')
 UI_DENSITY_DEFAULT         = 'comfortable'
 
+# ─── v1.11.10: enrollment tokens & metric alerting ───────────────────────────
+
+# Default lifetime of an enrollment token. 24h is a sensible balance —
+# long enough that an Ansible run started overnight still has time, short
+# enough that a leaked token has bounded risk. Override via the create
+# endpoint's `expires_in` parameter (capped at 7 days).
+DEFAULT_ENROLL_TOKEN_TTL = 24 * 3600
+MAX_ENROLL_TOKEN_TTL     = 7 * 24 * 3600
+
+# Default metric alert thresholds. These match the values discussed in
+# v1.11.10 planning and are documented in the Settings page. Per-device
+# overrides go in devices[id]['metric_thresholds']; per-mount disk
+# overrides in devices[id]['metric_thresholds']['disk_per_mount'][path].
+#
+# Hysteresis: a metric must drop ``METRIC_RECOVERY_BUFFER`` percentage
+# points below the warn threshold before we fire metric_recovered. Without
+# this, a metric oscillating around 80% would generate webhook spam.
+DEFAULT_METRIC_THRESHOLDS = {
+    'disk_warn_percent':   80,
+    'disk_crit_percent':   90,
+    'mem_warn_percent':    85,
+    'mem_crit_percent':    95,
+    'swap_warn_percent':   20,
+    'swap_crit_percent':   50,
+    # CPU thresholds are loadavg/cpu_count multiples. 1.5 = 1-minute load
+    # of 1.5× cores sustained = warning. The values match what most
+    # sysadmins consider 'busy' (warn) and 'overloaded' (critical).
+    'cpu_warn_load_ratio': 1.5,
+    'cpu_crit_load_ratio': 3.0,
+}
+METRIC_RECOVERY_BUFFER = 5      # percentage points (or load-ratio*100 equivalent)
+METRIC_KINDS           = ('disk', 'memory', 'swap', 'cpu')
+METRIC_SEVERITIES      = ('warning', 'critical')
+
+# ─── v1.11.11: web terminal (browser → SSH via companion daemon) ─────────────
+#
+# Tickets are short-lived single-use credentials issued by the CGI's
+# /api/webterm/auth endpoint after re-validating the user's admin
+# password. The remotepower-webterm daemon (separate systemd unit
+# listening on 127.0.0.1:8765) reads the ticket store, validates the
+# ticket the browser presents on WS connect, and proxies bytes between
+# the browser and an SSH session to the target device.
+#
+# The CGI never speaks SSH directly. The daemon never speaks to the
+# database. The ticket file is the only thing they share.
+WEBTERM_TICKETS_FILE = DATA_DIR / 'webterm_tickets.json'
+WEBTERM_TICKET_TTL   = 60          # seconds — long enough to click Connect
+WEBTERM_SESSION_DIR  = DATA_DIR / 'webterm-sessions'
+WEBTERM_MAX_SESSION_LOG_BYTES = 10 * 1024 * 1024   # 10 MiB cap per recording
+
 # Sibling modules — must live in the same cgi-bin directory
 sys.path.insert(0, str(Path(__file__).parent))
 import cve_scanner
@@ -219,6 +274,10 @@ WEBHOOK_EVENTS = (
     ('container_stopped',  'Container/pod disappeared or stopped', True),
     ('container_restarting', 'Container restart count climbing',   True),
     ('containers_stale',   'No container report for >TTL',         True),
+    # v1.11.10: metric thresholds (disk, memory, swap, cpu loadavg)
+    ('metric_warning',     'Resource crossed warning threshold',   True),
+    ('metric_critical',    'Resource crossed critical threshold',  True),
+    ('metric_recovered',   'Resource dropped back below threshold', True),
     ('command_queued',     'Command queued for a device',          False),
     ('command_executed',   'Command executed on a device',         False),
 )
@@ -924,6 +983,10 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         'container_stopped':    'Container Stopped',
         'container_restarting': 'Container Restarting',
         'containers_stale':     'Container Data Stale',
+        # v1.11.10
+        'metric_warning':       'Resource Warning',
+        'metric_critical':      'Resource Critical',
+        'metric_recovered':     'Resource Recovered',
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
@@ -1043,6 +1106,31 @@ def _webhook_message(event, payload):
         return (f'{name}: no container report for {payload.get("age_minutes", "?")} '
                 f'minutes (TTL: {payload.get("ttl_minutes", "?")} min). '
                 f'Last seen {_ts_fmt(payload.get("reported_at", 0))}.')
+    # ── v1.11.10: metric thresholds ────────────────────────────────────────
+    elif event in ('metric_warning', 'metric_critical'):
+        kind = payload.get('kind', '?')
+        target = payload.get('target', '')
+        sev = 'CRITICAL' if event == 'metric_critical' else 'WARNING'
+        # Disk has a target (mount path); other kinds don't.
+        if kind == 'disk' and target:
+            return (f'{name}: {sev} — disk {target} at '
+                    f'{payload.get("value", "?")}% '
+                    f'(threshold: {payload.get("threshold", "?")}%)')
+        if kind == 'cpu':
+            return (f'{name}: {sev} — load avg '
+                    f'{payload.get("value", "?")} on {payload.get("cpu_count", "?")} '
+                    f'CPUs (threshold ratio: {payload.get("threshold", "?")})')
+        return (f'{name}: {sev} — {kind} at '
+                f'{payload.get("value", "?")}% (threshold: {payload.get("threshold", "?")}%)')
+    elif event == 'metric_recovered':
+        kind = payload.get('kind', '?')
+        target = payload.get('target', '')
+        if kind == 'disk' and target:
+            return (f'{name}: disk {target} recovered to '
+                    f'{payload.get("value", "?")}%')
+        if kind == 'cpu':
+            return (f'{name}: cpu load recovered to {payload.get("value", "?")}')
+        return f'{name}: {kind} recovered to {payload.get("value", "?")}%'
     elif event == 'test':
         return f'This is a test notification from RemotePower ({payload.get("server_version", "?")}). If you see this, webhooks are working!'
     return f'{event}: {name}'
@@ -1050,12 +1138,13 @@ def _webhook_message(event, payload):
 
 def _webhook_priority(event):
     """Return numeric priority (1-5) for push services. 3=default, 4=high, 5=urgent."""
-    if event == 'cve_found':
+    if event == 'cve_found' or event == 'metric_critical':
         return 5
     if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
-                 'log_alert', 'container_stopped', 'containers_stale'):
+                 'log_alert', 'container_stopped', 'containers_stale',
+                 'metric_warning'):
         return 4
-    if event in ('device_online', 'monitor_up', 'service_up'):
+    if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered'):
         return 3
     return 3
 
@@ -1078,6 +1167,10 @@ def _webhook_tags(event):
         'container_stopped':    'red_circle,whale',
         'container_restarting': 'warning,whale',
         'containers_stale':     'warning,hourglass',
+        # v1.11.10
+        'metric_warning':       'warning,bar_chart',
+        'metric_critical':      'rotating_light,bar_chart',
+        'metric_recovered':     'green_circle,bar_chart',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -1402,6 +1495,124 @@ def handle_device_notes(dev_id):
     respond(200, {'ok': True, 'notes': notes})
 
 
+# v1.11.10: per-device metric threshold overrides
+def handle_device_metric_thresholds(dev_id):
+    """``GET|PATCH|DELETE /api/devices/{id}/metric-thresholds``.
+
+    GET — returns the device's current overrides merged with defaults so
+    the UI can show effective values without resolving them itself.
+
+    PATCH — accepts any subset of these keys; missing keys keep their
+    previous value (or fall through to default if never set):
+        disk_warn_percent, disk_crit_percent  — global (non-mount-specific)
+        mem_warn_percent, mem_crit_percent
+        swap_warn_percent, swap_crit_percent
+        cpu_warn_load_ratio, cpu_crit_load_ratio
+        disk_per_mount  — dict keyed by mount path → {warn, crit}
+
+    DELETE — clears all overrides for this device, reverting to defaults.
+
+    All thresholds validated to plausible ranges (1–100 for percentages,
+    0.1–100 for load ratios). Out-of-range values are rejected with 400
+    rather than silently clamped — better to fail loudly than alert at
+    a threshold the user didn't intend.
+    """
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    dev = devices[dev_id]
+
+    if method() == 'GET':
+        overrides = dev.get('metric_thresholds') or {}
+        # Compute "effective" values by merging defaults
+        effective = dict(DEFAULT_METRIC_THRESHOLDS)
+        for k in ('disk_warn_percent', 'disk_crit_percent',
+                  'mem_warn_percent',  'mem_crit_percent',
+                  'swap_warn_percent', 'swap_crit_percent',
+                  'cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
+            if k in overrides:
+                effective[k] = overrides[k]
+        respond(200, {
+            'overrides': overrides,
+            'effective': effective,
+            'defaults':  DEFAULT_METRIC_THRESHOLDS,
+            'recovery_buffer_percent': METRIC_RECOVERY_BUFFER,
+        })
+
+    if method() == 'DELETE':
+        if 'metric_thresholds' in dev:
+            del dev['metric_thresholds']
+            save(DEVICES_FILE, devices)
+        respond(200, {'ok': True})
+
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+
+    body = get_json_body() or {}
+    overrides = dev.get('metric_thresholds') or {}
+
+    # Percentage thresholds (1-99 — 0 and 100 don't make sense as alerts)
+    pct_keys = ('disk_warn_percent', 'disk_crit_percent',
+                'mem_warn_percent',  'mem_crit_percent',
+                'swap_warn_percent', 'swap_crit_percent')
+    for k in pct_keys:
+        if k in body:
+            v = body[k]
+            if not isinstance(v, (int, float)) or not (1 <= v <= 99):
+                respond(400, {'error': f'{k} must be a number between 1 and 99'})
+            overrides[k] = float(v)
+
+    # Load ratios (0.1 to 100 — 0.1 is "alert when even partially loaded")
+    for k in ('cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
+        if k in body:
+            v = body[k]
+            if not isinstance(v, (int, float)) or not (0.1 <= v <= 100):
+                respond(400, {'error': f'{k} must be a number between 0.1 and 100'})
+            overrides[k] = float(v)
+
+    # Per-mount overrides
+    if 'disk_per_mount' in body:
+        pm = body['disk_per_mount']
+        if not isinstance(pm, dict):
+            respond(400, {'error': 'disk_per_mount must be a dict'})
+        clean_pm = {}
+        for path, entry in list(pm.items())[:50]:  # cap mounts
+            if not isinstance(path, str) or not path.startswith('/'):
+                continue
+            if not isinstance(entry, dict):
+                continue
+            w = entry.get('warn'); c = entry.get('crit')
+            if not (isinstance(w, (int, float)) and 1 <= w <= 99):
+                respond(400, {'error': f'disk_per_mount[{path}].warn must be 1-99'})
+            if not (isinstance(c, (int, float)) and 1 <= c <= 99):
+                respond(400, {'error': f'disk_per_mount[{path}].crit must be 1-99'})
+            if w >= c:
+                respond(400, {'error': f'disk_per_mount[{path}].warn must be < crit'})
+            clean_pm[path[:256]] = {'warn': float(w), 'crit': float(c)}
+        overrides['disk_per_mount'] = clean_pm
+
+    # Sanity: warn must be < crit for every kind
+    for warn_k, crit_k in (('disk_warn_percent', 'disk_crit_percent'),
+                           ('mem_warn_percent',  'mem_crit_percent'),
+                           ('swap_warn_percent', 'swap_crit_percent'),
+                           ('cpu_warn_load_ratio','cpu_crit_load_ratio')):
+        w = overrides.get(warn_k, DEFAULT_METRIC_THRESHOLDS[warn_k])
+        c = overrides.get(crit_k, DEFAULT_METRIC_THRESHOLDS[crit_k])
+        if w >= c:
+            respond(400, {'error': f'{warn_k} must be < {crit_k}'})
+
+    dev['metric_thresholds'] = overrides
+    # Reset metric state so next heartbeat re-fires alerts under new thresholds
+    # (otherwise a metric currently in 'warning' state with old threshold 80
+    # would silently stay 'warning' even if you raised threshold to 90).
+    dev.pop('metric_state', None)
+    save(DEVICES_FILE, devices)
+    respond(200, {'ok': True, 'overrides': overrides})
+
+
 def handle_device_group(dev_id):
     require_admin_auth()
     if method() != 'PATCH':
@@ -1496,19 +1707,378 @@ def handle_enroll_pin():
     respond(200, {'pin': pin, 'expires': now + PIN_TTL})
 
 
+# ─── v1.11.10: API enrollment via one-time pre-shared tokens ────────────────
+#
+# Three endpoints:
+#   POST   /api/enrollment-tokens          (admin) → create a token
+#   GET    /api/enrollment-tokens          (admin) → list non-expired tokens
+#   DELETE /api/enrollment-tokens/{token}  (admin) → revoke a token
+#
+# Tokens are consumed atomically by handle_enroll_register() — the registration
+# call deletes the token before creating the device, so a leaked token can't
+# enroll twice. If a request races (two agents holding the same token enroll
+# at the same instant), exactly one wins; the other gets HTTP 403. That's
+# the expected behaviour for "one-time use".
+#
+# Token storage shape (in enrollment_tokens.json):
+#   {
+#     "<token>": {
+#       "created":       <unix_ts>,
+#       "expires":       <unix_ts>,
+#       "actor":         "<username who created it>",
+#       "default_group": "servers",       # optional — applied at enrollment
+#       "default_tags":  ["prod","linux"], # optional
+#       "label":         "ansible-batch-2026-05-06"  # optional, free-form
+#     },
+#     ...
+#   }
+
+
+def _purge_expired_enroll_tokens(tokens, now):
+    """Drop tokens whose ``expires`` has passed. Mutates and returns ``tokens``."""
+    expired = [t for t, meta in tokens.items() if meta.get('expires', 0) < now]
+    for t in expired:
+        tokens.pop(t, None)
+    return tokens
+
+
+def handle_enroll_token_create():
+    """``POST /api/enrollment-tokens`` — generate a one-time-use enrollment token.
+
+    Body (all optional):
+        expires_in    — seconds until expiry. Default 24h, capped at 7 days.
+        default_group — group string applied to the device on enrollment.
+        default_tags  — list of tag strings applied on enrollment.
+        label         — free-form description shown in the listing endpoint.
+
+    Response:
+        ``{token, expires, created, label}`` — the token is shown ONCE here;
+        we never return it again from the GET endpoint (only the truncated
+        prefix), so the caller must capture it now.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+
+    # Validate expires_in
+    try:
+        ttl = int(body.get('expires_in', DEFAULT_ENROLL_TOKEN_TTL))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'expires_in must be an integer (seconds)'})
+    if ttl < 60:
+        respond(400, {'error': 'expires_in must be >= 60 seconds'})
+    if ttl > MAX_ENROLL_TOKEN_TTL:
+        respond(400, {'error': f'expires_in cannot exceed {MAX_ENROLL_TOKEN_TTL} seconds (7 days)'})
+
+    # Validate default_group / default_tags
+    default_group = _sanitize_str(body.get('default_group', ''), MAX_GROUP_LEN) if body.get('default_group') else ''
+    default_tags = body.get('default_tags', []) or []
+    if not isinstance(default_tags, list):
+        respond(400, {'error': 'default_tags must be a list of strings'})
+    clean_tags = []
+    for t in default_tags[:MAX_TAG_COUNT]:
+        s = _sanitize_str(str(t), MAX_TAG_LEN)
+        if s:
+            clean_tags.append(s)
+
+    label = _sanitize_str(body.get('label', ''), 128)
+
+    # Generate the token. 32 url-safe bytes → 43 chars after base64. That's
+    # enough entropy that brute-forcing at the rate-limit isn't a concern.
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+
+    tokens = load(ENROLL_TOKENS_FILE)
+    _purge_expired_enroll_tokens(tokens, now)
+    tokens[token] = {
+        'created':       now,
+        'expires':       now + ttl,
+        'actor':         actor,
+        'default_group': default_group,
+        'default_tags':  clean_tags,
+        'label':         label,
+    }
+    save(ENROLL_TOKENS_FILE, tokens)
+    audit_log(actor, 'enrollment_token_created',
+              f'label="{label}" expires_in={ttl}s group="{default_group}" tags={clean_tags}')
+    respond(201, {
+        'token':   token,
+        'expires': now + ttl,
+        'created': now,
+        'label':   label,
+    })
+
+
+def handle_enroll_token_list():
+    """``GET /api/enrollment-tokens`` — list non-expired tokens (no values).
+
+    The actual token strings are never returned here — only a truncated
+    prefix for identification. If you need to see the token again you
+    have to revoke it and create a new one. This protects against the
+    "list endpoint leaks active tokens to anyone with admin access" footgun.
+    """
+    require_admin_auth()
+    tokens = load(ENROLL_TOKENS_FILE)
+    now = int(time.time())
+    _purge_expired_enroll_tokens(tokens, now)
+    save(ENROLL_TOKENS_FILE, tokens)
+    out = []
+    for token, meta in tokens.items():
+        out.append({
+            'prefix':        token[:8] + '…',  # first 8 chars for ID purposes only
+            'created':       meta.get('created', 0),
+            'expires':       meta.get('expires', 0),
+            'actor':         meta.get('actor', ''),
+            'default_group': meta.get('default_group', ''),
+            'default_tags':  meta.get('default_tags', []) or [],
+            'label':         meta.get('label', ''),
+            'remaining_seconds': max(0, meta.get('expires', 0) - now),
+        })
+    out.sort(key=lambda t: t['created'], reverse=True)
+    respond(200, out)
+
+
+def handle_enroll_token_revoke(token_prefix: str):
+    """``DELETE /api/enrollment-tokens/{prefix}`` — revoke by 8-char prefix.
+
+    Why the prefix and not the full token? Because the list endpoint only
+    returns prefixes, and the dashboard wires its Revoke button against
+    those prefixes. Revoking by full token would mean either showing the
+    token in the listing (bad) or making the user paste it from somewhere.
+    Prefixes are 8 chars from a 256-token-urlsafe alphabet — collisions
+    are essentially impossible at any plausible scale, and we explicitly
+    refuse if multiple tokens share a prefix (asks the user to pass more
+    chars).
+    """
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    prefix = _sanitize_str(token_prefix, 64).rstrip('…')
+    if len(prefix) < 4:
+        respond(400, {'error': 'Token prefix must be at least 4 characters'})
+    tokens = load(ENROLL_TOKENS_FILE)
+    matches = [t for t in tokens if t.startswith(prefix)]
+    if len(matches) == 0:
+        respond(404, {'error': 'No matching enrollment token'})
+    if len(matches) > 1:
+        respond(400, {'error': f'{len(matches)} tokens share that prefix — use a longer prefix'})
+    full = matches[0]
+    label = tokens[full].get('label', '')
+    del tokens[full]
+    save(ENROLL_TOKENS_FILE, tokens)
+    audit_log(actor, 'enrollment_token_revoked', f'prefix={prefix} label="{label}"')
+    respond(200, {'ok': True})
+
+
+# ─── v1.11.11: web terminal auth + audit endpoints ──────────────────────────
+#
+# The CGI's job in the web-terminal flow is narrow:
+#   1. Re-validate the user's admin password BEFORE we let them open a shell.
+#   2. Issue a short-lived single-use ticket the daemon will recognise.
+#   3. Accept session-completion audit POSTs from the daemon.
+#
+# Everything else — the actual SSH connection, byte pumping, recording —
+# is the daemon's job. The CGI never holds an SSH connection open.
+
+
+def _purge_expired_webterm_tickets(tickets, now):
+    """Drop tickets past their TTL. Mutates ``tickets`` and returns it."""
+    expired = [t for t, meta in tickets.items()
+               if meta.get('expires', 0) < now or meta.get('used')]
+    for t in expired:
+        tickets.pop(t, None)
+    return tickets
+
+
+def handle_webterm_auth():
+    """``POST /api/webterm/auth`` — re-prompt admin password, issue ticket.
+
+    Body:
+        device_id      — which device to open a terminal to
+        admin_password — must match the *current user's* password
+
+    The user is already authenticated via the session token (X-Token
+    header), so this isn't asking them to log in again — it's a re-auth
+    challenge specifically for the terminal action. Same pattern banks
+    use for "you're logged in but we want a password before this
+    privileged action."
+
+    Why not TOTP? You explicitly didn't ask for it. The spec was
+    "admin password every time" and that's what this is. If you ever
+    want TOTP on top, it's a small addition.
+
+    Response:
+        ``{ticket, expires, daemon_url}`` — daemon_url is the WebSocket
+        endpoint the browser should connect to. We compute it from the
+        request's Host header so it works the same in dev (single host)
+        and production (real domain).
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    dev_id = str(body.get('device_id', '')).strip()
+    admin_password = str(body.get('admin_password', ''))
+
+    if not dev_id or not _validate_id(dev_id):
+        respond(400, {'error': 'device_id required'})
+    if not admin_password:
+        respond(400, {'error': 'admin_password required'})
+
+    # Look up the device (just to confirm it exists; we don't pass any
+    # device data to the daemon — the user supplies SSH host/user/pw).
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+
+    # Re-verify the admin's password
+    users = load(USERS_FILE)
+    user = users.get(actor)
+    if not user:
+        respond(403, {'error': 'User no longer exists'})
+    if not verify_password(admin_password, user.get('password_hash', '')):
+        # Audit-log the failure so a brute-force attempt against this
+        # endpoint shows up. Real defence is the rate limiter on the
+        # CGI; this is just visibility.
+        audit_log(actor, 'webterm_auth_failed', f'device={dev_id}')
+        respond(403, {'error': 'Admin password did not match'})
+
+    # Issue ticket
+    ticket = secrets.token_urlsafe(32)
+    now = int(time.time())
+    tickets = load(WEBTERM_TICKETS_FILE)
+    _purge_expired_webterm_tickets(tickets, now)
+    tickets[ticket] = {
+        'actor':     actor,
+        'device_id': dev_id,
+        'created':   now,
+        'expires':   now + WEBTERM_TICKET_TTL,
+        'used':      False,
+        'source_ip': _get_client_ip(),
+    }
+    save(WEBTERM_TICKETS_FILE, tickets)
+    audit_log(actor, 'webterm_ticket_issued',
+              f'device={dev_id} expires_in={WEBTERM_TICKET_TTL}s')
+
+    # Build daemon URL. nginx proxies /api/webterm/connect to the daemon,
+    # so the browser uses the same host as the dashboard (real TLS,
+    # real cookies). In dev / non-nginx setups the user can override
+    # via config.
+    cfg = load(CONFIG_FILE)
+    daemon_url_override = cfg.get('webterm_daemon_url', '')
+    if daemon_url_override:
+        daemon_url = daemon_url_override
+    else:
+        # Same host as the request. The browser sets the protocol to wss
+        # automatically when the page is HTTPS.
+        daemon_url = '/api/webterm/connect'
+
+    respond(200, {
+        'ticket':     ticket,
+        'expires':    now + WEBTERM_TICKET_TTL,
+        'daemon_url': daemon_url,
+        'device':     {
+            'id':       dev_id,
+            'name':     devices[dev_id].get('name', dev_id),
+            'ip':       devices[dev_id].get('ip', ''),
+            'hostname': devices[dev_id].get('hostname', ''),
+        },
+    })
+
+
+def handle_webterm_session_audit():
+    """``POST /api/webterm/audit`` — daemon reports session completion.
+
+    Called by the daemon when an SSH session ends, with metadata about
+    the session (duration, byte counts, exit reason). The CGI logs it
+    to the audit log so it shows up alongside the rest of the audit
+    trail. Authenticated via a shared secret stored in config —
+    daemon and CGI both read the same config.json so this works
+    automatically once the deploy script generates the secret.
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+
+    # Daemon authenticates with a shared secret rather than session
+    # tokens — the daemon doesn't have a session token, it's a system
+    # service. The secret is generated once by the deploy script and
+    # written to config.json (only readable by the rp-www user) and to
+    # /etc/remotepower/webterm-secret (only readable by the daemon's
+    # user). If they match, it's the legit daemon talking.
+    cfg = load(CONFIG_FILE)
+    expected = cfg.get('webterm_daemon_secret', '')
+    provided = os.environ.get('HTTP_X_WEBTERM_SECRET', '')
+    if not expected or not provided or not hmac.compare_digest(expected, provided):
+        respond(403, {'error': 'Daemon secret mismatch'})
+
+    actor       = _sanitize_str(body.get('actor', 'unknown'), 64)
+    dev_id      = _sanitize_str(body.get('device_id', ''), 64)
+    ssh_user    = _sanitize_str(body.get('ssh_user', ''), 64)
+    ssh_host    = _sanitize_str(body.get('ssh_host', ''), 256)
+    duration_s  = int(body.get('duration_s', 0)) if isinstance(body.get('duration_s'), (int, float)) else 0
+    bytes_in    = int(body.get('bytes_in', 0))   if isinstance(body.get('bytes_in'), int) else 0
+    bytes_out   = int(body.get('bytes_out', 0))  if isinstance(body.get('bytes_out'), int) else 0
+    reason      = _sanitize_str(body.get('reason', ''), 128)
+    session_id  = _sanitize_str(body.get('session_id', ''), 64)
+    detail = (f'device={dev_id} ssh_user={ssh_user}@{ssh_host} '
+              f'duration={duration_s}s bytes_in={bytes_in} bytes_out={bytes_out} '
+              f'reason={reason} session_id={session_id}')
+    audit_log(actor, 'webterm_session', detail[:600])
+    respond(200, {'ok': True})
+
+
 def handle_enroll_register():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
+
+    # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
+    # a long pre-shared one-time-use token (non-interactive — Ansible,
+    # cloud-init, etc.). Either path validates and consumes its credential
+    # before creating the device. Both are atomic: the credential is
+    # deleted before the device is created so a leaked credential can't
+    # enroll twice.
     pin = str(body.get('pin', '')).strip()
-    if not re.match(r'^\d{6}$', pin):
-        respond(400, {'error': 'Invalid PIN format'})
-    pins = load(PINS_FILE)
+    enroll_token = str(body.get('enrollment_token', '')).strip()
+    default_group = ''
+    default_tags = []
+
+    if enroll_token:
+        # Token path. The token must exist, not be expired, and gets
+        # deleted as part of consumption. Default group/tags from the
+        # token apply unless the agent explicitly provides its own.
+        if len(enroll_token) < 16 or len(enroll_token) > 256:
+            respond(400, {'error': 'Invalid enrollment token format'})
+        tokens = load(ENROLL_TOKENS_FILE)
+        now = int(time.time())
+        _purge_expired_enroll_tokens(tokens, now)
+        meta = tokens.get(enroll_token)
+        if not meta:
+            respond(403, {'error': 'Invalid or expired enrollment token'})
+        # Consume the token *before* creating the device. If save fails
+        # for some reason the device creation below still happens (we
+        # accept that edge case rather than building two-phase commit
+        # over a JSON file). In practice save() is atomic.
+        del tokens[enroll_token]
+        save(ENROLL_TOKENS_FILE, tokens)
+        default_group = meta.get('default_group', '') or ''
+        default_tags = meta.get('default_tags', []) or []
+    elif pin:
+        # PIN path (existing flow).
+        if not re.match(r'^\d{6}$', pin):
+            respond(400, {'error': 'Invalid PIN format'})
+        pins = load(PINS_FILE)
+        now = int(time.time())
+        entry = pins.get(pin)
+        if not entry or (now - entry['created']) > PIN_TTL:
+            respond(403, {'error': 'Invalid or expired PIN'})
+        del pins[pin]; save(PINS_FILE, pins)
+    else:
+        respond(400, {'error': 'Either pin or enrollment_token is required'})
+
     now = int(time.time())
-    entry = pins.get(pin)
-    if not entry or (now - entry['created']) > PIN_TTL:
-        respond(403, {'error': 'Invalid or expired PIN'})
-    del pins[pin]; save(PINS_FILE, pins)
 
     # Sanitize all enrollment fields
     hostname = _sanitize_hostname(body.get('hostname', 'unknown'))
@@ -1539,7 +2109,7 @@ def handle_enroll_register():
     devices[dev_id] = {
         'name': name, 'hostname': hostname, 'os': os_str,
         'ip': ip, 'mac': mac, 'version': version,
-        'tags': [], 'group': '', 'notes': '',
+        'tags': list(default_tags), 'group': default_group, 'notes': '',
         'enrolled': now, 'last_seen': now, 'poll_interval': get_default_poll_interval(),
         'token': secrets.token_urlsafe(32),
     }
@@ -1595,13 +2165,52 @@ def handle_heartbeat():
                         'mac':   _sanitize_mac(iface.get('mac', '')),
                     })
             safe_si['network'] = safe_net
-        # Metrics
-        for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent'):
+        # Metrics — legacy three (root-mount disk, cpu, memory) plus
+        # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
+        for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
             val = si.get(metric_key)
             if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
                 safe_si[metric_key] = round(float(val), 2)
+        # loadavg can be > 100 on a heavily loaded box — different validation
+        for fkey in ('loadavg_1m',):
+            v = si.get(fkey)
+            if isinstance(v, (int, float)) and 0.0 <= v <= 1000.0:
+                safe_si[fkey] = round(float(v), 2)
+        # cpu_count
+        cc = si.get('cpu_count')
+        if isinstance(cc, int) and 1 <= cc <= 1024:
+            safe_si['cpu_count'] = cc
+        # mounts: bounded list, each with sanitised path, percent, sizes
+        if isinstance(si.get('mounts'), list):
+            safe_mounts = []
+            for m in si['mounts'][:50]:
+                if not isinstance(m, dict):
+                    continue
+                p = _sanitize_str(m.get('path', ''), 256)
+                if not p or not p.startswith('/'):
+                    continue
+                pct = m.get('percent')
+                if not (isinstance(pct, (int, float)) and 0.0 <= pct <= 100.0):
+                    continue
+                safe_mounts.append({
+                    'path':     p,
+                    'percent':  round(float(pct), 1),
+                    'used_gb':  round(float(m.get('used_gb', 0)), 2)
+                                  if isinstance(m.get('used_gb'), (int, float)) else 0,
+                    'total_gb': round(float(m.get('total_gb', 0)), 2)
+                                  if isinstance(m.get('total_gb'), (int, float)) else 0,
+                    'fstype':   _sanitize_str(m.get('fstype', ''), 32),
+                })
+            safe_si['mounts'] = safe_mounts
         dev['sysinfo'] = safe_si
         _record_metrics(dev_id, safe_si)
+        # v1.11.10: check thresholds and fire metric_warning / metric_critical /
+        # metric_recovered webhooks. Wrapped in try so a logic bug here never
+        # breaks the heartbeat path.
+        try:
+            process_metric_thresholds(dev_id, dev, safe_si)
+        except Exception:
+            pass
 
     if 'journal' in body and isinstance(body['journal'], list):
         # Cap journal: max lines and max bytes per line
@@ -5234,6 +5843,246 @@ def process_service_report(dev_id, services_payload):
 CONTAINER_RESTART_DELTA_THRESHOLD = 1
 
 
+# ─── v1.11.10: metric threshold processing ──────────────────────────────────
+#
+# Fires metric_warning / metric_critical when a resource crosses its
+# configured threshold, and metric_recovered when it drops below the
+# warn threshold minus the recovery buffer (hysteresis to prevent
+# webhook spam from values oscillating around the line).
+#
+# Per-metric notification state is stored under
+# ``dev['metric_state']`` as a dict keyed by ``f"{kind}:{target}"``:
+#
+#     "disk:/var":   "critical"   — current alert level
+#     "memory:":     "warning"
+#     "cpu:":        "ok"          — explicit "no alert" state
+#
+# Transitions:
+#   ok       → warning   : fire metric_warning
+#   ok       → critical  : fire metric_critical (skip the warning fire)
+#   warning  → critical  : fire metric_critical
+#   critical → warning   : fire metric_warning  (downgrade)
+#   any      → ok        : fire metric_recovered (when value drops below
+#                          warn - recovery_buffer; one-shot)
+#
+# Thresholds resolution order (most-to-least specific):
+#   1. devices[id]['metric_thresholds']['disk_per_mount'][path] for disk
+#      with a specific mount path
+#   2. devices[id]['metric_thresholds'][key] for that kind
+#   3. config[key] (global override) — not implemented in v1.11.10 to
+#      keep the surface small; per-device covers 95% of real cases.
+#   4. DEFAULT_METRIC_THRESHOLDS[key] (the constants at the top of api.py)
+
+
+def _resolve_metric_thresholds(dev, kind, target=''):
+    """Return ``(warn, crit)`` for a given (kind, target) on this device.
+
+    Args:
+        dev: the device dict from devices.json.
+        kind: one of 'disk', 'memory', 'swap', 'cpu'.
+        target: for kind='disk' a mount path; otherwise empty.
+
+    Returns:
+        Tuple ``(warn, crit)``. Units are percent for disk/memory/swap,
+        load-ratio for cpu.
+    """
+    overrides = (dev.get('metric_thresholds') or {}) if isinstance(dev, dict) else {}
+
+    if kind == 'disk':
+        # Per-mount overrides first
+        per_mount = overrides.get('disk_per_mount') or {}
+        if isinstance(per_mount, dict) and target in per_mount:
+            entry = per_mount[target]
+            if isinstance(entry, dict):
+                w = entry.get('warn')
+                c = entry.get('crit')
+                if isinstance(w, (int, float)) and isinstance(c, (int, float)):
+                    return float(w), float(c)
+        # Per-device disk override
+        w = overrides.get('disk_warn_percent', DEFAULT_METRIC_THRESHOLDS['disk_warn_percent'])
+        c = overrides.get('disk_crit_percent', DEFAULT_METRIC_THRESHOLDS['disk_crit_percent'])
+        return float(w), float(c)
+
+    if kind == 'memory':
+        return (float(overrides.get('mem_warn_percent', DEFAULT_METRIC_THRESHOLDS['mem_warn_percent'])),
+                float(overrides.get('mem_crit_percent', DEFAULT_METRIC_THRESHOLDS['mem_crit_percent'])))
+    if kind == 'swap':
+        return (float(overrides.get('swap_warn_percent', DEFAULT_METRIC_THRESHOLDS['swap_warn_percent'])),
+                float(overrides.get('swap_crit_percent', DEFAULT_METRIC_THRESHOLDS['swap_crit_percent'])))
+    if kind == 'cpu':
+        return (float(overrides.get('cpu_warn_load_ratio', DEFAULT_METRIC_THRESHOLDS['cpu_warn_load_ratio'])),
+                float(overrides.get('cpu_crit_load_ratio', DEFAULT_METRIC_THRESHOLDS['cpu_crit_load_ratio'])))
+    return (None, None)
+
+
+def _classify_metric(value, warn, crit):
+    """Return 'critical' / 'warning' / 'ok' for a numeric value vs thresholds."""
+    if value >= crit:
+        return 'critical'
+    if value >= warn:
+        return 'warning'
+    return 'ok'
+
+
+def _below_recovery(value, warn):
+    """True if value has dropped far enough below warn to fire 'recovered'."""
+    return value < (warn - METRIC_RECOVERY_BUFFER)
+
+
+def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,
+                         extra=None):
+    """Wrapper to fire metric_* webhooks with consistent payload shape."""
+    payload = {
+        'device_id': dev_id,
+        'name':      dev.get('name', dev_id),
+        'group':     dev.get('group', ''),
+        'kind':      kind,
+        'target':    target,
+        'value':     value,
+        'threshold': threshold,
+    }
+    if extra:
+        payload.update(extra)
+    fire_webhook(event, payload)
+
+
+def process_metric_thresholds(dev_id, dev, safe_si):
+    """Check each resource against its threshold and fire webhooks on transitions.
+
+    Called from handle_heartbeat after sysinfo storage. Updates
+    ``dev['metric_state']`` in place — caller is expected to save the
+    devices file (it already does). Updates run before container processing
+    so the state from this heartbeat is visible to the rest of the request.
+
+    No-op cleanly when:
+        - psutil isn't installed on the agent (no metrics in payload)
+        - the device is in a maintenance window (alerts suppressed globally)
+        - global metric webhooks are disabled in config
+    """
+    if not isinstance(safe_si, dict):
+        return
+
+    # Note: we deliberately don't check the per-event 'enabled' flag here —
+    # fire_webhook() already does that. Suppressing earlier would skip the
+    # state-tracking too, which means a transition during the disabled
+    # window would be missed when re-enabled. Better to track always and
+    # let fire_webhook decide whether to actually deliver.
+
+    state = dev.get('metric_state') or {}
+    if not isinstance(state, dict):
+        state = {}
+
+    def _check(kind, target, value):
+        """Check one metric and fire webhooks on transition."""
+        if value is None:
+            return
+        warn, crit = _resolve_metric_thresholds(dev, kind, target)
+        if warn is None:
+            return
+        new_level = _classify_metric(value, warn, crit)
+        key = f'{kind}:{target}'
+        prev_level = state.get(key, 'ok')
+
+        if new_level == prev_level:
+            # No transition. Special-case: if currently in 'warning' state
+            # and value has DROPPED below warn-buffer, fire metric_recovered.
+            # This happens if the metric oscillates: it briefly went above
+            # warn, came back. Standard hysteresis.
+            if prev_level != 'ok' and _below_recovery(value, warn):
+                _fire_metric_webhook('metric_recovered', dev_id, dev, kind, target,
+                                     value, warn)
+                state[key] = 'ok'
+            return
+
+        # Transition. Fire the appropriate event.
+        if new_level == 'critical':
+            _fire_metric_webhook('metric_critical', dev_id, dev, kind, target,
+                                 value, crit)
+        elif new_level == 'warning':
+            _fire_metric_webhook('metric_warning', dev_id, dev, kind, target,
+                                 value, warn)
+        else:  # new_level == 'ok'
+            # Only fire recovered if we're below the buffer; otherwise stay
+            # in 'warning' until value drops further. This is the classic
+            # hysteresis: don't bounce between ok/warning.
+            if _below_recovery(value, warn):
+                _fire_metric_webhook('metric_recovered', dev_id, dev, kind, target,
+                                     value, warn)
+            else:
+                # Don't transition to 'ok' yet — the value is below warn but
+                # within the recovery buffer. Stay in the previous level so
+                # we don't fire 'recovered' prematurely.
+                return
+        state[key] = new_level
+
+    # Memory
+    _check('memory', '', safe_si.get('mem_percent'))
+    # Swap
+    _check('swap', '', safe_si.get('swap_percent'))
+    # CPU as load ratio (loadavg / cpu_count)
+    load = safe_si.get('loadavg_1m')
+    cpu_count = safe_si.get('cpu_count', 1) or 1
+    if isinstance(load, (int, float)) and load >= 0:
+        # CPU "value" we compare to threshold is the load ratio itself.
+        ratio = load / max(cpu_count, 1)
+        # Threshold extras for the webhook payload
+        warn, crit = _resolve_metric_thresholds(dev, 'cpu', '')
+        new_level = _classify_metric(ratio, warn, crit)
+        key = 'cpu:'
+        prev_level = state.get(key, 'ok')
+        if new_level != prev_level:
+            if new_level == 'critical':
+                _fire_metric_webhook('metric_critical', dev_id, dev, 'cpu', '',
+                                     round(load, 2), crit, {'cpu_count': cpu_count})
+            elif new_level == 'warning':
+                _fire_metric_webhook('metric_warning', dev_id, dev, 'cpu', '',
+                                     round(load, 2), warn, {'cpu_count': cpu_count})
+            else:
+                if _below_recovery(ratio, warn):
+                    _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
+                                         round(load, 2), warn, {'cpu_count': cpu_count})
+                else:
+                    return
+            state[key] = new_level
+        elif prev_level != 'ok' and _below_recovery(ratio, warn):
+            _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
+                                 round(load, 2), warn, {'cpu_count': cpu_count})
+            state[key] = 'ok'
+
+    # Disks: per-mount if reported, fall back to legacy disk_percent for /
+    mounts = safe_si.get('mounts') or []
+    if mounts:
+        # Track which keys are seen this report; orphan disk states (mount
+        # was unmounted between reports) get silently cleaned up.
+        seen_disk_keys = set()
+        for m in mounts:
+            path = m.get('path')
+            pct = m.get('percent')
+            if not path or pct is None:
+                continue
+            seen_disk_keys.add(f'disk:{path}')
+            _check('disk', path, pct)
+        # Clean orphans
+        for key in list(state.keys()):
+            if key.startswith('disk:') and key not in seen_disk_keys:
+                state.pop(key, None)
+    elif safe_si.get('disk_percent') is not None:
+        # Pre-v1.11.10 agent: only legacy root-disk metric. Treat as '/'.
+        _check('disk', '/', safe_si['disk_percent'])
+
+    dev['metric_state'] = state
+
+
+def _container_is_running(status_str):
+    """Return True if the agent-reported status string suggests "running".
+
+    Mirrors :func:`containers_mod.summarise`'s permissive matching — different
+    runtimes phrase status differently ("Up 2 hours", "running", "Ready").
+    """
+    s = (status_str or '').lower()
+    return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
+
+
 def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     """Wrapper that fires container_stopped / container_restarting via fire_webhook."""
     devices = load(DEVICES_FILE)
@@ -5247,16 +6096,6 @@ def _fire_container_webhook(event, dev_id, container_name, payload_extra=None):
     if payload_extra:
         payload.update(payload_extra)
     fire_webhook(event, payload)
-
-
-def _container_is_running(status_str):
-    """Return True if the agent-reported status string suggests "running".
-
-    Mirrors :func:`containers_mod.summarise`'s permissive matching — different
-    runtimes phrase status differently ("Up 2 hours", "running", "Ready").
-    """
-    s = (status_str or '').lower()
-    return any(t in s for t in ('running', 'up ', 'up\t', 'ready'))
 
 
 def process_container_report(dev_id, normalised, now):
@@ -7101,12 +7940,18 @@ def main():
                                      '/output','/metrics','/allowlist','/poll_interval',
                                      '/icon','/monitored','/cve','/services',
                                      '/services/config','/logs','/update-logs',
-                                     '/containers','/connected-to')):
+                                     '/containers','/connected-to',
+                                     # v1.11.10
+                                     '/metric-thresholds')):
         handle_device_delete(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
     elif pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH':
         handle_device_notes(pi[len('/api/devices/'):-len('/notes')])
+    # v1.11.10: per-device metric threshold overrides (GET/PATCH/DELETE)
+    elif pi.startswith('/api/devices/') and pi.endswith('/metric-thresholds') \
+            and m in ('GET', 'PATCH', 'DELETE'):
+        handle_device_metric_thresholds(pi[len('/api/devices/'):-len('/metric-thresholds')])
     elif pi.startswith('/api/devices/') and pi.endswith('/group') and m == 'PATCH':
         handle_device_group(pi[len('/api/devices/'):-len('/group')])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
@@ -7123,6 +7968,18 @@ def main():
         handle_device_allowlist(pi[len('/api/devices/'):-len('/allowlist')])
     elif pi == '/api/enroll/pin': handle_enroll_pin()
     elif pi == '/api/enroll/register': handle_enroll_register()
+    # v1.11.10: pre-shared one-time-use enrollment tokens for non-interactive
+    # enrollment. Same final destination as /enroll/register, but via a
+    # different credential path.
+    elif pi == '/api/enrollment-tokens' and m == 'POST': handle_enroll_token_create()
+    elif pi == '/api/enrollment-tokens' and m == 'GET':  handle_enroll_token_list()
+    elif pi.startswith('/api/enrollment-tokens/') and m == 'DELETE':
+        handle_enroll_token_revoke(pi[len('/api/enrollment-tokens/'):])
+    # v1.11.11: web terminal — only the auth + audit endpoints live in CGI.
+    # The actual websocket /api/webterm/connect is proxied by nginx to the
+    # remotepower-webterm daemon (see packaging/nginx-webterm.conf).
+    elif pi == '/api/webterm/auth'  and m == 'POST': handle_webterm_auth()
+    elif pi == '/api/webterm/audit' and m == 'POST': handle_webterm_session_audit()
     elif pi == '/api/heartbeat': handle_heartbeat()
     elif pi == '/api/shutdown': handle_shutdown()
     elif pi == '/api/reboot': handle_reboot()

@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '1.11.9'
+VERSION      = '1.11.11'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -760,16 +760,96 @@ def submit_unit_logs(creds, units):
 
 
 def get_metrics():
-    """Collect CPU/RAM/disk percentages via psutil (optional)."""
+    """Collect CPU/RAM/disk/swap/loadavg metrics via psutil (optional).
+
+    v1.11.10: extended to report per-mount disk usage, swap, and 1-minute
+    load average / cpu count for metric alerting. Schema:
+
+        {
+          'cpu_percent':   <0..100>,        # current cpu utilisation
+          'mem_percent':   <0..100>,        # virtual memory usage
+          'disk_percent':  <0..100>,        # root mount usage (legacy)
+          'swap_percent':  <0..100>,        # swap usage, 0 if no swap
+          'loadavg_1m':    <float>,         # 1-minute load average
+          'cpu_count':     <int>,           # logical CPU count
+          'mounts': [                       # one entry per local mount
+            {'path': '/', 'percent': 42.1, 'used_gb': 12.3, 'total_gb': 29.4},
+            {'path': '/var', 'percent': 78.0, ...},
+            ...
+          ],
+        }
+
+    Backwards compatible: pre-v1.11.10 servers ignore the new fields.
+    Pre-v1.11.10 agents on a v1.11.10+ server report only the legacy
+    fields and the metric-alerting code falls back to those — root-mount
+    disk alerting still works, per-mount alerting just doesn't fire for
+    those agents until they self-update.
+    """
     if not _PSUTIL:
         return {}
     try:
         cpu  = _psutil.cpu_percent(interval=0.5)
         mem  = _psutil.virtual_memory().percent
+        # Root mount kept for backward compat; per-mount list is the new shape
         disk = _psutil.disk_usage('/').percent
-        return {'cpu_percent': cpu, 'mem_percent': mem, 'disk_percent': disk}
     except Exception:
         return {}
+
+    out = {'cpu_percent': cpu, 'mem_percent': mem, 'disk_percent': disk}
+
+    try:
+        swap = _psutil.swap_memory()
+        out['swap_percent'] = swap.percent if swap.total > 0 else 0
+    except Exception:
+        out['swap_percent'] = 0
+
+    try:
+        loadavg = os.getloadavg()
+        out['loadavg_1m'] = loadavg[0]
+    except (AttributeError, OSError):
+        # Windows or other systems without getloadavg
+        out['loadavg_1m'] = 0.0
+
+    try:
+        out['cpu_count'] = _psutil.cpu_count(logical=True) or 1
+    except Exception:
+        out['cpu_count'] = 1
+
+    # Per-mount usage. Filter to "interesting" filesystems: skip
+    # tmpfs, devtmpfs, squashfs (snap mounts), overlay (containers).
+    # Include ext*, xfs, btrfs, zfs, nfs — anything you'd actually want
+    # disk-fill alerts for.
+    skip_fstypes = {'tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'overlayfs',
+                    'fuse.gvfsd-fuse', 'autofs', 'proc', 'sysfs', 'cgroup',
+                    'cgroup2', 'devpts', 'mqueue', 'debugfs', 'tracefs',
+                    'pstore', 'bpf', 'configfs', 'fusectl', 'hugetlbfs',
+                    'binfmt_misc', 'rpc_pipefs'}
+    mounts = []
+    try:
+        for part in _psutil.disk_partitions(all=False):
+            if part.fstype in skip_fstypes:
+                continue
+            # Skip snap mounts even if fstype isn't squashfs (rare edge case).
+            if part.mountpoint.startswith('/snap/') or part.mountpoint.startswith('/var/lib/snapd'):
+                continue
+            try:
+                u = _psutil.disk_usage(part.mountpoint)
+            except (PermissionError, OSError):
+                continue
+            mounts.append({
+                'path':     part.mountpoint,
+                'percent':  round(u.percent, 1),
+                'used_gb':  round(u.used / (1024**3), 2),
+                'total_gb': round(u.total / (1024**3), 2),
+                'fstype':   part.fstype,
+            })
+    except Exception:
+        pass
+    # Sanity cap: if a host somehow has thousands of mounts (NFS automount
+    # going wild), don't dump them all into every heartbeat.
+    out['mounts'] = mounts[:50]
+
+    return out
 
 def get_agent_integrity(server_url):
     """Compare own SHA-256 against server's known-good hash. Returns (ok, detail)."""
@@ -825,6 +905,104 @@ def check_for_update(server_url):
     return True
 
 # ─── Enrollment ────────────────────────────────────────────────────────────────
+def enroll_with_token(server_url, token, device_name=None):
+    """Non-interactive enrollment using a pre-shared one-time-use token.
+
+    v1.11.10: companion to interactive PIN enrollment for use from
+    Ansible / cloud-init / golden-image scripts. The token is created
+    on the server side via POST /api/enrollment-tokens (admin-only,
+    returns a 32+ char string), passed to this function, and consumed
+    atomically — same token can't be used twice. Token may carry
+    default group / tags that get applied at registration.
+
+    Resolves the token from arguments in this order:
+
+    1. The explicit ``token`` argument (used by the CLI).
+    2. ``$REMOTEPOWER_ENROLL_TOKEN`` environment variable. Useful for
+       systemd EnvironmentFile= or Ansible templated env vars.
+    3. ``/etc/remotepower/enroll-token`` if it exists. The file should
+       contain just the token (one line), and must be mode 600
+       readable by root only — Ansible can drop it with the ``copy``
+       module + ``mode: '0600'``.
+
+    The 'token in CLI arg' path leaks into ``ps`` output for the
+    duration of the enrollment call. Env var and file paths don't.
+    Pick whichever fits your secret-distribution model.
+    """
+    # Resolution chain — args → env → file
+    if not token:
+        token = os.environ.get('REMOTEPOWER_ENROLL_TOKEN', '').strip()
+    if not token:
+        token_file = Path('/etc/remotepower/enroll-token')
+        if token_file.exists():
+            try:
+                token = token_file.read_text().strip()
+            except Exception as e:
+                print(f"✗ Couldn't read {token_file}: {e}")
+                sys.exit(1)
+    if not token:
+        print("✗ No enrollment token. Pass --token, set $REMOTEPOWER_ENROLL_TOKEN,")
+        print("  or write the token to /etc/remotepower/enroll-token (mode 600).")
+        sys.exit(1)
+
+    if not server_url.startswith('https://'):
+        print("⚠  Only HTTPS is supported. Prepending https://")
+        server_url = 'https://' + server_url.lstrip('http://').lstrip('https://')
+
+    if not device_name:
+        device_name = socket.gethostname()
+
+    # Existing creds → re-enroll path. Same logic as interactive.
+    payload = {
+        'enrollment_token': token,
+        'hostname':         socket.gethostname(),
+        'name':             device_name,
+        'os':               get_os_info(),
+        'ip':               get_local_ip(),
+        'mac':              get_mac(),
+        'version':          VERSION,
+    }
+    creds = load_credentials()
+    if creds and creds.get('device_id') and creds.get('token'):
+        payload['device_id'] = creds['device_id']
+        payload['token']     = creds['token']
+        print(f"Re-enrolling existing device ({creds['device_id']})")
+    else:
+        print(f"Enrolling {device_name} → {server_url}")
+
+    try:
+        resp = http_post(f"{server_url}/api/enroll/register", payload)
+    except Exception as e:
+        print(f"✗ Server contact failed: {e}")
+        sys.exit(1)
+
+    if not resp.get('ok'):
+        print(f"✗ Enrollment rejected: {resp.get('error', 'Unknown error')}")
+        sys.exit(1)
+
+    new_creds = {
+        'server_url': server_url,
+        'device_id':  resp['device_id'],
+        'token':      resp['token'],
+        'name':       device_name,
+    }
+    save_credentials(new_creds)
+    print(f"✓ Enrolled. Device ID: {resp['device_id']}")
+    print(f"  Credentials saved to {CREDS_FILE}")
+    # Best-effort: clear the on-disk token file so it can't be re-used
+    # accidentally (the server already invalidated it on the wire, but
+    # leaving it on disk is a footgun if a second copy of the agent
+    # tried to enroll).
+    try:
+        token_file = Path('/etc/remotepower/enroll-token')
+        if token_file.exists():
+            token_file.unlink()
+            print("  Cleared /etc/remotepower/enroll-token (one-time use)")
+    except Exception:
+        pass
+    return new_creds
+
+
 def enroll_interactive(re_enroll=False):
     print()
     print("╔══════════════════════════════════════════╗")
@@ -1153,10 +1331,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 def main():
     parser = argparse.ArgumentParser(description='RemotePower client agent')
     parser.add_argument('action', nargs='?', default='run',
-        choices=['run', 'enroll', 're-enroll', 'status', 'update', 'integrity'],
-        help='run | enroll | re-enroll | status | update | integrity')
+        choices=['run', 'enroll', 're-enroll', 'enroll-token', 'status', 'update', 'integrity'],
+        help='run | enroll | re-enroll | enroll-token | status | update | integrity')
     parser.add_argument('--interval', type=int, default=POLL_INTERVAL,
         help=f'Poll interval in seconds (default: {POLL_INTERVAL})')
+    # v1.11.10: token-based enrollment for non-interactive use
+    parser.add_argument('--server', help='Server URL for enroll-token (e.g. https://remote.example.com)')
+    parser.add_argument('--token', help='Enrollment token (or use $REMOTEPOWER_ENROLL_TOKEN, or /etc/remotepower/enroll-token)')
+    parser.add_argument('--name', help='Device display name (defaults to hostname)')
     args = parser.parse_args()
 
     if os.geteuid() != 0:
@@ -1169,6 +1351,22 @@ def main():
 
     if args.action == 're-enroll':
         enroll_interactive(re_enroll=True); return
+
+    if args.action == 'enroll-token':
+        # Server URL: --server flag, or existing creds (re-enrollment), or
+        # error out. We deliberately don't read it from env to keep the
+        # surface small.
+        server_url = args.server
+        if not server_url:
+            existing = load_credentials()
+            if existing and existing.get('server_url'):
+                server_url = existing['server_url']
+            else:
+                print("✗ No --server URL and no existing credentials.")
+                print("  Pass --server https://your.server.example.com")
+                sys.exit(1)
+        enroll_with_token(server_url, args.token or '', args.name)
+        return
 
     if args.action == 'status':
         creds = load_credentials()

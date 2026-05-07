@@ -183,6 +183,18 @@ cd remotepower</code></pre>
 
 <p>All of this — density, filter strings, sort orders — is stored per user, server-side, under the <code>ui_prefs</code> key in <code>users.json</code>. Log into the same account on a different browser, your filters and sort orders come with you. The server-side schema is sanitised: anything you don't recognise gets dropped silently, individual filter strings cap at 256 chars, sort lists cap at 5 columns, total per-user prefs cap at 16 KB. The <code>/api/ui-prefs</code> endpoint accepts <code>GET</code> (read), <code>POST</code> (replace whole document), and <code>DELETE</code> (wipe) — useful if you ever need to reset somebody's UI to defaults from a script.</p>
 
+<h3>4.2 API enrollment via one-time tokens (v1.11.10)</h3>
+<p>For non-interactive enrollment from Ansible / cloud-init / golden-image scripts. Admin creates a one-time-use token via <code>POST /api/enrollment-tokens</code> (or the dashboard), passes it to the agent via <code>--token</code>, <code>$REMOTEPOWER_ENROLL_TOKEN</code>, or <code>/etc/remotepower/enroll-token</code> (mode 600, auto-deleted after use). Agent runs <code>remotepower-agent enroll-token --server https://... --token TOKEN</code>. Token consumed atomically — same token can't enroll twice.</p>
+
+<p>Tokens carry optional <code>default_group</code>, <code>default_tags</code>, <code>label</code>, and <code>expires_in</code> (seconds, default 24h, capped at 7 days). The defaults are applied at enrollment if the agent doesn't override them. List endpoint <code>GET /api/enrollment-tokens</code> only returns 8-char prefixes — the full token value is shown ONCE in the create response and never again.</p>
+
+<h3>4.3 Metric alerting (v1.11.10)</h3>
+<p>Three webhook events fire when resources cross thresholds: <code>metric_warning</code>, <code>metric_critical</code>, <code>metric_recovered</code>. Defaults are 80/90% disk per mount, 85/95% memory, 20/50% swap, 1.5×/3.0× CPU loadavg ratio (1-min loadavg divided by cpu_count). Hysteresis: a metric must drop 5 percentage points below warn before "recovered" fires — prevents oscillation spam.</p>
+
+<p>Per-device overrides via <code>GET|PATCH|DELETE /api/devices/{id}/metric-thresholds</code>. PATCH accepts any subset of the percentage / ratio fields, plus <code>disk_per_mount</code> (a dict keyed by mount path → <code>{warn, crit}</code>) for per-mount disk overrides. Validates that warn &lt; crit for every kind. PATCH also clears the device's <code>metric_state</code> so the next heartbeat re-evaluates under the new thresholds.</p>
+
+<p>State is tracked in <code>devices.json</code> under <code>metric_state</code> keyed by <code>kind:target</code> (e.g. <code>disk:/var</code>, <code>memory:</code>, <code>cpu:</code>). Orphan disk entries (a mount disappears between heartbeats) are cleaned up automatically. Need the agent at v1.11.10+ for per-mount alerting; older agents only report root-disk and overall percentages.</p>
+
 <h2>5. How the heartbeat and command queue actually work</h2>
 <p>This part is important if you want to understand delays.</p>
 

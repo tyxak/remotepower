@@ -256,6 +256,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'log_alert',
             # v1.11.4: container alerts
             'container_stopped', 'container_restarting', 'containers_stale',
+            # v1.11.10: metric thresholds
+            'metric_warning', 'metric_critical', 'metric_recovered',
             'command_queued', 'command_executed',
         }
         self.assertEqual(names, expected)

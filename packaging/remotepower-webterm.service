@@ -1,0 +1,58 @@
+[Unit]
+Description=RemotePower web terminal daemon (browser → SSH proxy)
+Documentation=https://github.com/tyxak/remotepower
+After=network-online.target
+Wants=network-online.target
+# We don't depend on the main RemotePower service because there isn't
+# one — RemotePower runs over CGI under nginx+fcgiwrap, which is its
+# own systemd unit. If nginx isn't up, this daemon will start fine but
+# won't receive any traffic. That's OK.
+
+[Service]
+Type=simple
+# Dedicated user. Created by deploy-server.sh:
+#   useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-webterm
+#   usermod -a -G rp-www rp-webterm    # so we can read the ticket file
+User=rp-webterm
+Group=rp-www
+# The daemon needs to read:
+#   /var/lib/remotepower/webterm_tickets.json   (mode 640, owned rp-www:rp-www)
+#   /etc/remotepower/webterm-secret             (mode 640, owned rp-webterm:rp-webterm)
+# And write to:
+#   /var/lib/remotepower/webterm-sessions/      (mode 750, owned rp-webterm)
+ExecStart=/usr/local/bin/remotepower-webterm --verbose
+
+# Hardening — this daemon talks to arbitrary SSH hosts that the user
+# specifies, so we want it as constrained as we can make it without
+# breaking that legitimate use.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/remotepower/webterm-sessions /var/lib/remotepower/webterm_tickets.json
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+# We need network access for SSH out and for the audit POST back to CGI.
+# Don't restrict address families — we don't know if the user has IPv6
+# devices.
+
+# Restart on failure but back off so a misconfigured daemon doesn't spin
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=120s
+StartLimitBurst=5
+
+# Logging goes to journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remotepower-webterm
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,225 @@
 # Changelog
 
+## v1.11.11 - 2026-05-07
+
+### New feature: web terminal
+
+Browser-based SSH terminal accessible from the dashboard. Click "Web terminal" in the per-device dropdown menu, type SSH user/password and your RemotePower admin password, and you get a live xterm.js terminal connected to the device.
+
+The architecture is a small companion daemon (`remotepower-webterm`) that handles WebSocket and SSH proxying, because RemotePower's CGI-over-fcgiwrap model can't hold persistent connections. The CGI handles auth and audit logging; the daemon handles the bytes.
+
+#### Files added
+
+- `server/webterm/remotepower-webterm.py` (~470 lines) — the daemon. asyncio + `websockets` + `asyncssh`. Listens on 127.0.0.1:8765 by default; nginx proxies `/api/webterm/connect` to it.
+- `packaging/remotepower-webterm.service` — systemd unit with hardening (NoNewPrivileges, ProtectSystem=strict, RestrictNamespaces, etc.). Runs as a dedicated `rp-webterm` user.
+- `packaging/nginx-webterm.conf` — drop-in nginx snippet for the WebSocket proxy. Requires the `$connection_upgrade` map (standard pattern, documented in the snippet).
+- `tests/test_v11111.py` — 21 tests for the CGI-side endpoints.
+
+#### Files modified
+
+- `server/cgi-bin/api.py` — added `handle_webterm_auth`, `handle_webterm_session_audit`, ticket store helpers, two new constants. Routes wired up.
+- `server/html/index.html` — "Web terminal" item in the device dropdown menu (both cards mode and minimal mode), modal for SSH credentials + admin password, full-screen terminal view, xterm.js loaded on first use from cdn.jsdelivr.net.
+
+#### Auth flow
+
+1. User clicks "Web terminal" on a device. Modal asks for SSH host (pre-filled from device IP), SSH user, SSH password, and RemotePower admin password.
+2. Frontend POSTs to `/api/webterm/auth`. CGI validates the admin password against the user's stored hash. Mismatch → 403 + `webterm_auth_failed` audit entry.
+3. CGI generates a 32-byte URL-safe ticket, stores it in `webterm_tickets.json` with TTL = 60 seconds, returns the ticket to the frontend along with the daemon URL.
+4. Frontend opens a WebSocket to `wss://<host>/api/webterm/connect?ticket=...`. nginx proxies to the daemon.
+5. Daemon reads ticket from URL, validates against `webterm_tickets.json`, deletes it (single-use). Then waits for the first WS message: a JSON blob with `{host, user, port, password, cols, rows}`.
+6. Daemon SSH-connects via `asyncssh.connect()`. Opens a PTY shell. Pumps bytes between WS and SSH.
+7. Session ends → daemon POSTs metadata back to `/api/webterm/audit`, authenticated via shared secret in `/etc/remotepower/webterm-secret` (matches `config.json[webterm_daemon_secret]`).
+
+#### Session recording
+
+Every session is recorded to `/var/lib/remotepower/webterm-sessions/<session_id>.cast` in [asciinema v2](https://docs.asciinema.org/manual/asciicast/v2/) format. Default is **output-only** — keystrokes are not recorded because they could include `sudo SECRET_VALUE` and similar. Set `RECORD_INPUT=1` in the daemon's environment to also record keystrokes if you have compliance reasons; only do this if you've thought through who can read the session-recording directory.
+
+The format is plain-text JSON Lines with a header and `[delta_seconds, "o", "output"]` records. Replayable in any asciinema player (web, CLI, browser via `asciinema-player.js`); also greppable as raw text. Each recording is capped at 10 MiB — at the cap we stop recording but keep proxying bytes.
+
+#### Security model summary
+
+- Tickets are single-use, 60-second TTL, ~256 bits of entropy
+- The daemon binds to 127.0.0.1 only (loopback). nginx terminates TLS for the browser hop
+- SSH credentials never persist; live in memory inside the daemon for one session
+- SSH host-key verification is OFF by design (the user explicitly chose this host through the dashboard, and adding `known_hosts` management would mean a first-connect prompt for every device — more theatre than security here). If you want strict host-key checking, this is the right discussion to have for v1.12
+- Audit POSTs from daemon to CGI authenticated via shared secret, not session token (the daemon is a system service, not a user)
+- systemd hardening: dedicated user, no privilege escalation, read-only root filesystem with explicit ReadWritePaths, restricted namespaces
+
+#### Known limitations / open work
+
+- **Browser dependencies are loaded from cdn.jsdelivr.net.** xterm.js is ~250 KB; loading from your own server is more secure (no CDN tampering risk) but more deployment work. v1.11.11 uses the CDN for simplicity. To self-host: download `@xterm/xterm@5.5.0/css/xterm.min.css`, `@xterm/xterm@5.5.0/lib/xterm.min.js`, and `@xterm/addon-fit@0.10.0/lib/addon-fit.min.js` into `server/html/static/` and edit `_loadXtermOnce()` to point there. SRI hashes can then be added.
+- **No SSH key auth.** Per your spec, only password auth in v1.11.11. Adding key auth means storing the keys somewhere (CMDB Vault would be the natural place); you didn't ask for it so I didn't build it.
+- **Session recordings aren't pruned automatically.** They accumulate in the recordings directory. A cleanup cron / systemd timer is a v1.11.12 task. For now, manage retention with `find /var/lib/remotepower/webterm-sessions -mtime +30 -delete` or similar.
+- **The daemon is a single process.** Concurrent sessions all run in the same asyncio event loop, which is fine up to dozens of sessions; if you ever need hundreds, switch to a process-per-session model.
+- **Session listing UI not in this release.** You can see sessions in the audit log (action `webterm_session`) and in the on-disk recording files. A "browse sessions" page in the dashboard would be a nice v1.11.12 addition.
+
+#### Deploy steps (one-time)
+
+```bash
+# 1. Create the daemon's user
+sudo useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-webterm
+sudo usermod -a -G rp-www rp-webterm   # so it can read the ticket file
+
+# 2. Install Python deps
+sudo apt install python3-websockets python3-asyncssh   # or pip install
+
+# 3. Install the daemon binary
+sudo install -m 755 server/webterm/remotepower-webterm.py /usr/local/bin/remotepower-webterm
+
+# 4. Generate the shared secret (used for daemon → CGI audit POSTs)
+SECRET=$(openssl rand -hex 32)
+sudo install -m 640 -o rp-webterm -g rp-webterm /dev/stdin /etc/remotepower/webterm-secret <<< "$SECRET"
+# Also store it where the CGI can find it:
+sudo -u rp-www python3 -c "
+import json, sys
+from pathlib import Path
+cfg = json.load(open('/var/lib/remotepower/config.json'))
+cfg['webterm_daemon_secret'] = '$SECRET'
+json.dump(cfg, open('/var/lib/remotepower/config.json', 'w'))
+"
+
+# 5. Set up the recordings directory
+sudo install -d -m 750 -o rp-webterm -g rp-webterm /var/lib/remotepower/webterm-sessions
+
+# 6. Make the ticket file readable by the daemon
+sudo touch /var/lib/remotepower/webterm_tickets.json
+sudo chown rp-www:rp-www /var/lib/remotepower/webterm_tickets.json
+sudo chmod 640 /var/lib/remotepower/webterm_tickets.json
+
+# 7. Install + start the systemd unit
+sudo install -m 644 packaging/remotepower-webterm.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now remotepower-webterm
+
+# 8. Add the nginx snippet (paste contents of packaging/nginx-webterm.conf into
+#    your existing server { ... } block, ABOVE any catch-all `location /` rule)
+#    Then test and reload:
+sudo nginx -t && sudo systemctl reload nginx
+
+# 9. Verify
+curl -s http://127.0.0.1:8765 -i  # expect "Connection: Upgrade" expected, won't actually upgrade with curl
+sudo journalctl -u remotepower-webterm -f  # watch the daemon
+```
+
+The next deploy of `deploy-server.sh` will incorporate steps 1–8 automatically (TODO for the next release).
+
+### Tests
+
+**513 passing** (492 from v1.11.10 + 21 new in `test_v11111.py`):
+
+CGI auth endpoint (10 tests): correct password issues a ticket, ticket persists to disk with right shape, wrong password rejected and audit-logged, success audit-logged, unauthenticated rejected, unknown device 404, missing fields 400, GET method 405, each call issues a fresh ticket.
+
+CGI audit endpoint (6 tests): correct daemon secret accepted, wrong secret rejected, missing secret rejected, no-secret-configured rejects all, audit details land in audit_log.json, GET method 405.
+
+Helpers (5 tests): purge function drops expired and used tickets, daemon constants in sane ranges.
+
+The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against the user's `tviweb01.tvipper.com`.
+
+### Compatibility
+
+Drop-in upgrade for the CGI side. The new endpoints are additive; existing flows unchanged.
+
+The daemon is **optional** — if you don't deploy it, the dashboard's "Web terminal" menu item will fail when clicked (the WS connection times out), but everything else keeps working. CGI doesn't depend on the daemon being up.
+
+Existing v1.11.10 agents do NOT need updating for the web terminal feature — the agent isn't involved in this flow at all. SSH goes directly from the RemotePower server to the device, completely outside the agent's pipeline.
+
+### Known issues to test on real hardware
+
+This release was developed without a live SSH server in CI, so some real-world behaviours haven't been exercised:
+
+- **SSH server fingerprint changes.** With `known_hosts=None` we accept any fingerprint. If you reinstall a device, you won't get a "host key changed" warning. Consider this if you have devices that get reimaged.
+- **Slow networks.** The 30-second `recv` timeout for the first credential message might be tight if the user is on cellular. Increase if you see "Timed out waiting for SSH credentials" complaints.
+- **Idle timeout under nginx.** I set `proxy_read_timeout 1d` in the snippet which should handle long-idle terminals, but some load balancers in front of nginx will close anyway. If sessions die after exactly N minutes idle, that's the upstream proxy.
+
+---
+
+## v1.11.10 - 2026-05-07
+
+### New features
+
+**API enrollment via one-time pre-shared tokens.** Companion to the interactive PIN flow for non-interactive enrollment (Ansible, cloud-init, golden-image stamping). Three admin endpoints:
+
+- `POST /api/enrollment-tokens` — generates a 32-char URL-safe token. Optional `expires_in` (seconds, default 24h, capped at 7 days), `default_group`, `default_tags`, `label`. Token is shown once in the response and never returned again.
+- `GET /api/enrollment-tokens` — lists all non-expired tokens, but only returns the first 8 characters of each as a prefix. Designed so listing the page later doesn't leak active credentials.
+- `DELETE /api/enrollment-tokens/{prefix}` — revoke by prefix (8+ chars). Refuses to act if the prefix matches multiple tokens.
+
+Token consumption is atomic: `handle_enroll_register` deletes the token before creating the device. If two agents race with the same token, exactly one wins and the other gets HTTP 403. Default group/tags from the token apply at enrollment unless the agent explicitly provides its own.
+
+Agent gets a new `enroll-token` action with `--server`, `--token`, `--name` flags. Token resolution chain:
+
+1. `--token CLI_VALUE`
+2. `$REMOTEPOWER_ENROLL_TOKEN` environment variable
+3. `/etc/remotepower/enroll-token` file (must be mode 600, deleted after use)
+
+The CLI-arg path leaks into `ps` output for the duration of enrollment. Env var doesn't. File path doesn't and self-cleans on success. Pick whichever fits your secret-distribution model.
+
+Audit logging: token creation and revocation both logged with actor, label, and (for create) the default group/tags.
+
+**Metric alerting (disk, memory, swap, CPU).** Three new webhook events: `metric_warning`, `metric_critical`, `metric_recovered`. Default thresholds:
+
+| Metric | Warning | Critical |
+|---|---|---|
+| Disk usage (per mount) | 80% | 90% |
+| Memory usage | 85% | 95% |
+| Swap usage | 20% | 50% |
+| CPU 1-min loadavg / cpu_count | 1.5× | 3.0× |
+
+Hysteresis: a metric must drop `METRIC_RECOVERY_BUFFER` (5) percentage points below the warn threshold before `metric_recovered` fires. Without this, a metric oscillating around 80% would generate webhook spam.
+
+State stored in `dev['metric_state']` keyed by `kind:target` (e.g. `disk:/var`, `memory:`). Transitions fire webhooks on every up- or down-shift between `ok` / `warning` / `critical`. Orphan mount states (a mount disappears between heartbeats) are cleaned up automatically.
+
+**Per-device + per-mount overrides.** New endpoint `GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`:
+
+- GET returns `{overrides, effective, defaults, recovery_buffer_percent}` so the dashboard can show effective values without resolving them itself.
+- PATCH accepts any subset of `disk_warn_percent`, `disk_crit_percent`, `mem_warn_percent`, `mem_crit_percent`, `swap_warn_percent`, `swap_crit_percent`, `cpu_warn_load_ratio`, `cpu_crit_load_ratio`, plus `disk_per_mount` (a dict keyed by mount path → `{warn, crit}`). Validates `warn < crit` for every kind. Out-of-range values rejected with 400 rather than silently clamped.
+- DELETE clears all overrides, reverting to defaults.
+- PATCH also clears `metric_state` so the next heartbeat re-evaluates under the new thresholds (otherwise a metric currently in `warning` state would silently stay there even if you raised the threshold).
+
+**Agent metric collection extended.** `get_metrics()` now reports per-mount disk usage (skipping tmpfs/squashfs/overlay/snap/etc.), swap percent, 1-minute load average, and CPU count. Backwards-compatible — older agents without these fields still work, and root-disk alerting falls back to legacy `disk_percent` if `mounts` isn't reported. Per-mount alerting needs the agent updated to v1.11.10+.
+
+### Architectural notes
+
+The web terminal feature (#3 in your request) is **not in this release**. RemotePower's CGI architecture can't do persistent WebSocket connections cleanly — fcgiwrap is request-response only. The recommended path is a separate companion daemon (`remotepower-webterm`, ~300 lines, systemd unit, listens on 127.0.0.1:8765, nginx proxies `/api/webterm/`). Same security model you specified — admin password re-prompt, user types SSH user/password fresh each session, direct SSH connection, session recording. Deferred to v1.11.11 to land properly rather than rushing it.
+
+### Tests
+
+**492 passing** (444 from v1.11.9 + 48 new in `test_v11110.py`):
+
+API enrollment (16 tests):
+- Token creation with default and custom expiry, TTL clamping (60s min, 7-day max).
+- List endpoint never returns full token values, only 8-char prefixes.
+- Expired tokens auto-purged from listing.
+- Revoke by prefix (success, 404 on unknown, 400 on too-short prefix).
+- Token consumed atomically — second use returns 403.
+- Default group/tags from token applied at enrollment.
+- PIN path still works (backward compatibility).
+
+Metric alerting (28 tests):
+- Threshold resolution: defaults, per-device overrides, per-mount overrides.
+- Classification: ok / warning / critical at each boundary.
+- Recovery buffer enforced (must drop 5 below warn).
+- No webhook fire when state doesn't change between heartbeats.
+- State transitions fire correct event (warn / crit / recovered).
+- Per-mount disk states isolated per path.
+- Orphan mount cleanup when mount disappears.
+- CPU load ratio uses cpu_count correctly.
+- Endpoint validation: warn < crit, ranges, unknown device 404, admin-only.
+- PATCH clears metric_state for re-evaluation.
+
+Webhook event registry (4 tests): the three new events are registered, message generation works for disk/cpu/recovered, priority ordering correct.
+
+### Compatibility
+
+Drop-in upgrade. Existing devices keep working — metric alerting is additive (defaults apply when no overrides are set). Pre-v1.11.10 agents continue to report only the legacy `cpu_percent` / `mem_percent` / `disk_percent` (root-only) fields; root-disk and memory alerts work, but per-mount disk and swap and CPU loadavg alerts need the agent updated. Push agent self-updates via the toolbar Update button or per-device "Agent update" menu item to get the new metric collection.
+
+### Known limitations
+
+- **No global-default override.** `process_metric_thresholds` resolves: per-mount disk → per-device → built-in defaults. There's no "fleet-wide override" tier between per-device and built-in. If you want all your servers to alert at 70% disk instead of 80%, you currently set the override on each device individually. Could add a `config['metric_thresholds']` global tier in v1.11.11 if it's actually annoying — the underlying resolver is structured to make that a one-line change.
+- **CPU alerting is loadavg-based, not utilisation.** The choice was "what does `uptime` show you" rather than "what does `top` show you." Loadavg captures runqueue depth + I/O wait, which is usually what's actually worth alerting on. If you want %cpu-utilisation thresholds instead, file a request — easy to add as a separate kind without changing the existing one.
+- **Web terminal not in this release.** See above. v1.11.11 target.
+
+---
+
 ## v1.11.9 - 2026-05-06
 
 ### Bug fixes

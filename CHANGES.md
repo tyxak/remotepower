@@ -1,5 +1,143 @@
 # Changelog
 
+## v1.11.11 — 2026-05-07
+
+### Added
+
+**Web terminal — browser-based SSH from the dashboard.**
+Click "Web terminal" on any device, type SSH user/password and
+your admin password, get a live xterm.js terminal in the browser.
+
+Architecture: companion daemon `remotepower-webterm` (asyncio +
+websockets + asyncssh, ~470 lines) listens on 127.0.0.1:8765;
+nginx proxies `/api/webterm/connect` to it. CGI handles auth and
+audit logging via `/api/webterm/auth` and `/api/webterm/audit`.
+
+Auth flow: admin password re-prompt → CGI validates and issues a
+60-second single-use ticket → frontend opens WebSocket with the
+ticket → daemon validates, deletes ticket, accepts SSH creds as
+first WS message → SSH connect via asyncssh → bytes pump.
+
+SSH credentials live only in memory for the session — never
+persisted. Daemon ↔ CGI authenticated via shared secret (in
+`/etc/remotepower/webterm-secret` and `config.json`). systemd
+unit hardened: dedicated user, NoNewPrivileges, ProtectSystem=
+strict, RestrictNamespaces, etc.
+
+**Session recording.** Every session recorded to
+`/var/lib/remotepower/webterm-sessions/<id>.cast` in asciinema v2
+format. Output-only by default (keystrokes excluded — could
+contain `sudo SECRET_VALUE`). Set `RECORD_INPUT=1` in the daemon
+env to record keystrokes too. 10 MiB cap per recording.
+Replayable in any asciinema player; also greppable as plain text.
+
+### CGI changes
+
+`/api/webterm/auth` (POST) — admin re-auth, issues short-TTL
+ticket, audits success and failure.
+
+`/api/webterm/audit` (POST) — daemon reports session metadata at
+session end. Authenticated via shared secret.
+
+Routes wired up; existing flows unchanged. Two new constants:
+`WEBTERM_TICKET_TTL=60`, `WEBTERM_MAX_SESSION_LOG_BYTES=10MiB`.
+
+### Frontend
+
+"Web terminal" item added to the device dropdown menu (both
+cards mode and minimal mode). Modal asks for SSH host (pre-filled
+from device IP), user, port, password, plus admin password.
+xterm.js + addon-fit loaded from cdn.jsdelivr.net on first use
+(saves 250KB for users who never use it). Full-screen terminal
+view with disconnect button. Resize handler forwards new
+terminal size to daemon so SSH PTY tracks browser window.
+
+### Tests
+
+513 passing (492 from v1.11.10 + 21 new). CGI auth endpoint:
+correct/wrong password, audit logging, unauthenticated, unknown
+device, missing fields, fresh tickets per call. CGI audit: secret
+auth, missing/wrong secret rejected, audit log entry created,
+method check. Helpers: purge function drops expired+used tickets,
+constants in sane ranges. The daemon itself is not unit-tested
+(would need a real SSH server in CI).
+
+### Compatibility
+
+CGI side is drop-in. New endpoints are additive. Daemon is
+**optional**: skip its install and the "Web terminal" menu item
+will fail-closed when clicked, everything else works. Agent is
+not involved in this flow — SSH goes directly server→device,
+outside the agent pipeline. Pre-v1.11.11 agents don't need
+updates.
+
+### Open work
+
+- Session listing UI (browse recordings in dashboard) → v1.11.12
+- Session recording auto-prune cron → v1.11.12
+- Self-hosted xterm.js (vs CDN) → operator's choice; instructions in CHANGELOG
+- SSH key auth → not requested, not built; v1.12 if you want it
+- deploy-server.sh integration of the install steps → v1.11.12
+
+
+## v1.11.10 — 2026-05-07
+
+### Added
+
+**API enrollment via one-time pre-shared tokens.** Three admin
+endpoints: POST creates a 32-char token (default 24h TTL, max 7
+days, optional default group/tags/label), GET lists tokens but
+only as 8-char prefixes (full values never re-returned), DELETE
+revokes by prefix. Token consumed atomically by the existing
+`/api/enroll/register` flow — second use returns 403.
+
+Agent gets new `enroll-token` action with token resolution chain:
+`--token` arg → `$REMOTEPOWER_ENROLL_TOKEN` env → `/etc/remote
+power/enroll-token` (mode 600, deleted after success).
+
+**Metric alerting for disk, memory, swap, CPU.** Three new webhook
+events: `metric_warning`, `metric_critical`, `metric_recovered`.
+Defaults: disk 80/90% per mount, mem 85/95%, swap 20/50%, CPU
+1.5×/3.0× cores (1-min loadavg ratio). Hysteresis enforced —
+must drop 5 points below warn before "recovered" fires.
+
+**Per-device + per-mount overrides.** New endpoint
+`GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`. Per-mount
+disk thresholds via `disk_per_mount: {path: {warn, crit}}` on PATCH.
+PATCH validates `warn < crit` for every kind, rejects out-of-range
+values (1-99 for percentages, 0.1-100 for load ratios), clears
+metric_state so next heartbeat re-evaluates under new thresholds.
+
+**Agent metric collection extended.** Per-mount disk usage (filtering
+out tmpfs/squashfs/overlay/snap), swap_percent, loadavg_1m,
+cpu_count. Backwards-compatible — older servers ignore new fields.
+Older agents on v1.11.10+ servers fall back to root-disk-only alerts.
+
+### Architectural
+
+Web terminal (#3 in the v1.11.10 request) is NOT in this release.
+CGI can't do persistent WebSockets cleanly. Recommended path is a
+separate `remotepower-webterm` daemon (systemd unit, ~300 lines,
+nginx proxies /api/webterm/). Designed but deferred to v1.11.11.
+Same security model — admin password re-prompt, user types SSH
+creds fresh each session, direct SSH connection, session recording.
+
+### Tests
+
+492 passing (444 from v1.11.9 + 48 new). API enrollment: token
+lifecycle, atomic consumption, expiry, listing safety, prefix
+revoke. Metric alerting: threshold resolution chain, classification,
+hysteresis, no-double-fire, transitions, per-mount isolation,
+orphan cleanup, CPU loadavg ratio, endpoint validation.
+
+### Compatibility
+
+Drop-in upgrade. Existing PIN enrollment unchanged. Existing devices
+keep working — alerting only fires once you start using overrides
+or your devices report metrics that cross the defaults. Push agent
+self-updates to v1.11.10 to get per-mount/swap/CPU-loadavg alerting.
+
+
 ## v1.11.9 — 2026-05-06
 
 ### Fixed

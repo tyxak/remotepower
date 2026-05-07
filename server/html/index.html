@@ -2146,6 +2146,47 @@
 <div class="modal-overlay" id="passwd-modal"><div class="modal"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username"><div class="form-group" id="passwd-old-wrap"><label class="form-label">Current password</label><input type="password" id="passwd-old" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label">New password</label><input type="password" id="passwd-new" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('passwd-modal')">Cancel</button><button class="btn-primary" onclick="submitPasswd()">Update</button></div></div></div>
 <div class="modal-overlay" id="schedule-add-modal"><div class="modal"><div class="modal-title">Schedule command</div><div class="form-group"><label class="form-label">Device</label><select id="sched-device" class="form-input"></select></div><div class="form-group"><label class="form-label">Command</label><select id="sched-command" class="form-input"><option value="shutdown">Shut down</option><option value="reboot">Reboot</option></select></div><div class="form-group"><label class="form-label">Date &amp; time (one-shot)</label><input type="datetime-local" id="sched-datetime" class="form-input"></div><div class="form-group"><label class="form-label">— or — Cron expression (recurring)</label><input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace"><div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button><button class="btn-primary" onclick="addScheduleJob()">Schedule</button></div></div></div>
 <div class="modal-overlay" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" onchange="pickFromLibrary()"><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button><button class="btn-primary" onclick="sendExecCmd()">Run</button></div></div></div>
+
+<!-- v1.11.11: web terminal modal — phase 1 (auth dialog) -->
+<div class="modal-overlay" id="webterm-modal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-title" id="webterm-modal-title">Open web terminal</div>
+    <div class="modal-subtitle">SSH directly to the device. Credentials are not stored — you'll need to enter them again next session.</div>
+    <input type="hidden" id="webterm-device-id">
+    <div class="form-group"><label class="form-label">SSH host</label>
+      <input type="text" id="webterm-host" class="form-input" placeholder="10.0.0.4"></div>
+    <div style="display:flex;gap:8px">
+      <div class="form-group" style="flex:2"><label class="form-label">SSH user</label>
+        <input type="text" id="webterm-user" class="form-input" placeholder="root" autocomplete="username"></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Port</label>
+        <input type="number" id="webterm-port" class="form-input" value="22" min="1" max="65535"></div>
+    </div>
+    <div class="form-group"><label class="form-label">SSH password</label>
+      <input type="password" id="webterm-ssh-pw" class="form-input" autocomplete="new-password"></div>
+    <div class="form-group" style="border-top:1px solid var(--border);padding-top:12px">
+      <label class="form-label">Your RemotePower admin password</label>
+      <input type="password" id="webterm-admin-pw" class="form-input" autocomplete="current-password">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Required every time you open a terminal.</div>
+    </div>
+    <div id="webterm-error" style="color:var(--red);font-size:13px;margin:8px 0;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal('webterm-modal')">Cancel</button>
+      <button class="btn-primary" id="webterm-connect-btn" onclick="webtermConnect()">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- v1.11.11: full-screen terminal view (xterm.js renders inside #webterm-xterm) -->
+<div class="modal-overlay" id="webterm-screen" style="background:rgba(0,0,0,0.92)">
+  <div class="modal" style="max-width:1100px;width:90vw;height:80vh;display:flex;flex-direction:column;padding:12px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      <div id="webterm-screen-title" style="flex:1;font-weight:600;font-family:monospace;font-size:13px"></div>
+      <div id="webterm-screen-status" style="font-size:11px;color:var(--muted)">connecting…</div>
+      <button class="btn-icon" onclick="webtermDisconnect()" style="font-size:11px">Disconnect</button>
+    </div>
+    <div id="webterm-xterm" style="flex:1;background:#000;border-radius:6px;overflow:hidden"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('mon-history-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('notes-modal')">Cancel</button><button class="btn-primary" onclick="saveNotes()">Save</button></div></div></div>
 <div class="modal-overlay" id="group-modal"><div class="modal"><div class="modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('group-modal')">Cancel</button><button class="btn-primary" onclick="saveGroup()">Save</button></div></div></div>
@@ -3322,7 +3363,7 @@ function renderDevices() {
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -3374,7 +3415,7 @@ function _registerDevicesMinimalTable() {
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
-      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'}" data-dev-id="${d.id}">
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
         <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
@@ -3929,6 +3970,245 @@ async function upgradePackages(id, name) {
   const data = await api('POST', '/upgrade-device', {device_ids: [id]});
   if (data?.ok) toast(`Package upgrade queued for ${name}. Output will appear in Update history shortly.`, 'success');
   else toast(data?.error || 'Failed', 'error');
+}
+
+// ─── v1.11.11: web terminal ─────────────────────────────────────────────────
+//
+// Opens a modal asking for SSH host/user/password + admin password.
+// Submits to /api/webterm/auth which validates the admin password and
+// returns a short-lived ticket. Then opens a WebSocket to
+// /api/webterm/connect (proxied by nginx to remotepower-webterm
+// daemon), sends the SSH creds as the first message, and pumps bytes
+// to/from an xterm.js terminal.
+//
+// xterm.js loads on first use rather than at page load — saves ~250 KB
+// for users who never touch the terminal feature.
+
+let _webtermXtermLoaded = false;
+let _webtermActiveSession = null;   // {ws, term, fitAddon}
+
+function _loadXtermOnce() {
+  if (_webtermXtermLoaded) return Promise.resolve();
+  // xterm.js + the fit addon. Versions pinned via SRI hash to detect
+  // CDN tampering. Both files are tiny.
+  return Promise.all([
+    new Promise((resolve, reject) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css';
+      link.crossOrigin = 'anonymous';
+      link.onload = resolve;
+      link.onerror = reject;
+      document.head.appendChild(link);
+    }),
+    new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js';
+      s.crossOrigin = 'anonymous';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    }),
+  ]).then(() => new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js';
+    s.crossOrigin = 'anonymous';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  })).then(() => { _webtermXtermLoaded = true; });
+}
+
+function openWebTerm(id, name) {
+  // Find the device in our cached list to pre-fill the IP. The global
+  // `devices` is populated by loadDevices() and refreshed periodically.
+  const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
+  document.getElementById('webterm-device-id').value = id;
+  document.getElementById('webterm-host').value = dev?.ip || '';
+  document.getElementById('webterm-user').value = '';
+  document.getElementById('webterm-port').value = 22;
+  document.getElementById('webterm-ssh-pw').value = '';
+  document.getElementById('webterm-admin-pw').value = '';
+  document.getElementById('webterm-error').style.display = 'none';
+  document.querySelector('#webterm-modal .modal-title').textContent = `Open web terminal — ${name}`;
+  openModal('webterm-modal');
+  // Pre-warm xterm.js so the first connect doesn't have a noticeable
+  // delay (the user is busy typing the password anyway).
+  _loadXtermOnce().catch(() => {});
+}
+
+async function webtermConnect() {
+  const id = document.getElementById('webterm-device-id').value;
+  const host = document.getElementById('webterm-host').value.trim();
+  const user = document.getElementById('webterm-user').value.trim();
+  const port = parseInt(document.getElementById('webterm-port').value) || 22;
+  const sshPw = document.getElementById('webterm-ssh-pw').value;
+  const adminPw = document.getElementById('webterm-admin-pw').value;
+  const errEl = document.getElementById('webterm-error');
+  errEl.style.display = 'none';
+
+  if (!host || !user || !sshPw || !adminPw) {
+    errEl.textContent = 'All fields are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('webterm-connect-btn');
+  btn.disabled = true; btn.textContent = 'Authenticating…';
+
+  // Step 1: get a ticket from the CGI
+  let ticketResp;
+  try {
+    ticketResp = await api('POST', '/webterm/auth', {
+      device_id: id,
+      admin_password: adminPw,
+    });
+  } catch (e) {
+    errEl.textContent = 'Network error contacting server.';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Connect';
+    return;
+  }
+  if (!ticketResp || !ticketResp.ticket) {
+    errEl.textContent = ticketResp?.error || 'Ticket request failed.';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Connect';
+    return;
+  }
+
+  // Step 2: ensure xterm.js is loaded
+  btn.textContent = 'Loading terminal…';
+  try { await _loadXtermOnce(); }
+  catch (e) {
+    errEl.textContent = 'Could not load xterm.js. Check your network/CSP.';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Connect';
+    return;
+  }
+
+  // Step 3: open the WebSocket
+  btn.textContent = 'Connecting…';
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // The daemon_url in the response is a relative path; combine with
+  // current origin. If it's already absolute (operator override), use as-is.
+  let wsUrl = ticketResp.daemon_url;
+  if (wsUrl.startsWith('/')) {
+    wsUrl = `${proto}//${window.location.host}${wsUrl}`;
+  } else if (!wsUrl.startsWith('ws')) {
+    wsUrl = `${proto}//${wsUrl}`;
+  }
+  wsUrl += `?ticket=${encodeURIComponent(ticketResp.ticket)}`;
+
+  const ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
+
+  // Switch UIs: close the auth modal, open the terminal screen
+  closeModal('webterm-modal');
+  openModal('webterm-screen');
+  document.getElementById('webterm-screen-title').textContent =
+    `${user}@${host}:${port}  (${ticketResp.device.name})`;
+  document.getElementById('webterm-screen-status').textContent = 'connecting…';
+
+  // Set up xterm
+  const xtermDiv = document.getElementById('webterm-xterm');
+  xtermDiv.innerHTML = '';   // wipe any previous session
+  const Term = window.Terminal;
+  const FitAddon = window.FitAddon?.FitAddon;
+  const term = new Term({
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    fontSize: 13,
+    theme: { background: '#000000', foreground: '#dddddd' },
+    cursorBlink: true,
+  });
+  const fitAddon = FitAddon ? new FitAddon() : null;
+  if (fitAddon) term.loadAddon(fitAddon);
+  term.open(xtermDiv);
+  if (fitAddon) fitAddon.fit();
+  term.focus();
+
+  _webtermActiveSession = {ws, term, fitAddon, ssh_pw: sshPw};
+
+  // WS event handlers
+  ws.onopen = () => {
+    // First message: SSH credentials + initial terminal size
+    const cols = term.cols || 80;
+    const rows = term.rows || 24;
+    ws.send(JSON.stringify({
+      host, user, port, password: sshPw,
+      cols, rows,
+    }));
+    // Wipe the password from memory ASAP (the WS holds the only copy now)
+    if (_webtermActiveSession) _webtermActiveSession.ssh_pw = null;
+  };
+  ws.onmessage = (ev) => {
+    const data = ev.data;
+    if (typeof data === 'string') {
+      // Control messages from daemon are JSON; raw shell output isn't.
+      // The simplest distinguishing test: starts with '{' AND parses.
+      if (data.startsWith('{')) {
+        try {
+          const obj = JSON.parse(data);
+          if (obj.type === 'connecting') {
+            document.getElementById('webterm-screen-status').textContent = 'SSH handshake…';
+            return;
+          }
+          if (obj.type === 'connected') {
+            document.getElementById('webterm-screen-status').textContent =
+              `connected (session ${obj.session_id})`;
+            return;
+          }
+          if (obj.type === 'error') {
+            term.write('\r\n\x1b[31m✗ ' + obj.message + '\x1b[0m\r\n');
+            document.getElementById('webterm-screen-status').textContent = 'error';
+            return;
+          }
+          // Unknown JSON message — fall through to display
+        } catch (e) { /* not JSON; raw output */ }
+      }
+      term.write(data);
+    } else if (data instanceof ArrayBuffer) {
+      term.write(new Uint8Array(data));
+    }
+  };
+  ws.onerror = () => {
+    term.write('\r\n\x1b[31m✗ WebSocket error\x1b[0m\r\n');
+    document.getElementById('webterm-screen-status').textContent = 'error';
+  };
+  ws.onclose = (ev) => {
+    document.getElementById('webterm-screen-status').textContent =
+      `disconnected (${ev.code})`;
+    if (term && !ev.wasClean) {
+      term.write(`\r\n\x1b[33m✗ Connection closed (${ev.code})\x1b[0m\r\n`);
+    }
+  };
+
+  // Pipe terminal input to WS
+  term.onData((data) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  });
+  // Resize: forward to daemon so the SSH PTY adjusts
+  term.onResize(({cols, rows}) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({type: 'resize', cols, rows}));
+    }
+  });
+  // Resize on window resize
+  const resize = () => { if (fitAddon) fitAddon.fit(); };
+  window.addEventListener('resize', resize);
+  _webtermActiveSession.resizeListener = resize;
+
+  // Reset the connect button for next time
+  btn.disabled = false; btn.textContent = 'Connect';
+}
+
+function webtermDisconnect() {
+  const s = _webtermActiveSession;
+  if (!s) { closeModal('webterm-screen'); return; }
+  try { s.ws.close(); } catch (e) {}
+  try { s.term.dispose(); } catch (e) {}
+  if (s.resizeListener) window.removeEventListener('resize', s.resizeListener);
+  _webtermActiveSession = null;
+  closeModal('webterm-screen');
 }
 
 async function clearHistory() { if (!confirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
