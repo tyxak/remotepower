@@ -1,5 +1,117 @@
 # Changelog
 
+## v2.0.0 - 2026-05-08
+
+A visual + organizational refresh. New branding throughout, sidebar restructured for browsability, in-app documentation, code split into separate CSS/JS files for maintainability. No breaking changes for agents — this is a 2.0 because of UI visibility, not API shape.
+
+### Branding
+
+- **Real logo and favicon.** PNG assets now live in `server/html/static/img/`:
+  - `favicon.png` → browser tab icon (linked via `<link rel="icon">`)
+  - `logo-square.png` → 36×36 in the header bar
+  - `logo-primary.png` → big logo with wordmark + "POWER. MANAGE. ANYWHERE." tagline on the login screen
+- Header logo is now a clickable link that returns to the Devices page (the home view). Hover state for affordance.
+- The placeholder sun-shape SVG that has been there since v1.0 is gone.
+
+### Sidebar reorganized
+
+The flat 18-item list is now grouped:
+
+- **Main** (always visible): Devices, CMDB, Containers, Network, Monitor
+- **Security** (collapsible): TLS / DNS, Patches, CVEs, Services, Logs
+- **Planning** (collapsible): Schedule, Calendar, Tasks, Maintenance, History
+- **Admin** (collapsible, defaults to collapsed): Settings, Users, API Keys, Library, Audit, Links
+- **Help**: Documentation (new!), API Reference (was "API Docs"), About
+
+Group state persists per-browser in `localStorage` (`sidebar.<group>.collapsed`). Active page always expands its containing group, so a fresh load shows you where you are even if the group was collapsed.
+
+The four admin items that were in the flat list (Users, API Keys, Audit, Links) plus Settings, Library are all now under the Admin toggle. Day-to-day use only needs Main + Help expanded; admins expand Admin when they need it.
+
+### Documentation page
+
+New "Documentation" entry under Help in the sidebar. Curated set of in-app help cards covering the most common questions:
+
+- Enrolling devices (PIN + API token flows)
+- Metric alerts (defaults, per-device, per-mount, hysteresis, trends)
+- Web terminal (auth flow, recording, deploy)
+- Commands (per-device dropdown, batch mode, library)
+- Webhooks (auto-format detection, event list, test events)
+- External monitors (probes, schedule)
+- Two-factor authentication (enable/disable)
+- Tables: filter / sort / density
+- Backup & restore
+- Troubleshooting (the actual symptoms users hit)
+- API access (auth methods, common patterns with curl examples)
+
+Each card is a `<details>` element — expand on click, no JS required for the toggle. Top of page has a substring search that auto-expands matching cards. Cards have a `data-keywords` attribute so search hits things like "ssh" → web terminal even though the summary doesn't say "ssh".
+
+The full reference Manual.html is still around and linked from the troubleshooting section.
+
+### Metric trends on the Monitor page
+
+The Devices page has had the metrics chart modal since v1.7. v1.12.0 surfaced live metric values on the Monitor page; v2.0 adds a "Trend" button next to "Thresholds" on each device row. Same chart as the per-device view (last 60 data points, sparkline-style for CPU / memory / disk). One click takes you from "your fleet's current state" to "this device's history" without leaving the Monitor page.
+
+### Code split (HTML / CSS / JS)
+
+`index.html` was 8088 lines with a 1320-line `<style>` block and 4900-line inline `<script>`. Now:
+
+- `server/html/index.html` — 1835 lines (just the markup + the two external refs)
+- `server/html/static/css/styles.css` — 1320 lines (everything from the old `<style>`)
+- `server/html/static/js/app.js` — 4930 lines (everything from the old `<script>`)
+
+The split is strictly mechanical — no code was rewritten or restructured. Same selectors, same functions, same global variables, same load order. The script is still injected at the end of body for the same DOMContentLoaded timing it had inline. This makes the file tree navigable for the first time:
+
+- Want to find a CSS rule? `grep '\.foo' static/css/styles.css`
+- Want to find a function? `grep 'function foo' static/js/app.js`
+- Want to see the page structure? `index.html` is a fifth its old size and now actually readable.
+
+I deliberately did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
+
+`deploy-server.sh` updated to rsync the `server/html/static/` tree to `/var/www/remotepower/static/`. The deploy is otherwise identical.
+
+### What's NOT in this release (intentional)
+
+- **No agent changes.** Agents on v1.11.10+ work unchanged. The 2.0 in the version is about UI visibility (visible reorganization, branding) not protocol breakage.
+- **No new server endpoints.** Documentation page is pure frontend; sidebar reorganization is pure frontend; metric Trend button reuses the existing `/api/devices/{id}/metrics` endpoint.
+- **No SQLite migration.** Considered for v1.12.1, decided flock + atomic write was sufficient for this scale. Same call here. SQLite is the right answer at 1000+ devices, not at 9.
+
+### v2.0 polish (later same day)
+
+After the initial 2.0 build went out, several rounds of polish before declaring done — no version bump.
+
+**Real branding.** Three updated PNGs deployed to `server/html/static/img/`. Login screen no longer adds a dark background frame around the primary logo (the logo asset has its own gradient). Login card widened from 400→480px so the 280px-wide logo has comfortable horizontal margin.
+
+**Multi-doc CMDB.** Assets used to support exactly one Markdown blob in `documentation`. Now they support an arbitrary list of titled docs (`docs: [{id, title, body, created_by, created_at, updated_by, updated_at}]`, capped at 50 per asset). Schema migration is automatic on first read: legacy `documentation` strings synthesise a single doc with `id="legacy"` which gets promoted to a real id on first edit, and the back-compat field is cleared. Three new endpoints: `POST /api/cmdb/{id}/docs`, `PUT /api/cmdb/{id}/docs/{doc_id}`, `DELETE /api/cmdb/{id}/docs/{doc_id}` — all admin-auth, all audit-logged. UI rewritten: docs render as collapsible cards with per-card edit/delete, separate edit modal with Markdown preview tab, "+ Add document" button. The existing single-textarea is gone. 21 tests in `test_v200_docs.py`.
+
+**Demo / read-only mode.** New `RP_READ_ONLY=1` environment variable. When set, `_enforce_read_only()` runs at the top of `main()` before route dispatch and blocks every non-GET request with a 403 + `{"demo": true, "error": "Demo mode...", "detail": "..."}` body, except a small whitelist (login, logout, totp/verify, public-info, openapi.json) needed for visitors to log in and browse. Frontend reads the flag from `/api/public-info` on load, shows a banner if set, surfaces friendly toast on demo-mode 403s instead of generic failure messages. Designed for a public sandbox like `demoremote.tvipper.com`. 17 tests in `test_v200_demo.py`.
+
+**Demo seed script.** `packaging/seed-demo-data.py` populates a target data dir (default `/var/lib/remotepower/`, override with `--data-dir`) with 16 fake homelab devices: hypervisor + NAS + firewall + DNS + reverse proxy + media + git + monitoring + a few agentless network devices. Realistic hostnames using the unallocated `.lab` TLD so they can't collide with anything real. Seeds devices, CMDB metadata, packages, services, containers, CVE findings, monitor history, audit log, etc. Idempotent (deterministic — same input, same output). Re-runnable on a cron if you want `last_seen` to keep looking fresh.
+
+**Demo install script.** `packaging/install-demo.sh <hostname>` sets up a SEPARATE demo vhost alongside your production install — different data dir (`/var/lib/remotepower-demo/` by default), same shared CGI code under `/var/www/remotepower/`. Auto-detects the CGI user, creates the demo data dir owned by it, runs the seed script, generates an nginx server block at `/etc/nginx/sites-available/remotepower-demo` with the per-vhost env vars (`RP_DATA_DIR=/var/lib/remotepower-demo` and `RP_READ_ONLY=1`), enables it, validates with `nginx -t`, reloads. The trick is that fcgiwrap forwards `fastcgi_param` env vars to the CGI process, so two vhosts can share one fcgiwrap pool but operate on different data dirs. TLS is left to the user (certbot reminder printed at the end). Idempotent re-runs re-seed and re-render the nginx config. Production install at `remote.<domain>` is never touched.
+
+**Documentation page expansion.** The original 11 cards covered common workflows. Added 21 more (one per sidebar entry): Devices, CMDB, Containers, Network, Monitor, TLS/DNS, Patches, CVEs, Services, Logs, Schedule, Calendar, Tasks, Maintenance, History, Settings, Users, API Keys, Library, Audit, Links. Each `<details>` card has `data-keywords` so the substring search finds them by alternate terms (e.g. "ssh" → web terminal card, "topology" → Network card). 32 doc cards total now.
+
+**README rewrite.** Front-loaded the Quick Start (server + client + Docker) right after the intro. New "What you can do with it" section grouping headline features in a 2-column visual table. New "Why RemotePower" positioning section (small / lightweight / properly self-hosted / not toy features). Comprehensive feature table reorganised into 6 categories (Fleet visibility, Commands & automation, Alerts & monitoring, CMDB & docs, Auth & access, Operational quality, UX) with version annotations. Architecture diagram updated to reflect the v1.12.1+ persistence (`.bak` rolling backups), the webterm sibling daemon, and the actual current set of state files (~30 JSONs, grouped by purpose). 788 lines total, no duplicate Quick Start sections.
+
+**Tests after polish.** 567 passing (529 from v1.12.1 + 21 multi-doc in `test_v200_docs.py` + 17 demo-mode in `test_v200_demo.py`). No regressions. JS validated with `node --check`. HTML div + `<details>` counts balanced.
+
+**Deploy.**
+
+```bash
+sudo bash deploy-server.sh
+```
+
+Hard-refresh the browser. For the demo-sandbox use case, deploy a SEPARATE vhost alongside your production install:
+
+```bash
+sudo bash packaging/install-demo.sh demoremote.tvipper.com
+sudo certbot --nginx -d demoremote.tvipper.com
+```
+
+Production at `remote.tvipper.com` keeps working with your real data; the demo at `demoremote.tvipper.com` runs the same CGI code against a separate `/var/lib/remotepower-demo/` data dir with `RP_READ_ONLY=1`. Visitors log in as `demo` / `demo` and can browse everything but every mutation returns a friendly 403 toast.
+
+---
+
 ## v1.12.1 - 2026-05-08
 
 A targeted hardening release after a real-world incident: a user's `devices.json` got corrupted by a concurrent-write race between two CGI processes, leaving the file with a complete first JSON document followed by trailing garbage. Effects: dashboard showed no devices, all agents got 403 "Credentials rejected" because the heartbeat handler couldn't find them in the empty-on-load file.

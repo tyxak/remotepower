@@ -48,6 +48,18 @@ for f in "$SCRIPT_DIR"/server/html/*.html; do
     echo "      → $name"
 done
 
+# v2.0: deploy /static/ tree (logos, future CSS/JS extraction targets).
+# rsync rather than cp -r so re-runs don't fail on existing-dir.
+if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
+    info "Deploying static assets (logos, etc.)..."
+    mkdir -p /var/www/remotepower/static
+    rsync -a --delete "$SCRIPT_DIR/server/html/static/" /var/www/remotepower/static/
+    chown -R root:root /var/www/remotepower/static
+    find /var/www/remotepower/static -type f -exec chmod 644 {} \;
+    find /var/www/remotepower/static -type d -exec chmod 755 {} \;
+    echo "      → static/ ($(find /var/www/remotepower/static -type f | wc -l) files)"
+fi
+
 info "Deploying remotepower-passwd..."
 install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-bin/remotepower-passwd
 

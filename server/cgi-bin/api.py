@@ -22,7 +22,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '1.12.1'
+SERVER_VERSION = '2.0.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -98,6 +98,9 @@ MAX_CMDB_USERNAME   = 128
 MAX_CMDB_PASSWORD   = 1024
 MAX_CMDB_CRED_NOTE  = 512
 MAX_CMDB_CREDS      = 25            # per-asset cap
+# v2.0: multi-doc attachments per asset
+MAX_CMDB_DOCS       = 50            # sanity cap; 50 docs/asset is more than anyone needs
+MAX_CMDB_DOC_TITLE  = 120           # single line title length
 
 # server_function is a free-text field, but we restrict the charset so we can
 # safely use it in the searchbox / autocomplete without escaping every char.
@@ -1410,6 +1413,11 @@ def handle_public_info():
         'server_name':         get_server_name(),
         'server_version':      SERVER_VERSION,
         'remember_me_default': get_remember_me_default(),
+        # v2.0: surface demo / read-only state so the dashboard can render
+        # a clear banner. The flag itself isn't sensitive — anyone who
+        # tries a write will get the same 403 regardless. Knowing up-front
+        # lets the UI pre-emptively hide pointless buttons.
+        'read_only':           _is_demo_read_only(),
     })
 
 
@@ -7214,10 +7222,39 @@ def _cmdb_load() -> dict:
     Returns:
         Mapping of ``device_id`` to record dict. Returns an empty dict if
         the store file is missing or corrupt — never raises.
+
+    Migration: v2.0 introduced the multi-doc ``docs`` field. Records that
+    were last written under v1.x have ``documentation`` (a single Markdown
+    string) but no ``docs`` list. We synthesise a single-doc list from
+    the legacy field so downstream code only has to handle the new shape.
+    The legacy field is left in place — old API consumers (scripts, the
+    ``documentation`` field in the existing ``handle_cmdb_update``) keep
+    working unchanged. On first save through the new endpoints the legacy
+    field is cleared.
     """
     store = load(CMDB_FILE)
     if not isinstance(store, dict):
         return {}
+    # Lightweight in-memory migration. Cheap to do on every load (just
+    # walks N records, conditional). Pushing it into save() would mean
+    # records weren't migrated until they were modified.
+    for rec in store.values():
+        if not isinstance(rec, dict):
+            continue
+        if 'docs' not in rec or not isinstance(rec.get('docs'), list):
+            legacy = rec.get('documentation') or ''
+            if isinstance(legacy, str) and legacy.strip():
+                rec['docs'] = [{
+                    'id':         'legacy',
+                    'title':      'Documentation',
+                    'body':       legacy,
+                    'created_by': rec.get('updated_by', ''),
+                    'created_at': rec.get('updated_at', 0),
+                    'updated_by': rec.get('updated_by', ''),
+                    'updated_at': rec.get('updated_at', 0),
+                }]
+            else:
+                rec['docs'] = []
     return store
 
 
@@ -7237,7 +7274,8 @@ def _cmdb_record_default() -> dict:
         'server_function': '',
         'hypervisor_url':  '',
         'ssh_port':        CMDB_DEFAULT_SSH_PORT,
-        'documentation':   '',
+        'documentation':   '',     # v1.x: single Markdown blob (kept for back-compat)
+        'docs':            [],     # v2.0: multiple titled Markdown docs
         'credentials':     [],
         'updated_by':      '',
         'updated_at':      0,
@@ -7595,6 +7633,204 @@ def handle_cmdb_update(dev_id: str) -> None:
     save(CMDB_FILE, cmdb)
     audit_log(actor, 'cmdb_update', detail=f'device={dev_id} fields={",".join(changed)}')
     respond(200, {'ok': True, 'record': _cmdb_strip_creds(rec)})
+
+
+def _cmdb_validate_doc_title(raw) -> 'str | None':
+    """Validate a CMDB doc title.
+
+    Returns the cleaned title if valid, or None and emits a 400 response.
+    Titles are required (a doc with no title is unsearchable in the UI).
+    They have a sane upper bound — anything longer is probably a mistake.
+    """
+    if not isinstance(raw, str):
+        respond(400, {'error': 'doc title must be a string'})
+        return None
+    title = raw.strip()
+    if not title:
+        respond(400, {'error': 'doc title is required'})
+        return None
+    if len(title) > MAX_CMDB_DOC_TITLE:
+        respond(400, {'error': f'doc title too long (max {MAX_CMDB_DOC_TITLE})'})
+        return None
+    # Disallow control characters that could mangle UI rendering or
+    # produce confusable headings. Allow common Unicode (people might
+    # title things in their own language).
+    if any(ord(c) < 0x20 and c not in '\t' for c in title):
+        respond(400, {'error': 'doc title may not contain control characters'})
+        return None
+    return title
+
+
+def _cmdb_validate_doc_body(raw) -> 'str | None':
+    """Validate a CMDB doc body. Returns cleaned body or None with 400."""
+    if not isinstance(raw, str):
+        respond(400, {'error': 'doc body must be a string'})
+        return None
+    if len(raw) > MAX_CMDB_DOC_LEN:
+        respond(400, {'error': f'doc body too large (max {MAX_CMDB_DOC_LEN} bytes)'})
+        return None
+    return raw
+
+
+def handle_cmdb_doc_add(dev_id: str) -> None:
+    """``POST /api/cmdb/{device_id}/docs`` — attach a new doc to an asset.
+
+    Body: ``{"title": "...", "body": "..."}``. Body may be empty;
+    title may not. Returns the created doc with its server-assigned id.
+
+    The new doc is appended (not prepended) so existing UI ordering
+    is preserved.
+    """
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    body = get_json_body()
+    title = _cmdb_validate_doc_title(body.get('title'))
+    if title is None:
+        return
+    doc_body = _cmdb_validate_doc_body(body.get('body', ''))
+    if doc_body is None:
+        return
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id) or _cmdb_record_default()
+    docs = rec.get('docs') or []
+    if len(docs) >= MAX_CMDB_DOCS:
+        respond(400, {'error': f'too many docs (max {MAX_CMDB_DOCS} per asset)'})
+
+    now = int(time.time())
+    new_doc = {
+        'id':         secrets.token_hex(6),   # 12 hex chars, ~48 bits — plenty per asset
+        'title':      title,
+        'body':       doc_body,
+        'created_by': actor,
+        'created_at': now,
+        'updated_by': actor,
+        'updated_at': now,
+    }
+    docs.append(new_doc)
+    rec['docs'] = docs
+    rec['updated_by'] = actor
+    rec['updated_at'] = now
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_doc_add', f'device={dev_id} doc={new_doc["id"]} title="{title}"')
+    respond(200, new_doc)
+
+
+def handle_cmdb_doc_update(dev_id: str, doc_id: str) -> None:
+    """``PUT /api/cmdb/{device_id}/docs/{doc_id}`` — edit a doc.
+
+    Body: any subset of ``{"title", "body"}``. Updates ``updated_by``
+    and ``updated_at`` on the doc and on the parent record. Returns
+    the updated doc.
+
+    Migrated 'legacy' docs use a fixed id of ``legacy``; once edited,
+    they get a real random id assigned to make subsequent operations
+    less ambiguous and to clear the legacy flag.
+    """
+    actor = require_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    body = get_json_body()
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id)
+    if rec is None:
+        respond(404, {'error': 'no CMDB record'})
+    docs = rec.get('docs') or []
+
+    idx = next((i for i, d in enumerate(docs) if d.get('id') == doc_id), -1)
+    if idx < 0:
+        respond(404, {'error': 'doc not found'})
+    doc = docs[idx]
+
+    changed = []
+    if 'title' in body:
+        title = _cmdb_validate_doc_title(body.get('title'))
+        if title is None:
+            return
+        doc['title'] = title
+        changed.append('title')
+    if 'body' in body:
+        new_body = _cmdb_validate_doc_body(body.get('body'))
+        if new_body is None:
+            return
+        doc['body'] = new_body
+        changed.append('body')
+
+    if not changed:
+        respond(400, {'error': 'no recognised fields'})
+
+    now = int(time.time())
+    doc['updated_by'] = actor
+    doc['updated_at'] = now
+    # Promote legacy doc to a real id once edited
+    if doc_id == 'legacy':
+        doc['id'] = secrets.token_hex(6)
+        # Clear the legacy field — it's been superseded by the docs list
+        rec['documentation'] = ''
+    docs[idx] = doc
+    rec['docs'] = docs
+    rec['updated_by'] = actor
+    rec['updated_at'] = now
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_doc_update',
+              f'device={dev_id} doc={doc["id"]} changed={",".join(changed)}')
+    respond(200, doc)
+
+
+def handle_cmdb_doc_delete(dev_id: str, doc_id: str) -> None:
+    """``DELETE /api/cmdb/{device_id}/docs/{doc_id}`` — remove a doc.
+
+    Hard delete. Audit log retains the title so you can tell after the
+    fact what got removed.
+    """
+    actor = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'})
+
+    cmdb = _cmdb_load()
+    rec = cmdb.get(dev_id)
+    if rec is None:
+        respond(404, {'error': 'no CMDB record'})
+    docs = rec.get('docs') or []
+
+    idx = next((i for i, d in enumerate(docs) if d.get('id') == doc_id), -1)
+    if idx < 0:
+        respond(404, {'error': 'doc not found'})
+
+    removed = docs.pop(idx)
+    # If we just deleted the last doc that's a legacy migration, clear
+    # the back-compat field too. Otherwise it'd reappear on next load.
+    if doc_id == 'legacy' and not docs:
+        rec['documentation'] = ''
+
+    rec['docs'] = docs
+    rec['updated_by'] = actor
+    rec['updated_at'] = int(time.time())
+    cmdb[dev_id] = rec
+    save(CMDB_FILE, cmdb)
+    audit_log(actor, 'cmdb_doc_delete',
+              f'device={dev_id} doc={doc_id} title="{removed.get("title", "")}"')
+    respond(200, {'ok': True})
 
 
 def handle_cmdb_server_functions() -> None:
@@ -8064,6 +8300,62 @@ def handle_cmdb_credentials_reveal(dev_id: str, cred_id: str) -> None:
 
 
 # ─── Router ────────────────────────────────────────────────────────────────────
+def _is_demo_read_only() -> bool:
+    """True if the server is running in demo / read-only mode.
+
+    Controlled by the ``RP_READ_ONLY`` env var (set in the systemd unit,
+    fcgiwrap config, or shell environment). Unset / empty / "0" / "false"
+    means normal operation. Anything else means read-only.
+
+    The env var lives outside the dashboard's reach — there's no API to
+    toggle it. That's deliberate: a public sandbox shouldn't expose
+    "stop being a sandbox" as a button somebody could find.
+    """
+    val = os.environ.get('RP_READ_ONLY', '').strip().lower()
+    return val not in ('', '0', 'false', 'no', 'off')
+
+
+# Endpoints that stay open even in read-only mode. Login is needed so
+# visitors can browse with a session; logout is fine; the few small
+# endpoints that issue/refresh credentials are safe because they don't
+# touch user-controllable state. Heartbeat is NOT in this list — a
+# demo server has no real agents, so heartbeat hits are noise we'd
+# rather reject loudly.
+_READ_ONLY_ALLOWED = frozenset({
+    '/api/login',
+    '/api/logout',
+    '/api/totp/verify',
+    '/api/public-info',
+    '/api/openapi.json',
+})
+
+
+def _enforce_read_only():
+    """Block non-GET requests in read-only mode, except whitelisted endpoints.
+
+    Called from main() right before route dispatch. The whitelist is the
+    minimal set needed to let an anonymous visitor log in to the demo
+    user, browse, and log out. Everything else returns 403 with a
+    friendly, demo-aware error body so the frontend can surface a
+    helpful toast instead of a generic failure.
+    """
+    if not _is_demo_read_only():
+        return
+    if method() == 'GET':
+        return
+    pi = path_info()
+    if pi in _READ_ONLY_ALLOWED:
+        return
+    respond(403, {
+        'error': 'Demo mode — this is a read-only sandbox.',
+        'detail': ('This instance is configured as a public demo. '
+                   'Browsing works fully; nothing can be modified, deleted, '
+                   'or executed. For the real thing, see '
+                   'https://github.com/tyxak/remotepower'),
+        'demo': True,
+    })
+
+
 def main():
     try: check_offline_webhooks()
     except Exception: pass
@@ -8081,6 +8373,12 @@ def main():
     except Exception: pass
     try: process_schedule()
     except Exception: pass
+
+    # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
+    # read + a constant set membership check. Done before route dispatch
+    # so every mutation handler is uniformly protected without needing
+    # an assert_writable() call at the top of each one.
+    _enforce_read_only()
 
     pi = path_info(); m = method()
 
@@ -8291,6 +8589,17 @@ def main():
         rest = pi[len('/api/cmdb/'):]
         dev_id, _, cred_id = rest.partition('/credentials/')
         handle_cmdb_credentials_delete(dev_id, cred_id)
+    # v2.0: multi-doc per asset. Match before generic /api/cmdb/{id} route.
+    elif pi.startswith('/api/cmdb/') and pi.endswith('/docs') and m == 'POST':
+        handle_cmdb_doc_add(pi[len('/api/cmdb/'):-len('/docs')])
+    elif pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'PUT':
+        rest = pi[len('/api/cmdb/'):]
+        dev_id, _, doc_id = rest.partition('/docs/')
+        handle_cmdb_doc_update(dev_id, doc_id)
+    elif pi.startswith('/api/cmdb/') and '/docs/' in pi and m == 'DELETE':
+        rest = pi[len('/api/cmdb/'):]
+        dev_id, _, doc_id = rest.partition('/docs/')
+        handle_cmdb_doc_delete(dev_id, doc_id)
     # Asset list + per-asset metadata
     elif pi == '/api/cmdb' and m == 'GET':  handle_cmdb_list()
     elif pi.startswith('/api/cmdb/') and m == 'GET':

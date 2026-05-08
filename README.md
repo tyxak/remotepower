@@ -4,14 +4,17 @@
 
 ![RemotePower Dashboard](docs/screenshots/Index.png)
 
-**Remote device management over HTTPS - no open inbound firewall ports on clients required.**
+**Self-hosted remote management for your Linux fleet — and your homelab.**
+Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](https://kernel.org)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-1.12.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+
+[Live demo](https://demoremote.tvipper.com) · [Quick start](#quick-start) · [What you get](#what-you-can-do-with-it) · [Full features](#features)
 
 </div>
 
@@ -19,68 +22,197 @@
 
 ## What is RemotePower?
 
-RemotePower is a self-hosted web dashboard for remotely managing Linux machines on your network. It works by having a lightweight agent on each client machine that **polls** the server - meaning clients only make outbound connections. No inbound firewall rules needed on the clients.
+A web dashboard that manages your Linux machines (and Windows, kind of) without opening firewall ports on them. Each host runs a small Python agent that **polls** the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit PIN, like pairing a console controller.
 
-Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): generate a PIN in the dashboard, run the client installer, enter the PIN - done.
+It's deliberately small: nginx + Python CGI + flat JSON files. No database, no Node.js, no Redis, no Kubernetes. The whole `/var/lib/remotepower/` directory backs up with `tar`. Tested on real homelabs running 5–50 devices, fine up to a few hundred.
+
+---
+
+## Quick Start
+
+The fastest path. Three commands on the server, two on the client.
+
+### Server
+
+```bash
+git clone https://github.com/tyxak/remotepower
+cd remotepower
+sudo bash install-server.sh        # nginx + fcgiwrap + Python deps + initial admin password
+```
+
+That's it. The installer prints the URL and the auto-generated admin password. Open it in a browser, log in, change the password under Settings → Account.
+
+### Client (on the host you want to manage)
+
+```bash
+sudo bash install-client.sh
+# Paste the server URL and the 6-digit PIN from the dashboard. Done.
+```
+
+The device shows up in the dashboard within ~60 seconds.
+
+### Optional but recommended
+
+```bash
+sudo bash packaging/install-webterm.sh    # browser-based SSH terminal (separate daemon)
+```
+
+Auto-detects your nginx user (`www-data` / `nginx` / `http` / etc.) and wires everything up. Run with `--dry-run` first if you want to see what it'll do.
+
+### Public demo / sandbox
+
+If you want to host a read-only demo at e.g. `demoremote.example.com` alongside your production install:
+
+```bash
+sudo bash packaging/install-demo.sh demoremote.example.com
+sudo certbot --nginx -d demoremote.example.com
+```
+
+This creates a SEPARATE vhost — different data dir (`/var/lib/remotepower-demo/`), shared CGI code, `RP_READ_ONLY=1` set per-vhost. Visitors log in as `demo` / `demo`, browse everything, but mutations get a friendly 403 toast. Your production install at `remote.<domain>` is untouched. The vhost auto-seeds 16 fake homelab devices using the unallocated `.lab` TLD.
+
+### Docker (one-liner alternative)
+
+```bash
+git clone https://github.com/tyxak/remotepower && cd remotepower
+docker compose up -d
+```
+
+Dashboard at `http://localhost:8080`. Put a TLS-terminating reverse proxy (Caddy, Traefik, nginx) in front for production.
+
+---
+
+## What you can do with it
+
+Day-to-day fleet operations, without leaving the browser:
+
+| | |
+|---|---|
+| 🟢 **See what's up** | Live online/offline status, every device every 60s. Sparklines for CPU / RAM / disk. Service health matrix. Containers (Docker/Podman/k8s pods). Patches pending. Open CVEs. |
+| ⚡ **Run commands** | Reboot, shutdown, Wake-on-LAN, run arbitrary shell commands as root, batch any of the above across many devices. Scheduled (cron-style) and one-shot. Saved-snippets library. Long-poll endpoint for waiting on output. |
+| 🌐 **SSH from your browser** | Click a device, get a real interactive xterm.js terminal proxied through a hardened daemon. Sessions are recorded as asciinema replayable casts. |
+| 🚨 **Alert on what matters** | Disk %, memory %, swap %, CPU load — per-device and per-mount thresholds. Service down. Container stopped/restarting. Patches piling up. CVEs found. TLS expiring. Webhooks to Discord, ntfy, Slack, or anything that takes a JSON POST. |
+| 📦 **CMDB built in** | Asset metadata, server function, hypervisor URL. Encrypted credentials vault (AES-GCM, shared admin passphrase, audit-logged reveals). Multiple Markdown documents per asset. SSH-link buttons. Network topology map. Agentless devices for switches / APs / printers. |
+| 🛡️ **CVE scanning** | Installed packages cross-checked against [OSV.dev](https://osv.dev) on a schedule. Severity-ranked findings per device with fixed-version hints. Per-CVE ignore list for accepted risk. |
+| 🔑 **Auth that scales** | Local users with bcrypt + TOTP 2FA. Optional LDAP/AD integration. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
+| 📈 **Time-series, the homelab way** | Every device's CPU/RAM/disk recorded; sparkline for the dashboard, full-size chart on click. Prometheus `/api/metrics` endpoint for Grafana. |
+
+---
+
+## Why RemotePower
+
+**It's small.** ~6000 lines of Python on the server. ~1200 lines of agent. The whole web UI is one HTML file plus one CSS file plus one JS file — no build step, no bundler, no framework. You can read every line.
+
+**It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
+
+**It's self-hosted, properly.** No telemetry. No "cloud sync" you have to opt out of. No license server. Backs up with `tar czf /var/lib/remotepower/`. Restores by un-tarring. The whole architecture is one diagram you can hold in your head.
+
+**But the features aren't toys.** Browser SSH with session recording. Per-mount disk thresholds with hysteresis. Atomic JSON writes with flock-protected concurrency and `.bak` fallback recovery. Encrypted credentials vault with PBKDF2-derived keys. AES-GCM. OSV-backed CVE scanning. Prometheus exposition. OpenAPI spec with interactive Swagger UI. asciinema-format session recordings. fcgiwrap + per-process unique tmp filenames + fsync-before-rename atomic writes. None of this is "we'll add it later."
+
+If you've been bouncing between Cockpit (no fleet view), Ansible (not real-time), Tactical RMM (heavy, Windows-first), and Wazuh (security-first, not management) — give RemotePower a try.
 
 ---
 
 ## Features
 
+The complete list. Items marked with a version number indicate when they were added.
+
+### Fleet visibility
+
 | Feature | Notes |
 |---|---|
-| 🟢 **Live status** | Green/red per device, auto-refreshes every 60s |
-| 🔐 **bcrypt auth** | bcrypt password hashing, transparent SHA-256 upgrade on login |
-| 👥 **Roles** | Admin (full access) and Viewer (read-only) roles per user |
-| 📟 **PIN enrollment** | 6-digit PIN, single-use, expires in 10 minutes |
-| 🔌 **No inbound firewall rules** | Client polls server, not the other way around |
-| 🐧 **systemd integration** | Client runs as a proper daemon, auto-starts on boot |
-| 🏠 **Self-hosted** | Flat JSON files, no database, no Docker required |
-| 🔒 **HTTPS ready** | Works with Let's Encrypt / acme.sh out of the box |
-| ⚡ **Lightweight** | Nginx + Python CGI, no Node.js |
-| 🔁 **Reboot command** | Queue reboot alongside shutdown |
-| ⚡ **Wake-on-LAN** | Magic packet from dashboard, unicast over VPN/routed networks |
-| 🔔 **Offline webhook** | POST to Ntfy, Gotify, Slack, Discord when device goes offline |
-| 📦 **Patch info** | Pending updates via apt/dnf/pacman, dry-run only |
-| 📋 **Journal** | Last 100 journalctl lines per device, noise-filtered |
-| 📡 **Ping / service monitor** | ICMP ping, TCP port, HTTP checks from the server |
-| 📈 **Monitor history** | Uptime %, sparkline, last 50 check results per target |
-| 🔄 **Agent self-update** | SHA-256 verified, atomic replace, no SSH needed |
-| 🏷️ **Device tags** | Tag devices and filter dashboard by group |
-| 🗂️ **Device groups** | Namespace devices (e.g. `dc1/prod`, `homelab`), sort and batch by group |
-| 📝 **Device notes** | Free-text notes per device, shown as tooltip |
-| 🕐 **Scheduled commands** | One-shot (datetime) or recurring (cron expression) shutdown/reboot |
-| 📜 **Command history** | Every action logged with actor, device, and timestamp |
-| 🖥️ **Custom commands** | Run arbitrary shell commands, output returned via next heartbeat |
-| 📚 **Command library** | Save named shell snippets, pick from dropdown in exec modal |
-| 🔒 **Command allowlist** | Per-device whitelist of allowed exec commands |
-| 📊 **Metrics history** | CPU/RAM/disk sparklines per device (requires psutil on client) |
-| ⏱️ **Adjustable poll interval** | Set per-device heartbeat cadence (10–3600 s) from dashboard |
-| 🔑 **API keys** | Named non-expiring keys for scripts and CI pipelines |
-| 📤 **Backup export** | One-click ZIP download of all data JSON files |
-| 🔔 **Patch alert** | Webhook when a device exceeds a configurable update threshold |
-| 🔔 **Command webhooks** | Webhook on command queued and command executed |
+| 🟢 **Live status** | Green/red per device, auto-refreshes every 60s, configurable per device (10–3600 s) |
+| 📊 **Metrics history** | CPU/RAM/disk/swap/loadavg sparklines per device, full-size chart on click |
+| 📊 **Per-mount disk** | Each non-pseudo mount tracked individually (v1.11.10) |
+| 📈 **Live metrics on Monitor page** | All-fleet view of current sysinfo, color-coded by alert level (v1.12.0) |
+| 📈 **Metric trend modal from Monitor** | Time-series chart per device, one click from the fleet view (v2.0) |
+| 🐧 **OS icons** | Auto-detected SVG glyphs: Linux, Windows, fallback. Penguin, tile, question-mark |
+| ⏱️ **Adjustable poll interval** | Per-device heartbeat cadence from dashboard |
 | 📊 **Uptime tracking** | Online/offline state changes stored per device |
-| 🌙 **Dark/light mode** | Toggle in header, persisted per browser |
-| 🔄 **Re-enrollment** | `re-enroll` preserves device history, tags, group, and notes |
-| 🛡️ **Agent integrity** | `integrity` subcommand compares binary SHA-256 vs server |
-| 📊 **Digest endpoint** | `/api/digest` for cron-driven email summaries |
-| ⚡ **Long-poll exec** | `/api/exec/wait` holds connection open until output arrives |
-| 🛡️ **CVE scanner** | Installed packages checked against OSV.dev; severity-ranked per-device findings with fixed-version hints; ignore list for accepted risk |
-| 📊 **Prometheus metrics** | `/api/metrics` endpoint in standard text exposition format for Grafana/Prometheus scraping |
-| ⚙️ **Service monitoring** | Agent watches systemd units; dashboard matrix shows up/down state per device; webhooks fire on transitions |
-| 📜 **Log tail + alerts** | Agent submits `journalctl` output per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts to webhook |
-| 🔧 **Maintenance windows** | Suppress webhook alerts during scheduled windows (one-shot or cron); per-device, per-group, or fleet-global; full audit trail of suppressed events |
-| 🗄️ **CMDB** | Per-asset metadata (asset ID, server function, hypervisor URL, Markdown documentation) plus encrypted credential vault (AES-GCM + PBKDF2-SHA256, shared admin passphrase, audit-logged reveals) |
-| 📖 **Swagger / OpenAPI** | Hand-written OpenAPI 3.1 spec at `/api/openapi.json`, interactive Swagger UI at `/swagger.html` with auto-injected session token for "Try it out" |
-| 🔗 **SSH from credentials** | Per-asset `ssh_port` field; each credential row has `ssh://user@host:port` link + Copy button for the equivalent `ssh` command |
-| 🐧 **OS icons** | Auto-detected inline-SVG glyphs: Linux (Tux) for anything Linux-shaped, Windows tile for Windows, question-mark fallback for the rest |
-| 📜 **Update history** | Rolling 10-run buffer of `apt`/`dnf`/`pacman` output per device; modal viewer with timestamps, exit codes, durations, full output |
-| 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods on every agent. Read-only — image, status, restart count, ports, namespace. v1.11.4: alerts on stop / restart / stale data |
+| 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods. Read-only — image, status, restart count, ports, namespace. Alerts on stop / restart / stale data |
 | 🌐 **Network map** | Manual topology graph from per-device `connected_to` links. Switches and APs as agentless devices |
-| 🔐 **TLS / DNS expiry** | Server-side probes against a configurable watchlist. Stdlib-only, cron-driven, alerts via existing webhooks |
-| 🔌 **Agentless devices** | Manual device records for switches, APs, printers, IPMI, cameras — same CMDB / vault / SSH-link as agented devices |
-| ℹ️ **About page** | Server version, agent version, GitHub release check |
+
+### Commands & automation
+
+| Feature | Notes |
+|---|---|
+| 🔁 **Reboot / shutdown** | Queue actions, reported success on next heartbeat |
+| ⚡ **Wake-on-LAN** | Magic packet from dashboard, unicast over VPN/routed networks |
+| 🖥️ **Custom commands** | Run arbitrary shell as root; output returned via heartbeat. 64 KB cap |
+| 📚 **Command library** | Saved named snippets, pick from dropdown |
+| 🔒 **Per-device allowlist** | Whitelist of allowed exec commands per device |
+| 🕐 **Scheduled commands** | One-shot (datetime) or recurring (cron) |
+| 🗓️ **Maintenance windows** | Suppress webhook alerts during scheduled windows. Per-device, per-group, or fleet-global. Audit trail of suppressed events |
+| 📜 **Update history** | Rolling 10-run buffer of `apt`/`dnf`/`pacman` output per device with timestamps, exit codes, durations |
+| ⚡ **Long-poll exec** | `/api/exec/wait` holds connection open until output arrives — useful for synchronous CI |
+| 🌐 **Web terminal** | Real xterm.js SSH terminal in the browser, proxied through a hardened daemon. asciinema v2 session recordings (output-only by default; opt-in keystroke capture) (v1.11.11) |
+
+### Alerts & monitoring
+
+| Feature | Notes |
+|---|---|
+| 📡 **Ping / TCP / HTTP probes** | ICMP, TCP port, HTTP HEAD checks from the server. Configurable schedule (v1.11.8: runs even when dashboard is closed) |
+| 📈 **Monitor history** | Uptime %, sparkline, last 50 results per target |
+| 🚨 **Metric alerts** | Disk / memory / swap / CPU load thresholds with hysteresis (v1.11.10) |
+| 🚨 **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
+| ⚙️ **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions |
+| 📜 **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
+| 🔔 **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 17 event types, per-event toggles, test-event button |
+| 🛡️ **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |
+| 🔐 **TLS / DNS expiry** | Server-side probes against a watchlist; alerts via existing webhooks |
+| 📦 **Patch alerts** | Webhook when pending updates exceed configurable threshold |
+
+### CMDB & documentation
+
+| Feature | Notes |
+|---|---|
+| 🗄️ **Asset metadata** | Asset ID, server function, hypervisor URL, SSH port |
+| 📝 **Multi-doc attachments** | Multiple titled Markdown documents per asset (v2.0) |
+| 🔐 **Credentials vault** | AES-GCM + PBKDF2-SHA256, shared admin passphrase, audit-logged reveals |
+| 🔗 **SSH-link buttons** | Per-credential `ssh://user@host:port` link + Copy button |
+| 🔌 **Agentless devices** | Manual records for switches, APs, printers, IPMI, cameras — same CMDB / vault / SSH-link as agented devices |
+| 📖 **In-app docs** | Curated documentation page in the dashboard with substring search across all topics (v2.0) |
+
+### Authentication & access
+
+| Feature | Notes |
+|---|---|
+| 🔐 **bcrypt** | Password hashing with transparent SHA-256 upgrade on login |
+| 🔢 **TOTP 2FA** | Per-user, scan-QR setup; required to disable |
+| 🏢 **LDAP / AD** | Optional bind-mode auth; auto-creates local user record |
+| 👥 **Roles** | Admin (full access) and Viewer (read-only) per user |
+| 📟 **PIN enrolment** | 6-digit, single-use, 10-minute expiry |
+| 🎫 **API enrolment tokens** | One-time-use tokens for Ansible / cloud-init / golden images. Default group + tags applied at enrolment (v1.11.10) |
+| 🔑 **API keys** | Named non-expiring keys for scripts and CI |
+| 🛡️ **Rate limiting** | Per-IP login throttle, prevents brute force |
+| 🚫 **Read-only demo mode** | Config flag rejects all mutations with a friendly error. For public sandboxes (v2.0) |
+
+### Operational quality
+
+| Feature | Notes |
+|---|---|
+| 🔄 **Agent self-update** | SHA-256 verified, atomic replace, no SSH needed |
+| 🛡️ **Agent integrity** | `integrity` subcommand compares binary SHA-256 vs server |
+| 🔄 **Re-enrolment** | Preserves device history, tags, group, and notes |
+| 📤 **Backup export** | One-click ZIP of all data JSON files |
+| 💾 **Hardened persistence** | flock-serialised writes, per-process unique tmp, fsync, rolling .bak fallback (v1.12.1). Recovery script for damaged files |
+| 📜 **Audit log** | Every admin action logged with actor, IP, timestamp |
+| 📊 **Prometheus metrics** | `/api/metrics` endpoint for Grafana scraping |
+| 📊 **Digest endpoint** | `/api/digest` for cron-driven email summaries |
+| 📖 **Swagger / OpenAPI** | OpenAPI 3.1 spec at `/api/openapi.json`, interactive UI at `/swagger.html` with auto-injected session token |
+
+### UX
+
+| Feature | Notes |
+|---|---|
+| 🌙 **Dark/light mode** | Toggle in header, persisted per browser |
+| 🏷️ **Tags & groups** | Tag devices and namespace by group (e.g. `dc1/prod`, `homelab`); filter and batch by either |
+| 📝 **Device notes** | Free-text per device, shown as tooltip |
+| 🔍 **Filter & sort everywhere** | Substring filter + clickable headers on every fleet table; multi-key sort with Shift-click |
+| 📐 **Density modes** | Minimal (table), Compact, Comfortable, Spacious — synced per user |
+| ☑️ **Multi-select** | Batch actions on cards or minimal table; selection survives density switching (v1.12.1) |
+| 🗂️ **Collapsible sidebar** | Main / Security / Planning / Admin / Help groups; state persists per browser (v2.0) |
+| 🎨 **Real branding** | Favicon + header logo, clickable logo returns home, full-size logo on login (v2.0) |
+
 
 ---
 
@@ -89,31 +221,40 @@ Enrollment works like [Moonlight/Sunshine](https://moonlight-stream.org/): gener
 ```
 Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                       │
-                      ├─ /              → Dashboard (HTML/CSS/JS, no framework)
-                      ├─ /api/*         → Python CGI backend (via fcgiwrap)
+                      ├─ /              → Dashboard (1 HTML + 1 CSS + 1 JS, no framework, no build)
+                      ├─ /api/*         → Python CGI (via fcgiwrap)
+                      ├─ /api/webterm/connect → wss://, proxied to remotepower-webterm daemon
+                      ├─ /static/*      → Logos, CSS, JS
                       ├─ /agent/        → Agent binary (static, for self-update)
-                      └─ /var/lib/remotepower/
-                              ├── users.json            # bcrypt password hashes + roles
-                              ├── devices.json          # enrolled devices + sysinfo cache
-                              ├── tokens.json           # browser session tokens
-                              ├── apikeys.json          # named API keys
-                              ├── pins.json             # pending enrollment PINs
-                              ├── commands.json         # pending command queue per device
-                              ├── config.json           # webhook, WoL, monitor targets
-                              ├── history.json          # command log (last 200)
-                              ├── schedule.json         # scheduled jobs (one-shot + recurring)
-                              ├── uptime.json           # online/offline state changes
-                              ├── monitor_history.json  # check results per target
-                              ├── cmd_output.json       # custom command output
-                              ├── metrics.json          # CPU/RAM/disk time-series
-                              ├── cmd_library.json      # saved command snippets
-                              ├── cmdb.json             # CMDB asset metadata + encrypted creds
-                              ├── cmdb_vault.json       # KDF salt + canary (no plaintext)
-                              ├── update_logs.json      # rolling buffer of upgrade-output per device
-                              ├── containers.json       # per-device container/pod state (last seen)
-                              ├── tls_targets.json      # TLS / DNS watchlist
-                              ├── tls_results.json      # last probe result per target
-                              └── longpoll.json         # pending long-poll slots
+                      ├─ /swagger.html  → Interactive OpenAPI UI
+                      ├─ /Manual.html   → Reference manual
+                      └─ /var/lib/remotepower/   (state — flat JSON, hardened with flock + .bak fallback in v1.12.1)
+                              ├── Identity:        users.json, tokens.json, apikeys.json, pins.json,
+                              │                    enrollment_tokens.json
+                              ├── Fleet state:     devices.json, metrics.json, packages.json,
+                              │                    services.json, containers.json
+                              ├── CMDB:            cmdb.json, cmdb_vault.json
+                              ├── Operations:      commands.json, history.json, schedule.json,
+                              │                    cmd_output.json, cmd_library.json, longpoll.json,
+                              │                    update_logs.json, tasks.json, calendar.json
+                              ├── Monitoring:      monitor_history.json, uptime.json, log_watch.json,
+                              │                    log_rules_global.json, service_history.json
+                              ├── Security:        cve_findings.json, cve_ignore.json,
+                              │                    cve_details_cache.json
+                              ├── TLS / DNS:       tls_targets.json, tls_results.json
+                              ├── Webterm:         webterm_tickets.json, webterm-sessions/<id>.cast
+                              ├── Other:           config.json, links.json, tunnels.json,
+                              │                    maintenance.json, maint_suppressed.json,
+                              │                    audit_log.json, webhook_log.json, ratelimit.json
+                              └── (each .json gets a rolling .json.bak sibling on every save)
+
+Optional sibling daemon (only if you install the web terminal):
+  systemd: remotepower-webterm.service
+  └─ asyncio Python (websockets + asyncssh)
+       └─ Listens on 127.0.0.1:8765, proxied by nginx
+            ├─ Validates one-time tickets minted by the CGI auth handler
+            ├─ Pumps WebSocket bytes <-> SSH session
+            └─ Records every session as asciinema v2 .cast file
 
 Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
   └─ systemd: remotepower-agent.service
@@ -121,6 +262,7 @@ Linux client (CachyOS, Ubuntu, Debian, Arch, Fedora, etc.)
             └─ POST /api/heartbeat every N seconds (configurable, default 60)
                  ├─ receives: shutdown | reboot | update | exec:<cmd> | poll_interval:<n>
                  ├─ sends sysinfo + journal every 10th poll (~10 min)
+                 ├─ sends per-mount disk + swap + loadavg (v1.11.10+)
                  ├─ sends patch count every 180th poll (~3 hr)
                  └─ sends cpu/mem/disk metrics (if psutil installed)
 
@@ -132,70 +274,6 @@ Windows client (Windows 10/11, Server 2019+)
                  ├─ patch info via Windows Update COM API
                  ├─ journal via wevtutil (System event log)
                  └─ metrics via psutil (optional)
-```
-
----
-
-## Quick Start
-
-### Prerequisites (server)
-
-- Linux server with a public or LAN IP
-- Nginx + Python 3.8+ + fcgiwrap
-
-### 1. Clone
-
-```bash
-git clone https://github.com/tyxak/remotepower
-cd remotepower
-```
-
-### 2. Install server
-
-```bash
-sudo bash install-server.sh
-```
-
-### 3. Enroll a client
-
-**In the dashboard:**
-1. Open `https://your-server/` → log in
-2. Click **+ Enroll device** - a 6-digit PIN appears (valid 10 min)
-
-**On the client machine:**
-```bash
-sudo bash install-client.sh
-# Enter server URL and PIN when prompted
-```
-
-The device appears in the dashboard within 60 seconds.
-
----
-
-## Quick Start (Docker)
-
-```bash
-git clone https://github.com/tyxak/remotepower
-cd remotepower
-
-# Edit docker-compose.yml to set RP_ADMIN_PASS
-docker compose up -d
-```
-
-The dashboard is available at `http://your-server:8080/`. Put a reverse proxy (Caddy, Traefik, nginx) in front for HTTPS.
-
-Data is stored in the `remotepower_data` Docker volume. To back up:
-
-```bash
-docker compose exec remotepower tar czf - /var/lib/remotepower > backup.tar.gz
-```
-
-To update:
-
-```bash
-git pull origin main
-docker compose build
-docker compose up -d
 ```
 
 ---

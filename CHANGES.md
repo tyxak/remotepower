@@ -1,5 +1,113 @@
 # Changelog
 
+## v2.0.0 — 2026-05-08
+
+### Added
+
+**Branding.** Real logo + favicon throughout. Three PNGs in
+`server/html/static/img/`: favicon, square (header), primary
+(login). Header logo is clickable and navigates home. Login
+screen uses the big primary logo with wordmark + tagline.
+
+**Documentation page.** New "Documentation" sidebar entry
+(under Help). 11 curated `<details>` cards covering
+enrollment, metrics, web terminal, commands, webhooks,
+monitors, 2FA, tables, backup, troubleshooting, API access.
+Substring search at top auto-expands matching cards.
+`data-keywords` attribute on each card so e.g. "ssh"
+finds the web terminal card.
+
+**Metric trends on the Monitor page.** "Trend" button next to
+"Thresholds" on every device-metrics row. Reuses the existing
+metrics chart modal; no new server endpoint.
+
+### Changed
+
+**Sidebar restructured into collapsible groups.** Was a flat
+18-item list; now 5 always-visible (Devices/CMDB/Containers/
+Network/Monitor) plus three collapsible groups (Security,
+Planning, Admin) plus Help (Documentation, API Reference,
+About). Group state persists per-browser. Admin defaults
+collapsed. Active page auto-expands its group.
+
+**Code split.** `index.html` 8088 → 1835 lines.
+`static/css/styles.css` (1320 lines) and
+`static/js/app.js` (4930 lines) extracted. Strictly
+mechanical split — same code, same load order, same
+DOMContentLoaded timing. JS validated with `node --check`,
+CSS brace-balanced, HTML div-balanced.
+
+A deeper refactor (ES modules, build step, framework) was
+deliberately not attempted — that's a multi-week project
+and the user said "please don't break the code." This split
+gets ~80% of the maintainability benefit at ~0% breakage risk.
+
+`deploy-server.sh` updated to rsync the static tree.
+
+### Polish (later same day, no version bump)
+
+**Real branding.** Updated logo PNGs. Login screen no longer
+adds a dark frame around the logo (the logo asset has its own
+gradient — overlaying with --surface created a sandwich
+effect). Login card widened 400→480px so the 280px logo has
+margin.
+
+**Multi-doc CMDB.** Assets now hold an arbitrary list of
+titled Markdown docs (`docs: [{id, title, body, ...}]`)
+instead of one blob. Auto-migration on first read: legacy
+`documentation` strings synthesise a single doc, promoted to
+a real id on first edit. Three new endpoints (POST/PUT/DELETE
+under `/cmdb/{id}/docs`). UI: collapsible cards with per-card
+edit/delete + separate edit modal with Markdown preview tab.
+50 docs/asset cap. 21 tests in `test_v200_docs.py`.
+
+**Demo / read-only mode.** `RP_READ_ONLY=1` env var blocks
+every non-GET request (except login/logout/totp/public-info)
+with a 403 + `{"demo": true}` body. Frontend reads from
+`/api/public-info` on load, surfaces a banner, shows friendly
+toast on demo 403s. For public sandbox deployments. 17 tests
+in `test_v200_demo.py`.
+
+**Demo seed script.** `packaging/seed-demo-data.py` populates
+a target data dir with 16 fake homelab devices (proxmox
+hypervisor, NAS, OPNsense FW, Pi-hole, k3s cluster, etc).
+Realistic hostnames using the unallocated `.lab` TLD.
+Idempotent. Override target with `--data-dir`.
+
+**Demo install script.** `packaging/install-demo.sh
+<hostname>` sets up a SEPARATE vhost alongside your
+production install. Different data dir
+(`/var/lib/remotepower-demo/` default), shared CGI code.
+Auto-detects CGI user, runs seed script, generates nginx
+server block with per-vhost `RP_DATA_DIR` and
+`RP_READ_ONLY=1` env vars, enables + reloads. Production
+at `remote.<domain>` is never touched. TLS via certbot
+(reminder printed at end).
+
+**Documentation page expansion.** Added 21 per-page reference
+cards (Devices, CMDB, Containers, Network, Monitor, TLS/DNS,
+Patches, CVEs, Services, Logs, Schedule, Calendar, Tasks,
+Maintenance, History, Settings, Users, API Keys, Library,
+Audit, Links). Substring search auto-expands matches.
+32 cards total now.
+
+**README rewrite.** Front-loaded Quick Start. "What you can
+do with it" + "Why RemotePower" positioning sections.
+Comprehensive feature table reorganised into 6 categories
+with version annotations. Architecture diagram updated.
+
+### Tests
+
+567 passing — 529 (v1.12.1) + 21 multi-doc + 17 demo-mode.
+No regressions.
+
+### Compatibility
+
+Drop-in. Hard-refresh browser after deploy. No agent changes.
+No new endpoints. No nginx config changes (existing config
+already serves static via `root /var/www/remotepower`).
+
+
 ## v1.12.1 — 2026-05-08
 
 ### Fixed

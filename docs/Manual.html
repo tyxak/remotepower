@@ -24,7 +24,16 @@
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 1.12.0 — covers everything from the CGI architecture to the web terminal daemon.</em></p>
+<p><em>Version 2.0.0 — covers everything from the CGI architecture to the web terminal daemon.</em></p>
+
+<div class="note"><strong>v2.0 note:</strong> the dashboard has an in-app Documentation page (sidebar → Help → Documentation) covering the most common tasks plus per-page reference cards, all with substring search across topics. This Manual.html remains the long-form reference.</div>
+
+<div class="note"><strong>v2.0 polish features:</strong>
+<ul style="margin:8px 0 0 20px">
+  <li><strong>Multi-doc CMDB:</strong> assets now hold an arbitrary list of titled Markdown documents instead of one blob. CMDB tab → "+ Add document". Existing single-blob assets auto-migrate on first read.</li>
+  <li><strong>Demo / read-only mode:</strong> set <code>RP_READ_ONLY=1</code> in the systemd unit's environment (or <code>fastcgi_param RP_READ_ONLY 1;</code> in nginx) and the server blocks every non-GET request with a friendly 403, except login/logout/totp/public-info. Use with <code>packaging/seed-demo-data.py</code> for a public sandbox like <code>demoremote.tvipper.com</code>.</li>
+</ul>
+</div>
 
 <div class="toc">
 <strong>Contents</strong>

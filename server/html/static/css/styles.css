@@ -1,0 +1,1334 @@
+  :root {
+    --bg: #0a0c10;
+    --surface: #111520;
+    --surface2: #161b28;
+    --border: #1e2535;
+    --accent: #3b7eff;
+    --accent2: #5c9fff;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #22c55e;
+    --green-dim: #166534;
+    --red: #ef4444;
+    --red-dim: #7f1d1d;
+    --amber: #f59e0b;
+    --purple: #7c3aed;
+    --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  body.light {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+  body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
+  body.light header { background: rgba(241,245,249,0.9); }
+  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+  .theme-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    line-height: 1;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .update-banner {
+    background: rgba(245,158,11,0.08);
+    border-bottom: 1px solid rgba(245,158,11,0.25);
+    padding: 10px 24px;
+    font-size: 13px;
+    color: var(--amber);
+    text-align: center;
+    position: relative;
+    z-index: 99;
+  }
+  .update-banner a { color: var(--amber); font-weight: 600; text-decoration: underline; }
+  .tag-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(59,126,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(59,126,255,0.2);
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+  .btn-update {
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    color: var(--green);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-update:hover { background: rgba(34,197,94,0.2); border-color: var(--green); }
+  .btn-update svg { width: 14px; height: 14px; }
+  .btn-upgrade {
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-upgrade:hover { background: rgba(124,58,237,0.2); border-color: var(--purple); }
+  .btn-upgrade svg { width: 14px; height: 14px; }
+  .btn-shutdown {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--red);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-shutdown:hover { background: rgba(239,68,68,0.2); border-color: var(--red); }
+  .btn-shutdown svg { width: 14px; height: 14px; }
+  .btn-reboot {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-reboot:hover { background: rgba(245,158,11,0.2); border-color: var(--amber); }
+  .btn-reboot svg { width: 14px; height: 14px; }
+  .cmd-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; font-family: monospace;
+  }
+  .cmd-badge.shutdown { background: rgba(239,68,68,0.1); color: var(--red); }
+  .cmd-badge.reboot   { background: rgba(245,158,11,0.1); color: var(--amber); }
+  .cmd-badge.update   { background: rgba(34,197,94,0.1); color: var(--green); }
+  .cmd-badge.wol      { background: rgba(124,58,237,0.1); color: #a78bfa; }
+  .group-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
+    font-weight: 500; background: rgba(124,58,237,0.1); color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.2); margin-right: 4px; margin-top: 4px;
+  }
+  .notes-tip {
+    display: inline-block;
+    font-size: 12px;
+    margin-left: 6px;
+    cursor: pointer;
+    opacity: 0.6;
+    vertical-align: middle;
+    transition: opacity 0.15s, transform 0.15s;
+    position: relative;
+  }
+  .notes-tip:hover { opacity: 1; transform: scale(1.2); }
+  .notes-tip::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text);
+    white-space: pre-wrap;
+    max-width: 260px;
+    width: max-content;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+    word-break: break-word;
+  }
+  .notes-tip:hover::after { opacity: 1; }
+  .form-textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; font-size: 14px; color: var(--text); outline: none;
+    transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
+  }
+  .form-textarea:focus { border-color: var(--accent); }
+  .apikey-value {
+    font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; word-break: break-all; color: var(--green);
+  }
+  .batch-bar {
+    display: none; background: rgba(59,126,255,0.08); border: 1px solid rgba(59,126,255,0.2);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .batch-bar.visible { display: flex; }
+  .missed-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2);
+    margin-left: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: linear-gradient(rgba(59,126,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(59,126,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+    position: sticky;
+    top: 0;
+    background: rgba(10,12,16,0.85);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    max-width: 100%;
+    padding: 0 24px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  /* v2.0: header logo as a clickable <a>. Reset link styles so it
+     doesn't pick up underline/blue from the global anchor rules. */
+  .logo-link { text-decoration: none; color: inherit; cursor: pointer; }
+  .logo-link:hover { opacity: 0.85; }
+  .logo-img {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: block;
+    /* The PNG is square 1:1 — fit it cleanly into the 36px slot. */
+    object-fit: contain;
+  }
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .logo-icon svg { width: 20px; height: 20px; }
+  .logo-text { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo-text span { color: var(--accent); }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .status-bar {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-green 2s infinite;
+  }
+  @keyframes pulse-green {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
+  }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 72px 12px 16px;
+    z-index: 90;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    padding: 12px 10px 4px;
+  }
+  .nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-btn:hover { color: var(--text); background: var(--surface2); }
+  .nav-btn.active { color: var(--text); background: var(--surface2); font-weight: 600; }
+  .nav-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* v2.0: collapsible sidebar groups. Trades a flat 18-item list for
+     a more browsable 5–6 item top level + grouped sub-items. The toggle
+     button styles like the section labels (small caps, muted) when
+     collapsed and like a regular nav-btn when active so it's clear it
+     does something. Chevron rotates to indicate state. State persists
+     in localStorage (sidebar.<group>.expanded). */
+  .sidebar-group { display: flex; flex-direction: column; gap: 2px; }
+  .sidebar-group-toggle {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+    border-radius: 0;
+  }
+  .sidebar-group-toggle:hover { color: var(--text); }
+  .sidebar-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .sidebar-group-toggle .chevron {
+    margin-left: auto;
+    transition: transform 0.15s;
+    width: 14px; height: 14px;
+  }
+  .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
+  .sidebar-group-items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    max-height: 1000px;
+    transition: max-height 0.18s ease-out;
+  }
+  .sidebar-group.collapsed .sidebar-group-items {
+    max-height: 0;
+  }
+  /* Indent the group's items slightly so the hierarchy is visible */
+  .sidebar-group .nav-btn { padding-left: 18px; }
+
+  /* v2.0: documentation page card styling. <details> elements give us
+     free expand/collapse without any JS, and they're right-click /
+     Find-in-page friendly. The summary uses a custom marker (chevron)
+     to match the sidebar group toggles for visual consistency. */
+  .doc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .doc-card[open] { border-color: var(--accent); }
+  .doc-card summary {
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 14px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+  }
+  .doc-card summary::-webkit-details-marker { display: none; }
+  .doc-card summary::before {
+    content: '▸';
+    color: var(--muted);
+    font-size: 12px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+  .doc-card[open] summary::before { transform: rotate(90deg); }
+  .doc-card summary:hover { background: var(--surface2); }
+  .doc-card .doc-body {
+    padding: 4px 18px 18px 32px;
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 14px;
+  }
+  .doc-card .doc-body p { margin: 8px 0; }
+  .doc-card .doc-body code {
+    background: var(--surface2);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12.5px;
+  }
+  .doc-card .doc-body pre {
+    background: var(--surface2);
+    padding: 10px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 10px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .doc-card .doc-body pre code { background: none; padding: 0; }
+  .doc-card .doc-body table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .doc-card .doc-body th,
+  .doc-card .doc-body td {
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    text-align: left;
+  }
+  .doc-card .doc-body th {
+    background: var(--surface2);
+    font-weight: 600;
+  }
+  .doc-card.hidden { display: none; }
+  .doc-card kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    font-family: var(--font);
+  }
+  .app-layout {
+    display: flex;
+    min-height: calc(100vh - 60px);
+  }
+  .app-content {
+    margin-left: 200px;
+    flex: 1;
+    min-width: 0;
+  }
+  .header-nav { display: none; }
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .page { display: none; }
+  .page.active { display: block; }
+  main { padding: 48px 0; }
+  .page-title {
+    margin-bottom: 8px;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .page-subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 40px;
+  }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .stat-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .stat-icon.blue  { background: rgba(59,126,255,0.15); color: var(--accent); }
+  .stat-icon.green { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .stat-icon svg { width: 20px; height: 20px; }
+  .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .section-title { font-size: 16px; font-weight: 600; }
+  .btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: var(--font);
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon svg { width: 14px; height: 14px; }
+  .enroll-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+  .enroll-btn svg { width: 14px; height: 14px; }
+  .devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .device-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+    overflow: visible;
+  }
+  /* v1.11.5: density modes for the devices grid. The container gets a
+     `dens-<mode>` class; descendants restyle accordingly. Compact halves
+     padding and shrinks fonts; spacious goes the other way. The dropdown
+     menu and modals are unaffected — only the card chrome itself. */
+  .devices-grid.dens-compact { gap: 8px; }
+  .devices-grid.dens-compact .device-card { padding: 12px 14px; border-radius: 10px; }
+  .devices-grid.dens-compact .device-header { margin-bottom: 8px; }
+  .devices-grid.dens-compact .device-icon { width: 32px; height: 32px; border-radius: 7px; }
+  .devices-grid.dens-compact .device-name { font-size: 14px; }
+  .devices-grid.dens-compact .device-hostname { font-size: 11px; }
+  .devices-grid.dens-compact .device-meta { gap: 6px; }
+  .devices-grid.dens-compact .device-meta .meta-label { font-size: 10px; }
+  .devices-grid.dens-compact .device-meta .meta-value { font-size: 12px; }
+  .devices-grid.dens-compact .status-badge { padding: 2px 6px; font-size: 10px; }
+
+  .devices-grid.dens-spacious { gap: 24px; }
+  .devices-grid.dens-spacious .device-card { padding: 32px; }
+  .devices-grid.dens-spacious .device-name { font-size: 18px; }
+  .devices-grid.dens-spacious .device-icon { width: 52px; height: 52px; }
+
+  /* v1.11.7: Minimal density on the Devices grid renders as a real
+     <table> instead of a flex-row override on each card. The v1.11.6
+     attempt couldn't keep columns aligned because each card was its
+     own flex container — variable cell widths made "Online" not appear
+     under "Online" across rows. Tables are the correct primitive here:
+     each <tr> shares the same <td> structure, and the browser handles
+     column alignment for us. The table also gets sortable headers via
+     tableCtl, matching the other category pages. */
+  .devices-grid.dens-minimal {
+    display: block;
+    padding: 0;
+    margin: 0;
+  }
+  .devices-minimal-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    /* v1.11.8: was `overflow: hidden`, which clipped the dropdown menu
+       on rows near the right edge or bottom of the table. The rounded
+       corners worked because of `border-radius` alone — overflow:hidden
+       was extra insurance that turned out to be too aggressive. The
+       dropdown must escape the wrap when it pops, so we accept that the
+       very corners might briefly show a non-rounded artifact for that
+       rare case where the menu opens and the row backgound colour
+       extends to the wrap edge. The thead has its own background so
+       there's no visible artifact at the top corners; the bottom corners
+       only matter when the menu is open and its z-index puts it
+       above the wrap edge anyway. */
+    overflow: visible;
+  }
+  /* v1.11.8: keep the rounded corners by clipping the table's own edges.
+     Browsers don't honour border-radius on <table> directly without
+     border-collapse:separate, so we apply it to the outer <thead> and
+     last <tr> instead. */
+  .devices-minimal-table thead tr:first-child th:first-child { border-top-left-radius: 10px; }
+  .devices-minimal-table thead tr:first-child th:last-child  { border-top-right-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:first-child  { border-bottom-left-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:last-child   { border-bottom-right-radius: 10px; }
+  .devices-minimal-table {
+    width: 100%;
+    /* v1.11.9: table-layout:fixed forces the browser to honour the
+       column widths we set on <th> rather than auto-stretching cells
+       to fit the longest content. Without this, long OS strings like
+       "Debian GNU/Linux 12 (bookworm)" pushed the table past the
+       container's right edge — visible as the table being 5–15px
+       wider than the stats row above it. With fixed layout, our
+       max-widths and ellipsis on <td> finally take effect. */
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .devices-minimal-table thead th {
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .devices-minimal-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+  }
+  .devices-minimal-table tbody tr:last-child { border-bottom: none; }
+  .devices-minimal-table tbody tr:hover {
+    background: rgba(59,126,255,0.04);
+  }
+  .devices-minimal-table tbody tr.offline {
+    opacity: 0.7;
+  }
+  .devices-minimal-table tbody td {
+    padding: 8px 12px;
+    vertical-align: middle;
+    /* v1.11.9: with table-layout:fixed on the table, each <td> is sized
+       to its column header's width. We only need overflow:hidden +
+       text-overflow:ellipsis on the cell to clip overflowing content
+       — no max-width needed (it was a no-op under auto-layout anyway,
+       and now would conflict with the column-width-driven layout). */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* v1.12.1: highlight selected rows in minimal mode. Matches the
+     batch-select visual treatment in cards mode (subtle blue glow on
+     the selected card). Subdued so a 100-device selection isn't
+     visually overwhelming. */
+  .devices-minimal-table tbody tr.selected {
+    background: rgba(99, 179, 237, 0.08);
+  }
+  .devices-minimal-table tbody tr.selected td {
+    border-top: 1px solid rgba(99, 179, 237, 0.3);
+    border-bottom: 1px solid rgba(99, 179, 237, 0.3);
+  }
+  /* slightly tighter row height for the dropdown column (no padding) */
+  .devices-minimal-table .dev-actions-cell {
+    padding: 4px 8px;
+    overflow: visible;          /* the ⋯ menu pops out of the cell */
+    position: relative;          /* z-index anchor for the dropdown */
+  }
+  .devices-minimal-table .dev-actions-cell .device-dropdown {
+    position: relative;
+  }
+  /* v1.11.8: when the dropdown is OPEN, hoist the entire row above the
+     surrounding table chrome so the menu can't get clipped by other
+     rows or the wrap edge. The .device-dropdown.active class gets
+     toggled by toggleDropdown() in JS; tr:has() finds the row that
+     contains it. Falls back gracefully on browsers without :has()
+     support — the menu would still render via z-index on the cell
+     itself, just possibly clipped on the bottom row. Safari, Chrome,
+     Firefox 121+ all support :has() now. */
+  .devices-minimal-table tbody tr:has(.device-dropdown.active) {
+    position: relative;
+    z-index: 100;
+  }
+  .devices-minimal-table .dev-actions-cell .device-dropdown.active {
+    z-index: 101;               /* above the row's z-index */
+  }
+  .devices-minimal-table .dev-actions-cell .dropdown-content {
+    /* Anchor to the right edge of the cell so the menu drops down-and-
+       to-the-left rather than pushing off the right side of the page.
+       The default rule from the cards-mode CSS positions it differently;
+       override here for the table layout. */
+    right: 0;
+    left: auto;
+    z-index: 102;
+  }
+  /* responsive — drop low-priority columns on narrow viewports.
+     Order of importance, kept-most → dropped-first:
+       Status, Name, [Hostname], [Group], OS, [IP], [Version], [Last seen], Actions
+     We start dropping the bracketed ones at 1100px and below. */
+  @media (max-width: 1280px) {
+    .devices-minimal-table .dev-host-cell,
+    .devices-minimal-table th[data-col="hostname"] { display: none; }
+  }
+  @media (max-width: 1080px) {
+    .devices-minimal-table .dev-version-cell,
+    .devices-minimal-table th[data-col="version"] { display: none; }
+  }
+  @media (max-width: 920px) {
+    .devices-minimal-table .dev-group-cell,
+    .devices-minimal-table th[data-col="group"] { display: none; }
+  }
+  @media (max-width: 760px) {
+    .devices-minimal-table .dev-ip-cell,
+    .devices-minimal-table th[data-col="ip"] { display: none; }
+  }
+  @media (max-width: 620px) {
+    .devices-minimal-table .dev-os-cell,
+    .devices-minimal-table th[data-col="os"] { display: none; }
+  }
+  .device-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 14px 14px 0 0;
+  }
+  .device-card.online::before  { background: var(--green); }
+  .device-card.offline::before { background: var(--red); }
+  .device-card:hover { border-color: rgba(59,126,255,0.3); }
+  .device-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .device-info { display: flex; align-items: center; gap: 14px; }
+  .device-icon {
+    width: 44px; height: 44px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
+  .device-name     { font-size: 15px; font-weight: 600; }
+  .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .status-badge.online  { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .online  .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
+  .offline .status-badge-dot { background: var(--red); }
+  .device-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
+  .patch-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+  }
+  .patch-badge.warn { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .patch-badge.ok   { background: rgba(34,197,94,0.1);   color: var(--green); }
+  .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
+
+  /* Dropdown menu styles - clean, no icons, properly positioned */
+  .device-dropdown {
+    position: relative;
+    display: inline-block;
+    z-index: 20;
+  }
+  .dropdown-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: all 0.2s;
+  }
+  .dropdown-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    min-width: 180px;
+    max-width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 10000;
+    margin-top: 4px;
+    overflow: visible;
+  }
+  /* If the dropdown would go off-screen on the right, flip it to the left */
+  @media (max-width: 600px) {
+    .dropdown-content {
+      right: auto;
+      left: 0;
+    }
+  }
+  .dropdown-content a, .dropdown-content button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  /* On very small screens, allow text to wrap */
+  @media (max-width: 480px) {
+    .dropdown-content a, .dropdown-content button {
+      white-space: normal;
+      word-break: break-word;
+    }
+    .dropdown-content {
+      min-width: 160px;
+      max-width: 220px;
+    }
+  }
+  .dropdown-content a:hover, .dropdown-content button:hover {
+    background: var(--surface2);
+    color: var(--accent);
+  }
+  .dropdown-content hr {
+    margin: 4px 0;
+    border-color: var(--border);
+  }
+  .device-dropdown.active .dropdown-content {
+    display: block;
+  }
+  /* When a dropdown is active, lift its parent device card above sibling cards
+     so the open menu isn't pierced by other cards' ... buttons */
+  .device-dropdown.active {
+    z-index: 9999;
+  }
+  .device-card:has(.device-dropdown.active) {
+    z-index: 9999;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--muted);
+    grid-column: 1 / -1;
+  }
+  .empty-icon {
+    width: 64px; height: 64px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .empty-text  { font-size: 14px; line-height: 1.6; }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 480px;
+    transform: translateY(20px);
+    transition: transform 0.2s;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-overlay.active .modal { transform: translateY(0); }
+  .modal-wide { max-width: 680px; }
+  .modal-title    { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+  .pin-display {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .pin-code  { font-family: monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
+  .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pin-countdown { color: var(--amber); font-weight: 600; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+  .confirm-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .confirm-icon.red    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); }
+  .confirm-icon.amber  { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
+  .confirm-icon svg { width: 24px; height: 24px; }
+  .form-group { margin-bottom: 16px; }
+  .form-label {
+    font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; display: block;
+  }
+  .form-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: var(--font);
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--muted); }
+  select.form-input { cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 12px;
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .mon-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
+  .journal-wrap {
+    background: #070910;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .journal-wrap:empty::after { content: '(no journal data yet)'; color: var(--muted); }
+  .sysinfo-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .sysinfo-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .sysinfo-pill .label { color: var(--muted); margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sysinfo-pill .value { font-weight: 600; font-family: monospace; }
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .settings-section .hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
+  .user-row td:last-child { text-align: right; }
+  .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show    { transform: translateX(0); }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+  .toast-icon    { font-size: 16px; }
+  .refresh-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border); z-index: 50; }
+  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
+  .login-container {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+    gap: 8px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 100%;
+    /* v2.0: widened from 400px to 480px so the 280px-wide logo fits with
+       comfortable horizontal margin. The logo asset has rounded corners
+       and a dark gradient baked in; the surrounding card uses --surface
+       which sits right on top of --bg, so the logo's dark fill blends
+       into the page rather than looking like a "black box on dark grey
+       on darker grey" sandwich. If you ever supply a fully-transparent
+       PNG, the card's --surface fill will show through cleanly. */
+    max-width: 480px;
+  }
+  .login-logo  { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  /* v2.0 polish: the logo wrap sits ABOVE the .login-card as a sibling,
+     not inside it. No background, no padding, no frame — the logo PNG
+     has its own visual treatment baked in (rounded corners, dark
+     gradient) and stands on its own against the page --bg. */
+  .login-logo-wrap {
+    display: flex;
+    justify-content: center;
+    background: transparent;
+    margin: 0;
+  }
+  .login-logo-img {
+    max-width: 320px;
+    width: 100%;
+    height: auto;
+    display: block;
+    background: transparent;
+  }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .login-btn {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s; margin-top: 8px;
+    font-family: var(--font);
+  }
+  .login-btn:hover { background: var(--accent2); }
+  .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
+  .login-error.show { display: block; }
+  @media (max-width: 768px) {
+    .sidebar { width: 56px; padding: 72px 6px 16px; }
+    .sidebar .nav-btn span, .sidebar .sidebar-label { display: none; }
+    .sidebar .nav-btn { justify-content: center; padding: 10px; }
+    .app-content { margin-left: 56px; }
+  }
+  @media (max-width: 600px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .devices-grid { grid-template-columns: 1fr; }
+    .modal { margin: 16px; padding: 24px; }
+  }
+  /* ── v1.8.4: Settings tabs + per-event toggle table ────────────────────── */
+  .settings-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .settings-tab {
+    padding: 10px 18px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .settings-tab:hover { color: var(--text); }
+  .settings-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+
+  .event-toggle-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .event-toggle-table tr {
+    border-bottom: 1px solid var(--border);
+  }
+  .event-toggle-table tr:last-child { border-bottom: none; }
+  .event-toggle-table td {
+    padding: 12px 8px;
+    vertical-align: middle;
+  }
+  .event-toggle-table td:first-child {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--accent);
+    width: 180px;
+  }
+  .event-toggle-table td:nth-child(2) {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .event-toggle-table td:last-child {
+    width: 60px;
+    text-align: right;
+  }
+  .event-toggle-table .toggle-switch {
+    width: 18px; height: 18px; accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .event-toggle-table .event-extra {
+    margin-top: 6px;
+  }
+
+  /* ── v1.8.3: Calendar + Tasks ─────────────────────────────────────────── */
+  .cal-day {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-height: 92px;
+    padding: 6px 6px 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .cal-day:hover { background: var(--surface2); }
+  .cal-day-num { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .cal-day.today .cal-day-num {
+    color: var(--accent); font-weight: 600;
+    background: var(--accent); color: white;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .cal-day.other-month { opacity: 0.35; }
+  .cal-event {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: white; font-weight: 500;
+    cursor: pointer;
+  }
+  .cal-event:hover { filter: brightness(1.15); }
+  .cal-event.color-blue   { background: #3b82f6; }
+  .cal-event.color-green  { background: #22c55e; }
+  .cal-event.color-amber  { background: #f59e0b; color: #1a1a1a; }
+  .cal-event.color-red    { background: #ef4444; }
+  .cal-event.color-purple { background: #a855f7; }
+  .cal-event.color-teal   { background: #14b8a6; }
+  .cal-event.color-slate  { background: #64748b; }
+
+  .kanban-column {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+  }
+  .kanban-column.drag-over {
+    background: var(--surface2);
+    border-color: var(--accent);
+  }
+  .kanban-header {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 0 0 10px; display: flex;
+    align-items: center; gap: 8px;
+  }
+  .kanban-count {
+    background: var(--surface2); color: var(--muted);
+    font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    font-weight: 500; letter-spacing: 0;
+  }
+  .kanban-list {
+    display: flex; flex-direction: column; gap: 8px; flex: 1;
+  }
+  .kanban-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: grab;
+    user-select: none;
+  }
+  .kanban-card:hover { border-color: var(--accent); }
+  .kanban-card.dragging { opacity: 0.4; cursor: grabbing; }
+  .kanban-card-title {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    margin-bottom: 4px; line-height: 1.35;
+  }
+  .kanban-card-meta {
+    font-size: 11px; color: var(--muted);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .kanban-card-device {
+    background: var(--accent); color: white;
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-family: monospace;
+  }
+
