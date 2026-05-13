@@ -126,7 +126,7 @@ def build_devices() -> dict:
             'connected_to': dev.get('connected_to', []),
             'monitored':   True,
             'poll_interval': 60,
-            'version':     '2.0.0' if not dev['agentless'] else None,
+            'version':     '2.1.2' if not dev['agentless'] else None,
             'hostname':    dev['name'],
         }
         if not dev['agentless']:
@@ -137,7 +137,6 @@ def build_devices() -> dict:
             cpu_count = rng.choice([2, 2, 4, 4, 4, 8, 8, 16])
             mem_total_gb = rng.choice([4, 8, 8, 16, 16, 32, 64])
             stress = rng.random()    # 0..1, used to vary which device looks "stressed"
-
             if stress > 0.85:
                 # ~15% of devices are in some kind of warning state
                 mem_pct = rng.uniform(86, 96)
@@ -181,8 +180,56 @@ def build_devices() -> dict:
             # Add a few common services
             rec['services'] = build_device_services(dev, rng)
 
+            # v2.1.0+: compose_projects for demo realism. Only devices that
+            # have docker in their tags (media, web, proxy, git, cloud,
+            # metrics, monitoring) get any; the rest report none. Project
+            # names + paths mirror the kind of layout a homelab actually
+            # has on disk.
+            compose = _build_demo_compose_projects(dev, rng)
+            if compose:
+                rec['compose_projects'] = compose
+                rec['compose_projects_ts'] = last_seen
+
         out[dev['id']] = rec
     return out
+
+
+_DEMO_COMPOSE_BY_TAG = {
+    'media':       [('jellyfin',   '/opt/stacks/jellyfin'),
+                    ('sonarr',     '/opt/stacks/arr'),
+                    ('radarr',     '/opt/stacks/arr/radarr')],
+    'web':         [('caddy',      '/srv/caddy'),
+                    ('wizarr',     '/home/jmo/wizarr')],
+    'proxy':       [('caddy',      '/srv/caddy'),
+                    ('authelia',   '/srv/authelia')],
+    'git':         [('gitea',      '/opt/gitea')],
+    'cloud':       [('nextcloud',  '/opt/nextcloud'),
+                    ('collabora',  '/opt/collabora')],
+    'metrics':     [('prometheus', '/opt/monitoring/prometheus'),
+                    ('grafana',    '/opt/monitoring/grafana')],
+    'home':        [('homeassistant', '/opt/homeassistant'),
+                    ('zigbee2mqtt',   '/opt/zigbee2mqtt')],
+}
+
+
+def _build_demo_compose_projects(dev, rng):
+    """Return a list of {path, dir, name, mtime} compose entries for the
+    device based on its tags. Empty list = device has docker but no
+    compose projects (or doesn't have docker at all)."""
+    out = []
+    seen_dirs = set()
+    for tag in dev.get('tags', []):
+        for name, base_dir in _DEMO_COMPOSE_BY_TAG.get(tag, []):
+            if base_dir in seen_dirs:
+                continue
+            seen_dirs.add(base_dir)
+            out.append({
+                'path':  base_dir + '/docker-compose.yml',
+                'dir':   base_dir,
+                'name':  name,
+                'mtime': now() - rng.randint(86400, 86400 * 60),
+            })
+    return out[:8]
 
 
 def build_device_services(dev, rng) -> dict:
@@ -488,7 +535,7 @@ def build_history() -> list:
         {'ts': now() - 86400 * 2, 'actor': 'demo', 'device': 'tnas',   'action': 'exec',             'detail': 'zpool scrub tank'},
         {'ts': now() - 86400 * 3, 'actor': 'demo', 'device': 'pi1',    'action': 'reboot',           'detail': 'manual'},
         {'ts': now() - 86400 * 5, 'actor': 'demo', 'device': 'pmx01',  'action': 'upgrade',          'detail': 'apt-get upgrade — 7 packages'},
-        {'ts': now() - 86400 * 7, 'actor': 'demo', 'device': 'all',    'action': 'agent_update',     'detail': 'fleet-wide agent update to v2.0.0'},
+        {'ts': now() - 86400 * 7, 'actor': 'demo', 'device': 'all',    'action': 'agent_update',     'detail': 'fleet-wide agent update to v2.1.2'},
     ]
 
 
@@ -522,12 +569,170 @@ def build_tls_results() -> dict:
     }
 
 
+def build_scripts() -> dict:
+    """v2.1.0 Script Library demo content. Five realistic operations
+    runbooks, one of them deliberately flagged dangerous so the UI's
+    `⚠ DANGER` badge is visible in the demo."""
+    base_ts = now() - 86400 * 14
+    return {
+        'scripts': [
+            {
+                'id':          'demo-rotate-nginx-logs',
+                'name':        'rotate-nginx-logs',
+                'description': 'Compress access logs > 7 days old, move to /mnt/backup, signal nginx to reopen handles',
+                'body':        '#!/usr/bin/env bash\n'
+                               'set -euo pipefail\n\n'
+                               'shopt -s nullglob\n'
+                               'for f in /var/log/nginx/*.log.[0-9]; do\n'
+                               '  gzip -f "$f"\n'
+                               'done\n'
+                               'find /var/log/nginx -name "*.log.*.gz" -mtime +7 \\\n'
+                               '  -exec mv {} /mnt/backup/nginx-logs/ \\;\n'
+                               'systemctl reload nginx\n',
+                'created':     base_ts,
+                'updated':     base_ts + 3600,
+                'created_by':  'demo',
+                'last_lint':   {'ok': True, 'syntax_error': None, 'dangerous': []},
+            },
+            {
+                'id':          'demo-cert-renew-check',
+                'name':        'cert-renew-dry-run',
+                'description': 'acme.sh --renew-all --dryrun to see which certs are about to renew',
+                'body':        '#!/usr/bin/env bash\n'
+                               'set -euo pipefail\n\n'
+                               'cd /root/.acme.sh\n'
+                               './acme.sh --cron --home /root/.acme.sh --dryrun 2>&1\n',
+                'created':     base_ts + 3600,
+                'updated':     base_ts + 3600,
+                'created_by':  'demo',
+                'last_lint':   {'ok': True, 'syntax_error': None, 'dangerous': []},
+            },
+            {
+                'id':          'demo-zfs-snapshot-prune',
+                'name':        'zfs-snapshot-prune',
+                'description': 'Keep last 7 daily + 4 weekly snapshots per dataset, destroy the rest',
+                'body':        '#!/usr/bin/env bash\n'
+                               'set -euo pipefail\n\n'
+                               'for ds in $(zfs list -H -o name); do\n'
+                               '  snaps=$(zfs list -H -t snapshot -o name "$ds" 2>/dev/null \\\n'
+                               '          | grep "@auto-daily-" | sort -r | tail -n +8)\n'
+                               '  for s in $snaps; do\n'
+                               '    zfs destroy "$s"\n'
+                               '  done\n'
+                               'done\n',
+                'created':     base_ts + 7200,
+                'updated':     base_ts + 86400,
+                'created_by':  'demo',
+                'last_lint':   {'ok': True, 'syntax_error': None, 'dangerous': []},
+            },
+            {
+                'id':          'demo-pull-all-compose',
+                'name':        'pull-all-compose-stacks',
+                'description': 'Find every docker-compose.yml under /opt and run docker compose pull. Useful before a maintenance window.',
+                'body':        '#!/usr/bin/env bash\n'
+                               'set -euo pipefail\n\n'
+                               'while IFS= read -r f; do\n'
+                               '  echo "=== ${f%/*} ==="\n'
+                               '  ( cd "${f%/*}" && docker compose pull )\n'
+                               'done < <(find /opt -maxdepth 4 -name docker-compose.yml)\n',
+                'created':     base_ts + 86400 * 3,
+                'updated':     base_ts + 86400 * 3,
+                'created_by':  'demo',
+                'last_lint':   {'ok': True, 'syntax_error': None, 'dangerous': []},
+            },
+            {
+                'id':          'demo-dangerous-example',
+                'name':        'wipe-bind-mount-DANGER',
+                'description': 'EXAMPLE — kept around to demonstrate the dangerous-pattern UI badge. Do not run.',
+                'body':        '#!/usr/bin/env bash\n'
+                               '# This intentionally contains dangerous patterns to show how the\n'
+                               '# dry-run lint flags them. Demo only.\n'
+                               'rm -rf /mnt/wipe/*\n'
+                               'curl https://example.com/install.sh | bash\n',
+                'created':     base_ts + 86400 * 7,
+                'updated':     base_ts + 86400 * 7,
+                'created_by':  'demo',
+                'last_lint':   {
+                    'ok':           True,
+                    'syntax_error': None,
+                    'dangerous':    ['curl … | bash (remote code execution)'],
+                },
+            },
+        ],
+    }
+
+
+def build_batch_jobs() -> dict:
+    """One recently-completed batch job so the demo shows the
+    /api/exec/batch/<id> status panel with real output."""
+    job_ts = now() - 1200    # 20 minutes ago
+    return {
+        'jobs': {
+            'demo-batch-0001': {
+                'id':          'demo-batch-0001',
+                'script_id':   'demo-cert-renew-check',
+                'script_name': 'cert-renew-dry-run',
+                'actor':       'demo',
+                'created':     job_ts,
+                'targets':     ['dev-web01', 'dev-cloud01', 'dev-proxy01'],
+                'per_device':  {
+                    'dev-web01':   {'queued': True, 'name': 'web01.lab',
+                                    'queued_at': job_ts},
+                    'dev-cloud01': {'queued': True, 'name': 'cloud01.lab',
+                                    'queued_at': job_ts},
+                    'dev-proxy01': {'queued': True, 'name': 'proxy01.lab',
+                                    'queued_at': job_ts},
+                },
+                'dangerous':   [],
+            },
+        },
+    }
+
+
+def build_log_watch() -> dict:
+    """Minimal log-watch state so the demo's log_alert webhook example
+    has something to render. One global rule, one fired alert from
+    20 minutes ago — enough for the Notifications panel to show the
+    new 'matched line' format we added in 2.1.1."""
+    base_ts = now() - 1200
+    return {
+        'rules': [
+            {
+                'id':        'demo-mail-errors',
+                'scope':     'global',
+                'unit':      'postfix.service',
+                'pattern':   'warning|error|critical|FATAL',
+                'threshold': 1,
+            },
+            {
+                'id':        'demo-ssh-failed',
+                'scope':     'global',
+                'unit':      'sshd.service',
+                'pattern':   'Failed password|Invalid user',
+                'threshold': 5,
+            },
+        ],
+        'recent_alerts': [
+            {
+                'ts':       base_ts,
+                'device':   'pmg01.lab',
+                'unit':     'postfix.service',
+                'pattern':  'warning|error|critical|FATAL',
+                'count':    1,
+                'sample':   ['Nov 13 12:00:01 pmg01 postfix/smtpd[1234]: '
+                             'warning: unknown[10.0.0.5]: SASL LOGIN '
+                             'authentication failed: authentication failure'],
+            },
+        ],
+    }
+
+
 def build_config() -> dict:
     """Server config — webhook list, server name, etc."""
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '2.0.0',
-        'agent_version':     '2.0.0',
+        'server_version':    '2.1.2',
+        'agent_version':     '2.1.2',
         'remember_me_default': True,
         'webhooks': [
             {'id': 'wh1', 'url': 'https://example.com/webhook', 'label': 'Demo webhook (no real endpoint)',
@@ -575,6 +780,10 @@ BUILDERS = {
     'tls_results.json':      build_tls_results,
     'config.json':           build_config,
     'links.json':            build_links,
+    # v2.1.0 demo content
+    'scripts.json':          build_scripts,
+    'batch_jobs.json':       build_batch_jobs,
+    'log_watch.json':        build_log_watch,
 }
 
 

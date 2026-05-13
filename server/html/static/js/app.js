@@ -318,7 +318,7 @@ const densityCtl = (() => {
     const cur = getDensity(name);
     const btn = (val, label, title) => {
       const sel = cur === val;
-      return `<button onclick="densityCtl.set('${escHtml(name)}','${val}', window.__densityCb_${escHtml(name)})" title="${escHtml(title)}" style="padding:6px 10px;font-size:11px;font-weight:500;background:${sel ? 'var(--accent)' : 'var(--surface)'};color:${sel ? '#fff' : 'var(--muted)'};border:1px solid var(--border);cursor:pointer">${escHtml(label)}</button>`;
+      return `<button onclick="densityCtl.set('${escAttr(name)}','${val}', window.__densityCb_${escAttr(name)})" title="${escHtml(title)}" style="padding:6px 10px;font-size:11px;font-weight:500;background:${sel ? 'var(--accent)' : 'var(--surface)'};color:${sel ? '#fff' : 'var(--muted)'};border:1px solid var(--border);cursor:pointer">${escHtml(label)}</button>`;
     };
     // Stash the callback under a deterministic global so the inline onclick
     // can find it. Slightly hacky, but avoids needing a UUID per control.
@@ -626,6 +626,7 @@ function showPage(name, btn) {
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'cmdlib')   loadCmdLib();
+  if (name === 'scripts')  loadScripts();
   if (name === 'patches')  loadPatchReport();
   if (name === 'cve')      loadCVEReport();
   if (name === 'services') loadServicesReport();
@@ -691,7 +692,7 @@ function renderDevices() {
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {
-    filterBar.innerHTML = allTags.map(t => `<button onclick="setTagFilter('${escHtml(t)}')" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;background:${activeTagFilter===t ? 'rgba(59,126,255,0.2)' : 'transparent'};color:${activeTagFilter===t ? 'var(--accent)' : 'var(--muted)'};border-color:${activeTagFilter===t ? 'var(--accent)' : 'var(--border)'};font-family:var(--font)">${escHtml(t)}</button>`).join('');
+    filterBar.innerHTML = allTags.map(t => `<button onclick="setTagFilter('${escAttr(t)}')" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;background:${activeTagFilter===t ? 'rgba(59,126,255,0.2)' : 'transparent'};color:${activeTagFilter===t ? 'var(--accent)' : 'var(--muted)'};border-color:${activeTagFilter===t ? 'var(--accent)' : 'var(--border)'};font-family:var(--font)">${escHtml(t)}</button>`).join('');
     if (activeTagFilter) filterBar.innerHTML += `<button onclick="setTagFilter(null)" style="padding:3px 10px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--muted);background:transparent;font-family:var(--font)">✕ clear</button>`;
   }
   let filtered = activeTagFilter ? devices.filter(d => (d.tags || []).includes(activeTagFilter)) : devices;
@@ -734,12 +735,12 @@ function renderDevices() {
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon" style="cursor:pointer" onclick="toggleSelect('${d.id}')" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escHtml(d.notes)}')">📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px">unmonitored</span>'}</div></div>
+          <div><div class="device-name">${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escAttr(d.notes)}')">📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px">unmonitored</span>'}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -791,7 +792,7 @@ function _registerDevicesMinimalTable() {
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
-      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escHtml(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escHtml(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escHtml(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escHtml(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escHtml(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escHtml(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escHtml(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escHtml(d.name)}'); return false;">Custom command</a><a href="#" onclick="openMetrics('${d.id}','${escHtml(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escHtml((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escHtml(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escHtml(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escHtml(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
       // v1.12.1: leading checkbox cell mirrors the cards-mode batch-select
       // experience. Reuses the same selectedDevices Set so cards/minimal
       // share state — switch density mid-selection, your selection survives.
@@ -799,7 +800,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
         <td style="text-align:center;padding:0 6px"><input type="checkbox" ${isSel ? 'checked' : ''} onclick="toggleSelect('${d.id}')" style="margin:0"></td>
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
-        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
+        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
         <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell" style="font-size:12px">${osIcon(d.os, 12)} ${escHtml(d.os || '—')}</td>
@@ -851,25 +852,43 @@ function _renderDevicesMinimal(filtered) {
   tableCtl.render('devices_minimal', filtered);
 }
 
+// v2.1.0: track the live close-handler so a subsequent toggleDropdown()
+// (or device-grid re-render) can remove it cleanly. The 2.0.0 implementation
+// captured `el` in a closure that lived on as long as the user didn't
+// click; if loadDevices() rewrote the device container and destroyed `el`,
+// the handler kept firing on every document click and trying to mutate a
+// detached node. Combined with the escHtml/' bug this was the visible
+// "tab gets weird after a few refreshes" symptom.
+let _dropdownCloseHandler = null;
+function _detachDropdownCloseHandler() {
+  if (_dropdownCloseHandler) {
+    document.removeEventListener('click', _dropdownCloseHandler);
+    _dropdownCloseHandler = null;
+  }
+}
 function toggleDropdown(id) {
   const el = document.getElementById(`dropdown-${id}`);
-  if (el) {
-    // Close any other open dropdowns first
-    document.querySelectorAll('.device-dropdown.active').forEach(dd => {
-      if (dd.id !== `dropdown-${id}`) dd.classList.remove('active');
-    });
-    el.classList.toggle('active');
-    // Close when clicking outside
-    const closeHandler = (e) => {
-      if (!el.contains(e.target)) {
-        el.classList.remove('active');
-        document.removeEventListener('click', closeHandler);
-      }
-    };
-    if (el.classList.contains('active')) {
-      setTimeout(() => document.addEventListener('click', closeHandler), 10);
+  if (!el) return;
+  // Close any other open dropdowns and detach their stale handler
+  document.querySelectorAll('.device-dropdown.active').forEach(dd => {
+    if (dd.id !== `dropdown-${id}`) dd.classList.remove('active');
+  });
+  _detachDropdownCloseHandler();
+  el.classList.toggle('active');
+  if (!el.classList.contains('active')) return;
+  // Look up the dropdown by ID on every click rather than capturing the
+  // node by reference — survives re-renders cleanly.
+  const dropId = `dropdown-${id}`;
+  _dropdownCloseHandler = (e) => {
+    const live = document.getElementById(dropId);
+    if (!live || !live.contains(e.target)) {
+      if (live) live.classList.remove('active');
+      _detachDropdownCloseHandler();
     }
-  }
+  };
+  setTimeout(() => {
+    if (_dropdownCloseHandler) document.addEventListener('click', _dropdownCloseHandler);
+  }, 10);
 }
 function requestShutdown(id, name) { shutdownTarget = id; document.getElementById('shutdown-name').textContent = name; openModal('shutdown-modal'); }
 async function confirmShutdown() { closeModal('shutdown-modal'); const data = await api('POST', '/shutdown', {device_id: shutdownTarget}); if (data?.ok) { toast('Shutdown queued', 'success'); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
@@ -914,7 +933,7 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td style="font-weight:500">${escHtml(m.label)}</td><td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td><td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td><td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escHtml(m.label)}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
+      return `<tr><td style="font-weight:500">${escHtml(m.label)}</td><td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td><td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td><td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escAttr(m.label)}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -956,7 +975,7 @@ function _registerUsersTable() {
     }),
     row: (u) => {
       const me = getMe();
-      return `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escHtml(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escHtml(u.username)}')">Delete</button></div></td></tr>`;
+      return `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escAttr(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escAttr(u.username)}')">Delete</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -1265,11 +1284,89 @@ async function runLdapTestUser() {
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
 async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td></tr>`; }).join(''); }
-function startRefreshCycle() { clearInterval(refreshTimer); refreshRemaining = refreshInterval; refreshTimer = setInterval(() => { refreshRemaining--; const pct = (refreshRemaining / refreshInterval) * 100; document.getElementById('refresh-progress').style.width = pct + '%'; if (refreshRemaining <= 0) { refreshRemaining = refreshInterval; loadDevices(); } const m = Math.floor(refreshRemaining / 60); const s = refreshRemaining % 60; document.getElementById('last-refresh-label').textContent = `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`; }, 1000); }
+// v2.1.0: refresh cycle pauses while a modal is open or the tab is in
+// the background. The "auto-refresh closes browser window" bug had two
+// independent triggers in 2.0.0:
+//
+//   1. escHtml didn't escape ' — see escAttr() above. A device name like
+//      `O'Brien` injected literal apostrophes into onclick="fn('${name}')"
+//      attributes. When the periodic loadDevices() re-rendered the device
+//      grid (innerHTML = ...), the parser hit `fn('O'Brien')`, threw a
+//      SyntaxError on parse, and (depending on the surrounding content)
+//      could call other inline handlers — including, in the worst case,
+//      window.close-like APIs. Even where it didn't close the tab, every
+//      60s refresh ran broken JS and the page became unresponsive.
+//
+//   2. setInterval fires regardless of visibility / modal state. Browsers
+//      throttle setInterval in background tabs (Chrome: 1 Hz minimum) but
+//      don't stop it; on the foreground it fired loadDevices() right under
+//      an open modal, wiping device-grid event listeners that the modal's
+//      internal onclick handlers had captured by reference. With #1's
+//      broken JS already in play, this was the second-shoe-drops trigger.
+//
+// Fix: (a) escAttr above closes the injection vector for good; (b) this
+// rewrite of startRefreshCycle skips the loadDevices() tick whenever a
+// .modal-overlay.active is present or the tab is hidden. The countdown
+// label still updates so the user sees state, and the refresh resumes
+// exactly where it paused as soon as the modal closes / tab returns.
+function _refreshShouldPause() {
+  if (typeof document !== 'undefined' && document.hidden) return true;
+  // Modal open: don't redraw under the user's hand
+  if (document.querySelector('.modal-overlay.active')) return true;
+  // v2.1.0 follow-up: a device-card dropdown lives *inside* the device grid
+  // that loadDevices() rewrites via innerHTML. Re-rendering while a dropdown
+  // is open closes the dropdown — the user clicks the ⋯ button, opens the
+  // menu, the 60s tick fires before they pick an item, and the menu vanishes
+  // mid-click. Pause for these the same way we do for modals.
+  if (document.querySelector('.device-dropdown.active')) return true;
+  return false;
+}
+function startRefreshCycle() {
+  clearInterval(refreshTimer);
+  refreshRemaining = refreshInterval;
+  refreshTimer = setInterval(() => {
+    const label = document.getElementById('last-refresh-label');
+    const bar = document.getElementById('refresh-progress');
+    if (_refreshShouldPause()) {
+      // Hold the countdown — don't advance, don't fire loadDevices(). This
+      // also avoids races where loadDevices() re-renders the device grid
+      // while the user is interacting with a modal that references it.
+      if (label) label.textContent = 'Refresh paused';
+      return;
+    }
+    refreshRemaining--;
+    const pct = (refreshRemaining / refreshInterval) * 100;
+    if (bar) bar.style.width = pct + '%';
+    if (refreshRemaining <= 0) {
+      refreshRemaining = refreshInterval;
+      loadDevices();
+    }
+    const m = Math.floor(refreshRemaining / 60);
+    const s = refreshRemaining % 60;
+    if (label) label.textContent = `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`;
+  }, 1000);
+}
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); }); });
+// v2.1.0: escHtml escapes for HTML content + double-quoted attribute values.
+// It deliberately does NOT escape ' — HTML entity decoding turns &#39; back
+// into ' before the JS-in-attribute parser sees it, which would break any
+// `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
+// interpolated into JS string literals inside an HTML attribute.
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// v2.1.0: escape for use inside a JS string that's embedded in an HTML
+// attribute, e.g. onclick="foo('${escAttr(x)}')". The output is pure ASCII
+// (no HTML metacharacters) so the HTML parser passes it through verbatim,
+// and the JS hex escapes (\xNN) decode to the original chars when the
+// attribute fires. This is the bug behind "auto-refresh closes the
+// browser window": a device name containing an apostrophe broke out of
+// the inline JS string in the dropdown rebuild and could call window.close()
+// (or any other API) on re-render, depending on what followed the quote.
+// v1.x's escHtml passed ' through unchanged, so anyone whose hostname had
+// `O'Brien` or whose group ended with a tick caused the failure on every
+// 60s refresh.
+function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;
 function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: '✓', error: '✕', info: 'ℹ'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
@@ -1293,7 +1390,7 @@ function _registerScheduleTable() {
       run_at:      j.run_at || 0,
       actor:       j.actor || '',
     }),
-    row: (j) => `<tr><td style="font-weight:500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td style="font-family:monospace;font-size:12px">${j.recurring ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escHtml(j.id)}')">✕</button></td></tr>`,
+    row: (j) => `<tr><td style="font-weight:500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td style="font-family:monospace;font-size:12px">${j.recurring ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escAttr(j.id)}')">✕</button></td></tr>`,
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -1605,13 +1702,13 @@ function _registerDeviceMetricsTable() {
       }
 
       return `<tr>
-        <td style="font-weight:500"><a href="#" onclick="openDetail('${d.id}','${escHtml(d.name)}'); return false;" style="color:var(--text);text-decoration:none">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}</td>
+        <td style="font-weight:500"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}</td>
         <td>${levelBadge}</td>
         <td style="text-align:right">${memCell}</td>
         <td style="text-align:right">${swapCell}</td>
         <td style="text-align:right">${cpuCell}</td>
         <td>${diskCell}</td>
-        <td style="white-space:nowrap"><button class="btn-icon" style="font-size:11px;padding:4px 8px;margin-right:4px" onclick="openMetrics('${d.id}','${escHtml(d.name)}')" title="Show metric trend over time">Trend</button><button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openMetricThresholds('${d.id}','${escHtml(d.name)}')">Thresholds</button></td>
+        <td style="white-space:nowrap"><button class="btn-icon" style="font-size:11px;padding:4px 8px;margin-right:4px" onclick="openMetrics('${d.id}','${escAttr(d.name)}')" title="Show metric trend over time">Trend</button><button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}')">Thresholds</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices to show metrics for.',
@@ -1942,7 +2039,7 @@ function _registerApiKeysTable() {
       user:    k.user || '',
       created: k.created || 0,
     }),
-    row: (k) => `<tr><td style="font-weight:600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td><td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escHtml(k.id)}')">Delete</button></td></tr>`,
+    row: (k) => `<tr><td style="font-weight:600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td><td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escAttr(k.id)}')">Delete</button></td></tr>`,
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
   });
@@ -1973,7 +2070,7 @@ function _registerCmdLibTable() {
       cmd:         s.cmd || '',
       description: s.description || '',
     }),
-    row: (s) => `<tr><td style="font-weight:600">${escHtml(s.name)}</td><td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td><td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escHtml(s.cmd)}')">Use</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escHtml(s.id)}')">✕</button></tr>`,
+    row: (s) => `<tr><td style="font-weight:600">${escHtml(s.name)}</td><td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td><td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escAttr(s.cmd)}')">Use</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escAttr(s.id)}')">✕</button></tr>`,
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
   });
@@ -2036,7 +2133,7 @@ function _registerPatchTable() {
       const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
       const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
-      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escHtml(d.name)}')">Detail</button></tr>`;
+      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -2102,7 +2199,7 @@ function _registerCveTable() {
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
       const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escHtml(d.device_id)}','${escHtml(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escHtml(d.device_id)}')">Scan</button></td></tr>`;
+      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escAttr(d.device_id)}')">Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -2148,7 +2245,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" style="color:var(--accent)">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(a)}</code>`).join('');
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;margin-left:auto;font-size:11px" onclick="ignoreCVE('${escHtml(f.vuln_id)}','${escHtml(devId)}','${escHtml(devName)}')">Ignore</button>` : ''}</div></div>`;
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;margin-left:auto;font-size:11px" onclick="ignoreCVE('${escAttr(f.vuln_id)}','${escAttr(devId)}','${escAttr(devName)}')">Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -2211,13 +2308,13 @@ function _registerServicesTable() {
       const watchedCell = d.total > 0 ? unitList : '<span style="color:var(--muted);font-size:11px">(none configured)</span>';
       const upCell   = d.up > 0 ? `<td style="text-align:center;color:var(--green);font-weight:600">${d.up}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
       const downCell = d.down > 0 ? `<td style="text-align:center;color:var(--red);font-weight:600">${d.down}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openServiceDetail('${escHtml(d.device_id)}','${escHtml(d.name)}')">
+      return `<tr style="cursor:pointer" onclick="openServiceDetail('${escAttr(d.device_id)}','${escAttr(d.name)}')">
         <td style="font-weight:500">${escHtml(d.name)}</td>
         <td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
         <td>${watchedCell}</td>
         ${upCell}${downCell}
         <td style="font-size:11px;color:var(--muted)">${reportText}</td>
-        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escHtml(d.device_id)}','${escHtml(d.name)}')">Configure</button></td>
+        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escAttr(d.device_id)}','${escAttr(d.name)}')">Configure</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices enrolled.',
@@ -2354,7 +2451,7 @@ function _registerMaintTable() {
         <td style="font-size:12px">${when}</td>
         <td style="font-size:11px;color:var(--muted)">${events}</td>
         <td style="text-align:center">${status}</td>
-        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escHtml(w.id)}')">Delete</button></td>
+        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escAttr(w.id)}')">Delete</button></td>
       </tr>`;
     },
     emptyMsg: 'No maintenance windows defined.',
@@ -2708,7 +2805,7 @@ async function loadPerDeviceLogRules() {
     <td><code style="font-size:12px">${escHtml(r.unit)}</code></td>
     <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
     <td style="text-align:center">≥ ${r.threshold}</td>
-    <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteLogRule('${escHtml(r.device_id)}','${escHtml(r.unit)}','${escHtml(r.pattern)}')">Delete</button></td>
+    <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteLogRule('${escAttr(r.device_id)}','${escAttr(r.unit)}','${escAttr(r.pattern)}')">Delete</button></td>
   </tr>`).join('');
 }
 
@@ -2733,7 +2830,7 @@ async function loadGlobalLogRules() {
       <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
       <td style="text-align:center">≥ ${r.threshold}</td>
       <td style="font-size:11px;color:var(--muted)">${created} <span style="opacity:0.6">by ${escHtml(r.created_by || '?')}</span></td>
-      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteGlobalLogRule('${escHtml(r.id)}')">Delete</button></td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteGlobalLogRule('${escAttr(r.id)}')">Delete</button></td>
     </tr>`;
   }).join('');
 }
@@ -2990,7 +3087,7 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" onclick="event.stopPropagation();openEventModal('${escHtml(ev.id)}')" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" onclick="event.stopPropagation();openEventModal('${escAttr(ev.id)}')" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
     ).join('');
     const more = events.length > 3 ? `<div style="font-size:10px;color:var(--muted);padding:0 4px">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -3188,7 +3285,7 @@ function renderTaskCard(t) {
   return `<div class="kanban-card" draggable="true"
               ondragstart="onTaskDragStart(event,'${escHtml(t.id)}')"
               ondragend="onTaskDragEnd(event)"
-              onclick="openTaskModal('${escHtml(t.id)}')">
+              onclick="openTaskModal('${escAttr(t.id)}')">
     <div class="kanban-card-title">${escHtml(t.title)}</div>
     <div class="kanban-card-meta">
       ${devBadge}
@@ -4112,7 +4209,7 @@ function _registerContainersOverviewTable() {
         <td>${restartingCell}</td>
         <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
         <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
-        <td><button class="btn-icon" onclick="containersOpen('${escHtml(r.device_id)}','${escHtml(r.name)}')">View</button></td>
+        <td><button class="btn-icon" onclick="containersOpen('${escAttr(r.device_id)}','${escAttr(r.name)}')">View</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',
@@ -4148,14 +4245,32 @@ async function containersOpen(deviceId, name) {
     return;
   }
   body.innerHTML = staleBanner + items.map(c => {
-    const statusColor = (c.status || '').toLowerCase().includes('running') || (c.status || '').toLowerCase().includes('up ')
+    const statusLower = (c.status || '').toLowerCase();
+    const statusColor = statusLower.includes('running') || statusLower.includes('up ')
       ? 'var(--green)'
-      : (c.status || '').toLowerCase().includes('exit') ? 'var(--red)' : 'var(--muted)';
+      : statusLower.includes('exit') ? 'var(--red)' : 'var(--muted)';
     const ports = (c.ports || []).map(p => `<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:11px">${escHtml(p)}</code>`).join(' ');
     const restart = c.restart_count > 0
       ? `<span style="color:${c.restart_count >= 5 ? 'var(--red)' : 'var(--amber)'}">restart×${c.restart_count}</span>`
       : '';
     const ns = c.namespace ? `<span style="color:var(--muted)">${escHtml(c.namespace)}/</span>` : '';
+    // v2.1.1: per-container actions. The agent's allowlist accepts
+    // start / stop / restart / pause / unpause / logs. Kubernetes pods
+    // aren't actionable through docker/podman CLI, so we hide actions
+    // for the kubectl runtime (kubectl listing reports runtime='kubectl').
+    // We use the container ID (preferred) or fall back to the name —
+    // server-side validation accepts whichever the agent reported.
+    const cid = c.id || c.name || '';
+    const runtime = (c.runtime || 'docker').toLowerCase();
+    const actionable = (runtime === 'docker' || runtime === 'podman') && cid;
+    const isRunning = statusLower.includes('running') || statusLower.includes('up ');
+    const actions = actionable ? `
+      <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
+        ${!isRunning ? `<button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','start','${escAttr(c.name||'')}')">Start</button>` : ''}
+        ${isRunning  ? `<button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','stop','${escAttr(c.name||'')}')">Stop</button>` : ''}
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','restart','${escAttr(c.name||'')}')">Restart</button>
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','logs','${escAttr(c.name||'')}')">Logs</button>
+      </div>` : '';
     return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="font-weight:600">${ns}${escHtml(c.name)}</div>
@@ -4167,8 +4282,24 @@ async function containersOpen(deviceId, name) {
       </div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:monospace">${escHtml(c.image)}${c.tag ? ':' + escHtml(c.tag) : ''}</div>
       ${ports ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ports}</div>` : ''}
+      ${actions}
     </div>`;
   }).join('');
+}
+
+// v2.1.1: per-container action — start/stop/restart/logs. Goes through
+// the agent's command queue (same path as compose actions), so output
+// arrives on the next heartbeat. Stop and restart prompt for confirmation
+// because they're disruptive; start and logs don't.
+async function containerAction(deviceId, runtime, containerId, action, displayName) {
+  const verb = action.charAt(0).toUpperCase() + action.slice(1);
+  if ((action === 'stop' || action === 'restart') &&
+      !confirm(`${verb} container ${displayName || containerId}?`)) return;
+  const resp = await api('POST',
+    '/devices/' + encodeURIComponent(deviceId) + '/containers/action',
+    {runtime, action, container_id: containerId});
+  if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
+  toast(`${verb} queued — runs on next heartbeat (~60s)`, 'success');
 }
 
 // v1.11.4: clear stored container data for the currently-open device.
@@ -4508,7 +4639,7 @@ async function tunnelRenderList() {
   };
   list.innerHTML = tunnels.map(t => `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;gap:10px">
     <div style="font-weight:500">${escHtml(nameOf(t.endpoints[0]))} <span style="color:var(--amber)">↔</span> ${escHtml(nameOf(t.endpoints[1]))}</div>
-    <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tunnelDelete('${escHtml(t.id)}')">✕</button>
+    <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tunnelDelete('${escAttr(t.id)}')">✕</button>
   </div>`).join('');
 }
 
@@ -4612,7 +4743,7 @@ function _registerTlsTable() {
       const starttlsHtml = (t.starttls && t.starttls !== 'none')
         ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
         : '';
-      return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escHtml(t.id)}')">
+      return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escAttr(t.id)}')">
         <td>${statusBadge}${daneBadge}</td>
         <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
         <td style="font-family:monospace;color:var(--muted)">${t.port}</td>
@@ -4620,7 +4751,7 @@ function _registerTlsTable() {
         <td style="font-size:12px;color:var(--muted)">${expires}</td>
         <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
         <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
-        <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escHtml(t.id)}','${escHtml(t.host)}')">✕</button></td>
+        <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escAttr(t.id)}','${escAttr(t.host)}')">✕</button></td>
       </tr>`;
     },
     emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
@@ -4961,8 +5092,8 @@ function _renderLinkCard(l) {
   // avoid accidentally opening the link while editing.
   const editButtons = _linksEditMode
     ? `<div style="display:flex;gap:6px;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-         <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();linkEditOpen('${escHtml(l.id)}')">Edit</button>
-         <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="event.stopPropagation();linkDelete('${escHtml(l.id)}','${escHtml(l.title)}')">Delete</button>
+         <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();linkEditOpen('${escAttr(l.id)}')">Edit</button>
+         <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="event.stopPropagation();linkDelete('${escAttr(l.id)}','${escAttr(l.title)}')">Delete</button>
        </div>`
     : '';
 
@@ -5082,6 +5213,361 @@ function _cmdbEsc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+
+// ─── v2.1.0: Script library + multi-select batch exec + docker-compose ────
+//
+// Three features that share UI plumbing:
+//
+//   * Scripts page (CRUD over /api/scripts).
+//   * "Run script" button on the existing batch action bar — fans out to
+//     /api/exec/batch and shows live job status via /api/exec/batch/<id>.
+//   * Docker-compose dropdown on device cards: up/down/restart/pull/logs,
+//     pointing only at projects the agent itself reported in its heartbeat.
+//
+// All three rendering paths use escHtml() for text and escAttr() for
+// JS-in-onclick — see the comment on escAttr above. Mixing them up is
+// the exact bug that triggered the 2.0.0 auto-refresh crash.
+
+let _scriptsCache = [];
+
+async function loadScripts() {
+  const tbody = document.getElementById('scripts-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>';
+  const data = await api('GET', '/scripts');
+  _scriptsCache = Array.isArray(data) ? data : [];
+  renderScriptsList();
+}
+
+function renderScriptsList() {
+  const tbody = document.getElementById('scripts-tbody');
+  if (!tbody) return;
+  const term = (document.getElementById('scripts-filter')?.value || '').toLowerCase();
+  let rows = _scriptsCache;
+  if (term) {
+    rows = rows.filter(s => (s.name||'').toLowerCase().includes(term) ||
+                            (s.description||'').toLowerCase().includes(term));
+  }
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">${_scriptsCache.length ? 'No matches' : 'No scripts yet. Click <b>New script</b> to create one.'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(s => {
+    const size = s.body_len < 1024 ? `${s.body_len} B` : `${(s.body_len/1024).toFixed(1)} KB`;
+    const updated = s.updated ? timeAgo(s.updated) : '—';
+    const dangerBadge = s.dangerous
+      ? '<span class="patch-badge warn" title="Dry run flagged dangerous patterns">⚠ DANGER</span>'
+      : '';
+    return `<tr>
+      <td style="font-weight:500">${escHtml(s.name||'—')}</td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(s.description||'')}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(size)}</td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(updated)}</td>
+      <td>${dangerBadge}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openScriptEdit('${escAttr(s.id)}')">Edit</button>
+        <button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="dryRunScript('${escAttr(s.id)}')">Dry run</button>
+        <button class="btn-icon" style="font-size:11px;padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteScript('${escAttr(s.id)}','${escAttr(s.name||'')}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openScriptAdd() {
+  document.getElementById('script-edit-id').value = '';
+  document.getElementById('script-edit-title').textContent = 'New script';
+  document.getElementById('script-edit-name').value = '';
+  document.getElementById('script-edit-desc').value = '';
+  document.getElementById('script-edit-body').value = '#!/usr/bin/env bash\nset -euo pipefail\n\n';
+  document.getElementById('script-edit-lint').style.display = 'none';
+  openModal('script-edit-modal');
+  setTimeout(() => document.getElementById('script-edit-name').focus(), 50);
+}
+
+async function openScriptEdit(id) {
+  const data = await api('GET', '/scripts/' + encodeURIComponent(id));
+  if (!data || data.error) { toast(data?.error || 'Failed', 'error'); return; }
+  document.getElementById('script-edit-id').value = data.id;
+  document.getElementById('script-edit-title').textContent = `Edit script — ${data.name||''}`;
+  document.getElementById('script-edit-name').value = data.name || '';
+  document.getElementById('script-edit-desc').value = data.description || '';
+  document.getElementById('script-edit-body').value = data.body || '';
+  _renderLintIntoBox('script-edit-lint', data.last_lint || null);
+  openModal('script-edit-modal');
+}
+
+function _renderLintIntoBox(boxId, lint) {
+  const el = document.getElementById(boxId);
+  if (!el) return;
+  if (!lint) { el.style.display = 'none'; return; }
+  let bg = 'rgba(34,197,94,0.12)';
+  let fg = 'var(--green)';
+  let head = '✓ Syntax OK';
+  if (lint.syntax_error && lint.syntax_error !== '__skipped__') {
+    bg = 'rgba(239,68,68,0.12)'; fg = 'var(--red)';
+    head = '✗ ' + lint.syntax_error;
+  } else if (lint.syntax_error === '__skipped__') {
+    bg = 'rgba(245,158,11,0.12)'; fg = 'var(--amber)';
+    head = '⚠ bash -n not available server-side — syntax check skipped';
+  }
+  let body = head;
+  if (lint.dangerous && lint.dangerous.length) {
+    body += '\n\n⚠ Dangerous patterns detected:';
+    lint.dangerous.forEach(d => { body += '\n  • ' + d; });
+  }
+  el.style.background = bg;
+  el.style.color = fg;
+  el.textContent = body;
+  el.style.display = 'block';
+}
+
+async function runScriptDryRunFromEditor() {
+  const id = document.getElementById('script-edit-id').value;
+  if (!id) {
+    // Not saved yet — save first, then dry-run. Otherwise we have no
+    // server-side body to lint and the operator would just see an empty
+    // result. This also gives them an "id" they can later edit.
+    await saveScriptFromEditor(/*reopen=*/true);
+    return;
+  }
+  const data = await api('POST', '/scripts/' + encodeURIComponent(id) + '/dry-run');
+  if (!data || data.error) { toast(data?.error || 'Dry run failed', 'error'); return; }
+  _renderLintIntoBox('script-edit-lint', data.lint);
+  toast('Dry run complete', 'info');
+  // Refresh list cache (last_lint may have changed).
+  loadScripts();
+}
+
+async function saveScriptFromEditor(reopenAfter) {
+  const id   = document.getElementById('script-edit-id').value;
+  const name = document.getElementById('script-edit-name').value.trim();
+  const desc = document.getElementById('script-edit-desc').value;
+  const body = document.getElementById('script-edit-body').value;
+  if (!name) { toast('Name required', 'error'); return; }
+  if (!body.trim()) { toast('Body required', 'error'); return; }
+  let resp;
+  if (id) {
+    resp = await api('PUT', '/scripts/' + encodeURIComponent(id), {name, description: desc, body});
+  } else {
+    resp = await api('POST', '/scripts', {name, description: desc, body});
+  }
+  if (!resp || resp.error) { toast(resp?.error || 'Save failed', 'error'); return; }
+  toast(id ? 'Script updated' : 'Script created', 'success');
+  if (resp.lint) _renderLintIntoBox('script-edit-lint', resp.lint);
+  // If this was a create, the server returned the new record — keep the
+  // modal open in edit mode so the operator can immediately dry-run.
+  if (!id && resp.script?.id) {
+    document.getElementById('script-edit-id').value = resp.script.id;
+    document.getElementById('script-edit-title').textContent = `Edit script — ${resp.script.name||''}`;
+  }
+  loadScripts();
+  if (!reopenAfter && id) closeModal('script-edit-modal');
+}
+
+async function dryRunScript(id) {
+  const data = await api('POST', '/scripts/' + encodeURIComponent(id) + '/dry-run');
+  if (!data || data.error) { toast(data?.error || 'Dry run failed', 'error'); return; }
+  const l = data.lint || {};
+  let summary;
+  if (l.syntax_error && l.syntax_error !== '__skipped__') {
+    summary = '✗ Syntax error: ' + l.syntax_error.slice(0, 240);
+  } else {
+    summary = '✓ Syntax OK';
+  }
+  if (l.dangerous && l.dangerous.length) {
+    summary += ` — ⚠ ${l.dangerous.length} dangerous pattern${l.dangerous.length>1?'s':''}: ${l.dangerous.join(', ')}`;
+  }
+  toast(summary, l.syntax_error && l.syntax_error !== '__skipped__' ? 'error'
+                : (l.dangerous && l.dangerous.length ? 'info' : 'success'));
+  loadScripts();
+}
+
+async function deleteScript(id, name) {
+  if (!confirm(`Delete script ${name || id}?`)) return;
+  const data = await api('DELETE', '/scripts/' + encodeURIComponent(id));
+  if (data?.ok) { toast('Script deleted', 'info'); loadScripts(); }
+  else toast(data?.error || 'Failed', 'error');
+}
+
+// ── Run-script modal: single device OR batch (current selection) ──────────
+async function openScriptRunForDevice(deviceId, deviceName) {
+  document.getElementById('script-run-mode').value = 'single';
+  document.getElementById('script-run-device-id').value = deviceId;
+  document.getElementById('script-run-target').textContent = `Queue a saved script on ${deviceName}.`;
+  document.getElementById('script-run-confirm-wrap').style.display = 'none';
+  document.getElementById('script-run-confirm-dangerous').checked = false;
+  document.getElementById('script-run-lint').style.display = 'none';
+  await _populateScriptRunPicker();
+  openModal('script-run-modal');
+}
+async function openScriptRunForBatch() {
+  if (!selectedDevices.size) { toast('Select devices first', 'error'); return; }
+  document.getElementById('script-run-mode').value = 'batch';
+  document.getElementById('script-run-device-id').value = '';
+  document.getElementById('script-run-target').textContent =
+    `Queue a saved script on ${selectedDevices.size} selected device${selectedDevices.size===1?'':'s'}.`;
+  document.getElementById('script-run-confirm-wrap').style.display = 'none';
+  document.getElementById('script-run-confirm-dangerous').checked = false;
+  document.getElementById('script-run-lint').style.display = 'none';
+  await _populateScriptRunPicker();
+  openModal('script-run-modal');
+}
+async function _populateScriptRunPicker() {
+  const sel = document.getElementById('script-run-pick');
+  sel.innerHTML = '<option value="">— Choose a saved script —</option>';
+  const data = await api('GET', '/scripts');
+  (Array.isArray(data) ? data : []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.name + (s.dangerous ? '  ⚠ DANGER' : '');
+    opt.dataset.dangerous = s.dangerous ? '1' : '';
+    sel.appendChild(opt);
+  });
+}
+function onScriptRunPick() {
+  const sel = document.getElementById('script-run-pick');
+  const opt = sel.options[sel.selectedIndex];
+  const dangerous = opt?.dataset?.dangerous === '1';
+  document.getElementById('script-run-confirm-wrap').style.display = dangerous ? 'block' : 'none';
+  document.getElementById('script-run-confirm-dangerous').checked = false;
+  document.getElementById('script-run-lint').style.display = 'none';
+}
+async function confirmScriptRun() {
+  const sid = document.getElementById('script-run-pick').value;
+  if (!sid) { toast('Pick a script first', 'error'); return; }
+  const mode = document.getElementById('script-run-mode').value;
+  const confirmDangerous = document.getElementById('script-run-confirm-dangerous').checked;
+  let payload = {script_id: sid, confirm_dangerous: confirmDangerous};
+  if (mode === 'single') {
+    payload.device_ids = [document.getElementById('script-run-device-id').value];
+  } else {
+    payload.device_ids = [...selectedDevices];
+  }
+  const resp = await api('POST', '/exec/batch', payload);
+  if (!resp || resp.error) {
+    // Surface syntax / dangerous-pattern errors so the operator knows
+    // what to fix rather than just "request failed".
+    if (resp?.dangerous?.length) {
+      _renderLintIntoBox('script-run-lint', {dangerous: resp.dangerous, syntax_error: null});
+      toast('Script flagged as dangerous — tick the box to confirm', 'error');
+      document.getElementById('script-run-confirm-wrap').style.display = 'block';
+      return;
+    }
+    if (resp?.syntax_error) {
+      _renderLintIntoBox('script-run-lint', {syntax_error: resp.syntax_error, dangerous: []});
+      toast('Fix the syntax error first', 'error');
+      return;
+    }
+    toast(resp?.error || 'Failed to queue', 'error');
+    return;
+  }
+  closeModal('script-run-modal');
+  if (mode === 'batch') clearSelection();
+  toast(`Queued on ${resp.queued}/${resp.total} device${resp.total===1?'':'s'}`, 'success');
+  if (resp.job_id) openBatchJobModal(resp.job_id);
+}
+
+// ── Batch job status modal — polls /api/exec/batch/<id> ───────────────────
+let _batchJobTimer = null;
+function openBatchJobModal(jobId) {
+  document.getElementById('batch-job-id').value = jobId;
+  document.getElementById('batch-job-body').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  document.getElementById('batch-job-title').textContent = 'Batch script run';
+  document.getElementById('batch-job-sub').textContent = 'Polling for results…';
+  openModal('batch-job-modal');
+  refreshBatchJob();
+  clearInterval(_batchJobTimer);
+  _batchJobTimer = setInterval(refreshBatchJob, 10000);
+}
+function closeBatchJobModal() {
+  clearInterval(_batchJobTimer);
+  _batchJobTimer = null;
+  closeModal('batch-job-modal');
+}
+async function refreshBatchJob() {
+  const jobId = document.getElementById('batch-job-id').value;
+  if (!jobId) return;
+  const data = await api('GET', '/exec/batch/' + encodeURIComponent(jobId));
+  if (!data || data.error) {
+    document.getElementById('batch-job-body').innerHTML =
+      `<div style="color:var(--red);padding:20px">${escHtml(data?.error||'Failed to load job')}</div>`;
+    clearInterval(_batchJobTimer);
+    return;
+  }
+  document.getElementById('batch-job-title').textContent =
+    `Batch run: ${data.script_name || data.script_id}`;
+  const entries = Object.entries(data.per_device || {});
+  const done = entries.filter(([,e]) => e.status === 'done').length;
+  const queued = entries.filter(([,e]) => e.queued).length;
+  document.getElementById('batch-job-sub').textContent =
+    `${done}/${queued} returned output — refreshes every 10s (close to stop)`;
+  let body = '';
+  for (const [devId, e] of entries) {
+    const name = escHtml(e.name || devId);
+    let pill = '<span class="patch-badge ok" style="font-size:11px">pending</span>';
+    let outBox = '';
+    if (!e.queued) {
+      pill = `<span class="patch-badge warn" style="font-size:11px">${escHtml(e.reason||'skipped')}</span>`;
+    } else if (e.status === 'done') {
+      const ok = e.rc === 0;
+      pill = `<span class="patch-badge ${ok ? 'ok' : 'warn'}" style="font-size:11px">rc=${escHtml(String(e.rc))}</span>`;
+      const finished = e.finished_at ? new Date(e.finished_at*1000).toLocaleTimeString() : '';
+      outBox = `<pre style="margin-top:6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${escHtml(e.output||'(no output)')}</pre><div style="font-size:11px;color:var(--muted);margin-top:2px">finished ${escHtml(finished)}</div>`;
+    }
+    body += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="font-weight:600">${name}</div>${pill}</div>
+      ${outBox}
+    </div>`;
+  }
+  if (!entries.length) body = '<div style="color:var(--muted);padding:20px">No targets in this batch.</div>';
+  document.getElementById('batch-job-body').innerHTML = body;
+  // Stop polling once everyone has either returned output or was skipped.
+  if (queued === 0 || done >= queued) {
+    clearInterval(_batchJobTimer);
+    _batchJobTimer = null;
+    document.getElementById('batch-job-sub').textContent =
+      `${done}/${queued} returned output — polling stopped (Refresh to re-check)`;
+  }
+}
+
+// ── Docker-compose dropdown on device cards ───────────────────────────────
+async function openComposeModal(deviceId, deviceName) {
+  document.getElementById('compose-device-id').value = deviceId;
+  document.getElementById('compose-title').textContent = `docker compose — ${deviceName}`;
+  document.getElementById('compose-result').textContent =
+    'Queue an action — output arrives on the next heartbeat (~60s).';
+  const sel = document.getElementById('compose-project-pick');
+  sel.innerHTML = '<option value="">Loading…</option>';
+  openModal('compose-modal');
+  const data = await api('GET', '/devices/' + encodeURIComponent(deviceId) + '/compose');
+  if (!data || data.error) {
+    sel.innerHTML = `<option value="">${escHtml(data?.error||'Failed to load')}</option>`;
+    return;
+  }
+  const projects = data.projects || [];
+  if (!projects.length) {
+    sel.innerHTML = `<option value="">${data.docker_seen ? 'No projects found under /opt /home /docker /srv' : 'Device has not reported yet'}</option>`;
+    return;
+  }
+  sel.innerHTML = projects.map(p =>
+    `<option value="${escHtml(p.dir)}">${escHtml(p.name)} — ${escHtml(p.dir)}</option>`
+  ).join('');
+}
+async function runCompose(action) {
+  const deviceId = document.getElementById('compose-device-id').value;
+  const dir = document.getElementById('compose-project-pick').value;
+  if (!dir) { toast('Pick a project first', 'error'); return; }
+  // Down is the most disruptive — confirm explicitly.
+  if (action === 'down' && !confirm(`Run "docker compose down" in ${dir}?\nThis stops and removes the project's containers.`)) return;
+  const resp = await api('POST', '/devices/' + encodeURIComponent(deviceId) + '/compose/action',
+                         {action, dir});
+  if (!resp || resp.error) { toast(resp?.error || 'Failed', 'error'); return; }
+  toast(`compose ${action} queued — output arrives on next heartbeat`, 'success');
+  document.getElementById('compose-result').textContent =
+    `Queued: ${resp.queued}\nWaiting for the agent's next heartbeat (~60s)…\nResults appear on the device's System info → Command output panel.`;
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
   loadPublicInfo();

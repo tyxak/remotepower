@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.0.0'
+VERSION      = '2.1.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -622,6 +622,138 @@ def get_containers():
     return out[:CONTAINERS_HARD_CAP]
 
 
+# v2.1.0: scan well-known roots for docker-compose.yml files. Reported in
+# the heartbeat (every CONTAINER_CHECK_EVERY polls, alongside container
+# state) so the dashboard can offer up/down/restart/pull/logs actions
+# against discovered projects without operators having to type the path.
+#
+# Scan budget is deliberately tight: only four top-level roots, max depth
+# 4 (so projects nested like /opt/stack/postgres/docker-compose.yml are
+# found, but a million-file home dir won't get walked exhaustively), and
+# a hard cap on results. The `find` invocation has a timeout. If anything
+# misbehaves the agent returns [] rather than blocking the heartbeat.
+COMPOSE_SCAN_ROOTS = ('/opt', '/home', '/docker', '/srv')
+COMPOSE_SCAN_MAX_DEPTH = 4
+COMPOSE_SCAN_TIMEOUT_S = 5
+COMPOSE_MAX_PROJECTS   = 50
+
+
+def get_compose_projects():
+    """Find docker-compose.yml / compose.yml under /opt /home /docker /srv.
+
+    Returns a list of {path, dir, name, mtime} dicts (max COMPOSE_MAX_PROJECTS).
+    Skipped entirely if docker isn't installed — there's no point reporting
+    projects we can't act on.
+    """
+    if not _which('docker'):
+        return []
+    # Only scan roots that actually exist; on a fresh box /docker often
+    # doesn't, and asking find for a missing path wastes a syscall.
+    roots = [r for r in COMPOSE_SCAN_ROOTS if Path(r).is_dir()]
+    if not roots:
+        return []
+
+    # Use `find` rather than os.walk: we get -maxdepth, -prune-style
+    # protections, and the kernel-side directory traversal is faster
+    # than Python iterating dir entries one by one. The -path excludes
+    # are belt-and-braces against common noise: VCS metadata, runtime
+    # caches, and node_modules trees that ship their own compose files
+    # we don't care about.
+    cmd = ['find', '-L'] + roots + [
+        '-maxdepth', str(COMPOSE_SCAN_MAX_DEPTH),
+        '(',
+            '-path', '*/.git', '-o',
+            '-path', '*/node_modules', '-o',
+            '-path', '*/.cache', '-o',
+            '-path', '*/__pycache__', '-o',
+            '-path', '*/venv', '-o',
+            '-path', '*/.venv',
+        ')',
+        '-prune', '-o',
+        '(', '-name', 'docker-compose.yml', '-o',
+             '-name', 'docker-compose.yaml', '-o',
+             '-name', 'compose.yml', '-o',
+             '-name', 'compose.yaml', ')',
+        '-type', 'f',
+        '-print',
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=COMPOSE_SCAN_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        log.debug('compose scan timed out')
+        return []
+    except FileNotFoundError:
+        # No `find` (e.g. minimal container). Fall back to Python — single
+        # depth scan, much narrower. Better than nothing.
+        return _compose_scan_python(roots)
+    except Exception as e:
+        log.debug(f'compose scan failed: {e}')
+        return []
+
+    found = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line or not line.startswith('/'):
+            continue
+        try:
+            p = Path(line)
+            if not p.is_file():
+                continue
+            d = p.parent
+            found.append({
+                'path':  str(p),
+                'dir':   str(d),
+                # Project name == the parent directory's basename. That's
+                # what `docker compose` itself defaults to when COMPOSE_PROJECT_NAME
+                # isn't set; matching that here keeps the UI labels honest.
+                'name':  d.name,
+                'mtime': int(p.stat().st_mtime),
+            })
+        except OSError:
+            continue
+        if len(found) >= COMPOSE_MAX_PROJECTS:
+            break
+    return found
+
+
+def _compose_scan_python(roots):
+    """Fallback compose scan using os.walk when `find` is unavailable.
+
+    Same depth and exclusion logic as the find-based scan, but slower in
+    practice on large /home trees — hence the fast path above.
+    """
+    found = []
+    skip_names = {'.git', 'node_modules', '.cache', '__pycache__', 'venv', '.venv'}
+    compose_names = {'docker-compose.yml', 'docker-compose.yaml',
+                     'compose.yml', 'compose.yaml'}
+    for root in roots:
+        root_parts = Path(root).parts
+        try:
+            for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+                depth = len(Path(dirpath).parts) - len(root_parts)
+                if depth > COMPOSE_SCAN_MAX_DEPTH:
+                    dirnames[:] = []
+                    continue
+                dirnames[:] = [d for d in dirnames if d not in skip_names]
+                for f in filenames:
+                    if f in compose_names:
+                        p = Path(dirpath) / f
+                        try:
+                            found.append({
+                                'path': str(p), 'dir': dirpath,
+                                'name': Path(dirpath).name,
+                                'mtime': int(p.stat().st_mtime),
+                            })
+                        except OSError:
+                            continue
+                        if len(found) >= COMPOSE_MAX_PROJECTS:
+                            return found
+        except Exception as e:
+            log.debug(f'walk {root} failed: {e}')
+    return found
+
+
 def get_services(watched_units):
     """
     Query systemd for the given list of unit names.
@@ -1095,9 +1227,156 @@ def execute_command(cmd):
         except Exception as e:
             log.error(f"Command failed: {e}")
             return {'cmd': shell_cmd, 'output': str(e), 'rc': -1}
+    elif cmd.startswith('compose:'):
+        # v2.1.0: compose:<action>:<dir> — server-side picks `dir` from the
+        # list of projects we reported in the heartbeat. We re-validate
+        # locally anyway: only directories containing a recognised compose
+        # file can be acted on, and the action is one of a fixed set. No
+        # shell interpolation of `dir` — it goes in argv directly to docker
+        # compose, so a malicious or stale path can't inject command flags.
+        return _run_compose(cmd)
+    elif cmd.startswith('container:'):
+        # v2.1.1: per-container start/stop/restart from the Containers
+        # page. Same shape as compose: action verb + identifier, action
+        # is allowlisted, identifier goes into argv (never shell). The
+        # server only ever sends container IDs the agent itself
+        # reported in its last heartbeat — but defence-in-depth: the
+        # agent re-validates that the ID looks like a docker/podman ID
+        # (alphanumeric, no slashes / dots / spaces) before invoking
+        # anything. A crafted command can't reach `docker rm -f -v $(…)`
+        # because we never let the shell see the string.
+        return _run_container_action(cmd)
     else:
         log.warning(f"Unknown command: {cmd!r}")
     return None
+
+
+# v2.1.0: docker-compose dispatcher. Called from execute_command on
+# `compose:<action>:<dir>`. Actions are constrained to a known set; the
+# directory is verified to exist and contain a compose file before any
+# docker invocation. Output (capped) is returned via the existing exec
+# channel so the dashboard sees results the same way it does for `exec:`.
+COMPOSE_ALLOWED_ACTIONS = {'up', 'down', 'restart', 'pull', 'logs'}
+COMPOSE_ACTION_TIMEOUT_S = 180  # pull + up can be slow on cold caches
+COMPOSE_OUT_CAP          = 64 * 1024
+
+
+def _run_compose(cmd):
+    """Parse a compose:<action>:<dir> command and run docker compose against it.
+
+    Returns the exec-channel result dict (or None on a malformed cmd).
+    """
+    # Strict split: exactly two ':' separators, action first then path.
+    # We use rsplit so a path with ':' in it (unusual but legal on Linux)
+    # doesn't truncate at the first colon.
+    try:
+        _, action, project_dir = cmd.split(':', 2)
+    except ValueError:
+        log.warning(f"Malformed compose command: {cmd!r}")
+        return {'cmd': cmd, 'output': 'malformed compose command', 'rc': -1}
+
+    action = action.strip().lower()
+    if action not in COMPOSE_ALLOWED_ACTIONS:
+        log.warning(f"Compose action not allowed: {action!r}")
+        return {'cmd': cmd, 'output': f'action {action!r} not allowed', 'rc': -1}
+
+    # Resolve the path and confirm it's real + contains a compose file.
+    # No shell, no glob, no command substitution. Argv is the only path
+    # that ever touches the docker binary.
+    try:
+        p = Path(project_dir).resolve(strict=False)
+    except OSError:
+        return {'cmd': cmd, 'output': f'cannot resolve {project_dir!r}', 'rc': -1}
+    if not p.is_dir():
+        return {'cmd': cmd, 'output': f'directory not found: {p}', 'rc': -1}
+    compose_files = ('docker-compose.yml', 'docker-compose.yaml',
+                     'compose.yml', 'compose.yaml')
+    if not any((p / f).is_file() for f in compose_files):
+        return {'cmd': cmd, 'output': f'no compose file under {p}', 'rc': -1}
+    if not _which('docker'):
+        return {'cmd': cmd, 'output': 'docker not installed on this host', 'rc': -1}
+
+    if action == 'up':
+        argv = ['docker', 'compose', 'up', '-d']
+    elif action == 'down':
+        argv = ['docker', 'compose', 'down']
+    elif action == 'restart':
+        argv = ['docker', 'compose', 'restart']
+    elif action == 'pull':
+        argv = ['docker', 'compose', 'pull']
+    elif action == 'logs':
+        argv = ['docker', 'compose', 'logs', '--no-color', '--tail=50']
+    else:
+        # Defensive — COMPOSE_ALLOWED_ACTIONS check above should make this
+        # unreachable, but keep the branch so a future contributor adding
+        # an entry to the set but forgetting the argv mapping gets a
+        # sensible error.
+        return {'cmd': cmd, 'output': f'no argv mapping for {action!r}', 'rc': -1}
+
+    log.info(f"compose {action} in {p}")
+    try:
+        result = subprocess.run(argv, cwd=str(p), capture_output=True,
+                                text=True, timeout=COMPOSE_ACTION_TIMEOUT_S)
+        output = (result.stdout + result.stderr).strip()[:COMPOSE_OUT_CAP]
+        log.info(f"compose {action} rc={result.returncode} "
+                 f"output_len={len(output)}")
+        return {'cmd': cmd, 'output': output, 'rc': result.returncode}
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'compose {action} failed: {e}', 'rc': -1}
+
+
+# v2.1.1: per-container actions from the Containers page. Same allowlist
+# pattern as compose — verb table, argv-only invocation, no shell.
+CONTAINER_ALLOWED_ACTIONS = {'start', 'stop', 'restart', 'pause', 'unpause', 'logs'}
+CONTAINER_ACTION_TIMEOUT_S = 60
+CONTAINER_OUT_CAP          = 32 * 1024
+# Docker / podman IDs are alphanumeric (lowercase hex usually); container
+# names allow [a-zA-Z0-9_.-]. Reject anything else to keep argv safe.
+_CONTAINER_ID_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$')
+
+
+def _run_container_action(cmd):
+    """Parse and execute container:<runtime>:<action>:<id> on this host.
+
+    Runtime is docker | podman (we report both in the heartbeat). Action is
+    one of CONTAINER_ALLOWED_ACTIONS. ID is validated against a tight
+    regex so it can safely be passed to argv.
+    """
+    parts = cmd.split(':', 3)
+    if len(parts) != 4:
+        return {'cmd': cmd, 'output': 'malformed container command', 'rc': -1}
+    _, runtime, action, container_id = parts
+    runtime = runtime.strip().lower()
+    action = action.strip().lower()
+    container_id = container_id.strip()
+
+    if runtime not in ('docker', 'podman'):
+        return {'cmd': cmd, 'output': f'unsupported runtime {runtime!r}', 'rc': -1}
+    if action not in CONTAINER_ALLOWED_ACTIONS:
+        return {'cmd': cmd, 'output': f'action {action!r} not allowed', 'rc': -1}
+    if not _CONTAINER_ID_RE.match(container_id):
+        return {'cmd': cmd, 'output': 'invalid container id', 'rc': -1}
+    if not _which(runtime):
+        return {'cmd': cmd, 'output': f'{runtime} not installed', 'rc': -1}
+
+    if action == 'logs':
+        argv = [runtime, 'logs', '--tail=50', container_id]
+    else:
+        argv = [runtime, action, container_id]
+
+    log.info(f"container {action} {runtime} {container_id}")
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True,
+                                timeout=CONTAINER_ACTION_TIMEOUT_S)
+        output = (result.stdout + result.stderr).strip()[:CONTAINER_OUT_CAP]
+        log.info(f"container {action} rc={result.returncode} output_len={len(output)}")
+        return {'cmd': cmd, 'output': output, 'rc': result.returncode}
+    except subprocess.TimeoutExpired:
+        return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'{runtime} {action} failed: {e}', 'rc': -1}
 
 # ─── Heartbeat loop ─────────────────────────────────────────────────────────────
 def heartbeat(creds, interval=POLL_INTERVAL):
@@ -1229,6 +1508,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['containers'] = get_containers()
             except Exception as e:
                 log.debug(f'Container listing error: {e}')
+            # v2.1.0: compose projects ride alongside containers. Reported
+            # at the same cadence — both come from the docker world and
+            # we don't want to scan twice. Skipped if docker isn't installed
+            # (get_compose_projects() returns [] in that case so the field
+            # stays empty rather than triggering false UI affordances).
+            try:
+                projects = get_compose_projects()
+                if projects:
+                    payload['compose_projects'] = projects
+            except Exception as e:
+                log.debug(f'compose listing error: {e}')
 
         if send_sysinfo:
             sysinfo = {
@@ -1246,6 +1536,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         try:
             resp = http_post(f"{server}/api/heartbeat", payload)
             cmd = resp.get('command')
+            # v2.1.0: server may return HTTP 202 with {'busy': True, ...}
+            # when a save() couldn't acquire the per-file flock quickly
+            # (i.e. another writer is holding it). This is *not* a failure:
+            # the server intentionally drops this heartbeat's writes so the
+            # request doesn't stall past our HTTP timeout. We log it at
+            # debug and retry on the next normal cycle. http_post() doesn't
+            # surface the status code, so we detect 202 by the response
+            # shape (the {'busy': True} marker the server returns instead
+            # of the usual {'command': ..., 'poll_interval': ...} payload).
+            if resp.get('busy') is True:
+                log.debug(f"Server busy (HTTP 202) — retry on next poll")
+                # Skip command-processing and follow-up block; the next
+                # heartbeat will re-send everything that mattered.
+                cmd = None
             # v1.8.0: pick up server-pushed watch config
             # v1.8.3: log at info when it *changes* so ops can see config pushes
             if 'services_watched' in resp:

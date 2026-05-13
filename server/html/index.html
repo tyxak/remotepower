@@ -188,6 +188,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span>Library</span>
         </button>
+        <button class="nav-btn" onclick="showPage('scripts',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>Scripts</span>
+        </button>
         <button class="nav-btn" onclick="showPage('audit',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
@@ -270,6 +274,10 @@
           </button>
           <button class="btn-update" onclick="batchAction('update')" title="Update the RemotePower agent binary on each device">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8"/><polyline points="8 6 12 2 16 6"/><path d="M20 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6"/></svg> Update agent
+          </button>
+          <!-- v2.1.0: queue a saved script (multi-line) across the selected devices -->
+          <button class="btn-icon" style="padding:7px 14px" onclick="openScriptRunForBatch()" title="Pick a saved script and queue it on the selected devices">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Run script
           </button>
           <button class="btn-secondary" style="padding:7px 14px" onclick="clearSelection()">Clear</button>
         </div>
@@ -1409,6 +1417,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card"><table><thead id="cmdlib-thead"><tr><th data-col="name">Name</th><th data-col="cmd">Command</th><th data-col="description">Description</th><th></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet. </td></tr></tbody></table></div>
       </div>
 
+      <!-- v2.1.0: Scripts page — multi-line scripts, separate from one-liner Library -->
+      <div id="page-scripts" class="page">
+        <div class="page-title">Scripts</div>
+        <div class="page-subtitle">Multi-line bash scripts. Lint with <code>bash -n</code> + dangerous-command detection before they go anywhere. Run on a single device from the device dropdown, or on a batch via the multi-select bar.</div>
+        <div class="section-header">
+          <div class="section-title">Saved scripts</div>
+          <button class="enroll-btn" onclick="openScriptAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New script</button>
+        </div>
+        <div style="margin-bottom:16px"><input type="text" id="scripts-filter" class="form-input" placeholder="Filter by name or description…" style="max-width:380px;padding:8px 12px;font-size:13px" oninput="renderScriptsList()"></div>
+        <div class="table-card"><table>
+          <thead><tr>
+            <th style="width:30%">Name</th>
+            <th>Description</th>
+            <th style="width:90px">Size</th>
+            <th style="width:120px">Updated</th>
+            <th style="width:90px">Flags</th>
+            <th style="width:220px"></th>
+          </tr></thead>
+          <tbody id="scripts-tbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+
     </div><!-- /container -->
   </main>
   </div><!-- /app-content -->
@@ -1534,6 +1564,80 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea" style="min-height:160px;font-family:monospace" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('allowlist-modal')">Cancel</button><button class="btn-primary" onclick="saveAllowlist()">Save</button></div></div></div>
 <div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" style="display:none;margin-bottom:16px"><div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('apikey-create-modal')">Close</button><button class="btn-primary" id="apikey-create-btn" onclick="createApiKey()">Create</button></div></div></div>
 <div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button><button class="btn-primary" onclick="addCmdSnippet()">Add</button></div></div></div>
+
+<!-- v2.1.0: script editor modal (handles both add + edit; mode flag in script-edit-id) -->
+<div class="modal-overlay" id="script-edit-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="script-edit-title">New script</div>
+  <div class="modal-subtitle">Bash script. Runs as root on the target device. <code>bash -n</code> syntax-checked + scanned for dangerous patterns before save.</div>
+  <input type="hidden" id="script-edit-id">
+  <div class="form-group"><label class="form-label">Name</label><input type="text" id="script-edit-name" class="form-input" placeholder="rotate-nginx-logs.sh" maxlength="80"></div>
+  <div class="form-group"><label class="form-label">Description</label><input type="text" id="script-edit-desc" class="form-input" placeholder="Rotate /var/log/nginx and reload nginx" maxlength="512"></div>
+  <div class="form-group">
+    <label class="form-label">Body</label>
+    <textarea id="script-edit-body" class="form-input" style="font-family:monospace;min-height:240px;resize:vertical;white-space:pre" placeholder="#!/usr/bin/env bash&#10;set -euo pipefail&#10;&#10;# your script here…"></textarea>
+  </div>
+  <div id="script-edit-lint" style="display:none;font-size:12px;padding:10px 12px;border-radius:6px;margin-bottom:8px;font-family:monospace;white-space:pre-wrap;word-break:break-word"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('script-edit-modal')">Cancel</button>
+    <button class="btn-icon" onclick="runScriptDryRunFromEditor()" style="margin-right:auto">Dry run</button>
+    <button class="btn-primary" onclick="saveScriptFromEditor()">Save</button>
+  </div>
+</div></div>
+
+<!-- v2.1.0: pre-flight run-script modal (single device or current batch selection) -->
+<div class="modal-overlay" id="script-run-modal"><div class="modal modal-wide">
+  <div class="modal-title">Run script</div>
+  <div class="modal-subtitle" id="script-run-target">Pick a script to queue.</div>
+  <input type="hidden" id="script-run-device-id">
+  <input type="hidden" id="script-run-mode"><!-- 'single' | 'batch' -->
+  <div class="form-group"><label class="form-label">Script</label>
+    <select id="script-run-pick" class="form-input" onchange="onScriptRunPick()">
+      <option value="">— Choose a saved script —</option>
+    </select>
+  </div>
+  <div id="script-run-lint" style="display:none;font-size:12px;padding:10px 12px;border-radius:6px;margin-bottom:8px;font-family:monospace;white-space:pre-wrap;word-break:break-word"></div>
+  <label style="display:none;font-size:12px;color:var(--amber);margin-bottom:8px;cursor:pointer" id="script-run-confirm-wrap">
+    <input type="checkbox" id="script-run-confirm-dangerous" style="margin-right:6px">
+    I understand this script contains dangerous patterns and want to run it anyway
+  </label>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('script-run-modal')">Cancel</button>
+    <button class="btn-primary" onclick="confirmScriptRun()">Queue</button>
+  </div>
+</div></div>
+
+<!-- v2.1.0: batch job status — polled while a /api/exec/batch is in flight -->
+<div class="modal-overlay" id="batch-job-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="batch-job-title">Batch script run</div>
+  <div class="modal-subtitle" id="batch-job-sub">Polling for results…</div>
+  <input type="hidden" id="batch-job-id">
+  <div id="batch-job-body" style="min-height:120px;max-height:60vh;overflow-y:auto"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeBatchJobModal()">Close</button>
+    <button class="btn-icon" id="batch-job-refresh-btn" onclick="refreshBatchJob()">Refresh</button>
+  </div>
+</div></div>
+
+<!-- v2.1.0: docker-compose action modal on device cards -->
+<div class="modal-overlay" id="compose-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="compose-title">docker compose</div>
+  <div class="modal-subtitle" id="compose-sub">Choose a project, then an action. Output appears below.</div>
+  <input type="hidden" id="compose-device-id">
+  <div class="form-group"><label class="form-label">Project</label>
+    <select id="compose-project-pick" class="form-input"></select>
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn-icon" onclick="runCompose('up')">Up</button>
+    <button class="btn-icon" onclick="runCompose('down')" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Down</button>
+    <button class="btn-icon" onclick="runCompose('restart')">Restart</button>
+    <button class="btn-icon" onclick="runCompose('pull')">Pull</button>
+    <button class="btn-icon" onclick="runCompose('logs')">Logs (last 50)</button>
+  </div>
+  <div id="compose-result" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow-y:auto;color:var(--muted)">Queue an action — output arrives on the next heartbeat (~60s).</div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('compose-modal')">Close</button>
+  </div>
+</div></div>
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>

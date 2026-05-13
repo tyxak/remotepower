@@ -17,12 +17,13 @@ import socket
 import subprocess
 import shutil
 import fcntl
+import traceback
 import urllib.request
 import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.0.0'
+SERVER_VERSION = '2.1.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -55,6 +56,31 @@ RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
+
+# ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
+# cmd_library is for single-line snippets the operator picks from the exec
+# modal. Scripts are full multi-line bash that gets queued as an exec: body
+# at execution time. Stored separately because:
+#   * Different size budget (multi-line, larger payloads).
+#   * Different validation surface (dry-run via `bash -n` + dangerous-command
+#     detection on save and before queueing).
+#   * Different UI affordance (own page; multi-select batch runner).
+SCRIPTS_FILE         = DATA_DIR / 'scripts.json'
+BATCH_JOBS_FILE      = DATA_DIR / 'batch_jobs.json'
+MAX_SCRIPTS          = 500            # fleet-wide cap
+MAX_SCRIPT_NAME      = 80
+MAX_SCRIPT_DESC      = 512
+MAX_SCRIPT_BODY      = 64 * 1024      # 64 KB matches MAX_CMDB_DOC_LEN budget
+MAX_BATCH_TARGETS    = 100            # mirrors _resolve_targets cap
+BATCH_JOB_TTL_SEC    = 3600           # 1h — purges old jobs on next access
+
+# v2.1.0: docker-compose discovery + action endpoint. Projects come from
+# the agent's heartbeat (which scans /opt /home /docker /srv); the server
+# only stores the listing per-device and queues compose:<action>:<dir>
+# commands against the agent's exec channel.
+MAX_COMPOSE_PROJECTS_PER_DEVICE = 50
+MAX_COMPOSE_PATH_LEN            = 1024
+COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs')
 
 # ── v1.7.0: CVE scanner + package inventory ────────────────────────────────────
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
@@ -243,8 +269,14 @@ DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecke
 DEFAULT_TOKEN_TTL_LONG   = 86400 * 30   # 30 days — when "remember me" is checked
 TOKEN_TTL                = 86400 * 7    # legacy fallback if config has neither
 PIN_TTL                  = 600
-DEFAULT_ONLINE_TTL       = 180
-MIN_ONLINE_TTL           = 90           # lower than this and devices flap between polls
+# v2.1.1: bumped from 180→300 (3min→5min) so a device has to miss 5
+# heartbeats (at the default 60s poll) before it's marked offline. Field
+# reports of "device went offline" turning out to be brief network blips
+# or load spikes the agent recovered from on its own; 5 missed polls is
+# the new bar. Operators who want the old behaviour can lower it via the
+# Settings → Webhooks page or POST /api/config {"online_ttl": 180}.
+DEFAULT_ONLINE_TTL       = 300
+MIN_ONLINE_TTL           = 150          # don't allow flapping under <2.5 poll intervals
 DEFAULT_POLL_INTERVAL    = 60
 DEFAULT_CVE_CACHE_DAYS   = 7
 MAX_HISTORY       = 200
@@ -549,53 +581,170 @@ def load(path):
         return {}
 
 
-def save(path, data):
-    """Concurrent-safe atomic save. See module-level comment for the
-    threat model. Steps:
+# v2.1.0: split critical section. The v1.12.1 design held the lock across
+# the *entire* save — backup + write + fsync + rename. fsync alone can take
+# 50–200 ms on a busy ext4 / spinning disk, and the chained saves inside
+# handle_heartbeat (devices + cmd_output + containers + config + commands)
+# meant one slow writer could stall every agent's heartbeat behind it. The
+# CGI then bumped past the agent's HTTP timeout, the agent recorded the
+# poll as failed, the server flipped the device to offline — until the
+# next heartbeat made it online again. That was the "flock offline
+# fluctuation" reported in the field.
+#
+# The fix here moves the expensive work — serialise, write tmp, fsync —
+# *outside* the lock. The lock is now held only for the rename + the
+# rolling-backup copy of the previous canonical, both O(1) operations.
+# Per-process unique tmp filenames (.tmp.<pid>.<nonce>) already prevented
+# the corruption that originally motivated the lock, so writing the tmp
+# without the lock is safe; the lock only enforces "one rename at a time"
+# so concurrent renames don't tear the .bak rotation.
+#
+# Two new knobs:
+#   * non_blocking=True   — try LOCK_NB; on EAGAIN/EWOULDBLOCK after a
+#     short retry budget, raise LockBusy so the caller (heartbeat) can
+#     return HTTP 202 instead of stalling the agent. See handle_heartbeat.
+#   * Lock wait time is logged whenever the wait exceeds LOCK_WAIT_LOG_MS,
+#     so flock contention is visible in nginx's error log without enabling
+#     debug mode. If a future "fluctuation" report turns out *not* to be
+#     flock, these timings will say so quickly.
 
-      1. Round-trip serialise to catch logic bugs before any disk write
-      2. Acquire exclusive flock on a sidecar lock file
-      3. Rotate current file to .bak (if it exists)
-      4. Write to a per-process unique .tmp file with fsync
-      5. Atomic rename to the canonical path
-      6. Release the lock
+LOCK_WAIT_LOG_MS = 50           # log lock waits longer than this
+LOCK_NB_RETRIES  = 20           # 20 × 5 ms = 100 ms total before LockBusy
+LOCK_NB_SLEEP_S  = 0.005
 
-    The lock sidecar is a small zero-byte file that lives alongside the
-    data file. It exists only as a coordination point — never read for
-    its content. If it gets deleted between save() calls, it's just
-    re-created on the next call.
+
+class LockBusy(Exception):
+    """Raised by save(..., non_blocking=True) when the per-file flock is
+    held by another writer and the retry budget is exhausted. The caller
+    is expected to translate this into HTTP 202 (Accepted) so the agent
+    treats the heartbeat as delivered, retries on the next cycle, and
+    doesn't get flipped to offline."""
+    def __init__(self, path, waited_ms):
+        self.path = path
+        self.waited_ms = waited_ms
+        super().__init__(f"lock busy for {path} after {waited_ms} ms")
+
+
+def _acquire_lock(path, non_blocking):
+    """Open the sidecar lock file and acquire LOCK_EX (blocking) or LOCK_EX
+    | LOCK_NB with retries (non-blocking mode). Returns (lock_fd, waited_ms).
+
+    On success in non_blocking mode, waited_ms is the time spent waiting.
+    On failure in non_blocking mode, raises LockBusy.
     """
-    # Step 1: serialise + validate before any disk write
+    lock_p = _lock_path(path)
+    # Tolerate the sidecar not existing yet or its parent dir not
+    # existing yet — first save on a fresh data dir hits both cases.
     try:
-        # allow_nan=False rejects NaN, Infinity, -Infinity. Standard JSON
-        # doesn't allow them; Python's default does. Letting them through
-        # would mean other tools (jq, browsers, anything not Python) fail
-        # to parse our files.
+        lock_p.touch(mode=0o600, exist_ok=True)
+    except FileNotFoundError:
+        lock_p.parent.mkdir(parents=True, exist_ok=True)
+        lock_p.touch(mode=0o600, exist_ok=True)
+    lock_fd = os.open(str(lock_p), os.O_RDWR)
+
+    t0 = time.monotonic()
+    if non_blocking:
+        # Bounded retry loop — each attempt is non-blocking, sleep between.
+        # Total wall time is roughly LOCK_NB_RETRIES * LOCK_NB_SLEEP_S.
+        for _ in range(LOCK_NB_RETRIES):
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                waited_ms = int((time.monotonic() - t0) * 1000)
+                if waited_ms >= LOCK_WAIT_LOG_MS:
+                    sys.stderr.write(
+                        f"[remotepower] lock_wait path={path.name} "
+                        f"waited_ms={waited_ms} mode=nb pid={os.getpid()}\n")
+                return lock_fd, waited_ms
+            except BlockingIOError:
+                time.sleep(LOCK_NB_SLEEP_S)
+        # Budget exhausted — caller decides what to do
+        waited_ms = int((time.monotonic() - t0) * 1000)
+        try:
+            os.close(lock_fd)
+        except OSError:
+            pass
+        raise LockBusy(path, waited_ms)
+    else:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        waited_ms = int((time.monotonic() - t0) * 1000)
+        if waited_ms >= LOCK_WAIT_LOG_MS:
+            sys.stderr.write(
+                f"[remotepower] lock_wait path={path.name} "
+                f"waited_ms={waited_ms} mode=block pid={os.getpid()}\n")
+        return lock_fd, waited_ms
+
+
+def save(path, data, non_blocking=False):
+    """Concurrent-safe atomic save. See module-level comment for the
+    threat model and the v2.1.0 redesign rationale.
+
+    Sequence:
+      1. Round-trip serialise to catch logic bugs before any disk I/O.
+      2. Write to a per-process unique .tmp.<pid>.<nonce> file with fsync.
+         No lock held during this step — the unique filename prevents
+         collisions, and the eventual rename is what publishes the data.
+      3. Acquire the lock (blocking or LOCK_NB depending on the flag).
+      4. Copy the current canonical to .bak (rolling backup).
+      5. Atomic rename of the tmp into the canonical name.
+      6. Release the lock.
+
+    Raises LockBusy if non_blocking=True and the lock is contended for
+    longer than LOCK_NB_RETRIES * LOCK_NB_SLEEP_S.
+    """
+    # Step 1: serialise + validate before any disk write. Same as before —
+    # allow_nan=False rejects NaN / Infinity / -Infinity. Standard JSON
+    # doesn't allow them; Python's default does. Letting them through
+    # would mean every non-Python consumer (jq, browsers) fails to parse
+    # our files.
+    try:
         serialised = json.dumps(data, indent=2, allow_nan=False)
         json.loads(serialised)   # round-trip parse
     except (TypeError, ValueError) as exc:
-        # This is a logic bug somewhere upstream — we'd be writing data
-        # we can't read back. Refuse rather than corrupt.
         raise ValueError(f"Refusing to save unparseable data to {path}: {exc}")
 
-    # Step 2: acquire flock. The lock file lives in the same directory
-    # so it ends up on the same filesystem (matters for atomic rename).
-    lock_p = _lock_path(path)
+    # Step 2: write the tmp *outside* the lock. Per-process unique filename
+    # (pid + nonce) ensures no two writers ever share a tmp, so the historical
+    # interleaving bug stays fixed even without locking here.
+    tmp = path.with_name(
+        f'{path.name}.tmp.{os.getpid()}.{secrets.token_hex(4)}')
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(serialised)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # tmpfs and a few other filesystems don't support fsync.
+                # Not worth failing the write over.
+                pass
+    except Exception:
+        try:
+            Path(tmp).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    # Step 3–6: lock just long enough to rotate .bak + rename. Both are
+    # metadata ops on modern filesystems; the critical section is now
+    # microseconds rather than the tens-of-milliseconds the old fsync
+    # path could take.
     lock_fd = None
     try:
-        # mode=0o600, but tolerate it already existing
         try:
-            lock_p.touch(mode=0o600, exist_ok=True)
-        except FileNotFoundError:
-            # Parent dir doesn't exist; create it
-            lock_p.parent.mkdir(parents=True, exist_ok=True)
-            lock_p.touch(mode=0o600, exist_ok=True)
-        lock_fd = os.open(str(lock_p), os.O_RDWR)
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            lock_fd, _ = _acquire_lock(path, non_blocking)
+        except LockBusy:
+            # Tmp file is orphaned — clean it up before re-raising so we
+            # don't leave .tmp.<pid>.<nonce> sitting in the data dir forever.
+            try:
+                Path(tmp).unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
-        # Step 3: rolling backup. Copy (not rename) so a reader concurrently
-        # opening the canonical file doesn't get a hole. shutil.copy2
-        # preserves mode/owner/timestamps — close enough for backup.
+        # Rolling backup. Copy (not rename) so a reader concurrently
+        # opening the canonical doesn't get a hole. copy2 preserves
+        # mode/owner/timestamps — close enough for backup.
         if path.exists():
             try:
                 shutil.copy2(str(path), str(_backup_path(path)))
@@ -605,34 +754,14 @@ def save(path, data):
                 # save is not.
                 pass
 
-        # Step 4: write to per-process unique tmp file. {pid}.{nonce}
-        # guarantees no collision across CGI processes or threads.
-        tmp = path.with_name(
-            f'{path.name}.tmp.{os.getpid()}.{secrets.token_hex(4)}')
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        # Atomic publish
         try:
-            with os.fdopen(fd, 'w') as f:
-                f.write(serialised)
-                f.flush()
-                # fsync forces the bytes to durable storage. Without it,
-                # the rename can complete before the data is on disk;
-                # a power loss right after returns to a zero-length file.
-                # Cost is small for our file sizes; correctness is worth it.
-                try:
-                    os.fsync(f.fileno())
-                except OSError:
-                    # tmpfs and a few other filesystems don't support
-                    # fsync. Not worth failing the write over.
-                    pass
-
-            # Step 5: atomic rename
             os.replace(str(tmp), str(path))
             try:
                 os.chmod(str(path), 0o600)
             except OSError:
                 pass
         except Exception:
-            # Clean up orphan tmp on any failure
             try:
                 Path(tmp).unlink(missing_ok=True)
             except OSError:
@@ -640,13 +769,162 @@ def save(path, data):
             raise
 
     finally:
-        # Step 6: release lock (always, even on exception)
         if lock_fd is not None:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
                 os.close(lock_fd)
             except OSError:
                 pass
+
+
+# ─── v2.1.2: atomic read-modify-write ───────────────────────────────────────
+#
+# Field report from a real deployment showed last_seen values getting
+# *reverted* between heartbeats — `pmg01` heartbeats at T with last_seen=T,
+# 60s later the OFFLINE check reads last_seen=T-120 from devices.json.
+# Cause: classic lost-update race introduced by the v2.1.0 save() redesign.
+# v2.0 held the flock from before the tmp write through after the rename;
+# the v2.1.0 fsync-outside-lock optimisation moved tmp+fsync OUTSIDE the
+# lock, leaving only the rename protected.
+#
+# But the caller's pattern is read-modify-write:
+#     devices = load(DEVICES_FILE)        # reads OUTSIDE any lock
+#     devices[id]['last_seen'] = now      # in-memory mutation
+#     save(DEVICES_FILE, devices)         # only the rename is locked
+#
+# Two heartbeats interleaving:
+#   A: load → devices = {pmg01: T-180, web01: T-180}
+#   B: load → devices = {pmg01: T-180, web01: T-180}
+#   A: devices[pmg01].last_seen = T; write tmp.A with that snapshot
+#   B: devices[web01].last_seen  = T; write tmp.B with that snapshot
+#   A: lock → rename tmp.A → devices.json has pmg01=T, web01=T-180
+#   B: lock → rename tmp.B → devices.json has pmg01=T-180, web01=T  ← A's update lost
+#
+# The lock was protecting the rename. It wasn't protecting the read-modify-
+# write that the *caller* was doing. Holding the lock for longer in v2.0
+# happened to narrow the window but didn't eliminate it; v2.1.0's faster
+# saves widened it dramatically.
+#
+# Fix: callers that do read-modify-write must hold the lock across all
+# three steps. The context manager below does that. The yielded data is
+# loaded WHILE the lock is held; on clean exit, it's saved WHILE the lock
+# is still held. SystemExit (raised by respond()) is treated as "abort,
+# don't save" — the lock is still released.
+
+class _LockedUpdate:
+    """Context manager: acquire flock → load → yield data → save → release.
+
+    Usage:
+        with _locked_update(DEVICES_FILE) as devices:
+            devices[id]['last_seen'] = now
+            # auto-saved on exit if no exception
+
+    If the with-block raises (including SystemExit from respond()), the
+    save is skipped. The lock is always released. The on-disk file
+    cannot be torn or partially overwritten because save_held uses the
+    same tmp-and-rename pattern as save(); the difference is just that
+    the lock is already held.
+
+    `non_blocking` triggers LockBusy if the lock is contended past the
+    retry budget. Default is blocking — the alternative for the devices
+    update is the agent's heartbeat silently losing last_seen, which is
+    exactly the bug we're fixing.
+    """
+
+    def __init__(self, path, non_blocking=False):
+        self.path = path
+        self.non_blocking = non_blocking
+        self._lock_fd = None
+        self._data = None
+
+    def __enter__(self):
+        self._lock_fd, _wait = _acquire_lock(self.path, self.non_blocking)
+        try:
+            self._data = load(self.path)
+        except Exception:
+            # Release the lock if load itself fails; otherwise __exit__
+            # would also try to release a lock that's already released.
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                os.close(self._lock_fd)
+            except OSError:
+                pass
+            self._lock_fd = None
+            raise
+        return self._data
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            # Only save on clean exit. SystemExit (from respond()) and
+            # any other exception aborts the write — the partial dict
+            # is not safe to publish if the handler bailed out mid-way.
+            if exc_type is None and self._data is not None:
+                _save_held(self.path, self._data)
+        finally:
+            if self._lock_fd is not None:
+                try:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                    os.close(self._lock_fd)
+                except OSError:
+                    pass
+                self._lock_fd = None
+        return False  # don't swallow exceptions
+
+
+def _locked_update(path, non_blocking=False):
+    return _LockedUpdate(path, non_blocking)
+
+
+def _save_held(path, data):
+    """save() variant that assumes the caller already holds the flock.
+
+    Same serialise → tmp → fsync → backup → rename sequence; only the
+    flock acquisition and release are skipped. Used by _LockedUpdate
+    and anywhere else inside an already-locked section.
+    """
+    try:
+        serialised = json.dumps(data, indent=2, allow_nan=False)
+        json.loads(serialised)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Refusing to save unparseable data to {path}: {exc}")
+
+    tmp = path.with_name(
+        f'{path.name}.tmp.{os.getpid()}.{secrets.token_hex(4)}')
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, 'w') as f:
+            f.write(serialised)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+    except Exception:
+        try:
+            Path(tmp).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    if path.exists():
+        try:
+            shutil.copy2(str(path), str(_backup_path(path)))
+        except OSError:
+            pass
+
+    try:
+        os.replace(str(tmp), str(path))
+        try:
+            os.chmod(str(path), 0o600)
+        except OSError:
+            pass
+    except Exception:
+        try:
+            Path(tmp).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
 
 def ensure_default_user():
     users = load(USERS_FILE)
@@ -1251,7 +1529,23 @@ def _webhook_message(event, payload):
     elif event == 'service_up':
         return f'{name}: {payload.get("unit", "?")} is active again'
     elif event == 'log_alert':
-        return f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {payload.get("count", "?")} times'
+        # v2.1.1: include the first matched line in the message. Field
+        # report: "pattern matched 1 times" is useless on its own — the
+        # operator wants to see WHICH line tripped the rule so they can
+        # decide if it's a real alert or noise. We truncate aggressively
+        # (200 chars) because Discord/Slack message limits + multi-line
+        # journald entries can blow up the embed.
+        sample = payload.get('sample') or []
+        head = f'{name}/{payload.get("unit", "?")}: pattern "{payload.get("pattern", "")}" matched {payload.get("count", "?")} time(s)'
+        if isinstance(sample, list) and sample:
+            first = str(sample[0]).strip().replace('\n', ' ')
+            if len(first) > 200:
+                first = first[:200] + '…'
+            head += f'\n→ {first}'
+            extra = len(sample) - 1
+            if extra > 0:
+                head += f'\n(+ {extra} more matching line{"s" if extra > 1 else ""})'
+        return head
     # ── v1.11.4: container events ──────────────────────────────────────────
     elif event == 'container_stopped':
         return (f'{name}: container "{payload.get("container", "?")}" '
@@ -1346,30 +1640,60 @@ def _ts_fmt(ts):
 
 
 def check_offline_webhooks():
+    """Per-request sweep: walk every monitored device, flip the on/off
+    sticky bit, fire device_offline / device_online webhooks on edge.
+
+    v2.1.1: every state change now logs to stderr regardless of webhook
+    config. Previous versions only logged if a webhook fired, and only
+    inside the fire_webhook() path — so an operator who hadn't configured
+    webhooks had no way to tell from server logs why a device showed as
+    offline. The dashboard would just flip the badge silently and the
+    only artifact was 'last_seen' getting old in devices.json.
+    """
     cfg = load(CONFIG_FILE)
-    # v1.8.4: prefer per-event toggle from webhook_events dict; legacy keys still respected
-    if not is_webhook_event_enabled('device_offline'):
-        return
     devices = load(DEVICES_FILE)
     now = int(time.time())
+    ttl = get_online_ttl()
     notified = cfg.get('offline_notified', {})
+    webhook_enabled = is_webhook_event_enabled('device_offline')
     changed = False
     for dev_id, dev in devices.items():
-        # Skip devices that have monitoring disabled
+        if dev.get('agentless'):
+            continue
         if not dev.get('monitored', True):
             continue
         last = dev.get('last_seen', 0)
-        is_offline = (now - last) > get_online_ttl()
+        if not last:
+            continue  # never heartbeated, don't claim it went offline
+        delta = now - last
+        is_offline = delta > ttl
         already = notified.get(dev_id, False)
         if is_offline and not already:
-            fire_webhook('device_offline', {
-                'device_id': dev_id, 'name': dev.get('name', dev_id),
-                'hostname': dev.get('hostname', ''), 'last_seen': last,
-            })
-            notified[dev_id] = True; changed = True
+            # ALWAYS log the transition, regardless of webhook config. This
+            # is the single most useful diagnostic for the "why is X
+            # offline?" question — it tells the operator exactly when the
+            # server flipped state and what last_seen was at the time.
+            sys.stderr.write(
+                f"[remotepower] OFFLINE dev={dev_id} name={dev.get('name','?')!r} "
+                f"last_seen={last} delta={delta}s ttl={ttl}s "
+                f"poll_interval={dev.get('poll_interval', 60)}s\n")
+            if webhook_enabled:
+                fire_webhook('device_offline', {
+                    'device_id': dev_id, 'name': dev.get('name', dev_id),
+                    'hostname': dev.get('hostname', ''), 'last_seen': last,
+                    'delta_seconds': delta, 'ttl_seconds': ttl,
+                })
+            notified[dev_id] = True
+            changed = True
         elif not is_offline and already:
-            fire_webhook('device_online', {'device_id': dev_id, 'name': dev.get('name', dev_id)})
-            notified[dev_id] = False; changed = True
+            sys.stderr.write(
+                f"[remotepower] ONLINE dev={dev_id} name={dev.get('name','?')!r} "
+                f"last_seen={last} delta={delta}s\n")
+            if webhook_enabled:
+                fire_webhook('device_online', {'device_id': dev_id,
+                                               'name': dev.get('name', dev_id)})
+            notified[dev_id] = False
+            changed = True
     if changed:
         cfg['offline_notified'] = notified
         save(CONFIG_FILE, cfg)
@@ -1587,6 +1911,11 @@ def handle_devices_list():
             'agentless':    agentless,
             'connected_to': dev.get('connected_to', ''),
             'device_type':  dev.get('device_type', ''),
+            # v2.1.0: surface compose project count + reported_at so the
+            # dropdown on the device card knows whether to render. Full
+            # project list comes from GET /api/devices/<id>/compose.
+            'compose_projects_count': len(dev.get('compose_projects', []) or []),
+            'compose_projects_ts':    dev.get('compose_projects_ts', 0),
         })
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
     respond(200, result)
@@ -2291,99 +2620,179 @@ def handle_heartbeat():
     if not _validate_id(dev_id):
         respond(403, {'error': 'Unauthorized device'})
 
-    devices = load(DEVICES_FILE)
-    dev = devices.get(dev_id)
-    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
-        respond(403, {'error': 'Unauthorized device'})
-
-    now = int(time.time())
-    dev['last_seen'] = now
-
-    # Sanitize all fields coming from the agent
-    dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
-    dev['os']      = _sanitize_str(body.get('os', dev.get('os', '')), MAX_OS_LEN)
-    dev['version'] = _sanitize_version(body.get('version', dev.get('version', ''))) or dev.get('version', '')
-
-    if 'sysinfo' in body and isinstance(body['sysinfo'], dict):
-        si = body['sysinfo']
-        # Sanitize sysinfo sub-fields
-        safe_si = {}
-        if 'uptime' in si:
-            safe_si['uptime'] = _sanitize_str(si['uptime'], 128)
-        if 'platform' in si:
-            safe_si['platform'] = _sanitize_str(si['platform'], 256)
-        if 'packages' in si and isinstance(si['packages'], dict):
-            pkg = si['packages']
-            safe_pkg = {}
-            safe_pkg['manager'] = _sanitize_str(pkg.get('manager', ''), 32)
-            upg = pkg.get('upgradable')
-            safe_pkg['upgradable'] = int(upg) if isinstance(upg, int) and 0 <= upg <= 100000 else None
-            safe_si['packages'] = safe_pkg
-        if 'network' in si and isinstance(si['network'], list):
-            safe_net = []
-            for iface in si['network'][:20]:  # max 20 interfaces
-                if isinstance(iface, dict):
-                    safe_net.append({
-                        'iface': _sanitize_str(iface.get('iface', ''), 32),
-                        'ip':    _sanitize_ip(iface.get('ip', '')),
-                        'mac':   _sanitize_mac(iface.get('mac', '')),
-                    })
-            safe_si['network'] = safe_net
-        # Metrics — legacy three (root-mount disk, cpu, memory) plus
-        # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
-        for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
-            val = si.get(metric_key)
-            if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
-                safe_si[metric_key] = round(float(val), 2)
-        # loadavg can be > 100 on a heavily loaded box — different validation
-        for fkey in ('loadavg_1m',):
-            v = si.get(fkey)
-            if isinstance(v, (int, float)) and 0.0 <= v <= 1000.0:
-                safe_si[fkey] = round(float(v), 2)
-        # cpu_count
-        cc = si.get('cpu_count')
-        if isinstance(cc, int) and 1 <= cc <= 1024:
-            safe_si['cpu_count'] = cc
-        # mounts: bounded list, each with sanitised path, percent, sizes
-        if isinstance(si.get('mounts'), list):
-            safe_mounts = []
-            for m in si['mounts'][:50]:
-                if not isinstance(m, dict):
-                    continue
-                p = _sanitize_str(m.get('path', ''), 256)
-                if not p or not p.startswith('/'):
-                    continue
-                pct = m.get('percent')
-                if not (isinstance(pct, (int, float)) and 0.0 <= pct <= 100.0):
-                    continue
-                safe_mounts.append({
-                    'path':     p,
-                    'percent':  round(float(pct), 1),
-                    'used_gb':  round(float(m.get('used_gb', 0)), 2)
-                                  if isinstance(m.get('used_gb'), (int, float)) else 0,
-                    'total_gb': round(float(m.get('total_gb', 0)), 2)
-                                  if isinstance(m.get('total_gb'), (int, float)) else 0,
-                    'fstype':   _sanitize_str(m.get('fstype', ''), 32),
-                })
-            safe_si['mounts'] = safe_mounts
-        dev['sysinfo'] = safe_si
-        _record_metrics(dev_id, safe_si)
-        # v1.11.10: check thresholds and fire metric_warning / metric_critical /
-        # metric_recovered webhooks. Wrapped in try so a logic bug here never
-        # breaks the heartbeat path.
+    # v2.1.0: every non-DEVICES save() inside this handler uses
+    # non_blocking=True. If any of them hits LockBusy, we bail with HTTP 202
+    # (Accepted) — the agent treats 202 as "delivered, retry next cycle",
+    # so a contended save no longer stalls the request long enough for
+    # the agent's HTTP timeout to fire and the device to flip to offline.
+    # The DEVICES_FILE update is the *one* save that must complete
+    # synchronously; it's done via _locked_update below (v2.1.2 fix for
+    # the lost-update race that the v2.1.0 non-blocking version
+    # introduced).
+    def _save_nb(path, data):
         try:
-            process_metric_thresholds(dev_id, dev, safe_si)
-        except Exception:
-            pass
+            save(path, data, non_blocking=True)
+        except LockBusy as lb:
+            sys.stderr.write(
+                f"[remotepower] heartbeat 202 dev={dev_id} path={path.name} "
+                f"waited_ms={lb.waited_ms}\n")
+            respond(202, {'busy': True, 'retry_after': 1})
 
-    if 'journal' in body and isinstance(body['journal'], list):
-        # Cap journal: max lines and max bytes per line
-        lines = body['journal'][:MAX_JOURNAL_LINES]
-        dev['journal'] = [str(l)[:MAX_JOURNAL_LINE] for l in lines]
+    # v2.1.2: atomic read-modify-write for devices.json. The whole block —
+    # load through final mutation — runs under the flock so two concurrent
+    # heartbeats can't lose each other's updates. See the comment on
+    # _LockedUpdate in this file for the bug rationale. The lock blocks
+    # for as long as it takes; the work inside is bounded (a few hundred
+    # μs of regex / sanitisation), so even under fleet-wide poll bursts
+    # the wait is short. We cache the few values we need *outside* the
+    # lock (device name, poll interval, allowlist, etc.) before exit.
+    saved_dev = {}
+    with _locked_update(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+            # respond() raises SystemExit; __exit__ skips the save, releases
+            # the lock. No partial write on disk.
+            respond(403, {'error': 'Unauthorized device'})
 
-    devices[dev_id] = dev
-    save(DEVICES_FILE, devices)
-    _record_uptime(dev_id, dev.get('name', dev_id), True)
+        now = int(time.time())
+        dev['last_seen'] = now
+
+        # Sanitize all fields coming from the agent
+        dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
+        dev['os']      = _sanitize_str(body.get('os', dev.get('os', '')), MAX_OS_LEN)
+        dev['version'] = _sanitize_version(body.get('version', dev.get('version', ''))) or dev.get('version', '')
+
+        if 'sysinfo' in body and isinstance(body['sysinfo'], dict):
+            si = body['sysinfo']
+            # Sanitize sysinfo sub-fields
+            safe_si = {}
+            if 'uptime' in si:
+                safe_si['uptime'] = _sanitize_str(si['uptime'], 128)
+            if 'platform' in si:
+                safe_si['platform'] = _sanitize_str(si['platform'], 256)
+            if 'packages' in si and isinstance(si['packages'], dict):
+                pkg = si['packages']
+                safe_pkg = {}
+                safe_pkg['manager'] = _sanitize_str(pkg.get('manager', ''), 32)
+                upg = pkg.get('upgradable')
+                safe_pkg['upgradable'] = int(upg) if isinstance(upg, int) and 0 <= upg <= 100000 else None
+                safe_si['packages'] = safe_pkg
+            if 'network' in si and isinstance(si['network'], list):
+                safe_net = []
+                for iface in si['network'][:20]:  # max 20 interfaces
+                    if isinstance(iface, dict):
+                        safe_net.append({
+                            'iface': _sanitize_str(iface.get('iface', ''), 32),
+                            'ip':    _sanitize_ip(iface.get('ip', '')),
+                            'mac':   _sanitize_mac(iface.get('mac', '')),
+                        })
+                safe_si['network'] = safe_net
+            # Metrics — legacy three (root-mount disk, cpu, memory) plus
+            # v1.11.10 additions: per-mount disk list, swap, loadavg, cpu_count.
+            for metric_key in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
+                val = si.get(metric_key)
+                if isinstance(val, (int, float)) and 0.0 <= val <= 100.0:
+                    safe_si[metric_key] = round(float(val), 2)
+            # loadavg can be > 100 on a heavily loaded box — different validation
+            for fkey in ('loadavg_1m',):
+                v = si.get(fkey)
+                if isinstance(v, (int, float)) and 0.0 <= v <= 1000.0:
+                    safe_si[fkey] = round(float(v), 2)
+            # cpu_count
+            cc = si.get('cpu_count')
+            if isinstance(cc, int) and 1 <= cc <= 1024:
+                safe_si['cpu_count'] = cc
+            # mounts: bounded list, each with sanitised path, percent, sizes
+            if isinstance(si.get('mounts'), list):
+                safe_mounts = []
+                for m in si['mounts'][:50]:
+                    if not isinstance(m, dict):
+                        continue
+                    p = _sanitize_str(m.get('path', ''), 256)
+                    if not p or not p.startswith('/'):
+                        continue
+                    pct = m.get('percent')
+                    if not (isinstance(pct, (int, float)) and 0.0 <= pct <= 100.0):
+                        continue
+                    safe_mounts.append({
+                        'path':     p,
+                        'percent':  round(float(pct), 1),
+                        'used_gb':  round(float(m.get('used_gb', 0)), 2)
+                                      if isinstance(m.get('used_gb'), (int, float)) else 0,
+                        'total_gb': round(float(m.get('total_gb', 0)), 2)
+                                      if isinstance(m.get('total_gb'), (int, float)) else 0,
+                        'fstype':   _sanitize_str(m.get('fstype', ''), 32),
+                    })
+                safe_si['mounts'] = safe_mounts
+            dev['sysinfo'] = safe_si
+            # _record_metrics writes to METRICS_FILE (different lock — no
+            # deadlock with the DEVICES_FILE lock we currently hold)
+            _record_metrics(dev_id, safe_si)
+            # v1.11.10: check thresholds and fire metric_warning / metric_critical /
+            # metric_recovered webhooks. Wrapped in try so a logic bug here never
+            # breaks the heartbeat path. process_metric_thresholds touches
+            # CONFIG_FILE only, not DEVICES_FILE.
+            try:
+                process_metric_thresholds(dev_id, dev, safe_si)
+            except Exception:
+                pass
+
+        if 'journal' in body and isinstance(body['journal'], list):
+            # Cap journal: max lines and max bytes per line
+            lines = body['journal'][:MAX_JOURNAL_LINES]
+            dev['journal'] = [str(l)[:MAX_JOURNAL_LINE] for l in lines]
+
+        # v2.1.0 compose_projects update. Moved INSIDE the locked block
+        # in v2.1.2 so it's part of the same atomic devices.json update —
+        # losing the compose listing isn't catastrophic but the previous
+        # design did a separate save() afterwards which was vulnerable to
+        # the same lost-update race as last_seen.
+        if 'compose_projects' in body:
+            raw_projects = body.get('compose_projects') or []
+            if isinstance(raw_projects, list):
+                safe_projects = []
+                for p in raw_projects[:MAX_COMPOSE_PROJECTS_PER_DEVICE]:
+                    if not isinstance(p, dict):
+                        continue
+                    path_s = _sanitize_str(p.get('path', ''), MAX_COMPOSE_PATH_LEN)
+                    pdir = _sanitize_str(p.get('dir', ''), MAX_COMPOSE_PATH_LEN)
+                    pname = _sanitize_str(p.get('name', ''), 128)
+                    if not path_s.startswith('/') or not pdir.startswith('/'):
+                        continue
+                    if not path_s.startswith(pdir.rstrip('/') + '/'):
+                        continue
+                    mtime = p.get('mtime')
+                    safe_projects.append({
+                        'path':  path_s,
+                        'dir':   pdir,
+                        'name':  pname or pdir.rsplit('/', 1)[-1],
+                        'mtime': int(mtime) if isinstance(mtime, int) and mtime >= 0 else 0,
+                    })
+                dev['compose_projects'] = safe_projects
+                dev['compose_projects_ts'] = now
+
+        devices[dev_id] = dev
+        # Cache a snapshot of the fields we'll need below, so we don't
+        # have to re-acquire the lock just to read them.
+        saved_dev['name']          = dev.get('name', dev_id)
+        saved_dev['last_seen']     = dev['last_seen']
+        saved_dev['poll_interval'] = dev.get('poll_interval', 60)
+        saved_dev['cmd_allowlist'] = dev.get('cmd_allowlist', [])
+        saved_dev['agentless']     = dev.get('agentless', False)
+        saved_dev['services_watched'] = dev.get('services_watched', [])
+        saved_dev['log_watch']     = dev.get('log_watch', [])
+        # devices is auto-saved here by _LockedUpdate.__exit__, atomically
+        # under the same flock we acquired at __enter__.
+
+    # ── OUT OF THE LOCK ────────────────────────────────────────────────
+    # Everything below this point operates on OTHER files (cmd_output,
+    # containers, etc.) — each has its own flock. Holding DEVICES_FILE's
+    # lock for any longer would serialise all heartbeat handling for no
+    # benefit.
+    sys.stderr.write(
+        f"[remotepower] heartbeat dev={dev_id} name={saved_dev['name']!r} "
+        f"last_seen={saved_dev['last_seen']} pid={os.getpid()}\n")
+    _record_uptime(dev_id, saved_dev['name'], True)
 
     # v1.8.0: process service report
     if 'services' in body and isinstance(body['services'], list):
@@ -2417,7 +2826,7 @@ def handle_heartbeat():
             'rc':     int(co['rc']) if isinstance(co.get('rc'), int) else -1,
         })
         outputs[dev_id] = outputs[dev_id][-MAX_CMD_OUTPUT:]
-        save(CMD_OUTPUT_FILE, outputs)
+        _save_nb(CMD_OUTPUT_FILE, outputs)
         _resolve_longpoll(dev_id, body['cmd_output'])
 
         # v1.10.0: if this output is from a package-upgrade run, also archive
@@ -2446,7 +2855,7 @@ def handle_heartbeat():
                 'triggered_by': '',                # actor info already in audit log
             })
             ulogs[dev_id] = ulogs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
-            save(UPDATE_LOGS_FILE, ulogs)
+            _save_nb(UPDATE_LOGS_FILE, ulogs)
 
     # ── v1.10.0: dedicated update output channel ───────────────────────────
     # Agent posts {'update_log': {started_at, finished_at, exit_code,
@@ -2468,7 +2877,7 @@ def handle_heartbeat():
             'triggered_by': _sanitize_str(ul.get('triggered_by', ''), 64),
         })
         logs[dev_id] = logs[dev_id][-MAX_UPDATE_LOGS_PER_DEVICE:]
-        save(UPDATE_LOGS_FILE, logs)
+        _save_nb(UPDATE_LOGS_FILE, logs)
 
     # ── v1.11.0: container/k8s listing ─────────────────────────────────────
     # Agent posts {'containers': [<list of normalised entries>]} when it has
@@ -2488,7 +2897,7 @@ def handle_heartbeat():
             pass  # never let container processing break heartbeat
         store = load(CONTAINERS_FILE)
         store[dev_id] = {'ts': now, 'items': normalised}
-        save(CONTAINERS_FILE, store)
+        _save_nb(CONTAINERS_FILE, store)
         # v1.11.4: this device just gave us fresh container data, so clear
         # any "containers_stale" notified flag — the next time it goes stale
         # we want a new webhook to fire (matches device_offline pattern).
@@ -2497,17 +2906,30 @@ def handle_heartbeat():
         if isinstance(stale_notified, dict) and stale_notified.get(dev_id):
             stale_notified[dev_id] = False
             cfg_now['containers_stale_notified'] = stale_notified
-            save(CONFIG_FILE, cfg_now)
+            _save_nb(CONFIG_FILE, cfg_now)
+
+    # v2.1.0 compose_projects update was previously here as a separate
+    # save. v2.1.2 moved it inside the _locked_update block above so it
+    # participates in the same atomic devices.json transaction as
+    # last_seen — the prior structure was vulnerable to the same
+    # lost-update race.
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
+    # v2.1.2: use the snapshot we captured under the lock instead of the
+    # leaked `dev` reference from the with-block. After exit, devices has
+    # been written back to disk and `dev` is just an in-memory copy that
+    # nobody else can observe; for the fields that vary at runtime (e.g.
+    # poll_interval can be changed by an admin between heartbeats), we'd
+    # want the value as-of the heartbeat which is exactly what saved_dev
+    # holds.
     common_resp = {
-        'poll_interval':    dev.get('poll_interval', 60),
-        'services_watched': dev.get('services_watched', []),
-        'log_watch':        dev.get('log_watch', []),
+        'poll_interval':    saved_dev['poll_interval'],
+        'services_watched': saved_dev.get('services_watched', []),
+        'log_watch':        saved_dev.get('log_watch', []),
     }
     if pending:
-        cmd = pending.pop(0); cmds[dev_id] = pending; save(CMDS_FILE, cmds)
+        cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
         respond(200, {'command': cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
@@ -3972,6 +4394,176 @@ def handle_device_containers_clear(dev_id: str) -> None:
     respond(200, {'ok': True, 'cleared': had_entry})
 
 
+# ─── v2.1.0: docker-compose dropdown ────────────────────────────────────────
+#
+# GET    /api/devices/<id>/compose          — list reported compose projects
+# POST   /api/devices/<id>/compose/action   — queue compose:<action>:<dir>
+#
+# Projects are reported by the agent in its heartbeat (see
+# get_compose_projects in client/remotepower-agent). We never read directly
+# from a path the operator typed — the action endpoint verifies the
+# requested `dir` is one of the paths the agent itself reported, so a
+# stale or malicious admin POST can't ask the agent to run compose against
+# arbitrary directories.
+
+def handle_device_compose_list(dev_id):
+    """List the compose projects this device reported in its heartbeat."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    projects = dev.get('compose_projects', []) or []
+    respond(200, {
+        'device_id': dev_id,
+        'projects':  projects,
+        'reported_at': dev.get('compose_projects_ts', 0),
+        # If docker is installed but no projects were found, the agent
+        # still reports an empty list — letting the UI distinguish "we
+        # checked, none found" from "we never checked, no data".
+        'docker_seen': bool(dev.get('compose_projects_ts')),
+    })
+
+
+def handle_device_compose_action(dev_id):
+    """Queue a compose:<action>:<dir> command after validating both halves.
+
+    The `dir` is required to be one of the paths the agent itself reported.
+    This is the critical security boundary: even an admin token can't ask
+    a device to run docker compose against /etc/passwd or some other
+    arbitrary directory. The action is restricted to the small fixed set
+    COMPOSE_ALLOWED_ACTIONS (also enforced agent-side as belt-and-braces).
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    action = str(body.get('action', '')).strip().lower()
+    project_dir = str(body.get('dir', '')).strip()
+
+    if action not in COMPOSE_ALLOWED_ACTIONS:
+        respond(400, {'error': f'action must be one of {list(COMPOSE_ALLOWED_ACTIONS)}'})
+    if not project_dir or len(project_dir) > MAX_COMPOSE_PATH_LEN:
+        respond(400, {'error': 'dir required'})
+
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    if dev.get('agentless'):
+        respond(400, {'error': 'cannot run compose on agentless device'})
+
+    # Path must match a project the agent reported. This is *the* security
+    # check — if it weren't here, a stolen admin token could ask any
+    # device for `compose:up:/etc` (which the agent would reject anyway,
+    # but defence-in-depth: belt-and-braces).
+    reported = dev.get('compose_projects', []) or []
+    reported_dirs = {p.get('dir') for p in reported if isinstance(p, dict)}
+    if project_dir not in reported_dirs:
+        respond(400, {
+            'error': 'dir not in this device\'s reported compose projects '
+                     '(refresh the listing if you just added the project)'
+        })
+
+    # Queue the command. The agent re-validates everything when it dequeues.
+    cmd_payload = f'compose:{action}:{project_dir}'
+    cmds = load(CMDS_FILE)
+    cmds.setdefault(dev_id, [])
+    if cmd_payload not in cmds[dev_id]:
+        cmds[dev_id].append(cmd_payload)
+    save(CMDS_FILE, cmds)
+
+    log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
+    audit_log(actor, 'compose_action',
+              detail=f'device={dev_id} action={action} dir={project_dir!r}')
+    fire_webhook('command_queued', {
+        'device_id': dev_id, 'name': dev.get('name', dev_id),
+        'command':   cmd_payload, 'actor': actor,
+    })
+    respond(200, {'ok': True, 'queued': cmd_payload})
+
+
+# v2.1.1: per-container action endpoint. Matches compose semantics:
+# action is allowlisted, container ID is validated against the agent's
+# reported listing so the server can't ask the agent to act on an
+# arbitrary container. Agent re-validates everything when it dequeues.
+CONTAINER_ACTION_ALLOWED = ('start', 'stop', 'restart', 'pause', 'unpause', 'logs')
+
+
+def handle_device_container_action(dev_id):
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    action = str(body.get('action', '')).strip().lower()
+    container_id = str(body.get('container_id', '')).strip()
+    runtime = str(body.get('runtime', '')).strip().lower() or 'docker'
+
+    if action not in CONTAINER_ACTION_ALLOWED:
+        respond(400, {'error': f'action must be one of {list(CONTAINER_ACTION_ALLOWED)}'})
+    if runtime not in ('docker', 'podman'):
+        respond(400, {'error': 'runtime must be docker or podman'})
+    # Tight ID validation here too — defence in depth even though agent
+    # re-validates. Blocks anyone shoving a path-traversal or argv
+    # injection through the dashboard before the command ever reaches
+    # the wire.
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$', container_id):
+        respond(400, {'error': 'invalid container_id'})
+
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    if dev.get('agentless'):
+        respond(400, {'error': 'cannot run container actions on agentless device'})
+
+    # Verify the container ID matches one this device reported in its
+    # last heartbeat. Same security boundary as compose: even an admin
+    # token can't ask any device to act on arbitrary container IDs.
+    store = load(CONTAINERS_FILE)
+    reported = (store.get(dev_id) or {}).get('items', []) or []
+    reported_ids = set()
+    for c in reported:
+        if isinstance(c, dict):
+            cid = c.get('id') or c.get('container_id') or c.get('name')
+            if cid:
+                reported_ids.add(str(cid))
+            # Container IDs are reported as 12-char short IDs OR full
+            # 64-char IDs depending on runtime. Accept either by also
+            # adding any longer ID's 12-char prefix.
+            full = c.get('id_full') or c.get('full_id')
+            if full and isinstance(full, str):
+                reported_ids.add(full)
+                reported_ids.add(full[:12])
+    if container_id not in reported_ids:
+        respond(400, {'error':
+                      'container_id not in this device\'s reported container '
+                      'list (refresh the listing if you just started it)'})
+
+    cmd_payload = f'container:{runtime}:{action}:{container_id}'
+    cmds = load(CMDS_FILE)
+    cmds.setdefault(dev_id, [])
+    if cmd_payload not in cmds[dev_id]:
+        cmds[dev_id].append(cmd_payload)
+    save(CMDS_FILE, cmds)
+
+    log_command(actor, dev_id, dev.get('name', dev_id), cmd_payload)
+    audit_log(actor, 'container_action',
+              detail=f'device={dev_id} runtime={runtime} action={action} '
+                     f'container={container_id!r}')
+    fire_webhook('command_queued', {
+        'device_id': dev_id, 'name': dev.get('name', dev_id),
+        'command':   cmd_payload, 'actor': actor,
+    })
+    respond(200, {'ok': True, 'queued': cmd_payload})
+
+
 # ─── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────────
 
 
@@ -4661,6 +5253,425 @@ def handle_cmd_library_delete(snippet_id):
     if len(snippets) == len(lib.get('snippets', [])): respond(404, {'error': 'Snippet not found'})
     lib['snippets'] = snippets; save(CMD_LIBRARY_FILE, lib)
     respond(200, {'ok': True})
+
+
+# ── v2.1.0: Multi-line script library ─────────────────────────────────────────
+#
+# Saved bash scripts (CRUD + dry-run) live in scripts.json. The execution
+# path reuses the existing `exec:` command channel — when an operator runs a
+# script, the server builds an `exec:<body>` and queues it via the normal
+# command pipeline. So the agent doesn't need any new capability: scripts
+# are just multi-line exec payloads with a name attached.
+#
+# Security posture:
+#   * Admin-only (same as exec).
+#   * `bash -n` syntax check on save and as part of dry-run (catches
+#     unterminated quotes, missing fi/done before they hit production).
+#   * Dangerous-command heuristic flags rm -rf /, fork bombs, dd to block
+#     devices, etc. The heuristic is advisory — admins can save a script
+#     containing dangerous commands (they're admins, they get to make
+#     that decision) but the dry-run surfaces the matches and the dispatch
+#     endpoint forces an explicit ack via {"confirm_dangerous": true}.
+#   * Body size capped at MAX_SCRIPT_BODY (64 KB), well under MAX_CMD_OUT_BYTES.
+#   * Per-device allowlist is *not* applied to scripts. Allowlist matches
+#     exact one-liners; arbitrary scripts wouldn't ever match. If an
+#     operator wants to lock down a device, they shouldn't let scripts
+#     reach it — that's a future "per-device script-policy" feature.
+
+# Patterns that strongly suggest the script would do something dangerous.
+# All matched case-insensitively. False positives are acceptable here —
+# this is a confirmation prompt, not a block. A name like "wipe-disk.sh"
+# triggers nothing on its own; the body has to contain the regex.
+_DANGEROUS_PATTERNS = [
+    (r'\brm\s+(-[rRf]+\s+)+/(\s|$)',     'rm -rf /'),
+    (r'\brm\s+(-[rRf]+\s+)+/\*',         'rm -rf /*'),
+    # Long-flag form: `rm -rf --no-preserve-root /` is the standard
+    # incantation to defeat GNU rm's built-in safety check, so it's
+    # specifically worth flagging.
+    (r'\brm\s+[^\n]*--no-preserve-root[^\n]*\s+/(\s|$)',
+                                          'rm --no-preserve-root /'),
+    (r':\(\)\s*\{\s*:\|:&\s*\}\s*;\s*:', 'fork bomb (:(){ :|:& };:)'),
+    (r'\bdd\s+[^\n]*of=/dev/(sd|nvme|xvd|vd|hd)[a-z]', 'dd writing to a block device'),
+    (r'\bmkfs(\.\w+)?\s+/dev/',          'mkfs against a raw device'),
+    (r'\bchmod\s+(-R\s+)?[0-9]+\s+/(\s|$)', 'chmod against /'),
+    (r'\bchown\s+-R\s+\S+\s+/(\s|$)',    'chown -R against /'),
+    (r'>\s*/dev/sd[a-z]',                'redirecting output to a block device'),
+    (r'\bshred\s+[^\n]*/dev/',           'shred against a block device'),
+    (r'\bcurl\s+[^\n|]*\|\s*(sudo\s+)?(bash|sh)\b', 'curl … | bash (remote code execution)'),
+    (r'\bwget\s+[^\n|]*\|\s*(sudo\s+)?(bash|sh)\b', 'wget … | bash (remote code execution)'),
+    (r'\b/etc/shadow\b',                 'reads/writes /etc/shadow'),
+]
+
+
+def _script_lint(body):
+    """Return {'ok': bool, 'syntax_error': str|None, 'dangerous': [...]}.
+
+    Syntax check: `bash -n` on the script body via stdin (never written
+    to a file, so no race conditions or leftover artifacts). 5-second
+    timeout — bash -n is normally instant; a stuck shell shouldn't hang
+    the request.
+
+    Dangerous-command check: regex sweep against _DANGEROUS_PATTERNS.
+    """
+    result = {'ok': True, 'syntax_error': None, 'dangerous': []}
+    # Syntax
+    try:
+        proc = subprocess.run(
+            ['bash', '-n'],
+            input=body,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            result['ok'] = False
+            result['syntax_error'] = (proc.stderr or proc.stdout or 'bash -n failed').strip()[:2000]
+    except FileNotFoundError:
+        # No bash on the server — skip the syntax check rather than
+        # failing closed (the script will run on the *agent*, which has
+        # its own bash). Surface this in the result so the UI can show
+        # "syntax check skipped" rather than a confusing "passed".
+        result['syntax_error'] = '__skipped__'
+    except subprocess.TimeoutExpired:
+        result['ok'] = False
+        result['syntax_error'] = 'bash -n timed out after 5s'
+
+    # Dangerous-command heuristics
+    for pat, label in _DANGEROUS_PATTERNS:
+        if re.search(pat, body, re.IGNORECASE | re.MULTILINE):
+            result['dangerous'].append(label)
+    return result
+
+
+def _sanitize_script_body(s):
+    """Reject the obvious wrong shapes and truncate to budget."""
+    if not isinstance(s, str):
+        return ''
+    # Reject ASCII control characters except tab + newline. Lets unicode
+    # through (people put comments in Greek / Cyrillic / etc.) but blocks
+    # anything that would confuse terminals or break JSON encoding.
+    s = ''.join(c for c in s if c in '\t\n' or ord(c) >= 0x20)
+    return s[:MAX_SCRIPT_BODY]
+
+
+def handle_scripts_list():
+    require_auth()
+    data = load(SCRIPTS_FILE)
+    scripts = data.get('scripts', [])
+    # Return body lengths but not bodies in the list endpoint — keeps the
+    # response small for fleets with lots of long scripts. Body is fetched
+    # via GET /api/scripts/<id>.
+    out = []
+    for s in scripts:
+        out.append({
+            'id':          s.get('id'),
+            'name':        s.get('name'),
+            'description': s.get('description', ''),
+            'created':     s.get('created'),
+            'updated':     s.get('updated', s.get('created')),
+            'created_by':  s.get('created_by', ''),
+            'body_len':    len(s.get('body', '')),
+            'dangerous':   bool(s.get('last_lint', {}).get('dangerous')),
+        })
+    respond(200, out)
+
+
+def handle_scripts_get(script_id):
+    require_auth()
+    if not _validate_id(script_id):
+        respond(404, {'error': 'Script not found'})
+    data = load(SCRIPTS_FILE)
+    for s in data.get('scripts', []):
+        if s.get('id') == script_id:
+            respond(200, s)
+    respond(404, {'error': 'Script not found'})
+
+
+def handle_scripts_add():
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    name = _sanitize_str(body.get('name', ''), MAX_SCRIPT_NAME, allow_empty=False)
+    desc = _sanitize_str(body.get('description', ''), MAX_SCRIPT_DESC)
+    script_body = _sanitize_script_body(body.get('body', ''))
+    if not name:
+        respond(400, {'error': 'name required'})
+    if not script_body.strip():
+        respond(400, {'error': 'body required'})
+
+    data = load(SCRIPTS_FILE)
+    scripts = data.get('scripts', [])
+    if len(scripts) >= MAX_SCRIPTS:
+        respond(400, {'error': f'Script library limit reached (max {MAX_SCRIPTS} scripts)'})
+
+    lint = _script_lint(script_body)
+    new = {
+        'id':          secrets.token_hex(6),
+        'name':        name,
+        'description': desc,
+        'body':        script_body,
+        'created':     int(time.time()),
+        'updated':     int(time.time()),
+        'created_by':  actor,
+        'last_lint':   lint,
+    }
+    scripts.append(new)
+    data['scripts'] = scripts
+    save(SCRIPTS_FILE, data)
+    audit_log(actor, 'script_create', detail=f'name={name!r} id={new["id"]} '
+              f'body_len={len(script_body)} dangerous={lint["dangerous"]}')
+    respond(201, {'ok': True, 'script': new, 'lint': lint})
+
+
+def handle_scripts_update(script_id):
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(script_id):
+        respond(404, {'error': 'Script not found'})
+    body = get_json_body()
+    data = load(SCRIPTS_FILE)
+    scripts = data.get('scripts', [])
+    for s in scripts:
+        if s.get('id') == script_id:
+            if 'name' in body:
+                s['name'] = _sanitize_str(body['name'], MAX_SCRIPT_NAME, allow_empty=False) or s['name']
+            if 'description' in body:
+                s['description'] = _sanitize_str(body['description'], MAX_SCRIPT_DESC)
+            if 'body' in body:
+                new_body = _sanitize_script_body(body['body'])
+                if new_body.strip():
+                    s['body'] = new_body
+                    s['last_lint'] = _script_lint(new_body)
+            s['updated'] = int(time.time())
+            data['scripts'] = scripts
+            save(SCRIPTS_FILE, data)
+            audit_log(actor, 'script_update',
+                      detail=f'id={script_id} name={s["name"]!r}')
+            respond(200, {'ok': True, 'script': s})
+    respond(404, {'error': 'Script not found'})
+
+
+def handle_scripts_delete(script_id):
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(script_id):
+        respond(404, {'error': 'Script not found'})
+    data = load(SCRIPTS_FILE)
+    scripts = data.get('scripts', [])
+    before = len(scripts)
+    deleted_name = None
+    for s in scripts:
+        if s.get('id') == script_id:
+            deleted_name = s.get('name')
+            break
+    scripts = [s for s in scripts if s.get('id') != script_id]
+    if len(scripts) == before:
+        respond(404, {'error': 'Script not found'})
+    data['scripts'] = scripts
+    save(SCRIPTS_FILE, data)
+    audit_log(actor, 'script_delete',
+              detail=f'id={script_id} name={deleted_name!r}')
+    respond(200, {'ok': True})
+
+
+def handle_scripts_dry_run(script_id):
+    """Run bash -n and dangerous-command detection. No execution. Idempotent.
+
+    Operators hit this from the UI before queueing a script across the
+    fleet. The result is also stored on the script record (last_lint) so
+    the list endpoint can surface a "⚠ dangerous" badge without re-running
+    the lint on every page load.
+    """
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(script_id):
+        respond(404, {'error': 'Script not found'})
+    data = load(SCRIPTS_FILE)
+    for s in data.get('scripts', []):
+        if s.get('id') == script_id:
+            lint = _script_lint(s.get('body', ''))
+            s['last_lint'] = lint
+            save(SCRIPTS_FILE, data)
+            respond(200, {'ok': True, 'lint': lint})
+    respond(404, {'error': 'Script not found'})
+
+
+# ── v2.1.0: Batch script execution ────────────────────────────────────────────
+#
+# POST /api/exec/batch
+#   { "script_id": "...", "device_ids": [...] | "tag": "..." | "group": "...",
+#     "confirm_dangerous": false }
+#
+# Queues the script as an exec: command on each resolved target. Returns a
+# batch job ID; the UI polls GET /api/exec/batch/<id> for per-device status.
+# Job records live in batch_jobs.json with a 1-hour TTL — pruned on every
+# access so we don't accumulate forever.
+
+def _purge_expired_batch_jobs(data):
+    """Drop batch jobs older than BATCH_JOB_TTL_SEC. Mutates `data` in place."""
+    now = int(time.time())
+    jobs = data.get('jobs', {})
+    fresh = {jid: j for jid, j in jobs.items()
+             if (now - int(j.get('created', 0))) < BATCH_JOB_TTL_SEC}
+    if len(fresh) != len(jobs):
+        data['jobs'] = fresh
+    return data
+
+
+def handle_exec_batch():
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    script_id = str(body.get('script_id', '')).strip()
+    if not _validate_id(script_id):
+        respond(400, {'error': 'valid script_id required'})
+
+    # Resolve script
+    sdata = load(SCRIPTS_FILE)
+    script = None
+    for s in sdata.get('scripts', []):
+        if s.get('id') == script_id:
+            script = s
+            break
+    if not script:
+        respond(404, {'error': 'Script not found'})
+
+    # Re-lint at dispatch time. If the script body has dangerous markers
+    # we require an explicit confirmation flag from the caller. This is
+    # not a substitute for review — it's a "did you mean to do this on
+    # 47 machines?" prompt.
+    lint = _script_lint(script.get('body', ''))
+    if lint['dangerous'] and not body.get('confirm_dangerous'):
+        respond(400, {
+            'error': 'Script contains dangerous commands; pass '
+                     '{"confirm_dangerous": true} to acknowledge',
+            'dangerous': lint['dangerous'],
+        })
+    if lint.get('syntax_error') and lint['syntax_error'] != '__skipped__':
+        respond(400, {'error': 'Script has syntax errors; fix or re-run dry run',
+                      'syntax_error': lint['syntax_error']})
+
+    # Resolve targets (reuses the existing helper — same rules as every
+    # other batch command path). _resolve_targets internally caps at 100,
+    # but it does so by silent truncation. We want explicit failure so an
+    # operator asking for 200 devices doesn't quietly hit only 100; check
+    # the input length up front and 400 if it exceeds the cap.
+    if isinstance(body.get('device_ids'), list) and \
+       len(body['device_ids']) > MAX_BATCH_TARGETS:
+        respond(400, {'error': f'too many targets (max {MAX_BATCH_TARGETS})'})
+    targets = _resolve_targets(body)
+    if not targets:
+        respond(400, {'error': 'no valid targets'})
+    if len(targets) > MAX_BATCH_TARGETS:
+        respond(400, {'error': f'too many targets (max {MAX_BATCH_TARGETS})'})
+
+    devices = load(DEVICES_FILE)
+    cmds = load(CMDS_FILE)
+    now = int(time.time())
+    exec_payload = 'exec:' + script.get('body', '')
+
+    per_device = {}
+    for dev_id in targets:
+        if dev_id not in devices:
+            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}
+            continue
+        if devices[dev_id].get('agentless'):
+            per_device[dev_id] = {'queued': False, 'reason': 'agentless'}
+            continue
+        cmds.setdefault(dev_id, [])
+        if exec_payload not in cmds[dev_id]:
+            cmds[dev_id].append(exec_payload)
+        per_device[dev_id] = {
+            'queued': True,
+            'name':   devices[dev_id].get('name', dev_id),
+            'queued_at': now,
+        }
+    save(CMDS_FILE, cmds)
+
+    # Persist the job record. Pruned on every access.
+    jobs_data = load(BATCH_JOBS_FILE)
+    _purge_expired_batch_jobs(jobs_data)
+    jobs = jobs_data.get('jobs', {})
+    job_id = secrets.token_hex(8)
+    jobs[job_id] = {
+        'id':          job_id,
+        'script_id':   script_id,
+        'script_name': script.get('name', ''),
+        'actor':       actor,
+        'created':     now,
+        'targets':     list(per_device.keys()),
+        'per_device':  per_device,
+        'dangerous':   lint['dangerous'],
+    }
+    jobs_data['jobs'] = jobs
+    save(BATCH_JOBS_FILE, jobs_data)
+
+    queued_count = sum(1 for p in per_device.values() if p['queued'])
+    audit_log(actor, 'script_batch_exec',
+              detail=f'job={job_id} script={script.get("name")!r} '
+                     f'targets={len(targets)} queued={queued_count} '
+                     f'dangerous={lint["dangerous"]}')
+    log_command(actor, 'batch', f'script:{script.get("name", "")}',
+                f'batch_exec:{job_id}')
+    respond(202, {'ok': True, 'job_id': job_id, 'queued': queued_count,
+                  'total': len(targets), 'per_device': per_device})
+
+
+def handle_exec_batch_status(job_id):
+    require_auth()
+    if not _validate_id(job_id):
+        respond(404, {'error': 'Batch job not found'})
+    jobs_data = load(BATCH_JOBS_FILE)
+    _purge_expired_batch_jobs(jobs_data)
+    save(BATCH_JOBS_FILE, jobs_data)
+    job = jobs_data.get('jobs', {}).get(job_id)
+    if not job:
+        respond(404, {'error': 'Batch job not found or expired'})
+
+    # Enrich per-device entries with the most recent exec output for the
+    # script body. We match against the queued payload (exec:<body>) so a
+    # device that ran the same body via another path doesn't get falsely
+    # attributed.
+    sdata = load(SCRIPTS_FILE)
+    script = None
+    for s in sdata.get('scripts', []):
+        if s.get('id') == job['script_id']:
+            script = s
+            break
+    outputs = load(CMD_OUTPUT_FILE)
+    enriched = {}
+    body_match = ('exec:' + script['body']) if script else None
+    job_created = int(job.get('created', 0))
+    for dev_id, entry in job['per_device'].items():
+        out = dict(entry)
+        if entry.get('queued') and body_match:
+            # Find the newest cmd_output for this device that matches the
+            # script body AND was recorded after the job was created.
+            for rec in reversed(outputs.get(dev_id, [])):
+                if rec.get('cmd') == body_match and int(rec.get('ts', 0)) >= job_created:
+                    out['status']     = 'done'
+                    out['rc']         = rec.get('rc', -1)
+                    out['output']     = rec.get('output', '')[:8192]
+                    out['finished_at'] = rec.get('ts')
+                    break
+            else:
+                out['status'] = 'pending'
+        enriched[dev_id] = out
+
+    respond(200, {
+        'job_id':     job_id,
+        'script_id':  job['script_id'],
+        'script_name': job['script_name'],
+        'created':    job_created,
+        'actor':      job['actor'],
+        'per_device': enriched,
+        'dangerous':  job.get('dangerous', []),
+    })
 
 
 def handle_export():
@@ -8357,22 +9368,33 @@ def _enforce_read_only():
 
 
 def main():
-    try: check_offline_webhooks()
-    except Exception: pass
+    # v2.1.1: these per-request maintenance sweeps used to be wrapped in
+    # bare `except Exception: pass` blocks. That silently swallowed every
+    # error — including the ones an operator most needs to see: "why
+    # didn't the offline webhook fire?" / "why isn't the schedule
+    # running?". Now each one logs the exception traceback to stderr so
+    # it lands in nginx's error log, but still doesn't propagate (the
+    # CGI response itself must complete regardless of a maintenance
+    # task failing).
+    def _safe(fn, label):
+        try:
+            fn()
+        except Exception as exc:
+            sys.stderr.write(
+                f"[remotepower] {label} failed: {exc.__class__.__name__}: {exc}\n")
+            traceback.print_exc(file=sys.stderr)
+    _safe(check_offline_webhooks, 'check_offline_webhooks')
     # v1.11.4: container-data-stale sweep, mirroring the offline check.
     # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
-    try: check_container_webhooks()
-    except Exception: pass
+    _safe(check_container_webhooks, 'check_container_webhooks')
     # v1.11.8: monitor checks used to only run when somebody opened
     # the Monitor page in the dashboard. Now they run on every CGI hit
     # but gated to the configured interval (default 300s). For low-
     # traffic servers this means monitors run whenever an agent
     # heartbeats — typically every 60s, so the gate kicks in and the
     # actual checks happen every interval.
-    try: run_monitors_if_due()
-    except Exception: pass
-    try: process_schedule()
-    except Exception: pass
+    _safe(run_monitors_if_due, 'run_monitors_if_due')
+    _safe(process_schedule,    'process_schedule')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch
@@ -8481,6 +9503,20 @@ def main():
     elif pi == '/api/cmd-library' and m == 'POST': handle_cmd_library_add()
     elif pi.startswith('/api/cmd-library/') and m == 'DELETE':
         handle_cmd_library_delete(pi[len('/api/cmd-library/'):])
+    # ── v2.1.0: multi-line script library + batch exec ─────────────────────
+    elif pi == '/api/scripts' and m == 'GET': handle_scripts_list()
+    elif pi == '/api/scripts' and m == 'POST': handle_scripts_add()
+    elif pi.startswith('/api/scripts/') and pi.endswith('/dry-run') and m == 'POST':
+        handle_scripts_dry_run(pi[len('/api/scripts/'):-len('/dry-run')])
+    elif pi.startswith('/api/scripts/') and m == 'GET':
+        handle_scripts_get(pi[len('/api/scripts/'):])
+    elif pi.startswith('/api/scripts/') and m == 'PUT':
+        handle_scripts_update(pi[len('/api/scripts/'):])
+    elif pi.startswith('/api/scripts/') and m == 'DELETE':
+        handle_scripts_delete(pi[len('/api/scripts/'):])
+    elif pi == '/api/exec/batch' and m == 'POST': handle_exec_batch()
+    elif pi.startswith('/api/exec/batch/') and m == 'GET':
+        handle_exec_batch_status(pi[len('/api/exec/batch/'):])
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':
@@ -8616,6 +9652,15 @@ def main():
     # heartbeat after deliberate `docker rm`.
     elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'DELETE':
         handle_device_containers_clear(pi[len('/api/devices/'):-len('/containers')])
+
+    # ── v2.1.0: docker-compose dropdown ────────────────────────────────────
+    elif pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET':
+        handle_device_compose_list(pi[len('/api/devices/'):-len('/compose')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/compose/action') and m == 'POST':
+        handle_device_compose_action(pi[len('/api/devices/'):-len('/compose/action')])
+    # v2.1.1: per-container start/stop/restart from the Containers page
+    elif pi.startswith('/api/devices/') and pi.endswith('/containers/action') and m == 'POST':
+        handle_device_container_action(pi[len('/api/devices/'):-len('/containers/action')])
 
     # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
     elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()

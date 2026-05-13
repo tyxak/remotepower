@@ -1,5 +1,134 @@
 # Changelog
 
+## v2.1.2 - 2026-05-14
+
+Critical bugfix. v2.1.0's faster `save()` (tmp+fsync outside lock)
+opened a wide read-modify-write race in `handle_heartbeat()`:
+concurrent heartbeats clobbered each other's `last_seen` updates,
+devices drifted past TTL → marked offline. v2.1.1's improved
+diagnostics finally made the bug visible in the user's logs:
+`last_seen` going *backwards* between heartbeat and offline check.
+
+Fix: new `_locked_update(path)` context manager — atomic
+load → mutate → save under one lock acquisition. `handle_heartbeat()`
+is rewritten around it. See [docs/v2.1.2.md](docs/v2.1.2.md) for the
+full walkthrough.
+
+### Bug fixes
+
+- **Lost-update race in heartbeat fixed.** `_locked_update` provides
+  atomic RMW. `handle_heartbeat()` uses it for the `last_seen` +
+  `sysinfo` + `compose_projects` update. Concurrent heartbeats now
+  serialise correctly.
+
+### Added
+
+- **`_locked_update(path)` context manager + `_save_held(path, data)`**
+  internal helpers for atomic read-modify-write inside an already-
+  acquired flock.
+
+### Internal
+
+13 new tests in `tests/test_v212.py` including a threaded reproducer
+that fails on the old pattern and passes on the new one. 660 tests
+total, all passing. Version-string bumps in all 9 sites.
+
+## v2.1.1 - 2026-05-13
+
+Bugfix release on top of 2.1.0. The headline is a regression I shipped
+in 2.1.0 itself: the heartbeat used the new non-blocking save for every
+write, including `last_seen` — which under flock contention silently
+dropped the write and made devices flip offline despite the agent
+heartbeating fine. See [docs/v2.1.1.md](docs/v2.1.1.md) for the full
+walkthrough.
+
+### Bug fixes
+
+- **Offline regression.** `DEVICES_FILE` save in `handle_heartbeat()`
+  is back to blocking — losing `last_seen` cascades into bogus offline
+  state. The other heartbeat saves keep their non-blocking semantics;
+  losing any single one of those is recoverable.
+- **Silent diagnostics fixed.** State transitions in
+  `check_offline_webhooks()` now log `[remotepower] OFFLINE dev=… …`
+  to stderr regardless of webhook configuration. Heartbeat arrival
+  logs `[remotepower] heartbeat dev=… last_seen=… pid=…`. The bare
+  `try: … except Exception: pass` blocks in `main()` are replaced
+  with a `_safe()` helper that prints the full traceback.
+- **`log_alert` webhook includes the matched line.** Was just
+  pattern + count; now appends the first sample line (truncated to
+  200 chars) plus an `(+ N more)` footer when applicable.
+
+### Changed
+
+- **Default offline TTL: 3 min → 5 min** (`DEFAULT_ONLINE_TTL` 180 → 300,
+  `MIN_ONLINE_TTL` 90 → 150). 5 missed polls at the default 60s interval.
+
+### Added
+
+- **Per-container Start/Stop/Restart/Logs** on the Containers page.
+  Agent gets `container:<runtime>:<action>:<id>` dispatch (argv-only,
+  tight ID regex, runtime+action allowlists). Server endpoint
+  `POST /api/devices/<id>/containers/action` enforces same boundary
+  as compose: container_id must be one the agent reported.
+- **Demo seed includes v2.1 content.** `scripts.json` (5 example
+  scripts incl. one dangerous-flagged), `batch_jobs.json` (one
+  completed batch), `log_watch.json` (rules + a fired alert
+  exercising the new matched-line format), and 6 demo devices with
+  tag-driven `compose_projects`.
+
+### Internal
+
+20 new tests in `tests/test_v211.py`; 647 total, all passing.
+Version-string bumps in all 9 sites.
+
+## v2.1.0 - 2026-05-13
+
+Maintenance release: two bug fixes and three features focused on day-2
+operations. See [docs/v2.1.0.md](docs/v2.1.0.md) for the full rationale
+behind each fix and feature.
+
+### Bug fixes
+
+- **Flock offline fluctuation.** `save()` rewritten: the lock is now held
+  only for the rolling-backup copy and atomic rename, not for the
+  `fsync()`. New `non_blocking=True` mode retries `LOCK_NB` briefly and
+  raises `LockBusy`; the heartbeat handler returns HTTP 202 in that case
+  so the agent doesn't stall past its timeout. Lock waits >50 ms log to
+  nginx error log. Stops devices flipping between online and offline.
+- **Auto-refresh closes browser window.** Two combining causes both
+  fixed: `escHtml()` didn't escape `'` and broke inline onclick handlers
+  on names with apostrophes (added separate `escAttr()` hex-escape for
+  JS-in-attribute contexts; 73 sites converted); refresh now pauses when
+  a modal is open or the tab is hidden; `toggleDropdown` cleans up its
+  handler properly across re-renders.
+
+### Features
+
+- **Script library.** Sidebar → Admin → Scripts. CRUD over multi-line
+  bash scripts, `bash -n` syntax check, 11-pattern dangerous-command
+  regex sweep, on-demand dry-run. Stored in `scripts.json`. Body cap
+  64 KB, fleet cap 500. New endpoints under `/api/scripts`.
+- **Multi-select script execution.** "Run script" button on the batch
+  action bar. `POST /api/exec/batch` queues `exec:<body>` on each
+  resolved target; `GET /api/exec/batch/<id>` shows per-device status.
+  Job records have a 1-hour TTL.
+- **docker compose dropdown.** Agent reports `docker-compose.yml` /
+  `compose.yml` projects found under `/opt`, `/home`, `/docker`, `/srv`
+  (depth 4, 50-project cap). Device cards get an Up/Down/Restart/Pull/
+  Logs dropdown. `POST /api/devices/<id>/compose/action` validates `dir`
+  against the device's reported list — security boundary against
+  malicious or stolen-credential dispatch.
+
+### Internal
+
+- **`make dist`** builds a release tarball + sha256, with the full test
+  suite verified against the staged tree before packaging.
+- **`make version`** prints the canonical version (single source of
+  truth: `SERVER_VERSION` in `api.py`).
+- Top-level **README** cut from 807 → 115 lines; long-form content split
+  into topical `docs/` files.
+- **60 new tests** in `tests/test_v210.py` (627 total, all passing).
+
 ## v2.0.0 - 2026-05-08
 
 A visual + organizational refresh. New branding throughout, sidebar restructured for browsability, in-app documentation, code split into separate CSS/JS files for maintainability. No breaking changes for agents — this is a 2.0 because of UI visibility, not API shape.

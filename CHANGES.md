@@ -1,5 +1,201 @@
 # Changelog
 
+## v2.1.2 — 2026-05-14
+
+### Fixed
+
+**Lost-update race in heartbeat (THE actual offline bug).** v2.1.0's
+`save()` redesign moved the tmp-file write outside the lock so the
+critical section was just the rename. Correct for single-shot saves
+but it broke an unspoken contract with callers that did
+read-modify-write: load → mutate → save was no longer atomic. Two
+concurrent heartbeats from different devices interleaved their
+load/save windows and the second one's rename clobbered the first
+one's `last_seen` update. Devices drifted past TTL and got marked
+offline despite heartbeating fine — looked identical to the
+original 2.0 flock fluctuation, but the cause was completely
+different.
+
+Fix: new `_locked_update(path)` context manager that holds the flock
+across load → mutate → save. `handle_heartbeat()` is rewritten around
+this primitive so concurrent heartbeats now serialise correctly. The
+`compose_projects` update (which previously did a separate save) is
+merged into the same atomic transaction.
+
+`save()` itself still uses the v2.1.0 fast-path (tmp+fsync outside
+lock) — that optimisation is correct for *single-shot saves where
+the caller doesn't read first*. The new primitive is for callers
+that do RMW, who now opt in explicitly.
+
+### Internal
+
+13 new tests in `tests/test_v212.py` including a threaded
+reproducer for the race (20 concurrent updaters, asserts every
+update is preserved) and a deliberate demonstration of the bug
+using the old pattern. Total suite: **660 tests, all passing.**
+
+Other admin-action RMW sites (note/group/tag/poll-interval edits)
+still use the unsafe pattern but are much lower frequency than
+heartbeats. Migrating them to `_locked_update` is queued for a
+follow-up release.
+
+
+## v2.1.1 — 2026-05-13
+
+### Fixed
+
+**Offline regression from 2.1.0.** The 2.1.0 heartbeat handler used
+the non-blocking save path for *every* save, including `last_seen`.
+Under flock contention that save would 202 silently *before*
+`last_seen` was persisted — the agent treated 202 as success, the
+server still thought the device was last seen however-long-ago, and
+the device drifted past the online TTL → marked offline even though
+heartbeats were arriving fine. Fixed: the `DEVICES_FILE` save is back
+to blocking (which is now microseconds-fast thanks to the 2.1.0
+fsync-outside-lock work). Only the *optional* saves below it
+(cmd_output, containers, config, etc.) keep non-blocking semantics.
+
+**Diagnostics were silent.** Two 2.0-era code smells made the offline
+bug above invisible to operators: `check_offline_webhooks()` only logged
+inside `fire_webhook()`, so an operator without webhooks got a silent
+state flip; and `main()` wrapped every per-request maintenance sweep in
+`try: ... except Exception: pass`, swallowing every error including
+ones an operator most needs to see. Now: state transitions always log
+`[remotepower] OFFLINE dev=… last_seen=… delta=…s ttl=…s` regardless
+of webhook config; heartbeat arrival logs to stderr (visible in nginx
+error log); the bare except-pass blocks are replaced with a `_safe()`
+helper that prints the full traceback before continuing.
+
+**`log_alert` webhook now includes the matched line.** Pre-2.1.1 the
+message read `host/unit: pattern "X" matched N times` — no actual log
+content. The payload already had `sample` (first 3 matching lines);
+`_webhook_message` just wasn't using it. Now the message shows the
+first matched line (truncated to 200 chars for embed compatibility)
+and an `(+ N more matching lines)` footer if there were more.
+
+### Changed
+
+**Default offline TTL bumped from 3 → 5 minutes.** `DEFAULT_ONLINE_TTL`
+is now 300s (= 5 missed polls at the 60s default interval).
+`MIN_ONLINE_TTL` is now 150s (was 90). Field reports of "device went
+offline" turning out to be brief network blips the agent recovered
+from. Operators who want the old tighter behaviour can configure
+`online_ttl: 180` via Settings → Webhooks.
+
+### Added
+
+**Per-container actions on the Containers page.** Start / Stop /
+Restart / Logs buttons on every reported container. New agent
+dispatch `container:<runtime>:<action>:<id>` with argv-only invocation
+(no `shell=True`), tight ID regex (`[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}`),
+runtime allowlist (docker | podman; kubectl excluded), and action
+allowlist (start, stop, restart, pause, unpause, logs). New endpoint
+`POST /api/devices/<id>/containers/action` validates the requested
+`container_id` against the agent's last-reported listing — same
+security boundary as compose. Kubernetes pods don't get action buttons
+since the agent generally doesn't have the kubectl context to act on
+them through this path.
+
+**Demo data reflects v2.1 features.** `seed-demo-data.py` now also
+seeds `scripts.json` (5 example scripts including one deliberately
+flagged dangerous to demo the `⚠ DANGER` badge), `batch_jobs.json`
+(one recently-completed batch run for the status modal), and
+`log_watch.json` (two log-watch rules and one fired alert showing
+the new matched-line format). 6 demo devices report tag-driven
+`compose_projects` so the v2.1.0 compose dropdown is visible in the
+demo.
+
+### Internal
+
+20 new tests in `tests/test_v211.py` (647 total, all passing).
+Bumped all 9 version-string sites from 2.1.0 → 2.1.1.
+
+
+## v2.1.0 — 2026-05-13
+
+### Fixed
+
+**Flock offline fluctuation.** Heartbeats no longer hold the per-file
+flock across `fsync()`. `save()` now writes the per-process unique tmp
+file *outside* the lock and holds it only for the rolling-backup copy
+and atomic rename — both O(1) metadata ops. Adds an explicit
+`non_blocking=True` mode that retries `LOCK_NB` for ~100 ms and raises
+`LockBusy` on persistent contention. The heartbeat handler catches
+`LockBusy` and returns HTTP 202 (Accepted), which the agent treats as
+"delivered, retry next cycle". Result: a busy save no longer stalls
+the request past the agent's HTTP timeout, and devices stop flipping
+between online and offline. Lock waits >50 ms log to nginx error log
+as `[remotepower] lock_wait path=… waited_ms=… mode=…`. See
+[docs/v2.1.0.md](docs/v2.1.0.md) for the full rationale.
+
+**Auto-refresh closes browser window / crashes tab.** Two independent
+bugs combined: `escHtml()` didn't escape `'`, so device names like
+`O'Brien` broke out of inline `onclick="fn('${escHtml(d.name)}')"`
+strings on every 60 s refresh; and `setInterval` kept firing under
+open modals and background tabs, re-rendering the device grid out
+from under captured event handlers. Fix: new `escAttr()` that
+hex-escapes (`\x27` etc.) for JS-in-attribute contexts (73 inline
+handler sites converted); refresh pauses when a modal is open or the
+tab is hidden; `toggleDropdown` no longer leaks click handlers to
+detached DOM nodes.
+
+### Added
+
+**Script library** (`docs/scripts.md`). New **Scripts** page in the
+sidebar for multi-line bash scripts, separate from the existing
+one-liner Command Library. CRUD + on-demand dry-run using `bash -n`
+plus an 11-pattern dangerous-command regex sweep
+(rm -rf /, fork bombs, dd to block devices, mkfs against /dev/,
+curl|bash, etc.). Body capped at 64 KB; 500 scripts per server.
+Routes: `GET/POST/PUT/DELETE /api/scripts[/<id>]`,
+`POST /api/scripts/<id>/dry-run`.
+
+**Multi-select script execution.** New "Run script" button on the
+batch action bar. Pick a saved script, fan out across the selection.
+`POST /api/exec/batch` queues `exec:<body>` on each target;
+`GET /api/exec/batch/<id>` returns per-device status with output as
+it arrives. Job records have a 1-hour TTL, pruned on access.
+Refuses dangerous-pattern scripts without `confirm_dangerous: true`;
+refuses syntax-erroring scripts outright.
+
+**docker compose dropdown** (`docs/compose.md`). The Linux agent now
+scans `/opt`, `/home`, `/docker`, `/srv` (`find -L -maxdepth 4`,
+5 s timeout, 50-project cap, prune list for .git / node_modules /
+.cache / venv) for `docker-compose.yml` / `compose.yml` and reports
+the listing alongside containers in the heartbeat. Device cards get
+a **docker compose (N)** entry in the ⋯ menu with Up / Down /
+Restart / Pull / Logs (last 50) buttons. Action endpoint
+`POST /api/devices/<id>/compose/action` validates `dir` is one of
+the paths the agent itself reported — even an admin token can't aim
+`compose:up` at arbitrary paths. Agent enforces the action allowlist
+and path validity independently. Output cap 64 KB, timeout 180 s.
+
+### Internal
+
+**`make dist`** target. Builds `dist/remotepower-2.1.0.tar.gz` +
+sha256 file, with an explicit exclude list (not gitignore-driven, so
+new directories don't accidentally ship). Runs the full test suite
+against the staged tree before producing the tarball; a broken
+release fails fast.
+
+**`make version`** target prints the current version from
+`SERVER_VERSION` in `api.py`. Single source of truth for the tarball
+filename + the README badge.
+
+**Docs split.** Top-level `README.md` cut from 807 → 115 lines.
+Long-form content lives in topical files under `docs/`: install,
+features, architecture, api, security, https, troubleshooting,
+upgrading, agent-commands, windows-client, plus the new
+scripts.md / compose.md / v2.1.0.md.
+
+**Tests.** 60 new tests in `tests/test_v210.py` covering: real
+flock contention triggering LockBusy, every dangerous-pattern regex
+with positive + negative cases, script CRUD + sanitisation + size
+caps, batch dispatch + TTL pruning, compose ingest sanitisation,
+the compose action security boundary, and the no-XSS-on-apostrophes
+invariant. Total suite is now **627 tests**, all passing.
+
+
 ## v2.0.0 — 2026-05-08
 
 ### Added
