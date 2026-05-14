@@ -28,6 +28,11 @@ holds long-form docs that don't fit there.
 
 ## v2.1 features and release notes
 
+- **[v2.1.6.md](v2.1.6.md)** — 2.1.6 hotfix (Patches page Detail
+  button + the long-missing modal element).
+- **[v2.1.5.md](v2.1.5.md)** — 2.1.5 release notes (Investigate
+  fix, Markdown rendering, heartbeat silence, grouped dropdown,
+  four new ✨ surfaces, ai.md documentation).
 - **[v2.1.4.md](v2.1.4.md)** — 2.1.4 release notes (JSON.parse fix for
   slow local Ollama models; standalone AI Assistant page).
 - **[v2.1.3.md](v2.1.3.md)** — 2.1.3 release notes (optional AI assistant
@@ -60,6 +65,10 @@ holds long-form docs that don't fit there.
   switches, APs, printers, IPMI cards. *(v1.11.0)*
 - **[tls-monitor.md](tls-monitor.md)** — Server-side TLS / DNS expiry
   probes. *(v1.11.0)*
+- **[ai.md](ai.md)** — Optional AI assistant (Anthropic / OpenAI /
+  DeepSeek / Ollama / LocalAI), ✨ button inventory, privacy
+  redaction, rate limiting, nginx config for slow local models.
+  *(v2.1.3+)*
 - **[prometheus-metrics-sample.txt](prometheus-metrics-sample.txt)** —
   Example `/api/metrics` output for Grafana scrape config.
 - **screenshots/** — UI screenshots referenced from the main README.

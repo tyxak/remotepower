@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.1.6-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -73,6 +73,48 @@ enrolment), see **[docs/install.md](docs/install.md)**.
 | 📈 **Time series** | Prometheus `/api/metrics` for Grafana. Per-device history. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
+
+## What's new in 2.1.6
+
+**Hotfix**: Patches page → Detail button now works. Two issues
+stacked: (1) the 2.1.5 ✨ Prioritise button placed `display:flex`
+on a `<td>` which broke the table layout; (2) `openDevicePatchReport()`
+had been referencing an HTML element (`#device-patch-modal` /
+`#device-patch-title` / `#device-patch-body`) that was missing from
+`index.html` entirely — a pre-existing bug exposed by the new
+button drawing attention to its neighbour.
+
+**Added**: regression test that scans `app.js` for every
+`getElementById(...)` / `(open|close)Modal(...)` reference and
+verifies the ID exists in `index.html` — bugs of this exact shape
+now fail at build time.
+
+Release notes: **[docs/v2.1.6.md](docs/v2.1.6.md)**.
+
+## What's new in 2.1.5
+
+**Fixed**: ✨ Investigate showing "No Data Provided" even when the
+device had data — was hitting a non-existent route; now assembles
+the snapshot from `/sysinfo` + `/output` + the devices list.
+Markdown in AI responses now renders (was raw `**bold**` and `#`
+chars). Routine heartbeat / lock_wait stderr noise silenced by
+default (`RP_LOG_HEARTBEATS=1` / `RP_LOG_LOCK_WAITS=1` re-enable);
+the `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is no longer
+needed.
+
+**Changed**: AI Assistant moved to Help section. Device-card
+dropdown is now grouped + collapsible (Power always visible;
+Inspect / Operate / Configure as collapsible `<details>` groups).
+
+**Added**: ✨ Diagnose on failed services, ✨ Triage on TLS warning/
+critical/error rows, ✨ Prioritise on patches rows with pending
+updates. Visibility is conditional — buttons only appear where they
+add value.
+
+**Documentation**: new comprehensive `docs/ai.md`; AI section added
+to `docs/scripts.md`.
+
+Release notes: **[docs/v2.1.5.md](docs/v2.1.5.md)**.
 
 ## What's new in 2.1.4
 

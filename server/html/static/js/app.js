@@ -741,7 +741,7 @@ function renderDevices() {
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="aiInvestigateDevice('${d.id}','${escAttr(d.name)}'); return false;">✨ Investigate</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -793,7 +793,7 @@ function _registerDevicesMinimalTable() {
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
-      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="aiInvestigateDevice('${d.id}','${escAttr(d.name)}'); return false;">✨ Investigate</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      const dropdownHtml = `${deviceDropdownHtml(d, isMonitored)}`;
       // v1.12.1: leading checkbox cell mirrors the cards-mode batch-select
       // experience. Reuses the same selectedDevices Set so cards/minimal
       // share state — switch density mid-selection, your selection survives.
@@ -2141,7 +2141,11 @@ function _registerPatchTable() {
       const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
       const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
-      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></tr>`;
+      // v2.1.5: ✨ Prioritise only on devices with pending updates
+      const aiBtn = d.upgradable > 0
+        ? `<button class="btn-icon" style="padding:4px 6px;font-size:11px" onclick="aiPrioritisePatchesForDevice('${d.device_id}','${escAttr(d.name)}')" title="AI: prioritise these updates">✨</button>`
+        : '';
+      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><div style="display:flex;gap:4px;align-items:center">${aiBtn}<button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -2389,9 +2393,17 @@ async function openServiceDetail(devId, devName) {
       const histLabel = `State history (${histItems.length})`;
       const logLabel  = `Recent logs (${logItems.length})`;
 
+      // v2.1.5: ✨ Diagnose for units that aren't actively running.
+      // Pure-prose summary "service is failed, here's what to check
+      // next" — the operator still does the actual work.
+      const isUnhealthy = s.active !== 'active' && s.active !== 'activating';
+      const aiBtn = isUnhealthy
+        ? `<button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-left:8px" onclick='aiDiagnoseService(${JSON.stringify(s.unit)}, ${JSON.stringify(devName)}, ${JSON.stringify(s.active||"")}, ${JSON.stringify(s.sub||"")}, ${JSON.stringify((s.log_tail || []).slice(-30).map(l => l.line || ""))})' title="AI: diagnose this service">✨ Diagnose</button>`
+        : '';
+
       return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div><span style="color:${color};font-weight:600">●</span> <code style="font-size:13px;color:var(--accent);margin-left:6px">${escHtml(s.unit)}</code> <span style="margin-left:8px;font-size:12px;color:var(--muted)">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;flex-wrap:wrap"><span style="color:${color};font-weight:600">●</span> <code style="font-size:13px;color:var(--accent);margin-left:6px">${escHtml(s.unit)}</code> <span style="margin-left:8px;font-size:12px;color:var(--muted)">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
           <div style="font-size:11px;color:var(--muted)">since: ${sinceText}</div>
         </div>
         <details style="margin-bottom:6px"${histItems.length ? ' open' : ''}><summary style="font-size:12px;color:var(--muted);cursor:pointer">${histLabel}</summary><div style="padding-top:6px">${histBody}</div></details>
@@ -4751,6 +4763,11 @@ function _registerTlsTable() {
       const starttlsHtml = (t.starttls && t.starttls !== 'none')
         ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
         : '';
+      // v2.1.5: ✨ Triage only on warning/critical/error — no point asking
+      // about cert lifecycle on a healthy 90-days-left target.
+      const aiBtn = (t.status === 'warning' || t.status === 'critical' || t.status === 'error')
+        ? `<button class="btn-icon" style="padding:2px 6px;font-size:11px;margin-right:6px" onclick="event.stopPropagation();aiExplainTls('${escAttr(t.host)}',${t.port||443},${t.expires_at||0},'${escAttr(t.issuer||'')}','starttls=${escAttr(t.starttls||'none')}')" title="AI: triage this cert">✨</button>`
+        : '';
       return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escAttr(t.id)}')">
         <td>${statusBadge}${daneBadge}</td>
         <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
@@ -4759,7 +4776,7 @@ function _registerTlsTable() {
         <td style="font-size:12px;color:var(--muted)">${expires}</td>
         <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
         <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
-        <td onclick="event.stopPropagation()"><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escAttr(t.id)}','${escAttr(t.host)}')">✕</button></td>
+        <td onclick="event.stopPropagation()">${aiBtn}<button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escAttr(t.id)}','${escAttr(t.host)}')">✕</button></td>
       </tr>`;
     },
     emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
@@ -5791,7 +5808,10 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
     body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
     return;
   }
-  body.textContent = resp.text || '(empty response)';
+  // v2.1.5: render markdown so **bold** and # headers and `code`
+  // don't show as literal punctuation. dataset.rawText keeps the
+  // original for the Copy button.
+  body.innerHTML = renderMarkdown(resp.text || '(empty response)');
   body.dataset.rawText = resp.text || '';
   document.getElementById('ai-modal-copy').disabled = false;
   document.getElementById('ai-modal-meta').textContent =
@@ -5874,29 +5894,65 @@ function aiTriageCve(cveId, packageName, version, deviceName, description) {
 }
 
 function aiInvestigateDevice(devId, deviceName) {
+  // v2.1.5 fix: there is NO top-level GET /api/devices/<id> route — the
+  // detail data is split across /sysinfo, /output, etc. The old call
+  // silently returned null, leading to "No data provided" from the
+  // model. Now we fetch the right endpoints, in parallel, and bail
+  // visibly if there's genuinely nothing to send.
   (async () => {
-    const dev = await api('GET', `/devices/${encodeURIComponent(devId)}`);
-    if (!dev) { toast('Device not found', 'error'); return; }
-    const metrics = dev.sysinfo || {};
-    const journal = (dev.journal || []).slice(-30).join('\n');
+    const idEnc = encodeURIComponent(devId);
+    const [sysData, outData, allDevs] = await Promise.all([
+      api('GET', `/devices/${idEnc}/sysinfo`).catch(() => null),
+      api('GET', `/devices/${idEnc}/output`).catch(() => null),
+      api('GET', '/devices').catch(() => null),
+    ]);
+
+    const si = sysData?.sysinfo || {};
+    const journal = sysData?.journal || [];
+    const outputs = outData?.outputs || [];
+    const dev = (allDevs?.devices || allDevs || []).find?.(d => d.id === devId) || {};
+
+    // Top-level device facts (from the devices list, since they aren't
+    // in /sysinfo). Skip lines we couldn't determine — emptiness is
+    // an honest signal to the model, dont fake it.
+    const facts = [];
+    if (dev.last_seen) facts.push(`Last seen: ${new Date(dev.last_seen * 1000).toISOString()}`);
+    if (dev.os)        facts.push(`OS: ${dev.os}`);
+    if (dev.version)   facts.push(`Agent version: ${dev.version}`);
+    if (dev.ip)        facts.push(`IP: ${dev.ip}`);
+    if (dev.group)     facts.push(`Group: ${dev.group}`);
+    if (typeof dev.online === 'boolean') facts.push(`Status: ${dev.online ? 'online' : 'offline'}`);
+
+    // Recent commands: most useful for diagnostics, especially failures
     let recentCmds = '';
-    try {
-      const out = await api('GET', `/devices/${encodeURIComponent(devId)}/output?limit=10`);
-      if (Array.isArray(out)) {
-        recentCmds = out.map(o => `[$? ${o.rc}] ${o.cmd}\n${(o.output || '').slice(0, 400)}`).join('\n---\n');
-      }
-    } catch(e) {}
-    const summary =
-      `Device: ${deviceName}\n` +
-      `Last seen: ${dev.last_seen ? new Date(dev.last_seen * 1000).toISOString() : 'unknown'}\n` +
-      `OS: ${dev.os || '?'}\nAgent version: ${dev.version || '?'}\n\n` +
-      `Sysinfo:\n${JSON.stringify(metrics, null, 2).slice(0, 2000)}\n\n` +
-      `Recent journal:\n${journal.slice(0, 4000)}\n\n` +
-      `Recent commands:\n${recentCmds.slice(0, 4000)}`;
+    if (outputs.length) {
+      recentCmds = outputs.slice(-10).map(o =>
+        `[rc=${o.rc}] ${new Date(o.ts*1000).toISOString()} — ${o.cmd}\n` +
+        `${(o.output || '').slice(0, 400)}`
+      ).join('\n---\n');
+    }
+
+    // Honest empty-data check: if we have nothing useful, say so and
+    // skip the AI call. Better than asking the model to invent.
+    const hasFacts   = facts.length > 0;
+    const hasSysInfo = Object.keys(si).length > 0;
+    const hasJournal = journal.length > 0;
+    const hasCmds    = recentCmds.length > 0;
+    if (!hasFacts && !hasSysInfo && !hasJournal && !hasCmds) {
+      toast('No data available for this device yet — has the agent checked in?', 'info');
+      return;
+    }
+
+    const sections = [`Device: ${deviceName}`];
+    if (hasFacts)   sections.push(facts.join('\n'));
+    if (hasSysInfo) sections.push('Sysinfo:\n' + JSON.stringify(si, null, 2).slice(0, 3000));
+    if (hasJournal) sections.push(`Recent journal (last ${journal.slice(-30).length} lines):\n` + journal.slice(-30).join('\n').slice(0, 4000));
+    if (hasCmds)    sections.push('Recent commands:\n' + recentCmds.slice(0, 4000));
+
     openAIModal({
       title:    `✨ Investigate ${deviceName}`,
       system:   'investigate_device',
-      userMsg:  summary,
+      userMsg:  sections.join('\n\n'),
       context:  `device:${devId}`,
       maxTokens: 2000,
     });
@@ -5965,7 +6021,7 @@ function scriptEditorAIAudit() {
   aiAuditScript(body);
 }
 
-// ─── v2.1.4: tolerant fetch + AI page ──────────────────────────────────────
+// ─── v2.1.5: tolerant fetch + AI page ──────────────────────────────────────
 //
 // `aiApi()` is `api()`'s tolerant cousin specifically for AI endpoints.
 // AI calls are slow (15-180s on local thinking models), which routinely
@@ -5974,6 +6030,117 @@ function scriptEditorAIAudit() {
 // which throws "SyntaxError: JSON.parse..." — the original bug the
 // user reported. aiApi() reads raw text first and synthesises a
 // structured error so the modal can show something useful.
+
+// renderMarkdown — minimal, secure markdown→HTML for AI responses.
+// Models love their **bold** and `code` and # headers, and showing them
+// raw is jarring. The strategy is: escape HTML first (so any tags in
+// the source become literal text), THEN apply the markdown transforms
+// (which generate trusted HTML). No DOM injection vector — every user-
+// supplied byte is escaped before any transform touches it.
+//
+// Supported: code fences, inline code, bold, italic, h1/h2/h3, bullet
+// and numbered lists, blockquotes, paragraph breaks. Anything else
+// (links, tables, images) falls through as escaped text on purpose —
+// keeps the implementation tiny and avoids the bigger attack surface
+// of a real Markdown lib.
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  // Step 1: HTML-escape everything. After this, every transform
+  // operates on safe ground.
+  let html = escHtml(String(text));
+
+  // Step 2: extract code fences first (they should NOT receive any
+  // further transforms). We replace each fence with a unique
+  // placeholder, do the rest, then put them back. Stops `**bold**`
+  // inside a code block from being interpreted.
+  const codeBlocks = [];
+  html = html.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(
+      `<pre style="background:var(--surface2);border:1px solid var(--border);` +
+      `padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;` +
+      `margin:8px 0;line-height:1.5"><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`
+    );
+    return `\x00CODEBLOCK${idx}\x00`;
+  });
+
+  // Inline code — same idea, hold placeholders so `**` inside backticks
+  // doesn't turn into a <strong>.
+  const inlineCodes = [];
+  html = html.replace(/`([^`\n]+)`/g, (_, code) => {
+    const idx = inlineCodes.length;
+    inlineCodes.push(
+      `<code style="background:var(--surface2);padding:1px 5px;` +
+      `border-radius:3px;font-size:90%;font-family:ui-monospace,monospace">` +
+      `${code}</code>`
+    );
+    return `\x00INLINE${idx}\x00`;
+  });
+
+  // Headers — only at the start of a line. The big-three are enough.
+  html = html.replace(/^### +(.+)$/gm,
+    '<div style="font-size:14px;font-weight:600;margin:10px 0 4px">$1</div>');
+  html = html.replace(/^## +(.+)$/gm,
+    '<div style="font-size:15px;font-weight:600;margin:12px 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px">$1</div>');
+  html = html.replace(/^# +(.+)$/gm,
+    '<div style="font-size:17px;font-weight:700;margin:14px 0 8px">$1</div>');
+
+  // Bold (**foo**) and italic (*foo*). Run bold first so we don't
+  // eat the inner asterisks of bold inside italic.
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  // Same with underscores — some models prefer those.
+  html = html.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+
+  // Lists — collect contiguous `- foo` / `* foo` / `1. foo` runs
+  // into <ul> or <ol> blocks. Process line-by-line so we get
+  // proper grouping; one big regex would be hairy.
+  const lines = html.split('\n');
+  const out = [];
+  let listType = null;          // 'ul', 'ol', or null
+  function closeList() {
+    if (listType) { out.push(`</${listType}>`); listType = null; }
+  }
+  for (const line of lines) {
+    const bullet = line.match(/^(?:[-*]) +(.+)$/);
+    const numbered = line.match(/^\d+\.\s+(.+)$/);
+    if (bullet) {
+      if (listType !== 'ul') { closeList(); out.push('<ul style="margin:6px 0;padding-left:22px">'); listType = 'ul'; }
+      out.push(`<li>${bullet[1]}</li>`);
+    } else if (numbered) {
+      if (listType !== 'ol') { closeList(); out.push('<ol style="margin:6px 0;padding-left:22px">'); listType = 'ol'; }
+      out.push(`<li>${numbered[1]}</li>`);
+    } else {
+      closeList();
+      out.push(line);
+    }
+  }
+  closeList();
+  html = out.join('\n');
+
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm,
+    '<div style="border-left:3px solid var(--border);padding:2px 10px;color:var(--muted);margin:6px 0">$1</div>');
+
+  // Paragraphs: turn blank-line-separated chunks into <p>, single newlines
+  // into <br>. Don't wrap content that's already block-level (lists,
+  // headers, code blocks, blockquotes).
+  const blocks = html.split(/\n{2,}/).map(b => {
+    const trimmed = b.trim();
+    if (!trimmed) return '';
+    if (/^<(?:div|ul|ol|pre|h[1-6]|blockquote)/i.test(trimmed)) return trimmed;
+    return `<p style="margin:6px 0;line-height:1.55">${trimmed.replace(/\n/g, '<br>')}</p>`;
+  });
+  html = blocks.join('\n');
+
+  // Step 3: restore code placeholders
+  html = html.replace(/\x00CODEBLOCK(\d+)\x00/g, (_, i) => codeBlocks[i]);
+  html = html.replace(/\x00INLINE(\d+)\x00/g, (_, i) => inlineCodes[i]);
+
+  return html;
+}
 
 async function aiApi(method, path, body) {
   const opts = {method, headers: {'X-Token': getToken()}};
@@ -6061,11 +6228,18 @@ function _aiPageRenderConv() {
     const border = isUser ? 'rgba(59,126,255,0.25)' : 'var(--border)';
     const label = isUser ? 'You' : (m.model ? `Assistant · ${escHtml(m.model)}` : 'Assistant');
     const meta = m.meta ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">${escHtml(m.meta)}</div>` : '';
-    const content = isPending
-      ? '<div style="color:var(--muted)">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>'
-      : escHtml(m.content || '');
+    // v2.1.5: render markdown for assistant turns. User turns stay
+    // plain — what the user typed shouldn't be re-interpreted.
+    let content;
+    if (isPending) {
+      content = '<div style="color:var(--muted)">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
+    } else if (isUser) {
+      content = `<div style="white-space:pre-wrap">${escHtml(m.content || '')}</div>`;
+    } else {
+      content = renderMarkdown(m.content || '');
+    }
     return `<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">${label}</div>` +
-           `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 14px;white-space:pre-wrap;word-wrap:break-word">${content}${meta}</div></div>`;
+           `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 14px;word-wrap:break-word">${content}${meta}</div></div>`;
   }).join('');
   wrap.scrollTop = wrap.scrollHeight;
 }
@@ -6233,4 +6407,176 @@ async function aiPageSend() {
   sendBtn.disabled = false;
   sendBtn.textContent = 'Send';
   inp.focus();
+}
+
+// ─── v2.1.5: compact grouped device dropdown ───────────────────────────────
+//
+// The pre-2.1.5 dropdown listed 22 items vertically — taller than most
+// device cards, which made it spill off the screen on a busy device
+// list. This version groups items into four logical buckets:
+//
+//   Power     (most-used: shut down, reboot, WoL, upgrade packages)
+//   Inspect   (read-only diagnostics)
+//   Operate   (interactive: terminal, exec, compose, agent update)
+//   Configure (settings: tags, group, allowlist, intervals, etc.)
+//
+// Power is always visible at the top. The other three are collapsible
+// via native <details> — closed by default, click to expand. Footprint
+// drops from ~22 items to 6 visible, expanding only what's needed.
+// Native <details> means no JS for the collapse logic; the only cost
+// is a one-time style nudge to make the disclosure triangles fit.
+//
+// "Remove device" stays at the bottom in its own danger zone.
+
+function deviceDropdownHtml(d, isMonitored) {
+  const idEsc = d.id;
+  const nameEsc = escAttr(d.name);
+  const dangerous = (d.version || '').match(/^2\.[1-9]/);   // compose support
+  const composeSuffix = d.compose_projects_count > 0
+    ? ` (${d.compose_projects_count})`
+    : ' (scan pending…)';
+
+  // Each section is a list of [label, onclick-snippet]. Keeps the
+  // template tidy and makes it easy to add or move items.
+  const power = [
+    ['Shut down',       `requestShutdown('${idEsc}','${nameEsc}')`],
+    ['Reboot',          `requestReboot('${idEsc}','${nameEsc}')`],
+  ];
+  if (d.mac) power.push(['Wake-on-LAN', `sendWol('${idEsc}','${nameEsc}')`]);
+  power.push(['Upgrade packages', `upgradePackages('${idEsc}','${nameEsc}')`]);
+
+  const inspect = [
+    ['System info',     `openDetail('${idEsc}','${nameEsc}')`],
+    ['✨ Investigate',  `aiInvestigateDevice('${idEsc}','${nameEsc}')`],
+    ['Metrics',         `openMetrics('${idEsc}','${nameEsc}')`],
+    ['Update history',  `openUpdateLogs('${idEsc}','${nameEsc}')`],
+  ];
+
+  const operate = [
+    ['Web terminal',    `openWebTerm('${idEsc}','${nameEsc}')`],
+    ['Custom command',  `openExecModal('${idEsc}','${nameEsc}')`],
+    ['Run script…',     `openScriptRunForDevice('${idEsc}','${nameEsc}')`],
+  ];
+  if (!d.agentless && dangerous) {
+    operate.push([`docker compose${composeSuffix}`,
+                  `openComposeModal('${idEsc}','${nameEsc}')`]);
+  }
+  operate.push(['Agent update', `sendUpdate('${idEsc}','${nameEsc}')`]);
+
+  const configure = [
+    ['Edit tags',       `openTagModal('${idEsc}','${escAttr((d.tags||[]).join(','))}')`],
+    ['Set group',       `openGroupModal('${idEsc}','${escAttr(d.group||'')}')`],
+    ['Notes',           `openNotesModal('${idEsc}','${escAttr(d.notes||'')}')`],
+    ['Poll interval',   `openPollModal('${idEsc}','${d.poll_interval||60}')`],
+    ['Metric thresholds', `openMetricThresholds('${idEsc}','${nameEsc}')`],
+    ['Allowlist',       `openAllowlistModal('${idEsc}')`],
+    ['Icon',            `openIconModal('${idEsc}','${escAttr(d.icon||'')}')`],
+    [`${isMonitored ? 'Disable' : 'Enable'} monitoring`,
+                        `toggleMonitored('${idEsc}', ${isMonitored ? 'false' : 'true'})`],
+  ];
+
+  const itemsHtml = items =>
+    items.map(([label, action]) =>
+      `<a href="#" onclick="${action}; return false;">${label}</a>`).join('');
+
+  // <details>/<summary> for collapsible groups; no JS needed.
+  // The summary line uses the same styling as a regular item so the
+  // visual rhythm doesn't break.
+  const group = (label, items, opened) =>
+    `<details class="dropdown-group"${opened ? ' open' : ''}>` +
+      `<summary>${label}</summary>${itemsHtml(items)}</details>`;
+
+  return `<div class="device-dropdown" id="dropdown-${idEsc}">` +
+    `<button class="dropdown-btn" onclick="toggleDropdown('${idEsc}')">⋯</button>` +
+    `<div class="dropdown-content compact">` +
+      itemsHtml(power) +
+      `<hr>` +
+      group('Inspect',   inspect,   true) +    // open by default — most used
+      group('Operate',   operate,   false) +
+      group('Configure', configure, false) +
+      `<hr>` +
+      `<a href="#" onclick="removeDevice('${idEsc}'); return false;" ` +
+         `style="color:var(--red)">Remove device</a>` +
+    `</div></div>`;
+}
+
+// ─── v2.1.5: additional ✨ surfaces ────────────────────────────────────────
+
+function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs) {
+  const logs = Array.isArray(recentLogs) ? recentLogs.join('\n') : (recentLogs || '');
+  openAIModal({
+    title:    `✨ Diagnose ${serviceName}`,
+    system:   'diagnose_service',
+    userMsg:  `Service: ${serviceName}\nDevice: ${deviceName}\nState: ${state || '?'}/${subState || '?'}\n\nRecent journal:\n${logs.slice(0, 6000)}`,
+    context:  `service:${serviceName}`,
+    maxTokens: 1500,
+  });
+}
+
+function aiExplainTls(host, port, expiryEpoch, issuer, extraContext) {
+  const now = Math.floor(Date.now() / 1000);
+  const daysLeft = expiryEpoch ? Math.floor((expiryEpoch - now) / 86400) : '?';
+  const lines = [
+    `Host: ${host}:${port || 443}`,
+    `Expires: ${expiryEpoch ? new Date(expiryEpoch * 1000).toISOString() : '?'} (${daysLeft} days from now)`,
+    issuer ? `Issuer: ${issuer}` : '',
+    extraContext || '',
+  ].filter(Boolean);
+  openAIModal({
+    title:    `✨ Triage cert for ${host}`,
+    system:   'explain_tls',
+    userMsg:  lines.join('\n'),
+    context:  `tls:${host}`,
+    maxTokens: 800,
+  });
+}
+
+function aiPrioritisePatches(deviceName, packageList) {
+  // packageList: either a string of one-per-line or array of {name, version}
+  let listText = '';
+  if (Array.isArray(packageList)) {
+    listText = packageList.map(p =>
+      typeof p === 'string' ? p : `${p.name || '?'} ${p.version || ''}`.trim()
+    ).join('\n');
+  } else {
+    listText = String(packageList || '');
+  }
+  if (!listText.trim()) { toast('No pending packages to prioritise', 'info'); return; }
+  openAIModal({
+    title:    `✨ Prioritise updates for ${deviceName}`,
+    system:   'prioritise_patches',
+    userMsg:  `Device: ${deviceName}\n\nPending updates:\n${listText.slice(0, 6000)}`,
+    context:  `patches:${deviceName}`,
+    maxTokens: 1500,
+  });
+}
+
+function aiExplainContainerLogs(containerName, image, logs) {
+  if (!logs || !logs.trim()) { toast('No logs to explain', 'info'); return; }
+  openAIModal({
+    title:    `✨ Explain ${containerName} logs`,
+    system:   'explain_container_logs',
+    userMsg:  `Container: ${containerName}\nImage: ${image || '?'}\n\nLogs:\n${logs.slice(0, 8000)}`,
+    context:  `container:${containerName}`,
+    maxTokens: 1500,
+  });
+}
+
+async function aiPrioritisePatchesForDevice(devId, devName) {
+  // Pull the device's patch report and find the most recent upgrade-listing
+  // command output (apt list --upgradable / dnf check-update / etc.) to
+  // feed to the model. That output IS the package list.
+  const data = await api('GET', `/patch-report/device/${encodeURIComponent(devId)}`);
+  if (!data?.patch_history?.length) {
+    toast('No patch-check output recorded yet — agent hasn\'t run one', 'info');
+    return;
+  }
+  const listing = data.patch_history.slice().reverse().find(o =>
+    /upgradable|check-update|list-upgrades|outdated|pacman -Qu/i.test(o.cmd) && o.output
+  );
+  if (!listing) {
+    toast('No upgrade listing output in patch history', 'info');
+    return;
+  }
+  aiPrioritisePatches(devName, listing.output);
 }

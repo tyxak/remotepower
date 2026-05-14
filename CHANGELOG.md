@@ -1,5 +1,83 @@
 # Changelog
 
+## v2.1.6 - 2026-05-14
+
+Same-day hotfix for the Patches page.
+
+### Fixed
+
+- **Patches → Detail threw "can't access property textContent of null".**
+  Two compounding causes: (1) the 2.1.5 ✨ Prioritise button placed
+  `display:flex` on a `<td>`, breaking table-cell rendering;
+  (2) `openDevicePatchReport()` referenced `#device-patch-modal` /
+  `#device-patch-title` / `#device-patch-body` which were missing
+  from `index.html` entirely — pre-existing bug, exposed by the
+  new button drawing attention to the Detail button next to it.
+  Fixed both: flex moved to a `<div>` inside the cell; missing
+  modal restored.
+
+### Added — regression test
+
+- `tests/test_v215.py::TestHtmlIdReferences` scans `app.js` for
+  every `getElementById(...)` and `(open|close)Modal(...)` call,
+  verifies the referenced ID exists in `index.html` (except for
+  a `KNOWN_DYNAMIC_IDS` allow-list). Verified it actually catches
+  the bug class by temporarily removing the modal and seeing the
+  test fail with all three missing IDs listed.
+
+- Total: **715 tests, all passing**
+
+## v2.1.5 - 2026-05-14
+
+Polish release — six items queued from real-world use of the 2.1.3/4
+AI work plus the long-pending stderr-spam fix.
+
+### Fixed
+
+- **"No Data Provided" from ✨ Investigate** — the JS was hitting a
+  route that doesn't exist (`GET /api/devices/<id>`). Now assembles
+  the snapshot from `/sysinfo` + `/output` + the devices list in
+  parallel, bails visibly if all four come back empty.
+- **Markdown rendering in AI responses** — new `renderMarkdown()`
+  helper (escape-first-then-transform; no XSS vector) used in both
+  the ✨ modal and the AI page chat. Supports headers, bold/italic,
+  code fences, inline code, lists, blockquotes.
+- **Routine heartbeat / lock_wait logs silenced by default.** The
+  `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is no longer
+  needed — its three behaviours are the default. `RP_LOG_HEARTBEATS=1`
+  and `RP_LOG_LOCK_WAITS=1` re-enable for diagnostics.
+  OFFLINE/ONLINE state-transition logs stay unconditional.
+
+### Changed
+
+- **AI Assistant moved from Planning to Help section** in the sidebar.
+- **Device-card dropdown is grouped + collapsible** via native
+  `<details>`. Power group always visible; Inspect open by default;
+  Operate and Configure collapsed. Both render sites share a single
+  `deviceDropdownHtml()` helper now.
+
+### Added — four new ✨ button surfaces
+
+- Services → service detail: **✨ Diagnose** (failed services only)
+- TLS → table row: **✨ Triage** (warning/critical/error only)
+- Patches → table row: **✨ Prioritise** (devices with pending updates)
+- New system-prompt keys: `diagnose_service`, `explain_tls`,
+  `prioritise_patches`, `explain_container_logs`
+
+### Documentation
+
+- New **[docs/ai.md](docs/ai.md)** — provider selection, privacy,
+  rate limits, ✨ button inventory, AI page surfaces, endpoint
+  reference, system prompts, troubleshooting.
+- **docs/scripts.md** — added AI integration section.
+- docs index updated.
+
+### Tests
+
+- `test_v215.py` (3 tests): heartbeat env-gating + new prompt keys
+- `test_v213.py`: prompt-registry test updated for v2.1.5 keys
+- Total: **711 tests, all passing**
+
 ## v2.1.4 - 2026-05-14
 
 Same-day point release fixing the most painful 2.1.3 AI bug + adding

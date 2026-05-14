@@ -574,11 +574,15 @@ class TestOllamaURLHandling(unittest.TestCase):
 
 class TestSystemPrompts(unittest.TestCase):
     def test_all_inline_button_keys_present(self):
-        """The 6 inline buttons + script generation refer to these keys.
-        If any is renamed, the button breaks silently — this test catches it."""
+        """The 6 inline buttons + script generation + v2.1.5 surfaces refer
+        to these keys. If any is renamed, the button breaks silently —
+        this test catches it."""
         required = {'explain_output', 'find_problem', 'explain_script',
                     'audit_script', 'generate_script', 'triage_cve',
-                    'investigate_device', 'explain_alert'}
+                    'investigate_device', 'explain_alert', 'free_form',
+                    # v2.1.5 additions
+                    'diagnose_service', 'explain_tls', 'prioritise_patches',
+                    'explain_container_logs'}
         self.assertTrue(required.issubset(ai_provider.SYSTEM_PROMPTS.keys()),
                         f"missing keys: {required - ai_provider.SYSTEM_PROMPTS.keys()}")
 

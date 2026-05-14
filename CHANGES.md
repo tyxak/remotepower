@@ -1,5 +1,110 @@
 # Changelog
 
+## v2.1.6 — 2026-05-14
+
+Same-day hotfix for two compounding bugs on the Patches page.
+
+### Fixed
+
+- **Patches → Detail button threw "can't access property textContent
+  of null".** Two issues stacked:
+  1. The 2.1.5 ✨ Prioritise button placed `display:flex` on a
+     `<td>`, which removed the cell from its `display:table-cell`
+     behaviour and made the Detail buttons render outside the
+     table. Fixed: flex container moved to a `<div>` inside the cell.
+  2. The Detail handler `openDevicePatchReport()` referenced
+     `#device-patch-title` / `#device-patch-body` / `#device-patch-modal`
+     — but **those elements were missing from `index.html`
+     entirely**. The function had been broken for several releases;
+     the new ✨ Prioritise button drew attention to it. Restored
+     the missing modal.
+
+### Added — regression test
+
+- `tests/test_v215.py::TestHtmlIdReferences` scans `app.js` for
+  every `getElementById(...)` + `(open|close)Modal(...)` reference
+  and verifies the ID exists in `index.html` (modulo a
+  `KNOWN_DYNAMIC_IDS` allow-list for AI modal + toast). Bugs of
+  this exact shape — JS referencing an HTML element that doesn't
+  exist — will now fail at build time. Verified by temporarily
+  removing the modal: test correctly listed all three missing IDs.
+
+- 715 tests total, all passing.
+
+
+## v2.1.5 — 2026-05-14
+
+Polish release. Six items queued from real-world use of the 2.1.3/4
+AI work plus the long-pending stderr-spam fix.
+
+### Fixed
+
+- **"No Data Provided" from ✨ Investigate** even when the device had
+  data. Root cause: the JS was hitting `GET /api/devices/<id>` — a
+  route that doesn't exist. Fixed: assemble the snapshot in parallel
+  from `/sysinfo`, `/output`, and the devices list. Bails visibly
+  ("No data available yet — has the agent checked in?") if there's
+  genuinely nothing to send.
+- **AI responses now render Markdown.** Models love their `**bold**`
+  and `## headers` and `` `code` `` — showing them as raw punctuation
+  was jarring. New `renderMarkdown()` helper: HTML-escape *first*,
+  then transform — no script-injection vector. Supports headers,
+  bold/italic, code fences, inline code, bullet/numbered lists, and
+  blockquotes. Used in both the ✨ modal and the AI page chat.
+- **Routine heartbeat / lock_wait logs silenced by default.** The
+  `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is now redundant —
+  all three of its behaviours are the default. Per-request heartbeat,
+  the `202 busy` retry log, and both lock_wait variants now require
+  `RP_LOG_HEARTBEATS=1` / `RP_LOG_LOCK_WAITS=1` in the CGI env to
+  re-enable. **OFFLINE/ONLINE state transitions and real-error
+  stderr writes stay unconditional.**
+
+### Changed
+
+- **AI Assistant moved to Help section** (between Documentation and
+  API Reference). Was under Planning, which never quite fit.
+- **Device-card dropdown is now grouped + collapsible.** Was 22
+  items in one vertical list, taller than most cards. New layout:
+  - **Power** at top (always visible): shutdown / reboot / WoL / upgrade
+  - **Inspect** (open by default): System info / ✨ Investigate / Metrics / Update history
+  - **Operate** (collapsed): Web terminal / Custom command / Run script… / docker compose / Agent update
+  - **Configure** (collapsed): tags, group, notes, intervals, allowlist, icon, monitoring
+  - Remove device in its own danger zone at the bottom
+
+  Native `<details>`/`<summary>` for the collapse — no JS needed.
+  Both render sites (grid + table) share one `deviceDropdownHtml()`
+  helper now instead of duplicating the 1.5 KB markup.
+
+### Added — four new ✨ button surfaces
+
+| Surface | Label | When it shows |
+|---|---|---|
+| Services → service detail | **✨ Diagnose** | non-active services |
+| TLS → table row | **✨ Triage** | warning / critical / error only |
+| Patches → table row | **✨ Prioritise** | devices with pending updates |
+| (Helper exists for container logs but unused — covered by existing ✨ Explain on command output) | | |
+
+Four new system-prompt keys: `diagnose_service`, `explain_tls`,
+`prioritise_patches`, `explain_container_logs`.
+
+### Documentation
+
+- New **docs/ai.md** (~280 lines): provider selection, privacy
+  toggles, rate-limit model, complete ✨ button inventory, AI page
+  walkthrough, endpoint reference, system-prompt registry, storage
+  layer, troubleshooting for every error users have hit.
+- **docs/scripts.md**: added AI integration section covering the
+  Generate / Explain / Audit buttons.
+- **docs/README.md** index updated.
+
+### Tests
+
+- `test_v215.py` (3 tests): new prompt keys exist + env-gating
+  pattern correct + state-transition logs stay unconditional.
+- `test_v213.py`: system-prompt registry test updated.
+- Total: **711 tests, all passing.**
+
+
 ## v2.1.4 — 2026-05-14
 
 Same-day follow-up to 2.1.3 fixing the JSON.parse-on-every-button bug

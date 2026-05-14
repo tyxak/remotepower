@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.1.4'
+SERVER_VERSION = '2.1.6'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -653,7 +653,12 @@ def _acquire_lock(path, non_blocking):
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 waited_ms = int((time.monotonic() - t0) * 1000)
-                if waited_ms >= LOCK_WAIT_LOG_MS:
+                # v2.1.5: routine lock-wait events are hot paths under
+                # load. Logging every one swamps stderr (which under
+                # nginx+fcgiwrap becomes the error log). Default silent;
+                # set RP_LOG_LOCK_WAITS=1 in the CGI environment to
+                # re-enable for diagnostics.
+                if waited_ms >= LOCK_WAIT_LOG_MS and os.environ.get('RP_LOG_LOCK_WAITS') == '1':
                     sys.stderr.write(
                         f"[remotepower] lock_wait path={path.name} "
                         f"waited_ms={waited_ms} mode=nb pid={os.getpid()}\n")
@@ -670,7 +675,7 @@ def _acquire_lock(path, non_blocking):
     else:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         waited_ms = int((time.monotonic() - t0) * 1000)
-        if waited_ms >= LOCK_WAIT_LOG_MS:
+        if waited_ms >= LOCK_WAIT_LOG_MS and os.environ.get('RP_LOG_LOCK_WAITS') == '1':
             sys.stderr.write(
                 f"[remotepower] lock_wait path={path.name} "
                 f"waited_ms={waited_ms} mode=block pid={os.getpid()}\n")
@@ -2636,9 +2641,14 @@ def handle_heartbeat():
         try:
             save(path, data, non_blocking=True)
         except LockBusy as lb:
-            sys.stderr.write(
-                f"[remotepower] heartbeat 202 dev={dev_id} path={path.name} "
-                f"waited_ms={lb.waited_ms}\n")
+            # v2.1.5: heartbeat 202s on a busy lock are routine under load.
+            # Silent by default; set RP_LOG_HEARTBEATS=1 to diagnose lock
+            # contention. The 202 response itself is unaffected — the
+            # client retries as before.
+            if os.environ.get('RP_LOG_HEARTBEATS') == '1':
+                sys.stderr.write(
+                    f"[remotepower] heartbeat 202 dev={dev_id} path={path.name} "
+                    f"waited_ms={lb.waited_ms}\n")
             respond(202, {'busy': True, 'retry_after': 1})
 
     # v2.1.2: atomic read-modify-write for devices.json. The whole block —
@@ -2792,9 +2802,15 @@ def handle_heartbeat():
     # containers, etc.) — each has its own flock. Holding DEVICES_FILE's
     # lock for any longer would serialise all heartbeat handling for no
     # benefit.
-    sys.stderr.write(
-        f"[remotepower] heartbeat dev={dev_id} name={saved_dev['name']!r} "
-        f"last_seen={saved_dev['last_seen']} pid={os.getpid()}\n")
+    # v2.1.5: at 6 devices polling every 60s that's ~8,600 log lines/day
+    # of routine "heartbeat received" noise drowning out real errors in
+    # the nginx error log. Default silent; set RP_LOG_HEARTBEATS=1 in
+    # the CGI environment to re-enable for diagnostics. Offline/online
+    # transitions (above) are state changes and stay unconditional.
+    if os.environ.get('RP_LOG_HEARTBEATS') == '1':
+        sys.stderr.write(
+            f"[remotepower] heartbeat dev={dev_id} name={saved_dev['name']!r} "
+            f"last_seen={saved_dev['last_seen']} pid={os.getpid()}\n")
     _record_uptime(dev_id, saved_dev['name'], True)
 
     # v1.8.0: process service report

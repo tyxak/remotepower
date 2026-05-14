@@ -162,10 +162,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
           <span>History</span>
         </button>
-        <button class="nav-btn" onclick="showPage('ai',this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
-          <span>AI Assistant</span>
-        </button>
       </div>
     </div>
 
@@ -208,11 +204,15 @@
       </div>
     </div>
 
-    <!-- Help group at bottom — Docs (new in v2.0), API Docs, About -->
+    <!-- Help group at bottom — Docs, API Docs, AI Assistant, About -->
     <div class="sidebar-label"><span>Help</span></div>
     <button class="nav-btn" onclick="showPage('docs',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       <span>Documentation</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('ai',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
+      <span>AI Assistant</span>
     </button>
     <button class="nav-btn" onclick="window.open('/swagger.html', '_blank')" title="Open the OpenAPI / Swagger UI documentation in a new tab">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
@@ -1797,6 +1797,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button></div></div></div>
+<!-- v2.1.5: device-patch-modal — has been referenced by openDevicePatchReport
+     for several releases but the element itself was missing from the HTML,
+     so clicking Detail on the Patches page threw "can't access property
+     textContent, document.getElementById(...) is null". Restored here. -->
+<div class="modal-overlay" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('device-patch-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('service-edit-modal')">Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>

@@ -938,6 +938,54 @@
     margin: 4px 0;
     border-color: var(--border);
   }
+  /* v2.1.5: compact grouped dropdown — <details>/<summary> for the
+     three secondary sections (Inspect / Operate / Configure). Keeps
+     the dropdown short by default; click to expand a section. */
+  .dropdown-content.compact {
+    min-width: 220px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .dropdown-content.compact .dropdown-group {
+    border-radius: 4px;
+  }
+  .dropdown-content.compact .dropdown-group > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 6px 14px 6px 22px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    position: relative;
+    user-select: none;
+  }
+  .dropdown-content.compact .dropdown-group > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* Disclosure caret in a fixed position so the label doesn't shift
+     when the section opens. */
+  .dropdown-content.compact .dropdown-group > summary::before {
+    content: '▸';
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    font-size: 10px;
+    transition: transform 0.15s ease;
+    color: var(--muted);
+  }
+  .dropdown-content.compact .dropdown-group[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .dropdown-content.compact .dropdown-group > summary:hover {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  .dropdown-content.compact .dropdown-group a {
+    padding-left: 22px;   /* indent group children */
+    font-size: 13px;
+  }
   .device-dropdown.active .dropdown-content {
     display: block;
   }
