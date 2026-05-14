@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- v2.0: real favicon (replaces no favicon at all in older releases) -->
-<link rel="icon" type="image/png" href="static/img/favicon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="shortcut icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="static/img/logo-square.png">
 <title>RemotePower — Device Control</title>
 <link rel="stylesheet" href="static/css/styles.css">
@@ -160,6 +161,10 @@
         <button class="nav-btn" onclick="showPage('history',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
           <span>History</span>
+        </button>
+        <button class="nav-btn" onclick="showPage('ai',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
+          <span>AI Assistant</span>
         </button>
       </div>
     </div>
@@ -379,6 +384,7 @@
           <button class="settings-tab active" data-tab="general"  onclick="switchSettingsTab('general')">General</button>
           <button class="settings-tab"        data-tab="notifs"   onclick="switchSettingsTab('notifs')">Notifications</button>
           <button class="settings-tab"        data-tab="security" onclick="switchSettingsTab('security')">Security</button>
+          <button class="settings-tab"        data-tab="ai"       onclick="switchSettingsTab('ai')">AI assistant</button>
           <button class="settings-tab"        data-tab="advanced" onclick="switchSettingsTab('advanced')">Advanced</button>
         </div>
 
@@ -564,8 +570,8 @@
               </div>
             </div>
             <div class="table-card" style="max-height:300px;overflow-y:auto">
-              <table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th></tr></thead>
-              <tbody id="webhook-log-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet.</td></tr></tbody></table>
+              <table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th><th></th></tr></thead>
+              <tbody id="webhook-log-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet.</td></tr></tbody></table>
             </div>
           </div>
         </div>
@@ -680,6 +686,81 @@
             <h3>Backup &amp; export</h3>
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
             <button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
+          </div>
+        </div>
+
+        <!-- ── AI assistant (v2.1.3) ──────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-ai">
+          <div class="settings-section">
+            <h3>AI provider</h3>
+            <p class="hint">Wire in an LLM for the ✨ buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
+            <div class="settings-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+              <div class="form-group" style="min-width:140px">
+                <label class="form-label">Enabled</label>
+                <select id="ai-enabled" class="form-input"><option value="0">Off</option><option value="1">On</option></select>
+              </div>
+              <div class="form-group" style="min-width:220px">
+                <label class="form-label">Provider</label>
+                <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai">OpenAI (ChatGPT)</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama — local</option>
+                  <option value="localai">LocalAI — local</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:1;min-width:280px">
+                <label class="form-label">Model</label>
+                <input type="text" id="ai-model" class="form-input" placeholder="(provider default)">
+                <div id="ai-model-hint" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+              </div>
+            </div>
+
+            <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+              <div class="form-group" style="flex:1;min-width:260px">
+                <label class="form-label">API key</label>
+                <input type="password" id="ai-api-key" class="form-input" placeholder="(unchanged)" autocomplete="off">
+                <div style="font-size:11px;color:var(--muted);margin-top:4px">Leave blank to keep the saved key. Type <code>__clear__</code> to remove it. Not used for Ollama or LocalAI.</div>
+              </div>
+              <div class="form-group" style="flex:1;min-width:260px">
+                <label class="form-label">Base URL (optional override)</label>
+                <input type="text" id="ai-base-url" class="form-input" placeholder="(provider default)">
+                <div id="ai-base-url-hint" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Privacy — what gets sent to the provider</h3>
+            <p class="hint">By default, hostnames and IP addresses are stripped from every request before it leaves the building. Long hex strings, bearer tokens, and AWS access keys are <i>always</i> redacted regardless of these toggles. Cleartext journal content and command output are sent only when you explicitly opt in.</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="ai-priv-hostnames"> Send hostnames (FQDNs)</label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="ai-priv-ips"> Send IP addresses</label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="ai-priv-journal"> Send journal / log content</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ai-priv-cmd-output" checked> Send command output</label>
+          </div>
+
+          <div class="settings-section">
+            <h3>Limits</h3>
+            <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable.</p>
+            <div class="settings-row" style="flex-wrap:wrap;gap:12px">
+              <div class="form-group" style="max-width:200px">
+                <label class="form-label">Max tokens per response</label>
+                <input type="number" id="ai-max-tokens" class="form-input" min="1" max="16000" value="4000">
+              </div>
+              <div class="form-group" style="max-width:200px">
+                <label class="form-label">Daily requests per user</label>
+                <input type="number" id="ai-max-requests" class="form-input" min="0" max="100000" value="100">
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Test connection</h3>
+            <p class="hint">Round-trip a one-word "say hi" request against the configured provider. Saves a settings round-trip before you start using the ✨ buttons in anger.</p>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <button class="btn-icon" onclick="testAIConnection()">✨ Test connection</button>
+              <span id="ai-test-result" style="font-size:13px;color:var(--muted)"></span>
+            </div>
           </div>
         </div>
 
@@ -1057,6 +1138,73 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+        </div>
+      </div>
+
+      <!-- ── AI Assistant page (v2.1.4) ───────────────────────────────── -->
+      <div id="page-ai" class="page">
+        <div class="page-title">AI Assistant</div>
+        <div class="page-subtitle">Free-form chat against the configured provider. Local-model stats when running Ollama or LocalAI.</div>
+
+        <!-- Provider status header. Hidden when AI is disabled in settings. -->
+        <div id="ai-page-disabled" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);padding:16px;border-radius:8px;margin-bottom:16px">
+          <div style="font-weight:600;color:var(--red);margin-bottom:6px">AI is disabled</div>
+          <div style="font-size:13px;color:var(--muted)">Enable it in <a href="#settings/ai" onclick="showPage('settings',document.querySelector('.nav-btn[onclick*=settings]'));setTimeout(()=>switchSettingsTab('ai'),50);return false;" style="color:var(--accent)">Settings → AI assistant</a> first.</div>
+        </div>
+
+        <div id="ai-page-status" class="settings-section" style="margin-bottom:16px;display:none">
+          <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600">Provider</div>
+              <div id="ai-page-stat-provider" style="font-weight:600;margin-top:2px">—</div>
+              <div id="ai-page-stat-baseurl" style="font-size:12px;color:var(--muted);font-family:monospace">—</div>
+            </div>
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600">Status</div>
+              <div id="ai-page-stat-status" style="margin-top:2px">—</div>
+            </div>
+            <div>
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600">Version</div>
+              <div id="ai-page-stat-version" style="margin-top:2px">—</div>
+            </div>
+            <div style="flex:1;min-width:240px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600">Loaded models</div>
+              <div id="ai-page-stat-loaded" style="margin-top:2px;font-size:13px">—</div>
+            </div>
+            <div>
+              <button class="btn-icon" onclick="aiPageRefreshStats()" style="font-size:12px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat -->
+        <div id="ai-page-chat-wrap" style="display:none">
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+            <label class="form-label" style="margin:0">Model</label>
+            <select id="ai-page-model" class="form-input" style="max-width:340px;font-size:13px">
+              <option value="">(configured default)</option>
+            </select>
+            <button class="btn-icon" style="font-size:12px;margin-left:auto" onclick="aiPageClear()" title="Clear conversation">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              Clear
+            </button>
+          </div>
+          <div id="ai-page-history" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;min-height:300px;max-height:55vh;overflow-y:auto;font-size:14px;line-height:1.55">
+            <div style="color:var(--muted);text-align:center;padding:40px 12px">
+              No messages yet — type a prompt below.<br>
+              <span style="font-size:11px">Conversation history is kept in your browser (localStorage) — not on the server. Clearing the conversation clears only your view.</span>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:flex-end">
+            <textarea id="ai-page-input" class="form-input" rows="3" placeholder="Ask anything. Ctrl/⌘+Enter to send." style="flex:1;resize:vertical;min-height:60px;font-family:inherit;font-size:14px" onkeydown="aiPageInputKey(event)"></textarea>
+            <button class="btn-primary" onclick="aiPageSend()" id="ai-page-send" style="height:60px;min-width:90px">Send</button>
+          </div>
+          <div id="ai-page-footer" style="margin-top:6px;font-size:11px;color:var(--muted)">
+            Each request is audited. Privacy redaction follows the toggles in Settings → AI assistant.
+          </div>
         </div>
       </div>
 
@@ -1577,6 +1725,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <textarea id="script-edit-body" class="form-input" style="font-family:monospace;min-height:240px;resize:vertical;white-space:pre" placeholder="#!/usr/bin/env bash&#10;set -euo pipefail&#10;&#10;# your script here…"></textarea>
   </div>
   <div id="script-edit-lint" style="display:none;font-size:12px;padding:10px 12px;border-radius:6px;margin-bottom:8px;font-family:monospace;white-space:pre-wrap;word-break:break-word"></div>
+  <!-- v2.1.3: AI buttons. Generate prompts for a description and writes
+       the result back into the body textarea; Explain and Audit operate
+       on whatever's currently in the body. All three respect the same
+       admin/redaction/rate-limit machinery as everywhere else. -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px">
+    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIGenerate()">✨ Generate from prompt…</button>
+    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIExplain()">✨ Explain</button>
+    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIAudit()">✨ Audit for risks</button>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto">Output is reviewed + dry-run before save — same path as a human-written script.</span>
+  </div>
   <div class="modal-actions">
     <button class="btn-secondary" onclick="closeModal('script-edit-modal')">Cancel</button>
     <button class="btn-icon" onclick="runScriptDryRunFromEditor()" style="margin-right:auto">Dry run</button>

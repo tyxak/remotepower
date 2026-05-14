@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.1.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -73,6 +73,47 @@ enrolment), see **[docs/install.md](docs/install.md)**.
 | 📈 **Time series** | Prometheus `/api/metrics` for Grafana. Per-device history. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
+
+## What's new in 2.1.4
+
+**Fixed**: `JSON.parse: unexpected character at line 1 column 1`
+error on every ✨ button when pointed at slow local Ollama models
+(smallthinker / qwq / deepseek-r1, etc.). Bug was a 60s nginx
+`fastcgi_read_timeout` cutting off requests that take 60–180s on
+thinking models, returning HTML to the JS that expected JSON. Fix:
+per-button `max_tokens` tuned to typical response length, HTTP
+timeout bumped to 5 min, new tolerant fetch helper that surfaces
+non-JSON server responses with a contextual fix hint. **Operator
+action**: bump `fastcgi_read_timeout` to 300s for `/api/ai/` —
+nginx snippet in `docs/v2.1.4.md`.
+
+**Added**: AI Assistant **page** under the Planning group. Standalone
+chat UI alongside the inline ✨ buttons. Status header showing
+provider / version / reachability / currently-loaded models with VRAM
+use (Ollama). Per-conversation model picker populated from the
+provider's own list. Multi-turn chat with localStorage history. Two
+new endpoints: `GET /api/ai/models`, `GET /api/ai/stats`.
+
+Release notes: **[docs/v2.1.4.md](docs/v2.1.4.md)**.
+
+## What's new in 2.1.3
+
+**Optional AI assistant.** Five providers (Anthropic Claude, OpenAI
+ChatGPT, DeepSeek, Ollama, LocalAI), disabled by default, configured
+in Settings → AI assistant. Inline ✨ buttons on command output,
+journal, the script editor, CVE findings, device dropdowns, and the
+webhook log. Pure stdlib — no new pip dependencies. AI-generated
+scripts go through the same dry-run + dangerous-pattern detection
+as human-written ones.
+
+Hostnames and IPs are redacted before leaving the building unless
+the operator explicitly opts in. Bearer tokens, AWS keys, and long
+hex strings are *always* redacted. Per-user-per-day request cap
+prevents runaway cloud-provider invoices.
+
+**Plus**: About-page version logic fix (was showing "Latest release
+2.0.0 ✓ up to date" on a 2.1.2 install). Full release notes:
+**[docs/v2.1.3.md](docs/v2.1.3.md)**.
 
 ## What's new in 2.1.2
 

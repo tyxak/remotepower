@@ -623,6 +623,7 @@ function showPage(name, btn) {
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
   if (name === 'settings') { loadSettings(); loadTotpStatus(); loadWebhookLog(); }
+  if (name === 'ai') { loadAIPage(); }
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'cmdlib')   loadCmdLib();
@@ -740,7 +741,7 @@ function renderDevices() {
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
-      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
+      <div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="aiInvestigateDevice('${d.id}','${escAttr(d.name)}'); return false;">✨ Investigate</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
@@ -792,7 +793,7 @@ function _registerDevicesMinimalTable() {
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
-      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
+      const dropdownHtml = `<div class="device-dropdown" id="dropdown-${d.id}"><button class="dropdown-btn" onclick="toggleDropdown('${d.id}')">⋯</button><div class="dropdown-content"><a href="#" onclick="requestShutdown('${d.id}','${escAttr(d.name)}'); return false;">Shut down</a><a href="#" onclick="requestReboot('${d.id}','${escAttr(d.name)}'); return false;">Reboot</a>${d.mac ? `<a href="#" onclick="sendWol('${d.id}','${escAttr(d.name)}'); return false;">Wake-on-LAN</a>` : ''}<a href="#" onclick="sendUpdate('${d.id}','${escAttr(d.name)}'); return false;">Agent update</a><a href="#" onclick="upgradePackages('${d.id}','${escAttr(d.name)}'); return false;">Upgrade packages</a><a href="#" onclick="openUpdateLogs('${d.id}','${escAttr(d.name)}'); return false;">Update history</a><hr><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;">System info</a><a href="#" onclick="aiInvestigateDevice('${d.id}','${escAttr(d.name)}'); return false;">✨ Investigate</a><a href="#" onclick="openWebTerm('${d.id}','${escAttr(d.name)}'); return false;">Web terminal</a><a href="#" onclick="openExecModal('${d.id}','${escAttr(d.name)}'); return false;">Custom command</a><a href="#" onclick="openScriptRunForDevice('${d.id}','${escAttr(d.name)}'); return false;">Run script…</a>${(!d.agentless && (d.version||'').match(/^2\.[1-9]/)) ? `<a href="#" onclick="openComposeModal('${d.id}','${escAttr(d.name)}'); return false;">docker compose${d.compose_projects_count > 0 ? ` (${d.compose_projects_count})` : ' (scan pending…)'}</a>` : ''}<a href="#" onclick="openMetrics('${d.id}','${escAttr(d.name)}'); return false;">Metrics</a><a href="#" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}'); return false;">Metric thresholds</a><a href="#" onclick="openTagModal('${d.id}','${escAttr((d.tags||[]).join(','))}'); return false;">Edit tags</a><a href="#" onclick="openGroupModal('${d.id}','${escAttr(d.group||'')}'); return false;">Set group</a><a href="#" onclick="openNotesModal('${d.id}','${escAttr(d.notes||'')}'); return false;">Notes</a><a href="#" onclick="openPollModal('${d.id}','${d.poll_interval||60}'); return false;">Poll interval</a><a href="#" onclick="openAllowlistModal('${d.id}'); return false;">Allowlist</a><a href="#" onclick="openIconModal('${d.id}','${escAttr(d.icon||'')}'); return false;">Icon</a><a href="#" onclick="toggleMonitored('${d.id}', ${isMonitored ? 'false' : 'true'}); return false;">${isMonitored ? 'Disable' : 'Enable'} monitoring</a><hr><a href="#" onclick="removeDevice('${d.id}'); return false;" style="color:var(--red);">Remove device</a></div></div>`;
       // v1.12.1: leading checkbox cell mirrors the cards-mode batch-select
       // experience. Reuses the same selectedDevices Set so cards/minimal
       // share state — switch density mid-selection, your selection survives.
@@ -902,7 +903,7 @@ async function saveDeviceIcon(icon) { const id = document.getElementById('icon-d
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
 async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
-async function openDetail(id, name) { document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += `<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--muted)">Journal — last ${journal.length} lines</div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code><span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {} }
+async function openDetail(id, name) { document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {} }
 function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
@@ -1112,8 +1113,13 @@ async function loadSettings() {
   const hash = (location.hash || '').replace(/^#/, '');
   if (hash.startsWith('settings/')) {
     const tab = hash.split('/')[1];
-    if (['general','notifs','security','advanced'].includes(tab)) switchSettingsTab(tab);
+    if (['general','notifs','security','ai','advanced'].includes(tab)) switchSettingsTab(tab);
   }
+
+  // v2.1.3: pull AI config alongside the rest of the settings page.
+  // Lives in its own endpoint so non-admins can still load /api/config
+  // for their own use.
+  try { await loadAISettings(); } catch(e) {}
 }
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
 async function saveSettings() {
@@ -1185,6 +1191,8 @@ async function saveSettings() {
     // Clear password fields after save so they don't sit in the DOM
     document.getElementById('cfg-smtp-password').value = '';
     document.getElementById('cfg-ldap-bind-password').value = '';
+    // v2.1.3: AI settings live in their own endpoint, save in parallel
+    try { await saveAISettings(); } catch(e) {}
     loadSettings(); loadWebhookLog();
   } else {
     toast(data?.error || 'Failed', 'error');
@@ -1283,7 +1291,7 @@ async function runLdapTestUser() {
   }
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
-async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td></tr>`; }).join(''); }
+async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td><td style="white-space:nowrap"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainAlert('${escAttr(e.event)}','','${escAttr(e.detail||'')}',null)">✨ Explain</button></td></tr>`; }).join(''); }
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
 // the background. The "auto-refresh closes browser window" bug had two
 // independent triggers in 2.0.0:
@@ -2245,7 +2253,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" style="color:var(--accent)">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(a)}</code>`).join('');
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;margin-left:auto;font-size:11px" onclick="ignoreCVE('${escAttr(f.vuln_id)}','${escAttr(devId)}','${escAttr(devName)}')">Ignore</button>` : ''}</div></div>`;
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}<button class="btn-icon" style="padding:2px 6px;font-size:11px;margin-left:auto" onclick="aiTriageCve('${escAttr(f.vuln_id)}','${escAttr(f.package)}','${escAttr(f.version)}','${escAttr(devName)}','${escAttr(f.summary||'')}')">✨ Triage</button>${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;font-size:11px" onclick="ignoreCVE('${escAttr(f.vuln_id)}','${escAttr(devId)}','${escAttr(devName)}')">Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -5585,3 +5593,644 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   checkAuth();
 });
+
+// ─── v2.1.3: AI assistant ───────────────────────────────────────────────────
+//
+// Two surfaces:
+//   1. Settings → AI assistant tab (loadAISettings / saveAISettings /
+//      testAIConnection / onAIProviderChange)
+//   2. Inline ✨ buttons on command output, journal, scripts, CVE rows,
+//      device cards, and notifications — all routed through openAIModal().
+//
+// openAIModal() is the single reusable component for every ✨ click. It:
+//   - shows a modal with a context summary at the top (what's being sent)
+//   - posts to /api/ai/chat
+//   - renders the response (one shot — no streaming in v1)
+//   - shows token use + elapsed time so the operator can see what it cost
+//   - supports Copy + Ask-followup, plus a Cancel that closes the modal
+
+let _aiCfgCache = null;   // cached config from last loadAISettings()
+
+async function loadAISettings() {
+  const cfg = await api('GET', '/ai/config');
+  if (!cfg) return;
+  _aiCfgCache = cfg;
+  document.getElementById('ai-enabled').value  = cfg.enabled ? '1' : '0';
+  document.getElementById('ai-provider').value = cfg.provider || 'anthropic';
+  document.getElementById('ai-model').value    = cfg.model    || '';
+  document.getElementById('ai-base-url').value = cfg.base_url || '';
+  // Show the masked key as placeholder; never put it in the value or
+  // it gets re-submitted on every save.
+  const keyInput = document.getElementById('ai-api-key');
+  keyInput.value = '';
+  keyInput.placeholder = cfg.api_key ? cfg.api_key : '(none — type to set)';
+  const p = cfg.privacy || {};
+  document.getElementById('ai-priv-hostnames').checked  = !!p.send_hostnames;
+  document.getElementById('ai-priv-ips').checked        = !!p.send_ips;
+  document.getElementById('ai-priv-journal').checked    = !!p.send_journal;
+  document.getElementById('ai-priv-cmd-output').checked = p.send_cmd_output !== false;
+  const lim = cfg.limits || {};
+  document.getElementById('ai-max-tokens').value   = lim.max_tokens_per_response   ?? 4000;
+  document.getElementById('ai-max-requests').value = lim.max_requests_per_user_day ?? 100;
+  onAIProviderChange();   // refresh per-provider hint
+}
+
+function onAIProviderChange() {
+  const provider = document.getElementById('ai-provider').value;
+  const defaults = (_aiCfgCache && _aiCfgCache._defaults) || {};
+  const d = defaults[provider] || {};
+  document.getElementById('ai-base-url').placeholder = d.base_url || '';
+  document.getElementById('ai-base-url-hint').textContent =
+    d.base_url ? `default: ${d.base_url}` : '';
+  document.getElementById('ai-model').placeholder = d.model || '';
+  document.getElementById('ai-model-hint').textContent =
+    d.model ? `default: ${d.model}` : '';
+  // Local providers don't need an API key; dim the field as a UX hint
+  const local = (provider === 'ollama' || provider === 'localai');
+  document.getElementById('ai-api-key').disabled = local;
+  if (local) document.getElementById('ai-api-key').placeholder =
+    '(not required for local providers)';
+}
+
+async function saveAISettings() {
+  const payload = {
+    enabled:  document.getElementById('ai-enabled').value === '1',
+    provider: document.getElementById('ai-provider').value,
+    model:    document.getElementById('ai-model').value.trim(),
+    base_url: document.getElementById('ai-base-url').value.trim(),
+    privacy: {
+      send_hostnames:  document.getElementById('ai-priv-hostnames').checked,
+      send_ips:        document.getElementById('ai-priv-ips').checked,
+      send_journal:    document.getElementById('ai-priv-journal').checked,
+      send_cmd_output: document.getElementById('ai-priv-cmd-output').checked,
+    },
+    limits: {
+      max_tokens_per_response:   parseInt(document.getElementById('ai-max-tokens').value, 10)   || 4000,
+      max_requests_per_user_day: parseInt(document.getElementById('ai-max-requests').value, 10) || 100,
+    },
+  };
+  // Only submit api_key if the user typed something — keeps the existing
+  // key when the field is left blank. '__clear__' wipes the stored key.
+  const k = document.getElementById('ai-api-key').value;
+  if (k) payload.api_key = k;
+  const resp = await api('POST', '/ai/config', payload);
+  if (resp && !resp.error) {
+    document.getElementById('ai-api-key').value = '';
+    return true;
+  }
+  if (resp?.error) toast('AI: ' + resp.error, 'error');
+  return false;
+}
+
+async function testAIConnection() {
+  const out = document.getElementById('ai-test-result');
+  out.textContent = '…';
+  out.style.color = 'var(--muted)';
+  // Save first if there are unsaved changes — the test endpoint reads
+  // from server-side config, not whatever's in the form.
+  const saved = await saveAISettings();
+  if (!saved) { out.textContent = '(save failed)'; out.style.color = 'var(--red)'; return; }
+  const resp = await api('POST', '/ai/test', {});
+  if (resp && resp.ok) {
+    out.textContent = `✓ ${resp.model || ''} responded (${resp.tokens_in}+${resp.tokens_out} tokens)`;
+    out.style.color = 'var(--green)';
+  } else {
+    out.textContent = '✗ ' + (resp?.error || 'unknown error');
+    out.style.color = 'var(--red)';
+  }
+}
+
+// ─── Reusable ✨ modal ─────────────────────────────────────────────────────
+//
+// Every ✨ button on the dashboard funnels through this. Pass:
+//   title    — visible header
+//   system   — system prompt key (one of ai_provider.SYSTEM_PROMPTS keys)
+//              OR a literal system prompt string
+//   userMsg  — the user-role message content (already formatted, e.g.
+//              "command: ...\noutput: ...\n")
+//   context  — short label for the audit log (e.g. 'device:abc123')
+//   onResult — optional callback(text) when the response arrives. The
+//              Scripts page uses this to drop the result into the editor.
+
+let _aiModalEl = null;
+
+function _ensureAIModal() {
+  if (_aiModalEl) return _aiModalEl;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'ai-modal';
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:720px;width:92vw;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600" id="ai-modal-title">✨ AI</div>
+        <button class="btn-icon" onclick="closeAIModal()" style="padding:4px 8px">✕</button>
+      </div>
+      <div style="padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)" id="ai-modal-meta">—</div>
+      <div id="ai-modal-body" style="flex:1;overflow:auto;padding:14px 16px;font-size:13px;line-height:1.5;white-space:pre-wrap;font-family:ui-sans-serif,-apple-system,Segoe UI,sans-serif">
+        <div style="color:var(--muted)">Thinking…</div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-icon" id="ai-modal-copy" onclick="aiModalCopy()" disabled>Copy response</button>
+        <button class="btn-icon" id="ai-modal-action" style="display:none"></button>
+        <div style="flex:1"></div>
+        <button class="btn-icon" onclick="closeAIModal()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _aiModalEl = wrap;
+  return wrap;
+}
+
+function closeAIModal() {
+  if (_aiModalEl) _aiModalEl.classList.remove('active');
+}
+
+function aiModalCopy() {
+  const body = document.getElementById('ai-modal-body');
+  navigator.clipboard.writeText(body.dataset.rawText || body.textContent || '');
+  toast('Copied to clipboard', 'success');
+}
+
+async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
+  _ensureAIModal();
+  _aiModalEl.classList.add('active');
+  document.getElementById('ai-modal-title').textContent = title || '✨ AI';
+  document.getElementById('ai-modal-meta').textContent  =
+    `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
+  const body = document.getElementById('ai-modal-body');
+  body.innerHTML = '<div style="color:var(--muted)">Thinking… <span id="ai-modal-elapsed" style="font-size:11px"></span></div>';
+  body.dataset.rawText = '';
+  document.getElementById('ai-modal-copy').disabled = true;
+  const actionBtn = document.getElementById('ai-modal-action');
+  actionBtn.style.display = 'none';
+
+  // Live "Xs elapsed" ticker so it doesn't look frozen during long
+  // local-model thinks (smallthinker / qwq / deepseek-r1 etc.)
+  const t0 = Date.now();
+  const tickEl = document.getElementById('ai-modal-elapsed');
+  const tick = setInterval(() => {
+    const s = Math.floor((Date.now() - t0) / 1000);
+    if (tickEl) tickEl.textContent = `(${s}s elapsed)`;
+  }, 1000);
+
+  const reqBody = {
+    messages: [{role: 'user', content: userMsg}],
+    system: system,
+    context: context || '',
+  };
+  if (maxTokens) reqBody.max_tokens = maxTokens;
+
+  const resp = await aiApi('POST', '/ai/chat', reqBody);
+  clearInterval(tick);
+
+  if (!resp.ok) {
+    // aiApi() gives us a structured error even when the server returned
+    // HTML or a timeout — show it intelligibly. Most common: nginx 504
+    // because fastcgi_read_timeout is shorter than the model's actual
+    // think time.
+    body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
+    return;
+  }
+  body.textContent = resp.text || '(empty response)';
+  body.dataset.rawText = resp.text || '';
+  document.getElementById('ai-modal-copy').disabled = false;
+  document.getElementById('ai-modal-meta').textContent =
+    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${resp.elapsed_ms}ms` +
+    (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
+
+  if (onResult && actionLabel) {
+    actionBtn.style.display = '';
+    actionBtn.textContent = actionLabel;
+    actionBtn.onclick = () => { onResult(resp.text || ''); closeAIModal(); };
+  }
+}
+
+// ─── Inline ✨ triggers ────────────────────────────────────────────────────
+//
+// Per-button max_tokens is tuned to the typical response length. Tighter
+// budgets cut latency on slow local thinking models (smallthinker /
+// qwq / deepseek-r1) — the server still respects the configured global
+// cap, this just sets a lower per-call ceiling. Without this, a slow
+// local model was sitting waiting for 4000 tokens worth of output and
+// tripping nginx's fastcgi_read_timeout.
+
+function aiExplainOutput(deviceName, command, output) {
+  if (!output || !output.trim()) { toast('Nothing to explain', 'info'); return; }
+  const userMsg = `Device: ${deviceName}\nCommand: ${command}\n\nOutput:\n${output}`;
+  openAIModal({
+    title:    '✨ Explain command output',
+    system:   'explain_output',
+    userMsg:  userMsg,
+    context:  `device:${deviceName}`,
+    maxTokens: 1500,
+  });
+}
+
+function aiFindProblemInJournal(deviceName, journalLines) {
+  if (!journalLines || !journalLines.length) { toast('No journal lines', 'info'); return; }
+  const lines = Array.isArray(journalLines) ? journalLines : String(journalLines).split('\n');
+  const interestingIdx = new Set();
+  const errorRe = /\b(error|err|warning|warn|critical|crit|fatal|fail|panic|denied|refused)\b/i;
+  lines.forEach((line, i) => {
+    if (errorRe.test(line)) {
+      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
+        interestingIdx.add(j);
+      }
+    }
+  });
+  const sliced = Array.from(interestingIdx).sort((a, b) => a - b).map(i => lines[i]);
+  const userText = sliced.length ? sliced.join('\n') : lines.slice(-50).join('\n');
+  openAIModal({
+    title:    '✨ Find the problem',
+    system:   'find_problem',
+    userMsg:  `Device: ${deviceName}\n\nJournal slice:\n${userText}`,
+    context:  `device:${deviceName}`,
+    maxTokens: 1500,
+  });
+}
+
+function aiExplainAlert(eventType, deviceName, message, samplePayload) {
+  let payload = '';
+  if (samplePayload && typeof samplePayload === 'object') {
+    try { payload = JSON.stringify(samplePayload, null, 2).slice(0, 4000); } catch(e){}
+  }
+  openAIModal({
+    title:    '✨ Explain alert',
+    system:   'explain_alert',
+    userMsg:  `Event: ${eventType}\nDevice: ${deviceName}\nMessage: ${message}\n\nPayload:\n${payload}`,
+    context:  `alert:${eventType}`,
+    maxTokens: 800,           // alerts get a one-paragraph answer
+  });
+}
+
+function aiTriageCve(cveId, packageName, version, deviceName, description) {
+  openAIModal({
+    title:    `✨ Triage ${cveId}`,
+    system:   'triage_cve',
+    userMsg:  `CVE: ${cveId}\nDevice: ${deviceName}\nAffected package: ${packageName} ${version}\n\nDescription:\n${description || '(no description available — assess based on the CVE ID alone)'}`,
+    context:  `cve:${cveId}`,
+    maxTokens: 1000,
+  });
+}
+
+function aiInvestigateDevice(devId, deviceName) {
+  (async () => {
+    const dev = await api('GET', `/devices/${encodeURIComponent(devId)}`);
+    if (!dev) { toast('Device not found', 'error'); return; }
+    const metrics = dev.sysinfo || {};
+    const journal = (dev.journal || []).slice(-30).join('\n');
+    let recentCmds = '';
+    try {
+      const out = await api('GET', `/devices/${encodeURIComponent(devId)}/output?limit=10`);
+      if (Array.isArray(out)) {
+        recentCmds = out.map(o => `[$? ${o.rc}] ${o.cmd}\n${(o.output || '').slice(0, 400)}`).join('\n---\n');
+      }
+    } catch(e) {}
+    const summary =
+      `Device: ${deviceName}\n` +
+      `Last seen: ${dev.last_seen ? new Date(dev.last_seen * 1000).toISOString() : 'unknown'}\n` +
+      `OS: ${dev.os || '?'}\nAgent version: ${dev.version || '?'}\n\n` +
+      `Sysinfo:\n${JSON.stringify(metrics, null, 2).slice(0, 2000)}\n\n` +
+      `Recent journal:\n${journal.slice(0, 4000)}\n\n` +
+      `Recent commands:\n${recentCmds.slice(0, 4000)}`;
+    openAIModal({
+      title:    `✨ Investigate ${deviceName}`,
+      system:   'investigate_device',
+      userMsg:  summary,
+      context:  `device:${devId}`,
+      maxTokens: 2000,
+    });
+  })();
+}
+
+function aiExplainScript(scriptBody) {
+  openAIModal({
+    title:    '✨ Explain script',
+    system:   'explain_script',
+    userMsg:  scriptBody,
+    context:  'script',
+    maxTokens: 1500,
+  });
+}
+
+function aiAuditScript(scriptBody) {
+  openAIModal({
+    title:    '✨ Audit script for risks',
+    system:   'audit_script',
+    userMsg:  scriptBody,
+    context:  'script',
+    maxTokens: 2000,
+  });
+}
+
+function aiGenerateScript(prompt, targetElementId) {
+  if (!prompt || !prompt.trim()) { toast('Describe what the script should do', 'info'); return; }
+  openAIModal({
+    title:    '✨ Generate script',
+    system:   'generate_script',
+    userMsg:  prompt,
+    context:  'script-generate',
+    maxTokens: 4000,          // scripts can legitimately be long
+    actionLabel: 'Insert into editor',
+    onResult: (text) => {
+      const el = document.getElementById(targetElementId);
+      if (el) {
+        let body = text.trim();
+        body = body.replace(/^```(?:bash|sh)?\s*\n/, '').replace(/\n```\s*$/, '');
+        el.value = body;
+        el.dispatchEvent(new Event('input'));
+        toast('Script inserted — review before saving', 'success');
+      }
+    },
+  });
+}
+
+// ─── Script editor ✨ buttons ──────────────────────────────────────────────
+
+function scriptEditorAIGenerate() {
+  const prompt = window.prompt('Describe what the script should do:', '');
+  if (!prompt) return;
+  aiGenerateScript(prompt, 'script-edit-body');
+}
+
+function scriptEditorAIExplain() {
+  const body = document.getElementById('script-edit-body').value;
+  if (!body.trim()) { toast('Nothing to explain — paste a script first', 'info'); return; }
+  aiExplainScript(body);
+}
+
+function scriptEditorAIAudit() {
+  const body = document.getElementById('script-edit-body').value;
+  if (!body.trim()) { toast('Nothing to audit — paste a script first', 'info'); return; }
+  aiAuditScript(body);
+}
+
+// ─── v2.1.4: tolerant fetch + AI page ──────────────────────────────────────
+//
+// `aiApi()` is `api()`'s tolerant cousin specifically for AI endpoints.
+// AI calls are slow (15-180s on local thinking models), which routinely
+// trips nginx's default fastcgi_read_timeout=60s and returns a 504
+// Gateway Timeout HTML page. The default api() helper does r.json()
+// which throws "SyntaxError: JSON.parse..." — the original bug the
+// user reported. aiApi() reads raw text first and synthesises a
+// structured error so the modal can show something useful.
+
+async function aiApi(method, path, body) {
+  const opts = {method, headers: {'X-Token': getToken()}};
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  let r, text = '';
+  try {
+    r = await fetch('/api' + path, opts);
+  } catch (e) {
+    // Network-level failure (DNS, refused, aborted). The browser already
+    // distinguishes these from HTTP error responses.
+    return {ok: false, error: `Network error: ${String(e)}`};
+  }
+  if (r.status === 401) { doLogout(); return {ok: false, error: 'Not authenticated'}; }
+  try { text = await r.text(); } catch (e) {
+    return {ok: false, error: `Failed to read response body: ${String(e)}`};
+  }
+  // Try to parse the body as JSON. Most failures come back here as an
+  // nginx/fcgiwrap HTML error page — we surface the status + first
+  // bit of the body so the operator can see what actually happened.
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (e) { /* not JSON */ }
+  if (!parsed) {
+    const snippet = text.slice(0, 240).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    let hint = '';
+    if (r.status === 504 || /timeout|timed.?out/i.test(text)) {
+      hint = '\n\nLikely cause: nginx fastcgi_read_timeout is shorter than the model needed to think. ' +
+             'Set `fastcgi_read_timeout 300s` in the /api/ai/ location block of your nginx config and reload nginx.';
+    } else if (r.status === 502 || r.status === 503) {
+      hint = '\n\nLikely cause: the CGI script crashed or the upstream provider is unreachable. ' +
+             'Check the server\'s nginx error log and the AI provider\'s liveness.';
+    } else if (r.status === 0) {
+      hint = '\n\nLikely cause: the connection was dropped before any response was received.';
+    }
+    return {ok: false, error: `HTTP ${r.status || '?'} — response was not JSON.${hint}\n\nFirst 240 chars: ${snippet || '(empty)'}`};
+  }
+  // JSON parsed. The server returns {error: "..."} on failure (any
+  // 4xx/5xx with valid JSON body); promote that to ok:false.
+  if (parsed.error && parsed.ok !== true) {
+    return {ok: false, error: parsed.error, _status: r.status, ...parsed};
+  }
+  // Server response shape already has ok:true on success; pass through.
+  return parsed.ok ? parsed : {ok: true, ...parsed};
+}
+
+// ─── AI Assistant page ────────────────────────────────────────────────────
+
+let _aiPageConv = [];            // [{role: 'user'|'assistant', content: '...'}]
+const _AI_PAGE_STORAGE_KEY = 'rp.ai.conv';
+const _AI_PAGE_MAX_TURNS = 40;   // bounded so localStorage doesn't grow forever
+
+function _aiPageLoadConv() {
+  try {
+    const raw = localStorage.getItem(_AI_PAGE_STORAGE_KEY);
+    _aiPageConv = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(_aiPageConv)) _aiPageConv = [];
+  } catch (e) { _aiPageConv = []; }
+}
+
+function _aiPageSaveConv() {
+  // Trim to the last N turns so we don't blow out localStorage on long
+  // sessions, and so we don't send the entire history with every request.
+  if (_aiPageConv.length > _AI_PAGE_MAX_TURNS) {
+    _aiPageConv = _aiPageConv.slice(-_AI_PAGE_MAX_TURNS);
+  }
+  try { localStorage.setItem(_AI_PAGE_STORAGE_KEY, JSON.stringify(_aiPageConv)); } catch (e) {}
+}
+
+function _aiPageRenderConv() {
+  const wrap = document.getElementById('ai-page-history');
+  if (!wrap) return;
+  if (!_aiPageConv.length) {
+    wrap.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px 12px">' +
+      'No messages yet — type a prompt below.<br>' +
+      '<span style="font-size:11px">Conversation history is kept in your browser (localStorage) — not on the server. ' +
+      'Clearing the conversation clears only your view.</span></div>';
+    return;
+  }
+  wrap.innerHTML = _aiPageConv.map(m => {
+    const isUser = m.role === 'user';
+    const isPending = m.pending;
+    const bg = isUser ? 'rgba(59,126,255,0.08)' : 'var(--surface)';
+    const border = isUser ? 'rgba(59,126,255,0.25)' : 'var(--border)';
+    const label = isUser ? 'You' : (m.model ? `Assistant · ${escHtml(m.model)}` : 'Assistant');
+    const meta = m.meta ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">${escHtml(m.meta)}</div>` : '';
+    const content = isPending
+      ? '<div style="color:var(--muted)">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>'
+      : escHtml(m.content || '');
+    return `<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">${label}</div>` +
+           `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 14px;white-space:pre-wrap;word-wrap:break-word">${content}${meta}</div></div>`;
+  }).join('');
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+let _aiPageStatsRefreshing = false;
+
+async function aiPageRefreshStats() {
+  if (_aiPageStatsRefreshing) return;
+  _aiPageStatsRefreshing = true;
+  try {
+    const stats = await aiApi('GET', '/ai/stats');
+    if (!stats.ok) {
+      document.getElementById('ai-page-stat-status').innerHTML =
+        '<span style="color:var(--red)">● Error</span>';
+      document.getElementById('ai-page-stat-provider').textContent = '—';
+      return;
+    }
+    document.getElementById('ai-page-stat-provider').textContent = stats.provider || '—';
+    document.getElementById('ai-page-stat-baseurl').textContent  = stats.base_url || '';
+    document.getElementById('ai-page-stat-version').textContent  = stats.version || (stats.local ? 'unknown' : '(cloud)');
+    document.getElementById('ai-page-stat-status').innerHTML = stats.reachable
+      ? '<span style="color:var(--green)">● Reachable</span>'
+      : '<span style="color:var(--amber)">● Unreachable</span>';
+    const loadedEl = document.getElementById('ai-page-stat-loaded');
+    if (Array.isArray(stats.loaded_models) && stats.loaded_models.length) {
+      loadedEl.innerHTML = stats.loaded_models.map(m =>
+        `<div><strong>${escHtml(m.name)}</strong>` +
+        (m.vram_mb ? ` <span style="color:var(--muted)">· ${m.vram_mb} MB VRAM</span>` : '') +
+        (m.expires_at ? ` <span style="color:var(--muted);font-size:11px">· expires ${escHtml(String(m.expires_at).slice(0,19).replace('T',' '))}</span>` : '') +
+        '</div>'
+      ).join('');
+    } else if (stats.local) {
+      loadedEl.innerHTML = '<span style="color:var(--muted)">No models currently loaded (will load on first request)</span>';
+    } else {
+      loadedEl.innerHTML = '<span style="color:var(--muted)">(cloud provider — no introspection)</span>';
+    }
+  } finally {
+    _aiPageStatsRefreshing = false;
+  }
+}
+
+async function _aiPageLoadModels() {
+  const sel = document.getElementById('ai-page-model');
+  const cur = sel.value;
+  const models = await aiApi('GET', '/ai/models');
+  if (!models.ok) {
+    sel.innerHTML = `<option value="">(configured default)</option><option disabled>error: ${escHtml(models.error.slice(0,60))}</option>`;
+    return;
+  }
+  const list = models.models || [];
+  let html = '<option value="">(configured default)</option>';
+  for (const m of list) {
+    const size = m.size_bytes ? ` — ${(m.size_bytes / (1024*1024*1024)).toFixed(1)} GB` : '';
+    const param = m.param_size ? ` (${escHtml(m.param_size)})` : '';
+    html += `<option value="${escAttr(m.name)}">${escHtml(m.name)}${size}${param}</option>`;
+  }
+  sel.innerHTML = html;
+  if (cur) sel.value = cur;   // preserve user's pick across reloads
+  if (models.note) {
+    // best-effort surface — visible only in console; not worth a toast
+    console.info('ai/models:', models.note);
+  }
+}
+
+async function loadAIPage() {
+  _aiPageLoadConv();
+  _aiPageRenderConv();
+
+  const cfg = await aiApi('GET', '/ai/config');
+  if (!cfg.ok && cfg.error && /disabled/i.test(cfg.error)) {
+    // Show the "AI is disabled" banner and hide everything else
+    document.getElementById('ai-page-disabled').style.display = '';
+    document.getElementById('ai-page-status').style.display = 'none';
+    document.getElementById('ai-page-chat-wrap').style.display = 'none';
+    return;
+  }
+  if (!cfg.ok || !cfg.enabled) {
+    document.getElementById('ai-page-disabled').style.display = '';
+    document.getElementById('ai-page-status').style.display = 'none';
+    document.getElementById('ai-page-chat-wrap').style.display = 'none';
+    return;
+  }
+  document.getElementById('ai-page-disabled').style.display = 'none';
+  document.getElementById('ai-page-status').style.display = '';
+  document.getElementById('ai-page-chat-wrap').style.display = '';
+
+  // Fire these in parallel — they don't depend on each other
+  aiPageRefreshStats();
+  _aiPageLoadModels();
+}
+
+function aiPageInputKey(ev) {
+  // Ctrl/⌘+Enter sends; plain Enter inserts a newline (standard chat UX)
+  if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+    ev.preventDefault();
+    aiPageSend();
+  }
+}
+
+function aiPageClear() {
+  if (_aiPageConv.length && !confirm('Clear the conversation? This wipes the local history; the audit log on the server is untouched.')) {
+    return;
+  }
+  _aiPageConv = [];
+  _aiPageSaveConv();
+  _aiPageRenderConv();
+}
+
+async function aiPageSend() {
+  const inp = document.getElementById('ai-page-input');
+  const txt = (inp.value || '').trim();
+  if (!txt) return;
+  const sendBtn = document.getElementById('ai-page-send');
+  sendBtn.disabled = true;
+  sendBtn.textContent = '…';
+  inp.value = '';
+
+  _aiPageConv.push({role: 'user', content: txt});
+  _aiPageConv.push({role: 'assistant', content: '', pending: true});
+  _aiPageSaveConv();
+  _aiPageRenderConv();
+
+  // Live elapsed ticker
+  const tickHandles = [];
+  const tickFn = () => {
+    document.querySelectorAll('.ai-page-elapsed').forEach(el => {
+      const s = Math.floor((Date.now() - parseInt(el.dataset.start || '0', 10)) / 1000);
+      el.textContent = `(${s}s elapsed)`;
+    });
+  };
+  const tick = setInterval(tickFn, 1000);
+  tickHandles.push(tick);
+
+  // Build the messages list to send — strip 'pending' flag, model, meta
+  const sendMessages = _aiPageConv
+    .filter(m => !m.pending)
+    .map(m => ({role: m.role, content: m.content}));
+
+  const modelSel = document.getElementById('ai-page-model').value;
+  const reqBody = {
+    messages: sendMessages,
+    system:   'free_form',
+    context:  'ai-page',
+  };
+  if (modelSel) reqBody.model = modelSel;
+
+  const resp = await aiApi('POST', '/ai/chat', reqBody);
+  clearInterval(tick);
+
+  // Replace the pending placeholder with the result (or the error)
+  const last = _aiPageConv[_aiPageConv.length - 1];
+  if (resp.ok) {
+    last.content = resp.text || '(empty response)';
+    last.pending = false;
+    last.model = resp.model;
+    last.meta = `${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s` +
+                (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
+  } else {
+    last.content = `⚠ ${resp.error}`;
+    last.pending = false;
+    last.meta = 'error';
+  }
+  _aiPageSaveConv();
+  _aiPageRenderConv();
+  sendBtn.disabled = false;
+  sendBtn.textContent = 'Send';
+  inp.focus();
+}

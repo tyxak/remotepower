@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.1.2'
+SERVER_VERSION = '2.1.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -263,6 +263,9 @@ import containers as containers_mod
 # v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
+
+# v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
+import ai_provider
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -3989,7 +3992,15 @@ def handle_agent_download():
 def handle_version_check():
     require_auth()
     cfg   = load(CONFIG_FILE)
-    local = cfg.get('server_version', SERVER_VERSION)
+    # v2.1.3: read the *actually running* version from SERVER_VERSION, not
+    # from CONFIG_FILE. The previous code (`cfg.get('server_version',
+    # SERVER_VERSION)`) returned a stale value whenever an old upgrade
+    # had stamped the version into config.json and the next upgrade
+    # forgot to refresh it. That's why the About page showed "Latest
+    # release 2.0.0 ✓ up to date" on a 2.1.2 box: `local` was the
+    # cached 2.0.0 from a year ago, and the comparison against GitHub's
+    # 2.0.0 release tag came out equal.
+    local = SERVER_VERSION
     now   = int(time.time())
     cached_latest = cfg.get('_github_latest_version')
     cached_ts     = cfg.get('_github_latest_ts', 0)
@@ -4020,7 +4031,19 @@ def handle_version_check():
         try: return tuple(int(x) for x in v.split('.'))
         except Exception: return (0,)
 
-    update_available = latest is not None and local != 'unknown' and vt(latest) > vt(local)
+    # v2.1.3: the "Latest release" on About is conceptually "the latest
+    # version you should consider running". If GitHub's tagged latest is
+    # *older* than what we're actually running (true on dev builds, true
+    # during the gap between cutting a release and publishing it), the
+    # latest you should run is the version you have. So clamp:
+    #   latest = max(github_tag, local)
+    # The `update_available` flag stays accurate (false when running
+    # ahead), and the UI no longer confusingly displays an older
+    # version as "Latest release".
+    if latest is None or vt(latest) < vt(local):
+        latest = local
+
+    update_available = vt(latest) > vt(local)
     respond(200, {
         'current': local, 'latest': latest,
         'update_available': update_available,
@@ -5671,6 +5694,293 @@ def handle_exec_batch_status(job_id):
         'actor':      job['actor'],
         'per_device': enriched,
         'dangerous':  job.get('dangerous', []),
+    })
+
+
+# ── v2.1.3: AI assistant ────────────────────────────────────────────────────
+#
+# Config lives in cfg['ai']. API keys are stored in the same CONFIG_FILE
+# the rest of the server reads — the file is created mode 0600 and owned
+# by the CGI user, so cleartext-on-disk is acceptable given the threat
+# model. (Operators who want stronger storage can plug in cmdb_vault.)
+#
+# Usage tracking lives in AI_USAGE_FILE — a simple per-user-per-day
+# counter that resets when the date changes. Rate-limiting only;
+# we don't store the prompts/responses there (that goes in the audit
+# log if you really want it).
+#
+# Three endpoints:
+#   GET  /api/ai/config       — return current config with api_key masked
+#   POST /api/ai/config       — update config (admin)
+#   POST /api/ai/chat         — actually call the model
+#   POST /api/ai/test         — admin: round-trip a tiny "say hi" against
+#                                the configured provider to verify creds
+
+AI_USAGE_FILE = DATA_DIR / 'ai_usage.json'
+
+_AI_DEFAULTS = {
+    'enabled':  False,
+    'provider': 'anthropic',
+    'model':    '',
+    'base_url': '',
+    'api_key':  '',
+    'insecure_ssl': False,
+    'privacy': {
+        'send_hostnames':  False,
+        'send_ips':        False,
+        'send_journal':    False,
+        'send_cmd_output': True,
+    },
+    'limits': {
+        'max_tokens_per_response':  4000,
+        'max_requests_per_user_day': 100,
+    },
+}
+
+
+def _ai_cfg():
+    """Read current AI config with defaults merged in."""
+    cfg = load(CONFIG_FILE).get('ai') or {}
+    out = dict(_AI_DEFAULTS)
+    out.update({k: v for k, v in cfg.items() if k in _AI_DEFAULTS})
+    # Nested dicts need explicit merge, not overwrite
+    out['privacy'] = dict(_AI_DEFAULTS['privacy'])
+    out['privacy'].update((cfg.get('privacy') or {}))
+    out['limits']  = dict(_AI_DEFAULTS['limits'])
+    out['limits'].update((cfg.get('limits') or {}))
+    return out
+
+
+def _ai_cfg_for_display(cfg):
+    """Mask the API key for GET responses. Same Settings UX pattern as the
+    rest of the codebase: dots if present, empty if not."""
+    out = dict(cfg)
+    if out.get('api_key'):
+        out['api_key'] = '••••••••' + cfg['api_key'][-4:]
+    return out
+
+
+def handle_ai_config_get():
+    require_admin_auth()
+    cfg = _ai_cfg()
+    out = _ai_cfg_for_display(cfg)
+    # Surface the provider list + per-provider defaults so the UI doesn't
+    # have to hardcode them.
+    out['_providers'] = list(ai_provider.VALID_PROVIDERS)
+    out['_defaults']  = {
+        p: {'base_url': ai_provider.DEFAULT_BASE_URLS[p],
+            'model':    ai_provider.DEFAULT_MODELS[p]}
+        for p in ai_provider.VALID_PROVIDERS
+    }
+    respond(200, out)
+
+
+def handle_ai_config_set():
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+
+    with _locked_update(CONFIG_FILE) as cfg:
+        cur = dict(_AI_DEFAULTS)
+        cur.update(cfg.get('ai') or {})
+        # Allow-listed merge — never let the caller inject random keys
+        for k in ('enabled', 'provider', 'model', 'base_url', 'insecure_ssl'):
+            if k in body:
+                cur[k] = body[k]
+        # API key: only update if non-empty; empty/missing keeps existing.
+        # Special value '__clear__' wipes the stored key.
+        if body.get('api_key') == '__clear__':
+            cur['api_key'] = ''
+        elif body.get('api_key'):
+            cur['api_key'] = str(body['api_key'])[:512]
+        # Nested merges
+        if isinstance(body.get('privacy'), dict):
+            cur['privacy'] = dict(cur.get('privacy') or {})
+            for k in ('send_hostnames', 'send_ips', 'send_journal', 'send_cmd_output'):
+                if k in body['privacy']:
+                    cur['privacy'][k] = bool(body['privacy'][k])
+        if isinstance(body.get('limits'), dict):
+            cur['limits'] = dict(cur.get('limits') or {})
+            mt = body['limits'].get('max_tokens_per_response')
+            if isinstance(mt, int) and 1 <= mt <= 16000:
+                cur['limits']['max_tokens_per_response'] = mt
+            rl = body['limits'].get('max_requests_per_user_day')
+            if isinstance(rl, int) and 0 <= rl <= 100000:
+                cur['limits']['max_requests_per_user_day'] = rl
+        # Validate before saving
+        ok, err = ai_provider.validate_config(cur)
+        if not ok:
+            respond(400, {'error': err})
+        cfg['ai'] = cur
+
+    audit_log(actor, 'ai_config_update',
+              detail=f"provider={cur.get('provider')} "
+                     f"enabled={cur.get('enabled')} "
+                     f"model={cur.get('model')!r}")
+    respond(200, _ai_cfg_for_display(_ai_cfg()))
+
+
+def _ai_rate_limit_check(actor, cfg):
+    """Returns (allowed, used, cap). Bumps the counter on allow."""
+    cap = int(cfg.get('limits', {}).get('max_requests_per_user_day', 100))
+    if cap <= 0:
+        return True, 0, 0   # 0 means unlimited
+    today = time.strftime('%Y-%m-%d')
+    with _locked_update(AI_USAGE_FILE) as usage:
+        key = f'{today}:{actor}'
+        # Garbage-collect old days so the file doesn't grow forever
+        for k in list(usage.keys()):
+            if not k.startswith(today + ':'):
+                del usage[k]
+        used = int(usage.get(key, 0))
+        if used >= cap:
+            return False, used, cap
+        usage[key] = used + 1
+    return True, used + 1, cap
+
+
+def handle_ai_chat():
+    """Main chat endpoint. Body:
+        {
+          "messages":   [{"role": "user|assistant|system", "content": "..."}, ...],
+          "system":     "optional system prompt key OR raw string",
+          "context":    "optional free-form label for audit log",
+          "max_tokens": optional int, defaults to configured cap,
+          "model":      optional model name to override the configured one
+        }
+    `system` can be a key from ai_provider.SYSTEM_PROMPTS (e.g.
+    'explain_output') or a literal prompt string. Keys are looked up
+    first so the client can stay simple.
+
+    `model` lets the AI page's per-conversation model picker request a
+    different model than the configured default without poking Settings.
+    `max_tokens` lets the inline buttons request shorter responses
+    (Explain doesn't need 4000 tokens) — caps to the configured limit.
+    """
+    actor = require_auth()       # any authenticated user can use AI
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+
+    messages = body.get('messages')
+    ok, err = ai_provider.validate_messages(messages)
+    if not ok:
+        respond(400, {'error': err})
+
+    raw_system = body.get('system') or ''
+    if isinstance(raw_system, str):
+        # If it's a key, look it up — otherwise treat as a literal
+        system_prompt = ai_provider.SYSTEM_PROMPTS.get(raw_system, raw_system)
+        # Bound the literal: don't let the client send a 50-KB system prompt
+        if len(system_prompt) > 16 * 1024:
+            respond(400, {'error': 'system prompt too long'})
+    else:
+        respond(400, {'error': 'system must be a string'})
+
+    context = ai_provider.redact(str(body.get('context', '') or '')[:128],
+                                 cfg.get('privacy') or {})
+
+    # Per-request overrides — cap to the configured server-side limits
+    # so a client can't ask for more than the operator allowed.
+    req_max_tokens = body.get('max_tokens')
+    if isinstance(req_max_tokens, int) and req_max_tokens > 0:
+        cfg_cap = int(cfg.get('limits', {}).get('max_tokens_per_response', 4000))
+        req_max_tokens = min(req_max_tokens, cfg_cap)
+    else:
+        req_max_tokens = None
+    req_model = body.get('model')
+    if not (isinstance(req_model, str) and 1 <= len(req_model) <= 200):
+        req_model = None
+
+    # Rate limit
+    allowed, used, cap = _ai_rate_limit_check(actor, cfg)
+    if not allowed:
+        respond(429, {'error': f'Daily AI request cap reached ({used}/{cap}). '
+                               'Cap is configurable in Settings → AI.'})
+
+    t0 = time.monotonic()
+    result = ai_provider.chat(cfg, messages, system=system_prompt,
+                              max_tokens=req_max_tokens, model=req_model)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+
+    audit_log(actor, 'ai_chat',
+              detail=f"provider={cfg.get('provider')} "
+                     f"model={result.get('model', '?')} "
+                     f"context={context!r} "
+                     f"tokens_in={result.get('tokens_in', 0)} "
+                     f"tokens_out={result.get('tokens_out', 0)} "
+                     f"elapsed_ms={elapsed_ms} "
+                     f"ok={result.get('ok', False)} "
+                     f"used_today={used}/{cap if cap else 'unlimited'}")
+    if not result.get('ok'):
+        respond(502, {'error': result.get('error', 'AI provider error')})
+    respond(200, {
+        'ok':         True,
+        'text':       result['text'],
+        'model':      result.get('model'),
+        'tokens_in':  result.get('tokens_in', 0),
+        'tokens_out': result.get('tokens_out', 0),
+        'elapsed_ms': elapsed_ms,
+        'used_today': used,
+        'daily_cap':  cap,
+    })
+
+
+# v2.1.4 follow-up: model listing + provider stats for the AI page.
+# Read-only by everyone with auth; doesn't expose the API key.
+
+def handle_ai_models():
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled'})
+    result = ai_provider.list_models(cfg)
+    if not result.get('ok'):
+        respond(502, {'error': result.get('error', 'list_models failed')})
+    respond(200, result)
+
+
+def handle_ai_stats():
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled'})
+    respond(200, ai_provider.provider_stats(cfg))
+
+
+def handle_ai_test():
+    """Smoke-test the configured provider. Sends a one-token request and
+    returns success/error so the Settings page can show a green checkmark."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled'})
+    result = ai_provider.chat(
+        cfg,
+        messages=[{'role': 'user', 'content': 'Reply with exactly: OK'}],
+        system="Respond with exactly the two-letter word OK and nothing else.",
+        max_tokens=8,
+    )
+    audit_log(actor, 'ai_test',
+              detail=f"provider={cfg.get('provider')} ok={result.get('ok')}")
+    if not result.get('ok'):
+        respond(502, {'ok': False, 'error': result.get('error')})
+    respond(200, {
+        'ok':         True,
+        'text':       result['text'],
+        'model':      result.get('model'),
+        'tokens_in':  result.get('tokens_in', 0),
+        'tokens_out': result.get('tokens_out', 0),
     })
 
 
@@ -9517,6 +9827,13 @@ def main():
     elif pi == '/api/exec/batch' and m == 'POST': handle_exec_batch()
     elif pi.startswith('/api/exec/batch/') and m == 'GET':
         handle_exec_batch_status(pi[len('/api/exec/batch/'):])
+    # v2.1.3: AI assistant
+    elif pi == '/api/ai/config' and m == 'GET':  handle_ai_config_get()
+    elif pi == '/api/ai/config' and m == 'POST': handle_ai_config_set()
+    elif pi == '/api/ai/chat'   and m == 'POST': handle_ai_chat()
+    elif pi == '/api/ai/test'   and m == 'POST': handle_ai_test()
+    elif pi == '/api/ai/models' and m == 'GET':  handle_ai_models()
+    elif pi == '/api/ai/stats'  and m == 'GET':  handle_ai_stats()
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':

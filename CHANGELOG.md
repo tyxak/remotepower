@@ -1,5 +1,96 @@
 # Changelog
 
+## v2.1.4 - 2026-05-14
+
+Same-day point release fixing the most painful 2.1.3 AI bug + adding
+the standalone chat page that was queued for "later".
+
+### Fixed
+
+- **JSON.parse error on every ✨ button against slow local Ollama
+  models.** Root cause: `max_tokens=4000` default on inline buttons
+  + nginx's `fastcgi_read_timeout` of 60s, returning a 504 HTML page
+  that the JS `api()` helper choked on. Fix: per-button `max_tokens`
+  tuned to typical response length (Explain: 1500, Triage: 1000,
+  Generate-script: 4000), HTTP timeout bumped to 300s, new tolerant
+  `aiApi()` JS helper that surfaces non-JSON responses with the HTTP
+  status + a contextual fix hint. **Operator action**: bump
+  `fastcgi_read_timeout` for `/api/ai/` in your nginx config —
+  required for slow local models. Snippet in [docs/v2.1.4.md](docs/v2.1.4.md).
+
+### Added — AI Assistant page
+
+- Sidebar entry under Planning. Standalone chat UI with:
+  - Status header (provider, version, reachability, currently-loaded
+    models with VRAM use — Ollama-rich, LocalAI minimal, cloud
+    providers report "reachable when key configured")
+  - Per-conversation model picker, populated from the provider's own
+    model list (`GET /api/tags` for Ollama, `GET /v1/models` for
+    LocalAI / OpenAI / DeepSeek)
+  - Multi-turn chat with localStorage history (40-message cap), Ctrl/
+    ⌘+Enter to send, conversation local to the browser by design
+- `free_form` system prompt key — concise, operator-flavoured
+
+### Added — endpoints
+
+- `GET /api/ai/models` — list models with size / family / param count
+- `GET /api/ai/stats`  — provider info, version, loaded models, reachability
+
+### Internal
+
+- New `ai_provider.list_models()`, `provider_stats()`,
+  `_ollama_root()` (strips trailing `/v1` so either URL form works),
+  `CLOUD_MODELS` fallback table
+- `chat()` and `handle_ai_chat()` accept `model` and `max_tokens`
+  per-request overrides (capped to configured limit)
+- Live "(Xs elapsed)" ticker so slow requests don't look frozen
+- 8 new tests (708 total, all passing)
+
+## v2.1.3 - 2026-05-14
+
+Feature release. Two things in one: an About-page fix for installs
+running ahead of any GitHub release, and a first cut of optional AI
+integration. See [docs/v2.1.3.md](docs/v2.1.3.md) for the full walkthrough.
+
+### Fixed
+
+- **About page "Latest release 2.0.0 ✓ up to date" on a 2.1.2 box.**
+  `handle_version_check()` was reading a stale `server_version` from
+  `config.json` and serving GitHub's older tag as "latest". Fixed:
+  `local = SERVER_VERSION` (module constant, single source of
+  truth); `latest = max(github_tag, local)` so dev builds running
+  ahead of the published release no longer show a misleading "latest".
+
+### Added — AI assistant (opt-in, disabled by default)
+
+- **Five providers**, two adapters: OpenAI-compatible (`/v1/chat/completions`)
+  covers OpenAI / ChatGPT, DeepSeek, Ollama, LocalAI; Anthropic
+  (Claude) gets its own adapter for `/v1/messages`. Pure stdlib —
+  no pip-installed packages added.
+- **Settings → AI assistant** tab: provider/model/base URL,
+  masked API key with `__clear__` semantics, privacy toggles
+  (hostnames/IPs/journal/cmd output — most off by default),
+  per-response and per-user-per-day limits, test-connection button.
+- **Always-on redaction** of bearer tokens, AWS keys, and long hex
+  strings — regardless of privacy toggles, those bytes never reach
+  the HTTP request.
+- **Eight inline ✨ buttons** funnel through one reusable modal:
+  Explain (command output), Find-the-problem (journal),
+  Generate/Explain/Audit (script editor), Triage (CVE),
+  Investigate (device dropdown), Explain (webhook log).
+- **Generated scripts go through dry-run + dangerous-pattern
+  detection** — no AI-trusted bypass path.
+- **Endpoints**: `GET/POST /api/ai/config`, `POST /api/ai/chat`,
+  `POST /api/ai/test`. Audit-logged per call (token counts +
+  elapsed; never the prompt/response content).
+
+### Internal
+
+- New `server/cgi-bin/ai_provider.py` (~360 lines)
+- 40 new tests in `tests/test_v213.py` (700 total, all passing)
+- Version bumps in all 9 sites; favicon link points at the new
+  root-level `favicon.png` with shortcut-icon fallback
+
 ## v2.1.2 - 2026-05-14
 
 Critical bugfix. v2.1.0's faster `save()` (tmp+fsync outside lock)

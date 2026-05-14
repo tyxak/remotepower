@@ -1,0 +1,577 @@
+"""
+RemotePower AI provider abstraction.
+
+Single endpoint `/api/ai/chat` dispatches to one of:
+
+  * OpenAICompatible  — covers ChatGPT, DeepSeek, Ollama, LocalAI, and
+                        anything else speaking /v1/chat/completions.
+  * AnthropicProvider — Claude. Different request/response shape so it
+                        gets its own adapter.
+
+Provider config lives in CONFIG_FILE under cfg['ai']:
+
+    cfg['ai'] = {
+        'enabled':   True | False,
+        'provider':  'anthropic' | 'openai' | 'deepseek' | 'ollama' | 'localai',
+        'model':     'claude-3-5-sonnet-latest',
+        'base_url':  '...' (optional override),
+        'api_key':   '...' (cleartext-on-disk in CONFIG_FILE — the file
+                            is mode 0600 and owned by the CGI user. For
+                            stronger storage, plug in cmdb_vault later.),
+        'privacy': {
+            'send_hostnames':    False,
+            'send_ips':          False,
+            'send_journal':      False,
+            'send_cmd_output':   True,
+        },
+        'limits': {
+            'max_tokens_per_response':  4000,
+            'max_requests_per_user_day': 100,
+        },
+    }
+
+Design notes:
+
+* All HTTP calls go through urllib.request — no external deps. The
+  rest of the codebase is hostile to pip-installed packages so we
+  keep it that way here too.
+* No streaming. Sync request/response only. Streaming through CGI is
+  possible but the user-visible benefit is small compared to the
+  buffering / proxy / nginx-buffering / cgi-buffering complications.
+* No tool calls. The bigger product question (agent mode, read-only
+  API access from the LLM) is queued for a later release behind a
+  separate Settings toggle.
+* Failures return a structured dict {ok: False, error: str}. The
+  caller decides whether to surface raw or wrapped.
+"""
+
+import json
+import os
+import re
+import ssl
+import sys
+import time
+import urllib.error
+import urllib.request
+
+
+# ── Constants ──────────────────────────────────────────────────────────────
+
+PROVIDER_OPENAI    = 'openai'      # ChatGPT
+PROVIDER_DEEPSEEK  = 'deepseek'
+PROVIDER_OLLAMA    = 'ollama'
+PROVIDER_LOCALAI   = 'localai'
+PROVIDER_ANTHROPIC = 'anthropic'   # Claude
+VALID_PROVIDERS = (PROVIDER_OPENAI, PROVIDER_DEEPSEEK, PROVIDER_OLLAMA,
+                   PROVIDER_LOCALAI, PROVIDER_ANTHROPIC)
+
+# Default endpoint per provider. base_url in cfg overrides.
+DEFAULT_BASE_URLS = {
+    PROVIDER_OPENAI:    'https://api.openai.com/v1',
+    PROVIDER_DEEPSEEK:  'https://api.deepseek.com/v1',
+    PROVIDER_OLLAMA:    'http://localhost:11434/v1',
+    PROVIDER_LOCALAI:   'http://localhost:8080/v1',
+    PROVIDER_ANTHROPIC: 'https://api.anthropic.com/v1',
+}
+
+# Sensible default model per provider. Operators usually override this.
+# We pick "current general-purpose, not the most expensive flagship".
+DEFAULT_MODELS = {
+    PROVIDER_OPENAI:    'gpt-4o-mini',
+    PROVIDER_DEEPSEEK:  'deepseek-chat',
+    PROVIDER_OLLAMA:    'llama3.1:8b',
+    PROVIDER_LOCALAI:   'gpt-3.5-turbo',          # whatever the user has loaded
+    PROVIDER_ANTHROPIC: 'claude-3-5-sonnet-latest',
+}
+
+# Bounds. Cloud provider costs are real; the operator can lift these in
+# their config but the defaults should prevent a runaway loop from
+# producing a memorable invoice.
+MAX_MESSAGES        = 50
+MAX_MESSAGE_BYTES   = 32 * 1024
+MAX_TOTAL_BYTES     = 96 * 1024
+# v2.1.4: bumped from 60 → 300. Local thinking models (smallthinker,
+# qwq, deepseek-r1, etc.) can chew on a prompt for 60-180 seconds
+# before the first token comes back. The bottleneck on a self-hosted
+# box isn't network — it's GPU/CPU inference — so a generous timeout
+# is the right call. Note: nginx's fastcgi_read_timeout defaults to 60s
+# and will close the upstream connection before this timeout fires.
+# Operators using a slow local model should set, in their nginx server
+# block:
+#     location /api/ai/ {
+#         fastcgi_read_timeout 300s;
+#         fastcgi_send_timeout 300s;
+#         (...)
+#     }
+HTTP_TIMEOUT_S      = 300    # 5 min — slow local models can take a while
+
+
+# ── Redaction ──────────────────────────────────────────────────────────────
+
+# Cheap regex-based redaction for hostnames / IPs / common secret-shaped
+# tokens. Operators who need real DLP should disable the cloud providers
+# and run Ollama locally — this is best-effort, not a guarantee.
+
+_IPV4_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+_IPV6_RE = re.compile(r'\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b')
+# Hostname-shaped tokens: at least one dot, alphanumeric + hyphen labels.
+# We don't try to identify "is this hostname mine" — we redact anything
+# that looks fqdn-shaped, which over-redacts but is safe.
+_FQDN_RE = re.compile(
+    r'\b([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,62}\.){1,5}[a-zA-Z]{2,24})\b')
+# Tokens that look like secrets (long base64-ish or hex strings, and
+# bearer tokens). Always redacted regardless of privacy toggle.
+_BEARER_RE = re.compile(r'(?i)(Bearer\s+)[A-Za-z0-9._\-/+=]{16,}')
+_LONG_HEX_RE = re.compile(r'\b[0-9a-fA-F]{32,}\b')
+_AWS_KEY_RE = re.compile(r'\bAKIA[0-9A-Z]{16}\b')
+
+
+def redact(text, privacy):
+    """Apply privacy-toggle redaction to user-supplied text before it
+    leaves the building. `privacy` is the cfg['ai']['privacy'] dict.
+
+    Always redacted (regardless of toggles): bearer tokens, AWS access
+    keys, long hex strings.
+    """
+    if not isinstance(text, str):
+        return text
+    out = text
+    # Always-on safety: secret-shaped tokens. These should never reach
+    # an AI provider even on a fully-opt-in deployment.
+    out = _BEARER_RE.sub(r'\1<REDACTED>', out)
+    out = _AWS_KEY_RE.sub('<REDACTED-AWS>', out)
+    out = _LONG_HEX_RE.sub('<REDACTED-HEX>', out)
+    if not privacy.get('send_ips', False):
+        out = _IPV4_RE.sub('<IP>', out)
+        out = _IPV6_RE.sub('<IPv6>', out)
+    if not privacy.get('send_hostnames', False):
+        out = _FQDN_RE.sub('<HOST>', out)
+    return out
+
+
+def redact_messages(messages, privacy):
+    """Return a new messages list with content redacted per privacy."""
+    out = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        new = dict(m)
+        if isinstance(new.get('content'), str):
+            new['content'] = redact(new['content'], privacy)
+        out.append(new)
+    return out
+
+
+# ── Validation ─────────────────────────────────────────────────────────────
+
+def validate_config(cfg):
+    """Return (ok, error_msg). Doesn't modify cfg."""
+    if not isinstance(cfg, dict):
+        return False, 'cfg must be a dict'
+    if not cfg.get('enabled'):
+        return True, None  # disabled config is always "valid"
+    provider = cfg.get('provider')
+    if provider not in VALID_PROVIDERS:
+        return False, f'provider must be one of {list(VALID_PROVIDERS)}'
+    # Cloud providers need an API key. Local providers (ollama, localai)
+    # are OK without one — they typically don't require auth.
+    if provider in (PROVIDER_OPENAI, PROVIDER_DEEPSEEK, PROVIDER_ANTHROPIC):
+        if not cfg.get('api_key'):
+            return False, f'{provider} requires api_key'
+    return True, None
+
+
+def validate_messages(messages):
+    """Caller-supplied messages list — guardrails on shape and size."""
+    if not isinstance(messages, list):
+        return False, 'messages must be a list'
+    if not (1 <= len(messages) <= MAX_MESSAGES):
+        return False, f'messages must contain 1..{MAX_MESSAGES} entries'
+    total = 0
+    for i, m in enumerate(messages):
+        if not isinstance(m, dict):
+            return False, f'messages[{i}] must be a dict'
+        role = m.get('role')
+        if role not in ('user', 'assistant', 'system'):
+            return False, f'messages[{i}].role must be user|assistant|system'
+        content = m.get('content', '')
+        if not isinstance(content, str):
+            return False, f'messages[{i}].content must be a string'
+        if len(content.encode('utf-8')) > MAX_MESSAGE_BYTES:
+            return False, f'messages[{i}].content too large (>{MAX_MESSAGE_BYTES} bytes)'
+        total += len(content.encode('utf-8'))
+    if total > MAX_TOTAL_BYTES:
+        return False, f'total content too large (>{MAX_TOTAL_BYTES} bytes)'
+    return True, None
+
+
+# ── Provider adapters ──────────────────────────────────────────────────────
+
+def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S):
+    """Pure-stdlib HTTP POST returning (status, parsed-json-or-str).
+
+    Distinguished from the rest of api.py's HTTP helpers so we can
+    set a longer timeout for AI calls without affecting the rest.
+    """
+    data = json.dumps(body).encode('utf-8')
+    req = urllib.request.Request(url, data=data, method='POST')
+    for k, v in headers.items():
+        req.add_header(k, v)
+    req.add_header('Content-Type', 'application/json')
+    # Disable HTTPS cert verification only if explicitly opted into;
+    # default is verify. Self-signed Ollama setups can opt in via
+    # cfg['ai']['insecure_ssl'] — see _ssl_context.
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.status, json.loads(r.read(2 * 1024 * 1024))  # 2 MB cap
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read(64 * 1024))
+        except Exception:
+            body = {'error': str(e)}
+        return e.code, body
+    except urllib.error.URLError as e:
+        return 0, {'error': f'URLError: {e.reason}'}
+    except Exception as e:
+        return 0, {'error': f'{type(e).__name__}: {e}'}
+
+
+def chat_openai_compatible(cfg, messages, system, max_tokens):
+    """OpenAI-compatible /v1/chat/completions. Used for OpenAI itself,
+    DeepSeek, Ollama, LocalAI, and most "OpenAI-compatible" forks."""
+    provider = cfg['provider']
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
+    model = cfg.get('model') or DEFAULT_MODELS[provider]
+    url = f'{base}/chat/completions'
+    payload_messages = []
+    if system:
+        payload_messages.append({'role': 'system', 'content': system})
+    payload_messages.extend(messages)
+    body = {
+        'model':      model,
+        'messages':   payload_messages,
+        'max_tokens': max_tokens,
+        'stream':     False,
+    }
+    headers = {}
+    if cfg.get('api_key'):
+        headers['Authorization'] = f"Bearer {cfg['api_key']}"
+    status, resp = _http_post_json(url, headers, body)
+    if status == 200 and isinstance(resp, dict):
+        try:
+            text = resp['choices'][0]['message']['content']
+            usage = resp.get('usage', {}) or {}
+            return {
+                'ok':       True,
+                'text':     text,
+                'model':    resp.get('model', model),
+                'tokens_in':  usage.get('prompt_tokens', 0),
+                'tokens_out': usage.get('completion_tokens', 0),
+            }
+        except (KeyError, IndexError, TypeError):
+            return {'ok': False, 'error': f'unexpected response shape: {str(resp)[:200]}'}
+    err_msg = resp.get('error') if isinstance(resp, dict) else None
+    if isinstance(err_msg, dict):
+        err_msg = err_msg.get('message') or str(err_msg)
+    return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
+
+
+def chat_anthropic(cfg, messages, system, max_tokens):
+    """Anthropic /v1/messages. Different shape from OpenAI:
+    - system is a top-level field, not a message
+    - response is content[0].text, not choices[0].message.content
+    - usage keys are input_tokens / output_tokens
+    """
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_ANTHROPIC]).rstrip('/')
+    model = cfg.get('model') or DEFAULT_MODELS[PROVIDER_ANTHROPIC]
+    url = f'{base}/messages'
+    body = {
+        'model':      model,
+        'messages':   messages,   # already user/assistant only; system goes elsewhere
+        'max_tokens': max_tokens,
+    }
+    if system:
+        body['system'] = system
+    headers = {
+        'x-api-key':         cfg.get('api_key', ''),
+        'anthropic-version': '2023-06-01',
+    }
+    status, resp = _http_post_json(url, headers, body)
+    if status == 200 and isinstance(resp, dict):
+        try:
+            # content is a list of blocks; first text block is our answer
+            text = ''
+            for block in resp.get('content', []) or []:
+                if isinstance(block, dict) and block.get('type') == 'text':
+                    text = block.get('text', '')
+                    break
+            usage = resp.get('usage', {}) or {}
+            return {
+                'ok':         True,
+                'text':       text,
+                'model':      resp.get('model', model),
+                'tokens_in':  usage.get('input_tokens', 0),
+                'tokens_out': usage.get('output_tokens', 0),
+            }
+        except (KeyError, IndexError, TypeError):
+            return {'ok': False, 'error': f'unexpected response shape: {str(resp)[:200]}'}
+    err_msg = resp.get('error') if isinstance(resp, dict) else None
+    if isinstance(err_msg, dict):
+        err_msg = err_msg.get('message') or str(err_msg)
+    return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
+
+
+def chat(cfg, messages, system=None, max_tokens=None, model=None):
+    """Dispatch to the right adapter. cfg is cfg['ai'] (already validated).
+
+    `model` overrides cfg['model'] for this one request — used by the AI
+    page's per-conversation model selector so a user can pick a different
+    model without changing the global default.
+
+    Returns: {ok: bool, text: str, model: str, tokens_in: int,
+              tokens_out: int}  on success
+             {ok: False, error: str}  on failure
+    """
+    if not cfg.get('enabled'):
+        return {'ok': False, 'error': 'AI is disabled in settings'}
+    provider = cfg.get('provider')
+    if provider not in VALID_PROVIDERS:
+        return {'ok': False, 'error': f'unknown provider {provider!r}'}
+    max_tokens = max_tokens or cfg.get('limits', {}).get('max_tokens_per_response', 4000)
+    max_tokens = max(1, min(int(max_tokens), 16000))
+    # Caller-supplied model override applies for this request only.
+    if model:
+        cfg = dict(cfg)        # shallow copy — don't mutate the caller's dict
+        cfg['model'] = model
+    # Apply redaction before sending. Empty privacy dict = redact everything
+    # by default (most conservative; operator opts in to send hostnames/IPs).
+    privacy = cfg.get('privacy', {}) or {}
+    safe_messages = redact_messages(messages, privacy)
+    safe_system = redact(system, privacy) if system else system
+    if provider == PROVIDER_ANTHROPIC:
+        return chat_anthropic(cfg, safe_messages, safe_system, max_tokens)
+    else:
+        return chat_openai_compatible(cfg, safe_messages, safe_system, max_tokens)
+
+
+# ── Provider introspection (v2.1.4 follow-up to v2.1.3 AI launch) ──────────
+#
+# Used by the AI page (custom chat) to populate a model picker and surface
+# basic operational state. Ollama has rich introspection (/api/tags,
+# /api/ps, /api/version); LocalAI / OpenAI / DeepSeek speak the
+# OpenAI-compat /v1/models endpoint; Anthropic ships a hardcoded list.
+
+def _http_get_json(url, headers=None, timeout=10):
+    """GET + parse JSON. Same error shape as _http_post_json. Short
+    timeout — if /api/tags hangs, the provider has bigger problems."""
+    req = urllib.request.Request(url, method='GET')
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return r.status, json.loads(r.read(2 * 1024 * 1024))
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read(64 * 1024))
+        except Exception:
+            body = {'error': str(e)}
+        return e.code, body
+    except urllib.error.URLError as e:
+        return 0, {'error': f'URLError: {e.reason}'}
+    except Exception as e:
+        return 0, {'error': f'{type(e).__name__}: {e}'}
+
+
+# Hardcoded model fallback for cloud providers. The Anthropic list is
+# authoritative since they don't expose /v1/models; the others fall
+# back here only when the live fetch fails. Operators can always type
+# a custom model name into the Settings page.
+CLOUD_MODELS = {
+    PROVIDER_ANTHROPIC: [
+        'claude-opus-4-5',
+        'claude-sonnet-4-5',
+        'claude-haiku-4-5',
+        'claude-3-5-sonnet-latest',
+        'claude-3-5-haiku-latest',
+        'claude-3-opus-latest',
+    ],
+    PROVIDER_OPENAI: [
+        'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
+        'o1', 'o1-mini',
+    ],
+    PROVIDER_DEEPSEEK: [
+        'deepseek-chat', 'deepseek-reasoner',
+    ],
+}
+
+
+def _ollama_root(cfg):
+    """Ollama's /api/* endpoints live at the root, not under /v1/. Strip
+    a trailing /v1 if the operator pasted the OpenAI-compat URL."""
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_OLLAMA]).rstrip('/')
+    if base.endswith('/v1'):
+        base = base[:-3]
+    return base
+
+
+def list_models(cfg):
+    """Return {ok, models: [{name, size_bytes?, ...}, ...]} for the
+    configured provider. Extra fields are best-effort."""
+    if not cfg.get('enabled'):
+        return {'ok': False, 'error': 'AI is disabled'}
+    provider = cfg.get('provider')
+    if provider == PROVIDER_OLLAMA:
+        status, resp = _http_get_json(f'{_ollama_root(cfg)}/api/tags')
+        if status == 200 and isinstance(resp, dict):
+            out = []
+            for m in resp.get('models', []) or []:
+                details = m.get('details') or {}
+                out.append({
+                    'name':       m.get('name', ''),
+                    'size_bytes': m.get('size', 0),
+                    'modified':   m.get('modified_at', ''),
+                    'family':     details.get('family', ''),
+                    'param_size': details.get('parameter_size', ''),
+                })
+            return {'ok': True, 'models': out}
+        return {'ok': False, 'error': f'HTTP {status}: {resp.get("error", "?")}'}
+    if provider in (PROVIDER_LOCALAI, PROVIDER_OPENAI, PROVIDER_DEEPSEEK):
+        base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
+        headers = {}
+        if cfg.get('api_key'):
+            headers['Authorization'] = f"Bearer {cfg['api_key']}"
+        status, resp = _http_get_json(f'{base}/models', headers=headers)
+        if status == 200 and isinstance(resp, dict):
+            out = [{'name': m.get('id', ''),
+                    'modified': m.get('created', '')}
+                   for m in (resp.get('data') or []) if m.get('id')]
+            return {'ok': True, 'models': out}
+        # Live fetch failed — fall back to hardcoded list so the UI still
+        # has something to show. Surface the live error as 'note'.
+        if provider in CLOUD_MODELS:
+            return {'ok': True,
+                    'models': [{'name': m} for m in CLOUD_MODELS[provider]],
+                    'note': f'live fetch failed ({resp.get("error", status)}); '
+                            f'showing fallback list'}
+        return {'ok': False, 'error': f'HTTP {status}: {resp.get("error", "?")}'}
+    if provider == PROVIDER_ANTHROPIC:
+        return {'ok': True, 'models': [{'name': m} for m in CLOUD_MODELS[provider]]}
+    return {'ok': False, 'error': f'unknown provider {provider!r}'}
+
+
+def provider_stats(cfg):
+    """Return {ok, provider, version?, loaded_models?, reachable, ...}.
+    Used by the AI page's status header."""
+    if not cfg.get('enabled'):
+        return {'ok': False, 'error': 'AI is disabled'}
+    provider = cfg.get('provider')
+    out = {
+        'ok':       True,
+        'provider': provider,
+        'base_url': cfg.get('base_url') or DEFAULT_BASE_URLS.get(provider, ''),
+        'model':    cfg.get('model') or DEFAULT_MODELS.get(provider, ''),
+        'local':    provider in (PROVIDER_OLLAMA, PROVIDER_LOCALAI),
+    }
+    if provider == PROVIDER_OLLAMA:
+        root = _ollama_root(cfg)
+        status, ver = _http_get_json(f'{root}/api/version', timeout=5)
+        if status == 200 and isinstance(ver, dict):
+            out['version'] = ver.get('version', '?')
+        status, ps = _http_get_json(f'{root}/api/ps', timeout=5)
+        if status == 200 and isinstance(ps, dict):
+            loaded = []
+            for m in ps.get('models', []) or []:
+                vram_mb = round((m.get('size_vram') or 0) / (1024 * 1024))
+                loaded.append({
+                    'name':       m.get('name', ''),
+                    'vram_mb':    vram_mb,
+                    'expires_at': m.get('expires_at', ''),
+                })
+            out['loaded_models'] = loaded
+        out['reachable'] = 'version' in out or 'loaded_models' in out
+    elif provider == PROVIDER_LOCALAI:
+        base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
+        status, _ = _http_get_json(f'{base}/models', timeout=5)
+        out['reachable'] = (status == 200)
+    else:
+        # Cloud providers: liveness == "API key configured". A real
+        # round-trip costs tokens, the Test Connection button is the
+        # right place for that.
+        out['reachable'] = bool(cfg.get('api_key'))
+    return out
+
+
+# ── System prompts for the inline buttons ──────────────────────────────────
+#
+# Centralised so the wording can evolve without poking around in api.py.
+# Each one is short and operator-flavoured: ask for explanation, not
+# hand-holding; ask for a one-paragraph answer, not a tutorial.
+
+SYSTEM_PROMPTS = {
+    'free_form': (
+        "You are a Linux operations assistant for a DevOps engineer. "
+        "Be concise, accurate, and avoid filler. The user is operating a "
+        "fleet of Linux servers via a self-hosted management tool. "
+        "Default to short, direct answers; expand only when asked."
+    ),
+    'explain_output': (
+        "You are a Linux operations assistant for a DevOps engineer. "
+        "Given the output of a shell command, explain in 1–3 short "
+        "paragraphs what the command did and what the output means. "
+        "Call out anything anomalous or worth investigating. Use plain "
+        "language. Don't pad with reminders or disclaimers."
+    ),
+    'find_problem': (
+        "You are a Linux operations assistant. Given a slice of journald / "
+        "log output, identify the actual problem (if any), state it in "
+        "one sentence, then list 2–4 things to check next. If there's no "
+        "problem, say so plainly."
+    ),
+    'explain_script': (
+        "You are a Linux operations assistant. Given a bash script, "
+        "explain what it does step by step, then identify any "
+        "side-effects, missing safety nets (set -euo pipefail, error "
+        "handling), or assumptions about the target environment."
+    ),
+    'audit_script': (
+        "You are a security-focused Linux operations assistant. Audit "
+        "the provided bash script for: destructive commands without "
+        "confirmation, command injection vectors, missing input "
+        "validation, race conditions, secrets in plaintext, overly broad "
+        "permissions, and supply-chain risks (curl|bash, etc.). Return "
+        "a numbered list of findings ordered by severity. Be specific: "
+        "quote the line and explain the risk. If the script is clean, "
+        "say so."
+    ),
+    'generate_script': (
+        "You are a Linux operations assistant. Generate a single bash "
+        "script that does what the user asks. Start with "
+        "#!/usr/bin/env bash and set -euo pipefail. Add brief comments "
+        "for non-obvious steps. Don't include backticks, markdown "
+        "fences, or any non-script text — output the script and only "
+        "the script. The script will be reviewed and dry-run before "
+        "execution."
+    ),
+    'triage_cve': (
+        "You are a security operations assistant. Given a CVE and the "
+        "context of a single host that has the affected package, "
+        "assess: (1) actual exposure given the host's role and "
+        "exposed services, (2) priority (low / medium / high / "
+        "critical), (3) recommended action. Keep it under 6 short "
+        "lines. No filler."
+    ),
+    'investigate_device': (
+        "You are a Linux operations assistant. Given a snapshot of a "
+        "device's recent state (metrics, journal tail, recent "
+        "commands), identify anything anomalous and what to check "
+        "next. 3–5 short bullet points. If nothing's wrong, say so."
+    ),
+    'explain_alert': (
+        "You are a Linux operations assistant. Given a webhook alert "
+        "payload (event type, device, raw details), rewrite it as a "
+        "single short paragraph an on-call engineer can understand in "
+        "5 seconds. Include severity assessment."
+    ),
+}

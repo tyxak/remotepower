@@ -28,6 +28,10 @@ holds long-form docs that don't fit there.
 
 ## v2.1 features and release notes
 
+- **[v2.1.4.md](v2.1.4.md)** — 2.1.4 release notes (JSON.parse fix for
+  slow local Ollama models; standalone AI Assistant page).
+- **[v2.1.3.md](v2.1.3.md)** — 2.1.3 release notes (optional AI assistant
+  with five providers, About-page version fix).
 - **[v2.1.2.md](v2.1.2.md)** — 2.1.2 release notes (critical fix for the
   lost-update race in heartbeats; new `_locked_update` primitive).
 - **[v2.1.1.md](v2.1.1.md)** — 2.1.1 release notes (offline regression

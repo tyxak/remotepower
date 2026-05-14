@@ -1,5 +1,153 @@
 # Changelog
 
+## v2.1.4 — 2026-05-14
+
+Same-day follow-up to 2.1.3 fixing the JSON.parse-on-every-button bug
+against slow local Ollama models, plus a stand-alone AI Assistant page.
+
+### Fixed — `JSON.parse: unexpected character at line 1 column 1`
+
+**Symptom**: 2.1.3 Test Connection succeeded, but every actual ✨
+button against Ollama smallthinker (a thinking model) failed with
+the above SyntaxError.
+
+**Root cause**: ✨ buttons defaulted to `max_tokens=4000` and the
+model needed 60–180 seconds to generate. nginx's default
+`fastcgi_read_timeout` of 60s closed the connection first, returning
+a 504 HTML page. The JS `api()` helper called `r.json()` on the HTML
+body and threw.
+
+**Fix**:
+
+- `HTTP_TIMEOUT_S` in `ai_provider.py` 60 → 300 (5 min)
+- Per-button `max_tokens` tuned to the typical response length
+  (Explain: 1500, Triage: 1000, Generate-script: 4000, etc.)
+- New `aiApi()` JS helper — reads raw text first, surfaces a
+  structured error with the HTTP status, response snippet, and a
+  contextual hint (including the specific nginx config block to set
+  if it looks timeout-shaped)
+- Live "(Xs elapsed)" ticker in the ✨ modal and the AI page
+
+**Operator action required for nginx**: add a `location /api/ai/`
+block with `fastcgi_read_timeout 300s;` (full snippet in
+`docs/v2.1.4.md`). The Python timeout helps but nginx is the
+gatekeeper.
+
+### Added — AI Assistant page
+
+Sidebar entry under Planning. Standalone chat UI alongside the
+inline buttons:
+
+- **Status header** with provider, base URL, reachability, version
+  (Ollama), currently-loaded models with VRAM use + expiry
+- **Per-conversation model picker** populated from `GET /api/tags`
+  (Ollama), `GET /v1/models` (LocalAI / OpenAI / DeepSeek), or the
+  hardcoded fallback list (Anthropic). Overrides the global default
+  for this conversation only — Settings still controls the default.
+- **Multi-turn chat** with localStorage history (last 40 messages),
+  Ctrl/⌘+Enter to send, Clear wipes local history only (audit log
+  untouched). Conversation is local to the browser by design — never
+  synced server-side.
+
+New system prompt key `free_form` (concise, no filler).
+
+### Added — provider introspection endpoints
+
+- `GET /api/ai/models` — list available models with size / family /
+  param-count where the provider exposes it
+- `GET /api/ai/stats`  — provider, base_url, version, loaded_models,
+  reachable
+
+Both require auth, honour the disabled state, never leak the API key.
+
+### Internal
+
+- `ai_provider.py`: `_http_get_json`, `_ollama_root` (strips a
+  trailing `/v1` so operators can paste either URL form),
+  `list_models`, `provider_stats`, `CLOUD_MODELS` fallback
+- `chat()` accepts `model` kwarg for per-request overrides
+- `handle_ai_chat()` accepts `model` and `max_tokens` from body
+  (both validated, max_tokens capped to configured limit)
+- 8 new tests (708 total, all passing)
+
+
+## v2.1.3 — 2026-05-14
+
+### Fixed
+
+**About page showed "Latest release 2.0.0 ✓ up to date" on a 2.1.2
+box.** Two combining causes: `handle_version_check()` read
+`server_version` out of `config.json` (often stale because installers
+stamped it once and upgrades didn't refresh it), and the displayed
+"latest" was GitHub's most recent tagged release — which is
+legitimately older than the running version on a dev build or
+between cutting and publishing a release. Fixed: read `local` from
+the `SERVER_VERSION` module constant, and clamp `latest = max(github,
+local)` so the UI never tells you to "upgrade" to a version older
+than what you have.
+
+### Added — AI assistant
+
+Optional LLM integration with five providers behind a single
+`/api/ai/chat` endpoint. **Disabled by default**; admin opts in via
+Settings → AI assistant.
+
+Providers covered by the OpenAI-compatible adapter (`/v1/chat/completions`):
+**OpenAI / ChatGPT**, **DeepSeek**, **Ollama**, **LocalAI**. Anthropic
+(Claude) gets its own adapter for `/v1/messages`. Pure stdlib —
+no pip-installed packages added.
+
+Settings → AI assistant:
+
+- Provider, model, optional base URL override
+- API key (masked on read, last-4 visible, `__clear__` to wipe)
+- Privacy toggles for what gets sent: hostnames (off), IPs (off),
+  journal content (off), command output (on). Bearer tokens, AWS
+  keys, and long hex strings are *always* redacted regardless.
+- Per-response token cap, per-user-per-day request cap
+- Test-connection button
+
+Inline ✨ buttons funnel through one reusable modal:
+
+| Surface | Label |
+|---|---|
+| Command output panel | **✨ Explain** |
+| Journal panel | **✨ Find the problem** |
+| Script editor | **✨ Generate from prompt** (inserts into textarea) |
+| Script editor | **✨ Explain** |
+| Script editor | **✨ Audit for risks** |
+| CVE finding row | **✨ Triage** |
+| Device dropdown (⋯ menu) | **✨ Investigate** |
+| Webhook log row | **✨ Explain** |
+
+Generated scripts go through the same dry-run + dangerous-pattern
+detection as human-written ones — no special AI-trusted path.
+
+Endpoints:
+
+- `GET  /api/ai/config` — masked
+- `POST /api/ai/config` — admin, validated, audit-logged
+- `POST /api/ai/chat`   — auth, system-prompt key OR literal,
+  redacted, rate-limited per user/day, audit-logged (token counts
+  + elapsed only — never the prompt/response content)
+- `POST /api/ai/test`   — admin smoke test
+
+### Internal
+
+- `ai_provider.py` module (~360 lines, stdlib only): provider
+  abstraction, redaction, system prompt registry
+- 40 new tests in `tests/test_v213.py`: redaction (always-on + toggle),
+  validators, About-page logic (running-ahead, GitHub-ahead, stale-key),
+  config CRUD, chat endpoint, rate limiter (per-user isolation,
+  zero-means-unlimited). Total suite **700 tests, all passing**.
+
+### Misc
+
+- Favicon link updated to `/favicon.png` (user-added to html root)
+  with a shortcut-icon fallback.
+- All 9 version-string sites bumped 2.1.2 → 2.1.3.
+
+
 ## v2.1.2 — 2026-05-14
 
 ### Fixed
