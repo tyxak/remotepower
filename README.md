@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.1.6-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.1.9-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -58,6 +58,20 @@ Browser SSH terminal is one more command: `sudo bash packaging/install-webterm.s
 For longer install paths (Docker, demo vhost, Windows client, Ansible-driven
 enrolment), see **[docs/install.md](docs/install.md)**.
 
+### Try the live demo
+
+A read-only demo deployment runs at **<https://demoremote.tvipper.com>** —
+seeded with synthetic devices, alerts, CVE findings, and metrics so
+you can poke around without installing anything.
+
+```
+URL:      https://demoremote.tvipper.com
+Username: demo
+Password: demo
+```
+
+The demo is reset every few hours, so feel free to break things.
+
 ## What you can do with it
 
 | | |
@@ -74,149 +88,81 @@ enrolment), see **[docs/install.md](docs/install.md)**.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
-## What's new in 2.1.6
+## What's new in 2.1.9
 
-**Hotfix**: Patches page → Detail button now works. Two issues
-stacked: (1) the 2.1.5 ✨ Prioritise button placed `display:flex`
-on a `<td>` which broke the table layout; (2) `openDevicePatchReport()`
-had been referencing an HTML element (`#device-patch-modal` /
-`#device-patch-title` / `#device-patch-body`) that was missing from
-`index.html` entirely — a pre-existing bug exposed by the new
-button drawing attention to its neighbour.
+**Hotfix**: the runbook generator was hallucinating wildly on
+smaller local models (Ollama qwen2.5-coder:14b reported services
+and firewall rules that weren't in the device snapshot). Three
+compounding causes — all fixed:
 
-**Added**: regression test that scans `app.js` for every
-`getElementById(...)` / `(open|close)Modal(...)` reference and
-verifies the ID exists in `index.html` — bugs of this exact shape
-now fail at build time.
+1. Ollama defaults to a 2048-token context window on its
+   OpenAI-compat endpoint. The snapshot was being truncated and
+   the model invented the rest. Now passes `num_ctx=16384`.
+2. The v2.1.7 runbook prompt was too elaborate. Rewritten with
+   explicit `CRITICAL RULES`: "Use ONLY information from the
+   snapshot. Do NOT invent…"
+3. The snapshot itself was too big (up to 25 KB). Tightened to ~8
+   KB.
 
-Release notes: **[docs/v2.1.6.md](docs/v2.1.6.md)**.
+**Plus**: demo URL fixed everywhere to `demoremote.tvipper.com`.
 
-## What's new in 2.1.5
+If you generated runbooks on 2.1.7 / 2.1.8 with a local model and
+they looked wrong, that's this bug. Regenerate via the **✨
+Regenerate** button on each device's detail modal.
 
-**Fixed**: ✨ Investigate showing "No Data Provided" even when the
-device had data — was hitting a non-existent route; now assembles
-the snapshot from `/sysinfo` + `/output` + the devices list.
-Markdown in AI responses now renders (was raw `**bold**` and `#`
-chars). Routine heartbeat / lock_wait stderr noise silenced by
-default (`RP_LOG_HEARTBEATS=1` / `RP_LOG_LOCK_WAITS=1` re-enable);
-the `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is no longer
-needed.
+Release notes: **[docs/v2.1.9.md](docs/v2.1.9.md)**.
 
-**Changed**: AI Assistant moved to Help section. Device-card
-dropdown is now grouped + collapsible (Power always visible;
-Inspect / Operate / Configure as collapsible `<details>` groups).
+## What's new in 2.1.8
 
-**Added**: ✨ Diagnose on failed services, ✨ Triage on TLS warning/
-critical/error rows, ✨ Prioritise on patches rows with pending
-updates. Visibility is conditional — buttons only appear where they
-add value.
+**Hotfix**: the AI fleet context was reporting every device as
+offline, even ones with live heartbeats. Was reading the derived
+`online` field directly from `devices.json` — but that field isn't
+persisted; it's computed on-the-fly by the device-list handler. So
+the AI saw `online=None` for everything and labelled the whole
+fleet offline.
 
-**Documentation**: new comprehensive `docs/ai.md`; AI section added
-to `docs/scripts.md`.
+If you ever asked the AI about a specific device and it said
+"Status: Offline" when the dashboard showed green — that's this
+bug. Upgrade and the next AI call will see real state. Worth
+regenerating any ✨ runbooks that mention offline status; those
+were written under the bug.
 
-Release notes: **[docs/v2.1.5.md](docs/v2.1.5.md)**.
+Five new regression tests so this can't recur. Total: 746 tests.
 
-## What's new in 2.1.4
+Release notes: **[docs/v2.1.8.md](docs/v2.1.8.md)**.
 
-**Fixed**: `JSON.parse: unexpected character at line 1 column 1`
-error on every ✨ button when pointed at slow local Ollama models
-(smallthinker / qwq / deepseek-r1, etc.). Bug was a 60s nginx
-`fastcgi_read_timeout` cutting off requests that take 60–180s on
-thinking models, returning HTML to the JS that expected JSON. Fix:
-per-button `max_tokens` tuned to typical response length, HTTP
-timeout bumped to 5 min, new tolerant fetch helper that surfaces
-non-JSON server responses with a contextual fix hint. **Operator
-action**: bump `fastcgi_read_timeout` to 300s for `/api/ai/` —
-nginx snippet in `docs/v2.1.4.md`.
+## What's new in 2.1.7
 
-**Added**: AI Assistant **page** under the Planning group. Standalone
-chat UI alongside the inline ✨ buttons. Status header showing
-provider / version / reachability / currently-loaded models with VRAM
-use (Ollama). Per-conversation model picker populated from the
-provider's own list. Multi-turn chat with localStorage history. Two
-new endpoints: `GET /api/ai/models`, `GET /api/ai/stats`.
+**AI-generated device runbooks.** New **✨ Generate runbook** action
+on each device produces a structured operations document from the
+host's current state — what's installed, what services are running,
+what's exposed, what runs on cron, recent activity, and anything
+worth knowing. Saved per-device, regenerable any time. Updates
+itself as the fleet changes.
 
-Release notes: **[docs/v2.1.4.md](docs/v2.1.4.md)**.
+**Smarter AI context.** Every AI call now includes a compact summary
+of RemotePower itself (what this tool is, the API shape, the
+conventions) plus a one-line-per-device fleet summary as system
+context. The model stops giving generic Linux advice and starts
+giving advice that references *your* devices, *your* groups, *your*
+conventions. A "include fleet context" privacy toggle defaults on
+for local providers (Ollama / LocalAI) and off for cloud — you
+choose.
 
-## What's new in 2.1.3
+**Documentation page**: in-app Documentation page now covers the
+script library, AI assistant, Generate-runbook workflow, and
+notification setup — the things people most often ask about that
+weren't on the page before.
 
-**Optional AI assistant.** Five providers (Anthropic Claude, OpenAI
-ChatGPT, DeepSeek, Ollama, LocalAI), disabled by default, configured
-in Settings → AI assistant. Inline ✨ buttons on command output,
-journal, the script editor, CVE findings, device dropdowns, and the
-webhook log. Pure stdlib — no new pip dependencies. AI-generated
-scripts go through the same dry-run + dangerous-pattern detection
-as human-written ones.
+**Plus**: README now shows the demo URL (`https://demoremote.tvipper.com`,
+demo / demo) at the top; "What's new" trimmed to the latest three
+releases (full history is in CHANGES.md).
 
-Hostnames and IPs are redacted before leaving the building unless
-the operator explicitly opts in. Bearer tokens, AWS keys, and long
-hex strings are *always* redacted. Per-user-per-day request cap
-prevents runaway cloud-provider invoices.
+Release notes: **[docs/v2.1.7.md](docs/v2.1.7.md)**.
 
-**Plus**: About-page version logic fix (was showing "Latest release
-2.0.0 ✓ up to date" on a 2.1.2 install). Full release notes:
-**[docs/v2.1.3.md](docs/v2.1.3.md)**.
-
-## What's new in 2.1.2
-
-**Critical fix.** v2.1.0's faster `save()` exposed a lost-update race
-in the heartbeat handler: concurrent heartbeats from different devices
-interleaved their load → mutate → save windows, clobbering each other's
-`last_seen` updates. Devices drifted past TTL and got marked offline
-despite heartbeating fine — exactly the symptom 2.1.0 was supposed to
-fix, but caused by a completely different mechanism.
-
-Fix in 2.1.2: new `_locked_update(path)` context manager that makes
-read-modify-write atomic. `handle_heartbeat()` is rewritten around it.
-
-If you're running 2.1.0 or 2.1.1 on a fleet of more than ~5 devices
-polling at the same interval, **upgrade**. Full walkthrough:
-**[docs/v2.1.2.md](docs/v2.1.2.md)**.
-
-## What's new in 2.1.1
-
-Bugfix release. The 2.1.0 heartbeat handler used the new non-blocking
-save for *every* write, including the one that persists `last_seen`.
-Under flock contention that save returned HTTP 202 silently *before*
-`last_seen` was on disk → device drifts past TTL → marked offline
-despite heartbeating fine. Plus the diagnostic logging was effectively
-absent: nothing in nginx logs, nothing in agent logs, no way to
-diagnose. Fixed in v2.1.1:
-
-- **Offline regression fixed.** `last_seen` save is back to blocking
-  (now microseconds-fast from the v2.1.0 fsync-outside-lock work).
-- **Real logging.** Every offline/online transition logs to nginx's
-  error log regardless of webhook config. Every heartbeat logs too.
-  The `try: … except Exception: pass` blocks in `main()` now print
-  the full traceback before continuing.
-- **Default offline TTL bumped 3 → 5 min** (5 missed polls at the
-  default 60s interval).
-- **`log_alert` webhook includes the actual matched line.** The
-  payload always had `sample`; the formatter just wasn't using it.
-- **Per-container Start/Stop/Restart/Logs** buttons on the Containers
-  page (`POST /api/devices/<id>/containers/action`).
-- **Demo data updated** with v2.1 features for the public demo site.
-
-Full release notes: **[docs/v2.1.1.md](docs/v2.1.1.md)**.
-
-## What's new in 2.1.0
-
-- **Script library** with `bash -n` syntax checking and dangerous-command
-  detection. CRUD on the Scripts page; queue from a device dropdown or fan
-  out to a multi-select batch. See **[docs/scripts.md](docs/scripts.md)**.
-- **Multi-select script execution** via `POST /api/exec/batch` with a 1-hour
-  job-status TTL at `GET /api/exec/batch/<id>`.
-- **`docker compose` dropdown** on device cards. Agent reports projects under
-  `/opt`, `/home`, `/docker`, `/srv` in its heartbeat; UI offers up / down /
-  restart / pull / logs. See **[docs/compose.md](docs/compose.md)**.
-- **Flock offline fluctuation fixed.** Heartbeat saves now hold the per-file
-  lock only for the rename, not for the fsync; if the lock is briefly
-  contended the agent gets HTTP 202 instead of stalling past its timeout.
-- **Auto-refresh stability.** Device names with apostrophes no longer break
-  inline event handlers on refresh; auto-refresh pauses while a modal is
-  open or the tab is in the background.
-
-Full release notes: **[docs/v2.1.0.md](docs/v2.1.0.md)**.
+**Older releases**: see [CHANGES.md](CHANGES.md) for the full history
+or [docs/](docs/) for the per-release notes (v2.1.3, v2.1.2, v2.1.1, v2.1.0,
+v2.0.x, etc.).
 
 ## Documentation index
 

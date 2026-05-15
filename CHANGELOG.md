@@ -1,5 +1,90 @@
 # Changelog
 
+## v2.1.9 - 2026-05-15
+
+Same-day hotfix for the runbook hallucination on smaller local
+models.
+
+### Fixed
+
+- **Runbook generator was inventing details on Ollama / LocalAI**
+  (firewall rules, DNS lookups, service names that weren't in the
+  device snapshot). Three causes, all addressed:
+  1. Ollama's OpenAI-compat endpoint defaults to `num_ctx=2048`,
+     truncating any non-trivial snapshot. Now passes
+     `options.num_ctx=16384` for local providers.
+  2. v2.1.7 runbook prompt was too elaborate. Rewritten to ~1 KB
+     with explicit `CRITICAL RULES` ("Use ONLY information from
+     the snapshot. Do NOT invent…").
+  3. Snapshot itself was too big (up to 25 KB). Tightened to ~8 KB
+     with aggressive caps on journal lines, commands, CVEs,
+     containers, notes, and sysinfo fields.
+- **Demo URL fixed** to `demoremote.tvipper.com` across all docs.
+
+### Tests
+
+- `test_v219.py` (8 tests): num_ctx wiring, prompt content + size,
+  snapshot size cap, demo URL grep.
+- Total: **754 tests, all passing.**
+
+## v2.1.8 - 2026-05-15
+
+Hotfix for the v2.1.7 AI context bug.
+
+### Fixed
+
+- **AI fleet context showed every device as offline.** Was reading
+  the derived `online` field directly from devices.json — but
+  `online` is computed on-the-fly by `handle_devices_list` and isn't
+  persisted. Every device looked offline in the AI's view regardless
+  of real heartbeat state. Fixed: `ai_context` now computes online
+  status canonically using the same `last_seen + get_online_ttl()`
+  formula as the rest of the codebase.
+- 5 new regression tests cover recent-heartbeat-is-online,
+  stale-heartbeat-is-offline, no-heartbeat-is-offline, and the
+  agentless `manual_status` defaulting cases. Two earlier tests
+  rewritten to use `last_seen` instead of the phantom `online`
+  field that masked the bug. Total: **746 tests, all passing.**
+
+## v2.1.7 - 2026-05-14
+
+Two new AI features plus README/docs polish.
+
+### Added
+
+- **AI-generated device runbooks** — `✨ Generate runbook` in the
+  device dropdown produces a structured Markdown document per
+  device (Purpose, Stack, Services, Exposure, Scheduled work,
+  Recent activity, Health & risks, Operating notes). Saved
+  per-device in `runbooks.json`, viewable on the device detail
+  modal, regenerable on demand. New endpoints under
+  `/api/devices/<id>/runbook`. Rate-limited under the same daily
+  cap as other AI calls. **No batch button**, deliberately.
+
+- **Level-1 RAG context awareness** — every AI request now prepends
+  a project context block (what RemotePower is) + a fleet snapshot
+  (one line per device). New `ai_context.py` module (~180 lines,
+  pure stdlib — no embeddings, no vector store). The model now
+  references your devices and your conventions instead of giving
+  generic advice. Configurable in Settings → AI assistant →
+  **Context awareness**.
+
+### Changed
+
+- **README**: demo URL `https://demoremote.tvipper.com` (demo/demo) is
+  now visible at the top of Quick start; "What's new" trimmed to
+  the latest three releases.
+- **Documentation page** (in-app): added Scripts, AI assistant,
+  Device runbooks, and Notification setup cards — the things people
+  ask about that weren't there before.
+
+### Internal
+
+- Test suite: **741 tests, all passing** (715 previous + 26 new).
+- `test_v217.py` covers context module + chat integration + runbook
+  CRUD; `test_v213.py` updated for the new context-wrapped prompt.
+
+
 ## v2.1.6 - 2026-05-14
 
 Same-day hotfix for the Patches page.

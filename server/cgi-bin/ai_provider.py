@@ -239,7 +239,21 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S):
 
 def chat_openai_compatible(cfg, messages, system, max_tokens):
     """OpenAI-compatible /v1/chat/completions. Used for OpenAI itself,
-    DeepSeek, Ollama, LocalAI, and most "OpenAI-compatible" forks."""
+    DeepSeek, Ollama, LocalAI, and most "OpenAI-compatible" forks.
+
+    v2.1.9 note on num_ctx for Ollama:
+    --------------------------------
+    Ollama's OpenAI-compat endpoint defaults to a 2048-token context
+    window unless num_ctx is explicitly set in `options`. With a
+    2048-token cap, a typical RemotePower runbook snapshot (4-8K
+    tokens of structured JSON) gets truncated mid-content and the
+    model fills in the missing parts from imagination — the exact
+    hallucination bug an operator reported on v2.1.8 ("the runbook
+    talks about firewall rules and DNS lookups that aren't in my
+    data"). We pass num_ctx via the body to lift this cap. Real
+    OpenAI / DeepSeek ignore the field (the OpenAI API is lenient
+    about unknown keys); Ollama and LocalAI honour it.
+    """
     provider = cfg['provider']
     base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
     model = cfg.get('model') or DEFAULT_MODELS[provider]
@@ -254,6 +268,14 @@ def chat_openai_compatible(cfg, messages, system, max_tokens):
         'max_tokens': max_tokens,
         'stream':     False,
     }
+    # Ollama / LocalAI specifically benefit from an explicit num_ctx —
+    # without it, Ollama caps the input window at 2048 tokens, which is
+    # too small for any non-trivial runbook or investigation. 16384 is
+    # comfortable for ~80% of inputs we send and supported by most
+    # locally-runnable models. Operators with a small context model
+    # (e.g. tinyllama) may want to lower it; that's a future toggle.
+    if provider in (PROVIDER_OLLAMA, PROVIDER_LOCALAI):
+        body['options'] = {'num_ctx': 16384}
     headers = {}
     if cfg.get('api_key'):
         headers['Authorization'] = f"Bearer {cfg['api_key']}"
@@ -606,5 +628,69 @@ SYSTEM_PROMPTS = {
         "container is doing, whether it's healthy, and any errors or "
         "warnings worth investigating. Don't speculate about overall "
         "system architecture from logs alone."
+    ),
+    # v2.1.7→v2.1.9: device runbook generation. Long-form, structured.
+    # v2.1.9 rewrite — the v2.1.7 prompt had 8 verbose sections and an
+    # implicit "follow this format" assumption. Large frontier models
+    # followed it; smaller coder-tuned models (qwen2.5-coder:14b,
+    # codestral, deepseek-coder) ignored the structure and just
+    # summarised whatever JSON they could see, often inventing details
+    # to pad the gaps. New approach: shorter prompt, fewer sections,
+    # explicit "use only the snapshot" rule, and tell the model what
+    # to do when data is missing instead of letting it improvise.
+    'generate_runbook': (
+        "Write a brief operations runbook for the Linux server "
+        "described in the snapshot below.\n"
+        "\n"
+        "CRITICAL RULES:\n"
+        "- Use ONLY information from the snapshot. Do NOT invent "
+        "services, ports, firewall rules, DNS configurations, or "
+        "anything else not explicitly present in the data.\n"
+        "- If a section has no relevant data in the snapshot, write "
+        "\"No data captured.\" Do not fabricate.\n"
+        "- Do not summarise the snapshot structure. Write a runbook "
+        "for an operator, not a description of the JSON.\n"
+        "- Keep the whole document under 800 words. Plain Markdown, "
+        "no HTML, no front matter.\n"
+        "\n"
+        "Use exactly this structure:\n"
+        "\n"
+        "## Purpose\n"
+        "One short paragraph: what this host is, based on its name, "
+        "OS, group, tags, notes, and watched services. Be specific "
+        "(\"mail server running Postfix\") if the evidence supports "
+        "it; say \"role unclear\" if it doesn't. Do not guess from "
+        "the hostname alone.\n"
+        "\n"
+        "## Current state\n"
+        "Online/offline status, agent version, OS version, uptime "
+        "if shown. Skip any field that isn't in the snapshot.\n"
+        "\n"
+        "## Watched services\n"
+        "List the watched systemd units from the snapshot's "
+        "`services` field and their current state. If none, write "
+        "\"No services watched.\"\n"
+        "\n"
+        "## Containers\n"
+        "List containers from the snapshot's `containers` field "
+        "with name, image, and state. If empty, write \"No "
+        "containers reported.\"\n"
+        "\n"
+        "## Recent activity\n"
+        "Up to 5 bullets summarising the snapshot's recent_commands "
+        "and recent_journal. If both are empty, write \"No recent "
+        "activity in snapshot.\"\n"
+        "\n"
+        "## Health & risks\n"
+        "Summarise cve_findings (count, highest severity, any "
+        "fixed-version available) and patch_status. If "
+        "cve_findings is empty and patch_status looks clean, write "
+        "\"No risks flagged in this snapshot.\" Do not invent CVEs.\n"
+        "\n"
+        "## Operating notes\n"
+        "Practical hints grounded in the snapshot. Examples: \"to "
+        "restart nginx, run systemctl restart nginx\" (only if "
+        "nginx is in the watched services list). Skip notes that "
+        "would require knowledge you don't have."
     ),
 }

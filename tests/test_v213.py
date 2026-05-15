@@ -417,14 +417,19 @@ class TestAIChatEndpoint(_Base):
                         'system': 'explain_output'})
         self.assertEqual(r.status, 200)
         self.assertEqual(r.body['text'], 'mocked response')
-        self.assertEqual(self._chat_calls[0]['system'],
-                         ai_provider.SYSTEM_PROMPTS['explain_output'])
+        # v2.1.7: system prompt is now wrapped with project context
+        # (defaults to enabled). The base prompt is *contained in* what
+        # the adapter sees, but with a <system_context> preamble.
+        sent = self._chat_calls[0]['system']
+        self.assertIn(ai_provider.SYSTEM_PROMPTS['explain_output'], sent)
 
     def test_literal_system_passes_through(self):
         r = self._chat({'messages': [{'role': 'user', 'content': 'hi'}],
                         'system': 'be terse'})
         self.assertEqual(r.status, 200)
-        self.assertEqual(self._chat_calls[0]['system'], 'be terse')
+        # Literal still flows through, possibly with context wrapper
+        sent = self._chat_calls[0]['system']
+        self.assertIn('be terse', sent)
 
     def test_disabled_400(self):
         api.save(api.CONFIG_FILE, {'ai': {'enabled': False}})

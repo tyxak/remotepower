@@ -740,6 +740,13 @@
           </div>
 
           <div class="settings-section">
+            <h3>Context awareness <span style="font-size:11px;color:var(--muted);font-weight:400">(v2.1.7)</span></h3>
+            <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on).</p>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="ai-ctx-project" checked> Include project context (what RemotePower is)</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
+          </div>
+
+          <div class="settings-section">
             <h3>Limits</h3>
             <p class="hint">Bounds to keep cloud-provider costs predictable. The token limit is per response. The daily request cap is per user — set to 0 to disable.</p>
             <div class="settings-row" style="flex-wrap:wrap;gap:12px">
@@ -1135,6 +1142,67 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p>Per-fleet bookmark grid. Add URLs for the things you reach for during operations: your monitoring stack, your wiki, your status page, your IPMI portal, your DNS provider's dashboard.</p>
               <p>Group links by category. Each link gets a name, URL, and optional icon. Display-only — RemotePower doesn't proxy or check these.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="script library bash run dry lint batch dangerous pattern">
+            <summary><strong>Scripts</strong> — the multi-line script library (v2.1+)</summary>
+            <div class="doc-body">
+              <p>Like the command library but for full bash scripts — multi-line, with `set -euo pipefail`, error handling, the works. Stored in <code>scripts.json</code>; created and edited via the Scripts page.</p>
+              <p><strong>Save flow:</strong> paste a script → editor runs <code>bash -n</code> (syntax check) and a regex-based dangerous-pattern detector (<code>rm -rf /</code>, fork bomb, <code>dd if=/dev/zero of=/dev/sda</code>, <code>curl|bash</code>, <code>chmod 777 /</code>, etc.). Both must pass before save.</p>
+              <p><strong>Run on a device:</strong> Devices page → ⋯ menu → "Run script…", pick from the library, confirm. Output comes back on the next heartbeat after execution finishes.</p>
+              <p><strong>Batch run:</strong> tick checkboxes on multiple devices, batch bar → "Run script", pick from the library. The batch tracker shows per-device progress; output collects under the batch job ID for ~1h.</p>
+              <p><strong>Tagged runs:</strong> instead of ticking devices, target a tag or group via the API: <code>POST /api/exec/batch</code> with <code>tag</code>, <code>group</code>, or <code>device_ids</code>.</p>
+              <p>Full reference: <a href="/docs/scripts.md" style="color:var(--accent)">docs/scripts.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="ai assistant claude anthropic openai chatgpt ollama deepseek localai sparkle">
+            <summary><strong>AI assistant</strong> — five providers, ✨ buttons across the dashboard (v2.1.3+)</summary>
+            <div class="doc-body">
+              <p><strong>Disabled by default.</strong> Enable in Settings → AI assistant. Five providers: Anthropic (Claude), OpenAI (ChatGPT), DeepSeek, Ollama (local), LocalAI (local). Pure stdlib — no extra pip deps. Pick a local provider (Ollama / LocalAI) if you don't want data leaving the building.</p>
+              <p><strong>Where the ✨ buttons appear:</strong></p>
+              <ul>
+                <li>Device dropdown (⋯ menu) → <em>Investigate</em>, <em>Generate runbook</em>.</li>
+                <li>Device detail modal → <em>Explain</em> on each command output, <em>Find the problem</em> on the journal panel.</li>
+                <li>Services page → service detail → <em>Diagnose</em> on failed/inactive units.</li>
+                <li>TLS page → table row → <em>Triage</em> on warning/critical/error certs.</li>
+                <li>Patches page → table row → <em>Prioritise</em> on devices with pending updates.</li>
+                <li>CVE Findings → row → <em>Triage</em>.</li>
+                <li>Scripts editor → <em>Generate from prompt</em> / <em>Explain</em> / <em>Audit for risks</em>.</li>
+                <li>Notifications → webhook log row → <em>Explain</em>.</li>
+                <li>Help → AI Assistant → standalone chat with model picker and Ollama server stats.</li>
+              </ul>
+              <p><strong>Privacy:</strong> hostnames and IPs are <em>redacted</em> before leaving the building unless you toggle "Send hostnames" / "Send IP addresses" in Settings. Bearer tokens, AWS keys, and long hex strings are <em>always</em> redacted regardless. AI-generated scripts go through the same dry-run + dangerous-pattern detection as anything else — no AI-trusted bypass.</p>
+              <p><strong>Slow local models</strong> (smallthinker, qwq, deepseek-r1) routinely take 60–180 s per response. The HTTP timeout is 5 min on the Python side, but nginx's <code>fastcgi_read_timeout</code> defaults to 60 s and will cut you off first — add a <code>location /api/ai/</code> block with <code>fastcgi_read_timeout 300s;</code>. See <a href="/docs/ai.md" style="color:var(--accent)">docs/ai.md</a> for the snippet and the full reference.</p>
+              <p><strong>Rate limits:</strong> per-user per-day cap in Settings (default 100; 0 = unlimited). Per-button <code>max_tokens</code> tuned client-side so a short Explain doesn't sit waiting for 4000 tokens to generate.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="runbook generate ai documentation per-device summary fleet">
+            <summary><strong>Device runbooks</strong> — AI-generated, per device (v2.1.7)</summary>
+            <div class="doc-body">
+              <p><strong>What it is:</strong> a structured operations document for each device, generated by the AI from the device's current state (sysinfo, watched services, containers, recent commands, journal, CVE findings, patch status). Saved per-device; regenerable any time.</p>
+              <p><strong>How to generate:</strong> Devices page → ⋯ menu → Inspect → <em>✨ Generate runbook</em>. The AI gets the live snapshot of the device plus the fleet context (so it can say "this is your mail server" rather than just "this is a Linux box"). Takes 15–90 s depending on provider and model.</p>
+              <p><strong>What's in it:</strong> sections for purpose / role, installed stack, running services, listening ports, scheduled jobs, recent activity, "things to know," and known risks. Format is Markdown — rendered inline on the device detail modal under a Runbook section.</p>
+              <p><strong>When it's worth re-running:</strong> after a major change to the device, before handover, when documenting a system for a colleague, after the OS upgrade. The data is current as of when it ran — the timestamp is shown alongside the runbook.</p>
+              <p><strong>Privacy:</strong> runbooks contain hostnames and IPs by design (a redacted runbook is useless). The redaction toggles in Settings → AI assistant apply, but you'll want "Send hostnames" + "Send IP addresses" on for runbook generation specifically. Storing hostnames in a runbook that lives in your own JSON file isn't a privacy concern; what matters is whether they cross over to a cloud provider on generate.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="notification setup alert configure discord slack ntfy webhook">
+            <summary><strong>Notification setup</strong> — getting alerts to land where you'll see them</summary>
+            <div class="doc-body">
+              <p>RemotePower has webhook (Discord / Slack / ntfy / generic JSON) and SMTP email channels. Pick whichever you actually check.</p>
+              <p><strong>Recommended baseline</strong> (most operators want):</p>
+              <ol>
+                <li>One webhook for <em>page-me-now</em> events: <code>device_offline</code>, <code>service_down</code>, <code>monitor_down</code>, <code>metric_critical</code>, <code>cve_found</code>. Point at ntfy / Pushover / your phone.</li>
+                <li>One webhook for <em>FYI-during-business-hours</em> events: <code>metric_warning</code>, <code>patch_alert</code>, <code>log_alert</code>, <code>container_stopped</code>. Point at a Discord/Slack channel.</li>
+                <li>Email digest for the slow stuff (weekly CVE summary, patches pending) once <code>cron_email_digest</code> is enabled.</li>
+              </ol>
+              <p><strong>Per-event toggles:</strong> each webhook URL has independent toggles for every event type. The "Send test event" button fires a sample payload so you can verify the integration works before relying on it.</p>
+              <p><strong>Maintenance windows</strong> suppress alerts during planned downtime. Suppressed alerts are still logged — you can see what would have fired in the audit log. So if something unexpected happens during maintenance, you can find it after.</p>
+              <p><strong>✨ Explain on alerts</strong>: each webhook log row has a ✨ Explain button that asks the AI to rewrite the raw alert into a single short paragraph ("postfix on pmg01 stopped at 14:32 after matching <code>connection refused</code> 3 times — likely upstream MX is unreachable; check DNS and try a manual delivery"). Useful during on-call when you're seeing a wall of cryptic alerts at 3am.</p>
             </div>
           </details>
 

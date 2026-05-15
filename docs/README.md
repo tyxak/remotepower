@@ -28,6 +28,15 @@ holds long-form docs that don't fit there.
 
 ## v2.1 features and release notes
 
+- **[v2.1.9.md](v2.1.9.md)** — 2.1.9 hotfix (runbook hallucination
+  on smaller local models: num_ctx wiring, prompt rewrite, snapshot
+  trimming; demo URL correction).
+- **[v2.1.8.md](v2.1.8.md)** — 2.1.8 hotfix (AI fleet context was
+  reporting every device offline; fixed to compute online status
+  canonically from last_seen + TTL).
+- **[v2.1.7.md](v2.1.7.md)** — 2.1.7 release notes (AI-generated
+  device runbooks, Level-1 RAG context awareness, README polish,
+  Documentation page expansion).
 - **[v2.1.6.md](v2.1.6.md)** — 2.1.6 hotfix (Patches page Detail
   button + the long-missing modal element).
 - **[v2.1.5.md](v2.1.5.md)** — 2.1.5 release notes (Investigate

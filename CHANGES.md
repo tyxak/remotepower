@@ -1,5 +1,132 @@
 # Changelog
 
+## v2.1.9 — 2026-05-15
+
+Same-day hotfix for runbook hallucination on smaller local models,
+plus a demo URL correction.
+
+### Fixed
+
+- **Runbook generator was inventing services, ports, firewall rules
+  on smaller local models** (reported on Ollama qwen2.5-coder:14b).
+  Three compounding causes, all fixed:
+  1. **Ollama defaults to `num_ctx=2048` on the OpenAI-compat
+     endpoint** — the snapshot was being truncated mid-content and
+     the model invented the rest. `ai_provider.chat_openai_compatible`
+     now passes `options.num_ctx=16384` for Ollama / LocalAI
+     (ignored by real OpenAI / DeepSeek, which accept unknown body
+     keys).
+  2. **The v2.1.7 runbook prompt was too elaborate** — 8 verbose
+     sections, no explicit anti-fabrication instructions. Rewritten
+     to ~1 KB / 6 sections with `CRITICAL RULES` near the top:
+     "Use ONLY information from the snapshot. Do NOT invent…", and
+     each section has an explicit "if empty, write X" fallback.
+  3. **The snapshot itself was too big** — up to 25 KB. Tightened
+     to ~8 KB: 20 journal lines (was 40), 5 commands at 200 chars
+     each (was 15 × 500), 10 CVEs at 100-char summaries (was 20 ×
+     200), 10 containers (was 30), 500-char notes (was 1000),
+     trimmed sysinfo to 9 operator-relevant fields, top 5 disks by
+     usage.
+
+- **Demo URL is `demoremote.tvipper.com`**, not `demo.tvipper.com`.
+  Fixed across all `*.md` and `*.html` in the repo.
+
+### Tests
+
+- `test_v219.py` (8 tests): num_ctx wiring (Ollama/LocalAI yes,
+  OpenAI no), prompt anti-hallucination keyword presence + size
+  cap, snapshot bounded under 10 KB on synthetic heavily-populated
+  device, no bare `demo.tvipper.com` in markdown files.
+- Total: **754 tests, all passing.**
+
+### Upgrade note
+
+Existing stored runbooks in `runbooks.json` were written under the
+bug. Worth regenerating any you care about via the **✨ Regenerate**
+button on each device's detail modal Runbook section.
+
+
+## v2.1.8 — 2026-05-15
+
+Hotfix for a v2.1.7 bug where the AI fleet context reported every
+device as offline.
+
+### Fixed
+
+- **AI fleet context wrongly reported all devices as offline.** The
+  `ai_context.py` builder was reading `d.get('online')` directly,
+  but `online` is a derived field computed on-the-fly by
+  `handle_devices_list` from `last_seen` + `get_online_ttl()` — it's
+  not persisted in `devices.json`. Every device looked `online=None`
+  → falsy → "offline" in the AI's view. Reported by an operator
+  whose live web server showed as offline in an AI chat response.
+- Fixed: `ai_context._is_online()` now computes status canonically
+  using the same formula as the device-list handler (recent
+  heartbeat → online; agentless → manual_status default True).
+  `build_fleet_context` and `build_combined_system_prompt` accept
+  `now` and `ttl`; callers in `handle_ai_chat` and
+  `handle_runbook_generate` pass `get_online_ttl()` so the AI sees
+  exactly the same status as the dashboard.
+- 5 new regression tests in `test_v217.py`; two pre-existing tests
+  rewritten to use `last_seen` instead of the phantom `online`
+  field that hid the bug.
+
+Total: **746 tests, all passing.**
+
+## v2.1.7 — 2026-05-14
+
+Two new AI features and a few README/docs polish bits.
+
+### Added
+
+- **AI-generated device runbooks** (`✨ Generate runbook` in the
+  device dropdown). Structured Markdown document per device —
+  Purpose / Stack / Services / Exposure / Scheduled work / Recent
+  activity / Health & risks / Operating notes. Built from the
+  device's current state (sysinfo, journal, services, containers,
+  CVEs, patch status, recent commands). Saved per-device in
+  `runbooks.json`, regenerable any time.
+  - New endpoints: `GET / POST-generate / DELETE
+    /api/devices/<id>/runbook`.
+  - New UI: ✨ Generate runbook modal with elapsed-time ticker;
+    Runbook section on the device detail modal with View / Regenerate
+    / Delete buttons.
+  - Rate-limited under the same per-user-per-day cap as `/api/ai/chat`.
+  - No batch "regenerate all" button, deliberately — cost-sensitive.
+
+- **Level-1 RAG context awareness.** Every AI request now prepends
+  a project-context block (what RemotePower is, the storage
+  conventions, the agent/heartbeat model) plus a fleet snapshot
+  (one line per device with name / OS / status / group / tags /
+  notes). Online devices first.
+  - New `ai_context.py` module (~180 lines, pure stdlib): no
+    embeddings, no vector store. For ~5000 lines of docs and ~10
+    devices, hand-curated context is cheaper and just as effective
+    as a real RAG pipeline.
+  - Configurable in Settings → AI assistant → **Context awareness**.
+    Two checkboxes: include project context (non-sensitive, default
+    on), include fleet snapshot (contains hostnames, default on).
+  - Makes the AI stop giving generic Linux advice and start giving
+    advice that references your devices, your groups, your conventions.
+
+### Changed
+
+- **README**: demo URL (`https://demoremote.tvipper.com`, demo/demo) now
+  visible at the top of Quick start; "What's new" trimmed to the
+  latest three releases. Older entries point at CHANGES.md.
+- **Documentation page** (in-app): added four new doc-cards covering
+  Scripts (script library), AI assistant (✨ button inventory),
+  Device runbooks (v2.1.7), and Notification setup (recommended
+  baseline + maintenance windows + ✨ Explain on alerts).
+
+### Tests
+
+- `test_v217.py` (26 tests): context module, chat integration,
+  runbook generate / get / delete
+- `test_v213.py`: updated for the new context-wrapped system prompt
+- Total: **741 tests, all passing**
+
+
 ## v2.1.6 — 2026-05-14
 
 Same-day hotfix for two compounding bugs on the Patches page.

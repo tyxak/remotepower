@@ -903,7 +903,7 @@ async function saveDeviceIcon(icon) { const id = document.getElementById('icon-d
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
 async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
-async function openDetail(id, name) { document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {} }
+async function openDetail(id, name) { _lastOpenDeviceName = name; document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {}  try { const rb = await aiApi('GET', '/devices/' + encodeURIComponent(id) + '/runbook'); const sec = document.createElement('div'); sec.id = 'detail-runbook-section'; sec.innerHTML = _renderRunbookSectionHtml(id, rb); document.getElementById('detail-body').appendChild(sec); } catch(e) {} }
 function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
@@ -5649,6 +5649,10 @@ async function loadAISettings() {
   const lim = cfg.limits || {};
   document.getElementById('ai-max-tokens').value   = lim.max_tokens_per_response   ?? 4000;
   document.getElementById('ai-max-requests').value = lim.max_requests_per_user_day ?? 100;
+  // v2.1.7: context toggles
+  const ctx = cfg.context || {};
+  document.getElementById('ai-ctx-project').checked = ctx.include_project_context !== false;
+  document.getElementById('ai-ctx-fleet').checked   = ctx.include_fleet_context !== false;
   onAIProviderChange();   // refresh per-provider hint
 }
 
@@ -5684,6 +5688,10 @@ async function saveAISettings() {
     limits: {
       max_tokens_per_response:   parseInt(document.getElementById('ai-max-tokens').value, 10)   || 4000,
       max_requests_per_user_day: parseInt(document.getElementById('ai-max-requests').value, 10) || 100,
+    },
+    context: {
+      include_project_context: document.getElementById('ai-ctx-project').checked,
+      include_fleet_context:   document.getElementById('ai-ctx-fleet').checked,
     },
   };
   // Only submit api_key if the user typed something — keeps the existing
@@ -6448,6 +6456,7 @@ function deviceDropdownHtml(d, isMonitored) {
   const inspect = [
     ['System info',     `openDetail('${idEsc}','${nameEsc}')`],
     ['✨ Investigate',  `aiInvestigateDevice('${idEsc}','${nameEsc}')`],
+    ['✨ Generate runbook', `aiGenerateRunbook('${idEsc}','${nameEsc}')`],
     ['Metrics',         `openMetrics('${idEsc}','${nameEsc}')`],
     ['Update history',  `openUpdateLogs('${idEsc}','${nameEsc}')`],
   ];
@@ -6580,3 +6589,193 @@ async function aiPrioritisePatchesForDevice(devId, devName) {
   }
   aiPrioritisePatches(devName, listing.output);
 }
+
+// ─── v2.1.7: Device runbooks ───────────────────────────────────────────────
+//
+// Two surfaces:
+//   1. ✨ Generate runbook — entry in the device dropdown. Opens a
+//      modal, fires POST /api/devices/<id>/runbook/generate, displays
+//      the resulting Markdown via renderMarkdown(). Sync — the modal
+//      shows an elapsed-time ticker so a slow local model doesn't look
+//      frozen.
+//   2. Runbook section on the device detail modal — auto-loaded by
+//      openDetail() when there's a saved runbook. Shows the Markdown
+//      with a "Regenerate" + "Delete" button.
+
+let _runbookModalEl = null;
+
+function _ensureRunbookModal() {
+  if (_runbookModalEl) return _runbookModalEl;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'runbook-modal';
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:820px;width:94vw;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600" id="runbook-modal-title">✨ Runbook</div>
+        <button class="btn-icon" onclick="closeRunbookModal()" style="padding:4px 8px">✕</button>
+      </div>
+      <div style="padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)" id="runbook-modal-meta">—</div>
+      <div id="runbook-modal-body" style="flex:1;overflow:auto;padding:16px 20px;font-size:13px;line-height:1.55">
+        <div style="color:var(--muted)">Generating runbook…</div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-icon" id="runbook-modal-copy" onclick="runbookModalCopy()" disabled>Copy markdown</button>
+        <button class="btn-icon" id="runbook-modal-regen" onclick="runbookModalRegen()" style="display:none">Regenerate</button>
+        <div style="flex:1"></div>
+        <button class="btn-icon" onclick="closeRunbookModal()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _runbookModalEl = wrap;
+  return wrap;
+}
+
+function closeRunbookModal() {
+  if (_runbookModalEl) _runbookModalEl.classList.remove('active');
+}
+
+function runbookModalCopy() {
+  const body = document.getElementById('runbook-modal-body');
+  navigator.clipboard.writeText(body.dataset.rawText || body.textContent || '');
+  toast('Runbook copied as Markdown', 'success');
+}
+
+let _runbookCurrentDevice = null;   // {id, name} for the Regenerate button
+
+function runbookModalRegen() {
+  if (!_runbookCurrentDevice) return;
+  if (!confirm('Regenerate the runbook? Sends the device snapshot to the configured AI provider again.')) return;
+  aiGenerateRunbook(_runbookCurrentDevice.id, _runbookCurrentDevice.name);
+}
+
+async function aiGenerateRunbook(devId, deviceName) {
+  _ensureRunbookModal();
+  _runbookModalEl.classList.add('active');
+  _runbookCurrentDevice = {id: devId, name: deviceName};
+  document.getElementById('runbook-modal-title').textContent = `✨ Runbook — ${deviceName}`;
+  document.getElementById('runbook-modal-meta').textContent =
+    'Gathering device snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
+  const body = document.getElementById('runbook-modal-body');
+  body.innerHTML = '<div style="color:var(--muted)">Thinking… <span id="runbook-modal-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
+  body.dataset.rawText = '';
+  document.getElementById('runbook-modal-copy').disabled = true;
+  document.getElementById('runbook-modal-regen').style.display = 'none';
+
+  // Tick elapsed time so the modal doesn't look frozen during the
+  // 30-120s round-trip on slow local models.
+  const tick = setInterval(() => {
+    const el = document.getElementById('runbook-modal-elapsed');
+    if (!el) return;
+    const s = Math.floor((Date.now() - parseInt(el.dataset.start || '0', 10)) / 1000);
+    el.textContent = `(${s}s elapsed)`;
+  }, 1000);
+
+  const resp = await aiApi('POST', `/devices/${encodeURIComponent(devId)}/runbook/generate`, {});
+  clearInterval(tick);
+
+  if (!resp.ok) {
+    body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
+    return;
+  }
+  body.innerHTML = renderMarkdown(resp.content || '(empty)');
+  body.dataset.rawText = resp.content || '';
+  document.getElementById('runbook-modal-copy').disabled = false;
+  document.getElementById('runbook-modal-regen').style.display = '';
+  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
+  document.getElementById('runbook-modal-meta').textContent =
+    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
+
+  // If the device detail modal is open, refresh its runbook section.
+  if (typeof refreshDetailRunbookSection === 'function') {
+    refreshDetailRunbookSection(devId);
+  }
+}
+
+// View an existing runbook (used by the device detail modal's
+// "View runbook" button when there's a stored one already).
+async function aiViewRunbook(devId, deviceName) {
+  _ensureRunbookModal();
+  _runbookModalEl.classList.add('active');
+  _runbookCurrentDevice = {id: devId, name: deviceName};
+  document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
+  document.getElementById('runbook-modal-meta').textContent = 'Loading…';
+  const body = document.getElementById('runbook-modal-body');
+  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  document.getElementById('runbook-modal-copy').disabled = true;
+  document.getElementById('runbook-modal-regen').style.display = '';
+
+  const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
+  if (!resp.ok) {
+    body.innerHTML = `<div style="color:var(--red)">${escHtml(resp.error)}</div>`;
+    return;
+  }
+  if (!resp.exists) {
+    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No runbook generated yet. Click <strong>Regenerate</strong> to create one.</div>';
+    document.getElementById('runbook-modal-meta').textContent = 'No runbook stored.';
+    return;
+  }
+  body.innerHTML = renderMarkdown(resp.content || '(empty)');
+  body.dataset.rawText = resp.content || '';
+  document.getElementById('runbook-modal-copy').disabled = false;
+  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
+  document.getElementById('runbook-modal-meta').textContent =
+    `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · generated ${when} by ${resp.generated_by || '?'}`;
+}
+
+async function aiDeleteRunbook(devId) {
+  if (!confirm('Delete the stored runbook? You can always regenerate.')) return;
+  const resp = await aiApi('DELETE', `/devices/${encodeURIComponent(devId)}/runbook`);
+  if (resp.ok) {
+    toast('Runbook deleted', 'success');
+    if (typeof refreshDetailRunbookSection === 'function') {
+      refreshDetailRunbookSection(devId);
+    }
+  } else {
+    toast('Delete failed: ' + (resp.error || '?'), 'error');
+  }
+}
+
+// Refresh the runbook section inside the device detail modal — called
+// after generate / delete so the view stays in sync. Implementation
+// below is just a hook; the detail modal renders its own runbook
+// section via openDetail().
+async function refreshDetailRunbookSection(devId) {
+  const el = document.getElementById('detail-runbook-section');
+  if (!el) return;   // detail modal not open or no runbook section
+  const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
+  el.innerHTML = _renderRunbookSectionHtml(devId, resp);
+}
+
+function _renderRunbookSectionHtml(devId, resp) {
+  // Shared between openDetail() and refreshDetailRunbookSection()
+  if (!resp || !resp.ok) return '';
+  if (!resp.exists) {
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-weight:600;font-size:13px">Runbook</div>
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiGenerateRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">✨ Generate runbook</button>
+      </div>
+      <div style="color:var(--muted);font-size:12px">No runbook generated yet for this device.</div>
+    </div>`;
+  }
+  const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
+  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-weight:600;font-size:13px">Runbook</div>
+        <div style="font-size:11px;color:var(--muted)">${escHtml(resp.model || '?')} · generated ${escHtml(when)} by ${escHtml(resp.generated_by || '?')}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiViewRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">Open full</button>
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiGenerateRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">✨ Regenerate</button>
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="aiDeleteRunbook('${escAttr(devId)}')">Delete</button>
+      </div>
+    </div>
+    <div style="max-height:300px;overflow-y:auto;font-size:13px;line-height:1.55;padding:8px 4px">${renderMarkdown(resp.content || '')}</div>
+  </div>`;
+}
+
+// Track the last device name so we don't have to thread it through the
+// callbacks above. Set when openDetail runs.
+let _lastOpenDeviceName = '';

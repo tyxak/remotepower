@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.1.6'
+SERVER_VERSION = '2.1.9'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -266,6 +266,8 @@ import tls_monitor
 
 # v2.1.3: AI assistant — OpenAI-compatible + Anthropic adapters.
 import ai_provider
+# v2.1.7: Level-1 RAG context (project + fleet awareness)
+import ai_context
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -5741,6 +5743,21 @@ _AI_DEFAULTS = {
     'base_url': '',
     'api_key':  '',
     'insecure_ssl': False,
+    # v2.1.7: project + fleet context (Level-1 RAG). Always-on by
+    # default — these blocks are 1-3 KB of cheap context that makes
+    # the model know what RemotePower is and what your fleet looks
+    # like. Turn off if you have a specific reason to keep prompts
+    # minimal (e.g. running a tiny local model with a 2k context
+    # window).
+    #
+    # Fleet context contains hostnames + group names by design — a
+    # redacted fleet context is useless. If you're on a cloud provider
+    # and don't want hostnames egressing, turn `include_fleet_context`
+    # off; project context is non-sensitive and stays on.
+    'context': {
+        'include_project_context': True,
+        'include_fleet_context':   True,
+    },
     'privacy': {
         'send_hostnames':  False,
         'send_ips':        False,
@@ -5764,6 +5781,8 @@ def _ai_cfg():
     out['privacy'].update((cfg.get('privacy') or {}))
     out['limits']  = dict(_AI_DEFAULTS['limits'])
     out['limits'].update((cfg.get('limits') or {}))
+    out['context'] = dict(_AI_DEFAULTS['context'])
+    out['context'].update((cfg.get('context') or {}))
     return out
 
 
@@ -5824,6 +5843,12 @@ def handle_ai_config_set():
             rl = body['limits'].get('max_requests_per_user_day')
             if isinstance(rl, int) and 0 <= rl <= 100000:
                 cur['limits']['max_requests_per_user_day'] = rl
+        # v2.1.7: project + fleet context toggles
+        if isinstance(body.get('context'), dict):
+            cur['context'] = dict(cur.get('context') or {})
+            for k in ('include_project_context', 'include_fleet_context'):
+                if k in body['context']:
+                    cur['context'][k] = bool(body['context'][k])
         # Validate before saving
         ok, err = ai_provider.validate_config(cur)
         if not ok:
@@ -5896,6 +5921,32 @@ def handle_ai_chat():
             respond(400, {'error': 'system prompt too long'})
     else:
         respond(400, {'error': 'system must be a string'})
+
+    # v2.1.7: Level-1 RAG — prepend project + fleet context per cfg toggles.
+    # The fleet snapshot is read fresh on every call so it always reflects
+    # current state (online/offline status, recent additions, etc.). This
+    # is cheap — devices.json is small and we already load() it constantly.
+    ctx_opts = cfg.get('context') or {}
+    include_project = bool(ctx_opts.get('include_project_context', True))
+    include_fleet   = bool(ctx_opts.get('include_fleet_context', True))
+    fleet_devices = None
+    if include_fleet:
+        try:
+            raw = load(DEVICES_FILE)
+            fleet_devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
+        except Exception:
+            # If devices.json can't be read, just skip fleet context —
+            # the AI call should still work, just with less awareness.
+            fleet_devices = None
+    if include_project or fleet_devices:
+        system_prompt = ai_context.build_combined_system_prompt(
+            system_prompt,
+            devices=fleet_devices,
+            include_project=include_project,
+            include_fleet=include_fleet and fleet_devices is not None,
+            now=int(time.time()),
+            ttl=get_online_ttl(),
+        )
 
     context = ai_provider.redact(str(body.get('context', '') or '')[:128],
                                  cfg.get('privacy') or {})
@@ -5998,6 +6049,243 @@ def handle_ai_test():
         'tokens_in':  result.get('tokens_in', 0),
         'tokens_out': result.get('tokens_out', 0),
     })
+
+
+# ── v2.1.7: Device runbooks ───────────────────────────────────────────────
+#
+# An AI-generated operations document per device. Storage is a single
+# JSON file keyed by device ID; small payload (~3-10 KB per runbook),
+# small fleet, no need for separate per-device files.
+#
+# Generation builds a structured snapshot from what we already have —
+# sysinfo, watched services, containers, recent commands, journal, CVE
+# findings, patch status — and hands it to the model with the
+# 'generate_runbook' system prompt. No new agent-side discovery: we
+# work with what the heartbeat already brings in. A future Phase 2
+# can fire batch-exec discovery scripts before generation if we need
+# fuller data.
+#
+# The endpoint is sync — the request stays open for the model
+# round-trip (15-90 s typical). Same nginx fastcgi_read_timeout
+# requirement as /api/ai/chat applies.
+
+RUNBOOKS_FILE = DATA_DIR / 'runbooks.json'
+
+
+def _build_runbook_snapshot(dev_id, devices):
+    """Assemble the structured snapshot we send to the model.
+
+    Returns a dict that gets JSON-stringified into the user message.
+    Compact-ish — bounded to avoid blowing the context budget when
+    a device has years of accumulated journal entries.
+
+    `devices` may be either a dict (id → device record, the canonical
+    shape) or a list of records. Handle both.
+    """
+    if isinstance(devices, dict):
+        dev = devices.get(dev_id)
+    else:
+        dev = next((d for d in (devices or [])
+                    if isinstance(d, dict) and d.get('id') == dev_id), None)
+    if not dev:
+        return None
+
+    # v2.1.9: bound the snapshot total to ~8 KB / 2K tokens. The
+    # v2.1.7-2.1.8 version was 20-25 KB at the high end — fine for a
+    # 32K-context cloud model, fatal for an Ollama 14B-coder default
+    # whose context cap of 2048-4096 tokens silently truncated mid-data
+    # and left the model with garbage to invent around. The hard caps
+    # below are the result of trial; if you're sending to a real
+    # frontier model that wants more data, it can have it via direct
+    # AI chat (which uses larger budgets), not the runbook generator.
+
+    # Sysinfo: keep but trim to essentials. Full sysinfo can have
+    # ~3-5 KB of nested data; we only need the operator-relevant bits.
+    si_full = dev.get('sysinfo') or {}
+    si = {}
+    for k in ('uptime', 'platform', 'kernel', 'hostname', 'load',
+              'cpu_percent', 'memory', 'disks', 'os_pretty'):
+        if k in si_full:
+            si[k] = si_full[k]
+    # disks can be a list with many entries — keep top 5 by usage
+    if isinstance(si.get('disks'), list):
+        si['disks'] = sorted(
+            si['disks'],
+            key=lambda d: d.get('percent', 0) if isinstance(d, dict) else 0,
+            reverse=True,
+        )[:5]
+
+    # Journal: 20 most recent lines (was 40)
+    journal = (dev.get('journal') or [])[-20:]
+    services = dev.get('services_watched_state') or dev.get('services') or []
+    # Containers: 10 max, just the fields a runbook actually uses
+    containers = (dev.get('containers') or [])[:10]
+    last_seen = dev.get('last_seen')
+
+    # Recent command output — last 5 (was 15), output capped to 200 chars
+    try:
+        out = load(CMD_OUTPUT_FILE).get(dev_id) or {}
+        recent_cmds = (out.get('outputs') or [])[-5:]
+    except Exception:
+        recent_cmds = []
+    recent_cmds = [{
+        'ts':     c.get('ts'),
+        'cmd':    (c.get('cmd') or '')[:120],
+        'rc':     c.get('rc'),
+        'output': (c.get('output') or '')[:200],
+    } for c in recent_cmds]
+
+    # CVE findings: top 10 (was 20), summary capped to 100 chars (was 200)
+    try:
+        cve = load(CVE_FINDINGS_FILE).get(dev_id) or {}
+        cve_findings = (cve.get('findings') or [])[:10]
+    except Exception:
+        cve_findings = []
+    cve_findings = [{
+        'id':       f.get('vuln_id'),
+        'severity': f.get('severity'),
+        'pkg':      f.get('package'),
+        'fixed':    f.get('fixed_version'),
+        'summary':  (f.get('summary') or '')[:100],
+    } for f in cve_findings if not f.get('ignored')]
+
+    # Patch status — inline in the device dict.
+    patches = {
+        'patch_status': dev.get('patch_status'),
+        'upgradable':   dev.get('upgradable'),
+        'last_check':   dev.get('last_patch_check'),
+    }
+
+    return {
+        'name':           dev.get('name'),
+        'os':             dev.get('os'),
+        'pkg_manager':    dev.get('pkg_manager'),
+        'agent_version':  dev.get('version'),
+        'last_seen':      last_seen,
+        'group':          dev.get('group'),
+        'tags':           dev.get('tags') or [],
+        # Notes capped at 500 (was 1000) — runbooks aren't biographies
+        'notes':          (dev.get('notes') or '')[:500],
+        'ip':             dev.get('ip'),
+        'mac':            dev.get('mac'),
+        'sysinfo':        si,
+        'services':       services,
+        'containers':     [{
+            'name':    c.get('name'),
+            'image':   c.get('image'),
+            'state':   c.get('state'),
+        } for c in containers],
+        'recent_commands': recent_cmds,
+        'recent_journal':  journal,
+        'cve_findings':   cve_findings,
+        'patch_status':   patches,
+    }
+
+
+def handle_runbook_get(dev_id):
+    """Return the stored runbook for a device (if any)."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    runbooks = load(RUNBOOKS_FILE)
+    entry = runbooks.get(dev_id)
+    if not entry:
+        respond(200, {'exists': False})
+    respond(200, {'exists': True, **entry})
+
+
+def handle_runbook_generate(dev_id):
+    """Generate a fresh runbook for the device. Sync — model round-trip
+    happens during the request, can take 15-90 s. Saves on success."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled — enable in Settings → AI assistant'})
+
+    # Rate limit (same per-user-per-day cap as /api/ai/chat)
+    allowed, used, cap = _ai_rate_limit_check(actor, cfg)
+    if not allowed:
+        respond(429, {'error': f'Daily AI request cap reached ({used}/{cap}).'})
+
+    # Build the snapshot
+    devices = load(DEVICES_FILE)
+    snapshot = _build_runbook_snapshot(dev_id, devices)
+    if not snapshot:
+        respond(404, {'error': 'Device not found'})
+
+    # Prepend project + fleet context if the operator has it enabled.
+    # Runbook quality benefits a lot from fleet awareness ("this is
+    # one of N webservers" rather than "this is a Linux box").
+    base_system = ai_provider.SYSTEM_PROMPTS['generate_runbook']
+    ctx_opts = cfg.get('context') or {}
+    fleet = list(devices.values()) if isinstance(devices, dict) else (devices or [])
+    system_prompt = ai_context.build_combined_system_prompt(
+        base_system,
+        devices=fleet,
+        include_project=bool(ctx_opts.get('include_project_context', True)),
+        include_fleet=bool(ctx_opts.get('include_fleet_context', True)),
+        now=int(time.time()),
+        ttl=get_online_ttl(),
+    )
+
+    # v2.1.9: dump snapshot as compact JSON (no indent — wastes tokens)
+    # and cap at 12 KB. The snapshot is already trimmed to ~8 KB by
+    # _build_runbook_snapshot; the cap here is belt-and-braces in case
+    # an unusual device has extra-large sysinfo fields we didn't trim.
+    user_msg = (
+        f"Generate a runbook for device '{snapshot['name']}'. "
+        f"Use only the fields present in the snapshot below — do not "
+        f"infer or invent.\n\n"
+        f"```json\n{json.dumps(snapshot, default=str)[:12000]}\n```"
+    )
+
+    t0 = time.monotonic()
+    result = ai_provider.chat(
+        cfg,
+        messages=[{'role': 'user', 'content': user_msg}],
+        system=system_prompt,
+        max_tokens=4000,
+    )
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+
+    audit_log(actor, 'runbook_generate',
+              detail=f"device={dev_id} ok={result.get('ok')} "
+                     f"tokens_in={result.get('tokens_in', 0)} "
+                     f"tokens_out={result.get('tokens_out', 0)} "
+                     f"elapsed_ms={elapsed_ms}")
+    if not result.get('ok'):
+        respond(502, {'error': result.get('error', 'AI provider error')})
+
+    # Save under the device ID
+    entry = {
+        'content':       result['text'],
+        'generated_at':  int(time.time()),
+        'generated_by':  actor,
+        'model':         result.get('model'),
+        'tokens_in':     result.get('tokens_in', 0),
+        'tokens_out':    result.get('tokens_out', 0),
+        'elapsed_ms':    elapsed_ms,
+    }
+    with _locked_update(RUNBOOKS_FILE) as runbooks:
+        runbooks[dev_id] = entry
+    respond(200, {'ok': True, 'exists': True, **entry})
+
+
+def handle_runbook_delete(dev_id):
+    """Remove the stored runbook for a device. Idempotent."""
+    actor = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    existed = False
+    with _locked_update(RUNBOOKS_FILE) as runbooks:
+        if dev_id in runbooks:
+            del runbooks[dev_id]
+            existed = True
+    audit_log(actor, 'runbook_delete', detail=f"device={dev_id} existed={existed}")
+    respond(200, {'ok': True, 'deleted': existed})
 
 
 def handle_export():
@@ -9850,6 +10138,13 @@ def main():
     elif pi == '/api/ai/test'   and m == 'POST': handle_ai_test()
     elif pi == '/api/ai/models' and m == 'GET':  handle_ai_models()
     elif pi == '/api/ai/stats'  and m == 'GET':  handle_ai_stats()
+    # v2.1.7: per-device AI-generated runbooks
+    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
+        handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/runbook/generate') and m == 'POST':
+        handle_runbook_generate(pi[len('/api/devices/'):-len('/runbook/generate')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'DELETE':
+        handle_runbook_delete(pi[len('/api/devices/'):-len('/runbook')])
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':

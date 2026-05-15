@@ -29,7 +29,7 @@ DIST_DIR  := dist
 
 help:
 	@echo "RemotePower dev targets"
-	@echo "  make test        - run the full unit-test suite (711+ tests)"
+	@echo "  make test        - run the full unit-test suite (754+ tests)"
 	@echo "  make format      - black + isort over the lint baseline"
 	@echo "  make lint        - format-check + isort-check + mypy"
 	@echo "  make typecheck   - mypy only"
