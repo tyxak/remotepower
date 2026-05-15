@@ -259,6 +259,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
             'command_queued', 'command_executed',
+            # v2.2.0: configuration drift detection
+            'drift_detected',
         }
         self.assertEqual(names, expected)
 

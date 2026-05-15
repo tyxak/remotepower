@@ -60,9 +60,14 @@
   </div>
   <header>
     <div class="header-inner">
-      <!-- v2.0: clickable logo navigates to Devices (home). Uses the
-           square variant which is more compact for the header bar. -->
-      <a href="#" class="logo logo-link" onclick="showPage('devices', document.querySelector('.nav-btn[onclick*=devices]')); return false;" title="Home — Devices">
+      <!-- v2.2.1: mobile burger menu — only visible <720px; toggles
+           the slide-in sidebar. Desktop hides it via CSS. -->
+      <button class="mobile-burger" onclick="toggleMobileNav()" title="Open navigation menu" aria-label="Open navigation menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <!-- v2.2.1: clickable logo navigates to Home dashboard (was Devices
+           pre-2.2.1). The Home page is the new fleet-at-a-glance landing. -->
+      <a href="#" class="logo logo-link" onclick="showPage('home', document.querySelector('.nav-btn[onclick*=home]')); return false;" title="Home dashboard">
         <img src="static/img/logo-square.png" alt="RemotePower" class="logo-img">
         <span class="logo-text">Remote<span>Power</span></span>
       </a>
@@ -79,7 +84,13 @@
 
   <nav class="sidebar">
     <div class="sidebar-label"><span>Main</span></div>
-    <button class="nav-btn active" onclick="showPage('devices',this)">
+    <!-- v2.2.1: Home dashboard — fleet-at-a-glance summary. New default
+         landing page; Devices still reachable just below. -->
+    <button class="nav-btn active" onclick="showPage('home',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('devices',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       <span>Devices</span>
     </button>
@@ -130,6 +141,11 @@
         <button class="nav-btn" onclick="showPage('logs',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
           <span>Logs</span>
+        </button>
+        <!-- v2.2.0: configuration drift detection -->
+        <button class="nav-btn" onclick="showPage('drift',this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
+          <span>Drift</span>
         </button>
       </div>
     </div>
@@ -229,8 +245,54 @@
   <main>
     <div class="container">
 
+      <!-- ── v2.2.1: Home dashboard ───────────────────────────────────────── -->
+      <div id="page-home" class="page active">
+        <div class="page-title">Fleet at a glance</div>
+        <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
+
+        <!-- Big number summary tiles -->
+        <div id="home-tiles" class="tile-grid">
+          <!-- Populated by loadHome() -->
+          <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+        </div>
+
+        <!-- Two-column: needs attention | recent activity -->
+        <div class="dash-cols">
+          <div class="dash-card">
+            <h3>Needs attention</h3>
+            <div id="home-attention">
+              <div class="skeleton skeleton-line long" style="margin-bottom:6px"></div>
+              <div class="skeleton skeleton-line med" style="margin-bottom:6px"></div>
+              <div class="skeleton skeleton-line med"></div>
+            </div>
+          </div>
+          <div class="dash-card">
+            <h3>Recent activity</h3>
+            <div id="home-activity">
+              <div class="skeleton skeleton-line long" style="margin-bottom:6px"></div>
+              <div class="skeleton skeleton-line med" style="margin-bottom:6px"></div>
+              <div class="skeleton skeleton-line short"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fleet roster with 7-day status stripe per device -->
+        <div class="dash-card">
+          <h3>Fleet roster · 7-day status</h3>
+          <div id="home-fleet" style="display:flex;flex-direction:column;gap:4px">
+            <div class="skeleton skeleton-line long"></div>
+            <div class="skeleton skeleton-line med"></div>
+            <div class="skeleton skeleton-line long"></div>
+            <div class="skeleton skeleton-line short"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Devices page ─────────────────────────────────────────────────── -->
-      <div id="page-devices" class="page active">
+      <div id="page-devices" class="page">
         <div class="page-title">Device Control</div>
         <div class="page-subtitle">Manage and remotely control enrolled devices</div>
 
@@ -359,7 +421,7 @@
                 <th></th>
               </tr>
             </thead>
-            <tbody id="device-metrics-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+            <tbody id="device-metrics-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -371,7 +433,7 @@
         <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" onclick="openUserAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
         <!-- v1.11.6: filter -->
         <div style="margin-bottom:16px"><input type="text" id="users-filter" class="form-input" placeholder="Filter by username or role…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
-        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <!-- ── Settings page (unchanged) ────────────────────────────────────── -->
@@ -785,7 +847,7 @@
         <div class="section-header"><div class="section-title">Recent commands</div><div style="display:flex;gap:8px"><button class="btn-icon" onclick="loadHistory()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearHistory()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
         <!-- v1.11.5: filter + sortable headers via tableCtl -->
         <div style="margin-bottom:16px"><input type="text" id="history-filter" class="form-input" placeholder="Filter by actor, device, or command…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
-        <div class="table-card"><table><thead id="history-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="device_name">Device</th><th data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead id="history-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="device_name">Device</th><th data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <!-- ── Schedule page (unchanged) ────────────────────────────────────── -->
@@ -1190,6 +1252,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+          <details class="doc-card" data-keywords="drift configuration detection file integrity hash baseline sshd_config sudoers compliance soc2 iso27001 hipaa">
+            <summary><strong>Configuration drift detection</strong> — per-device file integrity monitoring (v2.2.0)</summary>
+            <div class="doc-body">
+              <p><strong>What it is:</strong> the agent computes SHA-256 hashes of a list of watched config files every few heartbeats and ships them in the heartbeat payload. The server stores baselines (first-seen hash per file per device) and fires a <code>drift_detected</code> webhook when a current hash diverges from the baseline.</p>
+              <p><strong>Hash-only by design.</strong> The contents of <code>/etc/sudoers</code>, <code>/etc/ssh/sshd_config</code>, etc. <em>never</em> cross the wire on routine polling. To see what actually changed, an operator action queues a <code>cat</code> command through the existing exec mechanism (subject to the usual audit + permission checks).</p>
+              <p><strong>Where to find it:</strong> sidebar → Security → <em>Drift</em>. Fleet-wide table shows devices sorted with drifted ones at the top; click <em>Detail</em> for per-file status, drift count, history of the last 20 changes, and the <em>Accept as baseline</em> button.</p>
+              <p><strong>Default watched list:</strong> <code>/etc/ssh/sshd_config</code>, <code>/etc/sudoers</code>, <code>/etc/fstab</code>, <code>/etc/crontab</code>, <code>/etc/hosts</code>, <code>/etc/resolv.conf</code>, <code>/etc/nsswitch.conf</code>, <code>/etc/pam.d/sshd</code>. Customisable globally (<code>cfg['drift']['default_watched_files']</code>) and per-device (<code>device.watched_files</code>).</p>
+              <p><strong>Webhook</strong>: <code>drift_detected</code> fires once per change (debounced — not on every poll that reports the same new hash). Route it to a channel you check, especially for after-hours alerts.</p>
+              <p><strong>Compliance:</strong> covers configuration management controls in SOC 2 (CC6.1, CC6.6), ISO 27001 (A.12.4.3, A.14.2.4), HIPAA (164.312(c)), PCI DSS (11.5), FedRAMP. Baseline-acceptance audit-log entries are designed to be readable as evidence.</p>
+              <p><strong>Agent version</strong>: requires <strong>v2.2.0+</strong> for the agent-side hash reporting. Older agents work normally otherwise but show "no drift data" on the Drift page.</p>
+              <p>Full reference: <a href="/docs/drift.md" style="color:var(--accent)">docs/drift.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="mcp model context protocol claude desktop cursor vscode copilot natural language fleet query stdio anthropic">
+            <summary><strong>MCP server</strong> — natural-language fleet queries from Claude Desktop, Cursor, VS Code (v2.2.0)</summary>
+            <div class="doc-body">
+              <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" style="color:var(--accent)">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for pmg01 from the last hour"</em> in plain English.</p>
+              <p><strong>Architecture:</strong> the MCP server runs on the <strong>operator's laptop</strong>, not on the RemotePower server. The AI host (Claude Desktop, Cursor, etc.) spawns it as a stdio subprocess. The MCP server makes HTTPS calls to RemotePower's REST API on behalf of the AI using an API token you provision. Credentials live in the host's config file and never reach the AI provider.</p>
+              <p><strong>Read-only, by design.</strong> 12 tools: <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>search_devices</code>. <strong>No write tools.</strong> No <code>run_command</code>, no <code>run_script</code>, no <code>reboot_device</code>. The test suite asserts no write-shaped names slipped in. Write tools land in a future release once a server-side allow-list, per-MCP-token role, and confirmation flags are in place — not before.</p>
+              <p><strong>Setup</strong> (Claude Desktop):</p>
+              <ol>
+                <li>Settings → API keys → Generate a viewer token; copy the <code>rpk_...</code> value.</li>
+                <li>Copy <code>remotepower-mcp.py</code> to your laptop (<code>scp</code> works).</li>
+                <li>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) — add an <code>mcpServers.remotepower</code> entry with the command, args, and env (URL + token).</li>
+                <li>Restart Claude Desktop. The 🔨 tool indicator should show <strong>remotepower</strong>.</li>
+              </ol>
+              <p><strong>Device-name resolution</strong>: exact → prefix → substring → ambiguity error. You can pass <code>web01</code> and the server finds <code>tviweb01.tvipper.com</code> automatically (as long as there's exactly one match).</p>
+              <p><strong>Pure stdlib Python.</strong> No pip install. Single 470-line file.</p>
+              <p>Full reference: <a href="/docs/mcp.md" style="color:var(--accent)">docs/mcp.md</a>.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="notification setup alert configure discord slack ntfy webhook">
             <summary><strong>Notification setup</strong> — getting alerts to land where you'll see them</summary>
             <div class="doc-body">
@@ -1290,7 +1385,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" onclick="openApiKeyCreate()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>
         <!-- v1.11.6: filter -->
         <div style="margin-bottom:16px"><input type="text" id="apikeys-filter" class="form-input" placeholder="Filter by name, role, or user…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
-        <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
@@ -1375,7 +1470,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
           <div id="logs-viewer" class="journal-wrap" style="max-height:500px;min-height:300px;font-size:12px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px">
-            <div style="text-align:center;color:var(--muted);padding:40px">Loading…</div>
+            <div style="padding:18px"><div class="skeleton skeleton-line long" style="margin-bottom:8px"></div><div class="skeleton skeleton-line med" style="margin-bottom:8px"></div><div class="skeleton skeleton-line short"></div></div>
           </div>
         </div>
 
@@ -1406,7 +1501,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <table>
             <thead><tr><th>Unit</th><th>Pattern</th><th style="text-align:center">Threshold</th><th>Created</th><th></th></tr></thead>
-            <tbody id="logs-rules-global-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr></tbody>
+            <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1534,7 +1629,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </tr>
             </thead>
             <tbody id="cmdb-tbody">
-              <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>
+              <tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr>
             </tbody>
           </table>
         </div>
@@ -1552,7 +1647,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table>
             <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
-            <tbody id="containers-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+            <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1573,6 +1668,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v2.2.0: configuration drift detection ────────────────────── -->
+      <div id="page-drift" class="page">
+        <div class="page-title">Configuration drift</div>
+        <div class="page-subtitle">Watched config files across the fleet. Agent hashes each file every few heartbeats; server alerts when a hash diverges from the stored baseline. Hash-only — no file content crosses the wire. <a href="docs/drift.md" style="color:var(--accent)">Documentation</a>.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <button class="btn-icon" onclick="loadDrift()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" id="drift-filter" class="form-input" placeholder="Filter by device name…" style="flex:1;min-width:200px;max-width:340px;padding:8px 12px;font-size:13px">
+          <span id="drift-summary" style="color:var(--muted);font-size:13px"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table" style="width:100%">
+            <thead><tr>
+              <th>Device</th><th>Group</th><th>Files watched</th>
+              <th>Drift</th><th>Missing</th><th>Last check</th><th></th>
+            </tr></thead>
+            <tbody id="drift-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-tls" class="page">
         <div class="page-title">TLS / DNS expiry</div>
@@ -1587,7 +1702,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card">
           <table>
             <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
-            <tbody id="tls-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+            <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1622,7 +1737,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
           <button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
         </div>
-        <div class="table-card"><table><thead id="audit-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="action">Action</th><th data-col="detail">Detail</th><th data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">Loading…</tbody></table></div>
+        <div class="table-card"><table><thead id="audit-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="action">Action</th><th data-col="detail">Detail</th><th data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <div id="page-cmdlib" class="page">
@@ -1651,7 +1766,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <th style="width:90px">Flags</th>
             <th style="width:220px"></th>
           </tr></thead>
-          <tbody id="scripts-tbody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr></tbody>
+          <tbody id="scripts-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
         </table></div>
       </div>
 

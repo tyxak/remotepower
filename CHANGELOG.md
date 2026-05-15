@@ -1,5 +1,167 @@
 # Changelog
 
+## v2.2.5 - 2026-05-15
+
+Five UX fixes from live driving of the 2.2.4 dashboard.
+
+- Container width 1100 → 1300 px.
+- Tables / grids scroll-wrap above 20 rows (sticky thead).
+- Home → Recent activity items clickable; each routes to the
+  relevant page or modal for its event class.
+- Favicon publishing fixed in `deploy-server.sh` (root favicon.png
+  was being 404'd because the deploy loop only matched *.html).
+- Hover-revealed Detail / Logs / Run strip removed entirely — the
+  row dropdown chevron covers it.
+
+### Tests
+
+- `test_v225.py`: 14 new tests; obsoleted v2.2.2 hover assertions
+  inverted to historical records.
+- Total: **865 tests, all passing.**
+
+## v2.2.4 - 2026-05-15
+
+Two real-world fixes from live testing of the Home dashboard.
+
+### Fixed
+
+- **Fleet events panel empty even after device_offline fired.**
+  Webhook log was delivery-only — events with no configured
+  destination vanished. Added `data/fleet_events.json` always-on
+  log + `GET /api/fleet/events` endpoint. Home dashboard reads
+  from it. `test` events excluded; payload summarised.
+- **Unmonitored devices showed in "Needs attention".** Now
+  filtered out, including the drift cross-reference.
+
+### Tests
+
+- `test_v224.py`: 16 new tests.
+- Total: **851 tests, all passing.**
+
+## v2.2.3 - 2026-05-15
+
+Hotfix: Home dashboard activity panel filters out operator
+SMTP / webhook tests so real fleet events aren't drowned in
+noise. JS `FLEET_EVENTS` allowlist mirrors server's
+`WEBHOOK_EVENTS` tuple; contract test enforces parity.
+
+### Tests
+
+- `test_v223.py`: 3 new tests (activity-filter contract).
+- Total: **835 tests, all passing.**
+
+## v2.2.2 - 2026-05-15
+
+Hotfix for three issues found in the first browser run of 2.2.1.
+
+### Fixed
+
+- Hover-action focus ring clipped on the right edge — strip moved
+  to the first cell, `right: 24px`, `z-index: 2`, focus outline
+  suppressed.
+- Home dashboard activity panel hit a 404 — wrong endpoint path
+  (`/webhook-log` → `/webhook/log`); renderer adjusted to handle
+  the flat-list response shape.
+- `handle_webhook_log` 500 on bare-list `webhook_log.json` —
+  pre-existing bug — handler now tolerates both list and dict
+  on-disk shapes.
+
+### Tests
+
+- `test_v222.py`: 8 new tests.
+- Total: **832 tests, all passing.**
+
+## v2.2.1 - 2026-05-15
+
+Design polish release. Ten polish improvements + drift diff
+visualisation that completes the v2.2.0 drift detection story.
+
+### Added — Design polish
+
+- **Distro logos** next to device names (Ubuntu, Debian, Arch,
+  CachyOS, Fedora, RHEL family, SUSE, Alpine, NixOS, Raspbian,
+  FreeBSD, generic Linux). Inline branded SVGs, no external requests.
+- **Sparkline mini-charts** on device cards next to disk / memory
+  percentages. Auto-coloured (green / amber / red).
+- **Refined status palette** with soft + edge variants for green,
+  amber, red, accent. New `.status-pill` component. Pulse on
+  critical only. `prefers-reduced-motion` respected.
+- **Skeleton loaders** replace "Loading…" spinners across 17 sites.
+- **Home dashboard** as the new default landing page — four tiles,
+  needs-attention panel, recent-activity feed, fleet roster with
+  7-day status stripe.
+- **✨ identity extended** — provider-tinted glow on AI buttons,
+  three-sparkle thinking state, gradient left edge on AI-generated
+  content, MutationObserver auto-applies styling.
+- **Typography upgrade** — Inter (UI) + JetBrains Mono (technical
+  identifiers) via bunny.net (privacy-friendly Google Fonts mirror,
+  GDPR-friendly). System font fallback for air-gapped deployments.
+- **Per-row hover affordances** — `Detail · Logs · Run` strip
+  revealed on row hover in the minimal devices table.
+- **Mobile layout** (<720 px) — sidebar behind burger, tile grid
+  stacks, columns hidden, tap targets ≥36 px.
+- **Logo → Home** navigation (was: Devices).
+
+### Added — Drift diff visualisation
+
+- New endpoints `POST /api/devices/<id>/drift/fetch_content` and
+  `GET /api/devices/<id>/drift/content?path=...`.
+- New mirror hook in heartbeat output-ingest path stores
+  `exec:cat <watched_path>` outputs in `drift_contents.json`.
+- `DRIFT_CONTENT_DENYLIST` blocks `/etc/shadow`, `/etc/gshadow`,
+  and rotated `-` siblings regardless of operator role.
+- New "Show diff" UI on each drifted file. Pure-JS LCS-based diff
+  rendered with hunked syntax colouring.
+- Storage: last 2 captures per path, ≤256 KB each.
+
+### Tests
+
+- `test_v221.py`: 46 new tests (drift content backend + design
+  polish asset presence).
+- Pre-existing tests updated for new dynamic modal IDs.
+- Total: **824 tests, all passing.**
+
+## v2.2.0 - 2026-05-15
+
+First minor-version bump since 2.1.0. Two new feature surfaces.
+
+### Added — Configuration drift detection
+
+- New **Drift** page (Security sidebar group). Per-device file
+  integrity monitoring for SSH config, sudoers, fstab, crontab,
+  hosts, resolv.conf, nsswitch.conf, PAM sshd (configurable
+  list).
+- Agent computes SHA-256 hashes every few heartbeats; server
+  stores baselines and fires `drift_detected` webhook on
+  divergence. **Hash-only payload** — no file content crosses
+  the wire on routine polling.
+- Per-device modal with history viewer + "accept as baseline"
+  button. Baseline acceptances audit-logged.
+- New endpoints: `GET /api/drift`, `GET / POST-baseline / DELETE
+  /api/devices/<id>/drift`.
+- **Agent v2.2.0+ required** for the agent-side hash reporting.
+- Full reference: [docs/drift.md](docs/drift.md).
+
+### Added — MCP server (natural-language fleet queries)
+
+- New `mcp/remotepower-mcp.py` (pure stdlib Python). Implements
+  the [Model Context Protocol](https://modelcontextprotocol.io)
+  so Claude Desktop / Cursor / VS Code Copilot can query the
+  fleet through natural English.
+- Runs on the operator's laptop (stdio subprocess); 12 read-only
+  tools wrap RemotePower's REST API.
+- **No write tools**, by deliberate design; test suite enforces.
+- Setup + security model + troubleshooting:
+  [docs/mcp.md](docs/mcp.md).
+
+### Tests
+
+- `test_v220.py`: 24 new tests (drift ingest, drift endpoints,
+  MCP protocol, MCP device resolution).
+- Pre-existing tests updated for the new webhook event and dynamic
+  modal IDs.
+- Total: **778 tests, all passing.**
+
 ## v2.1.9 - 2026-05-15
 
 Same-day hotfix for the runbook hallucination on smaller local

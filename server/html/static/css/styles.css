@@ -1,3 +1,15 @@
+/* v2.2.1: privacy-friendly font load via bunny.net (a Google Fonts mirror
+ * with no tracking, no cookies, GDPR-friendly). Falls back gracefully if
+ * the host can't reach bunny.net — system font stack picks up the slack.
+ *
+ * Inter: UI font, modern sans designed for screens. Stylistic alternates
+ *        cv02/cv03/cv04/cv11 already enabled in body for the better "1",
+ *        "a", "g" glyphs.
+ * JetBrains Mono: monospaced font for technical identifiers (device IDs,
+ *        hashes, paths, command output, code).
+ */
+@import url('https://fonts.bunny.net/css?family=inter:400,500,600,700|jetbrains-mono:400,500,600&display=swap');
+
   :root {
     --bg: #0a0c10;
     --surface: #111520;
@@ -229,7 +241,12 @@
     z-index: 0;
   }
   .container {
-    max-width: 1100px;
+    /* v2.2.5: 1100 → 1300. The dashboard's data-density grew with the
+     * minimal devices table + Home tile grid + drift fleet table; 1100
+     * forced too much horizontal cramping on standard 1920-wide
+     * monitors. 1300 fits 4 dashboard tiles comfortably and still
+     * leaves margin on FHD. */
+    max-width: 1300px;
     margin: 0 auto;
     padding: 0 24px;
     position: relative;
@@ -1380,3 +1397,655 @@
     font-size: 10px; font-family: monospace;
   }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.1 — Design polish release
+ *
+ * Adds:
+ *   - Refined status colour palette + critical-state pulse
+ *   - Skeleton loaders (replaces centered spinners on initial load)
+ *   - Sparkline mini-chart styling
+ *   - Distro logo styling
+ *   - Per-row hover action strip
+ *   - ✨ identity extensions (AI button glow, thinking sparkles)
+ *   - Typography: improved system font stack with font-feature-settings
+ *   - Index dashboard tile styling
+ *   - Drift diff renderer
+ *
+ * All additions respect prefers-reduced-motion. All colours fall back to
+ * existing --green/--red/--amber when refined variants aren't used yet.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Refined status palette — softer shades for backgrounds, sharper for
+   * indicator dots. Existing --green/--amber/--red are kept verbatim so
+   * unchanged code keeps working. */
+  --green-soft:  rgba(34, 197, 94, 0.12);
+  --green-edge:  rgba(34, 197, 94, 0.35);
+  --amber-soft:  rgba(245, 158, 11, 0.12);
+  --amber-edge:  rgba(245, 158, 11, 0.35);
+  --red-soft:    rgba(239, 68, 68, 0.13);
+  --red-edge:    rgba(239, 68, 68, 0.40);
+  --accent-soft: rgba(59, 126, 255, 0.10);
+  --accent-edge: rgba(59, 126, 255, 0.30);
+
+  /* Mono font for technical identifiers (device IDs, hashes, paths, code).
+   * Uses a thoughtful system-mono stack; first match wins. JetBrains Mono
+   * and Fira Code are common installs on dev laptops; ui-monospace is
+   * Apple's modern system mono. */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace,
+               'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+body.light {
+  --green-soft:  rgba(34, 197, 94, 0.10);
+  --green-edge:  rgba(34, 197, 94, 0.30);
+  --amber-soft:  rgba(245, 158, 11, 0.10);
+  --amber-edge:  rgba(245, 158, 11, 0.30);
+  --red-soft:    rgba(239, 68, 68, 0.10);
+  --red-edge:    rgba(239, 68, 68, 0.30);
+  --accent-soft: rgba(59, 126, 255, 0.08);
+  --accent-edge: rgba(59, 126, 255, 0.25);
+}
+
+/* Better typography on the existing stack. Inter ships with stylistic
+ * alternates that fix the awkward default "1", straight-sided "a", etc.
+ * cv02/cv03/cv04/cv11 enable those; harmless on systems without Inter. */
+body {
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Apply mono font to anywhere code/hash/path-like content lives.
+ * Existing inline style="font-family:monospace" still works; this is
+ * an enhancement for consistency. */
+code, pre, .mono, [data-mono], kbd,
+.audit-log td:nth-child(4),
+.cmd-output, .journal-wrap,
+input.form-input[type="text"][data-token],
+.device-id, .cve-id, .file-path, .hash-display {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;  /* turn off mono ligatures */
+}
+
+/* ─── Status pulse: critical-only ──────────────────────────────────────
+ * Subtle pulsing dot for critical states. Deliberately NOT applied to
+ * warning states — at 9 devices + 17 monitors + 30 services, a single
+ * page can have dozens of yellow dots and pulsing them all would be
+ * a visual disaster. */
+@keyframes rp-pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 var(--red-edge); }
+  50%      { box-shadow: 0 0 0 6px transparent; }
+}
+.status-critical, .status-dot.critical {
+  animation: rp-pulse-critical 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-critical, .status-dot.critical { animation: none; }
+}
+
+/* Pill-shaped status badges. Use the soft+edge palette. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.status-pill.ok       { background: var(--green-soft); color: var(--green);  border: 1px solid var(--green-edge); }
+.status-pill.warn     { background: var(--amber-soft); color: var(--amber);  border: 1px solid var(--amber-edge); }
+.status-pill.critical { background: var(--red-soft);   color: var(--red);    border: 1px solid var(--red-edge); }
+.status-pill.neutral  { background: var(--surface2);   color: var(--muted);  border: 1px solid var(--border); }
+.status-pill.info     { background: var(--accent-soft);color: var(--accent); border: 1px solid var(--accent-edge); }
+.status-pill::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ─── Skeleton loaders ─────────────────────────────────────────────────
+ * Show the shape of incoming content rather than a centred spinner. The
+ * shimmer is the visual cue that data is loading. */
+@keyframes rp-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--surface2)  25%,
+    var(--border)    50%,
+    var(--surface2)  75%);
+  background-size: 800px 100%;
+  animation: rp-shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+  display: inline-block;
+}
+.skeleton-line   { height: 12px; width: 100%; margin: 4px 0; }
+.skeleton-line.short { width: 40%; }
+.skeleton-line.med   { width: 65%; }
+.skeleton-line.long  { width: 90%; }
+.skeleton-circle { width: 14px; height: 14px; border-radius: 50%; vertical-align: middle; }
+.skeleton-row td  { padding: 12px 10px; }
+.skeleton-card   { padding: 18px; border: 1px solid var(--border);
+                   border-radius: 8px; background: var(--surface); }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--surface2); }
+}
+
+/* ─── Sparkline mini-charts ────────────────────────────────────────────
+ * 60×16 inline SVG; the path/dot colours are set per-element via
+ * stroke/fill so the same sparkline component can show green/amber/red
+ * trends. */
+.sparkline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+.sparkline:hover { opacity: 1; }
+.sparkline path { fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.sparkline .area { stroke: none; opacity: 0.18; }
+.sparkline .dot  { stroke: none; }
+
+/* ─── Distro logos ─────────────────────────────────────────────────────
+ * 14×14 inline SVG next to device names. The fill colours are picked
+ * to match each distro's brand mark — Ubuntu orange, Debian red,
+ * Arch blue, etc. */
+.distro-icon {
+  display: inline-block;
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+/* ─── Per-row hover affordances (REMOVED in v2.2.5) ────────────────────
+ * The hover-revealed action strip introduced in 2.2.1 turned out to
+ * be persistently fiddly: focus-ring clipping in 2.2.1, the move to
+ * the first cell in 2.2.2 that fixed THAT but still felt clunky in
+ * placement. The row dropdown chevron in the actions cell already
+ * exposes Detail / Logs / Run and is keyboard-friendly. Row click on
+ * the device name → openDetail covers the most common action.
+ *
+ * CSS classes kept defined as no-ops so any HTML still tagged with
+ * `has-hover-actions` doesn't break — but no visible affordance is
+ * shown. The `openLogsForDevice` helper is also kept for potential
+ * future use. */
+tr.has-hover-actions { position: relative; }
+tr.has-hover-actions .row-actions { display: none; }
+
+/* ─── ✨ identity extension ─────────────────────────────────────────────
+ * The sparkle button gets a subtle animated glow when AI is reachable.
+ * The .ai-thinking state replaces the spinner with three sparkles cycling
+ * in opacity. AI-generated content gets a thin gradient accent on its
+ * left edge so the operator can see at a glance what came from the model
+ * vs what came from their data. */
+.ai-btn {
+  position: relative;
+  transition: all 0.15s ease;
+}
+.ai-btn.available::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: radial-gradient(circle at center,
+    rgba(59, 126, 255, 0.18) 0%,
+    transparent 65%);
+  opacity: 0;
+  animation: rp-ai-glow 3.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+.ai-btn.local::after {
+  /* Local Ollama-style glow — amber tint instead of accent blue */
+  background: radial-gradient(circle at center,
+    rgba(245, 158, 11, 0.16) 0%,
+    transparent 65%);
+}
+@keyframes rp-ai-glow {
+  0%, 100% { opacity: 0;   transform: scale(0.95); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-btn::after { animation: none; opacity: 0.4; }
+}
+
+/* Three-sparkle thinking indicator */
+.ai-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font-size: 14px;
+}
+.ai-thinking .sparkle {
+  display: inline-block;
+  animation: rp-sparkle-cycle 1.6s ease-in-out infinite;
+}
+.ai-thinking .sparkle:nth-child(2) { animation-delay: 0.4s; }
+.ai-thinking .sparkle:nth-child(3) { animation-delay: 0.8s; }
+@keyframes rp-sparkle-cycle {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-thinking .sparkle { animation: none; opacity: 0.85; }
+}
+
+/* AI-generated content marker: thin gradient on left edge */
+.ai-content {
+  position: relative;
+  padding-left: 14px;
+}
+.ai-content::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), transparent);
+}
+
+/* ─── Index dashboard tiles ────────────────────────────────────────────
+ * Big-number summary tiles for the home page. Hover lifts subtly. */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  position: relative;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  overflow: hidden;
+}
+.tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-edge);
+}
+.tile-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.tile-value {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  font-feature-settings: 'tnum' 1;   /* tabular numerals: aligned digits */
+}
+.tile-subtle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.tile.alert {
+  border-color: var(--red-edge);
+  background: linear-gradient(135deg, var(--surface), var(--red-soft));
+}
+.tile.alert .tile-value { color: var(--red); }
+.tile.warn {
+  border-color: var(--amber-edge);
+  background: linear-gradient(135deg, var(--surface), var(--amber-soft));
+}
+.tile.warn .tile-value { color: var(--amber); }
+.tile.ok {
+  border-color: var(--green-edge);
+}
+.tile.ok .tile-value { color: var(--green); }
+
+/* Two-column dashboard layout for activity + attention */
+.dash-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+@media (max-width: 900px) {
+  .dash-cols { grid-template-columns: 1fr; }
+}
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.dash-card h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+.dash-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.dash-feed-item:last-child { border-bottom: none; }
+.dash-feed-item .ts {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* ─── Status stripe (7-day uptime visualisation per device) ────────────
+ * Compact horizontal cells coloured by historical online state. Hover
+ * shows the timestamp for that cell. */
+.status-stripe {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+.status-stripe .cell {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--border);
+  cursor: help;
+  transition: transform 0.1s ease;
+}
+.status-stripe .cell:hover { transform: scaleY(1.15); }
+.status-stripe .cell.up      { background: var(--green); }
+.status-stripe .cell.partial { background: var(--amber); }
+.status-stripe .cell.down    { background: var(--red); }
+.status-stripe .cell.unknown { background: var(--border); }
+
+/* ─── Drift diff renderer ──────────────────────────────────────────────
+ * Unified diff view with syntax-style colouring. Used in the drift
+ * detail modal when the operator clicks "Show diff" on a drifted file. */
+.diff-view {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0;
+  overflow-x: auto;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.diff-view .diff-line {
+  display: flex;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-view .diff-line.add {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.diff-view .diff-line.del {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.diff-view .diff-line.hunk {
+  background: var(--surface2);
+  color: var(--muted);
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0;
+}
+.diff-view .ln {
+  display: inline-block;
+  width: 40px;
+  text-align: right;
+  padding-right: 12px;
+  color: var(--muted);
+  user-select: none;
+  flex-shrink: 0;
+}
+.diff-view .marker {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Compact empty-state styling with a primary action */
+.empty-state {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state-icon {
+  font-size: 28px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+.empty-state-title {
+  font-size: 15px;
+  color: var(--text);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.empty-state-body {
+  font-size: 13px;
+  margin-bottom: 16px;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.55;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.1 — Mobile / narrow-viewport polish
+ *
+ * Tightens the dashboard for phone-sized screens (carrying the fleet in
+ * your pocket during on-call). The desktop layout uses a fixed sidebar +
+ * data-dense tables — both fail badly on mobile. This block:
+ *
+ *   - Collapses the sidebar to a top bar with a hamburger toggle
+ *   - Stacks dashboard tiles vertically
+ *   - Hides density-y columns (Hostname, Version, Group) on phones
+ *   - Bumps tap targets to ≥36px
+ *   - Disables the hover-action strip (no hover on touch; uses tap-on-row
+ *     instead)
+ *   - Keeps the status pulse + sparklines + distro logos working
+ *
+ * Breakpoint: 720px. Below that we go full mobile; tablet sizes are
+ * mostly fine on the desktop layout with the existing responsive bits.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 720px) {
+  /* Hide sidebar by default; reveal via the burger button */
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    bottom: 0;
+    width: 240px;
+    z-index: 80;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+  }
+  body.mobile-nav-open .sidebar { transform: translateX(0); }
+  body.mobile-nav-open::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 79;
+  }
+
+  /* Show the burger button — hidden on desktop */
+  .mobile-burger {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-right: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  /* Main content slides to the left edge */
+  main {
+    margin-left: 0 !important;
+    padding: 12px !important;
+  }
+  .container { padding: 0 !important; }
+
+  /* Header gets compact */
+  header { padding: 0 10px !important; }
+  .header-inner { gap: 6px !important; }
+  .logo-text { display: none; }  /* keep just the square logo */
+  .status-bar { display: none; } /* "Live" indicator hidden on mobile */
+
+  /* Dashboard tile grid: stack to one column */
+  .tile-grid { grid-template-columns: 1fr !important; gap: 10px; }
+  .tile { padding: 14px 16px; }
+  .tile-value { font-size: 26px; }
+
+  /* Two-col dashboard layout → stack */
+  .dash-cols { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Hide hover affordances entirely — no hover on touch */
+  tr.has-hover-actions .row-actions { display: none; }
+
+  /* Devices minimal table: hide low-priority columns */
+  .devices-minimal-table .dev-host-cell,
+  .devices-minimal-table .dev-group-cell,
+  .devices-minimal-table .dev-version-cell {
+    display: none;
+  }
+  .devices-minimal-table th[data-col="hostname"],
+  .devices-minimal-table th[data-col="group"],
+  .devices-minimal-table th[data-col="version"] {
+    display: none;
+  }
+  .devices-minimal-table .dev-name-cell { width: auto !important; }
+
+  /* Drift / TLS / CVE tables: reduce padding, allow horizontal scroll */
+  .data-table { font-size: 12px; }
+  .data-table th, .data-table td { padding: 6px 4px !important; }
+  .table-card { overflow-x: auto; }
+
+  /* Device cards in non-minimal density: 1 per row */
+  .device-card { width: 100% !important; margin-bottom: 10px; }
+  .device-meta { grid-template-columns: 1fr 1fr; }
+
+  /* Modal: nearly full-screen on mobile */
+  .modal { width: 96vw !important; max-width: none !important; }
+  .modal-overlay { padding: 6px !important; }
+
+  /* Bigger tap targets */
+  .btn-icon, .nav-btn, button {
+    min-height: 36px;
+  }
+  .row-actions button { min-height: 0; }  /* hidden anyway */
+
+  /* Sidebar group items: more vertical space */
+  .nav-btn { padding: 10px 12px; }
+}
+
+/* Hide burger on desktop */
+.mobile-burger { display: none; }
+
+/* Small additional polish for in-between sizes */
+@media (min-width: 721px) and (max-width: 980px) {
+  .tile-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── v2.2.5: capped-height tables with internal scroll ─────────────────
+ *
+ * When a table has >20 rows, switch to a fixed-height container with
+ * internal scrolling rather than letting the page grow to several
+ * thousand pixels. The thead becomes sticky so column headers stay
+ * pinned while you scroll. ~20 rows at the existing 32px row height
+ * works out to roughly 720px including the header.
+ *
+ * Applied to the `.scrollable-table-wrap` class on the wrapper div.
+ * JS adds this class only when the table row count exceeds the
+ * threshold — so small tables still render full-height as before.
+ */
+.scrollable-table-wrap {
+  max-height: 720px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* The thead inside this wrap gets sticky top:0 — backgrounds need
+   * to be opaque so rows scrolling underneath don't show through. */
+}
+.scrollable-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  /* The default thead-row border-bottom now needs to also be a
+   * box-shadow because position:sticky removes it from layout flow. */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* Custom scrollbar tuned to the dark theme — chunkier than the OS
+ * default so it's findable on a long table without being intrusive. */
+.scrollable-table-wrap::-webkit-scrollbar { width: 10px; }
+.scrollable-table-wrap::-webkit-scrollbar-track {
+  background: var(--surface);
+  border-radius: 0 6px 6px 0;
+}
+.scrollable-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--surface);
+}
+.scrollable-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* v2.2.5: card-grid scroll wrap (companion to .scrollable-table-wrap).
+ * Same threshold logic in JS — only applied when device count > 20. */
+.scrollable-grid-wrap {
+  max-height: 76vh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.scrollable-grid-wrap::-webkit-scrollbar { width: 10px; }
+.scrollable-grid-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollable-grid-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+.scrollable-grid-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}

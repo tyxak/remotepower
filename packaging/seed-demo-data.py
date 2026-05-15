@@ -126,7 +126,7 @@ def build_devices() -> dict:
             'connected_to': dev.get('connected_to', []),
             'monitored':   True,
             'poll_interval': 60,
-            'version':     '2.1.9' if not dev['agentless'] else None,
+            'version':     '2.2.0' if not dev['agentless'] else None,
             'hostname':    dev['name'],
         }
         if not dev['agentless']:
@@ -180,7 +180,7 @@ def build_devices() -> dict:
             # Add a few common services
             rec['services'] = build_device_services(dev, rng)
 
-            # v2.1.9+: compose_projects for demo realism. Only devices that
+            # v2.2.0+: compose_projects for demo realism. Only devices that
             # have docker in their tags (media, web, proxy, git, cloud,
             # metrics, monitoring) get any; the rest report none. Project
             # names + paths mirror the kind of layout a homelab actually
@@ -535,7 +535,7 @@ def build_history() -> list:
         {'ts': now() - 86400 * 2, 'actor': 'demo', 'device': 'tnas',   'action': 'exec',             'detail': 'zpool scrub tank'},
         {'ts': now() - 86400 * 3, 'actor': 'demo', 'device': 'pi1',    'action': 'reboot',           'detail': 'manual'},
         {'ts': now() - 86400 * 5, 'actor': 'demo', 'device': 'pmx01',  'action': 'upgrade',          'detail': 'apt-get upgrade — 7 packages'},
-        {'ts': now() - 86400 * 7, 'actor': 'demo', 'device': 'all',    'action': 'agent_update',     'detail': 'fleet-wide agent update to v2.1.9'},
+        {'ts': now() - 86400 * 7, 'actor': 'demo', 'device': 'all',    'action': 'agent_update',     'detail': 'fleet-wide agent update to v2.2.0'},
     ]
 
 
@@ -570,7 +570,7 @@ def build_tls_results() -> dict:
 
 
 def build_scripts() -> dict:
-    """v2.1.9 Script Library demo content. Five realistic operations
+    """v2.2.0 Script Library demo content. Five realistic operations
     runbooks, one of them deliberately flagged dangerous so the UI's
     `⚠ DANGER` badge is visible in the demo."""
     base_ts = now() - 86400 * 14
@@ -731,8 +731,8 @@ def build_config() -> dict:
     """Server config — webhook list, server name, etc."""
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '2.1.9',
-        'agent_version':     '2.1.9',
+        'server_version':    '2.2.0',
+        'agent_version':     '2.2.0',
         'remember_me_default': True,
         'webhooks': [
             {'id': 'wh1', 'url': 'https://example.com/webhook', 'label': 'Demo webhook (no real endpoint)',
@@ -780,7 +780,7 @@ BUILDERS = {
     'tls_results.json':      build_tls_results,
     'config.json':           build_config,
     'links.json':            build_links,
-    # v2.1.9 demo content
+    # v2.2.0 demo content
     'scripts.json':          build_scripts,
     'batch_jobs.json':       build_batch_jobs,
     'log_watch.json':        build_log_watch,

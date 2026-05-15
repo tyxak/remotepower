@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.1.9'
+SERVER_VERSION = '2.2.5'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -56,6 +56,15 @@ RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
+# v2.2.4: dedicated fleet event log. The webhook log was always
+# delivery-attempt-only — if a `device_offline` fired but no webhook
+# URL was configured AND email wasn't enabled for the event, nothing
+# got logged anywhere. The Home dashboard activity panel relied on
+# webhook_log, so events fired with no destinations were invisible.
+# This new file records every fired event regardless of destination
+# config; the Home dashboard reads from it. Webhook log stays
+# delivery-attempts-only for Settings → Webhook log (unchanged).
+FLEET_EVENTS_FILE = DATA_DIR / 'fleet_events.json'
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -293,6 +302,11 @@ MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
 MAX_AUDIT_LOG     = 500
 MAX_WEBHOOK_LOG   = 100
+# v2.2.4: cap on the fleet event log (separate from webhook log).
+# 200 fits well into a few KB on disk and gives the Home dashboard
+# enough history to show meaningful activity even on quiet fleets
+# where events arrive sparsely.
+MAX_FLEET_EVENTS = 200
 
 
 # v1.8.4: All known webhook events, with metadata used by the UI to render
@@ -322,6 +336,8 @@ WEBHOOK_EVENTS = (
     ('metric_recovered',   'Resource dropped back below threshold', True),
     ('command_queued',     'Command queued for a device',          False),
     ('command_executed',   'Command executed on a device',         False),
+    # v2.2.0: configuration drift detection
+    ('drift_detected',     'Watched config file diverged from baseline', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1340,13 +1356,75 @@ def _log_email(event, recipients, status, detail):
         pass
 
 
+def _record_fleet_event(event, payload):
+    """v2.2.4: append to the dedicated fleet event log. Records every
+    fired event regardless of whether anything got delivered downstream.
+
+    Filters the payload down to a compact summary (device id+name plus
+    a few discriminator fields) — the full payload can be huge for
+    cve_found, log_alert, etc., and the Home dashboard only needs
+    enough to render a single feed item.
+
+    Bounded write: the log is capped at MAX_FLEET_EVENTS entries with
+    oldest evicted. 'test' events (operator SMTP / webhook tests) are
+    NOT recorded — they're not fleet events.
+    """
+    if event == 'test':
+        return    # operator-triggered tests don't belong here
+    summary = {}
+    if isinstance(payload, dict):
+        for key in ('device_id', 'device_name', 'name', 'host',
+                    'path', 'unit', 'metric', 'cve_id',
+                    'severity', 'critical', 'high',
+                    'upgradable', 'pattern', 'level'):
+            if key in payload and payload[key] is not None:
+                v = payload[key]
+                # Cap string lengths so a poisoned payload can't bloat
+                # the log file
+                if isinstance(v, str):
+                    v = v[:256]
+                summary[key] = v
+    entry = {
+        'ts':      int(time.time()),
+        'event':   str(event)[:64],
+        'payload': summary,
+    }
+    try:
+        with _LockedUpdate(FLEET_EVENTS_FILE) as store:
+            events = store.setdefault('events', [])
+            events.append(entry)
+            if len(events) > MAX_FLEET_EVENTS:
+                # Keep the newest tail
+                del events[:-MAX_FLEET_EVENTS]
+    except Exception:
+        # Caller wraps us too, but be defensive
+        pass
+
+
 def fire_webhook(event, payload):
     """
     v1.8.6: Despite the historical name, this is now the single dispatch point
     for both webhook and email notifications. It runs the shared gates
     (per-event toggle, CVE severity filter, maintenance suppression) once,
     then fans out to whichever channels are configured.
+
+    v2.2.4: now also records the event itself in fleet_events.json,
+    BEFORE the gates. The fleet event log captures what HAPPENED on
+    the fleet, regardless of whether anything was delivered downstream.
+    The Home dashboard activity panel reads from fleet_events.json so
+    fleet events show up there even if no webhook or email is
+    configured. The original gates (per-event toggle, maintenance
+    window, etc.) still apply to deliveries — they don't filter out
+    "what happened" from the log.
     """
+    # v2.2.4: always record the event itself, regardless of any
+    # downstream gating. Wrapped — a bug here must never break the
+    # event firing path.
+    try:
+        _record_fleet_event(event, payload)
+    except Exception:
+        pass
+
     cfg = load(CONFIG_FILE)
 
     # v1.8.4: per-event toggle. If disabled, log it and bail.
@@ -2757,6 +2835,18 @@ def handle_heartbeat():
             lines = body['journal'][:MAX_JOURNAL_LINES]
             dev['journal'] = [str(l)[:MAX_JOURNAL_LINE] for l in lines]
 
+        # v2.2.0: drift hashes from the agent. Optional — only newer agents
+        # send these. Hash-only payload; we never receive file content here.
+        # Format: {file_path: {hash, size, mtime, exists}}.  The server
+        # function _ingest_drift_report handles comparison against the stored
+        # baseline, history rotation, and firing the drift_detected webhook.
+        # Wrapped in try so a logic bug here never breaks the heartbeat path.
+        if 'drift' in body and isinstance(body['drift'], dict):
+            try:
+                _ingest_drift_report(dev_id, body['drift'])
+            except Exception:
+                pass
+
         # v2.1.0 compose_projects update. Moved INSIDE the locked block
         # in v2.1.2 so it's part of the same atomic devices.json update —
         # losing the compose listing isn't catastrophic but the previous
@@ -2858,6 +2948,17 @@ def handle_heartbeat():
         # containing the 'apt-get -y upgrade' or 'dnf -y upgrade' or
         # 'pacman -Syu' fragments counts.
         cmd_text = str(co.get('cmd', ''))
+        # v2.2.1: drift content mirroring. If the just-arrived output is
+        # an `exec:cat /some/watched/path` and that path is currently
+        # being watched for drift on this device, we ALSO copy it into
+        # drift_contents.json so the diff viewer can fetch it directly.
+        # Cheap match — single regex, then a couple of dict lookups.
+        try:
+            _maybe_mirror_drift_content(dev_id, cmd_text, raw_output,
+                                        int(co['rc']) if isinstance(co.get('rc'), int) else -1,
+                                        now)
+        except Exception:
+            pass    # never let mirroring break heartbeat
         if any(needle in cmd_text for needle in
                ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu')):
             pkg_mgr = ('apt' if 'apt-get' in cmd_text
@@ -2937,6 +3038,21 @@ def handle_heartbeat():
 
     cmds = load(CMDS_FILE)
     pending = cmds.get(dev_id, [])
+
+    # v2.2.0: ingest drift report if the agent sent one. Runs OUTSIDE the
+    # devices.json lock — _ingest_drift_report takes its own lock on
+    # drift_state.json. Failure is non-fatal; the heartbeat itself
+    # already succeeded.
+    if 'drift' in body and isinstance(body['drift'], dict):
+        try:
+            _ingest_drift_report(dev_id, body['drift'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] drift ingest failed dev={dev_id}: {e}\n")
+
+    # v2.2.0: surface the watched-files list to the agent so it knows what
+    # to hash next round. Added to common_resp below.
+    watched_files = get_watched_files_for(dev_id, devices=load(DEVICES_FILE))
+
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
     # been written back to disk and `dev` is just an in-memory copy that
@@ -2948,6 +3064,7 @@ def handle_heartbeat():
         'poll_interval':    saved_dev['poll_interval'],
         'services_watched': saved_dev.get('services_watched', []),
         'log_watch':        saved_dev.get('log_watch', []),
+        'watched_files':    watched_files,
     }
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
@@ -6288,6 +6405,471 @@ def handle_runbook_delete(dev_id):
     respond(200, {'ok': True, 'deleted': existed})
 
 
+# ── v2.2.0: Configuration drift detection ─────────────────────────────────
+#
+# Per-device file integrity monitoring. The agent computes SHA-256 hashes
+# of a watched-files list every DRIFT_EVERY heartbeats and ships them in
+# the heartbeat payload. The server compares against the stored baseline
+# and emits a `drift_detected` webhook event when hashes diverge.
+#
+# DESIGN DECISION: agent ships HASHES ONLY, never file contents. Storing
+# /etc/sshd_config or /etc/sudoers contents in RemotePower's JSON files
+# would be a real secrets-leak surface. To see what changed, the operator
+# clicks "Show current" which queues a `cat <path>` command through the
+# existing exec mechanism — the diff is then reconstructed from the two
+# command outputs.
+#
+# STORAGE: drift_state.json
+# {
+#   "<device_id>": {
+#     "files": {
+#       "<path>": {
+#         "current_hash":     "sha256...",
+#         "current_size":     12345,
+#         "current_mtime":    1700000000,
+#         "baseline_hash":    "sha256...",
+#         "baseline_size":    12345,
+#         "baseline_set_at":  1700000000,
+#         "baseline_set_by":  "admin",
+#         "first_seen":       1700000000,
+#         "last_check":       1700000000,
+#         "drift_count":      0,          # incremented each time baseline != current
+#         "exists":           true,        # false if agent reported the file missing
+#         "history": [
+#           {"ts": ..., "hash": "sha256...", "size": ...},
+#           ...                            # bounded to last 20 entries
+#         ]
+#       }
+#     }
+#   }
+# }
+
+DRIFT_STATE_FILE = DATA_DIR / 'drift_state.json'
+
+# v2.2.1: drift content fetch — operator-triggered retrieval of the
+# actual file contents on a drifted host, for the diff viewer. By
+# default, drift detection ships hashes only. When the operator
+# explicitly clicks "Show diff" on a drifted file, the server queues
+# `cat <path>` as a regular exec command. When its output comes back
+# via the normal output-ingest path, we ALSO mirror it into
+# drift_contents.json so the diff viewer can pull it without scanning
+# the whole command-output log.
+#
+# Storage: {device_id: {path: [{ts, content, rc}, ...]}} — last 2
+# captures per path kept; older ones evicted so the diff is always
+# baseline-capture vs current-capture without unbounded growth.
+DRIFT_CONTENTS_FILE = DATA_DIR / 'drift_contents.json'
+MAX_DRIFT_CONTENT_CAPTURES = 2          # rolling buffer per path
+MAX_DRIFT_CONTENT_BYTES    = 256 * 1024 # cap per capture to bound disk
+                                        # /etc/sshd_config is ~3KB,
+                                        # /etc/sudoers ~1KB, even
+                                        # bloated /etc/hosts <16KB —
+                                        # 256KB is generous.
+
+# DRIFT_CONTENT_DENYLIST — paths whose content is NEVER retrievable,
+# regardless of operator role. /etc/shadow contains password hashes;
+# even a "viewer" operator with drift-fetch permission must not be
+# able to pull it. Drift hashes still work for these — the hash tells
+# you something changed without revealing what.
+DRIFT_CONTENT_DENYLIST = frozenset({
+    '/etc/shadow', '/etc/gshadow',
+    '/etc/shadow-', '/etc/gshadow-',    # the rotated copies
+})
+
+# Default watched files. Operators can override per-device via the UI.
+# Conservative list — config files that should rarely change without
+# the operator's knowledge, and where a change is operationally
+# significant. We deliberately don't watch /etc/passwd or /etc/shadow
+# directly because those legitimately change often (every user login
+# can update lastlog metadata adjacent to it on some distros). The
+# operator can add them via the watched-files override if they want.
+DEFAULT_WATCHED_FILES = [
+    '/etc/ssh/sshd_config',
+    '/etc/sudoers',
+    '/etc/fstab',
+    '/etc/crontab',
+    '/etc/hosts',
+    '/etc/resolv.conf',
+    '/etc/nsswitch.conf',
+    '/etc/pam.d/sshd',
+]
+
+# Maximum history entries kept per file
+DRIFT_HISTORY_CAP = 20
+
+
+def get_watched_files_for(dev_id, devices=None):
+    """Return the list of files this device should watch.
+
+    Defaults from config / DEFAULT_WATCHED_FILES, with optional per-device
+    overrides in devices[dev_id].watched_files.
+    """
+    cfg = _config()
+    drift_cfg = cfg.get('drift') or {}
+    if not drift_cfg.get('enabled', True):
+        return []
+    defaults = drift_cfg.get('default_watched_files') or DEFAULT_WATCHED_FILES
+    if devices is None:
+        devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id) if isinstance(devices, dict) else None
+    if dev and isinstance(dev.get('watched_files'), list):
+        # Per-device override completely replaces defaults
+        return list(dev['watched_files'])
+    return list(defaults)
+
+
+def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
+    """Process a drift report submitted by the agent. Called from
+    handle_heartbeat when payload['drift'] is present.
+
+    drift_payload is a dict mapping file path → {hash, size, mtime,
+    exists}. We compare each against the stored baseline; on the first
+    sighting of a file we accept the current value as the baseline
+    (operator can re-baseline at any time). On a change, we increment
+    drift_count, push to history, and fire a webhook.
+    """
+    if not isinstance(drift_payload, dict):
+        return
+
+    fired_events = []
+    now = int(time.time())
+    with _LockedUpdate(DRIFT_STATE_FILE) as state:
+        dev_state = state.setdefault(dev_id, {})
+        files = dev_state.setdefault('files', {})
+        for path, info in drift_payload.items():
+            if not isinstance(info, dict):
+                continue
+            cur_hash  = info.get('hash')
+            cur_size  = info.get('size')
+            cur_mtime = info.get('mtime')
+            exists    = bool(info.get('exists', True))
+
+            existing = files.get(path)
+            if existing is None:
+                # First sighting — accept as baseline.
+                files[path] = {
+                    'current_hash':    cur_hash,
+                    'current_size':    cur_size,
+                    'current_mtime':   cur_mtime,
+                    'baseline_hash':   cur_hash,
+                    'baseline_size':   cur_size,
+                    'baseline_set_at': now,
+                    'baseline_set_by': actor,
+                    'first_seen':      now,
+                    'last_check':      now,
+                    'drift_count':     0,
+                    'exists':          exists,
+                    'history':         [],
+                }
+                continue
+
+            existing['current_hash']  = cur_hash
+            existing['current_size']  = cur_size
+            existing['current_mtime'] = cur_mtime
+            existing['last_check']    = now
+            existing['exists']        = exists
+
+            # Is this a change from the prior known state?
+            prior_hash = existing.get('prior_hash') or existing.get('baseline_hash')
+            if cur_hash != prior_hash:
+                # Push to history
+                hist = existing.setdefault('history', [])
+                hist.append({
+                    'ts':   now,
+                    'hash': cur_hash,
+                    'size': cur_size,
+                    'exists': exists,
+                })
+                if len(hist) > DRIFT_HISTORY_CAP:
+                    del hist[:-DRIFT_HISTORY_CAP]
+                # Update prior_hash so we don't re-fire on the next poll
+                # if the file stays at the new hash.
+                existing['prior_hash'] = cur_hash
+
+                # If different from baseline, increment drift_count + queue webhook
+                if cur_hash != existing.get('baseline_hash'):
+                    existing['drift_count'] = existing.get('drift_count', 0) + 1
+                    fired_events.append({
+                        'path':           path,
+                        'baseline_hash':  existing.get('baseline_hash'),
+                        'current_hash':   cur_hash,
+                        'exists':         exists,
+                    })
+
+    # Fire webhooks outside the lock
+    if fired_events:
+        devices = load(DEVICES_FILE)
+        dev = devices.get(dev_id, {})
+        for ev in fired_events:
+            try:
+                fire_webhook('drift_detected', {
+                    'device_id':   dev_id,
+                    'device_name': dev.get('name', dev_id),
+                    'path':        ev['path'],
+                    'exists':      ev['exists'],
+                    'baseline_hash': ev['baseline_hash'],
+                    'current_hash':  ev['current_hash'],
+                })
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] drift webhook failed: {e}\n")
+
+
+def handle_drift_overview():
+    """GET /api/drift — fleet-wide overview. Returns one row per device with
+    summary counts (total files watched, files with drift, files missing)."""
+    require_auth()
+    state = load(DRIFT_STATE_FILE)
+    devices = load(DEVICES_FILE)
+    rows = []
+    for dev_id, dev_state in state.items():
+        files = (dev_state or {}).get('files') or {}
+        n_total   = len(files)
+        n_drifted = sum(1 for f in files.values()
+                        if f.get('current_hash') != f.get('baseline_hash'))
+        n_missing = sum(1 for f in files.values() if not f.get('exists', True))
+        dev = devices.get(dev_id) or {}
+        rows.append({
+            'device_id':   dev_id,
+            'device_name': dev.get('name', dev_id),
+            'group':       dev.get('group', ''),
+            'total':       n_total,
+            'drifted':     n_drifted,
+            'missing':     n_missing,
+            'last_check':  max((f.get('last_check') or 0 for f in files.values()),
+                               default=0),
+        })
+    rows.sort(key=lambda r: (-r['drifted'], r['device_name'].lower()))
+    respond(200, {'devices': rows})
+
+
+def handle_device_drift_get(dev_id):
+    """GET /api/devices/<id>/drift — full drift state for one device."""
+    require_auth()
+    state = load(DRIFT_STATE_FILE)
+    entry = state.get(dev_id) or {'files': {}}
+    devices = load(DEVICES_FILE)
+    watched = get_watched_files_for(dev_id, devices)
+    respond(200, {
+        'device_id':     dev_id,
+        'watched_files': watched,
+        'files':         entry.get('files') or {},
+    })
+
+
+def handle_device_drift_baseline(dev_id):
+    """POST /api/devices/<id>/drift/baseline — accept current as new baseline.
+    Body: {"paths": ["/etc/..."]} or {"all": true}."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    target_paths = body.get('paths')
+    target_all = bool(body.get('all'))
+
+    updated = []
+    now = int(time.time())
+    with _LockedUpdate(DRIFT_STATE_FILE) as state:
+        dev_state = state.get(dev_id) or {}
+        files = dev_state.get('files') or {}
+        for path, entry in files.items():
+            if not target_all and target_paths is not None and path not in target_paths:
+                continue
+            if entry.get('current_hash') == entry.get('baseline_hash'):
+                continue   # nothing to update
+            entry['baseline_hash']   = entry.get('current_hash')
+            entry['baseline_size']   = entry.get('current_size')
+            entry['baseline_set_at'] = now
+            entry['baseline_set_by'] = actor
+            entry['drift_count']     = 0
+            entry['prior_hash']      = entry.get('current_hash')
+            updated.append(path)
+    audit_log(actor, 'drift_baseline',
+              detail=f"device={dev_id} paths={updated}")
+    respond(200, {'ok': True, 'updated': updated})
+
+
+def handle_device_drift_reset(dev_id):
+    """DELETE /api/devices/<id>/drift — wipe drift state for a device.
+    Used when re-baselining or removing a device from drift monitoring."""
+    actor = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    existed = False
+    with _LockedUpdate(DRIFT_STATE_FILE) as state:
+        if dev_id in state:
+            del state[dev_id]
+            existed = True
+    audit_log(actor, 'drift_reset', detail=f"device={dev_id} existed={existed}")
+    respond(200, {'ok': True, 'deleted': existed})
+
+
+# ── v2.2.1: drift content fetch (for the diff visualisation) ──────────────
+#
+# Three pieces:
+#   1. _maybe_mirror_drift_content() — hook called from the heartbeat
+#      output-ingest path. Detects `exec:cat <watched_path>` outputs and
+#      mirrors the content into drift_contents.json (capped to last 2
+#      captures per path).
+#   2. handle_drift_fetch_content() — POST endpoint that queues a
+#      `exec:cat <path>` command for each requested path. The agent
+#      picks it up on next heartbeat, runs it, output mirrors via (1).
+#   3. handle_drift_get_content() — GET endpoint that returns stored
+#      captures for a given path. UI uses this to fetch baseline +
+#      current and feed them to the JS diff renderer.
+#
+# DRIFT_CONTENT_DENYLIST is checked on BOTH endpoints — fetch refuses to
+# queue, get refuses to return. Defense in depth.
+
+# Used by _maybe_mirror_drift_content: parses `exec:cat <path>` and
+# `exec:cat '/path with spaces'` forms. The agent emits the same
+# command string we queued, so we can match by prefix.
+_CAT_CMD_RE = __import__('re').compile(
+    r"^exec:\s*cat\s+(?:'([^']+)'|\"([^\"]+)\"|(\S+))\s*$"
+)
+
+
+def _maybe_mirror_drift_content(dev_id, cmd_text, output, rc, ts):
+    """Mirror a `cat <watched>` output into drift_contents.json. No-op
+    if the command isn't a cat, the path isn't watched, or the path is
+    on the denylist. Bounded write — drops anything >MAX_DRIFT_CONTENT_BYTES.
+    """
+    m = _CAT_CMD_RE.match(cmd_text or '')
+    if not m:
+        return
+    path = m.group(1) or m.group(2) or m.group(3)
+    if not path or not path.startswith('/'):
+        return
+    if path in DRIFT_CONTENT_DENYLIST:
+        # Belt-and-braces — should never reach here because the fetch
+        # endpoint refuses to queue these. If a malicious agent forged
+        # an output for a denylisted path we still drop it.
+        return
+    # Is this path even being watched for drift on this device?
+    watched = get_watched_files_for(dev_id)
+    if path not in watched:
+        return
+
+    safe_output = (output or '')[:MAX_DRIFT_CONTENT_BYTES]
+    with _LockedUpdate(DRIFT_CONTENTS_FILE) as store:
+        dev = store.setdefault(dev_id, {})
+        captures = dev.setdefault(path, [])
+        captures.append({
+            'ts':      ts,
+            'rc':      rc,
+            'content': safe_output,
+        })
+        # Keep only the last N — older captures don't help the
+        # baseline-vs-current diff and they grow the file.
+        if len(captures) > MAX_DRIFT_CONTENT_CAPTURES:
+            del captures[:-MAX_DRIFT_CONTENT_CAPTURES]
+
+
+def handle_drift_fetch_content(dev_id):
+    """POST /api/devices/<id>/drift/fetch_content
+       body: {"paths": ["/etc/...", ...]}
+
+    Queue a `cat` command for each requested path. The agent picks it
+    up on its next heartbeat (typically within a poll interval, usually
+    60s). When the output comes back, _maybe_mirror_drift_content
+    mirrors it into drift_contents.json for the diff viewer.
+
+    Denylist enforcement: requests for /etc/shadow or other denylisted
+    paths are dropped silently from the queue list (returned in
+    `denied`). Other paths in the same request still get queued.
+    """
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body() or {}
+    paths = body.get('paths') or []
+    if not isinstance(paths, list):
+        respond(400, {'error': 'paths must be a list'})
+
+    watched = set(get_watched_files_for(dev_id, devices))
+    queued, denied, not_watched = [], [], []
+    cmds = load(CMDS_FILE)
+    if dev_id not in cmds:
+        cmds[dev_id] = []
+
+    for p in paths:
+        if not isinstance(p, str) or not p.startswith('/'):
+            continue
+        if p in DRIFT_CONTENT_DENYLIST:
+            denied.append(p)
+            continue
+        if p not in watched:
+            # Only allow content fetch for files we're actively
+            # watching — otherwise this endpoint is just an
+            # arbitrary file-read primitive.
+            not_watched.append(p)
+            continue
+        # Single-quote the path for the shell to handle awkward
+        # characters; this matches the agent's exec dispatcher.
+        cmd = f"exec:cat '{p}'"
+        if cmd not in cmds[dev_id]:
+            cmds[dev_id].append(cmd)
+            queued.append(p)
+        log_command(actor, dev_id, devices[dev_id].get('name', dev_id), cmd)
+
+    save(CMDS_FILE, cmds)
+    audit_log(actor, 'drift_fetch_content',
+              detail=f"device={dev_id} queued={queued} denied={denied}")
+    respond(200, {
+        'ok': True,
+        'queued':      queued,
+        'denied':      denied,
+        'not_watched': not_watched,
+        'note': 'Captures arrive after the next agent heartbeat. '
+                'Poll /drift/content?path=... to retrieve.',
+    })
+
+
+def handle_drift_get_content(dev_id):
+    """GET /api/devices/<id>/drift/content?path=...
+
+    Returns stored captures for a single path. Up to
+    MAX_DRIFT_CONTENT_CAPTURES (currently 2) chronologically — when the
+    operator has fetched the path twice, the UI gets baseline+current
+    and can render a diff.
+
+    Response: {captures: [{ts, rc, content, sha256}], path, denied}
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    path = (qs.get('path') or [''])[0]
+    if not path or not path.startswith('/'):
+        respond(400, {'error': 'path query parameter required'})
+    if path in DRIFT_CONTENT_DENYLIST:
+        respond(403, {
+            'error':  'Path is on the drift-content denylist '
+                      '(/etc/shadow and similar). Hash tracking continues; '
+                      'content retrieval is refused regardless of role.',
+            'denied': True, 'path': path,
+        })
+    store = load(DRIFT_CONTENTS_FILE)
+    captures = (store.get(dev_id) or {}).get(path) or []
+    # Add sha256 of each capture so the UI can confirm which capture
+    # matches which baseline/current hash from the drift state.
+    enriched = []
+    for c in captures:
+        sha = hashlib.sha256((c.get('content') or '').encode('utf-8',
+                                                              'replace')).hexdigest()
+        enriched.append({
+            'ts':      c.get('ts'),
+            'rc':      c.get('rc'),
+            'content': c.get('content', ''),
+            'sha256':  f"sha256:{sha}",
+        })
+    respond(200, {'path': path, 'captures': enriched})
+
+
 def handle_export():
     """Export backup ZIP — apikeys.json is included but key values are redacted."""
     require_admin_auth()
@@ -6710,11 +7292,50 @@ def handle_webhook_test():
     respond(200, {'ok': True, 'result': last})
 
 
+def handle_fleet_events():
+    """v2.2.4: GET /api/fleet/events — return the fleet event log.
+
+    Records of every fleet event that fired, regardless of whether any
+    webhook / email destination was configured. Powers the Home
+    dashboard activity panel. Newest first.
+
+    Optional ?limit=N (default 50, max 200).
+
+    Auth: require_auth (any logged-in user) — unlike the webhook log
+    which is admin-only (delivery URLs and detailed errors could leak
+    information). Fleet events are operationally useful for viewers
+    too: knowing a device went offline is the kind of thing a viewer
+    operator should see.
+    """
+    require_auth()
+    store = load(FLEET_EVENTS_FILE)
+    events = (store or {}).get('events') or []
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        limit = int((qs.get('limit') or ['50'])[0])
+    except ValueError:
+        limit = 50
+    limit = max(1, min(MAX_FLEET_EVENTS, limit))
+    # Newest first
+    respond(200, list(reversed(events))[:limit])
+
+
 def handle_webhook_log():
     """Return the webhook delivery log."""
     require_admin_auth()
     wl = load(WEBHOOK_LOG_FILE)
-    respond(200, list(reversed(wl.get('entries', []))))
+    # v2.2.2: tolerate both the canonical {entries: [...]} shape AND
+    # a bare list (older deployments, or hand-edited files). Reading
+    # both is cheap; deciding to upgrade the format on read isn't —
+    # operators may have other tooling assuming the bare-list shape,
+    # so we just normalise for the response and leave disk alone.
+    if isinstance(wl, list):
+        entries = wl
+    elif isinstance(wl, dict):
+        entries = wl.get('entries', []) or []
+    else:
+        entries = []
+    respond(200, list(reversed(entries)))
 
 
 def handle_webhook_log_clear():
@@ -10145,6 +10766,20 @@ def main():
         handle_runbook_generate(pi[len('/api/devices/'):-len('/runbook/generate')])
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'DELETE':
         handle_runbook_delete(pi[len('/api/devices/'):-len('/runbook')])
+    # v2.2.0: configuration drift detection
+    elif pi == '/api/drift' and m == 'GET':
+        handle_drift_overview()
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'GET':
+        handle_device_drift_get(pi[len('/api/devices/'):-len('/drift')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift/baseline') and m == 'POST':
+        handle_device_drift_baseline(pi[len('/api/devices/'):-len('/drift/baseline')])
+    # v2.2.1: drift content fetch (diff visualisation)
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift/fetch_content') and m == 'POST':
+        handle_drift_fetch_content(pi[len('/api/devices/'):-len('/drift/fetch_content')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift/content') and m == 'GET':
+        handle_drift_get_content(pi[len('/api/devices/'):-len('/drift/content')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'DELETE':
+        handle_device_drift_reset(pi[len('/api/devices/'):-len('/drift')])
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':
@@ -10161,6 +10796,8 @@ def main():
     elif pi == '/api/webhook/test' and m == 'POST': handle_webhook_test()
     elif pi == '/api/webhook/log' and m == 'GET': handle_webhook_log()
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
+    # v2.2.4: fleet event log (every fired event, regardless of destinations)
+    elif pi == '/api/fleet/events' and m == 'GET': handle_fleet_events()
     # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
     elif pi == '/api/smtp/test' and m == 'POST': handle_smtp_test()
     elif pi == '/api/ldap/test' and m == 'POST': handle_ldap_test()

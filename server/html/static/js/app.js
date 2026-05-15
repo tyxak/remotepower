@@ -283,9 +283,28 @@ const tableCtl = (() => {
         ? (opts.emptyMsgFiltered || `No matches for "${escHtml(filter)}".`)
         : (opts.emptyMsg || 'No data.');
       tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:var(--muted);padding:40px">${msg}</td></tr>`;
+      _applyScrollWrap(tbody, 0);
       return;
     }
     tbody.innerHTML = filtered.map(opts.row).join('');
+    _applyScrollWrap(tbody, filtered.length);
+  }
+
+  // v2.2.5: when a rendered table has more than 20 rows, wrap its
+  // nearest `.table-card` ancestor in a fixed-height scroll container.
+  // Sticky thead keeps the column headers pinned. The class is toggled
+  // every render so filtering down to <=20 rows removes the wrap, and
+  // expanding back up restores it.
+  const SCROLL_THRESHOLD = 20;
+  function _applyScrollWrap(tbody, count) {
+    // The wrap lives on the .table-card around the <table>.
+    const card = tbody.closest('.table-card');
+    if (!card) return;
+    if (count > SCROLL_THRESHOLD) {
+      card.classList.add('scrollable-table-wrap');
+    } else {
+      card.classList.remove('scrollable-table-wrap');
+    }
   }
 
   function getStoredFilter(name) {
@@ -378,11 +397,17 @@ function osIconKey(osStr) {
 }
 
 function osIcon(osStr, sizePx) {
-  // Returns an inline SVG span sized to `sizePx` (default 16).
+  // v2.2.1: now returns the branded distro logo from getDistroIcon().
+  // Old API preserved — sizePx (default 16) overrides the default 14px
+  // class size via inline width/height attributes (which beat class CSS).
+  // Existing callers benefit automatically.
   const px = sizePx || 16;
-  const svg = _OS_ICONS[osIconKey(osStr)] || _OS_ICONS.unknown;
-  const sized = svg.replace(/<svg /, `<svg width="${px}" height="${px}" `);
-  return `<span class="os-icon" title="${(osStr || 'Unknown OS').replace(/"/g,'&quot;')}" style="display:inline-flex;vertical-align:middle;line-height:0;color:var(--muted)">${sized}</span>`;
+  const branded = getDistroIcon(osStr);
+  // Inject width/height onto the <svg> tag, dropping the class size
+  const sized = branded.replace(
+    /<svg /,
+    `<svg width="${px}" height="${px}" style="vertical-align:middle" `);
+  return `<span class="os-icon" title="${(osStr || 'Unknown OS').replace(/"/g,'&quot;')}" style="display:inline-flex;vertical-align:middle;line-height:0">${sized}</span>`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -480,6 +505,10 @@ async function showApp() {
   // a server that doesn't support /api/ui-prefs (older release) just
   // returns null and we proceed with empty prefs.
   await loadUiPrefs();
+  // v2.2.1: Home is the new default landing page. We still kick off
+  // loadDevices() so the device search/group dropdowns and the cached
+  // devices array are warm for whenever the operator clicks Devices.
+  loadHome();
   loadDevices();
   startRefreshCycle();
   checkServerVersion();
@@ -618,6 +647,7 @@ function showPage(name, btn) {
       try { localStorage.setItem(`sidebar.${group.dataset.group}.collapsed`, '0'); } catch(_){}
     }
   }
+  if (name === 'home')     loadHome();
   if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
@@ -640,6 +670,7 @@ function showPage(name, btn) {
   if (name === 'containers') enterContainers();
   if (name === 'netmap')   enterNetmap();
   if (name === 'tls')      enterTLS();
+  if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
 }
@@ -718,6 +749,16 @@ function renderDevices() {
     _renderDevicesMinimal(filtered);
     return;
   }
+  // v2.2.5: scroll wrap when the device grid has >20 cards. Without
+  // this, dense fleets push the page to several thousand pixels and
+  // the Home tile row gets lost off-screen. The class adds max-height
+  // + overflow-y to the existing grid.
+  const SCROLL_THRESHOLD = 20;
+  if (filtered.length > SCROLL_THRESHOLD) {
+    container.classList.add('scrollable-grid-wrap');
+  } else {
+    container.classList.remove('scrollable-grid-wrap');
+  }
   container.innerHTML = filtered.map(d => {
     const isOnline = d.online;
     const lastSeen = d.last_seen ? timeAgo(d.last_seen) : 'Never';
@@ -732,20 +773,61 @@ function renderDevices() {
     }
     const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls') ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
     const iconContent = d.icon ? `<span style="font-size:22px;line-height:1">${escHtml(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
+    // v2.2.1: sparkline for the dominant disk/memory metric (whichever
+    // is more "interesting" — closer to capacity). The metrics history
+    // lives in the device's stored sysinfo trail. If we don't have ≥2
+    // points we render an empty box (renderSparkline handles this).
+    const mounts = (si.mounts || []);
+    const rootMount = mounts.find(m => m.path === '/') || mounts[0];
+    const memPct = si.mem && si.mem.percent != null ? si.mem.percent : null;
+    // Pull from per-device metrics history (window stored client-side
+    // from heartbeats). If the history isn't there yet, we'll render
+    // nothing — the value still shows numerically.
+    const metricsHist = (window._metricsHistory && window._metricsHistory[d.id]) || {};
+    const diskHist = metricsHist.disk || [];
+    const memHist  = metricsHist.mem || [];
+    const cpuHist  = metricsHist.cpu || [];
+    const diskSpark = rootMount && diskHist.length >= 2
+      ? renderSparkline(diskHist, {width: 52, height: 14, color: rootMount.percent > 85 ? 'var(--red)' : rootMount.percent > 70 ? 'var(--amber)' : 'var(--green)'})
+      : '';
+    const memSpark = memPct != null && memHist.length >= 2
+      ? renderSparkline(memHist, {width: 52, height: 14, color: memPct > 85 ? 'var(--red)' : memPct > 70 ? 'var(--amber)' : 'var(--accent)'})
+      : '';
     return `<div class="device-card ${isOnline ? 'online' : 'offline'}" style="${isSel ? 'border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,126,255,0.2)' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon" style="cursor:pointer" onclick="toggleSelect('${d.id}')" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escAttr(d.notes)}')">📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px">unmonitored</span>'}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escAttr(d.notes)}')">📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px">unmonitored</span>'}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${osIcon(d.os, 14)} ${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div></div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('');
+  // v2.2.1: update the client-side metrics history ring buffer so the
+  // next render gets ≥2 points for sparklines. Stored in window so it
+  // persists across re-renders within the same session.
+  window._metricsHistory = window._metricsHistory || {};
+  filtered.forEach(d => {
+    const si = d.sysinfo || {};
+    const h = window._metricsHistory[d.id] = window._metricsHistory[d.id] || {disk: [], mem: [], cpu: []};
+    const rootMount = (si.mounts || []).find(m => m.path === '/');
+    if (rootMount && typeof rootMount.percent === 'number') {
+      h.disk.push(rootMount.percent);
+      if (h.disk.length > 24) h.disk.shift();
+    }
+    if (si.mem && typeof si.mem.percent === 'number') {
+      h.mem.push(si.mem.percent);
+      if (h.mem.length > 24) h.mem.shift();
+    }
+    if (si.cpu && typeof si.cpu.percent === 'number') {
+      h.cpu.push(si.cpu.percent);
+      if (h.cpu.length > 24) h.cpu.shift();
+    }
+  });
 }
 
 // v1.11.7: render Devices as an aligned, sortable table. This is the new
@@ -798,13 +880,19 @@ function _registerDevicesMinimalTable() {
       // experience. Reuses the same selectedDevices Set so cards/minimal
       // share state — switch density mid-selection, your selection survives.
       const isSel = selectedDevices.has(d.id);
+      // v2.2.5: hover-revealed `Detail · Logs · Run` strip removed.
+      // The buttons were in a clunky spot and the focus-ring clipping
+      // had been a pain across 2.2.1/2.2.2. The dropdown chevron in
+      // the actions cell already exposes the same commands; row
+      // click → openDetail covers the most common action. Less
+      // visual noise, fewer fiddly edge cases.
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
         <td style="text-align:center;padding:0 6px"><input type="checkbox" ${isSel ? 'checked' : ''} onclick="toggleSelect('${d.id}')" style="margin:0"></td>
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
-        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
+        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
         <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}</td>
         <td class="dev-group-cell">${groupHtml}</td>
-        <td class="dev-os-cell" style="font-size:12px">${osIcon(d.os, 12)} ${escHtml(d.os || '—')}</td>
+        <td class="dev-os-cell" style="font-size:12px">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell" style="font-family:monospace;font-size:12px">${escHtml(d.ip || '—')}</td>
         <td class="dev-version-cell" style="font-size:12px">${escHtml(d.version || '—')}${patchHtml}</td>
         <td class="dev-lastseen-cell" style="font-size:12px;color:var(--muted)">${lastSeen}</td>
@@ -830,7 +918,16 @@ function _renderDevicesMinimal(filtered) {
   // for OS, which is enough for OS short names plus an ellipsis on the
   // longer ones. Narrower viewports drop columns via the @media rules
   // before things get cramped.
-  container.innerHTML = `<div class="devices-minimal-wrap">
+  // v2.2.5: when the filtered device list has more than 20 rows, wrap
+  // the table in a fixed-height scroll container with a sticky thead.
+  // Keeps the page short and the column headers visible. Below the
+  // threshold the table renders full-height as before — small fleets
+  // don't get an unnecessary scrollbar.
+  const SCROLL_THRESHOLD = 20;
+  const wrapClasses = filtered.length > SCROLL_THRESHOLD
+    ? 'devices-minimal-wrap scrollable-table-wrap'
+    : 'devices-minimal-wrap';
+  container.innerHTML = `<div class="${wrapClasses}">
     <table class="devices-minimal-table">
       <thead id="devices-minimal-thead">
         <tr>
@@ -2221,7 +2318,7 @@ function _registerCveTable() {
 async function loadCVEReport() {
   _registerCveTable();
   const tbody = document.getElementById('cve-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/cve/findings');
   if (!data) return;
   cveReportData = data;
@@ -2337,7 +2434,7 @@ function _registerServicesTable() {
 async function loadServicesReport() {
   _registerServicesTable();
   const tbody = document.getElementById('services-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/services');
   if (!data) return;
   // Also fetch maintenance badge
@@ -2482,7 +2579,7 @@ function _registerMaintTable() {
 async function loadMaintenance() {
   _registerMaintTable();
   const tbody = document.getElementById('maint-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/maintenance');
   if (!data) return;
   tableCtl.render('maintenance', data.windows || []);
@@ -2492,7 +2589,7 @@ async function loadMaintSuppressions() {
   const section = document.getElementById('maint-suppressions');
   section.style.display = '';
   const tbody = document.getElementById('maint-supp-tbody');
-  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/maintenance/suppressions');
   if (!data) return;
   if (!data.entries.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No suppressions recorded.</td></tr>'; return; }
@@ -5258,7 +5355,7 @@ let _scriptsCache = [];
 async function loadScripts() {
   const tbody = document.getElementById('scripts-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/scripts');
   _scriptsCache = Array.isArray(data) ? data : [];
   renderScriptsList();
@@ -5783,7 +5880,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   document.getElementById('ai-modal-meta').textContent  =
     `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
   const body = document.getElementById('ai-modal-body');
-  body.innerHTML = '<div style="color:var(--muted)">Thinking… <span id="ai-modal-elapsed" style="font-size:11px"></span></div>';
+  body.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--muted)">${aiThinkingHtml()} <span>Thinking… <span id="ai-modal-elapsed" style="font-size:11px"></span></span></div>`;
   body.dataset.rawText = '';
   document.getElementById('ai-modal-copy').disabled = true;
   const actionBtn = document.getElementById('ai-modal-action');
@@ -5819,7 +5916,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   // v2.1.5: render markdown so **bold** and # headers and `code`
   // don't show as literal punctuation. dataset.rawText keeps the
   // original for the Copy button.
-  body.innerHTML = renderMarkdown(resp.text || '(empty response)');
+  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.text || '(empty response)')}</div>`;
   body.dataset.rawText = resp.text || '';
   document.getElementById('ai-modal-copy').disabled = false;
   document.getElementById('ai-modal-meta').textContent =
@@ -6244,7 +6341,7 @@ function _aiPageRenderConv() {
     } else if (isUser) {
       content = `<div style="white-space:pre-wrap">${escHtml(m.content || '')}</div>`;
     } else {
-      content = renderMarkdown(m.content || '');
+      content = `<div class="ai-content">${renderMarkdown(m.content || '')}</div>`;
     }
     return `<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">${label}</div>` +
            `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 14px;word-wrap:break-word">${content}${meta}</div></div>`;
@@ -6678,7 +6775,7 @@ async function aiGenerateRunbook(devId, deviceName) {
     body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
     return;
   }
-  body.innerHTML = renderMarkdown(resp.content || '(empty)');
+  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
   body.dataset.rawText = resp.content || '';
   document.getElementById('runbook-modal-copy').disabled = false;
   document.getElementById('runbook-modal-regen').style.display = '';
@@ -6715,7 +6812,7 @@ async function aiViewRunbook(devId, deviceName) {
     document.getElementById('runbook-modal-meta').textContent = 'No runbook stored.';
     return;
   }
-  body.innerHTML = renderMarkdown(resp.content || '(empty)');
+  body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
   body.dataset.rawText = resp.content || '';
   document.getElementById('runbook-modal-copy').disabled = false;
   const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
@@ -6772,10 +6869,1207 @@ function _renderRunbookSectionHtml(devId, resp) {
         <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="aiDeleteRunbook('${escAttr(devId)}')">Delete</button>
       </div>
     </div>
-    <div style="max-height:300px;overflow-y:auto;font-size:13px;line-height:1.55;padding:8px 4px">${renderMarkdown(resp.content || '')}</div>
+    <div class="ai-content" style="max-height:300px;overflow-y:auto;font-size:13px;line-height:1.55;padding:8px 16px">${renderMarkdown(resp.content || '')}</div>
   </div>`;
 }
 
 // Track the last device name so we don't have to thread it through the
 // callbacks above. Set when openDetail runs.
 let _lastOpenDeviceName = '';
+
+// ─── v2.2.0: Configuration drift detection ─────────────────────────────────
+//
+// Fleet-wide drift overview page + per-device drift modal. The agent
+// hashes a list of watched files every few heartbeats; the server stores
+// baselines and fires `drift_detected` webhooks when a current hash
+// diverges. This UI surfaces both views without ever touching file content
+// (which is the security property of the whole feature — no /etc/sudoers
+// contents ever travel across the wire on routine polling).
+
+let _driftLastResponse = null;
+let _driftDeviceModal = null;
+
+async function loadDrift() {
+  const tbody = document.getElementById('drift-tbody');
+  const summary = document.getElementById('drift-summary');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr>';
+  try {
+    const data = await api('GET', '/drift');
+    _driftLastResponse = data;
+    _renderDrift(data.devices || []);
+    const totalDrift = (data.devices || []).reduce((s, d) => s + (d.drifted || 0), 0);
+    const totalMissing = (data.devices || []).reduce((s, d) => s + (d.missing || 0), 0);
+    summary.textContent = `${(data.devices || []).length} devices reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:30px">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+
+function _renderDrift(rows) {
+  const tbody = document.getElementById('drift-tbody');
+  const filter = (document.getElementById('drift-filter')?.value || '').toLowerCase().trim();
+  const visible = rows.filter(r =>
+    !filter ||
+    (r.device_name || '').toLowerCase().includes(filter) ||
+    (r.group || '').toLowerCase().includes(filter)
+  );
+  if (visible.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No drift data yet. Wait for the first agent heartbeat with v2.2.0+ and drift enabled.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = visible.map(r => {
+    const lastCheck = r.last_check ? new Date(r.last_check * 1000).toLocaleString() : '—';
+    const driftColor = r.drifted > 0 ? 'var(--amber)' : 'var(--muted)';
+    const missingColor = r.missing > 0 ? 'var(--red)' : 'var(--muted)';
+    return `<tr>
+      <td style="font-weight:500">${escHtml(r.device_name)}</td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(r.group || '—')}</td>
+      <td>${r.total}</td>
+      <td style="color:${driftColor};font-weight:${r.drifted > 0 ? 600 : 400}">${r.drifted}</td>
+      <td style="color:${missingColor}">${r.missing}</td>
+      <td style="font-size:12px;color:var(--muted)">${lastCheck}</td>
+      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDriftDetail('${escAttr(r.device_id)}', '${escAttr(r.device_name)}')">Detail</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// Re-render when filter changes
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'drift-filter' && _driftLastResponse) {
+    _renderDrift(_driftLastResponse.devices || []);
+  }
+});
+
+function _ensureDriftModal() {
+  if (_driftDeviceModal) return _driftDeviceModal;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'drift-detail-modal';
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:900px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600" id="drift-detail-title">Drift detail</div>
+        <button class="btn-icon" onclick="closeDriftDetail()" style="padding:4px 8px">✕</button>
+      </div>
+      <div id="drift-detail-body" style="flex:1;overflow:auto;padding:14px 18px;font-size:13px">
+        <div style="color:var(--muted)">Loading…</div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-icon" id="drift-accept-all" onclick="driftAcceptAll()" style="display:none">Accept all current as new baseline</button>
+        <div style="flex:1"></div>
+        <button class="btn-icon" onclick="closeDriftDetail()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _driftDeviceModal = wrap;
+  return wrap;
+}
+
+let _driftCurrentDevice = null;
+
+function closeDriftDetail() {
+  if (_driftDeviceModal) _driftDeviceModal.classList.remove('active');
+}
+
+async function openDriftDetail(devId, devName) {
+  _ensureDriftModal();
+  _driftDeviceModal.classList.add('active');
+  _driftCurrentDevice = {id: devId, name: devName};
+  document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
+  const body = document.getElementById('drift-detail-body');
+  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  document.getElementById('drift-accept-all').style.display = 'none';
+
+  try {
+    const data = await api('GET', `/devices/${encodeURIComponent(devId)}/drift`);
+    const files = data.files || {};
+    const watched = data.watched_files || [];
+    const fileKeys = Object.keys(files).sort();
+
+    if (fileKeys.length === 0) {
+      body.innerHTML = `<div style="color:var(--muted);padding:20px;text-align:center">
+        No drift report received yet for this device.<br>
+        <span style="font-size:12px">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the device has checked in.</span>
+      </div>`;
+      return;
+    }
+
+    const anyDrifted = fileKeys.some(p =>
+      files[p].current_hash !== files[p].baseline_hash);
+    if (anyDrifted) {
+      document.getElementById('drift-accept-all').style.display = '';
+    }
+
+    let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
+    </div>`;
+
+    html += '<table style="width:100%;font-size:12px"><thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th style="padding:6px 4px">Path</th><th style="padding:6px 4px">Status</th><th style="padding:6px 4px">Last check</th><th style="padding:6px 4px">Drift count</th><th></th></tr></thead><tbody>';
+
+    for (const p of fileKeys) {
+      const f = files[p];
+      const drifted = f.current_hash !== f.baseline_hash;
+      const missing = !f.exists;
+      const lastCheck = f.last_check ? new Date(f.last_check * 1000).toLocaleString() : '—';
+
+      let statusHtml;
+      if (missing) {
+        statusHtml = '<span style="color:var(--red)">● Missing</span>';
+      } else if (drifted) {
+        statusHtml = '<span style="color:var(--amber)">● Drifted</span>';
+      } else {
+        statusHtml = '<span style="color:var(--green)">● Baseline</span>';
+      }
+
+      const acceptBtn = drifted
+        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px" onclick="driftAcceptPath('${escAttr(p)}')">Accept as baseline</button>`
+        : '';
+
+      // v2.2.1: "Show diff" button per drifted file. Opens the diff
+      // viewer modal which polls /drift/content for stored captures
+      // and feeds them to the JS renderDiff(). Hidden for files on
+      // the content denylist (/etc/shadow etc.) where the diff cannot
+      // be displayed regardless of operator role.
+      const DENYLIST = new Set(['/etc/shadow','/etc/gshadow','/etc/shadow-','/etc/gshadow-']);
+      const isDenylist = DENYLIST.has(p);
+      const diffBtn = (drifted && !missing && !isDenylist)
+        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="openDriftDiff('${escAttr(_driftCurrentDevice.id)}','${escAttr(p)}')">Show diff</button>`
+        : isDenylist
+          ? `<span style="font-size:10px;color:var(--muted);margin-right:4px" title="Content retrieval refused for sensitive files">no content</span>`
+          : '';
+
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 4px;font-family:var(--font-mono);font-size:11px">${escHtml(p)}</td>
+        <td style="padding:6px 4px">${statusHtml}</td>
+        <td style="padding:6px 4px;color:var(--muted)">${lastCheck}</td>
+        <td style="padding:6px 4px">${f.drift_count || 0}</td>
+        <td style="padding:6px 4px;text-align:right">${diffBtn}${acceptBtn}</td>
+      </tr>`;
+
+      if (drifted && f.history && f.history.length > 0) {
+        html += `<tr><td colspan="5" style="padding:0 4px 8px 16px"><details><summary style="font-size:11px;color:var(--muted);cursor:pointer">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
+          <div style="margin-top:4px;font-family:monospace;font-size:10px;color:var(--muted)">
+          ${f.history.slice().reverse().slice(0, 10).map(h =>
+            `${new Date(h.ts * 1000).toLocaleString()}: ${(h.hash || '').substring(0, 24)}… ${h.exists === false ? ' [missing]' : ''}`
+          ).join('<br>')}
+          </div></details></td></tr>`;
+      }
+    }
+    html += '</tbody></table>';
+
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escHtml(String(e))}</div>`;
+  }
+}
+
+async function driftAcceptPath(path) {
+  if (!_driftCurrentDevice) return;
+  if (!confirm(`Accept current hash as new baseline for:\n${path}\n\nFuture changes from this hash will count as drift.`)) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
+              {paths: [path]});
+    toast('Baseline updated', 'success');
+    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
+  } catch (e) {
+    toast('Failed: ' + e, 'error');
+  }
+}
+
+async function driftAcceptAll() {
+  if (!_driftCurrentDevice) return;
+  if (!confirm('Accept current hashes as new baseline for all drifted files on this device?\n\nFuture changes from these new baselines will count as drift.')) return;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
+              {all: true});
+    toast('All drifted baselines updated', 'success');
+    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
+  } catch (e) {
+    toast('Failed: ' + e, 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v2.2.1 — Design polish JS infrastructure
+//
+// Adds:
+//   getDistroIcon(osString) → SVG string for the matching distro logo
+//   renderSparkline(values, opts) → SVG string for a small line chart
+//   renderSkeleton(target, kind) → fill `target` with shimmer placeholders
+//   renderStatusStripe(history) → 7-day status visualisation
+//   renderDiff(baseline, current) → unified diff with line markers
+//   loadIndex() / renderIndexDashboard() → home page summary
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─── Distro logos ────────────────────────────────────────────────────────
+// 14×14 inline SVGs, picked from each distro's brand mark. Operator sees
+// "Ubuntu orange" or "Debian red swirl" next to the device name without
+// having to read the OS string.
+
+const DISTRO_ICONS = {
+  // Each entry: {match: [regex strings tested against OS field], svg}
+  // First match wins. 14×14 viewBox. Inline coloured fill, no external refs.
+  ubuntu: {
+    match: ['ubuntu'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#E95420"><circle cx="12" cy="12" r="11" opacity="0.15"/><circle cx="12" cy="12" r="2.5"/><circle cx="19" cy="12" r="2"/><circle cx="8.5" cy="6" r="2"/><circle cx="8.5" cy="18" r="2"/></svg>'
+  },
+  debian: {
+    match: ['debian'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#A81D33"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c4.4 0 8.2-2.9 9.5-7-.8 2.4-2.8 3.7-4.9 3.7-2.7 0-4.9-2.2-4.9-4.9 0-2.4 1.7-4.3 4-4.8-1.2-.8-2.7-.4-3.5.8-1.1-2.2-.5-4.8 1.7-5.9.7-.4 1.5-.5 2.3-.5C14.7 2.4 13.4 2 12 2z"/></svg>'
+  },
+  arch: {
+    match: ['arch', 'cachy'],   // CachyOS is Arch-based; uses same blue chevron
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#1793D1"><path d="M12 2L2 22h20L12 2zm0 4.8L18.5 19h-13L12 6.8zM12 11l-2.5 5h5L12 11z"/></svg>'
+  },
+  cachy: {
+    match: ['cachyos'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#19A98F"><path d="M12 2L2 22h20L12 2zm0 4.8L18.5 19h-13L12 6.8z"/><circle cx="12" cy="15" r="2.5" fill="#1793D1"/></svg>'
+  },
+  fedora: {
+    match: ['fedora'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#3C6EB4"><circle cx="12" cy="12" r="10"/><path d="M14 7v6h-3a2 2 0 0 0 0 4h1v-2h-1a0 0 0 0 1 0 0h3v-6h2V7h-2z" fill="white"/></svg>'
+  },
+  rhel: {
+    match: ['rhel', 'red hat', 'redhat', 'red-hat', 'rocky', 'alma', 'almalinux', 'centos'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#EE0000"><path d="M16 11c0-3-2-5-5-5-3 0-5 2-5 5 0 1 0 2 1 3l-3 1c-1 1-1 2 0 2 4 1 9 2 13 0 1 0 1-1 0-2l-3-1c1-1 1-2 1-3zm-5 8c-3 0-6-1-7-2 1-1 3-2 7-2s6 1 7 2c-1 1-4 2-7 2z"/></svg>'
+  },
+  suse: {
+    match: ['suse', 'opensuse', 'open suse'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#73BA25"><circle cx="12" cy="12" r="10"/><path d="M8 10c0-1 1-2 2-2s2 1 2 2v4c0 1-1 2-2 2s-2-1-2-2v-4zm6 0c0-1 1-2 2-2v6c-1 0-2-1-2-2v-2z" fill="white"/></svg>'
+  },
+  alpine: {
+    match: ['alpine'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#0D597F"><circle cx="12" cy="12" r="10"/><path d="M7 16l3-4 2 2 4-6 3 8H7z" fill="white"/></svg>'
+  },
+  gentoo: {
+    match: ['gentoo'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#54487A"><ellipse cx="12" cy="12" rx="9" ry="6" transform="rotate(-30 12 12)"/></svg>'
+  },
+  nixos: {
+    match: ['nixos', 'nix os'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#5277C3"><path d="M12 2l3 5h-2l-1-2-3 5h4l3 5h-2l-1-2-3 5-3-5h2l1 2 3-5H8L5 5h2l1 2L12 2z"/></svg>'
+  },
+  raspbian: {
+    match: ['raspbian', 'raspberry'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#C51A4A"><circle cx="9" cy="11" r="3"/><circle cx="15" cy="11" r="3"/><path d="M9 14c0 3 2 5 3 5s3-2 3-5"/></svg>'
+  },
+  // BSDs (RemotePower might end up watching BSD hosts via agentless mode)
+  freebsd: {
+    match: ['freebsd'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="#AB2B28"><circle cx="12" cy="12" r="10"/><path d="M8 9l3 3-2 4 5-2 3 3-1-5 3-2-5-1-2-5-2 4-4 1z" fill="white"/></svg>'
+  },
+  // Fallback: generic Linux penguin silhouette in muted accent
+  linux: {
+    match: ['linux'],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor" style="color:var(--muted)"><circle cx="12" cy="9" r="4"/><path d="M8 13c0 4 1 7 4 7s4-3 4-7c-1 1-3 1.5-4 1.5S9 14 8 13z"/><circle cx="10" cy="8" r="1" fill="white"/><circle cx="14" cy="8" r="1" fill="white"/></svg>'
+  },
+  // Unknown OS: simple terminal-block icon
+  unknown: {
+    match: [],
+    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor" style="color:var(--muted)"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" fill="none" stroke-width="2"/><path d="M7 9l3 3-3 3M12 15h5" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round"/></svg>'
+  },
+};
+
+function getDistroIcon(osField) {
+  // Pick the distro icon best matching the OS field. Case-insensitive
+  // substring match. CachyOS resolves to its own icon first; if absent
+  // falls back to the Arch chevron (same family). RHEL family (Rocky,
+  // Alma, CentOS) all resolve to the RHEL mark.
+  const os = String(osField || '').toLowerCase();
+  if (!os) return DISTRO_ICONS.unknown.svg;
+  // Order matters: try the more specific matches first.
+  const probeOrder = ['cachy', 'ubuntu', 'debian', 'fedora', 'rhel',
+                      'suse', 'alpine', 'gentoo', 'nixos', 'raspbian',
+                      'arch', 'freebsd', 'linux'];
+  for (const key of probeOrder) {
+    const entry = DISTRO_ICONS[key];
+    if (!entry) continue;
+    for (const pat of entry.match) {
+      if (os.includes(pat)) return entry.svg;
+    }
+  }
+  return DISTRO_ICONS.unknown.svg;
+}
+
+// ─── Sparkline mini-charts ──────────────────────────────────────────────
+// Pure SVG line chart, ~60×16 px. Used inline with metric values.
+// values: array of numbers (any length); shorter arrays use available
+//         points only. Returns SVG string ready to inject.
+// opts.color, opts.width, opts.height, opts.fill (boolean), opts.lastDot
+//
+// Picks colour automatically from the last value vs the dataset min/max
+// if no color is passed: trending-up gets accent, trending-down gets
+// amber for capacity metrics (caller can override).
+
+function renderSparkline(values, opts) {
+  opts = opts || {};
+  const w = opts.width || 60;
+  const h = opts.height || 16;
+  const arr = (values || []).filter(v => typeof v === 'number' && !isNaN(v));
+  if (arr.length < 2) {
+    // Empty / single-point: render an empty box (keeps layout stable)
+    return `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"></svg>`;
+  }
+  const min = Math.min(...arr);
+  const max = Math.max(...arr);
+  const range = (max - min) || 1;
+  const stepX = w / (arr.length - 1);
+  // 1px top/bottom padding so the stroke isn't clipped at the edge
+  const yPad = 1.5;
+  const yScale = (h - 2 * yPad) / range;
+
+  const points = arr.map((v, i) => {
+    const x = i * stepX;
+    const y = h - yPad - (v - min) * yScale;
+    return [x, y];
+  });
+
+  const linePath = 'M' + points.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
+
+  let color = opts.color;
+  if (!color) {
+    // Heuristic: if last value > median, "rising"; for capacity metrics
+    // (disk/mem) that's amber; for general metrics it's accent.
+    const last = arr[arr.length - 1];
+    const median = arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+    if (last > median * 1.15) color = 'var(--amber)';
+    else if (last < median * 0.85) color = 'var(--green)';
+    else color = 'var(--accent)';
+  }
+
+  let svg = `<svg class="sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
+
+  if (opts.fill !== false) {
+    const areaPath = linePath + ` L${(w).toFixed(1)},${h} L0,${h} Z`;
+    svg += `<path class="area" d="${areaPath}" fill="${color}"/>`;
+  }
+  svg += `<path d="${linePath}" stroke="${color}"/>`;
+  if (opts.lastDot !== false) {
+    const last = points[points.length - 1];
+    svg += `<circle class="dot" cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="1.6" fill="${color}"/>`;
+  }
+  svg += '</svg>';
+  return svg;
+}
+
+// ─── Skeleton loader helpers ─────────────────────────────────────────────
+// Three kinds of skeleton: row (for tables), card (for device tiles),
+// and lines (for blocks of text content).
+
+function renderSkeletonRows(colspan, n) {
+  n = n || 5;
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    html += `<tr class="skeleton-row"><td colspan="${colspan}">
+      <div class="skeleton skeleton-line ${i % 2 ? 'med' : 'long'}"></div>
+    </td></tr>`;
+  }
+  return html;
+}
+
+function renderSkeletonCards(n) {
+  n = n || 4;
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    html += `<div class="skeleton-card">
+      <div class="skeleton skeleton-line short"></div>
+      <div class="skeleton skeleton-line long"></div>
+      <div class="skeleton skeleton-line med"></div>
+    </div>`;
+  }
+  return html;
+}
+
+// ─── 7-day status stripe ─────────────────────────────────────────────────
+// Renders the GitHub-contribution-graph-style horizontal cells. Each cell
+// represents one day's online state. Input: array of state strings, oldest
+// first. Each entry: 'up' | 'partial' | 'down' | 'unknown'.
+
+function renderStatusStripe(states) {
+  states = states || [];
+  // Pad/truncate to 7 days
+  while (states.length < 7) states.unshift('unknown');
+  states = states.slice(-7);
+  const labels = ['7d ago', '6d ago', '5d ago', '4d ago', '3d ago', '2d ago', 'Yesterday'];
+  return '<span class="status-stripe">' +
+    states.map((s, i) =>
+      `<span class="cell ${s}" title="${labels[i]}: ${s}"></span>`
+    ).join('') + '</span>';
+}
+
+// ─── Unified diff renderer ───────────────────────────────────────────────
+// Pure JS, no library. Used by the drift detail modal when the operator
+// clicks "Show diff" on a drifted file. Two-stage:
+//   1. LCS to compute the longest common subsequence between baseline
+//      and current lines.
+//   2. Walk the LCS to produce add/del/context markers.
+//
+// Output is an array of {type, line, baselineLn, currentLn} objects which
+// renderDiff() turns into HTML. Hunks (consecutive non-context lines plus
+// 3 lines of context on each side) are highlighted with a hunk header.
+
+function _diffLCS(a, b) {
+  // Standard dynamic-programming LCS. Returns 2D array of common-length
+  // counts; the actual subsequence is reconstructed by walking back.
+  const m = a.length, n = b.length;
+  const lcs = Array(m + 1);
+  for (let i = 0; i <= m; i++) lcs[i] = new Int32Array(n + 1);
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      lcs[i][j] = (a[i-1] === b[j-1])
+        ? lcs[i-1][j-1] + 1
+        : Math.max(lcs[i-1][j], lcs[i][j-1]);
+    }
+  }
+  return lcs;
+}
+
+function computeDiff(baselineText, currentText) {
+  const a = (baselineText || '').split('\n');
+  const b = (currentText || '').split('\n');
+  const lcs = _diffLCS(a, b);
+  const ops = [];
+  let i = a.length, j = b.length;
+  while (i > 0 && j > 0) {
+    if (a[i-1] === b[j-1]) {
+      ops.unshift({type: 'ctx', line: a[i-1], al: i, bl: j});
+      i--; j--;
+    } else if (lcs[i-1][j] >= lcs[i][j-1]) {
+      ops.unshift({type: 'del', line: a[i-1], al: i, bl: null});
+      i--;
+    } else {
+      ops.unshift({type: 'add', line: b[j-1], al: null, bl: j});
+      j--;
+    }
+  }
+  while (i > 0) { ops.unshift({type: 'del', line: a[i-1], al: i, bl: null}); i--; }
+  while (j > 0) { ops.unshift({type: 'add', line: b[j-1], al: null, bl: j}); j--; }
+  return ops;
+}
+
+function renderDiff(baselineText, currentText) {
+  // If either side is empty, simplify the rendering
+  if (!baselineText && !currentText) {
+    return '<div class="empty-state-body">(both versions empty)</div>';
+  }
+  if (!baselineText) {
+    // Entire file is new
+    return '<div class="diff-view">' +
+      (currentText || '').split('\n').map((l, i) =>
+        `<div class="diff-line add"><span class="ln">${i+1}</span><span class="marker">+</span>${escHtml(l)}</div>`
+      ).join('') + '</div>';
+  }
+  if (!currentText) {
+    // Entire file is deleted (or unreadable)
+    return '<div class="diff-view">' +
+      (baselineText || '').split('\n').map((l, i) =>
+        `<div class="diff-line del"><span class="ln">${i+1}</span><span class="marker">-</span>${escHtml(l)}</div>`
+      ).join('') + '</div>';
+  }
+
+  const ops = computeDiff(baselineText, currentText);
+
+  // Build hunks: any add/del with 3 lines of context on either side.
+  const HUNK_CTX = 3;
+  const hunkMarks = new Array(ops.length).fill(false);
+  for (let k = 0; k < ops.length; k++) {
+    if (ops[k].type !== 'ctx') {
+      for (let m = Math.max(0, k - HUNK_CTX); m <= Math.min(ops.length - 1, k + HUNK_CTX); m++) {
+        hunkMarks[m] = true;
+      }
+    }
+  }
+
+  let html = '<div class="diff-view">';
+  let lastWasHunkBreak = true;
+  for (let k = 0; k < ops.length; k++) {
+    if (!hunkMarks[k]) {
+      if (!lastWasHunkBreak) {
+        html += `<div class="diff-line hunk"><span class="ln"></span><span class="marker">⋯</span> </div>`;
+        lastWasHunkBreak = true;
+      }
+      continue;
+    }
+    lastWasHunkBreak = false;
+    const op = ops[k];
+    const cls = op.type;
+    const marker = op.type === 'add' ? '+' : op.type === 'del' ? '-' : ' ';
+    const lineNo = op.type === 'add' ? op.bl : op.type === 'del' ? op.al : op.al;
+    html += `<div class="diff-line ${cls}"><span class="ln">${lineNo || ''}</span><span class="marker">${marker}</span>${escHtml(op.line)}</div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// ─── v2.2.1: Home dashboard ─────────────────────────────────────────────
+//
+// Composes a "fleet at a glance" summary from existing endpoints —
+// devices, drift, CVEs, patches, webhook log. No new server endpoint
+// needed. Refresh implicit (re-runs on every visit to the page).
+
+async function loadHome() {
+  // Fetch in parallel — independent endpoints. If any fail we still
+  // render the rest with placeholder text rather than blocking the
+  // whole dashboard.
+  // v2.2.4: activity panel now reads from /fleet/events (the dedicated
+  // fleet event log added in 2.2.4) instead of /webhook/log. The
+  // webhook log was always delivery-attempts-only — if no webhook URL
+  // was configured AND email wasn't enabled for the event, nothing
+  // got logged anywhere and the activity panel showed empty even
+  // when devices were going offline. /fleet/events records every
+  // fired event regardless of destinations.
+  const [devs, drift, cves, fleetEvents] = await Promise.all([
+    api('GET', '/devices').catch(() => null),
+    api('GET', '/drift').catch(() => null),
+    api('GET', '/cve/findings').catch(() => null),
+    api('GET', '/fleet/events?limit=50').catch(() => null),
+  ]);
+
+  _renderHomeTiles(devs || [], drift || {}, cves || {});
+  _renderHomeAttention(devs || [], drift || {}, cves || {});
+  _renderHomeActivity(fleetEvents);
+  _renderHomeFleet(devs || []);
+}
+
+function _renderHomeTiles(devs, drift, cves) {
+  const target = document.getElementById('home-tiles');
+  if (!target) return;
+  const total = devs.length;
+  const online = devs.filter(d => d.online).length;
+  const offline = total - online;
+  let pending = 0, criticalPending = 0;
+  devs.forEach(d => {
+    const u = (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;
+    pending += u;
+    if (u >= 20) criticalPending++;
+  });
+  const driftDevs = (drift.devices || []);
+  const driftedFiles = driftDevs.reduce((s, d) => s + (d.drifted || 0), 0);
+  const cveFindings = cves.findings || cves.devices || [];
+  let totalCves = 0, criticalCves = 0;
+  if (Array.isArray(cveFindings)) {
+    cveFindings.forEach(f => {
+      if (f.findings) f = f.findings;
+      const arr = Array.isArray(f) ? f : [];
+      arr.forEach(c => {
+        totalCves++;
+        if ((c.severity || '').toUpperCase() === 'CRITICAL') criticalCves++;
+      });
+    });
+  }
+  // Fall back to length-of-keys if shape was different
+  if (totalCves === 0 && cves.total) totalCves = cves.total;
+
+  const tiles = [
+    {
+      label: 'Devices online',
+      value: `${online}<span style="color:var(--muted);font-size:18px"> / ${total}</span>`,
+      sub: offline === 0 ? 'All devices reporting in' :
+           offline === 1 ? '1 device offline' : `${offline} devices offline`,
+      cls: offline > 0 ? 'warn' : 'ok',
+    },
+    {
+      label: 'Pending updates',
+      value: pending,
+      sub: criticalPending > 0
+        ? `${criticalPending} device${criticalPending === 1 ? '' : 's'} with 20+ pending`
+        : pending === 0 ? 'Fleet fully patched' : 'Across all enrolled devices',
+      cls: criticalPending > 0 ? 'warn' : pending === 0 ? 'ok' : '',
+    },
+    {
+      label: 'Drift events',
+      value: driftedFiles,
+      sub: driftedFiles === 0
+        ? 'All watched files at baseline'
+        : `${driftDevs.filter(d => d.drifted > 0).length} device${driftDevs.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
+      cls: driftedFiles > 0 ? 'warn' : 'ok',
+    },
+    {
+      label: 'CVE findings',
+      value: totalCves,
+      sub: criticalCves > 0
+        ? `${criticalCves} critical · click for detail`
+        : totalCves === 0 ? 'No active CVEs reported' : 'Across the fleet',
+      cls: criticalCves > 0 ? 'alert' : totalCves > 0 ? 'warn' : 'ok',
+    },
+  ];
+  target.innerHTML = tiles.map(t =>
+    `<div class="tile ${t.cls}">
+      <div class="tile-label">${t.label}</div>
+      <div class="tile-value">${t.value}</div>
+      <div class="tile-subtle">${t.sub}</div>
+    </div>`
+  ).join('');
+}
+
+function _renderHomeAttention(devs, drift, cves) {
+  const target = document.getElementById('home-attention');
+  if (!target) return;
+  const items = [];
+
+  // v2.2.4: filter to MONITORED devices only. Operators explicitly
+  // toggle a device to `monitored: false` to silence alerts on it
+  // (decommissioned hosts, dev boxes, hosts being rebuilt) — those
+  // shouldn't drive the "needs attention" list either. Same gate the
+  // existing webhook/alert pipeline already applies.
+  const monitoredDevs = devs.filter(d => d.monitored !== false);
+
+  // Offline devices first — most actionable
+  monitoredDevs.filter(d => !d.online).slice(0, 5).forEach(d => {
+    const ago = d.last_seen ? timeAgo(d.last_seen) : 'never';
+    items.push({
+      ts: ago,
+      html: `<span class="status-pill critical">offline</span> <strong>${escHtml(d.name)}</strong> — last seen ${ago}`,
+      action: `showPage('devices',null);setTimeout(()=>document.getElementById('device-search-input').value='${escAttr(d.name)}'&&filterDevices(),50)`,
+    });
+  });
+
+  // Devices with significant pending updates (monitored only)
+  monitoredDevs.filter(d => {
+    const u = (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;
+    return u >= 10;
+  }).slice(0, 3).forEach(d => {
+    const u = d.sysinfo.packages.upgradable;
+    items.push({
+      ts: '—',
+      html: `<span class="status-pill warn">${u} updates</span> <strong>${escHtml(d.name)}</strong> pending`,
+      action: `showPage('patches',document.querySelector('.nav-btn[onclick*=patches]'))`,
+    });
+  });
+
+  // Drifted devices — also gate on monitored. The drift overview
+  // endpoint includes all devices that have reported drift; we
+  // cross-reference with the monitored list. Doing the lookup as a
+  // Set keeps it O(1) per check rather than O(n) for each filter.
+  const monitoredIds = new Set(monitoredDevs.map(d => d.id));
+  (drift.devices || []).filter(d => d.drifted > 0 && monitoredIds.has(d.device_id)).slice(0, 3).forEach(d => {
+    items.push({
+      ts: d.last_check ? timeAgo(d.last_check) : '—',
+      html: `<span class="status-pill warn">drift</span> <strong>${escHtml(d.device_name)}</strong> — ${d.drifted} file${d.drifted === 1 ? '' : 's'} changed`,
+      action: `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'));setTimeout(()=>openDriftDetail('${escAttr(d.device_id)}','${escAttr(d.device_name)}'),100)`,
+    });
+  });
+
+  if (items.length === 0) {
+    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+      <div class="empty-state-icon">✓</div>
+      <div class="empty-state-title">All clear</div>
+      <div class="empty-state-body">No offline monitored devices, no significant patch backlog, no drift detected.</div>
+    </div>`;
+    return;
+  }
+
+  target.innerHTML = items.slice(0, 8).map(i =>
+    `<div class="dash-feed-item" style="cursor:pointer" onclick="${i.action}">
+      <div style="flex:1">${i.html}</div>
+      <span class="ts">${i.ts}</span>
+    </div>`
+  ).join('');
+}
+
+function _renderHomeActivity(fleetEvents) {
+  const target = document.getElementById('home-activity');
+  if (!target) return;
+  // v2.2.4: fleet event log payload shape is {ts, event, payload: {…}}
+  // — server returns a flat list newest-first. The /fleet/events
+  // endpoint filters out 'test' events already (test events aren't
+  // recorded in the fleet log at all), but we keep the FLEET_EVENTS
+  // allowlist for defence-in-depth + so a future event added on the
+  // server doesn't silently appear without dashboard recognition.
+  const FLEET_EVENTS = new Set([
+    'device_offline', 'device_online',
+    'monitor_down', 'monitor_up',
+    'patch_alert', 'cve_found',
+    'service_down', 'service_up',
+    'log_alert',
+    'container_stopped', 'container_restarting', 'containers_stale',
+    'metric_warning', 'metric_critical', 'metric_recovered',
+    'command_queued', 'command_executed',
+    'drift_detected',
+  ]);
+  let entries = [];
+  if (Array.isArray(fleetEvents)) {
+    entries = fleetEvents;
+  } else if (fleetEvents && Array.isArray(fleetEvents.events)) {
+    entries = fleetEvents.events;
+  }
+  // Filter then slice — important order: slicing first would miss
+  // real events buried behind a wall of unrecognised event names.
+  entries = entries.filter(e => FLEET_EVENTS.has(e.event)).slice(0, 8);
+  if (entries.length === 0) {
+    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+      <div class="empty-state-icon">○</div>
+      <div class="empty-state-title">No recent fleet events</div>
+      <div class="empty-state-body">Fleet events (device offline, drift detected, CVE found, etc.) show up here as they fire — regardless of whether any webhook or email destination is configured.</div>
+    </div>`;
+    return;
+  }
+  const EVENT_CLASS = {
+    'device_offline': 'critical', 'device_online': 'ok',
+    'monitor_down': 'critical', 'monitor_up': 'ok',
+    'service_down': 'critical', 'service_up': 'ok',
+    'cve_found': 'warn', 'patch_alert': 'warn',
+    'drift_detected': 'warn',
+    'metric_warning': 'warn', 'metric_critical': 'critical',
+    'metric_recovered': 'ok',
+    'container_stopped': 'warn', 'container_restarting': 'warn',
+    'containers_stale': 'warn',
+    'log_alert': 'warn',
+    'command_queued': 'info', 'command_executed': 'info',
+  };
+  target.innerHTML = entries.map(ev => {
+    const ts = ev.ts ? timeAgo(ev.ts) : '—';
+    const cls = EVENT_CLASS[ev.event] || 'info';
+    const label = (ev.event || '').replace(/_/g, ' ');
+    const p = ev.payload || {};
+    const dev = p.device_name || p.name || p.host || '';
+    // Pick the most informative detail bit for this event class
+    let detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
+    if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
+    if (!detail && p.critical) detail = `${p.critical} critical`;
+    // v2.2.5: each activity item routes to the most relevant page or
+    // modal for that event class. Computed once per row so the
+    // onclick handler is just a string assignment. escAttr the
+    // device id / name to keep the inline-handler safe.
+    const action = _homeActivityAction(ev.event, p);
+    return `<div class="dash-feed-item" style="cursor:pointer" onclick="${action}" title="Click for details">
+      <div style="flex:1"><span class="status-pill ${cls}">${escHtml(label)}</span> ${dev ? `<strong>${escHtml(dev)}</strong>` : ''} ${detail ? `<span style="color:var(--muted);font-size:12px">${escHtml(String(detail).substring(0,80))}</span>` : ''}</div>
+      <span class="ts">${ts}</span>
+    </div>`;
+  }).join('');
+}
+
+// v2.2.5: map an activity event to the click-action that drills in.
+// Per event class, navigate to the page that surfaces the underlying
+// resource — device detail modal for device_online/offline, drift
+// detail for drift_detected, etc. Returns an inline-handler string
+// suitable for HTML onclick attributes; escAttr handles quoting.
+function _homeActivityAction(event, p) {
+  const devId   = escAttr(p.device_id || '');
+  const devName = escAttr(p.device_name || p.host || '');
+  switch (event) {
+    case 'device_offline':
+    case 'device_online':
+      // Open the device's detail modal directly if we have the id
+      return devId
+        ? `openDetail('${devId}','${devName}')`
+        : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
+    case 'drift_detected':
+      // Drift page + auto-open the per-device drift detail modal
+      return devId
+        ? `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'));setTimeout(()=>openDriftDetail('${devId}','${devName}'),100)`
+        : `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'))`;
+    case 'cve_found':
+      return `showPage('cve',document.querySelector('.nav-btn[onclick*=cve]'))`;
+    case 'patch_alert':
+      return `showPage('patches',document.querySelector('.nav-btn[onclick*=patches]'))`;
+    case 'monitor_down':
+    case 'monitor_up':
+      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
+    case 'service_down':
+    case 'service_up':
+      return `showPage('services',document.querySelector('.nav-btn[onclick*=services]'))`;
+    case 'container_stopped':
+    case 'container_restarting':
+    case 'containers_stale':
+      return `showPage('containers',document.querySelector('.nav-btn[onclick*=containers]'))`;
+    case 'log_alert':
+      return `showPage('logs',document.querySelector('.nav-btn[onclick*=logs]'))`;
+    case 'metric_warning':
+    case 'metric_critical':
+    case 'metric_recovered':
+      // The Monitor page hosts the per-device metric dashboards
+      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
+    case 'command_queued':
+    case 'command_executed':
+      return `showPage('history',document.querySelector('.nav-btn[onclick*=history]'))`;
+    default:
+      // Fallback: device detail if we know the device, otherwise
+      // nothing happens
+      return devId ? `openDetail('${devId}','${devName}')` : '';
+  }
+}
+
+function _renderHomeFleet(devs) {
+  const target = document.getElementById('home-fleet');
+  if (!target) return;
+  if (devs.length === 0) {
+    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+      <div class="empty-state-icon">📦</div>
+      <div class="empty-state-title">No devices enrolled yet</div>
+      <div class="empty-state-body">Once you enroll your first device, you'll see its 7-day status stripe here.</div>
+    </div>`;
+    return;
+  }
+  // For each device, compute 7-day status from history if available,
+  // otherwise show "up" or "down" based on current state (degrades
+  // gracefully). _statusHistory could be ingested from a metrics
+  // history endpoint in a future release — today we mock from current
+  // state.
+  target.innerHTML = devs.slice(0, 30).map(d => {
+    // Today's cell is current state; preceding 6 cells default to
+    // 'unknown' until we have real history.
+    const todayCell = d.online ? 'up' : 'down';
+    const history = ['unknown','unknown','unknown','unknown','unknown','unknown', todayCell];
+    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid var(--border)">
+      <div style="flex:1;font-size:13px;display:flex;align-items:center;gap:6px">
+        ${getDistroIcon(d.os)}
+        <strong>${escHtml(d.name)}</strong>
+        ${d.group ? `<span style="color:var(--muted);font-size:11px">${escHtml(d.group)}</span>` : ''}
+      </div>
+      <div>${renderStatusStripe(history)}</div>
+      <div style="width:80px;text-align:right;font-size:11px;color:var(--muted)">
+        ${d.online ? '<span style="color:var(--green)">● online</span>' : '<span style="color:var(--red)">● offline</span>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── v2.2.1: ✨ identity extension ──────────────────────────────────────
+//
+// Stamps every ✨ button across the app with the .ai-btn class plus a
+// provider-tinted variant (`.available` for cloud providers, `.local`
+// for Ollama/LocalAI). The CSS adds a subtle animated glow.
+//
+// Cache the AI config so we don't fetch on every render; refresh once
+// per app session, and on settings save.
+
+window._aiConfigCache = null;
+
+async function _getAiConfigCached() {
+  if (window._aiConfigCache !== null) return window._aiConfigCache;
+  try {
+    const cfg = await api('GET', '/ai/config');
+    if (cfg && cfg.enabled && cfg.provider) {
+      // Local providers: ollama, localai, lmstudio, anything with a base_url
+      // pointing to 127.0.0.1 / 10.* / 192.168.* / local hostnames.
+      const provider = (cfg.provider || '').toLowerCase();
+      const url = (cfg.base_url || '').toLowerCase();
+      const isLocal = ['ollama', 'localai', 'lmstudio', 'llama.cpp'].includes(provider) ||
+                      /127\.0\.0\.1|localhost|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\./.test(url);
+      window._aiConfigCache = {enabled: true, isLocal};
+    } else {
+      window._aiConfigCache = {enabled: false, isLocal: false};
+    }
+  } catch (e) {
+    window._aiConfigCache = {enabled: false, isLocal: false};
+  }
+  return window._aiConfigCache;
+}
+
+async function applyAiIdentity() {
+  const cfg = await _getAiConfigCached();
+  if (!cfg.enabled) return;
+  // Find every ✨ button — text content contains the sparkle character —
+  // and stamp the class. Idempotent: querySelectorAll re-finds them on
+  // each render, but adding a class twice is a no-op.
+  document.querySelectorAll('button, .btn-icon').forEach(btn => {
+    const t = btn.textContent || '';
+    if (t.indexOf('✨') >= 0) {
+      btn.classList.add('ai-btn');
+      btn.classList.add(cfg.isLocal ? 'local' : 'available');
+    }
+  });
+}
+
+// Hook into MutationObserver so any newly rendered content gets the
+// treatment without callers having to remember to call applyAiIdentity.
+// Throttled: at most once per 400ms, since renders can be bursty.
+(function _setupAiIdentityObserver() {
+  let pending = false;
+  const trigger = () => {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => {
+      pending = false;
+      applyAiIdentity().catch(() => {});
+    }, 400);
+  };
+  // Wait for DOM ready before attaching the observer
+  const attach = () => {
+    if (document.readyState !== 'loading' && document.body) {
+      new MutationObserver(trigger).observe(document.body, {
+        childList: true, subtree: true,
+      });
+      // Initial application
+      applyAiIdentity().catch(() => {});
+    } else {
+      setTimeout(attach, 50);
+    }
+  };
+  attach();
+})();
+
+// Helper: render the three-sparkle "thinking" indicator for AI loading
+// states. Replaces the generic spinner in AI-aware modals.
+function aiThinkingHtml() {
+  return '<span class="ai-thinking"><span class="sparkle">✨</span><span class="sparkle">✨</span><span class="sparkle">✨</span></span>';
+}
+
+// ─── v2.2.1: helper used by per-row hover affordances ───────────────────
+//
+// "Logs" hover action: navigate to the Logs page, pre-set the device
+// filter dropdown to the clicked device, and trigger a load. Falls
+// back to opening the detail modal if the Logs page or filter aren't
+// in the DOM (older HTML).
+
+function openLogsForDevice(devId, devName) {
+  // Click the Logs nav button so showPage's sidebar-expand logic fires
+  const navBtn = document.querySelector('.nav-btn[onclick*="\'logs\'"]');
+  if (navBtn) {
+    showPage('logs', navBtn);
+  } else {
+    // Fallback — open detail modal which shows journal too
+    openDetail(devId, devName);
+    return;
+  }
+  // Wait for the page to mount, then set the device filter to this device
+  setTimeout(() => {
+    const sel = document.getElementById('logs-device-filter');
+    if (sel) {
+      // The select is populated by enterLogsPage(); it may not have
+      // the option yet on first paint. Poll briefly.
+      let attempts = 0;
+      const tryApply = () => {
+        attempts++;
+        const opt = Array.from(sel.options).find(o => o.value === devId);
+        if (opt) {
+          sel.value = devId;
+          if (typeof onLogFilterChange === 'function') onLogFilterChange();
+        } else if (attempts < 12) {
+          setTimeout(tryApply, 150);
+        }
+      };
+      tryApply();
+    }
+  }, 100);
+}
+
+// ─── v2.2.1: mobile nav burger toggle ───────────────────────────────────
+//
+// Mobile (<720px) hides the sidebar by default and reveals it via the
+// burger button in the header. Toggle adds/removes a class on body;
+// CSS handles the slide-in animation and the dimmed overlay.
+
+function toggleMobileNav() {
+  document.body.classList.toggle('mobile-nav-open');
+}
+
+// Closing on any nav-btn click — once you've picked a destination, the
+// sidebar should get out of the way. Listen at document level so the
+// hookup survives sidebar re-renders.
+document.addEventListener('click', e => {
+  if (!document.body.classList.contains('mobile-nav-open')) return;
+  const btn = e.target.closest('.nav-btn');
+  if (btn) {
+    document.body.classList.remove('mobile-nav-open');
+  }
+  // Also close on overlay click (the ::after pseudo)
+  if (e.target === document.body && window.innerWidth <= 720) {
+    document.body.classList.remove('mobile-nav-open');
+  }
+});
+
+// ─── v2.2.1: Drift diff modal ──────────────────────────────────────────
+//
+// Opens a sub-modal over the drift detail modal. Shows the actual
+// difference between two captured snapshots of a watched file.
+//
+// Flow:
+//   - openDriftDiff(devId, path) appends the modal to body, calls GET
+//     /drift/content?path=... to retrieve any already-captured content.
+//   - If there are 2 captures: render diff between them immediately.
+//   - If there's 1: show it as "Captured baseline" + offer "Fetch current".
+//   - If there are 0: offer "Fetch content" (queues exec:cat <path>).
+//   - Polling after fetch: every 5s up to 60s for the agent to phone
+//     home with the output. The agent's poll_interval (default 60s)
+//     dictates the realistic wait time.
+
+let _driftDiffModal = null;
+
+function _ensureDriftDiffModal() {
+  if (_driftDiffModal) return _driftDiffModal;
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.id = 'drift-diff-modal';
+  wrap.style.zIndex = '1010';  // above the parent drift detail modal
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
+      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div id="drift-diff-title" style="font-weight:600">Drift diff</div>
+          <div id="drift-diff-path" style="font-family:var(--font-mono);font-size:11px;color:var(--muted)"></div>
+        </div>
+        <button class="btn-icon" onclick="closeDriftDiff()" style="padding:4px 8px">✕</button>
+      </div>
+      <div id="drift-diff-body" style="flex:1;overflow:auto;padding:14px 18px;font-size:13px">
+        <div style="color:var(--muted)">Loading…</div>
+      </div>
+      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-icon" id="drift-diff-fetch-btn" onclick="driftFetchCurrent()">Fetch current content</button>
+        <span id="drift-diff-status" style="font-size:12px;color:var(--muted)"></span>
+        <div style="flex:1"></div>
+        <button class="btn-icon" onclick="closeDriftDiff()">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  _driftDiffModal = wrap;
+  return wrap;
+}
+
+let _driftDiffCurrent = null;
+let _driftDiffPollHandle = null;
+
+function closeDriftDiff() {
+  if (_driftDiffModal) _driftDiffModal.classList.remove('active');
+  if (_driftDiffPollHandle) {
+    clearInterval(_driftDiffPollHandle);
+    _driftDiffPollHandle = null;
+  }
+  _driftDiffCurrent = null;
+}
+
+async function openDriftDiff(devId, path) {
+  _ensureDriftDiffModal();
+  _driftDiffModal.classList.add('active');
+  _driftDiffCurrent = {devId, path, startedAt: Date.now()};
+  document.getElementById('drift-diff-title').textContent = 'Drift diff';
+  document.getElementById('drift-diff-path').textContent = path;
+  document.getElementById('drift-diff-status').textContent = '';
+  document.getElementById('drift-diff-fetch-btn').disabled = false;
+  await _refreshDriftDiff();
+}
+
+async function _refreshDriftDiff() {
+  if (!_driftDiffCurrent) return;
+  const {devId, path} = _driftDiffCurrent;
+  const body = document.getElementById('drift-diff-body');
+  try {
+    const data = await api('GET',
+      `/devices/${encodeURIComponent(devId)}/drift/content?path=${encodeURIComponent(path)}`);
+    if (!data) {
+      body.innerHTML = '<div style="color:var(--red);padding:20px">Failed to load captures.</div>';
+      return;
+    }
+    if (data.denied) {
+      body.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon">🔒</div>
+        <div class="empty-state-title">Content retrieval refused</div>
+        <div class="empty-state-body">${escHtml(data.error || 'Path is on the drift-content denylist.')}</div>
+      </div>`;
+      document.getElementById('drift-diff-fetch-btn').style.display = 'none';
+      return;
+    }
+    const captures = data.captures || [];
+    if (captures.length === 0) {
+      body.innerHTML = `<div class="empty-state">
+        <div class="empty-state-icon">○</div>
+        <div class="empty-state-title">No content captured yet</div>
+        <div class="empty-state-body">
+          Click <strong>Fetch current content</strong> to queue a <code>cat ${escHtml(path)}</code>
+          command on the device. After the agent's next heartbeat (typically within
+          ~60 seconds) the output arrives and is stored for the diff.
+          <br><br>
+          The first fetch becomes the baseline. A second fetch after another change
+          will give you a real before/after diff.
+        </div>
+      </div>`;
+    } else if (captures.length === 1) {
+      const c = captures[0];
+      const ts = new Date(c.ts * 1000).toLocaleString();
+      body.innerHTML = `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          One capture so far · ${ts} · rc=${c.rc} · ${c.sha256.substring(0, 27)}…
+          <br>
+          Fetch again after another change to see a diff between the two captures.
+        </div>
+        <div class="diff-view">${c.content.split('\n').map((l, i) =>
+          `<div class="diff-line"><span class="ln">${i+1}</span><span class="marker"> </span>${escHtml(l)}</div>`
+        ).join('')}</div>`;
+    } else {
+      // ≥2 captures — diff the newest two
+      const newer = captures[captures.length - 1];
+      const older = captures[captures.length - 2];
+      const olderTs = new Date(older.ts * 1000).toLocaleString();
+      const newerTs = new Date(newer.ts * 1000).toLocaleString();
+      body.innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:var(--muted);margin-bottom:10px">
+          <div><span style="color:var(--red)">− Older</span> · ${olderTs} · rc=${older.rc}<br>
+            <code style="font-size:10px">${older.sha256.substring(0, 27)}…</code></div>
+          <div><span style="color:var(--green)">+ Newer</span> · ${newerTs} · rc=${newer.rc}<br>
+            <code style="font-size:10px">${newer.sha256.substring(0, 27)}…</code></div>
+        </div>
+        ${renderDiff(older.content, newer.content)}`;
+    }
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escHtml(String(e))}</div>`;
+  }
+}
+
+async function driftFetchCurrent() {
+  if (!_driftDiffCurrent) return;
+  const {devId, path} = _driftDiffCurrent;
+  const fetchBtn = document.getElementById('drift-diff-fetch-btn');
+  const status   = document.getElementById('drift-diff-status');
+  fetchBtn.disabled = true;
+  status.textContent = 'Queued — waiting for agent…';
+  try {
+    const resp = await api('POST',
+      `/devices/${encodeURIComponent(devId)}/drift/fetch_content`,
+      {paths: [path]});
+    if (!resp || !resp.ok) {
+      status.textContent = 'Failed to queue fetch';
+      fetchBtn.disabled = false;
+      return;
+    }
+    if ((resp.denied || []).includes(path)) {
+      status.textContent = 'Denied: ' + path + ' is on the content denylist';
+      fetchBtn.style.display = 'none';
+      return;
+    }
+    if ((resp.not_watched || []).includes(path)) {
+      status.textContent = 'Path is not in the watched-files list for this device';
+      fetchBtn.disabled = false;
+      return;
+    }
+
+    // Poll until we have a new capture (or 90 s elapses). 5 s
+    // intervals — matches typical agent heartbeat granularity.
+    const startCaptures = await _captureCount(devId, path);
+    let attempts = 0;
+    const maxAttempts = 18;   // 18 × 5 s = 90 s
+    if (_driftDiffPollHandle) clearInterval(_driftDiffPollHandle);
+    _driftDiffPollHandle = setInterval(async () => {
+      attempts++;
+      const now = await _captureCount(devId, path);
+      if (now > startCaptures) {
+        clearInterval(_driftDiffPollHandle);
+        _driftDiffPollHandle = null;
+        status.textContent = 'Captured ✓';
+        fetchBtn.disabled = false;
+        _refreshDriftDiff();
+      } else if (attempts >= maxAttempts) {
+        clearInterval(_driftDiffPollHandle);
+        _driftDiffPollHandle = null;
+        status.textContent = 'Timed out — agent did not phone home in 90 s. Try again.';
+        fetchBtn.disabled = false;
+      } else {
+        status.textContent = `Queued — waiting for agent… (${attempts * 5}s)`;
+      }
+    }, 5000);
+  } catch (e) {
+    status.textContent = 'Error: ' + String(e);
+    fetchBtn.disabled = false;
+  }
+}
+
+async function _captureCount(devId, path) {
+  try {
+    const data = await api('GET',
+      `/devices/${encodeURIComponent(devId)}/drift/content?path=${encodeURIComponent(path)}`);
+    return (data && data.captures && data.captures.length) || 0;
+  } catch (e) {
+    return 0;
+  }
+}

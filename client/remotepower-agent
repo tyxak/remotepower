@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.1.9'
+VERSION      = '2.2.5'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -38,6 +38,16 @@ PATCH_EVERY        = 180
 UPDATE_CHECK_EVERY = 60
 PACKAGE_LIST_EVERY = 360          # ≈ 6 hours at 60s poll
 MAX_PACKAGES_SEND  = 10000        # matches server-side cap
+
+# v2.2.0: configuration drift detection. Hash a small list of watched
+# files every DRIFT_EVERY polls (~1 hour at 60s) and ship the hashes to
+# the server. The server compares against its stored baseline. Cheap:
+# typical watched list has 5-15 small files (sshd_config, sudoers etc.),
+# total hashing time well under 100 ms.
+DRIFT_EVERY        = 60
+MAX_DRIFT_FILES    = 200          # matches server-side cap; defends
+                                  # against an over-eager watched list
+MAX_FILE_SIZE_HASH = 5 * 1024 * 1024   # don't try to hash files >5MB
 
 # v1.8.0: service monitoring + log tail
 SERVICE_CHECK_EVERY = 1           # every poll — cheap
@@ -1378,6 +1388,65 @@ def _run_container_action(cmd):
     except Exception as e:
         return {'cmd': cmd, 'output': f'{runtime} {action} failed: {e}', 'rc': -1}
 
+
+def compute_drift_report(paths):
+    """v2.2.0: hash each watched file, return dict suitable for shipping
+    in the heartbeat payload. Each entry has:
+      hash:   "sha256:<hex>" or None if the file is missing
+      size:   int or None
+      mtime:  int (epoch seconds) or None
+      exists: bool — distinguishes missing-and-was-here from
+              never-existed; both look the same in current_hash but the
+              server uses this to render "file removed" in the UI.
+
+    Errors per-file are silently logged + the entry is still emitted
+    with exists=False so the server can render "unreadable" — better
+    than silently dropping a file that may have been moved or chmod-ed
+    out from under the agent.
+    """
+    out = {}
+    for p in (paths or [])[:MAX_DRIFT_FILES]:
+        try:
+            st = os.stat(p)
+        except FileNotFoundError:
+            out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
+            continue
+        except (PermissionError, OSError) as e:
+            log.debug(f"drift: stat({p}) failed: {e}")
+            out[p] = {'hash': None, 'size': None, 'mtime': None, 'exists': False}
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            # Don't try to hash directories, sockets, etc.
+            out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
+                      'exists': True, 'note': 'not_regular_file'}
+            continue
+        if st.st_size > MAX_FILE_SIZE_HASH:
+            # Avoid hashing huge files. Use size+mtime as a poor-man's
+            # change indicator; full hash skipped.
+            out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
+                      'exists': True, 'note': 'too_large'}
+            continue
+        try:
+            h = hashlib.sha256()
+            with open(p, 'rb') as fh:
+                while True:
+                    chunk = fh.read(65536)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            out[p] = {
+                'hash':   'sha256:' + h.hexdigest(),
+                'size':   st.st_size,
+                'mtime':  int(st.st_mtime),
+                'exists': True,
+            }
+        except (PermissionError, OSError) as e:
+            log.debug(f"drift: read({p}) failed: {e}")
+            out[p] = {'hash': None, 'size': st.st_size, 'mtime': int(st.st_mtime),
+                      'exists': True, 'note': 'read_failed'}
+    return out
+
+
 # ─── Heartbeat loop ─────────────────────────────────────────────────────────────
 def heartbeat(creds, interval=POLL_INTERVAL):
     server = creds['server_url']; dev_id = creds['device_id']; token = creds['token']
@@ -1388,6 +1457,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v1.8.0: server pushes watched services + log rules in heartbeat response
     services_watched = []
     log_watch_rules  = []
+    # v2.2.0: server pushes watched files for drift detection. Empty list
+    # before the first heartbeat completes — first heartbeat brings them
+    # in, second heartbeat sends the first drift report.
+    watched_files = []
 
     # Detect if this is a fresh boot (first heartbeat after restart)
     boot_reason_file = Path('/tmp/remotepower-last-cmd')
@@ -1488,6 +1561,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'Service check error: {e}')
 
+        # v2.2.0: compute drift report every DRIFT_EVERY polls. Cheap —
+        # SHA-256 of a few small config files takes well under 100 ms
+        # on any reasonable hardware. Skipped on poll 1 because we
+        # haven't yet received the watched_files list from the server;
+        # poll 2 (about 60s in) ships the first report.
+        if watched_files and poll_count > 1 and (
+            poll_count == 2 or poll_count % DRIFT_EVERY == 0
+        ):
+            try:
+                payload['drift'] = compute_drift_report(watched_files)
+                log.debug(f'Drift report: hashed {len(payload["drift"])} files')
+            except Exception as e:
+                log.debug(f'Drift report error: {e}')
+
         # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
         # Same cadence as services. Skipping the first heartbeat is fine —
         # it'd otherwise fire 0.1s after enrollment and confuse new users
@@ -1562,6 +1649,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 if new_lw != log_watch_rules:
                     log.info(f'Config updated: log_watch rules = {len(new_lw)}')
                 log_watch_rules = new_lw
+            # v2.2.0: configuration drift detection — the server pushes the
+            # list of files we should hash. Empty list means drift is
+            # disabled for this device.
+            if 'watched_files' in resp:
+                new_wf = resp.get('watched_files') or []
+                if new_wf != watched_files:
+                    log.info(f'Config updated: watched_files = {len(new_wf)} file(s)')
+                watched_files = new_wf
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)

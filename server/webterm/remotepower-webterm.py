@@ -98,7 +98,7 @@ except ImportError:
     print("  pip:           pip install 'asyncssh>=2.10'", file=sys.stderr)
     sys.exit(2)
 
-VERSION = '2.1.9'
+VERSION = '2.2.5'
 
 # ─── Defaults — overridable via CLI ──────────────────────────────────────────
 

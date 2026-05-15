@@ -48,6 +48,21 @@ for f in "$SCRIPT_DIR"/server/html/*.html; do
     echo "      → $name"
 done
 
+# v2.2.5: deploy root-level non-HTML assets (favicon.png, robots.txt, etc).
+# The HTML loop above only catches *.html; before 2.2.5 favicon.png at the
+# document root never got published, so /favicon.png returned 404 in the
+# browser. The favicon MUST stay at the root — not under /static/ — so
+# browsers find it via the conventional /favicon.png URL without a
+# <link rel="icon"> tag detour.
+for f in "$SCRIPT_DIR"/server/html/favicon.* \
+         "$SCRIPT_DIR"/server/html/robots.txt \
+         "$SCRIPT_DIR"/server/html/manifest.json; do
+    [[ -f "$f" ]] || continue
+    name="$(basename "$f")"
+    install -m 644 "$f" /var/www/remotepower/"$name"
+    echo "      → $name"
+done
+
 # v2.0: deploy /static/ tree (logos, future CSS/JS extraction targets).
 # rsync rather than cp -r so re-runs don't fail on existing-dir.
 if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then

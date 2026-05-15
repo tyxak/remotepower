@@ -132,6 +132,11 @@ class TestHtmlIdReferences(unittest.TestCase):
         'runbook-modal', 'runbook-modal-body', 'runbook-modal-title',
         'runbook-modal-meta', 'runbook-modal-copy', 'runbook-modal-regen',
         'runbook-modal-elapsed', 'detail-runbook-section',
+        # v2.2.0: Created via document.createElement in _ensureDriftModal()
+        'drift-detail-modal', 'drift-detail-body', 'drift-detail-title',
+        # v2.2.1: Created via document.createElement in _ensureDriftDiffModal()
+        'drift-diff-modal', 'drift-diff-body', 'drift-diff-title',
+        'drift-diff-path', 'drift-diff-fetch-btn', 'drift-diff-status',
         # Toast container created on first toast()
         'toast-container',
     }

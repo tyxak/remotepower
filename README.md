@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.1.9-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -88,77 +88,70 @@ The demo is reset every few hours, so feel free to break things.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
-## What's new in 2.1.9
+## What's new in 2.2.5
 
-**Hotfix**: the runbook generator was hallucinating wildly on
-smaller local models (Ollama qwen2.5-coder:14b reported services
-and firewall rules that weren't in the device snapshot). Three
-compounding causes — all fixed:
+Five UX fixes from live driving of the 2.2.4 dashboard.
 
-1. Ollama defaults to a 2048-token context window on its
-   OpenAI-compat endpoint. The snapshot was being truncated and
-   the model invented the rest. Now passes `num_ctx=16384`.
-2. The v2.1.7 runbook prompt was too elaborate. Rewritten with
-   explicit `CRITICAL RULES`: "Use ONLY information from the
-   snapshot. Do NOT invent…"
-3. The snapshot itself was too big (up to 25 KB). Tightened to ~8
-   KB.
+- **Container width 1100 → 1300 px.** Dashboard data density grew
+  through the 2.2 cycle; 1300 fits 4 Home tiles + wide tables
+  comfortably on standard 1920 monitors.
+- **Tables and grids gain scroll wrap above 20 rows.** Sticky
+  thead keeps column headers pinned. Devices card-grid view also
+  picks up the same threshold.
+- **Home → Recent activity items are clickable.** Each event
+  routes to the most relevant page or modal for its class. Drift,
+  CVE, monitors, services, containers, logs, history — they all
+  have explicit routing cases.
+- **Favicon publishing fixed in deploy-server.sh.** The
+  `*.html` glob in the deploy loop meant root favicon.png was
+  never being copied to `/var/www/remotepower/`; `/favicon.png`
+  returned 404. Now explicitly handled.
+- **Detail / Logs / Run hover strip removed entirely.** The row
+  dropdown chevron and the "click name → open detail" pattern
+  cover the same actions without the hover-only fiddliness.
 
-**Plus**: demo URL fixed everywhere to `demoremote.tvipper.com`.
+Release notes: **[docs/v2.2.5.md](docs/v2.2.5.md)**.
 
-If you generated runbooks on 2.1.7 / 2.1.8 with a local model and
-they looked wrong, that's this bug. Regenerate via the **✨
-Regenerate** button on each device's detail modal.
+## What's new in 2.2.4
 
-Release notes: **[docs/v2.1.9.md](docs/v2.1.9.md)**.
+Two real-world bugs from live testing of the Home dashboard.
 
-## What's new in 2.1.8
+- **Recent fleet events panel was empty even after device_offline
+  fired.** The previous implementation read from the webhook
+  delivery log, which only records events that had at least one
+  destination. Events firing on a server with only SMTP
+  configured (and `device_offline` email not enabled by default)
+  vanished into the void. v2.2.4 adds a dedicated
+  `data/fleet_events.json` that records every fired event
+  regardless of destinations, plus a new
+  `GET /api/fleet/events?limit=N` endpoint readable by viewers.
+  `test` events excluded; payload summarised.
+- **Unmonitored devices appeared in "Needs attention".**
+  Operators explicitly set `monitored: false` to silence a host
+  (decommissioned, dev boxes, hosts being rebuilt) — these
+  shouldn't drive the dashboard either. Now filtered out from
+  offline detection, patch backlog, and drift cross-reference.
 
-**Hotfix**: the AI fleet context was reporting every device as
-offline, even ones with live heartbeats. Was reading the derived
-`online` field directly from `devices.json` — but that field isn't
-persisted; it's computed on-the-fly by the device-list handler. So
-the AI saw `online=None` for everything and labelled the whole
-fleet offline.
+Release notes: **[docs/v2.2.4.md](docs/v2.2.4.md)**.
 
-If you ever asked the AI about a specific device and it said
-"Status: Offline" when the dashboard showed green — that's this
-bug. Upgrade and the next AI call will see real state. Worth
-regenerating any ✨ runbooks that mention offline status; those
-were written under the bug.
+## What's new in 2.2.3
 
-Five new regression tests so this can't recur. Total: 746 tests.
+Hotfix to the Home dashboard activity panel. Operator-triggered
+SMTP and webhook tests (event = `test`) were drowning real fleet
+events under repeated rows like *"test (email) 1 recipient(s):
+smtp_host is empty"*. v2.2.3 filters the activity feed to the
+canonical fleet events only — device offline/online, drift
+detected, CVE found, monitor down, container stopped, metric
+critical, etc. Tests stay in the underlying webhook log
+(Settings → Webhook log) but no longer pollute the dashboard.
 
-Release notes: **[docs/v2.1.8.md](docs/v2.1.8.md)**.
+Contract test (`test_v223.TestActivityFilter`) asserts the JS
+allowlist is exactly equal to the server's `WEBHOOK_EVENTS`
+tuple — if a future commit adds a new event to the server
+without updating the JS, the dashboard silently dropping it
+surfaces as a test failure.
 
-## What's new in 2.1.7
-
-**AI-generated device runbooks.** New **✨ Generate runbook** action
-on each device produces a structured operations document from the
-host's current state — what's installed, what services are running,
-what's exposed, what runs on cron, recent activity, and anything
-worth knowing. Saved per-device, regenerable any time. Updates
-itself as the fleet changes.
-
-**Smarter AI context.** Every AI call now includes a compact summary
-of RemotePower itself (what this tool is, the API shape, the
-conventions) plus a one-line-per-device fleet summary as system
-context. The model stops giving generic Linux advice and starts
-giving advice that references *your* devices, *your* groups, *your*
-conventions. A "include fleet context" privacy toggle defaults on
-for local providers (Ollama / LocalAI) and off for cloud — you
-choose.
-
-**Documentation page**: in-app Documentation page now covers the
-script library, AI assistant, Generate-runbook workflow, and
-notification setup — the things people most often ask about that
-weren't on the page before.
-
-**Plus**: README now shows the demo URL (`https://demoremote.tvipper.com`,
-demo / demo) at the top; "What's new" trimmed to the latest three
-releases (full history is in CHANGES.md).
-
-Release notes: **[docs/v2.1.7.md](docs/v2.1.7.md)**.
+Release notes: **[docs/v2.2.3.md](docs/v2.2.3.md)**.
 
 **Older releases**: see [CHANGES.md](CHANGES.md) for the full history
 or [docs/](docs/) for the per-release notes (v2.1.3, v2.1.2, v2.1.1, v2.1.0,

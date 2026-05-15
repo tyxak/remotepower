@@ -26,6 +26,31 @@ holds long-form docs that don't fit there.
   Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
 
+## v2.2 features and release notes
+
+- **[v2.2.5.md](v2.2.5.md)** — 2.2.5 (container width 1300 px,
+  >20-row table scroll wrap, clickable activity items, favicon
+  deploy fix, hover-affordance strip removed).
+- **[v2.2.4.md](v2.2.4.md)** — 2.2.4 fix (dedicated fleet event log
+  so events show on Home regardless of webhook/email config;
+  unmonitored devices excluded from "Needs attention").
+- **[v2.2.3.md](v2.2.3.md)** — 2.2.3 hotfix (Home dashboard
+  activity panel filters out operator SMTP / webhook test entries).
+- **[v2.2.2.md](v2.2.2.md)** — 2.2.2 hotfix (hover-action focus
+  ring clipping; webhook log endpoint mismatch in Home dashboard;
+  pre-existing `handle_webhook_log` 500 on bare-list file shape).
+- **[v2.2.1.md](v2.2.1.md)** — 2.2.1 release notes (design polish:
+  distro logos, sparklines, refined palette, skeleton loaders,
+  Home dashboard, ✨ identity extended, typography upgrade, hover
+  affordances, mobile layout, drift diff visualisation).
+- **[v2.2.0.md](v2.2.0.md)** — 2.2.0 release notes (configuration
+  drift detection + MCP server for natural-language fleet queries).
+- **[drift.md](drift.md)** — configuration drift detection: how
+  it works, what's watched, customising the list, re-baselining,
+  compliance angle.
+- **[mcp.md](mcp.md)** — MCP server setup, Claude Desktop config,
+  the 12 read-only tools, security model, troubleshooting.
+
 ## v2.1 features and release notes
 
 - **[v2.1.9.md](v2.1.9.md)** — 2.1.9 hotfix (runbook hallucination
