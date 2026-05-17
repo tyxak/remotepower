@@ -1,5 +1,170 @@
 # Changelog
 
+## v2.4.4 - 2026-05-17
+
+Fixes the 2.4.3 mailbox monitor (it never worked) + favicon.ico.
+
+- Mailbox monitor bug: the heartbeat handler read mailbox paths
+  from a `saved_dev` snapshot they were never copied into, so the
+  agent always got an empty list and never counted. Fixed.
+- favicon.ico restored — browsers auto-request it; only
+  favicon.png shipped before.
+- Mailbox config moved to Settings → Mailbox monitor (was on the
+  device detail). Dashboard view is now a tile matching the other
+  summary tiles.
+
+7 new tests, 1003 total, all passing.
+
+## v2.4.3 - 2026-05-17
+
+Added a lightweight mailbox monitor. Give a device directory
+paths; the agent counts the regular files in each (Maildir `new/`
+= one file per unread message) and reports the numbers — no
+IMAP/SMTP, no credentials, no message content. Configured per
+device in the detail view; a checkbox promotes a device so its
+counts show in a Home-dashboard widget. 14 new tests, 996 total,
+all passing. The agent change is unit-tested for logic but not
+verified end-to-end — smoke-test on one host first.
+
+## v2.4.2 - 2026-05-17
+
+Small features: a per-user default SSH username (Settings →
+Security → SSH preferences); a quick-SSH icon on each Devices-page
+row that builds an ssh://user@host link (IP or hostname) and
+copies `ssh user@host` to the clipboard; and four new
+Documentation-page cards (Proxmox virtualization, LXC, snapshots/
+rollback, quick SSH). 11 new tests, 982 total, all passing.
+
+## v2.4.1 - 2026-05-17
+
+Bugfix: the CVE severity fixes in 2.3.4/2.4.0 couldn't reach
+findings already in cve_details_cache.json. Cache entries written
+by a pre-2.3.4 RemotePower carry old buggy severities and no
+`severity_source` field; the TTL-only refresh gate kept serving
+them (symptom: `severity: critical` with `severity_source:
+unknown`). Now any entry missing `severity_source` is treated as
+stale regardless of TTL and re-fetched + re-classified — self-
+healing, no manual cache wipe. 3 new tests, 971 total, all
+passing.
+
+## v2.4.0 - 2026-05-17
+
+Proxmox snapshots + CVE fix.
+
+- Proxmox VM/LXC snapshots: create / list / rollback / delete,
+  via a Snapshots button on each guest. Rollback (destructive)
+  requires typing the guest name; delete is irreversible but
+  doesn't affect the running guest. Disk-only snapshots.
+- CVE fix: Debian Security Tracker `urgency` was mapped straight
+  to severity, so a Debian `high` urgency / CVSS-Medium CVE
+  (DEBIAN-CVE-2018-1000021) showed as HIGH. Debian urgency is a
+  patching-priority signal, not CVSS severity — the fallback is
+  now capped at `medium`.
+
+17 new tests, 968 total, all passing. Proxmox snapshots are not
+yet tested against a live node — see docs/v2.4.0.md.
+
+## v2.3.4 - 2026-05-17
+
+Fleet bugfixes.
+
+- CVE severity fix: the CVSS scorer matched `AC:H` (Attack
+  Complexity) as `C:H` (Confidentiality) via substring matching,
+  scoring every high-complexity CVE as HIGH. Now uses the real
+  CVSS v3.1 formula; CVSS <4.0 can never be HIGH. Findings record
+  a `severity_source`.
+- Unmonitored devices no longer appear in Recent Activity.
+- Drift: watched files can be marked ignored (non-critical, still
+  visible) — fixes false positives like an absent
+  /etc/pam.d/common-auth.
+- Services + Logs nav moved from Security to Main.
+
+Time-range report (#3) investigated — no regression found.
+Mobile render deprioritised per the issue list. 951 tests passing.
+
+## v2.3.3 - 2026-05-17
+
+Bugfix: the Virtualization page (added in 2.3.0) was
+undiscoverable — its nav entry was hidden until Proxmox was
+enabled, but Proxmox is enabled from Settings, so the feature
+couldn't be found. The nav entry is now always visible; the page
+shows a "configure under Settings" message until set up. 940
+tests passing. (A separate broken-mobile-render report is not
+fixed here — it needs the browser console error to diagnose.)
+
+## v2.3.2 - 2026-05-17
+
+Security release — no new features. Result of a focused security
+review (docs/security-review-2.3.2.md).
+
+- Password hashing fallback hardened: bare unsalted SHA-256 (used
+  when bcrypt is absent) replaced with salted PBKDF2-HMAC-SHA256,
+  600k iterations. Legacy hashes still verify, upgrade on next
+  login.
+- Bare-metal default password (`admin`/`remotepower`) now stored
+  with a salted hash and flagged — the UI shows a persistent
+  warning banner until it's changed.
+
+11 new tests, 940 total, all passing.
+
+## v2.3.1 - 2026-05-17
+
+Security release. Proxmox API token secret can now be supplied via
+the `RP_PROXMOX_TOKEN_SECRET` environment variable (takes
+precedence over config.json — keeps the secret out of the data
+dir and the backup). Backup export now redacts secrets from
+config.json (Proxmox token, SMTP password, LDAP bind password) —
+previously a backup ZIP carried live credentials. 8 new tests,
+929 total, all passing.
+
+## v2.3.0 - 2026-05-17
+
+Proxmox VE integration. New Virtualization page lists QEMU VMs
+(start / graceful-shutdown); Proxmox LXC containers appear on the
+Containers page. Server-to-API — RemotePower calls the Proxmox
+REST API directly, no agent on the node. Configured under
+Settings → Proxmox (host, node, API token, TLS toggle). New
+stdlib-only `proxmox_client.py`. Action allow-list — start/
+shutdown/status only, no migrate/clone/delete.
+
+28 new tests, 921 total, all passing. Not yet tested against a
+live Proxmox node — see docs/v2.3.0.md caveats.
+
+## v2.2.7 - 2026-05-17
+
+Mobile hotfix — the navigation drawer was a wide panel of
+unlabelled mystery icons (two CSS blocks fighting below 720px).
+Icon-rail block removed; drawer is now the single mobile layout
+with labels and alignment restored. 893 tests passing.
+
+## v2.2.6 - 2026-05-16
+
+Correctness + telemetry release.
+
+### Fixed
+
+- CVE scanner no longer reports already-patched packages as
+  vulnerable — added a `dpkg`-aware installed-vs-fixed version
+  gate (`_already_patched`), fail-safe on uncertainty.
+- Docker: random admin password generated + printed once (no more
+  `changeme`); healthcheck switched off the missing `curl`; nginx
+  MIME-dupe warning removed.
+- `remotepower-passwd` empty-default username bug.
+- Mobile modal/window stacking — z-index scale normalised, modal
+  opens close the nav drawer + lock scroll.
+
+### Added
+
+- Drift: 5 more default watched files; dormant handling for files
+  absent from the host (stops the perpetual false-drift nag).
+- Agent host-health telemetry: reboot-required, failed units,
+  logged-in users, listening ports, last boot.
+- Container CPU/memory + health badge from `docker stats`.
+
+### Tests
+
+- `test_v226.py`: 22 new tests. Total: **887, all passing.**
+
 ## v2.2.5 - 2026-05-15
 
 Five UX fixes from live driving of the 2.2.4 dashboard.

@@ -1235,12 +1235,12 @@
   .login-btn:hover { background: var(--accent2); }
   .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
   .login-error.show { display: block; }
-  @media (max-width: 768px) {
-    .sidebar { width: 56px; padding: 72px 6px 16px; }
-    .sidebar .nav-btn span, .sidebar .sidebar-label { display: none; }
-    .sidebar .nav-btn { justify-content: center; padding: 10px; }
-    .app-content { margin-left: 56px; }
-  }
+  /* v2.2.7: the 768px sidebar icon-rail block was removed here.
+   * It collided with the 720px mobile drawer block below — both
+   * applied under 720px, producing a wide drawer full of unlabelled
+   * mystery icons. The drawer (≤720px) is now the single mobile
+   * layout; 720–768px simply uses the normal desktop layout, which
+   * is fine at that width. */
   @media (max-width: 600px) {
     .stats-row { grid-template-columns: 1fr; }
     .devices-grid { grid-template-columns: 1fr; }
@@ -1875,19 +1875,44 @@ tr.has-hover-actions .row-actions { display: none; }
  * ═══════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 720px) {
-  /* Hide sidebar by default; reveal via the burger button */
+  /* Hide sidebar by default; reveal via the burger button.
+   *
+   * v2.2.7: this block is the mobile DRAWER. The separate 768px block
+   * above is the tablet ICON-RAIL (56px, labels hidden). Below 720px
+   * BOTH used to apply — the drawer became 240px wide but the 768px
+   * rules kept the nav labels hidden and the buttons centred, and the
+   * 72px top padding shoved every icon halfway down an empty panel.
+   * That was the "wide useless drawer of mystery icons" bug.
+   *
+   * Fix: this block now explicitly restores everything the 768px
+   * rail block strips — labels visible, buttons left-aligned, sane
+   * padding. These overrides come later in the file so they win. */
   .sidebar {
     position: fixed;
     top: 56px;
     left: 0;
     bottom: 0;
     width: 240px;
-    z-index: 80;
+    z-index: 810;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     overflow-y: auto;
     background: var(--surface);
     border-right: 1px solid var(--border);
+    /* Override the 768px rail's `72px 6px 16px` — the drawer already
+     * starts below the header at top:56px, so a big top padding just
+     * pushes the nav items down into dead space. */
+    padding: 12px 10px 16px;
+  }
+  /* Restore the nav labels + section headers the icon-rail hid. */
+  .sidebar .nav-btn span,
+  .sidebar .sidebar-group-toggle span { display: inline; }
+  .sidebar .sidebar-label { display: block; }
+  /* Left-align nav buttons again (the rail centred them as icons). */
+  .sidebar .nav-btn {
+    justify-content: flex-start;
+    padding: 10px 12px;
+    gap: 10px;
   }
   body.mobile-nav-open .sidebar { transform: translateX(0); }
   body.mobile-nav-open::after {
@@ -1895,7 +1920,7 @@ tr.has-hover-actions .row-actions { display: none; }
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
-    z-index: 79;
+    z-index: 800;
   }
 
   /* Show the burger button — hidden on desktop */
@@ -1913,11 +1938,12 @@ tr.has-hover-actions .row-actions { display: none; }
     cursor: pointer;
   }
 
-  /* Main content slides to the left edge */
-  main {
-    margin-left: 0 !important;
-    padding: 12px !important;
-  }
+  /* Main content takes the full width — the drawer is an overlay, so
+   * content must NOT keep a 56px left margin (the icon-rail's margin).
+   * Without this override the content sat 56px in from the edge with
+   * nothing in that strip. */
+  main { padding: 12px !important; }
+  .app-content { margin-left: 0 !important; }
   .container { padding: 0 !important; }
 
   /* Header gets compact */
@@ -2048,4 +2074,83 @@ tr.has-hover-actions .row-actions { display: none; }
 }
 .scrollable-grid-wrap::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.6 — z-index normalisation + mobile modal fixes
+ *
+ * The stacking order had grown organically and collided on mobile —
+ * "windows over each other". Notably the device dropdown menu sat at
+ * z-index 10000, ABOVE modal overlays at 200, so an open dropdown bled
+ * through any modal. And there was no body-scroll lock, so the page
+ * scrolled behind open modals on touch.
+ *
+ * Clean tier scale (low → high):
+ *   base content      1
+ *   sidebar (desktop) 90
+ *   header            100
+ *   dropdowns         200   ← was 10000, now firmly BELOW modals
+ *   mobile nav        800 / 810
+ *   modal (base)      1000
+ *   modal (nested)    1100  ← drift diff over drift detail
+ *   toast             2000
+ *
+ * These rules come last in the file so they win over the earlier
+ * declarations without needing !important everywhere.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Dropdowns must sit below modals — an open device-row menu bleeding
+ * through a modal was the most visible desktop+mobile stacking bug. */
+.device-dropdown.active            { z-index: 200; }
+.device-card:has(.device-dropdown.active) { z-index: 200; }
+.dropdown-content                  { z-index: 201; }
+.devices-minimal-table .dev-actions-cell .dropdown-content { z-index: 201; }
+.devices-minimal-table tbody tr:has(.device-dropdown.active) { z-index: 200; }
+.devices-minimal-table .dev-actions-cell .device-dropdown.active { z-index: 201; }
+
+/* Modal overlays — base tier. */
+.modal-overlay { z-index: 1000; }
+
+/* Mobile nav drawer + its dim overlay — above header, below modals. */
+@media (max-width: 720px) {
+  .sidebar                      { z-index: 810; }
+  body.mobile-nav-open::after   { z-index: 800; }
+}
+
+/* Toasts always on top — they're transient and must never be hidden. */
+.toast-container { z-index: 2000; }
+
+/* v2.2.6: body scroll lock while a modal is open. Without this the
+ * page behind the modal scrolls on touch, which on mobile reads as
+ * two windows moving independently — part of the reported bug. */
+body.modal-open {
+  overflow: hidden;
+  /* iOS Safari also needs position fixing to truly stop rubber-band
+   * scroll, but that loses scroll position; overflow:hidden is the
+   * pragmatic 90% fix without the scroll-jump side effect. */
+  touch-action: none;
+}
+/* The modal itself must still scroll internally. */
+body.modal-open .modal-overlay.active { touch-action: auto; }
+body.modal-open .modal { touch-action: auto; }
+
+/* Mobile: make modals true full-bleed sheets so a shorter modal can't
+ * leave an older modal peeking out behind it. Fully opaque background. */
+@media (max-width: 720px) {
+  .modal-overlay {
+    padding: 0 !important;
+    align-items: stretch;
+  }
+  .modal {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+    /* Opaque — no bleed-through from whatever is stacked below. */
+    background: var(--surface);
+  }
+  /* Nested modal (drift diff) sits above the base modal. */
+  #drift-diff-modal { z-index: 1100; }
 }

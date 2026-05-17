@@ -47,7 +47,11 @@ EXPOSE 8080
 
 VOLUME ["/var/lib/remotepower"]
 
+# v2.2.6: healthcheck uses Python (always present in this image) instead
+# of curl, which was never installed — the old healthcheck could never
+# succeed and the container always went "unhealthy" even when nginx was
+# serving fine.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -sf http://localhost:8080/ > /dev/null || exit 1
+    CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/',timeout=4).status==200 else 1)" || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

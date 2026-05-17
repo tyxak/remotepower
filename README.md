@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.2.5-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.4.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -88,70 +88,33 @@ The demo is reset every few hours, so feel free to break things.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
-## What's new in 2.2.5
+## What's new in 2.4.4
 
-Five UX fixes from live driving of the 2.2.4 dashboard.
+A bugfix-and-polish release.
 
-- **Container width 1100 → 1300 px.** Dashboard data density grew
-  through the 2.2 cycle; 1300 fits 4 Home tiles + wide tables
-  comfortably on standard 1920 monitors.
-- **Tables and grids gain scroll wrap above 20 rows.** Sticky
-  thead keeps column headers pinned. Devices card-grid view also
-  picks up the same threshold.
-- **Home → Recent activity items are clickable.** Each event
-  routes to the most relevant page or modal for its class. Drift,
-  CVE, monitors, services, containers, logs, history — they all
-  have explicit routing cases.
-- **Favicon publishing fixed in deploy-server.sh.** The
-  `*.html` glob in the deploy loop meant root favicon.png was
-  never being copied to `/var/www/remotepower/`; `/favicon.png`
-  returned 404. Now explicitly handled.
-- **Detail / Logs / Run hover strip removed entirely.** The row
-  dropdown chevron and the "click name → open detail" pattern
-  cover the same actions without the hover-only fiddliness.
+- **The mailbox monitor now works.** v2.4.3 shipped it, but a
+  heartbeat bug meant the agent was never told which directory to
+  count — the dashboard sat on "no report yet" forever. Fixed.
+- **favicon.ico restored** — browsers auto-request it and the
+  project shipped only favicon.png.
+- **Mailbox config moved to Settings → Mailbox monitor**, and the
+  dashboard view is now a tile matching the other summary tiles.
 
-Release notes: **[docs/v2.2.5.md](docs/v2.2.5.md)**.
+Release notes: **[docs/v2.4.4.md](docs/v2.4.4.md)**.
 
-## What's new in 2.2.4
+## What's new in 2.4.3
 
-Two real-world bugs from live testing of the Home dashboard.
+A lightweight **mailbox monitor**.
 
-- **Recent fleet events panel was empty even after device_offline
-  fired.** The previous implementation read from the webhook
-  delivery log, which only records events that had at least one
-  destination. Events firing on a server with only SMTP
-  configured (and `device_offline` email not enabled by default)
-  vanished into the void. v2.2.4 adds a dedicated
-  `data/fleet_events.json` that records every fired event
-  regardless of destinations, plus a new
-  `GET /api/fleet/events?limit=N` endpoint readable by viewers.
-  `test` events excluded; payload summarised.
-- **Unmonitored devices appeared in "Needs attention".**
-  Operators explicitly set `monitored: false` to silence a host
-  (decommissioned, dev boxes, hosts being rebuilt) — these
-  shouldn't drive the dashboard either. Now filtered out from
-  offline detection, patch backlog, and drift cross-reference.
+- Give a device one or more directory paths; the agent counts the
+  regular files in each and reports the number. For a Maildir
+  `new/` folder that's the unread-message count. No IMAP/SMTP, no
+  credentials, no email content — just file counts.
+- Configure it per device in the device detail view. A "Show on
+  dashboard" checkbox **promotes** a device so its mailbox counts
+  appear in a widget on the Home dashboard.
 
-Release notes: **[docs/v2.2.4.md](docs/v2.2.4.md)**.
-
-## What's new in 2.2.3
-
-Hotfix to the Home dashboard activity panel. Operator-triggered
-SMTP and webhook tests (event = `test`) were drowning real fleet
-events under repeated rows like *"test (email) 1 recipient(s):
-smtp_host is empty"*. v2.2.3 filters the activity feed to the
-canonical fleet events only — device offline/online, drift
-detected, CVE found, monitor down, container stopped, metric
-critical, etc. Tests stay in the underlying webhook log
-(Settings → Webhook log) but no longer pollute the dashboard.
-
-Contract test (`test_v223.TestActivityFilter`) asserts the JS
-allowlist is exactly equal to the server's `WEBHOOK_EVENTS`
-tuple — if a future commit adds a new event to the server
-without updating the JS, the dashboard silently dropping it
-surfaces as a test failure.
-
-Release notes: **[docs/v2.2.3.md](docs/v2.2.3.md)**.
+Release notes: **[docs/v2.4.3.md](docs/v2.4.3.md)**.
 
 **Older releases**: see [CHANGES.md](CHANGES.md) for the full history
 or [docs/](docs/) for the per-release notes (v2.1.3, v2.1.2, v2.1.1, v2.1.0,

@@ -128,6 +128,8 @@ class TestHtmlIdReferences(unittest.TestCase):
         # Created via document.createElement in _ensureAIModal()
         'ai-modal', 'ai-modal-body', 'ai-modal-title', 'ai-modal-meta',
         'ai-modal-copy', 'ai-modal-action', 'ai-modal-elapsed',
+        # v2.4.0: Created via document.createElement in openSnapshots()
+        'snapshot-modal', 'snapshot-modal-title',
         # v2.1.7: Created via document.createElement in _ensureRunbookModal()
         'runbook-modal', 'runbook-modal-body', 'runbook-modal-title',
         'runbook-modal-meta', 'runbook-modal-copy', 'runbook-modal-regen',

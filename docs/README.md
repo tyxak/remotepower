@@ -28,6 +28,21 @@ holds long-form docs that don't fit there.
 
 ## v2.2 features and release notes
 
+- **[v2.4.4.md](v2.4.4.md)** — 2.4.4 (fixes the mailbox monitor heartbeat bug; favicon.ico restored; config moved to Settings).
+- **[v2.4.3.md](v2.4.3.md)** — 2.4.3 (lightweight mailbox-count monitor: agent counts Maildir files, dashboard widget).
+- **[v2.4.2.md](v2.4.2.md)** — 2.4.2 (default SSH username, quick SSH link on Devices, Proxmox/snapshot documentation).
+- **[v2.4.1.md](v2.4.1.md)** — 2.4.1 (bugfix: stale CVE cache re-served pre-2.3.4 severities; cache-version invalidation).
+- **[v2.4.0.md](v2.4.0.md)** — 2.4.0 (Proxmox VM/LXC snapshots; CVE Debian-urgency severity fix).
+- **[v2.3.4.md](v2.3.4.md)** — 2.3.4 (CVE severity fix, unmonitored devices excluded from activity, drift ignore, nav move).
+- **[v2.3.3.md](v2.3.3.md)** — 2.3.3 (bugfix: Virtualization nav entry always visible).
+- **[v2.3.2.md](v2.3.2.md)** — 2.3.2 (security release: PBKDF2 password hashing, default-password warning) — see also [security-review-2.3.2.md](security-review-2.3.2.md).
+- **[v2.3.1.md](v2.3.1.md)** — 2.3.1 (security: Proxmox token via env var, backup export redacts secrets).
+- **[v2.3.0.md](v2.3.0.md)** — 2.3.0 (Proxmox VE integration: Virtualization page for QEMU VMs, LXC on the Containers page, server-to-API).
+- **[v2.2.7.md](v2.2.7.md)** — 2.2.7 (mobile drawer hotfix).
+- **[v2.2.6.md](v2.2.6.md)** — 2.2.6 (CVE scanner false-positive
+  fix, Docker hardening, mobile modal stacking, drift dormant
+  handling + expanded watch list, agent host-health telemetry,
+  container CPU/mem).
 - **[v2.2.5.md](v2.2.5.md)** — 2.2.5 (container width 1300 px,
   >20-row table scroll wrap, clickable activity items, favicon
   deploy fix, hover-affordance strip removed).

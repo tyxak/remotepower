@@ -114,8 +114,16 @@ class TestPackageHash(unittest.TestCase):
 
 class TestSeverityExtraction(unittest.TestCase):
 
+    # v2.3.4: _severity_from_vuln now returns (severity, source) — the
+    # second element records where the classification came from. These
+    # tests unpack [0] to check the severity. A small helper keeps them
+    # readable.
+    @staticmethod
+    def _sev(vuln):
+        return cve_scanner._severity_from_vuln(vuln)[0]
+
     def test_explicit_labels(self):
-        s = cve_scanner._severity_from_vuln
+        s = self._sev
         self.assertEqual(s({'database_specific': {'severity': 'CRITICAL'}}), 'critical')
         self.assertEqual(s({'database_specific': {'severity': 'High'}}),     'high')
         self.assertEqual(s({'database_specific': {'severity': 'Important'}}), 'high')
@@ -124,19 +132,21 @@ class TestSeverityExtraction(unittest.TestCase):
         self.assertEqual(s({'database_specific': {'severity': 'negligible'}}), 'low')
 
     def test_cvss_buckets(self):
-        # v1.7.0 (tyxak): parser now requires a proper CVSS vector (score + /CVSS:...)
-        # to avoid misinterpreting bare numbers. Use valid vectors here.
-        s = cve_scanner._severity_from_vuln
+        # v2.3.4: the CVSS vector is now properly parsed. Number-prefixed
+        # vectors and bare numeric scores both work — a bare 0-10 score
+        # in an OSV severity entry IS a valid CVSS base score, so it's
+        # used (the v1.7.0 behaviour of rejecting it was overly strict).
+        s = self._sev
         self.assertEqual(s({'severity': [{'score': '9.8/CVSS:3.1/AV:N/AC:L'}]}), 'critical')
         self.assertEqual(s({'severity': [{'score': '7.5/CVSS:3.1/AV:N'}]}),      'high')
         self.assertEqual(s({'severity': [{'score': '5.0/CVSS:3.1/AV:L'}]}),      'medium')
         self.assertEqual(s({'severity': [{'score': '2.0/CVSS:3.1/AV:L'}]}),      'low')
-        # Bare numbers no longer count
-        self.assertEqual(s({'severity': [{'score': '7.5'}]}), 'unknown')
+        # A bare numeric score is now accepted (it's the upstream score).
+        self.assertEqual(s({'severity': [{'score': '7.5'}]}), 'high')
 
     def test_unknown_fallback(self):
-        self.assertEqual(cve_scanner._severity_from_vuln({}), 'unknown')
-        self.assertEqual(cve_scanner._severity_from_vuln({'severity': [{'score': 'garbage'}]}), 'unknown')
+        self.assertEqual(self._sev({}), 'unknown')
+        self.assertEqual(self._sev({'severity': [{'score': 'garbage'}]}), 'unknown')
 
 
 class TestSummarize(unittest.TestCase):

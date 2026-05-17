@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.2.5'
+VERSION      = '2.4.4'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -48,6 +48,12 @@ DRIFT_EVERY        = 60
 MAX_DRIFT_FILES    = 200          # matches server-side cap; defends
                                   # against an over-eager watched list
 MAX_FILE_SIZE_HASH = 5 * 1024 * 1024   # don't try to hash files >5MB
+
+# v2.4.3: mailbox-count monitor. Counting files in a directory is very
+# cheap, but a directory with a huge backlog could be slow to scandir,
+# so report every few polls rather than every poll.
+MAILBOX_CHECK_EVERY = 5           # ~5 minutes at the default interval
+MAX_MAILBOX_PATHS   = 20          # matches the server-side cap
 
 # v1.8.0: service monitoring + log tail
 SERVICE_CHECK_EVERY = 1           # every poll — cheap
@@ -453,12 +459,58 @@ def _which(prog):
     return None
 
 
+def _docker_stats(cmd_path):
+    """v2.2.6: one-shot `docker stats` for per-container CPU / memory.
+
+    `--no-stream` takes a single sample and exits. Returns a dict keyed
+    by container name → {cpu_percent, mem_percent, mem_usage}. Best
+    effort — on failure returns {} and the caller just omits the
+    stats fields. Separate call from `ps` because stats is slower and
+    we want `ps` to succeed even if stats times out.
+    """
+    stats = {}
+    try:
+        r = subprocess.run(
+            [cmd_path, 'stats', '--no-stream', '--format', '{{json .}}'],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT)
+    except Exception:
+        return stats
+    if r.returncode != 0:
+        return stats
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        name = d.get('Name', '') or d.get('Container', '')
+        if not name:
+            continue
+        # Values arrive as strings like "1.23%" / "45.6MiB / 1.9GiB"
+        def _pct(s):
+            try:
+                return round(float(str(s).rstrip('%').strip()), 1)
+            except (ValueError, AttributeError):
+                return None
+        stats[name] = {
+            'cpu_percent': _pct(d.get('CPUPerc')),
+            'mem_percent': _pct(d.get('MemPerc')),
+            'mem_usage':   (d.get('MemUsage', '') or '').split('/')[0].strip(),
+        }
+    return stats
+
+
 def _docker_listing(cmd_path, runtime_name):
     """Run ``docker ps`` (or podman ps) and parse the line-oriented JSON output.
 
     ``--format '{{json .}}'`` produces one JSON object per line. This avoids
     the ``--format json`` Docker / Podman version quirks where the output is
     sometimes an array, sometimes lines, sometimes pretty-printed.
+
+    v2.2.6: also folds in a `docker stats` sample for per-container CPU /
+    memory, and parses a `health` substring out of the status string.
     """
     try:
         out = subprocess.run(
@@ -471,6 +523,9 @@ def _docker_listing(cmd_path, runtime_name):
     if out.returncode != 0:
         log.debug(f'{runtime_name} ps rc={out.returncode}: {out.stderr.strip()[:200]}')
         return []
+
+    # One stats sample for the whole batch (best effort).
+    stats = _docker_stats(cmd_path)
 
     items = []
     now = int(time.time())
@@ -488,23 +543,33 @@ def _docker_listing(cmd_path, runtime_name):
             image, tag = image_full.rsplit(':', 1)
         else:
             image, tag = image_full, ''
-        # Ports field varies between runtimes — Docker uses "0.0.0.0:443->443/tcp",
-        # Podman uses "0.0.0.0:443->443/tcp" too. We just split the comma-joined string.
         raw_ports = d.get('Ports', '') or ''
         ports = [p.strip() for p in raw_ports.split(',') if p.strip()][:20]
+        name = d.get('Names', '') or d.get('Name', '')
+        status = d.get('Status', '') or d.get('State', '')
+        # v2.2.6: docker writes container health into the status string
+        # as "(healthy)" / "(unhealthy)" / "(health: starting)". Pull it
+        # out into its own field so the UI can show a health badge.
+        health = ''
+        ms = re.search(r'\((healthy|unhealthy|health: starting)\)', status)
+        if ms:
+            health = ms.group(1).replace('health: ', '')
+        st = stats.get(name, {})
         items.append({
-            'name':           d.get('Names', '') or d.get('Name', ''),
+            'name':           name,
             'image':          image,
             'tag':            tag,
-            'status':         d.get('Status', '') or d.get('State', ''),
+            'status':         status,
+            'health':         health,                       # v2.2.6
             'namespace':      '',
             'runtime':        runtime_name,
             'ports':          ports,
-            'started_at':     0,           # docker ps doesn't give a timestamp directly
+            'started_at':     0,
             'uptime_seconds': 0,
-            # docker ps doesn't expose restart count; would need `docker inspect`
-            # which we skip for simplicity (one container at a time, slow).
             'restart_count':  0,
+            'cpu_percent':    st.get('cpu_percent'),         # v2.2.6
+            'mem_percent':    st.get('mem_percent'),         # v2.2.6
+            'mem_usage':      st.get('mem_usage', ''),       # v2.2.6
         })
         if len(items) >= CONTAINERS_HARD_CAP:
             break
@@ -899,6 +964,116 @@ def submit_unit_logs(creds, units):
     except Exception as e:
         log.warning(f'Log submission FAILED: {e}')
         return False
+
+
+def get_host_health():
+    """v2.2.6: extra host telemetry — cheap signals an operator wants
+    at a glance but that weren't collected before. Everything here is
+    best-effort: any probe that fails is simply omitted, never raises.
+
+    Returns a dict merged into sysinfo:
+      reboot_required : bool   — /run/reboot-required exists (Debian/Ubuntu)
+      reboot_reason   : str    — package(s) that triggered it, if known
+      failed_units    : [str]  — systemd units in 'failed' state
+      logged_in       : [str]  — distinct usernames with an active session
+      listening_ports : [dict] — {proto, port, process} for LISTEN sockets
+      last_boot       : int    — epoch seconds of last boot
+    """
+    out = {}
+
+    # ── reboot-required (Debian/Ubuntu convention) ───────────────────
+    try:
+        rr = Path('/run/reboot-required')
+        if rr.exists() or Path('/var/run/reboot-required').exists():
+            out['reboot_required'] = True
+            pkgs = Path('/run/reboot-required.pkgs')
+            if pkgs.exists():
+                names = sorted(set(pkgs.read_text().split()))
+                out['reboot_reason'] = ', '.join(names[:10])
+        else:
+            out['reboot_required'] = False
+    except Exception:
+        pass
+
+    # ── systemd failed units ─────────────────────────────────────────
+    try:
+        if _which('systemctl'):
+            r = subprocess.run(
+                ['systemctl', '--failed', '--no-legend', '--plain',
+                 '--no-pager'],
+                capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                failed = []
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if line:
+                        # First column is the unit name
+                        failed.append(line.split()[0])
+                out['failed_units'] = failed[:30]
+    except Exception:
+        pass
+
+    # ── logged-in users ──────────────────────────────────────────────
+    try:
+        if _which('who'):
+            r = subprocess.run(['who'], capture_output=True, text=True,
+                               timeout=5)
+            if r.returncode == 0:
+                users = sorted({ln.split()[0] for ln in r.stdout.splitlines()
+                                if ln.strip()})
+                out['logged_in'] = users[:50]
+    except Exception:
+        pass
+
+    # ── listening ports ──────────────────────────────────────────────
+    # `ss -tulnH` — TCP+UDP, listening only, numeric, no header. The
+    # process column needs root for full detail; without it we still
+    # get proto+port which is the useful part.
+    try:
+        if _which('ss'):
+            r = subprocess.run(['ss', '-tulnH'], capture_output=True,
+                               text=True, timeout=5)
+            if r.returncode == 0:
+                ports = []
+                seen = set()
+                for ln in r.stdout.splitlines():
+                    parts = ln.split()
+                    if len(parts) < 5:
+                        continue
+                    proto = parts[0]
+                    local = parts[4]      # e.g. 0.0.0.0:22  or  [::]:443
+                    # Port is whatever follows the last ':'
+                    if ':' not in local:
+                        continue
+                    port = local.rsplit(':', 1)[1]
+                    if not port.isdigit():
+                        continue
+                    key = (proto, port)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    # Process name, if ss could see it (root)
+                    proc = ''
+                    if 'users:' in ln:
+                        m = re.search(r'\(\("([^"]+)"', ln)
+                        if m:
+                            proc = m.group(1)
+                    ports.append({'proto': proto, 'port': int(port),
+                                  'process': proc})
+                ports.sort(key=lambda p: p['port'])
+                out['listening_ports'] = ports[:80]
+    except Exception:
+        pass
+
+    # ── last boot time ───────────────────────────────────────────────
+    try:
+        with open('/proc/uptime') as fh:
+            up = float(fh.read().split()[0])
+        out['last_boot'] = int(time.time() - up)
+    except Exception:
+        pass
+
+    return out
 
 
 def get_metrics():
@@ -1389,6 +1564,49 @@ def _run_container_action(cmd):
         return {'cmd': cmd, 'output': f'{runtime} {action} failed: {e}', 'rc': -1}
 
 
+def count_mailbox_paths(paths):
+    """v2.4.3: count regular files directly inside each watched
+    directory — the Maildir 'new' folder convention, where each
+    unread message is one file.
+
+    Equivalent to ``find <path> -maxdepth 1 -type f | wc -l`` but done
+    with os.scandir() rather than a shell: no shell means no quoting
+    or injection surface, and the path is operator-configured anyway.
+    maxdepth 1 (non-recursive) matches the `find` example.
+
+    Returns {path: {count: int, exists: bool, error: str|None}}. A
+    missing or unreadable path is reported with exists/error rather
+    than dropped, so the server can show "path gone" instead of
+    silently losing the monitor.
+    """
+    out = {}
+    for p in (paths or [])[:MAX_MAILBOX_PATHS]:
+        entry = {'count': None, 'exists': False, 'error': None}
+        try:
+            if not os.path.isdir(p):
+                entry['error'] = 'not_a_directory'
+                out[p] = entry
+                continue
+            n = 0
+            with os.scandir(p) as it:
+                for de in it:
+                    try:
+                        # follow_symlinks=False: count the link itself,
+                        # not its target — a Maildir file is a real file.
+                        if de.is_file(follow_symlinks=False):
+                            n += 1
+                    except OSError:
+                        continue
+            entry['count'] = n
+            entry['exists'] = True
+        except PermissionError:
+            entry['error'] = 'permission_denied'
+        except OSError as e:
+            entry['error'] = f'error: {e.__class__.__name__}'
+        out[p] = entry
+    return out
+
+
 def compute_drift_report(paths):
     """v2.2.0: hash each watched file, return dict suitable for shipping
     in the heartbeat payload. Each entry has:
@@ -1461,6 +1679,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # before the first heartbeat completes — first heartbeat brings them
     # in, second heartbeat sends the first drift report.
     watched_files = []
+    # v2.4.3: server pushes mailbox directory paths whose file count we
+    # report (Maildir-style unread-message monitoring).
+    mailbox_paths = []
 
     # Detect if this is a fresh boot (first heartbeat after restart)
     boot_reason_file = Path('/tmp/remotepower-last-cmd')
@@ -1575,6 +1796,18 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'Drift report error: {e}')
 
+        # v2.4.3: mailbox file counts. Same cadence rationale as drift —
+        # the path list arrives with the first heartbeat, so reporting
+        # starts at poll 2. Counting files in a directory is very cheap.
+        if mailbox_paths and poll_count > 1 and (
+            poll_count == 2 or poll_count % MAILBOX_CHECK_EVERY == 0
+        ):
+            try:
+                payload['mailbox_counts'] = count_mailbox_paths(mailbox_paths)
+                log.debug(f'Mailbox report: {len(payload["mailbox_counts"])} path(s)')
+            except Exception as e:
+                log.debug(f'Mailbox count error: {e}')
+
         # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
         # Same cadence as services. Skipping the first heartbeat is fine —
         # it'd otherwise fire 0.1s after enrollment and confuse new users
@@ -1616,6 +1849,14 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             }
             # Merge metrics if psutil available
             sysinfo.update(get_metrics())
+            # v2.2.6: extra host telemetry (reboot-required, failed
+            # systemd units, logged-in users, listening ports, last
+            # boot). Best-effort — wrapped so a probe failure can't
+            # break the heartbeat.
+            try:
+                sysinfo.update(get_host_health())
+            except Exception as e:
+                log.debug(f'host health probe error: {e}')
             payload['sysinfo'] = sysinfo
             payload['journal'] = get_journal(100)
             log.debug(f"Poll {poll_count}: sending sysinfo + journal")
@@ -1657,6 +1898,15 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 if new_wf != watched_files:
                     log.info(f'Config updated: watched_files = {len(new_wf)} file(s)')
                 watched_files = new_wf
+            # v2.4.3: mailbox-count monitor — the server pushes a list of
+            # directory paths whose regular-file count we should report
+            # (e.g. a Maildir 'new' folder → unread message count). Empty
+            # list means the mailbox monitor is off for this device.
+            if 'mailbox_paths' in resp:
+                new_mp = resp.get('mailbox_paths') or []
+                if new_mp != mailbox_paths:
+                    log.info(f'Config updated: mailbox_paths = {len(new_mp)} path(s)')
+                mailbox_paths = new_mp
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)

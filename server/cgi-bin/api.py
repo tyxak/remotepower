@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.2.5'
+SERVER_VERSION = '2.4.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -269,6 +269,9 @@ import openapi_spec
 # v1.11.0: container/pod awareness. Agent posts a normalised list in
 # heartbeats; this module validates and summarises.
 import containers as containers_mod
+# v2.3.0: Proxmox VE integration — server-side API client for QEMU VMs
+# and LXC containers on a single Proxmox node.
+import proxmox_client
 # v1.11.0: TLS/DNS expiry monitor. Server-side cron-driven probes; results
 # stored alongside the watchlist for UI rendering and webhook alerting.
 import tls_monitor
@@ -464,17 +467,45 @@ def _validate_id(value: str) -> bool:
     """Return True only if value is a safe resource ID (no path traversal etc.)."""
     return bool(value and _SAFE_ID_RE.match(value))
 
-# ── bcrypt ─────────────────────────────────────────────────────────────────────
+# ── Password hashing ───────────────────────────────────────────────────────────
+#
+# Primary: bcrypt (cost 12). Present in the Docker image and the
+# documented bare-metal install.
+#
+# Fallback when bcrypt is unavailable: v2.3.2 replaced the previous
+# fallback — a bare, UNSALTED hashlib.sha256 — with salted PBKDF2-HMAC-
+# SHA256. Unsalted SHA-256 is fast and rainbow-table-able; PBKDF2 with a
+# per-hash random salt and a high iteration count is dramatically
+# stronger, and it's pure stdlib (no new dependency).
+#
+# Three on-disk hash formats are recognised by verify_password:
+#   $2...                       — bcrypt
+#   pbkdf2$<iters>$<salt>$<hash> — v2.3.2 PBKDF2 fallback
+#   <64 hex chars>              — LEGACY unsalted sha256 (pre-2.3.2)
+# Legacy hashes still verify, and maybe_rehash() upgrades them to the
+# best available scheme on the user's next successful login.
 try:
     import bcrypt as _bcrypt
     _BCRYPT = True
 except ImportError:
     _BCRYPT = False
 
+_PBKDF2_ITERATIONS = 600_000   # OWASP-recommended floor for PBKDF2-SHA256
+
+def _pbkdf2_hash(plain: str, salt: bytes = None,
+                 iterations: int = _PBKDF2_ITERATIONS) -> str:
+    """Return a self-describing PBKDF2 hash string:
+    pbkdf2$<iterations>$<hex-salt>$<hex-digest>"""
+    if salt is None:
+        salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, iterations)
+    return f'pbkdf2${iterations}${salt.hex()}${dk.hex()}'
+
 def hash_password(plain):
     if _BCRYPT:
         return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt(12)).decode()
-    return hashlib.sha256(plain.encode()).hexdigest()
+    # No bcrypt — salted PBKDF2 rather than the old bare sha256.
+    return _pbkdf2_hash(plain)
 
 def verify_password(plain, stored):
     if stored.startswith('$2'):
@@ -484,13 +515,33 @@ def verify_password(plain, stored):
             return _bcrypt.checkpw(plain.encode(), stored.encode())
         except Exception:
             return False
+    if stored.startswith('pbkdf2$'):
+        try:
+            _, iters, salt_hex, digest_hex = stored.split('$', 3)
+            candidate = hashlib.pbkdf2_hmac(
+                'sha256', plain.encode(), bytes.fromhex(salt_hex), int(iters))
+            return hmac.compare_digest(candidate.hex(), digest_hex)
+        except Exception:
+            return False
+    # Legacy unsalted sha256 (pre-2.3.2). Still verified for
+    # backward compatibility; maybe_rehash upgrades on next login.
     return hmac.compare_digest(hashlib.sha256(plain.encode()).hexdigest(), stored)
 
 def maybe_rehash(username, plain, stored):
+    """Upgrade a stored hash to the strongest available scheme after a
+    successful login. v2.3.2: also upgrades the legacy unsalted-sha256
+    hashes to PBKDF2 when bcrypt isn't available (previously a
+    bcrypt-less server left legacy hashes in place forever)."""
+    needs_upgrade = False
     if _BCRYPT and not stored.startswith('$2'):
+        needs_upgrade = True            # → bcrypt
+    elif not _BCRYPT and not stored.startswith(('pbkdf2$', '$2')):
+        needs_upgrade = True            # legacy sha256 → PBKDF2
+    if needs_upgrade:
         users = load(USERS_FILE)
-        users[username]['password_hash'] = hash_password(plain)
-        save(USERS_FILE, users)
+        if username in users:
+            users[username]['password_hash'] = hash_password(plain)
+            save(USERS_FILE, users)
 
 # ── TOTP (2FA) ─────────────────────────────────────────────────────────────────
 import hmac as _hmac_mod
@@ -955,10 +1006,16 @@ def _save_held(path, data):
 def ensure_default_user():
     users = load(USERS_FILE)
     if not users:
+        # v2.3.2: seed via hash_password() (bcrypt or salted PBKDF2)
+        # instead of a bare unsalted sha256. The password is still the
+        # documented default 'remotepower' — the operator MUST change
+        # it on first login; `must_change_password` drives a warning
+        # banner in the UI until they do.
         save(USERS_FILE, {'admin': {
-            'password_hash': hashlib.sha256(b'remotepower').hexdigest(),
+            'password_hash': hash_password('remotepower'),
             'created': int(time.time()),
             'role': 'admin',
+            'must_change_password': True,
         }})
 
 ensure_default_user()
@@ -1376,7 +1433,9 @@ def _record_fleet_event(event, payload):
         for key in ('device_id', 'device_name', 'name', 'host',
                     'path', 'unit', 'metric', 'cve_id',
                     'severity', 'critical', 'high',
-                    'upgradable', 'pattern', 'level'):
+                    'upgradable', 'pattern', 'level',
+                    # v2.3.0: Proxmox action discriminators
+                    'guest_type', 'vmid', 'action'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -1963,6 +2022,10 @@ def handle_login():
         'role':     user.get('role', 'admin'),
         'username': username,
         'ttl':      ttl,        # client may use to set its own expiry hints
+        # v2.3.2: tells the UI to show a "change the default password"
+        # warning banner. Set on the seeded default admin, cleared
+        # when the password is changed.
+        'must_change_password': bool(user.get('must_change_password')),
     })
 
 
@@ -2886,6 +2949,11 @@ def handle_heartbeat():
         saved_dev['agentless']     = dev.get('agentless', False)
         saved_dev['services_watched'] = dev.get('services_watched', [])
         saved_dev['log_watch']     = dev.get('log_watch', [])
+        # v2.4.3: cache the mailbox monitor paths so the heartbeat
+        # response can push them to the agent. Without this line the
+        # agent always received an empty list and never counted —
+        # mailbox_paths was read off saved_dev, which never had it.
+        saved_dev['mailbox_paths'] = dev.get('mailbox_paths', [])
         # devices is auto-saved here by _LockedUpdate.__exit__, atomically
         # under the same flock we acquired at __enter__.
 
@@ -3053,6 +3121,15 @@ def handle_heartbeat():
     # to hash next round. Added to common_resp below.
     watched_files = get_watched_files_for(dev_id, devices=load(DEVICES_FILE))
 
+    # v2.4.3: mailbox-count monitor. Ingest the counts the agent
+    # reported, and tell the agent which paths to count next round.
+    if 'mailbox_counts' in body and isinstance(body['mailbox_counts'], dict):
+        try:
+            _ingest_mailbox_counts(dev_id, body['mailbox_counts'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] mailbox ingest failed dev={dev_id}: {e}\n")
+    mailbox_paths = (saved_dev.get('mailbox_paths') or [])[:MAX_MAILBOX_PATHS]
+
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
     # been written back to disk and `dev` is just an in-memory copy that
@@ -3065,6 +3142,7 @@ def handle_heartbeat():
         'services_watched': saved_dev.get('services_watched', []),
         'log_watch':        saved_dev.get('log_watch', []),
         'watched_files':    watched_files,
+        'mailbox_paths':    mailbox_paths,
     }
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
@@ -3543,6 +3621,23 @@ def handle_config_get():
     safe.setdefault('ldap_admin_group', '')
     safe.setdefault('ldap_tls_verify', True)
     safe.setdefault('ldap_timeout', 5)
+
+    # v2.3.0: Proxmox connection. Token secret is masked exactly like
+    # the SMTP / LDAP passwords — the UI only learns whether one is
+    # set, never the value.
+    # v2.3.1: the secret may come from the RP_PROXMOX_TOKEN_SECRET
+    # environment variable instead of config.json — config_from()
+    # resolves that, and we surface where it came from so the
+    # settings page can show the right hint.
+    safe.setdefault('proxmox_enabled', False)
+    safe.setdefault('proxmox_host', '')
+    safe.setdefault('proxmox_node', '')
+    safe.setdefault('proxmox_token_id', '')
+    safe.setdefault('proxmox_verify_tls', True)
+    _px = proxmox_client.config_from(cfg)
+    safe['proxmox_token_secret_set'] = bool(_px['token_secret'])
+    safe['proxmox_token_secret_from_env'] = _px['token_secret_from_env']
+    safe.pop('proxmox_token_secret', None)
     safe['ldap_bind_password_set'] = bool(cfg.get('ldap_bind_password'))
     safe.pop('ldap_bind_password', None)
 
@@ -3711,6 +3806,27 @@ def handle_config_save():
             if ev_name in body['email_events']:
                 clean[ev_name] = bool(body['email_events'][ev_name])
         cfg['email_events'] = clean
+
+    # ── v2.3.0: Proxmox connection settings ────────────────────────────────────
+    if 'proxmox_enabled' in body:
+        cfg['proxmox_enabled'] = bool(body['proxmox_enabled'])
+    if 'proxmox_host' in body:
+        # Bare host, host:port, or a full URL — the client normalises it.
+        cfg['proxmox_host'] = _sanitize_str(body['proxmox_host'], 255)
+    if 'proxmox_node' in body:
+        cfg['proxmox_node'] = _sanitize_str(body['proxmox_node'], 64)
+    if 'proxmox_token_id' in body:
+        # e.g. root@pam!remotepower
+        cfg['proxmox_token_id'] = _sanitize_str(body['proxmox_token_id'], 255)
+    if 'proxmox_verify_tls' in body:
+        cfg['proxmox_verify_tls'] = bool(body['proxmox_verify_tls'])
+    if 'proxmox_token_secret' in body:
+        # Same convention as smtp_password: '' clears, omitted preserves.
+        new_secret = body['proxmox_token_secret']
+        if new_secret == '':
+            cfg.pop('proxmox_token_secret', None)
+        elif isinstance(new_secret, str):
+            cfg['proxmox_token_secret'] = new_secret[:1024]
 
     # ── v1.8.6: LDAP settings ──────────────────────────────────────────────────
     if 'ldap_enabled' in body:
@@ -3891,6 +4007,9 @@ def handle_user_passwd():
             respond(401, {'error': 'Old password incorrect'})
 
     users[username]['password_hash'] = hash_password(new_pw)
+    # v2.3.2: once the password is changed, clear the default-password
+    # warning flag so the UI banner stops showing.
+    users[username].pop('must_change_password', None)
     save(USERS_FILE, users)
 
     # Invalidate all existing sessions for this user on password change
@@ -3933,9 +4052,23 @@ def _sanitise_ui_prefs(raw):
     if not isinstance(raw, dict):
         return {}
     out = {}
+
+    # v2.4.2: a per-user default SSH username — a single top-level
+    # string, not a per-table pref. Reused by the Devices-page quick
+    # SSH link so the operator doesn't retype their login each time.
+    # Validated as an SSH-safe username (letters, digits, dot, dash,
+    # underscore; max 32) — this value is interpolated into an ssh://
+    # URL, so the character set is deliberately strict.
+    ssh_user = raw.get('default_ssh_username')
+    if isinstance(ssh_user, str) and ssh_user:
+        if re.fullmatch(r'[A-Za-z0-9._-]{1,32}', ssh_user):
+            out['default_ssh_username'] = ssh_user
+
     # Cap how many distinct table prefs we'll persist for one user. Stops
     # a misbehaving client from filling users.json with junk keys.
     for table_name, prefs in list(raw.items())[:MAX_UI_PREFS_TABLES]:
+        if table_name == 'default_ssh_username':
+            continue   # handled above — not a table
         # Table names are short alphanumeric identifiers (e.g. 'devices',
         # 'cves_overview'). Strip anything not in that vocabulary.
         clean_name = re.sub(r'[^a-zA-Z0-9_]', '', str(table_name))[:64]
@@ -4458,6 +4591,183 @@ def handle_device_containers(dev_id: str) -> None:
         'items':     items,
         'summary':   containers_mod.summarise(items),
     })
+
+
+def handle_proxmox_status() -> None:
+    """``GET /api/proxmox/status`` — is Proxmox configured / enabled?
+
+    Cheap, no network call. The frontend uses this to decide whether
+    to show the Virtualization nav entry and the LXC section.
+    """
+    require_auth()
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    respond(200, {
+        'enabled':    pc['enabled'],
+        'configured': proxmox_client.is_configured(pc),
+        'host':       pc['host'],
+        'node':       pc['node'],
+        'verify_tls': pc['verify_tls'],
+    })
+
+
+def handle_proxmox_test() -> None:
+    """``POST /api/proxmox/test`` — probe the connection (Settings page).
+
+    Uses the saved config. If the request body carries a fresh
+    token_secret (operator typed a new one but hasn't saved yet) it's
+    used for the probe so "Test" works before "Save".
+    """
+    require_admin_auth()
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    body = get_json_body() or {}
+    # Allow testing un-saved values straight from the form.
+    for k in ('proxmox_host', 'proxmox_node', 'proxmox_token_id'):
+        if body.get(k):
+            pc[k.replace('proxmox_', '')] = str(body[k]).strip()
+    if body.get('proxmox_token_secret'):
+        pc['token_secret'] = str(body['proxmox_token_secret'])
+    if 'proxmox_verify_tls' in body:
+        pc['verify_tls'] = bool(body['proxmox_verify_tls'])
+    result = proxmox_client.test_connection(pc)
+    respond(200, result)
+
+
+def handle_proxmox_list(guest_type: str) -> None:
+    """``GET /api/proxmox/qemu`` or ``/api/proxmox/lxc`` — list guests."""
+    require_auth()
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not pc['enabled']:
+        respond(200, {'enabled': False, 'guests': []})
+    if not proxmox_client.is_configured(pc):
+        respond(200, {'enabled': True, 'configured': False, 'guests': []})
+    try:
+        guests = proxmox_client.list_guests(pc, guest_type)
+    except proxmox_client.ProxmoxError as e:
+        respond(502, {'error': str(e)})
+        return
+    respond(200, {'enabled': True, 'configured': True,
+                  'node': pc['node'], 'guests': guests})
+
+
+def handle_proxmox_action(guest_type: str, rest: str) -> None:
+    """``POST /api/proxmox/{qemu,lxc}/<vmid>/<action>`` — guest action.
+
+    Actions are gated by proxmox_client.ALLOWED_VM_ACTIONS. The UI
+    only ever sends start / shutdown / status; `stop` (hard) is in
+    the allow-list for a future force-stop but isn't exposed yet.
+    """
+    require_admin_auth()
+    parts = [p for p in rest.split('/') if p]
+    if len(parts) != 2:
+        respond(400, {'error': 'Expected /<vmid>/<action>'})
+        return
+    vmid_str, action = parts
+    try:
+        vmid = int(vmid_str)
+    except ValueError:
+        respond(400, {'error': 'vmid must be numeric'})
+        return
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        result = proxmox_client.guest_action(pc, guest_type, vmid, action)
+    except proxmox_client.ProxmoxError as e:
+        # Action-not-allowed and bad input map to 400; the message is
+        # safe (never contains the token).
+        code = 400 if 'not allowed' in str(e).lower() else 502
+        respond(code, {'error': str(e)})
+        return
+    # Record a fleet event so the action shows in the activity log.
+    try:
+        _record_fleet_event('proxmox_action', {
+            'guest_type': guest_type, 'vmid': vmid, 'action': action,
+        })
+    except Exception:
+        pass
+    respond(200, result)
+
+
+def handle_proxmox_snapshots_list() -> None:
+    """``GET /api/proxmox/snapshots?type=qemu&vmid=100`` — list a
+    guest's snapshots."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    guest_type = (qs.get('type') or [''])[0]
+    vmid_str = (qs.get('vmid') or [''])[0]
+    if guest_type not in ('qemu', 'lxc') or not vmid_str.isdigit():
+        respond(400, {'error': 'type (qemu|lxc) and numeric vmid required'})
+        return
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        snaps = proxmox_client.list_snapshots(pc, guest_type, int(vmid_str))
+    except proxmox_client.ProxmoxError as e:
+        respond(502, {'error': str(e)})
+        return
+    respond(200, {'snapshots': snaps})
+
+
+def handle_proxmox_snapshot_action() -> None:
+    """``POST /api/proxmox/snapshot`` — create / rollback / delete a
+    snapshot.
+
+    Body: {"type": "qemu"|"lxc", "vmid": N, "action": "...",
+           "name": "...", "description": "..."}
+
+    `rollback` and `delete` are destructive; the UI gates them behind
+    confirmation dialogs (rollback requires typing the guest name).
+    The action set is validated here regardless.
+    """
+    require_admin_auth()
+    body = get_json_body() or {}
+    guest_type = body.get('type')
+    action = body.get('action')
+    name = (body.get('name') or '').strip()
+    if guest_type not in ('qemu', 'lxc'):
+        respond(400, {'error': 'type must be qemu or lxc'})
+        return
+    try:
+        vmid = int(body.get('vmid'))
+    except (ValueError, TypeError):
+        respond(400, {'error': 'numeric vmid required'})
+        return
+    if action not in ('create', 'rollback', 'delete'):
+        respond(400, {'error': 'action must be create, rollback or delete'})
+        return
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        if action == 'create':
+            result = proxmox_client.create_snapshot(
+                pc, guest_type, vmid, name, body.get('description', '') or '')
+        elif action == 'rollback':
+            result = proxmox_client.rollback_snapshot(pc, guest_type, vmid, name)
+        else:
+            result = proxmox_client.delete_snapshot(pc, guest_type, vmid, name)
+    except proxmox_client.ProxmoxError as e:
+        code = 400 if 'invalid' in str(e).lower() else 502
+        respond(code, {'error': str(e)})
+        return
+    try:
+        _record_fleet_event('proxmox_action', {
+            'guest_type': guest_type, 'vmid': vmid,
+            'action': f'snapshot_{action}',
+        })
+    except Exception:
+        pass
+    respond(200, result)
 
 
 def handle_containers_overview() -> None:
@@ -6484,18 +6794,151 @@ DRIFT_CONTENT_DENYLIST = frozenset({
 # can update lastlog metadata adjacent to it on some distros). The
 # operator can add them via the watched-files override if they want.
 DEFAULT_WATCHED_FILES = [
+    # ── SSH ──────────────────────────────────────────────────────
     '/etc/ssh/sshd_config',
+    # ── Identity / auth ──────────────────────────────────────────
     '/etc/sudoers',
+    '/etc/passwd',           # v2.2.6: account list — additions/removals
+    '/etc/group',            # v2.2.6: group membership changes
+    '/etc/login.defs',       # v2.2.6: password-policy / UID range config
+    '/etc/pam.d/sshd',
+    '/etc/pam.d/common-auth',# v2.2.6: PAM auth stack
+    # ── System / boot ────────────────────────────────────────────
     '/etc/fstab',
     '/etc/crontab',
     '/etc/hosts',
     '/etc/resolv.conf',
     '/etc/nsswitch.conf',
-    '/etc/pam.d/sshd',
+    # ── Package sources ──────────────────────────────────────────
+    '/etc/apt/sources.list', # v2.2.6: a changed apt source is a
+                             # supply-chain red flag
 ]
+
+# v2.2.6: how many consecutive heartbeats a watched file must report
+# `exists: false` before it's marked dormant. One missed sighting can
+# be a transient (file mid-rotation, agent race) — three in a row
+# means it's genuinely gone. A dormant file stops counting as drift
+# and drops out of the "files with drift" total, but is NOT deleted —
+# it's kept with a `dormant` flag so the operator can still see it was
+# being watched, and it auto-revives if the file reappears.
+DRIFT_MISSING_DORMANT_AFTER = 3
 
 # Maximum history entries kept per file
 DRIFT_HISTORY_CAP = 20
+
+
+# ── v2.4.3: mailbox-count monitor ──────────────────────────────────────────
+#
+# A lightweight mailbox monitor. The agent counts the regular files in
+# one or more directories (the Maildir 'new' folder convention — one
+# file per unread message) and reports the numbers in its heartbeat.
+# No IMAP, no SMTP, no email content — just counts. A device can be
+# "promoted" so its mailbox counts show as a dashboard widget.
+MAX_MAILBOX_PATHS    = 20      # paths counted per device
+MAX_MAILBOX_PATH_LEN = 512
+
+
+def _ingest_mailbox_counts(dev_id, counts):
+    """Store the mailbox file counts reported by an agent heartbeat.
+
+    `counts` maps directory path → {count, exists, error}. We store
+    the latest snapshot plus a timestamp on the device record under
+    `mailbox_state`. Latest-wins; no history kept (a count is a
+    point-in-time number, not an event stream).
+    """
+    if not isinstance(counts, dict):
+        return
+    clean = {}
+    for path, info in list(counts.items())[:MAX_MAILBOX_PATHS]:
+        if not isinstance(path, str) or not isinstance(info, dict):
+            continue
+        c = info.get('count')
+        clean[path[:MAX_MAILBOX_PATH_LEN]] = {
+            'count':  int(c) if isinstance(c, int) and c >= 0 else None,
+            'exists': bool(info.get('exists')),
+            'error':  str(info.get('error'))[:100] if info.get('error') else None,
+        }
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if dev is None:
+            return
+        dev['mailbox_state'] = {
+            'counts':      clean,
+            'reported_at': int(time.time()),
+        }
+
+
+def handle_mailwatch_set(dev_id):
+    """POST /api/devices/<id>/mailwatch — configure the mailbox monitor.
+
+    Body: {"paths": ["/var/mail/.../new", ...], "dashboard": true|false}
+
+    `paths` is the list of directories the agent should count files in
+    (replaces any existing list — whole-list semantics, like the drift
+    watch list). `dashboard` promotes this device so its mailbox counts
+    appear as a widget on the Home dashboard.
+    """
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+        return
+    body = get_json_body() or {}
+    raw_paths = body.get('paths')
+    if not isinstance(raw_paths, list):
+        respond(400, {'error': 'paths must be a list'})
+        return
+    # Normalise: absolute paths only, trimmed, capped, de-duplicated.
+    clean_paths = []
+    for p in raw_paths[:MAX_MAILBOX_PATHS]:
+        if not isinstance(p, str):
+            continue
+        p = p.strip()
+        if not p or not p.startswith('/') or len(p) > MAX_MAILBOX_PATH_LEN:
+            continue
+        if p not in clean_paths:
+            clean_paths.append(p)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if dev is None:
+            respond(404, {'error': 'device not found'})
+            return
+        dev['mailbox_paths'] = clean_paths
+        if 'dashboard' in body:
+            dev['mailbox_dashboard'] = bool(body['dashboard'])
+        # Clearing all paths also clears any stored counts so a stale
+        # number doesn't linger on the dashboard.
+        if not clean_paths:
+            dev.pop('mailbox_state', None)
+    respond(200, {'ok': True, 'paths': clean_paths,
+                  'dashboard': bool(body.get('dashboard'))})
+
+
+def handle_mailwatch_overview():
+    """GET /api/mailwatch — mailbox monitor state across the fleet.
+
+    Returns one entry per device that has the mailbox monitor
+    configured, with its latest counts. The Home dashboard widget
+    uses the `dashboard`-promoted subset; the full list backs a
+    management view.
+    """
+    require_auth()
+    devices = load(DEVICES_FILE)
+    rows = []
+    for dev_id, dev in (devices or {}).items():
+        paths = dev.get('mailbox_paths') or []
+        if not paths:
+            continue
+        state = dev.get('mailbox_state') or {}
+        rows.append({
+            'device_id':   dev_id,
+            'device_name': dev.get('name', dev_id),
+            'paths':       paths,
+            'dashboard':   bool(dev.get('mailbox_dashboard')),
+            'counts':      state.get('counts') or {},
+            'reported_at': state.get('reported_at', 0),
+        })
+    rows.sort(key=lambda r: r['device_name'].lower())
+    respond(200, {'devices': rows})
 
 
 def get_watched_files_for(dev_id, devices=None):
@@ -6569,6 +7012,41 @@ def _ingest_drift_report(dev_id, drift_payload, actor='agent'):
             existing['last_check']    = now
             existing['exists']        = exists
 
+            # v2.2.6: dormant handling for files that aren't on the host.
+            # A watched file reporting exists:false used to count as
+            # drift forever (missing hash != baseline hash), nagging the
+            # operator about a file that simply isn't there. Now: after
+            # DRIFT_MISSING_DORMANT_AFTER consecutive missing sightings
+            # the file is marked dormant — it stops counting as drift.
+            # If the file comes back, dormant clears and normal drift
+            # comparison resumes. The file is never deleted, so the
+            # operator can still see it in the per-device detail.
+            if not exists:
+                miss = existing.get('missing_streak', 0) + 1
+                existing['missing_streak'] = miss
+                if miss >= DRIFT_MISSING_DORMANT_AFTER and not existing.get('dormant'):
+                    existing['dormant']      = True
+                    existing['dormant_since'] = now
+                    # Fire one event so the operator knows — once, not
+                    # every poll. After this the file is quiet.
+                    fired_events.append({
+                        'path':           path,
+                        'baseline_hash':  existing.get('baseline_hash'),
+                        'current_hash':   None,
+                        'exists':         False,
+                        'reason':         'file_absent',
+                    })
+                # While missing (dormant or not yet) skip drift compare —
+                # a missing file's None hash must not trip the change path.
+                continue
+            else:
+                # File present (again). Clear any missing state.
+                if existing.get('missing_streak') or existing.get('dormant'):
+                    existing['missing_streak'] = 0
+                    if existing.get('dormant'):
+                        existing['dormant'] = False
+                        existing['revived_at'] = now
+
             # Is this a change from the prior known state?
             prior_hash = existing.get('prior_hash') or existing.get('baseline_hash')
             if cur_hash != prior_hash:
@@ -6624,9 +7102,26 @@ def handle_drift_overview():
     for dev_id, dev_state in state.items():
         files = (dev_state or {}).get('files') or {}
         n_total   = len(files)
+        # v2.2.6: a dormant file (one that's been absent from the host
+        # for several heartbeats) no longer counts as drift — its
+        # missing hash != baseline hash is expected, not a change to
+        # alarm on. Counted separately as `dormant` so the operator
+        # can still see it.
+        # v2.3.4: an explicitly IGNORED file (operator marked it — e.g.
+        # a /etc/pam.d/common-auth that's legitimately absent on this
+        # host) is non-critical. It drops out of the drift/missing
+        # counts (so it doesn't drive a red status) but is still
+        # counted as `ignored` and remains visible in the per-device
+        # detail. This is the explicit-decision counterpart to the
+        # automatic time-based `dormant` state.
         n_drifted = sum(1 for f in files.values()
-                        if f.get('current_hash') != f.get('baseline_hash'))
-        n_missing = sum(1 for f in files.values() if not f.get('exists', True))
+                        if not f.get('dormant') and not f.get('ignored')
+                        and f.get('exists', True)
+                        and f.get('current_hash') != f.get('baseline_hash'))
+        n_missing = sum(1 for f in files.values()
+                        if not f.get('exists', True) and not f.get('ignored'))
+        n_dormant = sum(1 for f in files.values() if f.get('dormant'))
+        n_ignored = sum(1 for f in files.values() if f.get('ignored'))
         dev = devices.get(dev_id) or {}
         rows.append({
             'device_id':   dev_id,
@@ -6635,11 +7130,53 @@ def handle_drift_overview():
             'total':       n_total,
             'drifted':     n_drifted,
             'missing':     n_missing,
+            'dormant':     n_dormant,
+            'ignored':     n_ignored,
             'last_check':  max((f.get('last_check') or 0 for f in files.values()),
                                default=0),
         })
     rows.sort(key=lambda r: (-r['drifted'], r['device_name'].lower()))
     respond(200, {'devices': rows})
+
+
+def handle_drift_ignore(dev_id):
+    """POST /api/devices/<id>/drift/ignore — toggle the ignore flag on
+    one watched file.
+
+    Body: {"path": "/etc/...", "ignored": true|false, "reason": "..."}
+
+    An ignored file is non-critical: it no longer counts toward the
+    device's drift / missing totals and doesn't drive a red status,
+    but it stays visible in the drift detail (marked "ignored"). This
+    is the fix for drift false positives — e.g. a watched file that is
+    legitimately absent on a particular host.
+    """
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+        return
+    body = get_json_body() or {}
+    path = (body.get('path') or '').strip()
+    if not path:
+        respond(400, {'error': 'path is required'})
+        return
+    ignored = bool(body.get('ignored', True))
+    reason = (body.get('reason') or '')[:500]
+    with _LockedUpdate(DRIFT_STATE_FILE) as state:
+        dev_state = state.get(dev_id)
+        if not dev_state or path not in (dev_state.get('files') or {}):
+            respond(404, {'error': 'no drift record for that file'})
+            return
+        fentry = dev_state['files'][path]
+        if ignored:
+            fentry['ignored'] = True
+            fentry['ignore_reason'] = reason
+            fentry['ignored_at'] = int(time.time())
+        else:
+            fentry.pop('ignored', None)
+            fentry.pop('ignore_reason', None)
+            fentry.pop('ignored_at', None)
+    respond(200, {'ok': True, 'path': path, 'ignored': ignored})
 
 
 def handle_device_drift_get(dev_id):
@@ -6871,21 +7408,45 @@ def handle_drift_get_content(dev_id):
 
 
 def handle_export():
-    """Export backup ZIP — apikeys.json is included but key values are redacted."""
+    """Export backup ZIP.
+
+    Secrets are redacted: apikeys.json key values, and (v2.3.1) the
+    password / token fields in config.json — the Proxmox API token
+    secret, the SMTP password, and the LDAP bind password. Before
+    v2.3.1 config.json went into the ZIP verbatim, so a backup file
+    carried live credentials; that's the leak this closes.
+    """
     require_admin_auth()
     import zipfile, io
     buf = io.BytesIO()
     exclude = {'tokens.json', 'longpoll.json', 'ratelimit.json'}
+    # config.json keys whose values are secrets and must be redacted
+    # out of the backup. Keeping the key (with a marker value) rather
+    # than dropping it means a restored backup is structurally intact
+    # and the operator can see at a glance that a secret needs
+    # re-entering.
+    config_secret_keys = ('proxmox_token_secret', 'smtp_password',
+                          'ldap_bind_password')
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         for f in DATA_DIR.glob('*.json'):
-            if f.name not in exclude:
-                if f.name == 'apikeys.json':
-                    # Redact key values in backup
-                    raw = load(f)
-                    redacted = {kid: {**v, 'key': '(redacted)'} for kid, v in raw.items()}
-                    zf.writestr('apikeys.json', json.dumps(redacted, indent=2))
-                else:
-                    zf.write(f, f.name)
+            if f.name in exclude:
+                continue
+            if f.name == 'apikeys.json':
+                # Redact key values in backup
+                raw = load(f)
+                redacted = {kid: {**v, 'key': '(redacted)'}
+                            for kid, v in raw.items()}
+                zf.writestr('apikeys.json', json.dumps(redacted, indent=2))
+            elif f.name == 'config.json':
+                # Redact secret fields — see config_secret_keys above.
+                raw = load(f)
+                if isinstance(raw, dict):
+                    for k in config_secret_keys:
+                        if raw.get(k):
+                            raw[k] = '(redacted)'
+                zf.writestr('config.json', json.dumps(raw, indent=2))
+            else:
+                zf.write(f, f.name)
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
     print("Status: 200 OK"); print("Content-Type: application/zip")
     print(f"Content-Disposition: attachment; filename=remotepower-backup-{ts}.zip")
@@ -7316,6 +7877,20 @@ def handle_fleet_events():
     except ValueError:
         limit = 50
     limit = max(1, min(MAX_FLEET_EVENTS, limit))
+
+    # v2.3.4: exclude events belonging to unmonitored devices. A device
+    # the operator has explicitly set monitored=false should not appear
+    # in the activity feed, timelines, or any aggregation. Filtered at
+    # READ time (not record time) so it reflects the CURRENT monitored
+    # state — re-monitoring a device brings its history back, and we
+    # never silently drop events that might matter later.
+    devices = load(DEVICES_FILE) or {}
+    unmonitored = {dev_id for dev_id, d in devices.items()
+                   if isinstance(d, dict) and d.get('monitored') is False}
+    if unmonitored:
+        events = [e for e in events
+                  if (e.get('payload') or {}).get('device_id') not in unmonitored]
+
     # Newest first
     respond(200, list(reversed(events))[:limit])
 
@@ -10780,6 +11355,14 @@ def main():
         handle_drift_get_content(pi[len('/api/devices/'):-len('/drift/content')])
     elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'DELETE':
         handle_device_drift_reset(pi[len('/api/devices/'):-len('/drift')])
+    # v2.3.4: per-file drift ignore toggle
+    elif pi.startswith('/api/devices/') and pi.endswith('/drift/ignore') and m == 'POST':
+        handle_drift_ignore(pi[len('/api/devices/'):-len('/drift/ignore')])
+    # v2.4.3: mailbox-count monitor config (paths + dashboard promotion)
+    elif pi.startswith('/api/devices/') and pi.endswith('/mailwatch') and m == 'POST':
+        handle_mailwatch_set(pi[len('/api/devices/'):-len('/mailwatch')])
+    elif pi == '/api/mailwatch' and m == 'GET':
+        handle_mailwatch_overview()
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':
@@ -10917,6 +11500,25 @@ def main():
     # heartbeat after deliberate `docker rm`.
     elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'DELETE':
         handle_device_containers_clear(pi[len('/api/devices/'):-len('/containers')])
+
+    # ── v2.3.0: Proxmox virtualization ─────────────────────────────────────
+    elif pi == '/api/proxmox/status' and m == 'GET':
+        handle_proxmox_status()
+    elif pi == '/api/proxmox/test' and m == 'POST':
+        handle_proxmox_test()
+    elif pi == '/api/proxmox/qemu' and m == 'GET':
+        handle_proxmox_list('qemu')
+    elif pi == '/api/proxmox/lxc' and m == 'GET':
+        handle_proxmox_list('lxc')
+    elif pi.startswith('/api/proxmox/qemu/') and m == 'POST':
+        handle_proxmox_action('qemu', pi[len('/api/proxmox/qemu/'):])
+    elif pi.startswith('/api/proxmox/lxc/') and m == 'POST':
+        handle_proxmox_action('lxc', pi[len('/api/proxmox/lxc/'):])
+    # v2.4.0: Proxmox snapshots — list / create / rollback / delete.
+    elif pi == '/api/proxmox/snapshots' and m == 'GET':
+        handle_proxmox_snapshots_list()
+    elif pi == '/api/proxmox/snapshot' and m == 'POST':
+        handle_proxmox_snapshot_action()
 
     # ── v2.1.0: docker-compose dropdown ────────────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/compose') and m == 'GET':

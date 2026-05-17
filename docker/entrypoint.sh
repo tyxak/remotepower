@@ -28,12 +28,23 @@ cfg['server_version'] = server_v
 cfg_path.write_text(json.dumps(cfg, indent=2))
 PYEOF
 
-# Create admin user if users.json doesn't exist and env vars are set
+# Create admin user if users.json doesn't exist
 if [ ! -f "$USERS_FILE" ]; then
     RP_ADMIN_USER="${RP_ADMIN_USER:-admin}"
-    if [ -n "$RP_ADMIN_PASS" ]; then
-        echo "[*] Creating admin user: $RP_ADMIN_USER"
-        python3 -c "
+    # v2.2.6: if RP_ADMIN_PASS isn't set, generate a strong random
+    # password instead of refusing to start. The password is printed
+    # ONCE to the container log with a loud banner — grab it with
+    # `docker logs <container>`. This is far better than the old
+    # behaviour (either a hard-coded `changeme` default in
+    # docker-compose.yml, or no admin user at all).
+    GENERATED=""
+    if [ -z "$RP_ADMIN_PASS" ]; then
+        # 18 url-safe chars from the kernel CSPRNG via Python's secrets
+        RP_ADMIN_PASS="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+        GENERATED="yes"
+    fi
+    echo "[*] Creating admin user: $RP_ADMIN_USER"
+    python3 -c "
 import json, time, hashlib
 from pathlib import Path
 try:
@@ -51,13 +62,24 @@ users = {
 }
 path.write_text(json.dumps(users, indent=2))
 "
-        chown www-data:www-data "$USERS_FILE"
-        echo "[+] Admin user created"
-    else
-        echo "[!] No users.json found and RP_ADMIN_PASS not set."
-        echo "    Set RP_ADMIN_PASS environment variable to create an admin user."
-        echo "    Or mount an existing /var/lib/remotepower volume."
+    chown www-data:www-data "$USERS_FILE"
+    echo "[+] Admin user created"
+    if [ -n "$GENERATED" ]; then
+        echo ""
+        echo "  ╔══════════════════════════════════════════════════════════╗"
+        echo "  ║  GENERATED ADMIN CREDENTIALS — SAVE THESE NOW             ║"
+        echo "  ║  This password is shown ONCE and is not stored anywhere.  ║"
+        echo "  ╠══════════════════════════════════════════════════════════╣"
+        printf  "  ║  username : %-44s ║\n" "$RP_ADMIN_USER"
+        printf  "  ║  password : %-44s ║\n" "$RP_ADMIN_PASS"
+        echo "  ╠══════════════════════════════════════════════════════════╣"
+        echo "  ║  Change it after first login: Settings, or run            ║"
+        echo "  ║  python3 cgi-bin/remotepower-passwd inside the container.  ║"
+        echo "  ╚══════════════════════════════════════════════════════════╝"
+        echo ""
     fi
+    # Don't leave the password sitting in the environment
+    unset RP_ADMIN_PASS
 fi
 
 # Start fcgiwrap (socket for nginx)

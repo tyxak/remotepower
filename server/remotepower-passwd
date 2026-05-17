@@ -39,7 +39,26 @@ def save(users):
 
 def cmd_change():
     users = load()
-    username = input(f"Username [{', '.join(users.keys())}]: ").strip()
+    if not users:
+        print("No users exist yet. Use 'Add user' first.")
+        sys.exit(1)
+    # v2.2.6: the prompt used to show [user1, user2] as a hint but
+    # pressing Enter passed an empty string — "User '' not found".
+    # Now: with exactly one user, Enter defaults to it (the bracket
+    # really is a default). With several, Enter re-prompts rather
+    # than erroring out.
+    user_list = list(users.keys())
+    default = user_list[0] if len(user_list) == 1 else None
+    while True:
+        prompt = (f"Username [{default}]: " if default
+                  else f"Username ({', '.join(user_list)}): ")
+        username = input(prompt).strip()
+        if not username and default:
+            username = default
+        if not username:
+            print("Please enter a username.")
+            continue
+        break
     if username not in users:
         print(f"User '{username}' not found.")
         sys.exit(1)

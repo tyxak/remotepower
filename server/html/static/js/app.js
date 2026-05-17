@@ -463,6 +463,9 @@ async function doLogin() {
       const store = remember_me ? localStorage : sessionStorage;
       store.setItem('rp_token', data.token);
       store.setItem('rp_me',    data.username || user);
+      // v2.3.2: remember whether this account is still on the default
+      // password so showApp() can raise a warning banner.
+      window._mustChangePassword = !!data.must_change_password;
       showApp();
     } else {
       err.textContent = 'Invalid username or password';
@@ -514,6 +517,24 @@ async function showApp() {
   checkServerVersion();
   applyTheme();
   requestNotifications();
+  // v2.3.0: show/hide the Virtualization nav entry based on whether
+  // Proxmox is configured.
+  refreshProxmoxNav();
+  // v2.3.2: warn loudly while the account is still on the default
+  // password. The banner links to the password change form and
+  // disappears once the password is changed (server clears the flag).
+  if (window._mustChangePassword) {
+    let banner = document.getElementById('default-pw-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'default-pw-banner';
+      banner.style.cssText = 'background:var(--red-soft,#3a1f1f);border-bottom:1px solid var(--red-edge,#7f1d1d);color:var(--red,#f87171);padding:10px 16px;font-size:13px;text-align:center;cursor:pointer';
+      banner.innerHTML = '\u26a0 This account is using the default password. <strong>Change it now</strong> \u2014 click here.';
+      banner.onclick = () => showPage('settings', document.querySelector('.nav-btn[onclick*=settings]'));
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+    banner.style.display = 'block';
+  }
 }
 async function checkServerVersion() {
   try {
@@ -668,6 +689,7 @@ function showPage(name, btn) {
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
   if (name === 'containers') enterContainers();
+  if (name === 'virtualization') loadVirtualization();
   if (name === 'netmap')   enterNetmap();
   if (name === 'tls')      enterTLS();
   if (name === 'drift')    loadDrift();
@@ -890,7 +912,7 @@ function _registerDevicesMinimalTable() {
         <td style="text-align:center;padding:0 6px"><input type="checkbox" ${isSel ? 'checked' : ''} onclick="toggleSelect('${d.id}')" style="margin:0"></td>
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
         <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
-        <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}</td>
+        <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell" style="font-size:12px">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell" style="font-family:monospace;font-size:12px">${escHtml(d.ip || '—')}</td>
@@ -1000,7 +1022,8 @@ async function saveDeviceIcon(icon) { const id = document.getElementById('icon-d
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
 async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
-async function openDetail(id, name) { _lastOpenDeviceName = name; document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {}  try { const rb = await aiApi('GET', '/devices/' + encodeURIComponent(id) + '/runbook'); const sec = document.createElement('div'); sec.id = 'detail-runbook-section'; sec.innerHTML = _renderRunbookSectionHtml(id, rb); document.getElementById('detail-body').appendChild(sec); } catch(e) {} }
+async function openDetail(id, name) { _lastOpenDeviceName = name; document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += _renderHostHealth(si); html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {}  try { const rb = await aiApi('GET', '/devices/' + encodeURIComponent(id) + '/runbook'); const sec = document.createElement('div'); sec.id = 'detail-runbook-section'; sec.innerHTML = _renderRunbookSectionHtml(id, rb); document.getElementById('detail-body').appendChild(sec); } catch(e) {}
+}
 function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
@@ -1097,6 +1120,10 @@ function switchSettingsTab(tab) {
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.id === `settings-pane-${tab}`));
   if (tab) location.hash = `settings/${tab}`;
+  // v2.4.2: populate the SSH username field when the Security pane opens.
+  if (tab === 'security') loadSshUsername();
+  // v2.4.4: load the mailbox monitor config when its pane opens.
+  if (tab === 'mailbox') loadMailwatchSettings();
 }
 
 function renderEventToggleTable(events, descriptions, emailEvents) {
@@ -1156,6 +1183,34 @@ async function loadSettings() {
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
   document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
   document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
+
+  // v2.3.0: Proxmox connection. Token secret is masked — the field
+  // shows a placeholder when one is set; blank means "keep current".
+  const pxEnabled = document.getElementById('proxmox-enabled');
+  if (pxEnabled) {
+    pxEnabled.value = data.proxmox_enabled ? '1' : '0';
+    document.getElementById('proxmox-host').value = data.proxmox_host || '';
+    document.getElementById('proxmox-node').value = data.proxmox_node || '';
+    document.getElementById('proxmox-token-id').value = data.proxmox_token_id || '';
+    document.getElementById('proxmox-verify-tls').value = data.proxmox_verify_tls === false ? '0' : '1';
+    const secEl = document.getElementById('proxmox-token-secret');
+    secEl.value = '';
+    if (data.proxmox_token_secret_from_env) {
+      // Secret comes from RP_PROXMOX_TOKEN_SECRET — the config field
+      // is irrelevant; make that clear and disable it.
+      secEl.placeholder = 'set via RP_PROXMOX_TOKEN_SECRET env var';
+      secEl.disabled = true;
+    } else {
+      secEl.disabled = false;
+      secEl.placeholder = data.proxmox_token_secret_set
+        ? '•••••••• (saved — leave blank to keep)'
+        : 'token secret';
+    }
+    const envHint = document.getElementById('proxmox-env-hint');
+    if (envHint) {
+      envHint.style.display = data.proxmox_token_secret_from_env ? 'block' : 'none';
+    }
+  }
 
   const meta = data._meta || {};
   if (meta.min_online_ttl) {
@@ -1451,8 +1506,26 @@ function startRefreshCycle() {
     if (label) label.textContent = `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`;
   }, 1000);
 }
-function openModal(id) { document.getElementById(id).classList.add('active'); }
-function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+// v2.2.6: opening a modal also closes the mobile nav drawer (two
+// slide-in surfaces fighting was the "windows over each other" bug on
+// mobile) and locks body scroll so the page behind doesn't scroll
+// under the modal. closeModal releases the lock only when no other
+// modal is still open (nested modals — e.g. drift diff over drift
+// detail — must keep the lock until the last one closes).
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  document.body.classList.remove('mobile-nav-open');
+  el.classList.add('active');
+  document.body.classList.add('modal-open');
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('active');
+  // Only release the scroll lock if no modal-overlay is still active
+  const anyOpen = document.querySelector('.modal-overlay.active');
+  if (!anyOpen) document.body.classList.remove('modal-open');
+}
 document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); }); });
 // v2.1.0: escHtml escapes for HTML content + double-quoted attribute values.
 // It deliberately does NOT escape ' — HTML entity decoding turns &#39; back
@@ -4260,6 +4333,9 @@ let _containersOpenDeviceId = null;
 
 async function enterContainers() {
   await loadContainersOverview();
+  // v2.3.0: also pull Proxmox LXC containers (section self-hides if
+  // Proxmox isn't configured).
+  loadProxmoxLXC();
 }
 
 async function loadContainersOverview() {
@@ -4371,12 +4447,32 @@ async function containersOpen(deviceId, name) {
       ? `<span style="color:${c.restart_count >= 5 ? 'var(--red)' : 'var(--amber)'}">restart×${c.restart_count}</span>`
       : '';
     const ns = c.namespace ? `<span style="color:var(--muted)">${escHtml(c.namespace)}/</span>` : '';
-    // v2.1.1: per-container actions. The agent's allowlist accepts
-    // start / stop / restart / pause / unpause / logs. Kubernetes pods
-    // aren't actionable through docker/podman CLI, so we hide actions
-    // for the kubectl runtime (kubectl listing reports runtime='kubectl').
-    // We use the container ID (preferred) or fall back to the name —
-    // server-side validation accepts whichever the agent reported.
+    // v2.2.6: container health badge — the agent parses (healthy)/
+    // (unhealthy)/(starting) out of the docker status string.
+    let healthBadge = '';
+    if (c.health === 'healthy') {
+      healthBadge = '<span class="status-pill ok" style="font-size:10px;padding:1px 7px">healthy</span>';
+    } else if (c.health === 'unhealthy') {
+      healthBadge = '<span class="status-pill critical" style="font-size:10px;padding:1px 7px">unhealthy</span>';
+    } else if (c.health === 'starting') {
+      healthBadge = '<span class="status-pill warn" style="font-size:10px;padding:1px 7px">starting</span>';
+    }
+    // v2.2.6: per-container CPU / memory from `docker stats`. Only
+    // shown when the agent reported them (omitted for kubectl pods
+    // and older agents).
+    let resourceLine = '';
+    if (c.cpu_percent != null || c.mem_percent != null) {
+      const cpuTxt = c.cpu_percent != null ? `CPU ${c.cpu_percent}%` : '';
+      const memTxt = c.mem_percent != null
+        ? `MEM ${c.mem_percent}%${c.mem_usage ? ` (${escHtml(c.mem_usage)})` : ''}`
+        : '';
+      const memColor = c.mem_percent > 85 ? 'var(--red)'
+                     : c.mem_percent > 70 ? 'var(--amber)' : 'var(--muted)';
+      resourceLine = `<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--font-mono);display:flex;gap:12px">
+        ${cpuTxt ? `<span>${cpuTxt}</span>` : ''}
+        ${memTxt ? `<span style="color:${memColor}">${memTxt}</span>` : ''}
+      </div>`;
+    }
     const cid = c.id || c.name || '';
     const runtime = (c.runtime || 'docker').toLowerCase();
     const actionable = (runtime === 'docker' || runtime === 'podman') && cid;
@@ -4390,7 +4486,7 @@ async function containersOpen(deviceId, name) {
       </div>` : '';
     return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-weight:600">${ns}${escHtml(c.name)}</div>
+        <div style="font-weight:600;display:flex;align-items:center;gap:6px">${ns}${escHtml(c.name)}${healthBadge}</div>
         <div style="display:flex;gap:8px;align-items:center;font-size:12px">
           <span style="color:${statusColor}">${escHtml(c.status || '?')}</span>
           ${restart}
@@ -4398,6 +4494,7 @@ async function containersOpen(deviceId, name) {
         </div>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:monospace">${escHtml(c.image)}${c.tag ? ':' + escHtml(c.tag) : ''}</div>
+      ${resourceLine}
       ${ports ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ports}</div>` : ''}
       ${actions}
     </div>`;
@@ -7011,41 +7108,61 @@ async function openDriftDetail(devId, devName) {
       const f = files[p];
       const drifted = f.current_hash !== f.baseline_hash;
       const missing = !f.exists;
+      const ignored = !!f.ignored;          // v2.3.4
+      const dormant = !!f.dormant;
       const lastCheck = f.last_check ? new Date(f.last_check * 1000).toLocaleString() : '—';
 
+      // v2.3.4: an ignored file renders muted regardless of its
+      // underlying drift/missing state — it's been explicitly marked
+      // non-critical. Its real state is still shown in parentheses so
+      // the operator knows what they ignored.
       let statusHtml;
-      if (missing) {
+      if (ignored) {
+        const underlying = missing ? 'missing' : (drifted ? 'drifted' : 'baseline');
+        statusHtml = `<span style="color:var(--muted)">○ Ignored <span style="font-size:10px">(${underlying})</span></span>`;
+      } else if (missing) {
         statusHtml = '<span style="color:var(--red)">● Missing</span>';
+      } else if (dormant) {
+        statusHtml = '<span style="color:var(--muted)">○ Dormant</span>';
       } else if (drifted) {
         statusHtml = '<span style="color:var(--amber)">● Drifted</span>';
       } else {
         statusHtml = '<span style="color:var(--green)">● Baseline</span>';
       }
 
-      const acceptBtn = drifted
+      const acceptBtn = (drifted && !ignored)
         ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px" onclick="driftAcceptPath('${escAttr(p)}')">Accept as baseline</button>`
         : '';
 
-      // v2.2.1: "Show diff" button per drifted file. Opens the diff
-      // viewer modal which polls /drift/content for stored captures
-      // and feeds them to the JS renderDiff(). Hidden for files on
-      // the content denylist (/etc/shadow etc.) where the diff cannot
-      // be displayed regardless of operator role.
+      // v2.3.4: per-file ignore toggle. Marking a file ignored makes
+      // it non-critical (drops out of drift/missing counts, no red
+      // status) — the fix for drift false positives like a watched
+      // file legitimately absent on this host.
+      const ignoreBtn = ignored
+        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="driftSetIgnore('${escAttr(p)}',false)">Un-ignore</button>`
+        : `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="driftSetIgnore('${escAttr(p)}',true)">Ignore</button>`;
+
       const DENYLIST = new Set(['/etc/shadow','/etc/gshadow','/etc/shadow-','/etc/gshadow-']);
       const isDenylist = DENYLIST.has(p);
-      const diffBtn = (drifted && !missing && !isDenylist)
+      const diffBtn = (drifted && !missing && !isDenylist && !ignored)
         ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="openDriftDiff('${escAttr(_driftCurrentDevice.id)}','${escAttr(p)}')">Show diff</button>`
-        : isDenylist
+        : (isDenylist
           ? `<span style="font-size:10px;color:var(--muted);margin-right:4px" title="Content retrieval refused for sensitive files">no content</span>`
-          : '';
+          : '');
 
-      html += `<tr style="border-bottom:1px solid var(--border)">
+      const rowStyle = ignored
+        ? 'border-bottom:1px solid var(--border);opacity:0.55'
+        : 'border-bottom:1px solid var(--border)';
+      html += `<tr style="${rowStyle}">
         <td style="padding:6px 4px;font-family:var(--font-mono);font-size:11px">${escHtml(p)}</td>
         <td style="padding:6px 4px">${statusHtml}</td>
         <td style="padding:6px 4px;color:var(--muted)">${lastCheck}</td>
         <td style="padding:6px 4px">${f.drift_count || 0}</td>
-        <td style="padding:6px 4px;text-align:right">${diffBtn}${acceptBtn}</td>
+        <td style="padding:6px 4px;text-align:right">${diffBtn}${ignoreBtn}${acceptBtn}</td>
       </tr>`;
+      if (ignored && f.ignore_reason) {
+        html += `<tr style="opacity:0.55"><td colspan="5" style="padding:0 4px 6px 16px;font-size:10px;color:var(--muted)">Ignore reason: ${escHtml(f.ignore_reason)}</td></tr>`;
+      }
 
       if (drifted && f.history && f.history.length > 0) {
         html += `<tr><td colspan="5" style="padding:0 4px 8px 16px"><details><summary style="font-size:11px;color:var(--muted);cursor:pointer">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
@@ -7071,6 +7188,28 @@ async function driftAcceptPath(path) {
     await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/baseline`,
               {paths: [path]});
     toast('Baseline updated', 'success');
+    openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
+  } catch (e) {
+    toast('Failed: ' + e, 'error');
+  }
+}
+
+// v2.3.4: mark a watched file as ignored (or un-ignore it). An
+// ignored file is non-critical — it drops out of the drift / missing
+// counts and stops driving a red status, but stays visible in this
+// detail view. Used to silence drift false positives, e.g. a watched
+// file that's legitimately absent on a particular host.
+async function driftSetIgnore(path, ignored) {
+  if (!_driftCurrentDevice) return;
+  let reason = '';
+  if (ignored) {
+    reason = prompt(`Ignore drift for:\n${path}\n\nOptional reason (why this is expected):`, '');
+    if (reason === null) return;   // operator cancelled
+  }
+  try {
+    await api('POST', `/devices/${encodeURIComponent(_driftCurrentDevice.id)}/drift/ignore`,
+              {path: path, ignored: ignored, reason: reason || ''});
+    toast(ignored ? 'File ignored' : 'File no longer ignored', 'success');
     openDriftDetail(_driftCurrentDevice.id, _driftCurrentDevice.name);
   } catch (e) {
     toast('Failed: ' + e, 'error');
@@ -7419,20 +7558,21 @@ async function loadHome() {
   // got logged anywhere and the activity panel showed empty even
   // when devices were going offline. /fleet/events records every
   // fired event regardless of destinations.
-  const [devs, drift, cves, fleetEvents] = await Promise.all([
+  const [devs, drift, cves, fleetEvents, mailwatch] = await Promise.all([
     api('GET', '/devices').catch(() => null),
     api('GET', '/drift').catch(() => null),
     api('GET', '/cve/findings').catch(() => null),
     api('GET', '/fleet/events?limit=50').catch(() => null),
+    api('GET', '/mailwatch').catch(() => null),
   ]);
 
-  _renderHomeTiles(devs || [], drift || {}, cves || {});
+  _renderHomeTiles(devs || [], drift || {}, cves || {}, mailwatch || {});
   _renderHomeAttention(devs || [], drift || {}, cves || {});
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs || []);
 }
 
-function _renderHomeTiles(devs, drift, cves) {
+function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const target = document.getElementById('home-tiles');
   if (!target) return;
   const total = devs.length;
@@ -7494,6 +7634,31 @@ function _renderHomeTiles(devs, drift, cves) {
       cls: criticalCves > 0 ? 'alert' : totalCves > 0 ? 'warn' : 'ok',
     },
   ];
+
+  // v2.4.4: mailbox monitor tile — same style/size as the others.
+  // Only added when at least one device is promoted to the dashboard.
+  const mwDevs = ((mailwatch && mailwatch.devices) || []).filter(d => d.dashboard);
+  if (mwDevs.length) {
+    let unread = 0, reported = 0, mailboxes = 0;
+    mwDevs.forEach(d => {
+      const counts = d.counts || {};
+      const paths = Object.keys(counts);
+      mailboxes += paths.length || (d.paths || []).length;
+      paths.forEach(p => {
+        const c = counts[p];
+        if (c && typeof c.count === 'number') { unread += c.count; reported++; }
+      });
+    });
+    tiles.push({
+      label: 'Unread mail',
+      value: reported ? unread : '—',
+      sub: !reported
+        ? 'Waiting for first agent report'
+        : `Across ${mailboxes} mailbox${mailboxes === 1 ? '' : 'es'}`,
+      cls: '',
+    });
+  }
+
   target.innerHTML = tiles.map(t =>
     `<div class="tile ${t.cls}">
       <div class="tile-label">${t.label}</div>
@@ -7893,7 +8058,8 @@ function _ensureDriftDiffModal() {
   const wrap = document.createElement('div');
   wrap.className = 'modal-overlay';
   wrap.id = 'drift-diff-modal';
-  wrap.style.zIndex = '1010';  // above the parent drift detail modal
+  wrap.style.zIndex = '1100';  // v2.2.6: nested-modal tier — above the
+                               // base drift detail modal (1000)
   wrap.innerHTML = `
     <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
       <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -8071,5 +8237,578 @@ async function _captureCount(devId, path) {
     return (data && data.captures && data.captures.length) || 0;
   } catch (e) {
     return 0;
+  }
+}
+
+// ─── v2.2.6: host health telemetry block (device detail modal) ──────────
+//
+// Renders the extra signals the agent started collecting in 2.2.6:
+// reboot-required, failed systemd units, logged-in users, listening
+// ports, last boot. Each section is omitted entirely if the agent
+// didn't report it (older agent, or the probe failed on the host) —
+// so an older agent's detail modal just looks like it did before.
+
+function _renderHostHealth(si) {
+  si = si || {};
+  let html = '';
+
+  // Reboot required — loud amber banner when true
+  if (si.reboot_required === true) {
+    const reason = si.reboot_reason
+      ? ` <span style="color:var(--muted);font-size:11px">(${escHtml(si.reboot_reason)})</span>`
+      : '';
+    html += `<div style="background:var(--amber-soft);border:1px solid var(--amber-edge);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--amber)">
+      ⟳ <strong>Reboot required</strong>${reason}
+    </div>`;
+  }
+
+  // Failed systemd units
+  if (Array.isArray(si.failed_units) && si.failed_units.length) {
+    html += `<div style="background:var(--red-soft);border:1px solid var(--red-edge);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px">
+      <div style="color:var(--red);font-weight:600;margin-bottom:4px">${si.failed_units.length} failed systemd unit${si.failed_units.length === 1 ? '' : 's'}</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">${si.failed_units.map(u => escHtml(u)).join(', ')}</div>
+    </div>`;
+  }
+
+  // Logged-in users + last boot — info pills
+  const pills = [];
+  if (Array.isArray(si.logged_in)) {
+    pills.push(`<div class="sysinfo-pill"><div class="label">Logged in</div><div class="value">${si.logged_in.length ? si.logged_in.map(u => escHtml(u)).join(', ') : '—'}</div></div>`);
+  }
+  if (si.last_boot) {
+    pills.push(`<div class="sysinfo-pill"><div class="label">Booted</div><div class="value" style="font-size:11px">${new Date(si.last_boot * 1000).toLocaleString()}</div></div>`);
+  }
+  if (pills.length) {
+    html += `<div class="sysinfo-row" style="margin-bottom:14px">${pills.join('')}</div>`;
+  }
+
+  // Listening ports — compact table
+  if (Array.isArray(si.listening_ports) && si.listening_ports.length) {
+    const rows = si.listening_ports.map(p =>
+      `<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${escHtml(p.proto)}</td>
+        <td style="font-family:var(--font-mono);font-size:11px;font-weight:600">${p.port}</td>
+        <td style="font-size:11px;color:var(--muted)">${escHtml(p.process || '—')}</td>
+      </tr>`
+    ).join('');
+    html += `<details style="margin-bottom:14px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);padding:4px 0">
+        Listening ports (${si.listening_ports.length})
+      </summary>
+      <div class="table-card" style="margin-top:8px;max-height:220px;overflow-y:auto">
+        <table><thead><tr><th>Proto</th><th>Port</th><th>Process</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </div>
+    </details>`;
+  }
+
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v2.3.0 — Proxmox virtualization
+//
+// The Virtualization page lists QEMU VMs; LXC containers render as an
+// extra section on the Containers page. Both come from the RemotePower
+// server polling the Proxmox API (no agent on the Proxmox node).
+// ═══════════════════════════════════════════════════════════════════════
+
+// Show/hide the Virtualization nav entry based on whether Proxmox is
+// configured. Called once at startup.
+async function refreshProxmoxNav() {
+  // v2.3.3: the Virtualization nav entry is now ALWAYS visible — it
+  // used to be hidden until Proxmox was enabled, which was a
+  // discoverability dead-end (you configure Proxmox in Settings, but
+  // couldn't find the feature without the nav entry). The
+  // Virtualization page itself handles the not-configured state with
+  // a "configure it under Settings -> Proxmox" message. This function
+  // is kept as a harmless no-op so existing call sites don't break.
+}
+
+// Render one guest (VM or LXC) as a card. `kind` is 'qemu' or 'lxc'
+// and decides which action endpoint the buttons hit.
+function _renderProxmoxGuest(g, kind) {
+  const running = (g.status || '').toLowerCase() === 'running';
+  const statusColor = running ? 'var(--ok)'
+                     : (g.status === 'paused' ? 'var(--amber)' : 'var(--muted)');
+  // Resource line — only when the guest is running and reported values
+  const res = [];
+  if (g.cpu_percent != null) res.push(`CPU ${g.cpu_percent}%`);
+  if (g.mem_percent != null) res.push(`MEM ${g.mem_percent}%`);
+  const resLine = (running && res.length)
+    ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--font-mono)">${res.join('  ·  ')}</div>`
+    : '';
+  const upLine = (running && g.uptime)
+    ? `<span style="font-size:11px;color:var(--muted)">up ${_fmtDuration(g.uptime)}</span>`
+    : '';
+  // Actions: start when stopped, graceful shutdown when running.
+  // `stop` (hard) is intentionally not exposed in the UI.
+  const ep = kind === 'qemu' ? 'qemu' : 'lxc';
+  const actions = `
+    <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
+      ${!running ? `<button class="btn-icon" style="font-size:11px;padding:3px 10px" onclick="proxmoxAction('${ep}',${g.vmid},'start','${escAttr(g.name)}')">Start</button>` : ''}
+      ${running  ? `<button class="btn-icon" style="font-size:11px;padding:3px 10px;color:var(--amber);border-color:rgba(245,158,11,0.3)" onclick="proxmoxAction('${ep}',${g.vmid},'shutdown','${escAttr(g.name)}')">Shutdown</button>` : ''}
+      <button class="btn-icon" style="font-size:11px;padding:3px 10px" onclick="openSnapshots('${ep}',${g.vmid},'${escAttr(g.name)}')">Snapshots</button>
+    </div>`;
+  return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="font-weight:600">
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:12px">${g.vmid}</span>
+        ${escHtml(g.name)}
+        ${g.tags ? `<span style="font-size:10px;color:var(--muted);background:var(--surface);padding:1px 5px;border-radius:3px;margin-left:4px">${escHtml(g.tags)}</span>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${upLine}
+        <span style="color:${statusColor};font-size:12px;font-weight:600">${escHtml(g.status || '?')}</span>
+      </div>
+    </div>
+    ${resLine}
+    ${actions}
+  </div>`;
+}
+
+function _fmtDuration(secs) {
+  secs = parseInt(secs, 10) || 0;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// Load + render the Virtualization page (QEMU VMs).
+async function loadVirtualization() {
+  const body = document.getElementById('virtualization-body');
+  const nodeLabel = document.getElementById('virtualization-node');
+  if (!body) return;
+  body.innerHTML = '<div style="color:var(--muted);padding:20px">Loading…</div>';
+  let data;
+  try {
+    data = await api('GET', '/proxmox/qemu');
+  } catch (e) {
+    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--red)">
+      Could not reach Proxmox: ${escHtml(e.message || String(e))}</div>`;
+    return;
+  }
+  if (!data || !data.enabled) {
+    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+      Proxmox integration is not enabled. Configure it under Settings → Proxmox.</div>`;
+    return;
+  }
+  if (!data.configured) {
+    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+      Proxmox is enabled but not fully configured. Add the host, node and API token under Settings → Proxmox.</div>`;
+    return;
+  }
+  if (nodeLabel) nodeLabel.textContent = data.node ? `node: ${data.node}` : '';
+  const guests = data.guests || [];
+  if (!guests.length) {
+    body.innerHTML = '<div class="table-card" style="padding:20px;color:var(--muted)">No QEMU VMs on this node.</div>';
+    return;
+  }
+  body.innerHTML = `<div class="table-card" style="padding:14px">
+    ${guests.map(g => _renderProxmoxGuest(g, 'qemu')).join('')}
+  </div>`;
+}
+
+// Load + render the LXC section on the Containers page.
+async function loadProxmoxLXC() {
+  const section = document.getElementById('containers-lxc-section');
+  const body = document.getElementById('containers-lxc-body');
+  if (!section || !body) return;
+  let data;
+  try {
+    data = await api('GET', '/proxmox/lxc');
+  } catch (_) {
+    section.style.display = 'none';
+    return;
+  }
+  if (!data || !data.enabled || !data.configured) {
+    // Proxmox not set up — hide the section entirely.
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  const guests = data.guests || [];
+  if (!guests.length) {
+    body.innerHTML = '<div class="table-card" style="padding:16px;color:var(--muted)">No LXC containers on the Proxmox node.</div>';
+    return;
+  }
+  body.innerHTML = `<div class="table-card" style="padding:14px">
+    ${guests.map(g => _renderProxmoxGuest(g, 'lxc')).join('')}
+  </div>`;
+}
+
+// Perform a guest action then refresh whichever view is showing.
+async function proxmoxAction(kind, vmid, action, name) {
+  const verb = action === 'shutdown' ? 'Shut down' : 'Start';
+  if (!confirm(`${verb} ${kind.toUpperCase()} ${vmid} (${name})?`)) return;
+  try {
+    await api('POST', `/proxmox/${kind}/${vmid}/${action}`, {});
+    toast(`${verb} sent to ${name}`, 'success');
+    // Proxmox actions are async on its side — give it a moment, then
+    // refresh the relevant view.
+    setTimeout(() => {
+      if (kind === 'qemu') loadVirtualization();
+      else loadProxmoxLXC();
+    }, 1500);
+  } catch (e) {
+    toast(`Action failed: ${e.message || String(e)}`, 'error');
+  }
+}
+
+// ─── v2.3.0: Proxmox settings save / test ───────────────────────────────
+
+// Collect the Proxmox form fields into a config payload. The token
+// secret is only included when the operator typed something — a blank
+// field means "keep the saved secret" (same convention as SMTP).
+function _collectProxmoxForm() {
+  const payload = {
+    proxmox_enabled:    document.getElementById('proxmox-enabled').value === '1',
+    proxmox_host:       document.getElementById('proxmox-host').value.trim(),
+    proxmox_node:       document.getElementById('proxmox-node').value.trim(),
+    proxmox_token_id:   document.getElementById('proxmox-token-id').value.trim(),
+    proxmox_verify_tls: document.getElementById('proxmox-verify-tls').value === '1',
+  };
+  const secret = document.getElementById('proxmox-token-secret').value;
+  if (secret) payload.proxmox_token_secret = secret;
+  return payload;
+}
+
+async function saveProxmoxSettings() {
+  try {
+    await api('POST', '/config', _collectProxmoxForm());
+    toast('Proxmox settings saved', 'success');
+    // Clear the secret field + refresh the masked placeholder state
+    document.getElementById('proxmox-token-secret').value = '';
+    refreshProxmoxNav();
+    loadSettings();
+  } catch (e) {
+    toast(`Save failed: ${e.message || String(e)}`, 'error');
+  }
+}
+
+async function testProxmoxConnection() {
+  const resultEl = document.getElementById('proxmox-test-result');
+  resultEl.textContent = 'Testing…';
+  resultEl.style.color = 'var(--muted)';
+  try {
+    // Send the current form values so Test works before Save.
+    const r = await api('POST', '/proxmox/test', _collectProxmoxForm());
+    if (r && r.ok) {
+      resultEl.textContent = '✓ ' + (r.message || 'Connected');
+      resultEl.style.color = 'var(--ok)';
+    } else {
+      resultEl.textContent = '✗ ' + ((r && r.message) || 'Connection failed');
+      resultEl.style.color = 'var(--red)';
+    }
+  } catch (e) {
+    resultEl.textContent = '✗ ' + (e.message || String(e));
+    resultEl.style.color = 'var(--red)';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v2.4.0 — Proxmox snapshots
+//
+// A modal listing a guest's snapshots with create / rollback / delete.
+// rollback and delete are destructive: rollback requires typing the
+// guest name to confirm; delete uses a plain confirm dialog.
+// ═══════════════════════════════════════════════════════════════════════
+
+let _snapCtx = null;   // {kind, vmid, name} of the guest whose modal is open
+
+async function openSnapshots(kind, vmid, guestName) {
+  _snapCtx = { kind, vmid, name: guestName };
+  let modal = document.getElementById('snapshot-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'snapshot-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal" style="max-width:620px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-weight:600" id="snapshot-modal-title">Snapshots</div>
+          <button class="btn-icon" onclick="closeModal('snapshot-modal')">✕</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="flex:1;min-width:160px;margin:0">
+            <label class="form-label" style="font-size:11px">New snapshot name</label>
+            <input type="text" id="snapshot-new-name" class="form-input" placeholder="e.g. before_upgrade">
+          </div>
+          <div class="form-group" style="flex:2;min-width:160px;margin:0">
+            <label class="form-label" style="font-size:11px">Description (optional)</label>
+            <input type="text" id="snapshot-new-desc" class="form-input" placeholder="why">
+          </div>
+          <button class="btn-primary" style="padding:8px 14px" onclick="snapshotCreate()">Create</button>
+        </div>
+        <div id="snapshot-list"></div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  document.getElementById('snapshot-modal-title').textContent =
+    `Snapshots — ${guestName} (${kind.toUpperCase()} ${vmid})`;
+  document.getElementById('snapshot-new-name').value = '';
+  document.getElementById('snapshot-new-desc').value = '';
+  openModal('snapshot-modal');
+  loadSnapshots();
+}
+
+async function loadSnapshots() {
+  if (!_snapCtx) return;
+  const list = document.getElementById('snapshot-list');
+  list.innerHTML = '<div style="color:var(--muted);padding:12px">Loading…</div>';
+  let data;
+  try {
+    data = await api('GET', `/proxmox/snapshots?type=${_snapCtx.kind}&vmid=${_snapCtx.vmid}`);
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--red);padding:12px">${escHtml(e.message || String(e))}</div>`;
+    return;
+  }
+  const snaps = (data && data.snapshots) || [];
+  if (!snaps.length) {
+    list.innerHTML = '<div style="color:var(--muted);padding:12px">No snapshots.</div>';
+    return;
+  }
+  list.innerHTML = `<table style="width:100%;font-size:12px"><thead>
+    <tr style="text-align:left;border-bottom:1px solid var(--border)">
+      <th style="padding:6px 4px">Name</th><th style="padding:6px 4px">Taken</th>
+      <th style="padding:6px 4px">Description</th><th></th></tr></thead><tbody>` +
+    snaps.map(s => {
+      const taken = s.snaptime ? new Date(s.snaptime * 1000).toLocaleString() : '—';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 4px;font-family:var(--font-mono)">${escHtml(s.name)}${s.vmstate ? ' <span style="font-size:9px;color:var(--muted)">+RAM</span>' : ''}</td>
+        <td style="padding:6px 4px;color:var(--muted)">${taken}</td>
+        <td style="padding:6px 4px;color:var(--muted)">${escHtml(s.description || '—')}</td>
+        <td style="padding:6px 4px;text-align:right;white-space:nowrap">
+          <button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px;color:var(--amber);border-color:rgba(245,158,11,0.3)" onclick="snapshotRollback('${escAttr(s.name)}')">Rollback</button>
+          <button class="btn-icon" style="font-size:10px;padding:2px 6px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="snapshotDelete('${escAttr(s.name)}')">Delete</button>
+        </td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function snapshotCreate() {
+  if (!_snapCtx) return;
+  const name = document.getElementById('snapshot-new-name').value.trim();
+  const desc = document.getElementById('snapshot-new-desc').value.trim();
+  if (!name) { toast('Enter a snapshot name', 'error'); return; }
+  try {
+    await api('POST', '/proxmox/snapshot', {
+      type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'create',
+      name: name, description: desc,
+    });
+    toast('Snapshot creation started', 'success');
+    document.getElementById('snapshot-new-name').value = '';
+    document.getElementById('snapshot-new-desc').value = '';
+    setTimeout(loadSnapshots, 1500);
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+async function snapshotRollback(name) {
+  if (!_snapCtx) return;
+  // Destructive — discards all state since the snapshot. Require the
+  // operator to type the guest name to confirm (not just an OK click).
+  const typed = prompt(
+    `ROLLBACK is destructive — it discards ALL changes made to ` +
+    `"${_snapCtx.name}" since snapshot "${name}" was taken.\n\n` +
+    `To confirm, type the guest name exactly:`);
+  if (typed === null) return;
+  if (typed.trim() !== _snapCtx.name) {
+    toast('Name did not match — rollback cancelled', 'error');
+    return;
+  }
+  try {
+    await api('POST', '/proxmox/snapshot', {
+      type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'rollback', name: name,
+    });
+    toast('Rollback started', 'success');
+    setTimeout(loadSnapshots, 1500);
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+async function snapshotDelete(name) {
+  if (!_snapCtx) return;
+  if (!confirm(`Delete snapshot "${name}"?\n\nThis is irreversible, but it ` +
+               `does not affect the running guest.`)) return;
+  try {
+    await api('POST', '/proxmox/snapshot', {
+      type: _snapCtx.kind, vmid: _snapCtx.vmid, action: 'delete', name: name,
+    });
+    toast('Snapshot deleted', 'success');
+    setTimeout(loadSnapshots, 1000);
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v2.4.2 — SSH preferences + quick SSH link
+// ═══════════════════════════════════════════════════════════════════════
+
+// The per-user default SSH username lives in the ui_prefs document
+// under the top-level key 'default_ssh_username' (round-tripped by the
+// existing _uiPrefs machinery).
+function getDefaultSshUsername() {
+  const u = _uiPrefs && _uiPrefs.default_ssh_username;
+  return (typeof u === 'string') ? u : '';
+}
+
+// Populate the Settings field. Called when the Security pane opens.
+function loadSshUsername() {
+  const el = document.getElementById('cfg-ssh-username');
+  if (el) el.value = getDefaultSshUsername();
+}
+
+async function saveSshUsername() {
+  const el = document.getElementById('cfg-ssh-username');
+  if (!el) return;
+  const val = el.value.trim();
+  // Mirror the server-side rule so the user gets immediate feedback.
+  if (val && !/^[A-Za-z0-9._-]{1,32}$/.test(val)) {
+    toast('Username may use letters, digits, dot, dash, underscore (max 32)', 'error');
+    return;
+  }
+  if (val) {
+    _uiPrefs.default_ssh_username = val;
+  } else {
+    delete _uiPrefs.default_ssh_username;
+  }
+  try {
+    await api('POST', '/ui-prefs', _uiPrefs);
+    toast('SSH username saved', 'success');
+  } catch (e) {
+    toast('Save failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+// Render the quick-SSH icon for a device row. The target host is the
+// device's IP when known, else its hostname (the fallback the spec
+// asked for). Returns '' when there's neither — nothing to connect to.
+function sshLinkIcon(d) {
+  const host = (d.ip || '').trim() || (d.hostname || '').trim();
+  if (!host) return '';
+  // escAttr the host since it goes into an onclick attribute.
+  return ` <a href="#" title="Quick SSH" onclick="quickSsh('${escAttr(host)}'); return false;"` +
+         ` style="text-decoration:none;margin-left:4px">` +
+         `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;opacity:0.7">` +
+         `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>`;
+}
+
+// Quick SSH action. A browser cannot open a terminal itself — it can
+// only hand an ssh:// URL to the OS, which works only if the user's
+// machine has registered an ssh:// handler (PuTTY, the OS, a terminal
+// emulator). So we do BOTH: attempt the ssh:// hand-off, and always
+// offer the plain `ssh user@host` string to copy, which works
+// everywhere regardless of handler setup.
+function quickSsh(host) {
+  const user = getDefaultSshUsername();
+  if (!user) {
+    toast('Set a default SSH username first (Settings → Security → SSH preferences)', 'error');
+    return;
+  }
+  const target = `${user}@${host}`;
+  // Best-effort ssh:// hand-off to the OS.
+  try {
+    window.location.href = `ssh://${encodeURIComponent(user)}@${encodeURIComponent(host)}`;
+  } catch (_) { /* no handler — the copy fallback below still helps */ }
+  // Always-works fallback: copy the command to the clipboard.
+  const cmd = `ssh ${target}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd).then(
+      () => toast(`Copied: ${cmd}` , 'success'),
+      () => toast(`SSH command: ${cmd}`, 'info'));
+  } else {
+    toast(`SSH command: ${cmd}`, 'info');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v2.4.4 — Mailbox monitor configuration (Settings → Mailbox monitor)
+//
+// Moved here from the device detail view. Pick a device, set its
+// mailbox paths and the dashboard-promotion flag, save.
+// ═══════════════════════════════════════════════════════════════════════
+
+let _mailwatchOverview = [];   // cached /api/mailwatch result
+
+// Called when the Mailbox monitor settings tab opens. Populates the
+// device dropdown and caches current mailbox config.
+async function loadMailwatchSettings() {
+  const sel = document.getElementById('mailwatch-device');
+  if (!sel) return;
+  let devs = [], mw = {devices: []};
+  try {
+    [devs, mw] = await Promise.all([
+      api('GET', '/devices'),
+      api('GET', '/mailwatch'),
+    ]);
+  } catch (e) {
+    toast('Could not load devices', 'error');
+    return;
+  }
+  _mailwatchOverview = (mw && mw.devices) || [];
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select a device —</option>' +
+    (devs || []).map(d =>
+      `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`
+    ).join('');
+  if (prev) { sel.value = prev; loadMailwatchForDevice(); }
+}
+
+// Fill the path box + checkbox for the selected device.
+function loadMailwatchForDevice() {
+  const sel = document.getElementById('mailwatch-device');
+  const cfg = document.getElementById('mailwatch-config');
+  if (!sel || !cfg) return;
+  const devId = sel.value;
+  if (!devId) { cfg.style.display = 'none'; return; }
+  cfg.style.display = '';
+  const state = _mailwatchOverview.find(d => d.device_id === devId);
+  const paths = (state && state.paths) || [];
+  document.getElementById('mailwatch-paths').value = paths.join('\n');
+  document.getElementById('mailwatch-dashboard').checked =
+    !!(state && state.dashboard);
+  // Show the most recent counts, if any have been reported.
+  const cur = document.getElementById('mailwatch-current');
+  const counts = (state && state.counts) || {};
+  const keys = Object.keys(counts);
+  if (!keys.length) {
+    cur.innerHTML = paths.length
+      ? '<div style="font-size:12px;color:var(--muted)">No agent report yet — counts appear a few minutes after the agent next heartbeats.</div>'
+      : '';
+    return;
+  }
+  cur.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">Latest counts</div>' +
+    keys.map(p => {
+      const info = counts[p] || {};
+      let v = '—';
+      if (info.error) v = `<span style="color:var(--amber)">${escHtml(info.error)}</span>`;
+      else if (typeof info.count === 'number') v = `<strong>${info.count}</strong> files`;
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
+        <code style="font-size:11px">${escHtml(p)}</code><span>${v}</span></div>`;
+    }).join('');
+}
+
+async function saveMailwatch() {
+  const sel = document.getElementById('mailwatch-device');
+  if (!sel || !sel.value) { toast('Select a device first', 'error'); return; }
+  const devId = sel.value;
+  const paths = document.getElementById('mailwatch-paths').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const bad = paths.find(p => !p.startsWith('/'));
+  if (bad) { toast(`Not an absolute path: ${bad}`, 'error'); return; }
+  const dashboard = document.getElementById('mailwatch-dashboard').checked;
+  try {
+    await api('POST', `/devices/${encodeURIComponent(devId)}/mailwatch`,
+              {paths: paths, dashboard: dashboard});
+    toast('Mailbox monitor saved — the agent picks it up on its next heartbeat', 'success');
+    loadMailwatchSettings();   // refresh cache
+  } catch (e) {
+    toast('Save failed: ' + (e.message || String(e)), 'error');
   }
 }

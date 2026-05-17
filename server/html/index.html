@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- v2.0: real favicon (replaces no favicon at all in older releases) -->
+<!-- v2.0: real favicon. v2.4.4: favicon.ico restored — browsers
+     auto-request /favicon.ico, so it must exist as a real file. -->
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="shortcut icon" type="image/png" href="favicon.png">
+<link rel="shortcut icon" href="favicon.ico">
 <link rel="apple-touch-icon" href="static/img/logo-square.png">
 <title>RemotePower — Device Control</title>
 <link rel="stylesheet" href="static/css/styles.css">
@@ -102,6 +104,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
       <span>Containers</span>
     </button>
+    <button class="nav-btn" id="nav-virtualization" onclick="showPage('virtualization',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      <span>Virtualization</span>
+    </button>
     <button class="nav-btn" onclick="showPage('netmap',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
       <span>Network</span>
@@ -110,11 +116,24 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       <span>Monitor</span>
     </button>
+    <!-- v2.3.4: Services and Logs moved from the Security group up to
+         Main. They're routine operational views (is the service up,
+         what's in the logs) rather than security-specific tooling, so
+         Main is the more natural home. -->
+    <button class="nav-btn" onclick="showPage('services',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Services</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('logs',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
+      <span>Logs</span>
+    </button>
 
     <!-- v2.0: collapsible Security group. Was 4 separate top-level items
          (TLS, Patches, CVEs, Services) — now grouped behind a chevron
          that expands on click. State persists per-user via the same
-         ui_prefs mechanism the table sort/filter prefs use. -->
+         ui_prefs mechanism the table sort/filter prefs use.
+         v2.3.4: Services and Logs moved out to Main. -->
     <div class="sidebar-group" data-group="security">
       <button class="sidebar-group-toggle" onclick="toggleSidebarGroup('security')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg>
@@ -133,14 +152,6 @@
         <button class="nav-btn" onclick="showPage('cve',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
-        </button>
-        <button class="nav-btn" onclick="showPage('services',this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span>Services</span>
-        </button>
-        <button class="nav-btn" onclick="showPage('logs',this)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
-          <span>Logs</span>
         </button>
         <!-- v2.2.0: configuration drift detection -->
         <button class="nav-btn" onclick="showPage('drift',this)">
@@ -447,6 +458,8 @@
           <button class="settings-tab"        data-tab="notifs"   onclick="switchSettingsTab('notifs')">Notifications</button>
           <button class="settings-tab"        data-tab="security" onclick="switchSettingsTab('security')">Security</button>
           <button class="settings-tab"        data-tab="ai"       onclick="switchSettingsTab('ai')">AI assistant</button>
+          <button class="settings-tab"        data-tab="proxmox"  onclick="switchSettingsTab('proxmox')">Proxmox</button>
+          <button class="settings-tab"        data-tab="mailbox"  onclick="switchSettingsTab('mailbox')">Mailbox monitor</button>
           <button class="settings-tab"        data-tab="advanced" onclick="switchSettingsTab('advanced')">Advanced</button>
         </div>
 
@@ -669,6 +682,19 @@
             </label>
           </div>
 
+          <!-- ── v2.4.2: SSH preferences (per-user) ───────────────────────── -->
+          <div class="settings-section">
+            <h3>SSH preferences</h3>
+            <p class="hint">Your default SSH username. Used by the quick-SSH link on the Devices page so you don't retype it each time. Stored per-user, not shared.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:280px">
+                <label class="form-label">Default SSH username</label>
+                <input type="text" id="cfg-ssh-username" class="form-input" placeholder="e.g. root, deploy, jmo" maxlength="32" autocomplete="off">
+              </div>
+            </div>
+            <button class="btn-primary" style="margin-top:6px" onclick="saveSshUsername()">Save SSH username</button>
+          </div>
+
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
           <div class="settings-section">
             <h3>LDAP / LDAPS authentication</h3>
@@ -748,6 +774,82 @@
             <h3>Backup &amp; export</h3>
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
             <button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
+          </div>
+        </div>
+
+        <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-proxmox">
+          <div class="settings-section">
+            <h3>Proxmox VE connection</h3>
+            <p class="hint">Connect a single Proxmox VE node. The RemotePower server calls the Proxmox API directly to list QEMU VMs (Virtualization page) and LXC containers (Containers page), and to start / shut them down. Authentication uses a Proxmox API token — create one under Datacenter → Permissions → API Tokens.</p>
+            <p class="hint" style="color:var(--amber)"><strong>Note:</strong> the API token secret is stored in the server's <code>config.json</code> (file mode 600). It is not encrypted at rest. Use an API token scoped to only the permissions it needs (VM.PowerMgmt, VM.Audit), not a full-access token.</p>
+            <p class="hint"><strong>More secure option:</strong> set the token secret in the environment variable <code>RP_PROXMOX_TOKEN_SECRET</code> (in the systemd unit or container env) instead of here. When that variable is set it takes precedence, the secret stays out of <code>config.json</code>, and it is not included in the backup export.</p>
+            <p class="hint" id="proxmox-env-hint" style="display:none;color:var(--ok)">✓ The token secret is currently being read from the <code>RP_PROXMOX_TOKEN_SECRET</code> environment variable. The field below is ignored.</p>
+            <div class="settings-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+              <div class="form-group" style="min-width:120px">
+                <label class="form-label">Enabled</label>
+                <select id="proxmox-enabled" class="form-input"><option value="0">Off</option><option value="1">On</option></select>
+              </div>
+              <div class="form-group" style="min-width:220px">
+                <label class="form-label">Host</label>
+                <input type="text" id="proxmox-host" class="form-input" placeholder="pve.example.com or 10.0.0.5">
+              </div>
+              <div class="form-group" style="min-width:140px">
+                <label class="form-label">Node name</label>
+                <input type="text" id="proxmox-node" class="form-input" placeholder="pve">
+              </div>
+            </div>
+            <div class="settings-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:12px">
+              <div class="form-group" style="min-width:260px">
+                <label class="form-label">Token ID</label>
+                <input type="text" id="proxmox-token-id" class="form-input" placeholder="root@pam!remotepower">
+              </div>
+              <div class="form-group" style="min-width:260px">
+                <label class="form-label">Token secret</label>
+                <input type="password" id="proxmox-token-secret" class="form-input" placeholder="••••••••  (leave blank to keep current)" autocomplete="new-password">
+              </div>
+              <div class="form-group" style="min-width:160px">
+                <label class="form-label">Verify TLS</label>
+                <select id="proxmox-verify-tls" class="form-input"><option value="1">On (recommended)</option><option value="0">Off (self-signed)</option></select>
+              </div>
+            </div>
+            <p class="hint">Proxmox ships a self-signed certificate by default — if you haven't installed a trusted cert, set Verify TLS to Off. Prefer installing a real certificate.</p>
+            <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+              <button class="btn-primary" onclick="saveProxmoxSettings()">Save Proxmox settings</button>
+              <button class="btn-icon" onclick="testProxmoxConnection()">Test connection</button>
+              <span id="proxmox-test-result" style="font-size:13px"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Mailbox monitor (v2.4.4) ───────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-mailbox">
+          <div class="settings-section">
+            <h3>Mailbox monitor</h3>
+            <p class="hint">Count messages in a mailbox without IMAP/SMTP. Pick a device, give it one or more directory paths, and the agent counts the regular files in each (a Maildir <code>new</code> folder holds one file per unread message). Tick "Show on dashboard" to surface a device's count as a tile on the Home dashboard.</p>
+            <div class="settings-row">
+              <div class="form-group" style="max-width:340px">
+                <label class="form-label">Device</label>
+                <select id="mailwatch-device" class="form-input" onchange="loadMailwatchForDevice()">
+                  <option value="">— select a device —</option>
+                </select>
+              </div>
+            </div>
+            <div id="mailwatch-config" style="display:none">
+              <div class="form-group">
+                <label class="form-label">Mailbox paths <span style="font-size:11px;color:var(--muted)">(one absolute path per line)</span></label>
+                <textarea id="mailwatch-paths" class="form-input" rows="4" style="font-family:var(--font-mono);font-size:12px" placeholder="/var/mail/vhosts/example.com/jmo/new"></textarea>
+              </div>
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin:10px 0">
+                <input type="checkbox" id="mailwatch-dashboard" style="width:18px;height:18px;accent-color:var(--accent)">
+                <div>
+                  <div style="font-size:13px;font-weight:500">Show this device's mailbox count on the dashboard</div>
+                  <div style="font-size:12px;color:var(--muted)">Adds an "Unread mail" tile to the Home dashboard.</div>
+                </div>
+              </label>
+              <button class="btn-primary" onclick="saveMailwatch()">Save mailbox monitor</button>
+              <div id="mailwatch-current" style="margin-top:14px"></div>
+            </div>
           </div>
         </div>
 
@@ -934,6 +1036,52 @@
             <div class="doc-body">
               <p>Monitor page → "Add target". The server runs these probes itself, not the agents — useful for checking your ISP gateway is up, a web service is responding, or an SSH port is open.</p>
               <p>Probes run on a schedule (<code>monitor_interval</code>, default 300s, minimum 60s). The schedule piggybacks on incoming CGI requests, so as long as any agent is heartbeating or anyone's browsing, monitors run on time. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="proxmox virtualization vm qemu kvm hypervisor guest">
+            <summary><strong>Proxmox virtualization</strong> — managing QEMU VMs</summary>
+            <div class="doc-body">
+              <p>RemotePower can connect to one Proxmox VE node and manage its guests. Configure it under <strong>Settings → Proxmox</strong>: the node's host, the node name, and a Proxmox API token (created in Proxmox under Datacenter → Permissions → API Tokens). Use a scoped token — <code>VM.Audit</code> and <code>VM.PowerMgmt</code> are enough — not a full-access token. There's a "Test connection" button to verify the setup.</p>
+              <p>Once configured, the <strong>Virtualization</strong> page lists the node's QEMU virtual machines: status, CPU and memory while running, uptime. Each guest has Start and graceful Shutdown actions. The connection is server-to-API — the RemotePower server talks to the Proxmox REST API directly; no agent runs on the Proxmox node.</p>
+              <p>This is a single-node integration. The Virtualization nav entry is always visible; if Proxmox isn't configured the page simply tells you so.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="lxc container proxmox linux container">
+            <summary><strong>Proxmox LXC containers</strong></summary>
+            <div class="doc-body">
+              <p>LXC containers on the Proxmox node appear on the <strong>Containers</strong> page, in a section below the agent-reported Docker/Podman containers. They carry the same Start and Shutdown actions as QEMU VMs.</p>
+              <p>The LXC section only appears once Proxmox is configured (Settings → Proxmox). Like the VM list, it's fetched live from the Proxmox API each time you open the page.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="snapshot rollback proxmox vm restore backup point-in-time">
+            <summary><strong>Snapshots &amp; rollback</strong> — point-in-time guest states</summary>
+            <div class="doc-body">
+              <p>Each Proxmox guest — QEMU on the Virtualization page, LXC on the Containers page — has a <strong>Snapshots</strong> button. It opens a panel listing the guest's snapshots and lets you create, roll back, and delete them.</p>
+              <p><strong>Create</strong> — give the snapshot a name (a letter followed by letters, digits or underscores) and an optional description. Snapshots are disk-only — the VM's RAM state is not captured. A typical workflow: take a snapshot named <code>before_upgrade</code> immediately before a risky change.</p>
+              <p><strong>Rollback</strong> — returns the guest to a snapshot's state. This is <em>destructive</em>: every change made since the snapshot was taken is discarded. Because of that, RemotePower asks you to type the guest's name to confirm — a deliberate speed bump, not just an OK button. After a rollback the guest is at a crash-consistent disk state (no live memory, since snapshots are disk-only).</p>
+              <p><strong>Delete</strong> — removes a snapshot. Irreversible, but it does not affect the running guest — only the saved point-in-time state is gone.</p>
+              <p>Snapshot operations run asynchronously on Proxmox. RemotePower sends the request and refreshes the list shortly after; a slow operation may not show on the first refresh — reopen the panel. Every snapshot action is recorded in the fleet event log.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="ssh username login devices quick connect terminal">
+            <summary><strong>Quick SSH from the Devices page</strong></summary>
+            <div class="doc-body">
+              <p>Set a default SSH username under <strong>Settings → Security → SSH preferences</strong>. It's stored per-user.</p>
+              <p>On the <strong>Devices</strong> page, a small SSH icon appears next to each device's hostname. Clicking it builds an <code>ssh://</code> link to that device — using the device's IP if known, otherwise its hostname — with your default username, and also copies the plain <code>ssh user@host</code> command to your clipboard.</p>
+              <p>Whether the <code>ssh://</code> link opens a terminal depends on your own machine having an <code>ssh://</code> handler registered (the OS, PuTTY, a terminal emulator). If it doesn't, the copied command is the reliable path — paste it into any terminal.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="mailbox mail maildir unread count monitor email">
+            <summary><strong>Mailbox monitor</strong> — unread-message counts</summary>
+            <div class="doc-body">
+              <p>A lightweight way to see a mailbox's message count without any IMAP/SMTP setup. Configure it under <strong>Settings → Mailbox monitor</strong>: pick a device, enter one or more absolute directory paths, and Save. The agent counts the regular files directly inside each directory and reports the numbers in its heartbeat — for a Maildir <code>new/</code> folder that file count is the unread-message count.</p>
+              <p>Tick <strong>"Show this device's mailbox count on the dashboard"</strong> to add an "Unread mail" tile to the Home dashboard, alongside the devices / updates / drift / CVE tiles.</p>
+              <p>Counts refresh on the agent's schedule — roughly every five minutes, not instantly. The agent needs read access to the directory; if it doesn't have it, the count shows the reason (e.g. "permission denied") rather than a number. No email content is ever read — only files counted.</p>
             </div>
           </details>
 
@@ -1650,6 +1798,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
+
+        <!-- ── v2.3.0: Proxmox LXC containers ──────────────────────────── -->
+        <div id="containers-lxc-section" style="display:none;margin-top:24px">
+          <div class="page-title" style="font-size:18px">Proxmox LXC containers</div>
+          <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
+          <div id="containers-lxc-body"></div>
+        </div>
+      </div>
+
+      <!-- ── v2.3.0: Virtualization (Proxmox QEMU VMs) ──────────────────── -->
+      <div id="page-virtualization" class="page">
+        <div class="page-title">Virtualization</div>
+        <div class="page-subtitle">QEMU virtual machines on the Proxmox node. Start / shutdown actions call the Proxmox VE API directly from the RemotePower server.</div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
+          <button class="btn-icon" onclick="loadVirtualization()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="virtualization-node" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
+        </div>
+        <div id="virtualization-body"></div>
       </div>
 
       <!-- ── v1.11.0: Network map ───────────────────────────────────────── -->

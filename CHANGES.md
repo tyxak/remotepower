@@ -1,5 +1,413 @@
 # Changelog
 
+## v2.4.4 — 2026-05-17
+
+Bugfix and polish for the mailbox monitor, plus favicon.ico.
+
+### Fixed
+
+- **Mailbox monitor never received its paths.** The 2.4.3
+  heartbeat handler read the mailbox path list from a `saved_dev`
+  snapshot that the path list was never copied into — so the
+  agent always got an empty list and never counted. `saved_dev`
+  now carries `mailbox_paths`. A new test asserts the heartbeat
+  response includes them.
+- **favicon.ico restored.** Browsers auto-request `/favicon.ico`;
+  the project shipped only `favicon.png`. A real favicon.ico is
+  now included.
+
+### Changed
+
+- **Mailbox config moved to Settings → Mailbox monitor** (was on
+  the device detail modal).
+- **Dashboard view is now a tile** — same style/size as the
+  Devices / Updates / Drift / CVE tiles, instead of a separate
+  full-width card.
+
+### Tests
+
+- `test_v244.py`: 7 new tests. Total: **1003, all passing.**
+
+### Upgrading from 2.4.3
+
+Drop-in. A mailbox path configured under 2.4.3 starts working
+once 2.4.4 is deployed — no reconfigure needed.
+
+## v2.4.3 — 2026-05-17
+
+Lightweight mailbox monitor.
+
+### Added
+
+- **Mailbox-count monitor.** Give a device one or more directory
+  paths; the agent counts the regular files directly inside each
+  (the Maildir `new/` convention — one file per unread message)
+  and reports the numbers in its heartbeat. No IMAP/SMTP, no
+  credentials, no message content — just counts. Configured in
+  the device detail view; a "Show on dashboard" checkbox promotes
+  a device so its counts appear in a Home-dashboard widget.
+  Counting is done with os.scandir (no shell).
+
+### Tests
+
+- `test_v243.py`: 14 new tests. Total: **996, all passing.**
+
+### Upgrading from 2.4.2
+
+Drop-in. Deploy the updated agent to hosts you want to monitor.
+
+### Caveats
+
+The agent change is unit-tested for logic but not verified
+end-to-end against a live server — smoke-test on one host first.
+Counts refresh every ~5 minutes, not live. Counts files, not
+messages (fits Maildir, not mbox). No threshold alerting yet.
+
+## v2.4.2 — 2026-05-17
+
+Small features release.
+
+### Added
+
+- **Default SSH username** — a per-user setting (Settings →
+  Security → SSH preferences), stored in ui_prefs, validated as an
+  SSH-safe username.
+- **Quick SSH link** on the Devices page — an SSH icon next to
+  each hostname builds an `ssh://user@host` link (IP when known,
+  else hostname) and copies `ssh user@host` to the clipboard. The
+  ssh:// hand-off depends on the client machine having an ssh://
+  handler; the clipboard copy is the universal fallback.
+- **Documentation** — four new Documentation-page cards: Proxmox
+  virtualization, LXC containers, snapshots & rollback, quick SSH.
+
+### Tests
+
+- `test_v242.py`: 11 new tests. Total: **982, all passing.**
+
+### Upgrading from 2.4.1
+
+Drop-in, server-side.
+
+## v2.4.1 — 2026-05-17
+
+Bugfix release — CVE severity cache invalidation.
+
+### Fixed
+
+- **Stale CVE cache served wrong severities.** The 2.3.4 / 2.4.0
+  severity fixes were correct but couldn't reach findings already
+  in `cve_details_cache.json`. Entries written by a pre-2.3.4
+  RemotePower carry a severity from the old buggy classifier and
+  no `severity_source` field; the TTL-only refresh gate kept
+  re-serving them (the tell: `severity: critical` +
+  `severity_source: unknown`, an impossible pair from current
+  code). Now an entry lacking `severity_source` is treated as
+  stale regardless of TTL and re-fetched + re-classified. Self-
+  healing — no manual cache wipe. Modern entries still use the
+  normal TTL.
+
+### Tests
+
+- `test_v241.py`: 3 new tests (stubbed OSV). Total: **971, all
+  passing.**
+
+### Upgrading from 2.4.0
+
+Drop-in, server-side. Stale entries refresh automatically; the
+first post-upgrade scan of each device is a little slower.
+
+## v2.4.0 — 2026-05-17
+
+Proxmox snapshots + a CVE severity fix.
+
+### Added
+
+- **Proxmox VM/LXC snapshots.** A Snapshots button on each guest
+  (Virtualization page for QEMU, Containers page for LXC) opens a
+  modal to create / list / rollback / delete snapshots. Rollback
+  is destructive — the UI requires typing the guest name to
+  confirm. Delete is irreversible but doesn't touch the running
+  guest. Disk-only snapshots (no RAM state). New `proxmox_client`
+  methods + `GET /api/proxmox/snapshots`, `POST /api/proxmox/snapshot`.
+  (Optional CPU/RAM adjustment and backup-trigger from the
+  request are deferred — larger, separate work.)
+
+### Fixed
+
+- **CVE severity: Debian urgency shown as HIGH.**
+  DEBIAN-CVE-2018-1000021 was HIGH while OSV rates it 5.0 Medium.
+  When an OSV Debian entry has no CVSS, the chain fell back to the
+  Debian tracker and mapped Debian's `urgency` straight to
+  severity. Debian `urgency` is a patching-priority signal, not
+  CVSS severity. The fallback is now capped at `medium` — it can
+  never return high/critical.
+
+### Tests
+
+- `test_v240.py`: 17 new tests. One `test_v215` modal-ID test
+  updated for the dynamically-created snapshot modal. Total:
+  **968, all passing.**
+
+### Upgrading from 2.3.4
+
+Drop-in, server-side.
+
+### Caveats
+
+Not tested against a live Proxmox node (unit tests cover logic,
+not API request shapes). Snapshot actions are fire-and-forget —
+no task-completion polling. Disk-only snapshots. CVE severity
+recomputes on next scan.
+
+## v2.3.4 — 2026-05-17
+
+Fleet-issues bugfix release.
+
+### Fixed
+
+- **CVE severity misclassification.** The CVSS scorer did
+  substring matching — `'c:h' in vector` matched `AC:H` (Attack
+  Complexity High) as `C:H` (Confidentiality High), so every
+  high-attack-complexity CVE scored 7.5/HIGH regardless of real
+  impact. A CVSS 2.9 LOW vuln came out HIGH. Now the CVSS vector
+  is properly tokenised and the real CVSS v3.1 base-score formula
+  applied; <4.0 can never be HIGH. Findings carry a
+  `severity_source` field.
+- **Unmonitored devices in Recent Activity.** Events for
+  `monitored:false` devices are now filtered out of the fleet
+  activity feed (at read time, reflecting current state).
+- **Drift false positives.** Watched files can now be marked
+  `ignored` per device — ignored files are non-critical (out of
+  the drift/missing counts, no red status) but stay visible.
+- **Services and Logs** moved from the Security nav group to Main.
+
+### Investigated, not changed
+
+- Dashboard time ranges (#3): no regression found — what looks
+  like "only yesterday" is the known no-server-side-uptime-history
+  limitation, a separate feature, not a bug.
+- Mobile rendering: deprioritised per the issue list (resolved by
+  switching browsers — browser-specific, not a code defect).
+
+### Tests
+
+- `test_v234.py`: 11 new tests; 3 pre-existing severity tests
+  updated for the new `(severity, source)` return. Total: **951,
+  all passing.**
+
+### Upgrading from 2.3.3
+
+Drop-in. CVE severities recompute on the next scan.
+
+## v2.3.3 — 2026-05-17
+
+Bugfix release.
+
+### Fixed
+
+- **Virtualization page was undiscoverable.** The Virtualization
+  nav entry shipped hidden (`display:none`) and was only revealed
+  once Proxmox was enabled — but you enable Proxmox under Settings,
+  so the feature couldn't be found in the first place. The nav
+  entry is now always visible; the page already handles the
+  not-configured state with a "configure under Settings -> Proxmox"
+  message.
+
+### Known issue (not fixed)
+
+A reported broken mobile render (page shows almost nothing) is not
+addressed — it needs the browser console error to diagnose
+properly rather than guess.
+
+### Tests
+
+Full regression: **940 tests, all passing.** No new tests — a
+one-line visibility fix.
+
+### Upgrading from 2.3.2
+
+Drop-in.
+
+## v2.3.2 — 2026-05-17
+
+Security release — no new features. Result of a focused security
+review (full writeup: docs/security-review-2.3.2.md).
+
+### Fixed
+
+- **Unsalted SHA-256 password fallback → salted PBKDF2.** When
+  bcrypt wasn't installed, password hashing fell back to bare
+  unsalted `sha256` — rainbow-table-able if `users.json` leaked.
+  Now salted PBKDF2-HMAC-SHA256 (600k iterations, stdlib). Legacy
+  hashes still verify and upgrade automatically on next login.
+- **Default-password warning.** A bare-metal install seeds
+  `admin`/`remotepower`. The seeded hash is now properly salted,
+  and the account carries a `must_change_password` flag that
+  drives a persistent red UI banner until the password is changed.
+
+### Reviewed, unchanged
+
+Login rate-limiting, constant-time compares, TOTP, agent TLS
+verification, SSRF guard, security headers / CSP — all reviewed and
+sound. Accepted limitations (CSP `'unsafe-inline'`, plaintext
+secrets in config.json, CSRF posture) documented in the review.
+
+### Tests
+
+- `test_v232.py`: 11 new tests. Total: **940, all passing.**
+
+### Upgrading from 2.3.1
+
+Drop-in, server-side only. Existing password hashes keep working
+and upgrade silently on next login.
+
+## v2.3.1 — 2026-05-17
+
+Security release — Proxmox token secret hardening.
+
+### Changed
+
+- **Proxmox token secret via environment variable.** The token
+  secret can now be supplied in `RP_PROXMOX_TOKEN_SECRET` (systemd
+  unit / container env); when set it takes precedence over
+  `config.json`. Keeps the secret out of the data directory and
+  out of the backup export. The `config.json` value remains a
+  fallback. Settings → Proxmox detects an env-sourced secret and
+  disables the config field.
+- **Backup export redacts config.json secrets.** The backup ZIP
+  used to include `config.json` verbatim — carrying the live
+  Proxmox token, SMTP password and LDAP bind password. All three
+  are now redacted in the exported copy (keys kept, values
+  replaced with `(redacted)`).
+
+### Tests
+
+- `test_v231.py`: 8 new tests. Total: **929, all passing.**
+
+### Upgrading from 2.3.0
+
+Drop-in. To move the Proxmox secret out of `config.json`: set
+`RP_PROXMOX_TOKEN_SECRET`, then clear the field in Settings and
+save.
+
+## v2.3.0 — 2026-05-17
+
+Proxmox VE integration.
+
+### Added
+
+- **Proxmox VE integration.** RemotePower connects to a single
+  Proxmox node and surfaces its guests:
+  - New **Virtualization page** — QEMU VMs with status, CPU/mem,
+    uptime; start / graceful-shutdown actions.
+  - **LXC containers** appear as a section on the Containers page,
+    same start / shutdown actions.
+  Server-to-API integration — the RemotePower server calls the
+  Proxmox REST API directly, no agent on the Proxmox node. New
+  stdlib-only `proxmox_client.py` module.
+- **Settings → Proxmox** — host, node, API token ID + secret,
+  Verify TLS toggle, Test-connection button. Token secret is
+  masked in the config API and stored in `config.json` (mode
+  0600, not encrypted — use a scoped API token).
+- Action allow-list (`start`/`shutdown`/`stop`/`status`); UI
+  exposes start + graceful shutdown only. `migrate`/`clone`/
+  `delete` cannot be invoked.
+
+### Tests
+
+- `test_v230.py`: 28 new tests. Total: **921, all passing.**
+
+### Upgrading from 2.2.7
+
+Server-side only, no agent change. Configure under Settings →
+Proxmox; until then nothing changes.
+
+### Caveats
+
+Not tested against a live Proxmox node — unit tests cover the
+logic, not the API request shapes. No background polling (every
+page visit calls the API synchronously). Actions are
+fire-and-forget (no task-status confirmation). Single node only.
+
+## v2.2.7 — 2026-05-17
+
+Mobile hotfix.
+
+### Fixed
+
+- **Mobile navigation drawer was unusable** — a wide panel of
+  unlabelled icons. Two media-query blocks (a 768px icon-rail and a
+  720px drawer) both applied below 720px and fought. The icon-rail
+  block is removed; the drawer is now the single mobile layout with
+  labels, alignment and padding restored.
+
+### Tests
+
+- `test_v227.py`: 6 tests. Total: **893, all passing.**
+
+### Upgrading from 2.2.6
+
+Drop-in — one CSS file changed.
+
+## v2.2.6 — 2026-05-16
+
+Correctness + telemetry release.
+
+### Fixed
+
+- **CVE scanner false positives on already-patched packages.** The
+  scanner turned every OSV hit into a finding with no installed-vs-
+  fixed version comparison — flagging e.g. `lua5.1 5.1.5-9build2`
+  as vulnerable when it's newer than the ESM fix. New
+  `_already_patched()` gate: Debian/Ubuntu uses `dpkg
+  --compare-versions`, other ecosystems a tuple comparator;
+  fail-safe keeps the finding on any uncertainty. Scan result
+  carries a `suppressed_patched` count.
+- **Docker random admin password.** Entrypoint generates a strong
+  random password (`secrets.token_urlsafe`) when `RP_ADMIN_PASS`
+  is unset and prints it once in a banner — no more `changeme`
+  plaintext default.
+- **Docker healthcheck** used `curl`, never installed → container
+  always `unhealthy`. Switched to Python urllib.
+- **nginx `duplicate MIME type "text/html"`** warning — removed
+  `text/html` from `gzip_types`.
+- **`remotepower-passwd` empty-default username** — Enter now
+  defaults to the sole user instead of erroring "User '' not found".
+- **Mobile modal stacking** — z-index scale normalised into clean
+  tiers (dropdowns were at 10000, above modals); opening a modal
+  closes the mobile nav + locks body scroll; mobile modals are
+  full-bleed sheets.
+
+### Added
+
+- **Drift: expanded watch list** (8 → 13 files: passwd, group,
+  login.defs, common-auth, apt sources) + **dormant handling** —
+  a watched file absent for 3 consecutive heartbeats goes dormant,
+  fires one event then goes quiet, stops counting as drift, and
+  auto-revives if the file returns.
+- **Agent host-health telemetry** — `get_host_health()` collects
+  reboot-required, failed systemd units, logged-in users,
+  listening ports, last boot. Surfaced in the device detail modal.
+- **Container CPU / memory + health badge** — agent runs
+  `docker stats`, parses `(healthy)`/`(unhealthy)` from status.
+  Shown on the container card.
+
+### Tests
+
+- `test_v226.py`: 22 new tests.
+- `test_v220` missing-file test updated for the dormant behaviour.
+- Total: **887 tests, all passing.**
+
+### Not included
+
+New monitor types ("more monitor options") are deferred — they
+need check logic + UI forms and warrant their own release.
+
+### Upgrading from 2.2.5
+
+Server + agent drop-in. Rebuild the Docker image for the
+healthcheck/entrypoint fixes.
+
 ## v2.2.5 — 2026-05-15
 
 Five UX fixes from live driving of the 2.2.4 dashboard.

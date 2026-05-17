@@ -150,19 +150,43 @@ class TestDriftIngest(_DriftBase):
                          'only the first change from baseline should fire')
 
     def test_missing_file_reported(self):
+        # v2.2.6: a missing watched file no longer fires a drift webhook
+        # on the first missing sighting — that nagged operators about
+        # files simply not present. It now fires ONCE after
+        # DRIFT_MISSING_DORMANT_AFTER consecutive missing reports, when
+        # the file goes dormant. `exists` is still recorded immediately.
         api.save(api.DEVICES_FILE, {'d1': {'id': 'd1', 'name': 'web01'}})
         api._ingest_drift_report('d1', {
             '/etc/optional': {'hash': 'sha256:x', 'size': 1,
                                'mtime': 1, 'exists': True},
         })
+        # First missing report — exists flips, but no webhook yet
         api._ingest_drift_report('d1', {
             '/etc/optional': {'hash': None, 'size': 0,
                                'mtime': 0, 'exists': False},
         })
         state = api.load(api.DRIFT_STATE_FILE)
         self.assertFalse(state['d1']['files']['/etc/optional']['exists'])
-        # Webhook should have fired since hash changed
-        self.assertEqual(len(self._webhook_calls), 1)
+        self.assertEqual(len(self._webhook_calls), 0,
+                         'first missing sighting must not fire')
+        # Two more missing reports — on the Nth it goes dormant + fires once
+        for _ in range(api.DRIFT_MISSING_DORMANT_AFTER - 1):
+            api._ingest_drift_report('d1', {
+                '/etc/optional': {'hash': None, 'size': 0,
+                                   'mtime': 0, 'exists': False},
+            })
+        state = api.load(api.DRIFT_STATE_FILE)
+        self.assertTrue(state['d1']['files']['/etc/optional']['dormant'],
+                        'file should be dormant after the threshold')
+        self.assertEqual(len(self._webhook_calls), 1,
+                         'exactly one webhook when the file goes dormant')
+        # Further missing reports stay quiet — no re-fire
+        api._ingest_drift_report('d1', {
+            '/etc/optional': {'hash': None, 'size': 0,
+                               'mtime': 0, 'exists': False},
+        })
+        self.assertEqual(len(self._webhook_calls), 1,
+                         'dormant file must not keep firing')
 
     def test_history_capped(self):
         api.save(api.DEVICES_FILE, {'d1': {'id': 'd1', 'name': 'web01'}})
