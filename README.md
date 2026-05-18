@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.4.4-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.4.12-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -87,34 +87,6 @@ The demo is reset every few hours, so feel free to break things.
 | 📈 **Time series** | Prometheus `/api/metrics` for Grafana. Per-device history. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
-
-## What's new in 2.4.4
-
-A bugfix-and-polish release.
-
-- **The mailbox monitor now works.** v2.4.3 shipped it, but a
-  heartbeat bug meant the agent was never told which directory to
-  count — the dashboard sat on "no report yet" forever. Fixed.
-- **favicon.ico restored** — browsers auto-request it and the
-  project shipped only favicon.png.
-- **Mailbox config moved to Settings → Mailbox monitor**, and the
-  dashboard view is now a tile matching the other summary tiles.
-
-Release notes: **[docs/v2.4.4.md](docs/v2.4.4.md)**.
-
-## What's new in 2.4.3
-
-A lightweight **mailbox monitor**.
-
-- Give a device one or more directory paths; the agent counts the
-  regular files in each and reports the number. For a Maildir
-  `new/` folder that's the unread-message count. No IMAP/SMTP, no
-  credentials, no email content — just file counts.
-- Configure it per device in the device detail view. A "Show on
-  dashboard" checkbox **promotes** a device so its mailbox counts
-  appear in a widget on the Home dashboard.
-
-Release notes: **[docs/v2.4.3.md](docs/v2.4.3.md)**.
 
 **Older releases**: see [CHANGES.md](CHANGES.md) for the full history
 or [docs/](docs/) for the per-release notes (v2.1.3, v2.1.2, v2.1.1, v2.1.0,

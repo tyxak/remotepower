@@ -638,7 +638,10 @@ def summarize_findings(findings: list, ignore_ids: set) -> dict:
 def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str) -> list:
     out = []
     for f in findings:
-        ig = ignore_data.get(f['vuln_id'])
+        # .get() — a malformed finding without a vuln_id simply can't
+        # be on the ignore list (the list is keyed by vuln_id), and
+        # must not raise.
+        ig = ignore_data.get(f.get('vuln_id'))
         if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
             f = dict(f)
             f['ignored'] = True

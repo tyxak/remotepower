@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.4.4'
+SERVER_VERSION = '2.4.12'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -341,6 +341,8 @@ WEBHOOK_EVENTS = (
     ('command_executed',   'Command executed on a device',         False),
     # v2.2.0: configuration drift detection
     ('drift_detected',     'Watched config file diverged from baseline', True),
+    # v2.4.7: mailbox count crossed its alert threshold
+    ('mailbox_threshold',  'Mailbox count crossed its alert threshold', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1830,6 +1832,15 @@ def check_offline_webhooks():
                     'hostname': dev.get('hostname', ''), 'last_seen': last,
                     'delta_seconds': delta, 'ttl_seconds': ttl,
                 })
+            # v2.4.10: record the OFFLINE transition in uptime.json.
+            # Previously _record_uptime was only ever called with
+            # online=True (from the heartbeat), so uptime.json only
+            # ever held a single online event per device and the
+            # 7-day status stripe had no real history to draw on.
+            try:
+                _record_uptime(dev_id, dev.get('name', dev_id), False)
+            except Exception:
+                pass
             notified[dev_id] = True
             changed = True
         elif not is_offline and already:
@@ -1839,6 +1850,10 @@ def check_offline_webhooks():
             if webhook_enabled:
                 fire_webhook('device_online', {'device_id': dev_id,
                                                'name': dev.get('name', dev_id)})
+            try:
+                _record_uptime(dev_id, dev.get('name', dev_id), True)
+            except Exception:
+                pass
             notified[dev_id] = False
             changed = True
     if changed:
@@ -2954,6 +2969,14 @@ def handle_heartbeat():
         # agent always received an empty list and never counted —
         # mailbox_paths was read off saved_dev, which never had it.
         saved_dev['mailbox_paths'] = dev.get('mailbox_paths', [])
+        # v2.4.5: one-shot "scan packages now" flag. If an operator
+        # clicked the button, tell the agent to send its package list
+        # on the next heartbeat — then clear the flag immediately so
+        # it fires exactly once (the agent is told once; if it misses,
+        # the operator clicks again).
+        if dev.get('force_package_scan'):
+            saved_dev['force_package_scan'] = True
+            dev.pop('force_package_scan', None)
         # devices is auto-saved here by _LockedUpdate.__exit__, atomically
         # under the same flock we acquired at __enter__.
 
@@ -3144,6 +3167,10 @@ def handle_heartbeat():
         'watched_files':    watched_files,
         'mailbox_paths':    mailbox_paths,
     }
+    # v2.4.5: one-shot package-scan request. Only present (and true)
+    # on the single heartbeat after the operator clicked "scan now".
+    if saved_dev.get('force_package_scan'):
+        common_resp['force_package_scan'] = True
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
         respond(200, {'command': cmd, **common_resp})
@@ -4337,6 +4364,75 @@ def handle_uptime(dev_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     uptime = load(UPTIME_FILE); dev = uptime.get(dev_id, {})
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id), 'events': dev.get('events', [])})
+
+
+def _day_status_from_events(events, day_start, day_end):
+    """Derive a single day's status from a device's uptime events.
+
+    `events` is the sorted [{ts, online}] transition list. A day is:
+      - 'down'    if the device entered the day offline, or went
+                  offline at any point during it;
+      - 'up'      if the device had data covering the day and was
+                  never offline in it;
+      - 'unknown' if there is no event at or before the day's end —
+                  RemotePower genuinely has no record for that day.
+    """
+    state_at_start = None     # state as of day_start
+    state_seen = None         # any state with ts < day_end
+    saw_down = False
+    for e in events:
+        ts = e.get('ts', 0)
+        online = bool(e.get('online'))
+        if ts < day_start:
+            state_at_start = online
+            state_seen = online
+        elif ts < day_end:
+            state_seen = online
+            if not online:
+                saw_down = True
+        else:
+            break
+    if state_seen is None:
+        return 'unknown'
+    if state_at_start is False or saw_down:
+        return 'down'
+    return 'up'
+
+
+def handle_fleet_uptime7d():
+    """GET /api/fleet/uptime7d — a real 7-day daily up/down status per
+    device, derived from uptime.json.
+
+    Days with no recorded data come back 'unknown' — RemotePower does
+    not invent history it never recorded. The array is oldest-first;
+    the last element is today.
+
+    Only monitored devices are included: a device explicitly set to
+    `monitored: false` (decommissioned, dev box, being rebuilt) is
+    silenced everywhere else — the attention digest, the alert
+    pipeline — and must not appear in the fleet roster stripe either.
+    """
+    require_auth()
+    uptime = load(UPTIME_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    DAY = 86400
+    # Midnight (local) of today, then the 7 day-windows ending with it.
+    today_start = now - (now % DAY)
+    windows = [(today_start - (6 - i) * DAY,
+                today_start - (6 - i) * DAY + DAY) for i in range(7)]
+    out = {}
+    for dev_id, rec in uptime.items():
+        dev = devices.get(dev_id)
+        # Skip unmonitored devices, and any uptime record with no
+        # matching device entry (stale leftover).
+        if dev is None or not dev.get('monitored', True):
+            continue
+        events = sorted((rec or {}).get('events') or [],
+                        key=lambda e: e.get('ts', 0))
+        out[dev_id] = [_day_status_from_events(events, s, e)
+                       for (s, e) in windows]
+    respond(200, {'uptime': out})
 
 
 def handle_monitor_history(label):
@@ -6845,6 +6941,15 @@ def _ingest_mailbox_counts(dev_id, counts):
     the latest snapshot plus a timestamp on the device record under
     `mailbox_state`. Latest-wins; no history kept (a count is a
     point-in-time number, not an event stream).
+
+    v2.4.7: if the device has a mailbox alert threshold set, each
+    path's count is compared against it. The check is EDGE-triggered
+    — the `mailbox_threshold` webhook fires once when a count crosses
+    from below the threshold to at-or-above it, not on every
+    heartbeat while it stays high. A per-path `alerted` flag remembers
+    the state; it clears when the count drops back below, re-arming
+    the alert. This is the same anti-fatigue pattern the metric and
+    service alerts use.
     """
     if not isinstance(counts, dict):
         return
@@ -6858,14 +6963,47 @@ def _ingest_mailbox_counts(dev_id, counts):
             'exists': bool(info.get('exists')),
             'error':  str(info.get('error'))[:100] if info.get('error') else None,
         }
+    # Crossings to fire are collected inside the lock, then the
+    # webhooks are fired AFTER the lock is released — fire_webhook does
+    # its own file I/O and must never run while we hold DEVICES_FILE.
+    to_fire = []
     with _LockedUpdate(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if dev is None:
             return
+        prev_state = dev.get('mailbox_state') or {}
+        prev_alerted = prev_state.get('alerted') or {}
+        threshold = dev.get('mailbox_threshold')
+        alerted = {}
+        if isinstance(threshold, int) and threshold > 0:
+            for path, info in clean.items():
+                cnt = info.get('count')
+                was = bool(prev_alerted.get(path))
+                if not isinstance(cnt, int):
+                    # No usable count (error/missing) — carry the old
+                    # state, don't fire and don't re-arm.
+                    alerted[path] = was
+                    continue
+                now_over = cnt >= threshold
+                alerted[path] = now_over
+                if now_over and not was:
+                    to_fire.append({
+                        'name':      dev.get('name', dev_id),
+                        'device_id': dev_id,
+                        'path':      path,
+                        'count':     cnt,
+                        'threshold': threshold,
+                    })
         dev['mailbox_state'] = {
             'counts':      clean,
             'reported_at': int(time.time()),
+            'alerted':     alerted,
         }
+    for payload in to_fire:
+        try:
+            fire_webhook('mailbox_threshold', payload)
+        except Exception:
+            pass
 
 
 def handle_mailwatch_set(dev_id):
@@ -6905,6 +7043,14 @@ def handle_mailwatch_set(dev_id):
         dev['mailbox_paths'] = clean_paths
         if 'dashboard' in body:
             dev['mailbox_dashboard'] = bool(body['dashboard'])
+        # v2.4.7: optional alert threshold. A positive integer arms
+        # the mailbox_threshold webhook; 0, null or absent disarms it.
+        if 'threshold' in body:
+            t = body.get('threshold')
+            if isinstance(t, int) and t > 0:
+                dev['mailbox_threshold'] = t
+            else:
+                dev.pop('mailbox_threshold', None)
         # Clearing all paths also clears any stored counts so a stale
         # number doesn't linger on the dashboard.
         if not clean_paths:
@@ -6934,11 +7080,260 @@ def handle_mailwatch_overview():
             'device_name': dev.get('name', dev_id),
             'paths':       paths,
             'dashboard':   bool(dev.get('mailbox_dashboard')),
+            'threshold':   dev.get('mailbox_threshold') or 0,
             'counts':      state.get('counts') or {},
             'reported_at': state.get('reported_at', 0),
         })
     rows.sort(key=lambda r: r['device_name'].lower())
     respond(200, {'devices': rows})
+
+
+# ── v2.4.7: unified "Needs Attention" digest + status endpoint ─────────────
+#
+# Both the dashboard digest and the machine-readable status endpoint
+# read from one place: _compute_attention(). It merges signals that
+# already exist — offline devices, pending-patch pileups, CVE
+# findings, drift, mailbox threshold breaches — into a single list of
+# items, each with a severity so the caller can rank them.
+
+# Severity rank — higher = more urgent. Used to sort the digest.
+_ATTN_RANK = {'critical': 3, 'warning': 2, 'info': 1}
+
+
+def _compute_attention():
+    """Build the fleet-wide list of things needing attention.
+
+    Returns a list of dicts: {severity, kind, device, summary}. Pure
+    aggregation over data RemotePower already stores — no new probing.
+
+    Unmonitored devices (operator set `monitored: false` — decommissioned
+    hosts, dev boxes) are skipped entirely: the same gate the webhook
+    pipeline and the old dashboard digest applied.
+    """
+    items = []
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+
+    # The set of devices the digest considers at all.
+    def _watched(dev):
+        return not dev.get('agentless') and dev.get('monitored', True)
+
+    monitored = {dev_id: dev for dev_id, dev in devices.items()
+                 if _watched(dev)}
+
+    # Offline devices (has heartbeated before).
+    for dev_id, dev in monitored.items():
+        last = dev.get('last_seen', 0)
+        if last and (now - last) > ttl:
+            mins = (now - last) // 60
+            items.append({
+                'severity': 'critical', 'kind': 'offline',
+                'device': dev.get('name', dev_id),
+                'summary': f'Offline for {mins} min — last seen '
+                           f'{time.strftime("%H:%M", time.localtime(last))}',
+            })
+
+    # Pending-patch pileups.
+    for dev_id, dev in monitored.items():
+        up = dev.get('upgradable')
+        if isinstance(up, int) and up > 0:
+            sev = 'warning' if up >= 20 else 'info'
+            items.append({
+                'severity': sev, 'kind': 'patches',
+                'device': dev.get('name', dev_id),
+                'summary': f'{up} pending package update'
+                           f'{"s" if up != 1 else ""}',
+            })
+
+    # CVE findings — excluding any vuln on the ignore list. An
+    # operator who has accepted a CVE as a risk (globally or for that
+    # device) does not want it back on the Needs Attention list.
+    cve_all = load(CVE_FINDINGS_FILE) or {}
+    cve_ignore = load(CVE_IGNORE_FILE) or {}
+    for dev_id, rec in cve_all.items():
+        if dev_id not in monitored:
+            continue
+        findings = (rec or {}).get('findings') or []
+        if not findings:
+            continue
+        # apply_ignore_list marks each finding with an `ignored` flag
+        # (scope 'global' or this device); drop the ignored ones.
+        findings = [f for f in cve_scanner.apply_ignore_list(
+                        findings, cve_ignore, dev_id)
+                    if not f.get('ignored')]
+        if not findings:
+            continue
+        crit = sum(1 for f in findings if f.get('severity') == 'critical')
+        high = sum(1 for f in findings if f.get('severity') == 'high')
+        name = monitored[dev_id].get('name', dev_id)
+        if crit:
+            items.append({'severity': 'critical', 'kind': 'cve',
+                           'device': name,
+                           'summary': f'{crit} critical CVE'
+                                      f'{"s" if crit != 1 else ""}'})
+        elif high:
+            items.append({'severity': 'warning', 'kind': 'cve',
+                           'device': name,
+                           'summary': f'{high} high-severity CVE'
+                                      f'{"s" if high != 1 else ""}'})
+
+    # Configuration drift.
+    for dev_id, dev in monitored.items():
+        drift = dev.get('drift_state') or {}
+        drifted = [f for f, st in drift.items()
+                   if isinstance(st, dict) and st.get('status') == 'drifted'
+                   and not st.get('ignored')]
+        if drifted:
+            items.append({
+                'severity': 'warning', 'kind': 'drift',
+                'device': dev.get('name', dev_id),
+                'summary': f'{len(drifted)} config file'
+                           f'{"s" if len(drifted) != 1 else ""} drifted '
+                           f'from baseline',
+            })
+
+    # Mailbox threshold breaches (re-uses the alerted flags set by
+    # _ingest_mailbox_counts — no recomputation).
+    for dev_id, dev in monitored.items():
+        state = dev.get('mailbox_state') or {}
+        alerted = state.get('alerted') or {}
+        counts = state.get('counts') or {}
+        for path, is_over in alerted.items():
+            if is_over:
+                cnt = (counts.get(path) or {}).get('count')
+                items.append({
+                    'severity': 'warning', 'kind': 'mailbox',
+                    'device': dev.get('name', dev_id),
+                    'summary': f'Mailbox {path} at {cnt} '
+                               f'(over threshold)',
+                })
+
+    items.sort(key=lambda i: _ATTN_RANK.get(i['severity'], 0), reverse=True)
+    return items
+
+
+def handle_attention():
+    """GET /api/attention — the unified Needs Attention digest."""
+    require_auth()
+    items = _compute_attention()
+    counts = {'critical': 0, 'warning': 0, 'info': 0}
+    for i in items:
+        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+    respond(200, {'items': items, 'counts': counts,
+                  'total': len(items)})
+
+
+def handle_status():
+    """GET /api/status?token=<status_token> — machine-readable fleet
+    summary for external dashboards (Uptime Kuma, Homepage, Grafana).
+
+    Auth is a dedicated status token, NOT a session — so a monitoring
+    tool can poll it — but it is not public: without the token, 403.
+    The token is generated in Settings.
+    """
+    cfg = load(CONFIG_FILE)
+    token = cfg.get('status_token')
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    given = (qs.get('token') or [''])[0]
+    if not token:
+        respond(403, {'error': 'status endpoint not enabled — generate a '
+                               'status token in Settings'})
+        return
+    if not given or not hmac.compare_digest(given, token):
+        respond(403, {'error': 'invalid or missing status token'})
+        return
+
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    online = offline = 0
+    for dev_id, dev in devices.items():
+        if dev.get('agentless') or not dev.get('monitored', True):
+            continue
+        last = dev.get('last_seen', 0)
+        if not last:
+            continue
+        if (now - last) > ttl:
+            offline += 1
+        else:
+            online += 1
+
+    items = _compute_attention()
+    counts = {'critical': 0, 'warning': 0, 'info': 0}
+    for i in items:
+        counts[i['severity']] = counts.get(i['severity'], 0) + 1
+
+    # A single rolled-up health word, so a dashboard can show one dot.
+    if counts['critical']:
+        health = 'critical'
+    elif counts['warning']:
+        health = 'warning'
+    else:
+        health = 'ok'
+
+    respond(200, {
+        'health':           health,
+        'devices_online':   online,
+        'devices_offline':  offline,
+        'devices_total':    online + offline,
+        'attention': {
+            'critical': counts['critical'],
+            'warning':  counts['warning'],
+            'info':     counts['info'],
+            'total':    len(items),
+        },
+        'version':   SERVER_VERSION,
+        'generated': now,
+    })
+
+
+def handle_status_token():
+    """POST /api/status-token — generate (or rotate) the status token.
+    Body {"enabled": false} clears it, disabling the status endpoint."""
+    require_admin_auth()
+    body = get_json_body() or {}
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        if body.get('enabled') is False:
+            cfg.pop('status_token', None)
+            token = None
+        else:
+            token = secrets.token_urlsafe(24)
+            cfg['status_token'] = token
+    respond(200, {'ok': True, 'status_token': token})
+
+
+def handle_force_package_scan(dev_id):
+    """POST /api/devices/<id>/scan-packages — request an immediate
+    package scan.
+
+    The agent normally submits its full package inventory (for CVE
+    scanning) and the patch/upgradable count only every few hundred
+    heartbeats. This sets a one-shot flag; the device's next
+    heartbeat response carries `force_package_scan`, the agent then
+    sends a fresh package list and patch count on the heartbeat after
+    that. The flag is cleared the moment it's handed to the agent —
+    it fires exactly once.
+    """
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+        return
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if dev is None:
+            respond(404, {'error': 'device not found'})
+            return
+        dev['force_package_scan'] = True
+    respond(200, {'ok': True,
+                  'message': 'Package scan queued — the device sends a '
+                             'fresh inventory within the next minute or two.'})
 
 
 def get_watched_files_for(dev_id, devices=None):
@@ -11305,6 +11700,8 @@ def main():
         handle_device_update_logs(pi[len('/api/devices/'):-len('/update-logs')])
     elif pi.startswith('/api/devices/') and pi.endswith('/uptime') and m == 'GET':
         handle_uptime(pi[len('/api/devices/'):-len('/uptime')])
+    elif pi == '/api/fleet/uptime7d' and m == 'GET':
+        handle_fleet_uptime7d()
     elif pi == '/api/monitor/history' and m == 'GET':
         from urllib.parse import parse_qs
         label = parse_qs(os.environ.get('QUERY_STRING', '')).get('label', [''])[0]
@@ -11363,6 +11760,17 @@ def main():
         handle_mailwatch_set(pi[len('/api/devices/'):-len('/mailwatch')])
     elif pi == '/api/mailwatch' and m == 'GET':
         handle_mailwatch_overview()
+    # v2.4.6: update-available check is handled by /api/version above
+    # v2.4.7: needs-attention digest + machine-readable status endpoint
+    elif pi == '/api/attention' and m == 'GET':
+        handle_attention()
+    elif pi == '/api/status' and m == 'GET':
+        handle_status()
+    elif pi == '/api/status-token' and m == 'POST':
+        handle_status_token()
+    # v2.4.5: force a package scan on the device's next heartbeat
+    elif pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST':
+        handle_force_package_scan(pi[len('/api/devices/'):-len('/scan-packages')])
     elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
     elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':

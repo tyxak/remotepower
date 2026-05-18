@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.4.4'
+VERSION      = '2.4.12'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -366,10 +366,22 @@ def _compute_pkg_hash(packages):
     ).hexdigest()[:16]
 
 
-def send_package_list(creds):
+def send_package_list(creds, force=False):
     """
-    Collect installed packages and push to /api/packages only when the list
-    has changed since the last successful submission. Returns True if sent.
+    Collect installed packages and push to /api/packages.
+
+    Normally the list is only submitted when it has *changed* since
+    the last successful submission (a hash gate — saves bandwidth on
+    the routine 6-hourly send, since installed packages rarely move
+    on a stable host).
+
+    v2.4.10: `force=True` bypasses that gate. The whole point of an
+    operator-requested scan is "send the list now, regardless" — and
+    on a stable host the list legitimately hasn't changed, so the
+    hash gate was silently suppressing every forced scan. The forced
+    heartbeat path passes force=True.
+
+    Returns True if sent.
     """
     pkg_manager, pkgs = get_package_list()
     if not pkgs:
@@ -381,7 +393,7 @@ def send_package_list(creds):
         pkgs = pkgs[:MAX_PACKAGES_SEND]
 
     new_hash = _compute_pkg_hash(pkgs)
-    if new_hash == _load_last_pkg_hash():
+    if not force and new_hash == _load_last_pkg_hash():
         log.debug('Package list unchanged — skipping submission')
         return False
 
@@ -1682,6 +1694,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.4.3: server pushes mailbox directory paths whose file count we
     # report (Maildir-style unread-message monitoring).
     mailbox_paths = []
+    # v2.4.5: set true when the server requests an out-of-band package
+    # scan; consumed (and cleared) on the next poll.
+    force_pkg_scan = False
 
     # Detect if this is a fresh boot (first heartbeat after restart)
     boot_reason_file = Path('/tmp/remotepower-last-cmd')
@@ -1769,11 +1784,24 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             cached_patch = get_patch_info(); send_sysinfo = True
 
         # v1.7.0: submit package inventory for CVE scanning (hash-gated)
-        if poll_count == 1 or poll_count % PACKAGE_LIST_EVERY == 0:
+        # v2.4.5: also send immediately when the server set the
+        # one-shot force_package_scan flag (operator clicked "scan
+        # now"). force_pkg_scan is set from the previous heartbeat's
+        # response, so this fires on the heartbeat after the click.
+        if poll_count == 1 or poll_count % PACKAGE_LIST_EVERY == 0 or force_pkg_scan:
             try:
-                send_package_list(creds)
+                # v2.4.10: a forced scan bypasses the unchanged-list
+                # hash gate — otherwise a stable host's forced scan
+                # is silently skipped because the list matches.
+                send_package_list(creds, force=force_pkg_scan)
             except Exception as e:
                 log.debug(f'Package submission error: {e}')
+        # A forced scan also refreshes the patch / upgradable count.
+        if force_pkg_scan:
+            log.info('Forced package scan (operator requested)')
+            cached_patch = get_patch_info()
+            send_sysinfo = True
+            force_pkg_scan = False
 
         # v1.8.0: report service states if any are configured to watch
         if services_watched and poll_count % SERVICE_CHECK_EVERY == 0:
@@ -1907,6 +1935,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 if new_mp != mailbox_paths:
                     log.info(f'Config updated: mailbox_paths = {len(new_mp)} path(s)')
                 mailbox_paths = new_mp
+            # v2.4.5: one-shot package-scan request from the server.
+            # Acted on at the top of the next poll.
+            if resp.get('force_package_scan'):
+                force_pkg_scan = True
+                log.info('Server requested a package scan')
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)

@@ -279,6 +279,117 @@ Compatible with Ntfy, Gotify, Slack, Discord, n8n, Home Assistant.
 
 ---
 
+## Added in 2.2.x – 2.4.x
+
+The features below were added across the 2.2 – 2.4 release series.
+Each release also has full notes under `docs/vX.Y.Z.md`.
+
+### Configuration drift detection *(v2.2.0)*
+RemotePower hashes a watch-list of critical config files on every
+host — `sshd_config`, `sudoers`, and similar — and flags any change
+against an accepted baseline. View a diff, accept a new baseline, or
+mark an expected difference as ignored (per-file) so it stops raising
+a red status. Watched-file lists are pushed to the agent in the
+heartbeat. Drifted files surface on the dashboard and in the fleet
+event log.
+
+### MCP server *(v2.2.1)*
+RemotePower ships an MCP (Model Context Protocol) server, letting an
+MCP-capable AI client query fleet state through defined tools. Read
+-oriented in this release.
+
+### Dedicated fleet event log *(v2.2.7)*
+A fleet-wide activity log — enrolments, commands, drift, Proxmox
+actions, alert state changes — separate from per-device command
+history.
+
+### Proxmox virtualization *(v2.3.0)*
+Connect one Proxmox VE node (Settings → Proxmox; uses a scoped API
+token). The Virtualization page lists the node's QEMU virtual
+machines with start / shutdown actions. Server-to-API — no agent runs
+on the Proxmox node. Configure with a scoped token, not a
+full-access one.
+
+### Salted password hashing *(v2.3.2)*
+Passwords are stored with PBKDF2 (600k iterations, per-user salt),
+replacing the legacy unsalted-SHA-256 fallback. A default-password
+warning banner prompts a change on first login. See
+`docs/security-review-2.3.2.md`.
+
+### Proxmox LXC containers *(v2.3.0)* and snapshots *(v2.4.0)*
+LXC containers on the Proxmox node appear on the Containers page with
+the same start / shutdown actions. Every Proxmox guest — QEMU and LXC
+— has a Snapshots panel: create, list, roll back, and delete
+snapshots. Rollback is destructive and requires typing the guest name
+to confirm; delete does not affect the running guest. Disk-only
+snapshots (no RAM state).
+
+### CVE severity accuracy *(v2.3.4, v2.4.0, v2.4.1)*
+CVE findings are scored with the real CVSS v3.1 formula, and each
+finding records its severity source. Debian Security Tracker
+`urgency` — a patching-priority signal, not a CVSS severity — is
+capped at `medium` and never reported as high/critical. Stale cache
+entries from before this work are detected and re-classified
+automatically.
+
+### Default SSH username + quick SSH link *(v2.4.2)*
+Set a default SSH username per user (Settings → Security → SSH
+preferences). Each device row on the Devices page gets an SSH icon
+that builds an `ssh://user@host` link (device IP, or hostname as
+fallback) and copies the `ssh user@host` command to the clipboard.
+
+### Mailbox monitor *(v2.4.3, fixed v2.4.4)*
+A lightweight mailbox monitor with no IMAP/SMTP. Configure a device
+with one or more directory paths (Settings → Mailbox monitor); the
+agent counts the regular files in each — for a Maildir `new/` folder
+that file count is the unread-message count — and reports the numbers
+in its heartbeat. Promote a device to add an "Unread mail" tile to
+the Home dashboard. No email content is read, only files counted.
+
+### On-demand package scan *(v2.4.5)*
+"Scan packages now" in the device action menu sets a one-shot flag;
+the device sends a fresh package inventory and patch count within a
+heartbeat or two, instead of waiting for the periodic scan. Useful
+right after patching a host.
+
+### Update-available notice *(v2.4.6)*
+RemotePower checks the project's GitHub repository for newer releases
+and shows an in-app notice — with the commands to update — when the
+running version is behind. Detection only; RemotePower never modifies
+its own code.
+
+### Needs Attention digest *(v2.4.7)*
+The Home dashboard has a single ranked list that merges every
+fleet-wide signal — offline devices, critical/high CVEs, configuration
+drift, pending-patch pileups, mailbox threshold breaches — into one
+prioritised view. Computed server-side (`/api/attention`); unmonitored
+devices are excluded, the same gate the alert pipeline uses.
+
+### Mailbox threshold alerting *(v2.4.7)*
+A device's mailbox monitor can carry an alert threshold. When a
+counted mailbox reaches it, RemotePower fires the `mailbox_threshold`
+webhook — the same Discord / ntfy / Slack / JSON delivery used by
+every other alert. The check is edge-triggered: it fires once on the
+crossing, re-arms when the count drops back below.
+
+### Status endpoint *(v2.4.7)*
+A machine-readable fleet summary at `/api/status` for external
+dashboards — Uptime Kuma, Homepage, Grafana. Authenticated by a
+dedicated status token (generated in Settings), not a login session,
+so a monitoring tool can poll it — but it is not public. Returns a
+rolled-up health word, device online/offline counts, and attention
+counts by severity.
+
+### Newer offline webhook events
+In addition to the events listed above, recent releases emit:
+
+```json
+{ "event": "drift_detected",    "name": "mypc", "files": 2 }
+{ "event": "cve_found",         "name": "mypc", "severity": "high" }
+{ "event": "proxmox_action",    "guest_type": "qemu", "vmid": 100, "action": "snapshot_create" }
+{ "event": "mailbox_threshold", "name": "mail01", "path": "...", "count": 51, "threshold": 50 }
+```
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

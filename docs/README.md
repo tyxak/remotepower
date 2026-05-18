@@ -6,6 +6,7 @@ holds long-form docs that don't fit there.
 ## Getting started
 
 - **[install.md](install.md)** — Server install (Linux + Docker), client
+- **[admin-guide.md](admin-guide.md)** — Full install & operations guide: hardening, daily ops, backup/restore, upgrades, troubleshooting.
   enrolment, optional webterm, demo vhost.
 - **[features.md](features.md)** — Full feature inventory and the
   per-feature guide.
@@ -28,6 +29,10 @@ holds long-form docs that don't fit there.
 
 ## v2.2 features and release notes
 
+- **[v2.4.8.md](v2.4.8.md)** — 2.4.8 (recent-activity feed de-duplication — one noisy host no longer floods it).
+- **[v2.4.7.md](v2.4.7.md)** — 2.4.7 (mailbox threshold alerting; unified Needs Attention digest; /api/status endpoint).
+- **[v2.4.6.md](v2.4.6.md)** — 2.4.6 (documentation audit; install & admin guide; update notice shows commands).
+- **[v2.4.5.md](v2.4.5.md)** — 2.4.5 (on-demand "Scan packages now" device action).
 - **[v2.4.4.md](v2.4.4.md)** — 2.4.4 (fixes the mailbox monitor heartbeat bug; favicon.ico restored; config moved to Settings).
 - **[v2.4.3.md](v2.4.3.md)** — 2.4.3 (lightweight mailbox-count monitor: agent counts Maildir files, dashboard widget).
 - **[v2.4.2.md](v2.4.2.md)** — 2.4.2 (default SSH username, quick SSH link on Devices, Proxmox/snapshot documentation).

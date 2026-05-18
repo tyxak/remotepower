@@ -79,8 +79,9 @@ class TestActivityFilter(unittest.TestCase):
         # Find the activity function
         func_start = self.js.find('function _renderHomeActivity')
         self.assertGreater(func_start, 0)
-        # Look for the filter + slice ordering in the next chunk
-        chunk = self.js[func_start:func_start + 2000]
+        # Look for the filter + slice ordering in the next chunk.
+        # v2.4.8: widened — the de-dup block lengthened the function.
+        chunk = self.js[func_start:func_start + 3200]
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')

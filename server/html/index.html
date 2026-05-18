@@ -10,7 +10,7 @@
 <link rel="shortcut icon" href="favicon.ico">
 <link rel="apple-touch-icon" href="static/img/logo-square.png">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css">
+<link rel="stylesheet" href="static/css/styles.css?v=2.4.12">
 </head>
 <body>
 
@@ -775,6 +775,15 @@
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
             <button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
           </div>
+
+          <!-- v2.4.7: status endpoint for external dashboards -->
+          <div class="settings-section">
+            <h3>Status endpoint</h3>
+            <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
+            <div id="status-token-box">
+              <button class="btn-primary" onclick="generateStatusToken()">Generate status token</button>
+            </div>
+          </div>
         </div>
 
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
@@ -847,6 +856,11 @@
                   <div style="font-size:12px;color:var(--muted)">Adds an "Unread mail" tile to the Home dashboard.</div>
                 </div>
               </label>
+              <div class="form-group" style="max-width:240px">
+                <label class="form-label">Alert threshold <span style="font-size:11px;color:var(--muted)">(optional)</span></label>
+                <input type="number" id="mailwatch-threshold" class="form-input" min="1" placeholder="e.g. 50">
+                <div style="font-size:12px;color:var(--muted);margin-top:4px">When any watched mailbox reaches this many messages, RemotePower fires a webhook alert. Leave blank to disable.</div>
+              </div>
               <button class="btn-primary" onclick="saveMailwatch()">Save mailbox monitor</button>
               <div id="mailwatch-current" style="margin-top:14px"></div>
             </div>
@@ -1082,6 +1096,22 @@
               <p>A lightweight way to see a mailbox's message count without any IMAP/SMTP setup. Configure it under <strong>Settings → Mailbox monitor</strong>: pick a device, enter one or more absolute directory paths, and Save. The agent counts the regular files directly inside each directory and reports the numbers in its heartbeat — for a Maildir <code>new/</code> folder that file count is the unread-message count.</p>
               <p>Tick <strong>"Show this device's mailbox count on the dashboard"</strong> to add an "Unread mail" tile to the Home dashboard, alongside the devices / updates / drift / CVE tiles.</p>
               <p>Counts refresh on the agent's schedule — roughly every five minutes, not instantly. The agent needs read access to the directory; if it doesn't have it, the count shows the reason (e.g. "permission denied") rather than a number. No email content is ever read — only files counted.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="scan packages now force inventory cve patch refresh">
+            <summary><strong>Scan packages now</strong> — on-demand inventory</summary>
+            <div class="doc-body">
+              <p>The agent submits its full package inventory (used for CVE scanning) and the patch/upgradable count only every few hours. Right after you patch a host, use the <strong>"Scan packages now"</strong> item in the device action menu to get a fresh report sooner.</p>
+              <p>It sets a one-shot request; the device sends a fresh package list and patch count within a heartbeat or two — typically a minute or two, not instantly. The agent must be running 2.4.5 or newer to act on it.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="status endpoint api json uptime kuma homepage grafana dashboard external health">
+            <summary><strong>Status endpoint</strong> — for external dashboards</summary>
+            <div class="doc-body">
+              <p>RemotePower can expose a small machine-readable fleet summary at <code>/api/status</code> for external dashboard tools — Uptime Kuma, Homepage, a Grafana panel.</p>
+              <p>Generate a <strong>status token</strong> under Settings → Advanced → Status endpoint. The endpoint then answers at <code>/api/status?token=YOUR_TOKEN</code> — reachable by a polling tool, but not public. It returns a rolled-up health word (ok / warning / critical), device online/offline counts, and attention counts by severity. Rotate or disable the token any time from the same place.</p>
             </div>
           </details>
 
@@ -1813,6 +1843,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">QEMU virtual machines on the Proxmox node. Start / shutdown actions call the Proxmox VE API directly from the RemotePower server.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
           <button class="btn-icon" onclick="loadVirtualization()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" id="virt-search" class="form-input" placeholder="Search VMs by name or VMID…" style="max-width:280px" oninput="filterVirtualization()">
           <span id="virtualization-node" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
         </div>
         <div id="virtualization-body"></div>
@@ -2152,6 +2183,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
      textContent, document.getElementById(...) is null". Restored here. -->
 <div class="modal-overlay" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('device-patch-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="cve-ignore-modal"><div class="modal">
+  <div class="modal-title">Ignore CVE</div>
+  <div class="modal-subtitle" style="font-size:13px;color:var(--muted);margin-bottom:12px">Mark <code id="cve-ignore-vuln" style="color:var(--accent)"></code> as an accepted risk. It stays recorded but stops counting as a finding or raising attention.</div>
+  <div class="form-group">
+    <label class="form-label">Reason <span style="font-size:11px;color:var(--muted)">(optional — e.g. false positive, accepted risk)</span></label>
+    <input type="text" id="cve-ignore-reason" class="form-input" maxlength="256" placeholder="Why is this being ignored?">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Scope</label>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;font-size:13px">
+      <input type="radio" name="cve-ignore-scope" value="device" checked> This device only
+    </label>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0;cursor:pointer;font-size:13px">
+      <input type="radio" name="cve-ignore-scope" value="global"> All devices (fleet-wide)
+    </label>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('cve-ignore-modal')">Cancel</button>
+    <button class="btn-primary" id="cve-ignore-confirm" onclick="_confirmCveIgnore()">Ignore CVE</button>
+  </div>
+</div></div>
 <div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>
 <div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('service-edit-modal')">Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
 
@@ -2706,6 +2758,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
-<script src="static/js/app.js"></script>
+<script src="static/js/app.js?v=2.4.12"></script>
 </body>
 </html>

@@ -261,6 +261,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'command_queued', 'command_executed',
             # v2.2.0: configuration drift detection
             'drift_detected',
+            # v2.4.7: mailbox count threshold alert
+            'mailbox_threshold',
         }
         self.assertEqual(names, expected)
 

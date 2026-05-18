@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.4.12 - 2026-05-18
+
+Dashboard fix: the "Recent activity" feed showed the most recent 8
+events with no de-duplication, so one noisy host (an hourly
+postfix log_alert) filled all 8 rows and buried everything else.
+The feed now collapses repeated event+host+subject entries to
+their most-recent occurrence — display only, the fleet event log
+still records every event. 5 new tests, 1039 total, all passing.
+
+Make-fleet-health-visible release. Mailbox threshold alerting: a
+mailbox monitor can carry a threshold; crossing it fires a webhook
+(edge-triggered). The Home "Needs attention" panel is now a single
+ranked list computed server-side, merging offline devices, CVEs,
+drift, patches and mailbox alerts. New /api/status endpoint — a
+machine-readable fleet summary for external dashboards (Uptime
+Kuma, Homepage, Grafana), behind a dedicated status token. 14 new
+tests, 1035 total, all passing.
+
+Documentation release. Audited docs/features.md against ~20
+releases of changes — it was missing Proxmox, drift, the mailbox
+monitor, the MCP server and more; now current. Added a full
+install & admin guide (docs/admin-guide.md). The update-available
+banner now shows the actual update commands and states that
+RemotePower does not self-update. 11 new tests, 1021 total, all
+passing.
+
+Added "Scan packages now" to the device action menu. The agent
+normally sends its package inventory + patch count only every few
+hundred heartbeats; this one-shot flag makes it send a fresh
+report on the next heartbeat or two — handy right after patching
+a host. 7 new tests, 1010 total, all passing.
+
 ## v2.4.4 - 2026-05-17
 
 Fixes the 2.4.3 mailbox monitor (it never worked) + favicon.ico.

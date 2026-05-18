@@ -544,9 +544,27 @@ async function checkServerVersion() {
     const banner = document.createElement('div');
     banner.id = 'update-banner';
     banner.className = 'update-banner';
-    banner.innerHTML = `⚡ RemotePower <strong>v${data.latest}</strong> is available (you have v${data.current}) — <a href="${data.release_url}" target="_blank">View release →</a>`;
+    // v2.4.6: the banner now carries the actual update steps, not just
+    // a release link — RemotePower never self-updates, so the operator
+    // runs these by hand (see docs/admin-guide.md §7).
+    banner.innerHTML = `
+      <span>⚡ RemotePower <strong>v${data.latest}</strong> is available
+      (you have v${data.current}).</span>
+      <a href="${data.release_url}" target="_blank" rel="noopener">Release notes →</a>
+      <button type="button" class="update-steps-btn" onclick="toggleUpdateSteps()">How to update</button>
+      <div id="update-steps" style="display:none">
+        <div style="font-size:12px;opacity:0.85;margin:6px 0 4px">
+          Back up your data directory first, then on the server:</div>
+        <code>git pull &amp;&amp; sudo bash install-server.sh</code>
+        <div style="font-size:12px;opacity:0.7;margin-top:6px">
+          RemotePower does not update itself — this is a deliberate manual step.</div>
+      </div>`;
     document.querySelector('header').insertAdjacentElement('afterend', banner);
   } catch(e) {}
+}
+function toggleUpdateSteps() {
+  const s = document.getElementById('update-steps');
+  if (s) s.style.display = s.style.display === 'none' ? 'block' : 'none';
 }
 function applyTheme() {
   const theme = localStorage.getItem('rp_theme') || 'dark';
@@ -2381,7 +2399,7 @@ function _registerCveTable() {
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
       const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();triggerCVEScan('${escAttr(d.device_id)}')">Scan</button></td></tr>`;
+      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();forcePackageScan('${escAttr(d.device_id)}','${escAttr(d.name)}')" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon" style="padding:4px 8px;font-size:11px;margin-left:4px" onclick="event.stopPropagation();triggerCVEScan('${escAttr(d.device_id)}')">Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -2420,6 +2438,7 @@ async function openDeviceCVE(devId, devName) {
   if (!data) return;
   const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
   let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value" style="font-size:12px">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value" style="font-size:11px">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
+  html += `<div style="margin-bottom:14px"><button class="btn-icon" style="font-size:12px;padding:6px 12px" onclick="forcePackageScan('${escAttr(devId)}','${escAttr(devName)}')" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
   if (data.error) html += `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:var(--red)">${escHtml(data.error)}</div>`;
   if (!data.findings.length) { html += '<div style="color:var(--muted);text-align:center;padding:40px">No vulnerabilities found. 🎉</div>'; }
   else {
@@ -2432,15 +2451,44 @@ async function openDeviceCVE(devId, devName) {
   }
   document.getElementById('cve-detail-body').innerHTML = html;
 }
-async function ignoreCVE(vulnId, devId, devName) {
-  const reason = prompt(`Ignore ${vulnId}? Enter a reason (accepted risk, false positive, etc.):`);
-  if (reason === null) return;
-  const scope = confirm('Ignore globally across ALL devices?\n\nOK = global\nCancel = this device only') ? 'global' : devId;
-  const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
-  if (result && result.ok) {
-    toast(`${vulnId} ignored (${scope})`, 'success');
-    openDeviceCVE(devId, devName);
-    loadCVEReport();
+// v2.4.11: CVE ignore used to use prompt() + confirm() — two native
+// dialogs. After a handful of ignores in a row (exactly what doing a
+// fleet-wide sweep looks like), browsers suppress repeated dialogs;
+// prompt() then returns null, ignoreCVE() silently bailed, and every
+// further click did nothing — no request, nothing in the server log,
+// the UI apparently "locked". Replaced with an in-page modal, which
+// browsers never throttle.
+let _cveIgnoreCtx = null;
+
+function ignoreCVE(vulnId, devId, devName) {
+  _cveIgnoreCtx = {vulnId, devId, devName};
+  document.getElementById('cve-ignore-vuln').textContent = vulnId;
+  document.getElementById('cve-ignore-reason').value = '';
+  const dev = document.querySelector('input[name="cve-ignore-scope"][value="device"]');
+  if (dev) dev.checked = true;
+  openModal('cve-ignore-modal');
+}
+
+async function _confirmCveIgnore() {
+  if (!_cveIgnoreCtx) return;
+  const {vulnId, devId, devName} = _cveIgnoreCtx;
+  const reason = document.getElementById('cve-ignore-reason').value.trim();
+  const scopeSel = document.querySelector('input[name="cve-ignore-scope"]:checked');
+  const scope = (scopeSel && scopeSel.value === 'global') ? 'global' : devId;
+  const btn = document.getElementById('cve-ignore-confirm');
+  if (btn) btn.disabled = true;
+  try {
+    const result = await api('POST', '/cve/ignore', {vuln_id: vulnId, reason, scope});
+    if (result && result.ok) {
+      closeModal('cve-ignore-modal');
+      toast(`${vulnId} ignored (${scope === 'global' ? 'fleet-wide' : 'this device'})`, 'success');
+      openDeviceCVE(devId, devName);
+      loadCVEReport();
+    }
+  } catch (e) {
+    toast('Ignore failed: ' + (e.message || String(e)), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -6653,6 +6701,7 @@ function deviceDropdownHtml(d, isMonitored) {
     ['✨ Generate runbook', `aiGenerateRunbook('${idEsc}','${nameEsc}')`],
     ['Metrics',         `openMetrics('${idEsc}','${nameEsc}')`],
     ['Update history',  `openUpdateLogs('${idEsc}','${nameEsc}')`],
+    ['Scan packages now', `forcePackageScan('${idEsc}','${nameEsc}')`],
   ];
 
   const operate = [
@@ -7567,7 +7616,7 @@ async function loadHome() {
   ]);
 
   _renderHomeTiles(devs || [], drift || {}, cves || {}, mailwatch || {});
-  _renderHomeAttention(devs || [], drift || {}, cves || {});
+  _renderHomeAttention();
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs || []);
 }
@@ -7575,8 +7624,14 @@ async function loadHome() {
 function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const target = document.getElementById('home-tiles');
   if (!target) return;
-  const total = devs.length;
-  const online = devs.filter(d => d.online).length;
+  // The "Devices online" tile counts only monitored devices — a
+  // device set to monitored:false is silenced everywhere else (the
+  // attention digest, the alert pipeline, the fleet roster), so an
+  // unmonitored host must not inflate the fleet count or be reported
+  // as "offline" here either.
+  const counted = devs.filter(d => d.monitored !== false);
+  const total = counted.length;
+  const online = counted.filter(d => d.online).length;
   const offline = total - online;
   let pending = 0, criticalPending = 0;
   devs.forEach(d => {
@@ -7668,69 +7723,51 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   ).join('');
 }
 
-function _renderHomeAttention(devs, drift, cves) {
+// v2.4.7: the Needs Attention digest is now computed server-side by
+// /api/attention — one source of truth, and it includes signals the
+// old client-side version missed (CVE findings, mailbox threshold
+// breaches) on top of offline devices, patch pileups and drift.
+async function _renderHomeAttention() {
   const target = document.getElementById('home-attention');
   if (!target) return;
-  const items = [];
-
-  // v2.2.4: filter to MONITORED devices only. Operators explicitly
-  // toggle a device to `monitored: false` to silence alerts on it
-  // (decommissioned hosts, dev boxes, hosts being rebuilt) — those
-  // shouldn't drive the "needs attention" list either. Same gate the
-  // existing webhook/alert pipeline already applies.
-  const monitoredDevs = devs.filter(d => d.monitored !== false);
-
-  // Offline devices first — most actionable
-  monitoredDevs.filter(d => !d.online).slice(0, 5).forEach(d => {
-    const ago = d.last_seen ? timeAgo(d.last_seen) : 'never';
-    items.push({
-      ts: ago,
-      html: `<span class="status-pill critical">offline</span> <strong>${escHtml(d.name)}</strong> — last seen ${ago}`,
-      action: `showPage('devices',null);setTimeout(()=>document.getElementById('device-search-input').value='${escAttr(d.name)}'&&filterDevices(),50)`,
-    });
-  });
-
-  // Devices with significant pending updates (monitored only)
-  monitoredDevs.filter(d => {
-    const u = (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;
-    return u >= 10;
-  }).slice(0, 3).forEach(d => {
-    const u = d.sysinfo.packages.upgradable;
-    items.push({
-      ts: '—',
-      html: `<span class="status-pill warn">${u} updates</span> <strong>${escHtml(d.name)}</strong> pending`,
-      action: `showPage('patches',document.querySelector('.nav-btn[onclick*=patches]'))`,
-    });
-  });
-
-  // Drifted devices — also gate on monitored. The drift overview
-  // endpoint includes all devices that have reported drift; we
-  // cross-reference with the monitored list. Doing the lookup as a
-  // Set keeps it O(1) per check rather than O(n) for each filter.
-  const monitoredIds = new Set(monitoredDevs.map(d => d.id));
-  (drift.devices || []).filter(d => d.drifted > 0 && monitoredIds.has(d.device_id)).slice(0, 3).forEach(d => {
-    items.push({
-      ts: d.last_check ? timeAgo(d.last_check) : '—',
-      html: `<span class="status-pill warn">drift</span> <strong>${escHtml(d.device_name)}</strong> — ${d.drifted} file${d.drifted === 1 ? '' : 's'} changed`,
-      action: `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'));setTimeout(()=>openDriftDetail('${escAttr(d.device_id)}','${escAttr(d.device_name)}'),100)`,
-    });
-  });
-
-  if (items.length === 0) {
+  let data;
+  try {
+    data = await api('GET', '/attention');
+  } catch (e) {
+    target.innerHTML = '<div class="empty-state" style="padding:14px 8px">'
+      + '<div class="empty-state-body">Could not load the digest.</div></div>';
+    return;
+  }
+  const items = (data && data.items) || [];
+  if (!items.length) {
     target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
       <div class="empty-state-icon">✓</div>
       <div class="empty-state-title">All clear</div>
-      <div class="empty-state-body">No offline monitored devices, no significant patch backlog, no drift detected.</div>
+      <div class="empty-state-body">No offline monitored devices, no CVE
+      findings, no patch backlog, no drift, no mailbox alerts.</div>
     </div>`;
     return;
   }
-
-  target.innerHTML = items.slice(0, 8).map(i =>
-    `<div class="dash-feed-item" style="cursor:pointer" onclick="${i.action}">
-      <div style="flex:1">${i.html}</div>
-      <span class="ts">${i.ts}</span>
-    </div>`
-  ).join('');
+  // Map a digest item kind → the page to jump to when clicked.
+  // The page name must match a `page-<name>` element id — the CVE
+  // page is `cve`, not `cves` (this mismatch sent clicks to a blank
+  // page in 2.4.7–2.4.11).
+  const PAGE_FOR = {
+    offline: 'devices', patches: 'patches', cve: 'cve',
+    drift: 'drift', mailbox: 'devices',
+  };
+  const PILL = {critical: 'critical', warning: 'warn', info: 'info'};
+  target.innerHTML = items.slice(0, 10).map(i => {
+    const page = PAGE_FOR[i.kind] || 'home';
+    const pill = PILL[i.severity] || 'info';
+    return `<div class="dash-feed-item" style="cursor:pointer"
+        onclick="showPage('${page}',document.querySelector('.nav-btn[onclick*=${page}]'))">
+      <div style="flex:1">
+        <span class="status-pill ${pill}">${escHtml(i.kind)}</span>
+        <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function _renderHomeActivity(fleetEvents) {
@@ -7752,6 +7789,7 @@ function _renderHomeActivity(fleetEvents) {
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected',
+    'mailbox_threshold',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -7759,9 +7797,34 @@ function _renderHomeActivity(fleetEvents) {
   } else if (fleetEvents && Array.isArray(fleetEvents.events)) {
     entries = fleetEvents.events;
   }
-  // Filter then slice — important order: slicing first would miss
-  // real events buried behind a wall of unrecognised event names.
-  entries = entries.filter(e => FLEET_EVENTS.has(e.event)).slice(0, 8);
+  // Filter then de-duplicate then slice — order matters.
+  //  - filter first so unrecognised events don't occupy a slot.
+  //  - v2.4.8: de-duplicate before slicing. A noisy host (e.g. a
+  //    postfix unit throwing the same log_alert every hour) would
+  //    otherwise fill all 8 rows with the same entry and bury every
+  //    other host. We collapse repeated entries that share the same
+  //    (event, host, subject) to their single most-recent occurrence
+  //    — entries arrive newest-first, so the first one kept is the
+  //    latest. This is a DISPLAY concern only: the server fleet event
+  //    log still records every individual event for the audit trail;
+  //    this just keeps the dashboard feed readable.
+  //  - slice last, so the feed shows 8 *distinct* recent things.
+  const _seenActivity = new Set();
+  entries = entries
+    .filter(e => FLEET_EVENTS.has(e.event))
+    .filter(e => {
+      const p = e.payload || {};
+      const host = p.device_id || p.device_name || p.name || p.host || '';
+      // The subject is whatever identifies the specific thing the
+      // event is about — the same fields the row renderer shows.
+      const subject = p.path || p.unit || p.metric || p.cve_id
+                      || p.pattern || p.command || '';
+      const key = `${e.event}|${host}|${subject}`;
+      if (_seenActivity.has(key)) return false;
+      _seenActivity.add(key);
+      return true;
+    })
+    .slice(0, 8);
   if (entries.length === 0) {
     target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
       <div class="empty-state-icon">○</div>
@@ -7781,6 +7844,7 @@ function _renderHomeActivity(fleetEvents) {
     'container_stopped': 'warn', 'container_restarting': 'warn',
     'containers_stale': 'warn',
     'log_alert': 'warn',
+    'mailbox_threshold': 'warn',
     'command_queued': 'info', 'command_executed': 'info',
   };
   target.innerHTML = entries.map(ev => {
@@ -7841,6 +7905,12 @@ function _homeActivityAction(event, p) {
       return `showPage('containers',document.querySelector('.nav-btn[onclick*=containers]'))`;
     case 'log_alert':
       return `showPage('logs',document.querySelector('.nav-btn[onclick*=logs]'))`;
+    case 'mailbox_threshold':
+      // The mailbox monitor is configured per device in Settings;
+      // the device detail is the most useful jump.
+      return devId
+        ? `openDetail('${devId}','${devName}')`
+        : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
     case 'metric_warning':
     case 'metric_critical':
     case 'metric_recovered':
@@ -7856,9 +7926,14 @@ function _homeActivityAction(event, p) {
   }
 }
 
-function _renderHomeFleet(devs) {
+async function _renderHomeFleet(devs) {
   const target = document.getElementById('home-fleet');
   if (!target) return;
+  // Only monitored devices belong in the roster — a device set to
+  // monitored:false is silenced everywhere else (attention digest,
+  // alert pipeline), so it must not appear here either. The server's
+  // /fleet/uptime7d already excludes them; this drops their rows too.
+  devs = (devs || []).filter(d => d.monitored !== false);
   if (devs.length === 0) {
     target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
       <div class="empty-state-icon">📦</div>
@@ -7867,16 +7942,30 @@ function _renderHomeFleet(devs) {
     </div>`;
     return;
   }
-  // For each device, compute 7-day status from history if available,
-  // otherwise show "up" or "down" based on current state (degrades
-  // gracefully). _statusHistory could be ingested from a metrics
-  // history endpoint in a future release — today we mock from current
-  // state.
+  // v2.4.10: the 7-day stripe is now real — derived server-side from
+  // uptime.json transition events. Before this it was hardcoded to
+  // six 'unknown' cells plus today. Days RemotePower genuinely has no
+  // record for still show 'unknown' (honest — history only builds up
+  // from when uptime recording works; it cannot be known
+  // retroactively), but real up/down now shows once data exists.
+  let uptime = {};
+  try {
+    const r = await api('GET', '/fleet/uptime7d');
+    uptime = (r && r.uptime) || {};
+  } catch (e) { /* fall back to today-only below */ }
+
   target.innerHTML = devs.slice(0, 30).map(d => {
-    // Today's cell is current state; preceding 6 cells default to
-    // 'unknown' until we have real history.
     const todayCell = d.online ? 'up' : 'down';
-    const history = ['unknown','unknown','unknown','unknown','unknown','unknown', todayCell];
+    // Use the server's 7-day array when present; otherwise show six
+    // 'unknown' cells + today, the honest fallback.
+    let history = uptime[d.id];
+    if (!Array.isArray(history) || history.length !== 7) {
+      history = ['unknown','unknown','unknown','unknown','unknown','unknown', todayCell];
+    } else {
+      // The server array's last cell is "today by recorded events";
+      // the device's live online flag is fresher — trust it for today.
+      history = history.slice(0, 6).concat([todayCell]);
+    }
     return `<div style="display:flex;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid var(--border)">
       <div style="flex:1;font-size:13px;display:flex;align-items:center;gap:6px">
         ${getDistroIcon(d.os)}
@@ -8407,9 +8496,38 @@ async function loadVirtualization() {
     body.innerHTML = '<div class="table-card" style="padding:20px;color:var(--muted)">No QEMU VMs on this node.</div>';
     return;
   }
+  // v2.4.12: keep the fetched guests so the search box can filter
+  // them client-side without re-hitting the Proxmox API.
+  _virtGuests = guests;
+  _renderVirtualizationList();
+}
+
+// Module-level cache of the last-fetched QEMU guests, for filtering.
+let _virtGuests = [];
+
+function _renderVirtualizationList() {
+  const body = document.getElementById('virtualization-body');
+  if (!body) return;
+  const q = (document.getElementById('virt-search')?.value || '')
+              .trim().toLowerCase();
+  const shown = q
+    ? _virtGuests.filter(g =>
+        String(g.name || '').toLowerCase().includes(q) ||
+        String(g.vmid || '').includes(q))
+    : _virtGuests;
+  if (!shown.length) {
+    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+      No VMs match "${escHtml(q)}".</div>`;
+    return;
+  }
   body.innerHTML = `<div class="table-card" style="padding:14px">
-    ${guests.map(g => _renderProxmoxGuest(g, 'qemu')).join('')}
+    ${shown.map(g => _renderProxmoxGuest(g, 'qemu')).join('')}
   </div>`;
+}
+
+// Called by the search box's oninput.
+function filterVirtualization() {
+  _renderVirtualizationList();
 }
 
 // Load + render the LXC section on the Containers page.
@@ -8773,6 +8891,8 @@ function loadMailwatchForDevice() {
   document.getElementById('mailwatch-paths').value = paths.join('\n');
   document.getElementById('mailwatch-dashboard').checked =
     !!(state && state.dashboard);
+  document.getElementById('mailwatch-threshold').value =
+    (state && state.threshold) ? state.threshold : '';
   // Show the most recent counts, if any have been reported.
   const cur = document.getElementById('mailwatch-current');
   const counts = (state && state.counts) || {};
@@ -8803,12 +8923,71 @@ async function saveMailwatch() {
   const bad = paths.find(p => !p.startsWith('/'));
   if (bad) { toast(`Not an absolute path: ${bad}`, 'error'); return; }
   const dashboard = document.getElementById('mailwatch-dashboard').checked;
+  const tRaw = document.getElementById('mailwatch-threshold').value.trim();
+  const threshold = tRaw ? parseInt(tRaw, 10) : 0;
+  if (tRaw && (!Number.isFinite(threshold) || threshold < 1)) {
+    toast('Threshold must be a positive whole number', 'error');
+    return;
+  }
   try {
     await api('POST', `/devices/${encodeURIComponent(devId)}/mailwatch`,
-              {paths: paths, dashboard: dashboard});
+              {paths: paths, dashboard: dashboard, threshold: threshold});
     toast('Mailbox monitor saved — the agent picks it up on its next heartbeat', 'success');
     loadMailwatchSettings();   // refresh cache
   } catch (e) {
     toast('Save failed: ' + (e.message || String(e)), 'error');
   }
+}
+
+// v2.4.5: force an out-of-band package scan. Sets a one-shot flag;
+// the device sends a fresh package inventory + patch count within a
+// heartbeat or two (it does not happen instantly — the agent has to
+// receive the request on its next heartbeat, then report on the one
+// after).
+async function forcePackageScan(devId, name) {
+  try {
+    const r = await api('POST', `/devices/${encodeURIComponent(devId)}/scan-packages`, {});
+    toast((r && r.message) || `Package scan queued for ${name}`, 'success');
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+// v2.4.7: status endpoint token management.
+async function generateStatusToken() {
+  if (!confirm('Generate a status token? Any previous token stops working.')) return;
+  try {
+    const r = await api('POST', '/status-token', {enabled: true});
+    if (r && r.status_token) _renderStatusToken(r.status_token);
+    toast('Status token generated', 'success');
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+async function revokeStatusToken() {
+  if (!confirm('Disable the status endpoint? External dashboards will stop working.')) return;
+  try {
+    await api('POST', '/status-token', {enabled: false});
+    const box = document.getElementById('status-token-box');
+    if (box) box.innerHTML =
+      '<button class="btn-primary" onclick="generateStatusToken()">Generate status token</button>';
+    toast('Status endpoint disabled', 'success');
+  } catch (e) {
+    toast('Failed: ' + (e.message || String(e)), 'error');
+  }
+}
+
+function _renderStatusToken(token) {
+  const box = document.getElementById('status-token-box');
+  if (!box) return;
+  const url = `${location.origin}/api/status?token=${encodeURIComponent(token)}`;
+  box.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Poll this URL from your dashboard tool:</div>
+    <input type="text" class="form-input" readonly value="${escAttr(url)}"
+      style="font-family:var(--font-mono);font-size:12px" onclick="this.select()">
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <button class="btn-icon" onclick="generateStatusToken()">Rotate token</button>
+      <button class="btn-icon" style="color:var(--red)" onclick="revokeStatusToken()">Disable endpoint</button>
+    </div>`;
 }

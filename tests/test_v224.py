@@ -247,24 +247,28 @@ class TestFrontendChanges(unittest.TestCase):
         self.assertNotIn("'/webhook/log'", chunk,
                          "loadHome must no longer call /webhook/log")
 
-    def test_home_attention_filters_unmonitored(self):
+    def test_home_attention_uses_server_digest(self):
+        # v2.4.7: the Needs Attention digest moved server-side to the
+        # /api/attention endpoint (one source of truth, and it now
+        # includes CVE + mailbox signals). The client renderer just
+        # fetches and displays it.
         func_start = self.js.find('function _renderHomeAttention')
         self.assertGreater(func_start, 0)
-        chunk = self.js[func_start:func_start + 3500]
-        # Look for the monitored filter — the canonical predicate
-        # `d.monitored !== false` (same gate the alert pipeline uses)
-        self.assertIn('d.monitored !== false', chunk,
-                      "Attention panel must filter unmonitored devices")
-        # And the all-clear empty state mentions "monitored"
-        self.assertIn('monitored', chunk.lower())
+        chunk = self.js[func_start:func_start + 2000]
+        self.assertIn("api('GET', '/attention')", chunk,
+                      "Attention panel must consume the /attention endpoint")
 
-    def test_home_attention_drift_cross_referenced_with_monitored(self):
-        # Drift devices aren't directly in the `devs` list — we look them
-        # up by ID against the monitored set.
-        func_start = self.js.find('function _renderHomeAttention')
-        chunk = self.js[func_start:func_start + 3500]
-        self.assertIn('monitoredIds', chunk,
-                      "Drift section must cross-reference monitored IDs")
+    def test_attention_filters_unmonitored_server_side(self):
+        # The monitored-device gate moved into _compute_attention() on
+        # the server. Same intent as the old client-side test: an
+        # unmonitored device must not surface in the digest.
+        api = (_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        cstart = api.find('def _compute_attention')
+        self.assertGreater(cstart, 0)
+        cchunk = api[cstart:cstart + 3500]
+        self.assertIn("monitored", cchunk,
+                      "_compute_attention must gate on the monitored flag")
+        self.assertIn("get('monitored', True)", cchunk)
 
     def test_render_activity_handles_fleet_event_shape(self):
         # 2.2.4 entries are {ts, event, payload}. Renderer reads from

@@ -61,6 +61,25 @@
     z-index: 99;
   }
   .update-banner a { color: var(--amber); font-weight: 600; text-decoration: underline; }
+  .update-banner .update-steps-btn {
+    background: transparent;
+    border: 1px solid rgba(245,158,11,0.4);
+    color: var(--amber);
+    font: inherit; font-size: 12px;
+    padding: 2px 10px; margin-left: 10px;
+    cursor: pointer; border-radius: 4px;
+  }
+  .update-banner .update-steps-btn:hover { background: rgba(245,158,11,0.12); }
+  .update-banner #update-steps {
+    max-width: 560px; margin: 8px auto 0; text-align: left;
+  }
+  .update-banner #update-steps code {
+    display: block; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(245,158,11,0.2);
+    padding: 8px 12px; border-radius: 4px;
+    font-family: var(--font-mono, monospace); font-size: 12.5px;
+    color: var(--text); white-space: pre-wrap; word-break: break-all;
+  }
   .tag-pill {
     display: inline-block;
     padding: 2px 8px;
