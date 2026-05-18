@@ -15,7 +15,7 @@ Day-to-day fleet operations, without leaving the browser:
 
 ---
 
-**It's small.** ~6000 lines of Python on the server. ~1200 lines of agent. The whole web UI is one HTML file plus one CSS file plus one JS file — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~17,600 lines of Python on the server. ~2,100 lines of agent. The whole web UI is one HTML file plus one CSS file plus one JS file — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -132,32 +132,32 @@ The complete list. Items marked with a version number indicate when they were ad
 ### Container awareness *(v1.11.0, alerts in v1.11.4)*
 Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes pods on its host and posts a normalised list to the server every ~5 minutes. The Containers tab in the sidebar shows fleet-wide status; per-device drill-down shows image, tag, ports, restart count, and namespace. Read-only — RemotePower surfaces what's running, doesn't manage it.
 
-**v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — Kubernetes-only in practice), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[docs/containers.md](docs/containers.md)**.
+**v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — Kubernetes-only in practice), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[containers.md](containers.md)**.
 
 ### Network map *(v1.11.0)*
-Set `connected_to` on each device (Edit links button on the Network page) to record what plugs into what. The map renders nodes coloured by online/offline status and outlined by agent vs. agentless. Manual topology only — no auto-discovery. Reference: **[docs/network-map.md](docs/network-map.md)**.
+Set `connected_to` on each device (Edit links button on the Network page) to record what plugs into what. The map renders nodes coloured by online/offline status and outlined by agent vs. agentless. Manual topology only — no auto-discovery. Reference: **[network-map.md](network-map.md)**.
 
 ### Agentless devices *(v1.11.0)*
-"+ Agentless device" on the Devices toolbar adds a record for things that can't run the agent — switches, APs, printers, IPMI cards, cameras, smart plugs. Same CMDB metadata, vault credentials, SSH link as agented devices. Status is whatever you set it to. Reference: **[docs/agentless-devices.md](docs/agentless-devices.md)**.
+"+ Agentless device" on the Devices toolbar adds a record for things that can't run the agent — switches, APs, printers, IPMI cards, cameras, smart plugs. Same CMDB metadata, vault credentials, SSH link as agented devices. Status is whatever you set it to. Reference: **[agentless-devices.md](agentless-devices.md)**.
 
 ### TLS / DNS expiry monitor *(v1.11.0)*
-Add hostnames to the TLS / DNS page. The server runs a probe via `cgi-bin/remotepower-tls-check` (cron, every 6 hours suggested) or "Scan now" from the page. Default thresholds: warn at 14 days, critical at 3 days. Stdlib-only — no extra dependencies. Reference: **[docs/tls-monitor.md](docs/tls-monitor.md)**.
+Add hostnames to the TLS / DNS page. The server runs a probe via `cgi-bin/remotepower-tls-check` (cron, every 6 hours suggested) or "Scan now" from the page. Default thresholds: warn at 14 days, critical at 3 days. Stdlib-only — no extra dependencies. Reference: **[tls-monitor.md](tls-monitor.md)**.
 
 ### API documentation (Swagger)
-Click **API Docs** in the sidebar to open `/swagger.html` — Swagger UI rendering the OpenAPI 3.1 spec for every public endpoint. The page auto-injects your existing session token, so "Try it out" works without an Authorize step. The raw spec is at `/api/openapi.json`. Reference: **[docs/swagger.md](docs/swagger.md)**.
+Click **API Docs** in the sidebar to open `/swagger.html` — Swagger UI rendering the OpenAPI 3.1 spec for every public endpoint. The page auto-injects your existing session token, so "Try it out" works without an Authorize step. The raw spec is at `/api/openapi.json`. Reference: **[swagger.md](swagger.md)**.
 
 ### SSH from credentials
 Set the per-asset SSH port on the CMDB asset modal (Properties tab). Each credential row in the Credentials tab gets an SSH button that opens `ssh://user@host:port` in your default handler, plus a Copy button for the equivalent `ssh user@host -p port` command. Passwords are deliberately not in the URI.
 
 ### Update history
-The device dropdown menu has an "Update history" link that opens the rolling buffer of the last 10 package-upgrade runs on that device — full output, exit codes, timestamps. Output is captured automatically on the next heartbeat after a run completes (~60s). Reference: **[docs/update-history.md](docs/update-history.md)**.
+The device dropdown menu has an "Update history" link that opens the rolling buffer of the last 10 package-upgrade runs on that device — full output, exit codes, timestamps. Output is captured automatically on the next heartbeat after a run completes (~60s). Reference: **[update-history.md](update-history.md)**.
 
 ### CMDB & credential vault
 The **CMDB** tab gives every enrolled device an asset record: free-text asset ID, server function (web, db, dc…) with autocomplete, optional hypervisor URL, and Markdown documentation up to 64 KB. Underneath that sits an opt-in encrypted credential vault: AES-GCM 256-bit, PBKDF2-SHA256 key derivation, shared admin passphrase, audit-logged reveals.
 
 Setup is a one-time **Set up vault** click on the CMDB page. The passphrase is never persisted server-side — the derived key lives in the browser tab and clears on logout or page reload.
 
-Full reference, threat model, API examples, and backup story: **[docs/cmdb.md](docs/cmdb.md)**.
+Full reference, threat model, API examples, and backup story: **[cmdb.md](cmdb.md)**.
 
 ### Device Groups
 Assign a namespace to a device via the group button (👥) on the device card. Groups like `dc1/prod`, `homelab`, `office` cause the device grid to sort and visually group by namespace. Batch commands (`device_ids`, `tag`, or `group` field) can target an entire group at once.
@@ -282,7 +282,8 @@ Compatible with Ntfy, Gotify, Slack, Discord, n8n, Home Assistant.
 ## Added in 2.2.x – 2.4.x
 
 The features below were added across the 2.2 – 2.4 release series.
-Each release also has full notes under `docs/vX.Y.Z.md`.
+Full per-release notes — including the bug-fix releases not listed
+here — are in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ### Configuration drift detection *(v2.2.0)*
 RemotePower hashes a watch-list of critical config files on every

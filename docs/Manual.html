@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual — v1.12.0</title>
+<title>RemotePower Manual — v2.4.13</title>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.55; background: #fafafa; }
   h1 { font-size: 2em; border-bottom: 2px solid #444; padding-bottom: 6px; }
@@ -24,7 +24,7 @@
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 2.2.6 — covers everything from the CGI architecture to the web terminal daemon.</em></p>
+<p><em>Version 2.4.13 — the long-form reference: CGI architecture, the agent and heartbeat, commands, monitoring, CVE scanning, configuration drift, Proxmox virtualization and the MCP server.</em></p>
 
 <div class="note"><strong>v2.0 note:</strong> the dashboard has an in-app Documentation page (sidebar → Help → Documentation) covering the most common tasks plus per-page reference cards, all with substring search across topics. This Manual.html remains the long-form reference.</div>
 
@@ -47,8 +47,13 @@
   <li><a href="#metrics">7. Device metrics &amp; alert thresholds</a></li>
   <li><a href="#webterm">8. Web terminal (browser SSH)</a></li>
   <li><a href="#webhooks">9. Webhooks</a></li>
-  <li><a href="#ui">10. Dashboard UI: filter, sort, density</a></li>
-  <li><a href="#troubleshooting">11. Troubleshooting</a></li>
+  <li><a href="#cve">10. CVE scanning</a></li>
+  <li><a href="#drift">11. Configuration drift detection</a></li>
+  <li><a href="#proxmox">12. Proxmox virtualization</a></li>
+  <li><a href="#mcp">13. MCP server</a></li>
+  <li><a href="#fleet-health">14. Fleet health: Needs Attention &amp; status endpoint</a></li>
+  <li><a href="#ui">15. Dashboard UI: filter, sort, density</a></li>
+  <li><a href="#troubleshooting">16. Troubleshooting</a></li>
 </ul>
 </div>
 
@@ -70,8 +75,8 @@
 <h2 id="install">2. Install &amp; deploy</h2>
 
 <h3>2.1 Server</h3>
-<pre><code>tar xzf remotepower-1.12.0.tar.gz
-cd remotepower-1.12.0
+<pre><code>tar xzf remotepower-2.4.13.tar.gz
+cd remotepower-2.4.13
 sudo bash deploy-server.sh
 </code></pre>
 
@@ -344,6 +349,9 @@ curl -X DELETE -H "X-Token: $TOKEN" \
   <tr><td><code>metric_warning</code> (v1.11.10)</td><td>on</td><td>Resource crossed warning threshold</td></tr>
   <tr><td><code>metric_critical</code> (v1.11.10)</td><td>on</td><td>Resource crossed critical threshold</td></tr>
   <tr><td><code>metric_recovered</code> (v1.11.10)</td><td>on</td><td>Resource dropped below warn − buffer</td></tr>
+  <tr><td><code>drift_detected</code></td><td>on</td><td>Watched config file changed against its baseline</td></tr>
+  <tr><td><code>mailbox_threshold</code></td><td>on</td><td>Mailbox file count crossed its alert threshold</td></tr>
+  <tr><td><code>proxmox_action</code></td><td>on</td><td>VM/LXC start, shutdown or snapshot via the Virtualization page</td></tr>
   <tr><td><code>command_queued</code></td><td>off</td><td>Command sent to a device</td></tr>
   <tr><td><code>command_executed</code></td><td>off</td><td>Command completed on a device</td></tr>
 </table>
@@ -351,7 +359,52 @@ curl -X DELETE -H "X-Token: $TOKEN" \
 <p>Output formats: generic JSON, Discord-flavoured embeds, and Ntfy-flavoured (with priority + emoji tags). Format auto-detected from URL.</p>
 
 
-<h2 id="ui">10. Dashboard UI</h2>
+<h2 id="cve">10. CVE scanning</h2>
+
+<p>Every agent reports its installed-package inventory (<code>dpkg-query</code> / <code>rpm</code> / <code>pacman</code> / <code>apk</code>). The server cross-checks that inventory against the <a href="https://osv.dev">OSV.dev</a> vulnerability database on a schedule and records the findings per device.</p>
+
+<p>The <strong>CVEs</strong> page lists findings fleet-wide, ranked by severity. Severity is computed with the real CVSS v3.1 formula, and each finding records where its score came from. Debian Security Tracker <code>urgency</code> — a patching-priority hint, not a CVSS severity — is capped at <code>medium</code> and never promoted to high/critical.</p>
+
+<p>Findings drill down per device with fixed-version hints. A per-CVE <strong>ignore list</strong> covers accepted risk: ignore on one device or fleet-wide, with a reason. Ignored findings drop out of the Needs Attention digest. New findings fire the <code>cve_found</code> webhook.</p>
+
+<p>Use <strong>Scan packages now</strong> in a device's action menu to force a fresh inventory upload on the next heartbeat — handy right after patching a host, rather than waiting for the periodic scan.</p>
+
+
+<h2 id="drift">11. Configuration drift detection</h2>
+
+<p>RemotePower hashes a watch-list of critical config files on every host — <code>sshd_config</code>, <code>sudoers</code>, and similar — on each heartbeat, and flags any change against an accepted baseline.</p>
+
+<p>For a drifted file you can view a diff, accept the new content as the baseline, or mark the difference as ignored (per file) so it stops raising a red status. Watched-file lists are pushed to the agent in the heartbeat. Drift surfaces on the dashboard and in the fleet event log, and fires the <code>drift_detected</code> webhook.</p>
+
+<p>Full reference — the watched-file list, customising it, re-baselining, the compliance angle: <a href="drift.md">drift.md</a>.</p>
+
+
+<h2 id="proxmox">12. Proxmox virtualization</h2>
+
+<p>Connect one Proxmox VE node under <strong>Settings → Proxmox</strong> using a scoped API token (use a scoped token, not a full-access one). This is a server-to-API integration — no agent runs on the Proxmox node itself.</p>
+
+<p>The <strong>Virtualization</strong> page lists the node's QEMU virtual machines with start / shutdown actions and a search box that filters by name or VMID. LXC containers appear on the <strong>Containers</strong> page with the same actions.</p>
+
+<p>Every Proxmox guest — QEMU and LXC — has a <strong>Snapshots</strong> panel: create, list, roll back and delete. Snapshots are disk-only (no RAM state). Rollback is destructive and requires typing the guest name to confirm. Guest actions fire the <code>proxmox_action</code> webhook.</p>
+
+
+<h2 id="mcp">13. MCP server</h2>
+
+<p>RemotePower ships an MCP (Model Context Protocol) server that lets an MCP-capable AI client — Claude Desktop, for example — query fleet state through a set of defined read-only tools: device lists, status, patches, CVEs, drift and more.</p>
+
+<p>It is read-oriented by design: the MCP tools report state, they do not queue commands or change configuration. Setup, the Claude Desktop config block, the full tool list and the security model are in <a href="mcp.md">mcp.md</a>.</p>
+
+
+<h2 id="fleet-health">14. Fleet health: Needs Attention &amp; status endpoint</h2>
+
+<p>The Home dashboard's <strong>Needs Attention</strong> panel is a single ranked list, computed server-side, that merges every fleet-wide signal — offline devices, critical/high CVEs, configuration drift, pending-patch pile-ups and mailbox threshold breaches — into one prioritised view. Unmonitored devices are excluded, the same gate the alert pipeline uses.</p>
+
+<p>The <strong>mailbox monitor</strong> is a lightweight count-only check with no IMAP/SMTP: configure a device with one or more directory paths and the agent counts the regular files in each (for a Maildir <code>new/</code> folder that is the unread-message count). A monitor can carry an alert threshold; crossing it fires the <code>mailbox_threshold</code> webhook, edge-triggered — it fires once on the crossing and re-arms when the count drops back below.</p>
+
+<p><code>/api/status</code> is a machine-readable fleet summary for external dashboards — Uptime Kuma, Homepage, Grafana. It is authenticated by a dedicated status token (generated in Settings), not a login session, so a monitoring tool can poll it without the endpoint being public. It returns a rolled-up health word, device online/offline counts and attention counts by severity.</p>
+
+
+<h2 id="ui">15. Dashboard UI</h2>
 
 <h3>10.1 Filter, sort, density (v1.11.5+)</h3>
 <p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables (Users, API Keys, Command Library) — has a substring filter input and clickable column headers.</p>
@@ -368,7 +421,7 @@ curl -X DELETE -H "X-Token: $TOKEN" \
 <p>Filter / sort / density preferences are stored under <code>users[username].ui_prefs</code> server-side, so they follow you across browsers and devices. Sanitised: 256-char filter cap, 5-key sort cap, 16 KB total per user.</p>
 
 
-<h2 id="troubleshooting">11. Troubleshooting</h2>
+<h2 id="troubleshooting">16. Troubleshooting</h2>
 
 <h3>WebSocket fails with 404</h3>
 <p>The <code>^~ /api/</code> location is winning over the exact-match <code>= /api/webterm/connect</code>. Make sure the exact-match location appears in the file <em>before</em> the prefix-match.</p>

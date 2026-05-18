@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![RemotePower Dashboard](docs/screenshots/Index.png)
+<img src="docs/screenshots/logo-primary.png" alt="RemotePower" width="420">
 
 **Self-hosted remote management for your Linux fleet — and your homelab.**
 Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
@@ -12,9 +12,11 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.4.12-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.4.13-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
+
+![RemotePower dashboard](docs/screenshots/Index.png)
 
 </div>
 
@@ -77,46 +79,37 @@ The demo is reset every few hours, so feel free to break things.
 | | |
 |---|---|
 | 🟢 **See what's up** | Live status every 60 s. CPU / RAM / disk sparklines. Service matrix. Containers. CVE findings. |
-| ⚡ **Run commands** | Shutdown, reboot, WoL, arbitrary shell, **multi-line scripts (v2.1)** with dry-run lint, batch across many devices, scheduled (cron) and one-shot. |
+| ⚡ **Run commands** | Shutdown, reboot, WoL, arbitrary shell, multi-line scripts with dry-run lint, batch across many devices, scheduled (cron) and one-shot. |
 | 🌐 **Browser SSH** | Real xterm.js terminal proxied through a hardened daemon. asciinema session recordings. |
-| 🐳 **docker compose** *(v2.1)* | Up / down / restart / pull / logs on projects the agent discovered under `/opt /home /docker /srv`. |
-| 🚨 **Alerts** | Disk %, memory %, CPU load, service down, container stopped, patches piling up, CVEs found, TLS expiring. Discord / ntfy / Slack / generic JSON webhooks. |
+| 🐳 **docker compose** | Up / down / restart / pull / logs on projects the agent discovered under `/opt /home /docker /srv`. |
+| 🖥️ **Proxmox** | Connect a Proxmox VE node — start/stop QEMU VMs and LXC containers, manage snapshots, all server-to-API. |
+| 🔍 **Configuration drift** | Hashes `sshd_config`, `sudoers` and friends against a baseline; diff, accept, or ignore changes. |
+| 🚨 **Alerts** | Disk %, memory %, CPU load, service down, container stopped, patches piling up, CVEs found, TLS expiring, config drift, mailbox thresholds. Discord / ntfy / Slack / generic JSON webhooks. |
 | 📦 **CMDB built in** | Asset metadata, encrypted credentials vault (AES-GCM + PBKDF2), Markdown docs per asset, network topology map, agentless devices. |
-| 🛡️ **CVE scanning** | OSV.dev-backed, severity-ranked, per-CVE ignore list. |
+| 🛡️ **CVE scanning** | OSV.dev-backed, CVSS v3.1-scored, severity-ranked, per-CVE ignore list. |
 | 🔑 **Auth that scales** | bcrypt + TOTP 2FA. LDAP/AD. Named API keys. Enrolment tokens for cloud-init / Ansible. |
-| 📈 **Time series** | Prometheus `/api/metrics` for Grafana. Per-device history. |
+| 📈 **Metrics & integrations** | Prometheus `/api/metrics` for Grafana. `/api/status` for Uptime Kuma / Homepage. MCP server for AI clients. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
-**Older releases**: see [CHANGES.md](CHANGES.md) for the full history
-or [docs/](docs/) for the per-release notes (v2.1.3, v2.1.2, v2.1.1, v2.1.0,
-v2.0.x, etc.).
+## Documentation
 
-## Documentation index
+Everything lives in **[docs/](docs/)** — start with the index there. The
+essentials:
 
 | Topic | Where |
 |---|---|
-| **Getting started** (install, Docker, demo, Windows) | [docs/install.md](docs/install.md) |
+| **Install** (Linux, Docker, demo, Windows) | [docs/install.md](docs/install.md) |
 | **Full feature inventory** | [docs/features.md](docs/features.md) |
-| **Architecture diagram + file layout** | [docs/architecture.md](docs/architecture.md) |
-| **API reference (endpoints + OpenAPI)** | [docs/api.md](docs/api.md) — interactive: `/swagger.html` |
-| **HTTPS / TLS termination** | [docs/https.md](docs/https.md) |
+| **Architecture + on-disk layout** | [docs/architecture.md](docs/architecture.md) |
+| **API reference** (endpoints + OpenAPI) | [docs/api.md](docs/api.md) — interactive: `/swagger.html` |
+| **Reference manual** | [docs/Manual.html](docs/Manual.html) |
 | **Security notes** | [docs/security.md](docs/security.md) |
 | **Troubleshooting** | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | **Upgrading** | [docs/upgrading.md](docs/upgrading.md) |
-| **Script library** *(v2.1)* | [docs/scripts.md](docs/scripts.md) |
-| **docker compose dropdown** *(v2.1)* | [docs/compose.md](docs/compose.md) |
-| **v2.1.2 release notes** | [docs/v2.1.2.md](docs/v2.1.2.md) |
-| **v2.1.1 release notes** | [docs/v2.1.1.md](docs/v2.1.1.md) |
-| **v2.1.0 release notes** | [docs/v2.1.0.md](docs/v2.1.0.md) |
-| **CMDB & credentials vault** | [docs/cmdb.md](docs/cmdb.md) |
-| **Container awareness** | [docs/containers.md](docs/containers.md) |
-| **Agentless devices** | [docs/agentless-devices.md](docs/agentless-devices.md) |
-| **Network map** | [docs/network-map.md](docs/network-map.md) |
-| **TLS / DNS expiry** | [docs/tls-monitor.md](docs/tls-monitor.md) |
-| **Update history** | [docs/update-history.md](docs/update-history.md) |
-| **Swagger / OpenAPI** | [docs/swagger.md](docs/swagger.md) |
-| **Release history** | [CHANGES.md](CHANGES.md) · [CHANGELOG.md](CHANGELOG.md) |
+
+Full release history — every version, newest first — is in
+**[CHANGELOG.md](CHANGELOG.md)**.
 
 ## License
 
