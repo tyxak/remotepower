@@ -25,7 +25,7 @@ class TestActivityDedup(unittest.TestCase):
         cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
         start = cls.js.find('function _renderHomeActivity')
         assert start > 0, '_renderHomeActivity not found'
-        cls.chunk = cls.js[start:start + 2600]
+        cls.chunk = cls.js[start:start + 3200]
 
     def test_dedup_runs_before_slice(self):
         # The de-dup filter must come before .slice(0, 8) — otherwise

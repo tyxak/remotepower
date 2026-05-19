@@ -687,7 +687,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
-  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); }
+  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
@@ -697,8 +697,8 @@ function showPage(name, btn) {
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
-  if (name === 'patches')  loadPatchReport();
-  if (name === 'cve')      loadCVEReport();
+  if (name === 'patches')        loadPatchReport();
+  if (name === 'cve')            loadCVEReport();
   if (name === 'services') loadServicesReport();
   if (name === 'maintenance') loadMaintenance();
   if (name === 'logs')     enterLogsPage();
@@ -2333,7 +2333,10 @@ function _registerPatchTable() {
       const aiBtn = d.upgradable > 0
         ? `<button class="btn-icon" style="padding:4px 6px;font-size:11px" onclick="aiPrioritisePatchesForDevice('${d.device_id}','${escAttr(d.name)}')" title="AI: prioritise these updates">✨</button>`
         : '';
-      return `<tr><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><div style="display:flex;gap:4px;align-items:center">${aiBtn}<button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></div></td></tr>`;
+      const rebootBadge = d.reboot_required
+        ? `<span title="Pending reboot — /run/reboot-required exists on this host" style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-edge);white-space:nowrap;vertical-align:middle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px;margin-right:2px;flex-shrink:0"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
+        : '';
+      return `<tr><td style="font-weight:500">${escHtml(d.name)}${rebootBadge}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><div style="display:flex;gap:4px;align-items:center">${aiBtn}<button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -7788,8 +7791,7 @@ function _renderHomeActivity(fleetEvents) {
     'container_stopped', 'container_restarting', 'containers_stale',
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
-    'drift_detected',
-    'mailbox_threshold',
+    'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -7919,6 +7921,10 @@ function _homeActivityAction(event, p) {
     case 'command_queued':
     case 'command_executed':
       return `showPage('history',document.querySelector('.nav-btn[onclick*=history]'))`;
+    case 'custom_script_fail':
+    case 'custom_script_recover':
+      // v2.5.0: Custom Scripts section lives on the Monitor page
+      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
     default:
       // Fallback: device detail if we know the device, otherwise
       // nothing happens
@@ -8990,4 +8996,311 @@ function _renderStatusToken(token) {
       <button class="btn-icon" onclick="generateStatusToken()">Rotate token</button>
       <button class="btn-icon" style="color:var(--red)" onclick="revokeStatusToken()">Disable endpoint</button>
     </div>`;
+}
+
+// ─── v2.5.0: Custom Monitoring Scripts ────────────────────────────────────────
+
+let _csData = null;       // {results: [...], scripts: [...]} from server
+let _csDevices = null;    // device list for the device picker
+
+// Called by showPage('custom-scripts', ...)
+function loadCustomScripts() {
+  renderCustomScriptsLoading();
+  Promise.all([
+    api('GET', '/custom-scripts/results'),
+    api('GET', '/devices'),
+  ]).then(([resultsData, devicesData]) => {
+    if (!resultsData) return;
+    _csData = resultsData;
+    _csDevices = devicesData ? (devicesData.devices || devicesData) : [];
+    renderCustomScriptsPage();
+  }).catch(() => {
+    const tbody = document.getElementById('cs-results-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px">Failed to load. Refresh to retry.</td></tr>';
+  });
+}
+
+function renderCustomScriptsLoading() {
+  const tbody = document.getElementById('cs-results-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+}
+
+function renderCustomScriptsPage() {
+  if (!_csData) return;
+  const filterText = (document.getElementById('cs-filter')?.value || '').toLowerCase();
+  const statusFilter = document.getElementById('cs-status-filter')?.value || 'all';
+
+  let rows = _csData.results || [];
+  if (filterText) {
+    rows = rows.filter(r =>
+      r.script_name.toLowerCase().includes(filterText) ||
+      r.device_name.toLowerCase().includes(filterText) ||
+      (r.group || '').toLowerCase().includes(filterText) ||
+      (r.output || '').toLowerCase().includes(filterText)
+    );
+  }
+  if (statusFilter === 'fail') rows = rows.filter(r => !r.ok);
+  if (statusFilter === 'ok')   rows = rows.filter(r => r.ok);
+
+  // Stats
+  const allRows = _csData.results || [];
+  const failing = allRows.filter(r => !r.ok).length;
+  const allOk   = allRows.filter(r => r.ok).length;
+  const scripts  = _csData.scripts || [];
+
+  document.getElementById('cs-stat-total').textContent   = scripts.length;
+  document.getElementById('cs-stat-running').textContent = allRows.length;
+  document.getElementById('cs-stat-fail').textContent    = failing;
+  document.getElementById('cs-stat-ok').textContent      = allOk;
+
+  const tbody = document.getElementById('cs-results-tbody');
+  if (!tbody) return;
+
+  // Also show scripts that have never run (no results yet) — always visible and deletable
+  const allScripts = _csData.scripts || [];
+  const scriptIdsWithResults = new Set(rows.map(r => r.script_id));
+  const noResultRows = allScripts
+    .filter(s => s.id && !scriptIdsWithResults.has(s.id))
+    .filter(s => {
+      const n = s.name || '';
+      return !filterText || n.toLowerCase().includes(filterText);
+    })
+    .filter(() => statusFilter === 'all');
+
+  const noResultHtml = noResultRows.map(s => {
+    const sid = escAttr(s.id);   // safe: IDs are cs_hexhex, no special chars
+    return `<tr style="opacity:0.65">
+      <td style="font-weight:500">${escHtml(s.name)}</td>
+      <td style="color:var(--muted);font-style:italic" colspan="5">No results yet — waiting for next run cycle</td>
+      <td></td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-right:4px"
+            onclick="openCustomScriptModal('${sid}')">Edit</button>
+        <button class="btn-icon" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)"
+            onclick="csDeleteScript('${sid}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  if (!rows.length && !noResultRows.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">${
+      filterText || statusFilter !== 'all' ? 'No results match the filter.' : 'No custom script results yet. Assign a script to a device and wait one run cycle (5 min).'
+    }</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = noResultHtml + rows.map(r => {
+    const statusBadge = r.ok
+      ? '<span style="color:var(--green);font-weight:600">● OK</span>'
+      : '<span style="color:var(--red);font-weight:600">● FAIL</span>';
+    const output = (r.output || '').trim();
+    const outputSnippet = output.length > 80
+      ? escHtml(output.slice(0, 80)) + '<span style="color:var(--muted)">…</span>'
+      : escHtml(output || '—');
+    const ranAt = r.ran_at ? new Date(r.ran_at * 1000).toLocaleString() : '—';
+    const dur   = r.duration_ms ? `${r.duration_ms} ms` : '—';
+    const changedAgo = r.changed_at
+      ? `<span title="Status changed ${new Date(r.changed_at*1000).toLocaleString()}" style="font-size:10px;color:var(--muted)">changed ${_reltime(r.changed_at)}</span>`
+      : '';
+    return `<tr>
+      <td style="font-weight:500">${escHtml(r.script_name)}</td>
+      <td>${escHtml(r.device_name)}</td>
+      <td style="font-size:12px;color:var(--muted)">${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '—'}</td>
+      <td style="text-align:center">${statusBadge}<br>${changedAgo}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;max-width:260px;overflow:hidden;cursor:pointer"
+          onclick="openCsOutput(${JSON.stringify(r.script_name)},${JSON.stringify(r.device_name)},${JSON.stringify(output)})"
+          title="Click for full output">${outputSnippet}</td>
+      <td style="font-size:11px;color:var(--muted)">${ranAt}</td>
+      <td style="text-align:right;font-size:11px;color:var(--muted)">${dur}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-right:4px"
+            onclick="openCustomScriptModal('${escAttr(r.script_id)}')">Edit</button>
+        <button class="btn-icon" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)"
+            onclick="csDeleteScript('${escAttr(r.script_id)}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCsDefinitions() { /* cards removed — table is the only view */ }
+
+function openCsOutput(scriptName, deviceName, output) {
+  document.getElementById('cs-output-title').textContent = `${scriptName} — ${deviceName}`;
+  document.getElementById('cs-output-body').textContent = output || '(no output)';
+  openModal('cs-output-modal');
+}
+
+// ── Script create / edit modal ─────────────────────────────────────────────
+
+async function openCustomScriptModal(scriptId) {
+  // Reset modal
+  document.getElementById('cs-modal-title').textContent = scriptId ? 'Edit script' : 'New script';
+  document.getElementById('cs-modal-id').value   = scriptId || '';
+  document.getElementById('cs-modal-name').value  = '';
+  document.getElementById('cs-modal-desc').value  = '';
+  document.getElementById('cs-modal-body').value  = '';
+  document.getElementById('cs-ai-prompt').value   = '';
+  document.getElementById('cs-ai-status').textContent = '';
+  document.getElementById('cs-modal-delete-btn').style.display = scriptId ? '' : 'none';
+
+  // If editing, fetch the script body (list view omits it)
+  if (scriptId) {
+    const s = await api('GET', `/custom-scripts/${scriptId}`);
+    if (s) {
+      document.getElementById('cs-modal-name').value = s.name || '';
+      document.getElementById('cs-modal-desc').value = s.description || '';
+      document.getElementById('cs-modal-body').value = s.body || '';
+    }
+  }
+
+  // Build device picker
+  await _buildCsDevicePicker(scriptId);
+
+  openModal('custom-script-modal');
+}
+
+async function _buildCsDevicePicker(scriptId) {
+  const container = document.getElementById('cs-device-picker');
+  if (!container) return;
+  container.innerHTML = '<span style="color:var(--muted);font-size:12px">Loading devices…</span>';
+
+  // Get assigned_devices for this script (if editing) — always fetch so
+  // we don't need _csData to be loaded first.
+  let assigned = [];
+  if (scriptId) {
+    try {
+      const full = await api('GET', `/custom-scripts/${scriptId}`);
+      if (full) assigned = full.assigned_devices || [];
+    } catch (_) {}
+  }
+
+  // Use cached device list if available; otherwise fetch fresh.
+  let devs = _csDevices;
+  if (!devs || !devs.length) {
+    try {
+      const fetched = await api('GET', '/devices');
+      devs = Array.isArray(fetched) ? fetched : (fetched && fetched.devices) ? fetched.devices : [];
+      if (devs.length) _csDevices = devs; // cache for next time
+    } catch (_) {
+      devs = [];
+    }
+  }
+
+  const agentDevs = (devs || []).filter(d => !d.agentless);
+  if (!agentDevs.length) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:12px">No devices enrolled.</span>';
+    return;
+  }
+
+  container.innerHTML = agentDevs.map(d => {
+    const devId  = d.device_id || d.id;
+    const checked = assigned.includes(devId) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12px;background:var(--surface);border:1px solid var(--border)">
+      <input type="checkbox" class="cs-device-cb" value="${escAttr(devId)}" ${checked} style="width:14px;height:14px">
+      ${escHtml(d.name || devId)}
+      ${d.group ? `<span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}
+    </label>`;
+  }).join('');
+}
+
+async function saveCustomScript() {
+  const sid   = document.getElementById('cs-modal-id').value;
+  const name  = document.getElementById('cs-modal-name').value.trim();
+  const desc  = document.getElementById('cs-modal-desc').value.trim();
+  const body  = document.getElementById('cs-modal-body').value.trim();
+  const assigned = [...document.querySelectorAll('.cs-device-cb:checked')].map(cb => cb.value);
+
+  if (!name) { toast('Script name is required', 'error'); return; }
+  if (!body) { toast('Script body is required', 'error'); return; }
+
+  const payload = { name, description: desc, body, assigned_devices: assigned };
+  let result;
+  if (sid) {
+    result = await api('PUT', `/custom-scripts/${sid}`, payload);
+  } else {
+    result = await api('POST', '/custom-scripts', payload);
+  }
+  if (!result) return;
+  closeModal('custom-script-modal');
+  toast(sid ? 'Script updated' : 'Script created', 'success');
+  loadCustomScripts();
+}
+
+async function deleteCustomScript() {
+  const sid  = document.getElementById('cs-modal-id').value;
+  const name = document.getElementById('cs-modal-name').value;
+  if (!sid) return;
+  if (!confirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  const r = await api('DELETE', `/custom-scripts/${sid}`);
+  if (!r) return;
+  closeModal('custom-script-modal');
+  toast('Script deleted', 'success');
+  loadCustomScripts();
+}
+
+// Standalone delete — called from table row buttons. Looks up name from cache.
+async function csDeleteScript(sid) {
+  const script = (_csData && _csData.scripts || []).find(s => s.id === sid);
+  const name   = script ? script.name : sid;
+  if (!confirm(`Delete script "${name}"? This removes it from all devices.`)) return;
+  const r = await api('DELETE', `/custom-scripts/${sid}`);
+  if (!r) return;
+  toast('Script deleted', 'success');
+  loadCustomScripts();
+}
+
+// ── AI generation ──────────────────────────────────────────────────────────
+
+async function csGenerateWithAI() {
+  const prompt = document.getElementById('cs-ai-prompt').value.trim();
+  if (!prompt) { toast('Describe what the script should check', 'error'); return; }
+
+  const btn    = document.getElementById('cs-ai-btn');
+  const status = document.getElementById('cs-ai-status');
+  btn.disabled = true;
+  status.textContent = '✨ Generating…';
+  status.style.color = 'var(--accent)';
+
+  try {
+    const resp = await api('POST', '/ai/chat', {
+      system:     'generate_script',
+      messages:   [{ role: 'user', content:
+        `Write a bash monitoring script for RemotePower custom script checks.\n\n` +
+        `Monitoring contract (MUST follow):\n` +
+        `- Exit code 0 = OK (check passed)\n` +
+        `- Exit code non-zero = FAIL (check failed)\n` +
+        `- Runs as root on the agent host\n` +
+        `- Hard timeout: 30 seconds — finish well within that\n` +
+        `- stdout + stderr are merged and captured (max 4 KB shown)\n` +
+        `- Print one clear status line so the operator knows what happened\n\n` +
+        `Task: ${prompt}\n\n` +
+        `Return ONLY the bash script. No markdown, no explanation, no code fences.`
+      }],
+      max_tokens: 1500,
+      context:    'custom_script_generate',
+    });
+    if (!resp) throw new Error('No response');
+    const text = (resp.text || resp.content || '').trim();
+    if (!text) throw new Error('Empty response from AI');
+
+    // Strip markdown code fences if the model wrapped despite instructions
+    const cleaned = text.replace(/^```(?:bash|sh)?\n?/m, '').replace(/\n?```$/m, '').trim();
+    document.getElementById('cs-modal-body').value = cleaned;
+    status.textContent = '✓ Script generated — review before saving';
+    status.style.color = 'var(--green)';
+  } catch (e) {
+    status.textContent = `✗ ${e.message || 'AI generation failed'}`;
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _reltime(ts) {
+  if (!ts) return '';
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
 }

@@ -141,6 +141,14 @@ for f in "$SCRIPT_DIR"/server/html/*.html; do
     name="$(basename "$f")"
     cp "$f" /var/www/remotepower/"$name"
 done
+# v2.4.15: Root-level non-HTML assets (favicon, manifest, service worker).
+# The *.html glob above only catches .html files; these must be copied separately.
+for f in "$SCRIPT_DIR"/server/html/favicon.* \
+         "$SCRIPT_DIR"/server/html/manifest.json \
+         "$SCRIPT_DIR"/server/html/sw.js; do
+    [[ -f "$f" ]] || continue
+    install -m 644 "$f" /var/www/remotepower/"$(basename "$f")"
+done
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
 # api.py needs +x for CGI; others are imports so 644 is fine.

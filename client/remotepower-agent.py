@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.4.13'
+VERSION      = '2.5.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -57,6 +57,8 @@ MAX_MAILBOX_PATHS   = 20          # matches the server-side cap
 
 # v1.8.0: service monitoring + log tail
 SERVICE_CHECK_EVERY = 1           # every poll — cheap
+# v2.5.0: custom monitoring scripts run every 5 polls (5 minutes at default 60s)
+SCRIPT_CHECK_EVERY  = 5
 LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of logs
 MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
 LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission
@@ -1576,6 +1578,76 @@ def _run_container_action(cmd):
         return {'cmd': cmd, 'output': f'{runtime} {action} failed: {e}', 'rc': -1}
 
 
+
+def run_custom_scripts(scripts):
+    """v2.5.0: run assigned custom monitoring scripts and return results.
+
+    Each script is written to a private temp file (mode 0700), executed
+    with a timeout, stdout+stderr merged and capped at 4 KB.
+    Exit 0 -> ok=True; anything else (including timeout/exec error) -> ok=False.
+    Results are keyed by script ID.
+
+    Security: scripts come from the RemotePower server, which the agent
+    already trusts via the device token on every heartbeat — same boundary
+    as the existing exec: command channel.
+    """
+    import tempfile
+    import stat as _stat
+    results = {}
+    now = int(time.time())
+
+    for s in scripts:
+        sid     = str(s.get('id', ''))
+        name    = str(s.get('name', sid))
+        body    = str(s.get('body', ''))
+        timeout = int(s.get('timeout', 30))
+        if not sid or not body:
+            continue
+
+        t_start = time.monotonic()
+        ok = False; output = ''; rc = 1
+        tmp_path = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(prefix='rp_cs_', suffix='.sh')
+            try:
+                os.write(fd, body.encode('utf-8', errors='replace'))
+            finally:
+                os.close(fd)
+            os.chmod(tmp_path, _stat.S_IRWXU)   # 0700 — owner only
+
+            proc = subprocess.run(
+                ['/bin/bash', tmp_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+            )
+            rc     = proc.returncode
+            ok     = (rc == 0)
+            output = proc.stdout.decode('utf-8', errors='replace')[:4096]
+        except subprocess.TimeoutExpired:
+            rc = -1; ok = False; output = f'TIMEOUT after {timeout}s'
+        except Exception as e:
+            rc = -1; ok = False; output = f'EXEC ERROR: {e}'
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        duration_ms = int((time.monotonic() - t_start) * 1000)
+        results[sid] = {
+            'ok':          ok,
+            'output':      output.strip(),
+            'rc':          rc,
+            'ran_at':      now,
+            'duration_ms': duration_ms,
+        }
+        log.debug(f'Custom script "{name}" ({sid}): rc={rc} ok={ok} dur={duration_ms}ms')
+
+    return results
+
+
 def count_mailbox_paths(paths):
     """v2.4.3: count regular files directly inside each watched
     directory — the Maildir 'new' folder convention, where each
@@ -1697,6 +1769,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.4.5: set true when the server requests an out-of-band package
     # scan; consumed (and cleared) on the next poll.
     force_pkg_scan = False
+    # v2.5.0: custom monitoring scripts pushed by the server. Empty list
+    # until the first heartbeat response arrives carrying assignments.
+    custom_scripts = []
+    # Accumulated custom script results pending inclusion in next heartbeat.
+    pending_script_results = {}
 
     # Detect if this is a fresh boot (first heartbeat after restart)
     boot_reason_file = Path('/tmp/remotepower-last-cmd')
@@ -1836,6 +1913,27 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             except Exception as e:
                 log.debug(f'Mailbox count error: {e}')
 
+        # v2.5.0: run custom monitoring scripts every SCRIPT_CHECK_EVERY polls.
+        # Scripts arrive via the heartbeat response and are stored in
+        # custom_scripts. Results are keyed by script ID and held in
+        # pending_script_results until the next heartbeat picks them up.
+        # First poll is skipped (scripts list may not have arrived yet).
+        if custom_scripts and poll_count > 1 and (
+            poll_count % SCRIPT_CHECK_EVERY == 0
+        ):
+            try:
+                new_results = run_custom_scripts(custom_scripts)
+                pending_script_results.update(new_results)
+                log.info(f'Custom scripts: ran {len(new_results)}, '
+                         f'{sum(1 for r in new_results.values() if not r["ok"])} failed')
+            except Exception as e:
+                log.debug(f'Custom script runner error: {e}')
+
+        # Include any pending custom script results in this heartbeat
+        if pending_script_results:
+            payload['custom_script_results'] = dict(pending_script_results)
+            pending_script_results.clear()
+
         # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
         # Same cadence as services. Skipping the first heartbeat is fine —
         # it'd otherwise fire 0.1s after enrollment and confuse new users
@@ -1940,6 +2038,16 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_package_scan'):
                 force_pkg_scan = True
                 log.info('Server requested a package scan')
+            # v2.5.0: custom monitoring scripts pushed by the server.
+            # Replace the local list on every heartbeat so assignments
+            # and script body changes take effect at the next run window.
+            if 'custom_scripts' in resp:
+                new_cs = resp.get('custom_scripts') or []
+                if isinstance(new_cs, list):
+                    if len(new_cs) != len(custom_scripts) or \
+                       [s['id'] for s in new_cs] != [s['id'] for s in custom_scripts]:
+                        log.info(f'Config updated: custom_scripts = {len(new_cs)} script(s)')
+                    custom_scripts = new_cs
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)

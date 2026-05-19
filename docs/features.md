@@ -12,6 +12,9 @@ Day-to-day fleet operations, without leaving the browser:
 | 🛡️ **CVE scanning** | Installed packages cross-checked against [OSV.dev](https://osv.dev) on a schedule. Severity-ranked findings per device with fixed-version hints. Per-CVE ignore list for accepted risk. |
 | 🔑 **Auth that scales** | Local users with bcrypt + TOTP 2FA. Optional LDAP/AD integration. Named API keys for automation. Enrolment tokens for cloud-init / Ansible / golden-image stamping. |
 | 📈 **Time-series, the homelab way** | Every device's CPU/RAM/disk recorded; sparkline for the dashboard, full-size chart on click. Prometheus `/api/metrics` endpoint for Grafana. |
+| ✨ **AI assistant** | Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain command output, triage CVEs and TLS expiry, prioritise patches, diagnose failed services, generate and audit shell scripts, free-form chat. Disabled by default; no external calls unless you choose a cloud provider. Regex-based secret redaction before any bytes leave the process. |
+| 🤖 **MCP server** | Bundled Model Context Protocol server — lets any MCP-capable AI client (Claude Desktop, etc.) query fleet state through 12 read-only tools. No write tools in this release. |
+| 🔬 **Custom monitoring scripts** | Define bash health checks server-side, assign to devices, run every 5 minutes. Exit 0 = OK, anything else = FAIL. Fleet-wide results table, edge-triggered webhooks (`custom_script_fail` / `custom_script_recover`). AI-assisted script generation built into the create modal. |
 
 ---
 
@@ -43,6 +46,20 @@ The complete list. Items marked with a version number indicate when they were ad
 | 📊 **Uptime tracking** | Online/offline state changes stored per device |
 | 📦 **Container awareness** | Auto-detected Docker / Podman / Kubernetes pods. Read-only — image, status, restart count, ports, namespace. Alerts on stop / restart / stale data |
 | 🌐 **Network map** | Manual topology graph from per-device `connected_to` links. Switches and APs as agentless devices |
+| ⟳ **Pending Reboot indicator** | Amber ⟳ Reboot badge next to hostname on the Patches page when `/run/reboot-required` exists on the host (Debian/Ubuntu). Tooltip explains the source (v2.4.14) |
+
+### Custom monitoring scripts *(v2.5.0)*
+
+| Feature | Notes |
+|---|---|
+| 🔬 **Script library** | Admin-defined bash scripts stored server-side in `custom_scripts.json`. Up to 50 fleet-wide, 10 per device |
+| 📋 **Per-device assignment** | Each script is assigned to a set of devices. Assignments are pushed via heartbeat — no SSH needed |
+| ⏱️ **5-minute cadence** | Agent runs all assigned scripts every 5 polls (~5 min at default 60 s). First poll after assignment is skipped; results start from poll 2 |
+| ✅ **Binary exit code** | Exit 0 = OK, anything else = FAIL. No MRPE severity levels — deliberately simple |
+| 📊 **Fleet results page** | Custom Scripts page shows all device × script results: status badge, last output snippet (click for full 4 KB), timestamp, duration |
+| 🔔 **Edge-triggered alerts** | `custom_script_fail` fires once on OK→FAIL transition (includes first output line). `custom_script_recover` fires once on FAIL→OK. Never re-fires on every failing run |
+| ✨ **AI generation** | Inline in the create modal: describe the check in plain English, click ✨ Generate, review and save. Uses the existing AI assistant configuration |
+| 🔒 **Secure execution** | Script written to temp file (chmod 700), executed by `/bin/bash`, deleted after run. 30 s timeout. stdout+stderr merged, capped at 4 KB |
 
 ### Commands & automation
 
@@ -125,6 +142,26 @@ The complete list. Items marked with a version number indicate when they were ad
 | ☑️ **Multi-select** | Batch actions on cards or minimal table; selection survives density switching (v1.12.1) |
 | 🗂️ **Collapsible sidebar** | Main / Security / Planning / Admin / Help groups; state persists per browser (v2.0) |
 | 🎨 **Real branding** | Favicon + header logo, clickable logo returns home, full-size logo on login (v2.0) |
+
+### AI assistant *(v2.1.3)*
+
+| Feature | Notes |
+|---|---|
+| ✨ **LLM integration** | Optional. Five providers: Ollama, LocalAI, Anthropic (Claude), OpenAI, DeepSeek. Pure stdlib HTTP — no pip deps (v2.1.3) |
+| ✨ **Context-aware buttons** | Investigate device, Explain command output, Find the problem (journal), Diagnose service, Triage CVE, Triage TLS, Prioritise patches, Explain/Generate/Audit scripts, Explain webhook events (v2.1.3–v2.1.5) |
+| 🔒 **Secret redaction** | Regex-based pre-flight strips bearer tokens, AWS keys, long hex strings before any request leaves the process. Privacy toggles for hostnames, IPs, journal content |
+| 🚦 **Rate limiting** | Per-user daily request cap + per-response max-token cap, both configurable in Settings |
+| 💬 **Free-form chat** | Multi-turn chat page (Help → AI Assistant) with model picker and local conversation history |
+| 🔌 **Local-model support** | Ollama and LocalAI providers — no external egress, no API key. Shows loaded models and VRAM use |
+
+Full reference: **[ai.md](ai.md)**.
+
+### MCP server *(v2.2.1)*
+
+| Feature | Notes |
+|---|---|
+| 🤖 **MCP server** | Read-only Model Context Protocol server. 12 tools: `list_devices`, `get_device`, `get_journal`, `get_services`, `get_containers`, `get_cves`, `get_drift`, `get_recent_commands`, `get_runbook`, `get_patches`, `get_tls`, `search_devices` |
+| 🔒 **No write tools** | `run_command`, `reboot_device`, etc. are intentionally absent. Write tools require server-side allow-list + per-token roles, deferred to a future release |
 
 
 ---
@@ -279,11 +316,32 @@ Compatible with Ntfy, Gotify, Slack, Discord, n8n, Home Assistant.
 
 ---
 
-## Added in 2.2.x – 2.4.x
+## Added in 2.2.x – 2.5.x
 
-The features below were added across the 2.2 – 2.4 release series.
+The features below were added across the 2.2 – 2.5 release series.
 Full per-release notes — including the bug-fix releases not listed
 here — are in [`CHANGELOG.md`](../CHANGELOG.md).
+
+### Custom monitoring scripts *(v2.5.0)*
+Define bash health checks server-side and assign them to devices.
+The agent runs each check every 5 minutes; exit 0 = OK, anything
+else = FAIL. Fleet-wide results on the Custom Scripts page, plus
+edge-triggered `custom_script_fail` / `custom_script_recover`
+webhook events. Inline AI generation in the create modal. No agent
+update required to start using the feature — scripts are pushed
+via the existing heartbeat channel. Reference:
+**[custom-scripts.md](custom-scripts.md)**.
+
+### Pending Reboot indicator on Patches page *(v2.4.14)*
+When a Debian/Ubuntu host has a pending-reboot marker
+(`/run/reboot-required`) the agent reports `reboot_required: true`
+in its heartbeat. The Patches page now surfaces this as a small amber
+**⟳ Reboot** badge inline with the hostname so you can see at a
+glance which patched hosts still need a restart — without opening
+each device individually. The badge shows a tooltip identifying the
+source file. No agent change is required; the flag has been in the
+heartbeat since v1.x. The patch-report API (`/api/patch-report`) also
+exposes the field for external consumers.
 
 ### Configuration drift detection *(v2.2.0)*
 RemotePower hashes a watch-list of critical config files on every

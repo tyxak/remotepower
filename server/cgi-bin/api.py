@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.4.13'
+SERVER_VERSION = '2.5.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -343,6 +343,9 @@ WEBHOOK_EVENTS = (
     ('drift_detected',     'Watched config file diverged from baseline', True),
     # v2.4.7: mailbox count crossed its alert threshold
     ('mailbox_threshold',  'Mailbox count crossed its alert threshold', True),
+    # v2.5.0: custom monitoring script results
+    ('custom_script_fail',    'Custom monitoring script returned non-zero', True),
+    ('custom_script_recover', 'Custom monitoring script recovered to OK',   True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1573,6 +1576,9 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         'metric_warning':       'Resource Warning',
         'metric_critical':      'Resource Critical',
         'metric_recovered':     'Resource Recovered',
+        # v2.5.0
+        'custom_script_fail':    'Custom Script Failed',
+        'custom_script_recover': 'Custom Script Recovered',
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
@@ -1735,6 +1741,13 @@ def _webhook_message(event, payload):
         return f'{name}: {kind} recovered to {payload.get("value", "?")}%'
     elif event == 'test':
         return f'This is a test notification from RemotePower ({payload.get("server_version", "?")}). If you see this, webhooks are working!'
+    # ── v2.5.0: custom monitoring scripts ─────────────────────────────────
+    elif event == 'custom_script_fail':
+        out = str(payload.get('output', '')).strip()
+        snippet = (f' — {out[:120]}' if out else '')
+        return f'{name}: script "{payload.get("script_name", "?")}" FAILED (exit {payload.get("rc", "?")}){snippet}'
+    elif event == 'custom_script_recover':
+        return f'{name}: script "{payload.get("script_name", "?")}" recovered (OK)'
     return f'{event}: {name}'
 
 
@@ -1744,9 +1757,10 @@ def _webhook_priority(event):
         return 5
     if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
                  'log_alert', 'container_stopped', 'containers_stale',
-                 'metric_warning'):
+                 'metric_warning', 'custom_script_fail'):
         return 4
-    if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered'):
+    if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered',
+                 'custom_script_recover'):
         return 3
     return 3
 
@@ -1773,6 +1787,9 @@ def _webhook_tags(event):
         'metric_warning':       'warning,bar_chart',
         'metric_critical':      'rotating_light,bar_chart',
         'metric_recovered':     'green_circle,bar_chart',
+        # v2.5.0: custom monitoring scripts
+        'custom_script_fail':    'red_circle,test_tube',
+        'custom_script_recover': 'green_circle,test_tube',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -2895,6 +2912,11 @@ def handle_heartbeat():
                         'fstype':   _sanitize_str(m.get('fstype', ''), 32),
                     })
                 safe_si['mounts'] = safe_mounts
+            # v2.4.14: reboot-required flag (Debian/Ubuntu /run/reboot-required)
+            if 'reboot_required' in si:
+                safe_si['reboot_required'] = bool(si['reboot_required'])
+                if si.get('reboot_reason'):
+                    safe_si['reboot_reason'] = _sanitize_str(si['reboot_reason'], 256)
             dev['sysinfo'] = safe_si
             # _record_metrics writes to METRICS_FILE (different lock — no
             # deadlock with the DEVICES_FILE lock we currently hold)
@@ -3153,6 +3175,17 @@ def handle_heartbeat():
             sys.stderr.write(f"[remotepower] mailbox ingest failed dev={dev_id}: {e}\n")
     mailbox_paths = (saved_dev.get('mailbox_paths') or [])[:MAX_MAILBOX_PATHS]
 
+    # v2.5.0: custom monitoring scripts — ingest results from agent,
+    # then build the list of scripts assigned to this device for the
+    # heartbeat response.
+    if 'custom_script_results' in body and isinstance(body['custom_script_results'], dict):
+        try:
+            _ingest_custom_script_results(dev_id, saved_dev['name'],
+                                          body['custom_script_results'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] custom script ingest failed dev={dev_id}: {e}\n")
+    custom_scripts_for_device = _get_custom_scripts_for_device(dev_id)
+
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
     # been written back to disk and `dev` is just an in-memory copy that
@@ -3166,6 +3199,8 @@ def handle_heartbeat():
         'log_watch':        saved_dev.get('log_watch', []),
         'watched_files':    watched_files,
         'mailbox_paths':    mailbox_paths,
+        # v2.5.0: push assigned scripts so the agent runs them every 5 min
+        'custom_scripts':   custom_scripts_for_device,
     }
     # v2.4.5: one-shot package-scan request. Only present (and true)
     # on the single heartbeat after the operator clicked "scan now".
@@ -6933,6 +6968,21 @@ DRIFT_HISTORY_CAP = 20
 MAX_MAILBOX_PATHS    = 20      # paths counted per device
 MAX_MAILBOX_PATH_LEN = 512
 
+# ── v2.5.0: custom monitoring scripts ────────────────────────────────────────
+#
+# Admin-defined bash scripts that run on enrolled devices every 5 minutes.
+# Exit code 0 = OK, anything else = FAIL (binary — no MRPE severity levels).
+# Scripts are defined server-side, assigned to devices, pushed via heartbeat
+# response, executed by the agent with a timeout, and results reported back.
+CUSTOM_SCRIPTS_FILE     = DATA_DIR / 'custom_scripts.json'
+MAX_CUSTOM_SCRIPTS      = 50       # fleet-wide script definitions
+MAX_CUSTOM_SCRIPTS_PER_DEVICE = 10 # scripts assigned to one device
+MAX_CUSTOM_SCRIPT_NAME  = 80
+MAX_CUSTOM_SCRIPT_DESC  = 256
+MAX_CUSTOM_SCRIPT_BODY  = 32 * 1024   # 32 KB per script body
+MAX_SCRIPT_OUTPUT       = 4096        # bytes captured from stdout+stderr
+CUSTOM_SCRIPT_TIMEOUT   = 30          # seconds; hard cap, not configurable
+
 
 def _ingest_mailbox_counts(dev_id, counts):
     """Store the mailbox file counts reported by an agent heartbeat.
@@ -7088,7 +7138,312 @@ def handle_mailwatch_overview():
     respond(200, {'devices': rows})
 
 
-# ── v2.4.7: unified "Needs Attention" digest + status endpoint ─────────────
+# ── v2.5.0: custom monitoring scripts ─────────────────────────────────────────
+#
+# Admin-defined bash scripts pushed to enrolled devices and executed every
+# 5 minutes by the agent. Exit 0 = OK, anything else = FAIL.
+# Storage: custom_scripts.json holds definitions; results land on the device
+# record in devices.json so queries don't need a separate join.
+
+def _cs_id():
+    """Generate a collision-resistant custom script ID."""
+    return 'cs_' + secrets.token_hex(8)
+
+
+def _load_custom_scripts():
+    """Return {id: script_dict}. Missing file → empty dict."""
+    return load(CUSTOM_SCRIPTS_FILE) or {}
+
+
+def _get_custom_scripts_for_device(dev_id):
+    """Return list of {id, name, body, timeout} for scripts assigned to dev_id.
+
+    Called from the heartbeat handler; failure must never break heartbeat,
+    so the caller wraps it in try/except.
+    """
+    scripts = _load_custom_scripts()
+    result = []
+    for s in scripts.values():
+        if dev_id in (s.get('assigned_devices') or []):
+            result.append({
+                'id':      s['id'],
+                'name':    s['name'],
+                'body':    s['body'],
+                'timeout': s.get('timeout', CUSTOM_SCRIPT_TIMEOUT),
+            })
+    # Enforce per-device cap — return the first N by creation order
+    result.sort(key=lambda x: x['id'])
+    return result[:MAX_CUSTOM_SCRIPTS_PER_DEVICE]
+
+
+def _ingest_custom_script_results(dev_id, dev_name, results):
+    """Store custom script results from a heartbeat and fire edge-triggered alerts.
+
+    `results` is the raw dict from the agent:
+        {script_id: {ok: bool, output: str, ran_at: int, duration_ms: int, rc: int}}
+
+    We store results on the device record (devices.json) so the fleet results
+    view can read everything in one pass. Alert state (prev_ok) is also stored
+    there so we survive server restarts without re-firing alerts.
+    """
+    scripts = _load_custom_scripts()
+
+    with _locked_update(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if not dev:
+            return  # device vanished between heartbeat auth and here
+
+        stored = dev.setdefault('custom_script_results', {})
+        now = int(time.time())
+
+        for script_id, raw in list(results.items())[:MAX_CUSTOM_SCRIPTS_PER_DEVICE]:
+            # Validate the script ID actually belongs to this device
+            s = scripts.get(script_id)
+            if not s or dev_id not in (s.get('assigned_devices') or []):
+                continue  # reject results for unassigned scripts
+
+            ok    = bool(raw.get('ok', False))
+            out   = str(raw.get('output', ''))[:MAX_SCRIPT_OUTPUT]
+            rc    = int(raw['rc']) if isinstance(raw.get('rc'), int) else (0 if ok else 1)
+            ran_at = int(raw['ran_at']) if isinstance(raw.get('ran_at'), int) else now
+            dur   = int(raw['duration_ms']) if isinstance(raw.get('duration_ms'), int) else 0
+
+            prev  = stored.get(script_id, {})
+            prev_ok = prev.get('ok')   # None on first run
+
+            changed_at = prev.get('changed_at', ran_at)
+            if prev_ok is not None and ok != prev_ok:
+                changed_at = now
+
+            stored[script_id] = {
+                'ok':          ok,
+                'output':      out,
+                'rc':          rc,
+                'ran_at':      ran_at,
+                'duration_ms': dur,
+                'prev_ok':     prev_ok,
+                'changed_at':  changed_at,
+            }
+
+            # Fire edge-triggered alerts — only on state transitions, not
+            # every failing heartbeat.
+            if prev_ok is None:
+                # First result — no alert on initial acquisition
+                pass
+            elif not ok and prev_ok:
+                # Transition OK → FAIL
+                fire_webhook('custom_script_fail', {
+                    'device_id':   dev_id,
+                    'name':        dev_name,
+                    'script_id':   script_id,
+                    'script_name': s['name'],
+                    'output':      out,
+                    'rc':          rc,
+                })
+            elif ok and not prev_ok:
+                # Transition FAIL → OK
+                fire_webhook('custom_script_recover', {
+                    'device_id':   dev_id,
+                    'name':        dev_name,
+                    'script_id':   script_id,
+                    'script_name': s['name'],
+                })
+
+        devices[dev_id] = dev
+        # devices auto-saved by _locked_update.__exit__
+
+
+def handle_custom_scripts_list():
+    """GET /api/custom-scripts — list all script definitions (admin + viewer)."""
+    require_auth()
+    scripts = _load_custom_scripts()
+    # Strip body from list view to keep payload small; body is in the detail endpoint
+    out = []
+    for s in sorted(scripts.values(), key=lambda x: x.get('created_at', 0)):
+        out.append({
+            'id':               s['id'],
+            'name':             s['name'],
+            'description':      s.get('description', ''),
+            'assigned_devices': s.get('assigned_devices', []),
+            'timeout':          s.get('timeout', CUSTOM_SCRIPT_TIMEOUT),
+            'created_at':       s.get('created_at', 0),
+            'updated_at':       s.get('updated_at', 0),
+            'created_by':       s.get('created_by', ''),
+        })
+    respond(200, {'scripts': out})
+
+
+def handle_custom_script_get(script_id):
+    """GET /api/custom-scripts/:id — full script detail including body."""
+    require_auth()
+    scripts = _load_custom_scripts()
+    s = scripts.get(script_id)
+    if not s:
+        respond(404, {'error': 'Script not found'})
+    respond(200, s)
+
+
+def handle_custom_script_create():
+    """POST /api/custom-scripts — create a new script definition (admin)."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    scripts = _load_custom_scripts()
+
+    if len(scripts) >= MAX_CUSTOM_SCRIPTS:
+        respond(400, {'error': f'Fleet limit of {MAX_CUSTOM_SCRIPTS} scripts reached'})
+
+    name = _sanitize_str(str(body.get('name', '')).strip(), MAX_CUSTOM_SCRIPT_NAME)
+    if not name:
+        respond(400, {'error': 'name is required'})
+
+    script_body = str(body.get('body', '')).strip()
+    if not script_body:
+        respond(400, {'error': 'body is required'})
+    if len(script_body.encode()) > MAX_CUSTOM_SCRIPT_BODY:
+        respond(400, {'error': f'Script body exceeds {MAX_CUSTOM_SCRIPT_BODY // 1024} KB limit'})
+    # Reject NUL bytes — they break shell execution
+    if '\x00' in script_body:
+        respond(400, {'error': 'Script body must not contain NUL bytes'})
+
+    desc = _sanitize_str(str(body.get('description', '')), MAX_CUSTOM_SCRIPT_DESC)
+
+    # Validate assigned_devices: must be strings that look like known device IDs
+    raw_devs = body.get('assigned_devices', [])
+    if not isinstance(raw_devs, list):
+        respond(400, {'error': 'assigned_devices must be a list'})
+    devices = load(DEVICES_FILE)
+    assigned = []
+    for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
+        d = str(d).strip()
+        if _validate_id(d) and d in devices:
+            assigned.append(d)
+
+    now = int(time.time())
+    sid = _cs_id()
+    scripts[sid] = {
+        'id':               sid,
+        'name':             name,
+        'description':      desc,
+        'body':             script_body,
+        'assigned_devices': assigned,
+        'timeout':          CUSTOM_SCRIPT_TIMEOUT,
+        'created_at':       now,
+        'updated_at':       now,
+        'created_by':       actor,
+    }
+    save(CUSTOM_SCRIPTS_FILE, scripts)
+    audit_log(actor, 'custom_script_create', f'script_id={sid} name={name}')
+    _record_fleet_event('custom_script_create', {
+        'name': name, 'script_id': sid, 'device_count': len(assigned)})
+    respond(201, scripts[sid])
+
+
+def handle_custom_script_update(script_id):
+    """PUT /api/custom-scripts/:id — update name, body, description, or assignments."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    scripts = _load_custom_scripts()
+    s = scripts.get(script_id)
+    if not s:
+        respond(404, {'error': 'Script not found'})
+
+    if 'name' in body:
+        s['name'] = _sanitize_str(str(body['name']).strip(), MAX_CUSTOM_SCRIPT_NAME) or s['name']
+    if 'description' in body:
+        s['description'] = _sanitize_str(str(body['description']), MAX_CUSTOM_SCRIPT_DESC)
+    if 'body' in body:
+        new_body = str(body['body']).strip()
+        if '\x00' in new_body:
+            respond(400, {'error': 'Script body must not contain NUL bytes'})
+        if len(new_body.encode()) > MAX_CUSTOM_SCRIPT_BODY:
+            respond(400, {'error': f'Script body exceeds {MAX_CUSTOM_SCRIPT_BODY // 1024} KB limit'})
+        s['body'] = new_body
+    if 'assigned_devices' in body:
+        raw_devs = body['assigned_devices']
+        if not isinstance(raw_devs, list):
+            respond(400, {'error': 'assigned_devices must be a list'})
+        devices = load(DEVICES_FILE)
+        assigned = []
+        for d in raw_devs[:MAX_CUSTOM_SCRIPTS_PER_DEVICE * 10]:
+            d = str(d).strip()
+            if _validate_id(d) and d in devices:
+                assigned.append(d)
+        s['assigned_devices'] = assigned
+
+    s['updated_at'] = int(time.time())
+    scripts[script_id] = s
+    save(CUSTOM_SCRIPTS_FILE, scripts)
+    audit_log(actor, 'custom_script_update', f'script_id={script_id} name={s["name"]}')
+    respond(200, s)
+
+
+def handle_custom_script_delete(script_id):
+    """DELETE /api/custom-scripts/:id — remove script and clear stored results."""
+    actor = require_admin_auth()
+    scripts = _load_custom_scripts()
+    if script_id not in scripts:
+        respond(404, {'error': 'Script not found'})
+
+    name = scripts[script_id].get('name', script_id)
+    del scripts[script_id]
+    save(CUSTOM_SCRIPTS_FILE, scripts)
+
+    # Remove stored results from every device that had them
+    with _locked_update(DEVICES_FILE) as devices:
+        for dev in devices.values():
+            dev.get('custom_script_results', {}).pop(script_id, None)
+
+    audit_log(actor, 'custom_script_delete', f'script_id={script_id} name={name}')
+    _record_fleet_event('custom_script_delete', {'name': name, 'script_id': script_id})
+    respond(200, {'ok': True})
+
+
+def handle_custom_scripts_results():
+    """GET /api/custom-scripts/results — fleet-wide current results per device."""
+    require_auth()
+    scripts   = _load_custom_scripts()
+    devices   = load(DEVICES_FILE)
+    now       = int(time.time())
+
+    # Build index: script_id → script meta (name, assigned_devices)
+    script_meta = {sid: {
+        'id':               sid,
+        'name':             s['name'],
+        'description':      s.get('description', ''),
+        'assigned_devices': s.get('assigned_devices', []),
+    } for sid, s in scripts.items()}
+
+    rows = []
+    for dev_id, dev in devices.items():
+        if dev.get('agentless'):
+            continue
+        results = dev.get('custom_script_results', {})
+        if not results:
+            continue
+        online = (now - dev.get('last_seen', 0)) < get_online_ttl()
+        for script_id, r in results.items():
+            meta = script_meta.get(script_id, {'name': script_id, 'description': ''})
+            rows.append({
+                'device_id':   dev_id,
+                'device_name': dev.get('name', dev_id),
+                'group':       dev.get('group', ''),
+                'online':      online,
+                'script_id':   script_id,
+                'script_name': meta['name'],
+                'description': meta['description'],
+                'ok':          r.get('ok', False),
+                'output':      r.get('output', ''),
+                'rc':          r.get('rc', 0),
+                'ran_at':      r.get('ran_at', 0),
+                'duration_ms': r.get('duration_ms', 0),
+                'changed_at':  r.get('changed_at', 0),
+            })
+
+    rows.sort(key=lambda r: (r['ok'], r['device_name'].lower(), r['script_name'].lower()))
+    respond(200, {'results': rows, 'scripts': list(script_meta.values())})
+
+
+
 #
 # Both the dashboard digest and the machine-readable status endpoint
 # read from one place: _compute_attention(). It merges signals that
@@ -8028,6 +8383,9 @@ def handle_patch_report():
             'pkg_manager': pkg.get('manager', 'unknown'),
             'upgradable': upgradable,
             'patch_status': 'unknown',
+            # reboot_required: True when /run/reboot-required exists on the host
+            # (Debian/Ubuntu); False or absent on other distros / older agents.
+            'reboot_required': bool(si.get('reboot_required', False)),
         }
 
         if upgradable is None or not is_online:
@@ -11963,6 +12321,20 @@ def main():
         handle_link_update(pi[len('/api/links/'):])
     elif pi.startswith('/api/links/') and m == 'DELETE':
         handle_link_delete(pi[len('/api/links/'):])
+
+    # ── v2.5.0: custom monitoring scripts ──────────────────────────────────
+    elif pi == '/api/custom-scripts' and m == 'GET':
+        handle_custom_scripts_list()
+    elif pi == '/api/custom-scripts' and m == 'POST':
+        handle_custom_script_create()
+    elif pi == '/api/custom-scripts/results' and m == 'GET':
+        handle_custom_scripts_results()
+    elif pi.startswith('/api/custom-scripts/') and m == 'GET':
+        handle_custom_script_get(pi[len('/api/custom-scripts/'):])
+    elif pi.startswith('/api/custom-scripts/') and m == 'PUT':
+        handle_custom_script_update(pi[len('/api/custom-scripts/'):])
+    elif pi.startswith('/api/custom-scripts/') and m == 'DELETE':
+        handle_custom_script_delete(pi[len('/api/custom-scripts/'):])
 
     else: respond(404, {'error': 'Not found'})
 

@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.4.13-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -88,7 +88,10 @@ The demo is reset every few hours, so feel free to break things.
 | 📦 **CMDB built in** | Asset metadata, encrypted credentials vault (AES-GCM + PBKDF2), Markdown docs per asset, network topology map, agentless devices. |
 | 🛡️ **CVE scanning** | OSV.dev-backed, CVSS v3.1-scored, severity-ranked, per-CVE ignore list. |
 | 🔑 **Auth that scales** | bcrypt + TOTP 2FA. LDAP/AD. Named API keys. Enrolment tokens for cloud-init / Ansible. |
+| ✨ **AI assistant** | Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain output, triage CVEs, prioritise patches, generate scripts — all with regex-based secret redaction. Disabled by default. |
 | 📈 **Metrics & integrations** | Prometheus `/api/metrics` for Grafana. `/api/status` for Uptime Kuma / Homepage. MCP server for AI clients. |
+| 📲 **Installable PWA** | Chrome install prompt in the header. Service worker pre-caches the app shell; API calls are always network-only. Works on desktop and mobile. |
+| 🔬 **Custom monitoring scripts** | Define bash health checks server-side, assign to devices — agent runs them every 5 minutes. Exit 0 = OK. Fleet results page, edge-triggered alerts, inline AI generation. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

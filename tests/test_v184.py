@@ -263,6 +263,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'drift_detected',
             # v2.4.7: mailbox count threshold alert
             'mailbox_threshold',
+            # v2.5.0: custom monitoring script alerts
+            'custom_script_fail', 'custom_script_recover',
         }
         self.assertEqual(names, expected)
 

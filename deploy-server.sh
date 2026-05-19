@@ -56,7 +56,8 @@ done
 # <link rel="icon"> tag detour.
 for f in "$SCRIPT_DIR"/server/html/favicon.* \
          "$SCRIPT_DIR"/server/html/robots.txt \
-         "$SCRIPT_DIR"/server/html/manifest.json; do
+         "$SCRIPT_DIR"/server/html/manifest.json \
+         "$SCRIPT_DIR"/server/html/sw.js; do
     [[ -f "$f" ]] || continue
     name="$(basename "$f")"
     install -m 644 "$f" /var/www/remotepower/"$name"

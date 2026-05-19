@@ -2058,6 +2058,24 @@ tr.has-hover-actions .row-actions { display: none; }
 
 /* Custom scrollbar tuned to the dark theme — chunkier than the OS
  * default so it's findable on a long table without being intrusive. */
+
+/* ── Global page scrollbar (critical for PWA/installed app mode) ──────── */
+:root {
+  scrollbar-color: var(--border) transparent;  /* Firefox */
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border2, rgba(255,255,255,0.12));
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted, #8892aa);
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+
 .scrollable-table-wrap::-webkit-scrollbar { width: 10px; }
 .scrollable-table-wrap::-webkit-scrollbar-track {
   background: var(--surface);

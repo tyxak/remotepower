@@ -2,7 +2,165 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v2.4.13 - 2026-05-18
+## v2.5.0 - 2026-05-19
+
+### Custom monitoring scripts
+
+Define arbitrary bash health checks server-side and push them to
+enrolled devices. The agent runs each check every 5 minutes (no agent
+restart or update required), captures stdout+stderr, and reports back
+over the existing heartbeat channel.
+
+**Exit code contract:** 0 = OK, anything else = FAIL. Deliberately
+binary — no MRPE severity levels.
+
+**Server (`server/cgi-bin/api.py`):**
+- `CUSTOM_SCRIPTS_FILE` (`custom_scripts.json`) — new data file for
+  script definitions.
+- Limits: 50 scripts fleet-wide, 10 per device, 32 KB body, 4 KB
+  captured output.
+- `_ingest_custom_script_results()` — validates script ownership,
+  stores results on the device record, fires edge-triggered webhooks
+  on status transitions. First result never fires an alert (avoids
+  initial assignment flood).
+- `_get_custom_scripts_for_device()` — builds the list of assigned
+  scripts to include in each heartbeat response.
+- `custom_scripts` added to the `common_resp` heartbeat payload.
+- Five CRUD endpoints: `GET/POST /api/custom-scripts`,
+  `GET/PUT/DELETE /api/custom-scripts/:id`.
+- `GET /api/custom-scripts/results` — fleet-wide current results,
+  sorted with failing rows first.
+- Two new webhook events: `custom_script_fail` (priority 4, red) and
+  `custom_script_recover` (priority 3, green). Both have Discord
+  titles, ntfy tags, priority, and human-readable message strings.
+
+**Agent (`client/remotepower-agent.py` + binary):**
+- `SCRIPT_CHECK_EVERY = 5` — run every 5 polls (~5 min at default
+  60 s interval).
+- `run_custom_scripts(scripts)` — writes each script to a private
+  temp file (chmod 700), runs it with `/bin/bash` and a 30 s timeout,
+  captures stdout+stderr merged and capped at 4 KB, deletes the temp
+  file. Returns `{script_id: {ok, output, rc, ran_at, duration_ms}}`.
+- `custom_scripts` list and `pending_script_results` dict added to
+  heartbeat loop state. Scripts list updated from every heartbeat
+  response. Results flushed into the next heartbeat payload.
+
+**Frontend:**
+- New **Custom Scripts** sidebar entry (terminal icon) between Monitor
+  and Services.
+- `page-custom-scripts` — stats bar, filter/status toolbar, fleet
+  results table, definitions panel (one card per script).
+- `custom-script-modal` — create/edit: name, description, script body
+  textarea, device picker (checkboxes), Delete button on edit.
+- `cs-output-modal` — full output viewer (click any output snippet).
+- `loadCustomScripts()`, `renderCustomScriptsPage()`,
+  `renderCsDefinitions()`, `openCustomScriptModal()`,
+  `saveCustomScript()`, `deleteCustomScript()`,
+  `csGenerateWithAI()`.
+- **Inline AI generation:** describe the check, click ✨ Generate,
+  review the bash script, edit if needed, save. Uses the existing
+  `generate_script` system prompt with custom instructions for the
+  monitoring context (exit-code contract, output brevity, timeout
+  budget). Markdown code fences are stripped from the AI response
+  before populating the textarea.
+
+**Docs:**
+- `docs/custom-scripts.md` — full reference: how it works, exit code
+  convention, creation flow, execution environment, result viewing,
+  alert semantics, limits, 5 example scripts, security considerations,
+  full API reference.
+- `docs/features.md` — new section in the detailed tables and a new
+  entry in the "Added in" narrative section. Top summary table updated.
+- `README.md` — custom scripts row added to the feature table.
+- In-app documentation (Help → Documentation search) — new `doc-card`
+  covering creation, results, alerts, and execution details.
+
+
+
+### Progressive Web App (PWA) support
+
+RemotePower is now installable as a desktop or mobile app via Chrome
+(and any other Chromium-based browser that supports PWAs).
+
+**What changes:**
+
+- **`server/html/manifest.json`** (new) — Web App Manifest with name,
+  short name, theme colour (`#3b7eff`), background colour, `standalone`
+  display mode, and proper 192×192 and 512×512 icon references.
+- **`server/html/sw.js`** (new) — Service worker with a versioned
+  cache (`remotepower-shell-v2.4.15`). Strategy:
+  - `/api/*` requests are always **network-only** — fleet data is live
+    and must never be served from a stale cache.
+  - Non-GET and cross-origin requests pass through unmodified.
+  - App shell assets (HTML, JS, CSS, icons, manifest) are cached on
+    install and served cache-first; newly fetched responses are added
+    to cache automatically.
+  - Navigation requests that fail offline fall back to the cached
+    `index.html` shell so the login page appears rather than a browser
+    error.
+  - On each SW activate, all caches from previous versions are deleted.
+- **`server/html/static/img/icon-192.png`** and **`icon-512.png`**
+  (new) — PWA icons at the sizes Chrome requires, generated from the
+  existing `logo-square.png`.
+- **`server/html/index.html`** — added `<link rel="manifest">`,
+  `theme-color` meta tag, `apple-mobile-web-app-*` meta tags, SW
+  registration script, and a hidden **Install app** button in the
+  header that becomes visible when Chrome determines install criteria
+  are met (`beforeinstallprompt`). Clicking it triggers the native
+  Chrome install dialog.
+- **`server/conf/remotepower.conf`** — three nginx changes:
+  1. `worker-src 'self'` added to CSP so the service worker is allowed
+     to register.
+  2. `location = /sw.js` with `Cache-Control: no-store` so the
+     browser always fetches the current SW version.
+  3. `location = /manifest.json` with correct `Content-Type:
+     application/manifest+json` before the catch-all `.json` deny
+     rule that would otherwise block it.
+- **`deploy-server.sh`** and **`install-server.sh`** — `sw.js` added
+  to the root-asset deploy loop alongside `manifest.json` and
+  `favicon.*`.
+
+**No agent changes.** PWA is purely a server/frontend feature.
+
+
+
+### Patches page: Pending Reboot indicator
+
+The Patches page now shows a small amber **⟳ Reboot** badge inline
+with the hostname for any host that has `/run/reboot-required` on
+disk (Debian / Ubuntu). Hovering the badge shows a tooltip confirming
+the source. Useful for spotting hosts that were patched but not yet
+restarted without opening each device detail individually.
+
+**No agent change required.** The `reboot_required` flag has been
+in the agent heartbeat since the early v1.x era. The server now
+surfaces it through the patch-report API (`/api/patch-report`) and
+the Patches page UI.
+
+- `server/cgi-bin/api.py` — `handle_patch_report()` includes
+  `reboot_required: bool` in every device entry. Value is always a
+  boolean (`False` for distros that don't set the flag, or agents
+  predating the field).
+- `server/html/static/js/app.js` — `_registerPatchTable()` row
+  renderer checks `d.reboot_required` and injects the badge.
+
+### docs/features.md overhaul
+
+Large sections were missing from `features.md`. Added:
+
+- **AI assistant** — complete feature table covering providers,
+  context-aware ✨ buttons, secret redaction, rate limiting,
+  free-form chat, and local-model support (Ollama / LocalAI).
+  The existing `docs/ai.md` is the full reference; `features.md`
+  now has a proper summary table and cross-link.
+- **MCP server** — feature table covering the 12 read-only tools
+  and the no-write-tools policy.
+- **Pending Reboot indicator** row added to the Fleet visibility
+  table (this release).
+- Top-level summary table extended with AI assistant and MCP rows.
+- Added this release's new section under "Added in 2.2.x – 2.4.x".
+
+
 
 Documentation and housekeeping release. No server or agent
 behaviour changes beyond the version bump.
