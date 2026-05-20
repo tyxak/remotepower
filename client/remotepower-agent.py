@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.5.0'
+VERSION      = '2.6.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 POLL_INTERVAL      = 60
@@ -59,6 +59,7 @@ MAX_MAILBOX_PATHS   = 20          # matches the server-side cap
 SERVICE_CHECK_EVERY = 1           # every poll — cheap
 # v2.5.0: custom monitoring scripts run every 5 polls (5 minutes at default 60s)
 SCRIPT_CHECK_EVERY  = 5
+HOST_CONFIG_COLLECT_EVERY = 15  # v2.6.0: collect+report host config state every 15 polls
 LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of logs
 MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
 LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission
@@ -1419,13 +1420,13 @@ def execute_command(cmd):
             is_pkg_upgrade = any(needle in shell_cmd for needle in
                                  ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu'))
             cap = 256 * 1024 if is_pkg_upgrade else 4096
-            return {'cmd': shell_cmd, 'output': output[:cap], 'rc': result.returncode}
+            return {'cmd': cmd, 'output': output[:cap], 'rc': result.returncode}
         except subprocess.TimeoutExpired:
             log.warning(f"Command timed out: {shell_cmd!r}")
-            return {'cmd': shell_cmd, 'output': 'TIMEOUT', 'rc': -1}
+            return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
         except Exception as e:
             log.error(f"Command failed: {e}")
-            return {'cmd': shell_cmd, 'output': str(e), 'rc': -1}
+            return {'cmd': cmd, 'output': str(e), 'rc': -1}
     elif cmd.startswith('compose:'):
         # v2.1.0: compose:<action>:<dir> — server-side picks `dir` from the
         # list of projects we reported in the heartbeat. We re-validate
@@ -1648,6 +1649,294 @@ def run_custom_scripts(scripts):
     return results
 
 
+def collect_host_config():
+    """v2.6.0: Collect current host configuration state for all managed sections.
+
+    Returns a dict with the current live state of each section.
+    Errors in individual sections are caught and reported as empty strings
+    so one broken section never prevents the others from being reported.
+    """
+    import grp as _grp
+    import pwd as _pwd
+
+    def _read(path):
+        try:
+            return Path(path).read_text(errors='replace')
+        except OSError:
+            return ''
+
+    def _run(cmd, **kw):
+        try:
+            r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               timeout=10, **kw)
+            return r.stdout.decode('utf-8', errors='replace')
+        except Exception:
+            return ''
+
+    current = {}
+
+    # ── repos ────────────────────────────────────────────────────────────────
+    if Path('/etc/apt/sources.list').exists():
+        current['repos'] = _read('/etc/apt/sources.list')
+    elif Path('/etc/yum.repos.d').is_dir():
+        # Concatenate all .repo files
+        parts = []
+        for f in sorted(Path('/etc/yum.repos.d').glob('*.repo')):
+            parts.append(f'# {f.name}\n' + _read(str(f)))
+        current['repos'] = '\n'.join(parts)
+
+    # ── netplan ──────────────────────────────────────────────────────────────
+    netplan_dir = Path('/etc/netplan')
+    if netplan_dir.is_dir():
+        for f in sorted(netplan_dir.glob('*.yaml')):
+            current['netplan'] = _read(str(f))
+            break  # first file only; apply writes 01-remotepower.yaml
+
+    # ── nmcli ────────────────────────────────────────────────────────────────
+    nm_conn = Path('/etc/NetworkManager/system-connections/remotepower-managed.nmconnection')
+    if nm_conn.exists():
+        current['nmcli'] = _read(str(nm_conn))
+
+    # ── resolv.conf ──────────────────────────────────────────────────────────
+    current['resolv_conf'] = _read('/etc/resolv.conf')
+
+    # ── /etc/hosts ───────────────────────────────────────────────────────────
+    current['hosts'] = _read('/etc/hosts')
+
+    # ── enabled services ─────────────────────────────────────────────────────
+    svc_out = _run(['systemctl', 'list-unit-files', '--state=enabled',
+                    '--no-legend', '--no-pager', '--type=service'])
+    current['services'] = [
+        line.split()[0] for line in svc_out.splitlines() if line.strip()
+    ]
+
+    # ── users (UID >= 1000, not nobody) ──────────────────────────────────────
+    users = []
+    try:
+        for pw in _pwd.getpwall():
+            if pw.pw_uid < 1000 or pw.pw_name == 'nobody':
+                continue
+            groups = [g.gr_name for g in _grp.getgrall() if pw.pw_name in g.gr_mem]
+            ak_path = Path(pw.pw_dir) / '.ssh' / 'authorized_keys'
+            ak = ''
+            try:
+                ak = ak_path.read_text(errors='replace') if ak_path.exists() else ''
+            except OSError:
+                pass
+            users.append({
+                'name':            pw.pw_name,
+                'shell':           pw.pw_shell,
+                'groups':          groups,
+                'authorized_keys': ak,
+            })
+    except Exception as e:
+        log.debug(f'collect_host_config users error: {e}')
+    current['users'] = users
+
+    # ── groups ───────────────────────────────────────────────────────────────
+    try:
+        current['groups'] = [
+            {'name': g.gr_name, 'gid': g.gr_gid}
+            for g in _grp.getgrall()
+            if g.gr_gid >= 1000
+        ]
+    except Exception:
+        current['groups'] = []
+
+    # ── sudoers ──────────────────────────────────────────────────────────────
+    sudoers_f = Path('/etc/sudoers.d/remotepower')
+    current['sudoers'] = _read(str(sudoers_f)) if sudoers_f.exists() else ''
+
+    # ── motd ─────────────────────────────────────────────────────────────────
+    current['motd'] = _read('/etc/motd')
+
+    return current
+
+
+def apply_host_config(desired):
+    """v2.6.0: Apply desired host configuration pushed by the server.
+
+    Each section is applied independently. Failures are logged but do not
+    prevent other sections from being applied. The agent runs as root so
+    all file writes and systemctl calls are expected to succeed on a
+    normal system.
+
+    Security: the server is the trusted authority. The same trust boundary
+    as the existing exec: command channel applies here.
+    """
+    import grp as _grp
+    import pwd as _pwd
+
+    results = {}
+
+    def _write(path, content, mode=0o644):
+        try:
+            p = Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content)
+            os.chmod(path, mode)
+            return True
+        except OSError as e:
+            log.warning(f'apply_host_config: write {path} failed: {e}')
+            return False
+
+    def _run(cmd, **kw):
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=30, **kw)
+            return r.returncode == 0, r.stdout.decode(errors='replace') + r.stderr.decode(errors='replace')
+        except Exception as e:
+            return False, str(e)
+
+    # ── repos ────────────────────────────────────────────────────────────────
+    if 'repos' in desired:
+        if Path('/etc/apt/sources.list').exists():
+            ok = _write('/etc/apt/sources.list', desired['repos'])
+        else:
+            ok = _write('/etc/yum.repos.d/remotepower.repo', desired['repos'])
+        results['repos'] = 'ok' if ok else 'write_error'
+        log.info(f'apply_host_config repos: {results["repos"]}')
+
+    # ── netplan ──────────────────────────────────────────────────────────────
+    if 'netplan' in desired and desired['netplan'].strip():
+        ok = _write('/etc/netplan/01-remotepower.yaml', desired['netplan'], 0o600)
+        if ok:
+            ok2, out = _run(['netplan', 'apply'])
+            results['netplan'] = 'ok' if ok2 else f'apply_failed: {out[:200]}'
+        else:
+            results['netplan'] = 'write_error'
+        log.info(f'apply_host_config netplan: {results["netplan"]}')
+
+    # ── nmcli ────────────────────────────────────────────────────────────────
+    if 'nmcli' in desired and desired['nmcli'].strip():
+        conn_path = '/etc/NetworkManager/system-connections/remotepower-managed.nmconnection'
+        ok = _write(conn_path, desired['nmcli'], 0o600)
+        if ok:
+            _run(['nmcli', 'connection', 'reload'])
+        results['nmcli'] = 'ok' if ok else 'write_error'
+        log.info(f'apply_host_config nmcli: {results["nmcli"]}')
+
+    # ── resolv.conf ──────────────────────────────────────────────────────────
+    if 'resolv_conf' in desired:
+        # Handle systemd-resolved symlink — write to the real file
+        rp = Path('/etc/resolv.conf')
+        target = str(rp.resolve()) if rp.is_symlink() else '/etc/resolv.conf'
+        ok = _write(target, desired['resolv_conf'])
+        results['resolv_conf'] = 'ok' if ok else 'write_error'
+        log.info(f'apply_host_config resolv_conf: {results["resolv_conf"]}')
+
+    # ── /etc/hosts ───────────────────────────────────────────────────────────
+    if 'hosts' in desired:
+        ok = _write('/etc/hosts', desired['hosts'])
+        results['hosts'] = 'ok' if ok else 'write_error'
+        log.info(f'apply_host_config hosts: {results["hosts"]}')
+
+    # ── services (enable desired, do not disable others) ─────────────────────
+    if 'services' in desired:
+        errs = []
+        for svc in (desired['services'] or []):
+            ok, out = _run(['systemctl', 'enable', '--now', svc])
+            if not ok:
+                errs.append(svc)
+                log.warning(f'apply_host_config: enable {svc} failed: {out[:100]}')
+        results['services'] = 'ok' if not errs else f'failed: {errs}'
+        log.info(f'apply_host_config services: {results["services"]}')
+
+    # ── users ────────────────────────────────────────────────────────────────
+    if 'users' in desired:
+        errs = []
+        for u in (desired['users'] or []):
+            name = u.get('name', '')
+            if not name:
+                continue
+            try:
+                try:
+                    pw = _pwd.getpwnam(name)
+                    # User exists — update shell and groups
+                    _run(['usermod', '-s', u.get('shell', '/bin/bash')] +
+                         (['-G', ','.join(u['groups'])] if u.get('groups') else []) +
+                         [name])
+                except KeyError:
+                    # Create user
+                    cmd = ['useradd', '-m', '-s', u.get('shell', '/bin/bash')]
+                    if u.get('groups'):
+                        cmd += ['-G', ','.join(u['groups'])]
+                    cmd.append(name)
+                    ok, out = _run(cmd)
+                    if not ok:
+                        errs.append(f'{name}: {out[:80]}')
+                        continue
+                    pw = _pwd.getpwnam(name)
+
+                # Write authorized_keys
+                if u.get('authorized_keys'):
+                    ssh_dir = Path(pw.pw_dir) / '.ssh'
+                    ssh_dir.mkdir(mode=0o700, exist_ok=True)
+                    os.chown(str(ssh_dir), pw.pw_uid, pw.pw_gid)
+                    ak_path = ssh_dir / 'authorized_keys'
+                    ak_path.write_text(u['authorized_keys'])
+                    os.chmod(str(ak_path), 0o600)
+                    os.chown(str(ak_path), pw.pw_uid, pw.pw_gid)
+            except Exception as e:
+                errs.append(f'{name}: {e}')
+                log.warning(f'apply_host_config user {name} error: {e}')
+        results['users'] = 'ok' if not errs else f'partial: {errs}'
+        log.info(f'apply_host_config users: {results["users"]}')
+
+    # ── groups ───────────────────────────────────────────────────────────────
+    if 'groups' in desired:
+        errs = []
+        for g in (desired['groups'] or []):
+            name = g.get('name', '')
+            if not name:
+                continue
+            try:
+                _grp.getgrnam(name)  # already exists
+            except KeyError:
+                cmd = ['groupadd']
+                if g.get('gid'):
+                    cmd += ['-g', str(g['gid'])]
+                cmd.append(name)
+                ok, out = _run(cmd)
+                if not ok:
+                    errs.append(f'{name}: {out[:80]}')
+        results['groups'] = 'ok' if not errs else f'partial: {errs}'
+        log.info(f'apply_host_config groups: {results["groups"]}')
+
+    # ── sudoers ──────────────────────────────────────────────────────────────
+    if 'sudoers' in desired:
+        content = desired['sudoers']
+        if content.strip():
+            tmp = '/etc/sudoers.d/.remotepower.tmp'
+            ok = _write(tmp, content, 0o440)
+            if ok:
+                ok2, out = _run(['visudo', '-c', '-f', tmp])
+                if ok2:
+                    os.rename(tmp, '/etc/sudoers.d/remotepower')
+                    results['sudoers'] = 'ok'
+                else:
+                    os.unlink(tmp)
+                    results['sudoers'] = f'syntax_error: {out[:200]}'
+                    log.warning(f'apply_host_config sudoers rejected: {out[:200]}')
+            else:
+                results['sudoers'] = 'write_error'
+        else:
+            # Empty content — remove the file if it exists
+            try:
+                Path('/etc/sudoers.d/remotepower').unlink(missing_ok=True)
+                results['sudoers'] = 'removed'
+            except OSError as e:
+                results['sudoers'] = f'remove_error: {e}'
+        log.info(f'apply_host_config sudoers: {results["sudoers"]}')
+
+    # ── motd ─────────────────────────────────────────────────────────────────
+    if 'motd' in desired:
+        ok = _write('/etc/motd', desired['motd'])
+        results['motd'] = 'ok' if ok else 'write_error'
+        log.info(f'apply_host_config motd: {results["motd"]}')
+
+    return results
+
+
 def count_mailbox_paths(paths):
     """v2.4.3: count regular files directly inside each watched
     directory — the Maildir 'new' folder convention, where each
@@ -1772,7 +2061,8 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.5.0: custom monitoring scripts pushed by the server. Empty list
     # until the first heartbeat response arrives carrying assignments.
     custom_scripts = []
-    # Accumulated custom script results pending inclusion in next heartbeat.
+    # v2.6.0: desired host config pushed by server; current state collected locally
+    host_config_desired = None
     pending_script_results = {}
 
     # Detect if this is a fresh boot (first heartbeat after restart)
@@ -1934,6 +2224,17 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             payload['custom_script_results'] = dict(pending_script_results)
             pending_script_results.clear()
 
+        # v2.6.0: apply desired host config immediately when it changes.
+        # Current state is NOT sent in the heartbeat — it is collected
+        # on-demand when the admin clicks "⬇ Fetch current" in the UI,
+        # which queues a host-config-collect command via the exec channel.
+        if host_config_desired and poll_count == 2:
+            try:
+                apply_results = apply_host_config(host_config_desired)
+                log.info(f'Host config applied: {apply_results}')
+            except Exception as e:
+                log.warning(f'Host config apply error: {e}')
+
         # v1.11.0: report containers/pods every CONTAINER_CHECK_EVERY polls.
         # Same cadence as services. Skipping the first heartbeat is fine —
         # it'd otherwise fire 0.1s after enrollment and confuse new users
@@ -2048,6 +2349,20 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                        [s['id'] for s in new_cs] != [s['id'] for s in custom_scripts]:
                         log.info(f'Config updated: custom_scripts = {len(new_cs)} script(s)')
                     custom_scripts = new_cs
+            # v2.6.0: receive desired host config from server
+            if 'host_config_desired' in resp:
+                new_hcd = resp.get('host_config_desired')
+                if isinstance(new_hcd, dict):
+                    if new_hcd != host_config_desired:
+                        log.info('Host config desired updated from server — will apply')
+                        # Apply immediately on next poll (poll_count == 2 check
+                        # won't fire again; apply directly here instead)
+                        try:
+                            apply_results = apply_host_config(new_hcd)
+                            log.info(f'Host config applied on update: {apply_results}')
+                        except Exception as e:
+                            log.warning(f'Host config apply error: {e}')
+                    host_config_desired = new_hcd
             if cmd:
                 log.info(f"Received command: {cmd}")
                 result = execute_command(cmd)
@@ -2121,8 +2436,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 def main():
     parser = argparse.ArgumentParser(description='RemotePower client agent')
     parser.add_argument('action', nargs='?', default='run',
-        choices=['run', 'enroll', 're-enroll', 'enroll-token', 'status', 'update', 'integrity'],
-        help='run | enroll | re-enroll | enroll-token | status | update | integrity')
+        choices=['run', 'enroll', 're-enroll', 'enroll-token', 'status',
+                 'update', 'integrity', 'send_current_configs'],
+        help='run | enroll | re-enroll | enroll-token | status | update | integrity | send_current_configs')
     parser.add_argument('--interval', type=int, default=POLL_INTERVAL,
         help=f'Poll interval in seconds (default: {POLL_INTERVAL})')
     # v1.11.10: token-based enrollment for non-interactive use
@@ -2184,6 +2500,31 @@ def main():
         status = "✓ OK" if ok else "✗ MISMATCH"
         print(f"Agent integrity: {status} - {detail}")
         sys.exit(0 if ok else 1)
+
+    if args.action == 'send_current_configs':
+        """Collect current host configuration and send it to the server once."""
+        creds = load_credentials()
+        if not creds: print("Not enrolled."); sys.exit(1)
+        print("Collecting current host configuration...")
+        current = collect_host_config()
+        sections = [s for s, v in current.items() if v]
+        print(f"Collected {len(sections)} section(s): {', '.join(sections)}")
+        payload = {
+            'device_id':          creds['device_id'],
+            'token':              creds['token'],
+            'ip':                 get_local_ip(),
+            'os':                 get_os_info(),
+            'version':            VERSION,
+            'host_config_current': current,
+        }
+        try:
+            http_post(f"{creds['server_url']}/api/heartbeat", payload)
+            print("✓ Current configuration sent to server.")
+            print("  Open the Host Config modal and click '⬇ Fetch current' to view it.")
+        except Exception as e:
+            print(f"✗ Failed to send: {e}")
+            sys.exit(1)
+        return
 
     creds = load_credentials()
     if not creds:

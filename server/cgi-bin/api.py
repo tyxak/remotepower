@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.5.0'
+SERVER_VERSION = '2.6.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -346,6 +346,8 @@ WEBHOOK_EVENTS = (
     # v2.5.0: custom monitoring script results
     ('custom_script_fail',    'Custom monitoring script returned non-zero', True),
     ('custom_script_recover', 'Custom monitoring script recovered to OK',   True),
+    # v2.6.0: host configuration drift
+    ('config_drift',          'Host configuration drift detected',          True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1579,6 +1581,8 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         # v2.5.0
         'custom_script_fail':    'Custom Script Failed',
         'custom_script_recover': 'Custom Script Recovered',
+        # v2.6.0
+        'config_drift':          'Host Config Drift Detected',
         'test':            'Webhook Test',
     }
     title = titles.get(event, f'RemotePower: {event}')
@@ -1748,6 +1752,10 @@ def _webhook_message(event, payload):
         return f'{name}: script "{payload.get("script_name", "?")}" FAILED (exit {payload.get("rc", "?")}){snippet}'
     elif event == 'custom_script_recover':
         return f'{name}: script "{payload.get("script_name", "?")}" recovered (OK)'
+    elif event == 'config_drift':
+        sections = payload.get('sections', [])
+        sec_str = ', '.join(sections[:5]) if sections else 'unknown'
+        return f'{name}: host config drift in {sec_str}'
     return f'{event}: {name}'
 
 
@@ -1757,7 +1765,7 @@ def _webhook_priority(event):
         return 5
     if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
                  'log_alert', 'container_stopped', 'containers_stale',
-                 'metric_warning', 'custom_script_fail'):
+                 'metric_warning', 'custom_script_fail', 'config_drift'):
         return 4
     if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered',
                  'custom_script_recover'):
@@ -1790,6 +1798,8 @@ def _webhook_tags(event):
         # v2.5.0: custom monitoring scripts
         'custom_script_fail':    'red_circle,test_tube',
         'custom_script_recover': 'green_circle,test_tube',
+        # v2.6.0: host configuration drift
+        'config_drift':          'warning,wrench',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -2116,21 +2126,69 @@ def handle_device_delete(dev_id):
     del devices[dev_id]
     save(DEVICES_FILE, devices)
     cmds = load(CMDS_FILE); cmds.pop(dev_id, None); save(CMDS_FILE, cmds)
-    # v1.11.4: clean up the per-device container snapshot too. Without
-    # this, deleting and re-enrolling the same device id (rare but
-    # possible) would resurrect a stale container list. Same applies to
-    # the stale-notified flag in config.
+
+    # v2.6.0: comprehensive orphan cleanup — remove the device's data from
+    # every per-device store so deleted devices don't ghost in the UI.
+    _SIMPLE_STORES = [
+        CONTAINERS_FILE, PACKAGES_FILE, SERVICES_FILE, LOG_WATCH_FILE,
+        CMD_OUTPUT_FILE, UPDATE_LOGS_FILE, METRICS_FILE, UPTIME_FILE,
+        DRIFT_STATE_FILE,
+    ]
     try:
-        cstore = load(CONTAINERS_FILE)
-        if dev_id in cstore:
-            cstore.pop(dev_id, None)
-            save(CONTAINERS_FILE, cstore)
-        cfg = load(CONFIG_FILE)
-        notified = cfg.get('containers_stale_notified') or {}
-        if isinstance(notified, dict) and dev_id in notified:
-            notified.pop(dev_id, None)
-            cfg['containers_stale_notified'] = notified
-            save(CONFIG_FILE, cfg)
+        for store_path in _SIMPLE_STORES:
+            try:
+                data = load(store_path)
+                if isinstance(data, dict) and dev_id in data:
+                    data.pop(dev_id)
+                    save(store_path, data)
+            except Exception:
+                pass
+
+        # fleet_events: filter out events for this device
+        try:
+            fe = load(FLEET_EVENTS_FILE)
+            if isinstance(fe, dict):
+                fe['events'] = [
+                    e for e in (fe.get('events') or [])
+                    if e.get('device_id') != dev_id
+                ]
+                save(FLEET_EVENTS_FILE, fe)
+        except Exception:
+            pass
+
+        # config: stale-notified flags keyed by dev_id
+        try:
+            cfg = load(CONFIG_FILE)
+            changed = False
+            for key in ('containers_stale_notified', 'metric_notified'):
+                if isinstance(cfg.get(key), dict) and dev_id in cfg[key]:
+                    cfg[key].pop(dev_id)
+                    changed = True
+            if changed:
+                save(CONFIG_FILE, cfg)
+        except Exception:
+            pass
+
+        # host_config_current per-device file
+        try:
+            hcc = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+            if hcc.exists():
+                hcc.unlink()
+        except Exception:
+            pass
+
+        # service_history: keys are dev_id:service_name
+        try:
+            sh = load(DATA_DIR / 'service_history.json')
+            if isinstance(sh, dict):
+                keys = [k for k in sh if k.startswith(f'{dev_id}:')]
+                if keys:
+                    for k in keys:
+                        sh.pop(k)
+                    save(DATA_DIR / 'service_history.json', sh)
+        except Exception:
+            pass
+
     except Exception:
         pass  # device delete must succeed even if cleanup hits an edge case
     respond(200, {'ok': True})
@@ -3184,7 +3242,22 @@ def handle_heartbeat():
                                           body['custom_script_results'])
         except Exception as e:
             sys.stderr.write(f"[remotepower] custom script ingest failed dev={dev_id}: {e}\n")
+
+    # v2.6.0: host config current state — sent on-demand via
+    # `remotepower-agent send_current_configs` or a UI-triggered command.
+    if 'host_config_current' in body and isinstance(body['host_config_current'], dict):
+        try:
+            _ingest_host_config_current(dev_id, saved_dev['name'],
+                                        body['host_config_current'])
+        except HTTPError:
+            raise
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] host config ingest failed dev={dev_id}: {e}\n")
+
     custom_scripts_for_device = _get_custom_scripts_for_device(dev_id)
+
+    # v2.6.0: push desired host config to agent if one is set
+    host_config_desired = saved_dev.get('host_config', {}).get('desired') or None
 
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
@@ -3202,6 +3275,10 @@ def handle_heartbeat():
         # v2.5.0: push assigned scripts so the agent runs them every 5 min
         'custom_scripts':   custom_scripts_for_device,
     }
+    # v2.6.0: include desired host config so agent can apply + audit it
+    if host_config_desired:
+        common_resp['host_config_desired'] = host_config_desired
+
     # v2.4.5: one-shot package-scan request. Only present (and true)
     # on the single heartbeat after the operator clicked "scan now".
     if saved_dev.get('force_package_scan'):
@@ -6252,7 +6329,7 @@ def handle_exec_batch_status(job_id):
             # Find the newest cmd_output for this device that matches the
             # script body AND was recorded after the job was created.
             for rec in reversed(outputs.get(dev_id, [])):
-                if rec.get('cmd') == body_match and int(rec.get('ts', 0)) >= job_created:
+                if rec.get('cmd', '').strip() == body_match.strip() and int(rec.get('ts', 0)) >= job_created:
                     out['status']     = 'done'
                     out['rc']         = rec.get('rc', -1)
                     out['output']     = rec.get('output', '')[:8192]
@@ -6982,6 +7059,19 @@ MAX_CUSTOM_SCRIPT_DESC  = 256
 MAX_CUSTOM_SCRIPT_BODY  = 32 * 1024   # 32 KB per script body
 MAX_SCRIPT_OUTPUT       = 4096        # bytes captured from stdout+stderr
 CUSTOM_SCRIPT_TIMEOUT   = 30          # seconds; hard cap, not configurable
+
+# ── v2.6.0: Host configuration management ─────────────────────────────────
+# Sections the server can push to agents and agents report current state of.
+HOST_CONFIG_TEXT_SECTIONS = [
+    'repos', 'netplan', 'nmcli', 'resolv_conf', 'hosts', 'sudoers', 'motd',
+]
+HOST_CONFIG_STRUCT_SECTIONS = ['services', 'users', 'groups']
+HOST_CONFIG_ALL_SECTIONS    = HOST_CONFIG_TEXT_SECTIONS + HOST_CONFIG_STRUCT_SECTIONS
+MAX_HOST_CONFIG_SECTION_SIZE = 65536   # 64 KB per text section
+HOST_CONFIG_AUDIT_EVERY      = 15      # drift audit cadence in polls (~15 min)
+# Current state is stored in separate per-device files, NOT in devices.json,
+# to keep devices.json small and fast to read on every API call.
+HOST_CONFIG_CURRENT_DIR = DATA_DIR / 'host_config_current'
 
 
 def _ingest_mailbox_counts(dev_id, counts):
@@ -12336,8 +12426,243 @@ def main():
     elif pi.startswith('/api/custom-scripts/') and m == 'DELETE':
         handle_custom_script_delete(pi[len('/api/custom-scripts/'):])
 
+    # ── v2.6.0: host configuration management ──────────────────────────────
+    elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'GET':
+        handle_device_host_config_get(pi[len('/api/devices/'):-len('/host-config')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/host-config') and m == 'PUT':
+        handle_device_host_config_put(pi[len('/api/devices/'):-len('/host-config')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/host-config/current') and m == 'GET':
+        handle_device_host_config_current(pi[len('/api/devices/'):-len('/host-config/current')])
+
     else: respond(404, {'error': 'Not found'})
 
+
+
+# ─── v2.6.0: Host Configuration Management ───────────────────────────────────
+
+
+def _validate_host_config_section(section, val):
+    """Validate and sanitize a single host config section value.
+    Returns the sanitized value or raises HTTPError on bad input."""
+    if section in HOST_CONFIG_TEXT_SECTIONS:
+        if not isinstance(val, str):
+            respond(400, {'error': f'{section} must be a string'})
+        if len(val.encode('utf-8', errors='replace')) > MAX_HOST_CONFIG_SECTION_SIZE:
+            respond(400, {'error': f'{section} exceeds 64 KB limit'})
+        if '\x00' in val:
+            respond(400, {'error': f'{section} contains NUL bytes'})
+        return val
+    elif section == 'services':
+        if not isinstance(val, list):
+            respond(400, {'error': 'services must be a list of strings'})
+        return [_sanitize_str(str(s), 128) for s in val[:200] if str(s).strip()]
+    elif section == 'users':
+        if not isinstance(val, list):
+            respond(400, {'error': 'users must be a list'})
+        out = []
+        for u in val[:100]:
+            if not isinstance(u, dict):
+                continue
+            name = _sanitize_str(u.get('name', ''), 64).strip()
+            if not name:
+                continue
+            out.append({
+                'name':            name,
+                'shell':           _sanitize_str(u.get('shell', '/bin/bash'), 128),
+                'groups':          [_sanitize_str(g, 64) for g in
+                                    (u.get('groups') or [])[:30]],
+                'authorized_keys': _sanitize_str(u.get('authorized_keys', ''), 16384),
+            })
+        return out
+    elif section == 'groups':
+        if not isinstance(val, list):
+            respond(400, {'error': 'groups must be a list'})
+        out = []
+        for g in val[:100]:
+            if not isinstance(g, dict):
+                continue
+            name = _sanitize_str(g.get('name', ''), 64).strip()
+            if not name:
+                continue
+            gid = g.get('gid')
+            out.append({
+                'name': name,
+                'gid':  int(gid) if isinstance(gid, int) and 0 < gid < 65536 else None,
+            })
+        return out
+    respond(400, {'error': f'Unknown section: {section}'})
+
+
+def _audit_host_config_drift(desired, current):
+    """Compare desired vs current host config. Return list of sections with drift."""
+    drifting = []
+    for section in HOST_CONFIG_ALL_SECTIONS:
+        if section not in desired:
+            continue
+        if section not in current:
+            drifting.append(section)
+            continue
+        d = desired[section]
+        c = current[section]
+        if section in HOST_CONFIG_TEXT_SECTIONS:
+            # Normalize line endings and trailing whitespace
+            if d.strip().replace('\r\n', '\n') != c.strip().replace('\r\n', '\n'):
+                drifting.append(section)
+        elif section == 'services':
+            # All desired services must be present in current enabled list
+            d_set = set(d) if isinstance(d, list) else set()
+            c_set = set(c) if isinstance(c, list) else set()
+            if not d_set.issubset(c_set):
+                drifting.append(section)
+        elif section == 'users':
+            c_map = {u['name']: u for u in (c or []) if isinstance(u, dict)}
+            for u in (d or []):
+                name = u.get('name')
+                if name not in c_map:
+                    drifting.append(section)
+                    break
+                cu = c_map[name]
+                if u.get('shell') and u['shell'] != cu.get('shell'):
+                    drifting.append(section)
+                    break
+                d_keys = u.get('authorized_keys', '').strip()
+                c_keys = cu.get('authorized_keys', '').strip()
+                if d_keys and d_keys != c_keys:
+                    drifting.append(section)
+                    break
+                d_grps = set(u.get('groups') or [])
+                c_grps = set(cu.get('groups') or [])
+                if not d_grps.issubset(c_grps):
+                    drifting.append(section)
+                    break
+        elif section == 'groups':
+            c_names = {g['name'] for g in (c or []) if isinstance(g, dict)}
+            for g in (d or []):
+                if g.get('name') not in c_names:
+                    drifting.append(section)
+                    break
+    return drifting
+
+
+def _ingest_host_config_current(dev_id, dev_name, current):
+    """Store current host config state reported by agent; run drift audit.
+
+    Current state is written to DATA_DIR/host_config_current/<dev_id>.json
+    rather than inside devices.json — it can be several hundred KB of file
+    contents (repos, netplan, authorized_keys…) and would bloat devices.json,
+    slowing every API call that reads it.
+    """
+    if not isinstance(current, dict):
+        return
+    now = int(time.time())
+
+    # Persist current state to its own small file
+    HOST_CONFIG_CURRENT_DIR.mkdir(exist_ok=True)
+    current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+    payload      = {'current': current, 'collected_at': now}
+    save(current_path, payload)
+
+    # Read desired config from devices.json and run drift audit
+    with _locked_update(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            return
+        hc      = devices[dev_id].setdefault('host_config', {})
+        desired = hc.get('desired', {})
+        if not desired:
+            return
+        drifting  = _audit_host_config_drift(desired, current)
+        was_clean = not hc.get('drift', {}).get('sections')
+        hc['drift'] = {
+            'sections':   drifting,
+            'checked_at': now,
+            'clean':      not drifting,
+        }
+        # Store only the drift summary — NOT the full current state
+        hc['current_collected_at'] = now
+
+    # Edge-triggered: fire webhook only on first drift detection
+    if drifting and was_clean:
+        fire_webhook('config_drift', {
+            'device_id': dev_id,
+            'name':      dev_name,
+            'sections':  drifting,
+        })
+
+
+def handle_device_host_config_get(dev_id):
+    """GET /api/devices/:id/host-config — desired config + current state + drift."""
+    require_auth()
+    with _locked_update(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        hc = devices[dev_id].get('host_config', {})
+    # Current state lives in a separate per-device file — keeps devices.json small
+    current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+    current_data = {}
+    collected_at = hc.get('current_collected_at')
+    if current_path.exists():
+        try:
+            raw = load(current_path) or {}
+            current_data = raw.get('current', {})
+            collected_at = raw.get('collected_at', collected_at)
+        except Exception:
+            pass
+    respond(200, {
+        'desired':              hc.get('desired', {}),
+        'current':              current_data,
+        'current_collected_at': collected_at,
+        'drift':                hc.get('drift', {}),
+        'desired_at':           hc.get('desired_at'),
+    })
+
+
+def handle_device_host_config_put(dev_id):
+    """PUT /api/devices/:id/host-config — save desired host configuration."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    if not isinstance(body, dict):
+        respond(400, {'error': 'Expected JSON object'})
+
+    desired = {}
+    for section in HOST_CONFIG_ALL_SECTIONS:
+        if section in body:
+            desired[section] = _validate_host_config_section(section, body[section])
+
+    with _locked_update(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        hc = devices[dev_id].setdefault('host_config', {})
+        hc['desired']    = desired
+        hc['desired_at'] = int(time.time())
+        # Clear drift so it re-evaluates on next agent report
+        hc.pop('drift', None)
+
+    audit_log(actor, 'host_config_update',
+              f'dev_id={dev_id} sections={list(desired.keys())}')
+    respond(200, {'ok': True})
+
+
+def handle_device_host_config_current(dev_id):
+    """GET /api/devices/:id/host-config/current — current state only (for fetch button)."""
+    require_auth()
+    with _locked_update(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        hc = devices[dev_id].get('host_config', {})
+    current_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+    current_data = {}
+    collected_at = hc.get('current_collected_at')
+    if current_path.exists():
+        try:
+            raw = load(current_path) or {}
+            current_data = raw.get('current', {})
+            collected_at = raw.get('collected_at', collected_at)
+        except Exception:
+            pass
+    respond(200, {
+        'current':              current_data,
+        'current_collected_at': collected_at,
+    })
 
 if __name__ == '__main__':
     try:
@@ -12354,3 +12679,6 @@ if __name__ == '__main__':
         # exception details to the client. Stack traces, if needed, are
         # available via fcgiwrap's stderr capture.
         _render_response(500, {'error': 'Internal server error'})
+
+
+

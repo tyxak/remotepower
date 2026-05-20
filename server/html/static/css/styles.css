@@ -2191,3 +2191,18 @@ body.modal-open .modal { touch-action: auto; }
   /* Nested modal (drift diff) sits above the base modal. */
   #drift-diff-modal { z-index: 1100; }
 }
+
+/* ── v2.6.0: Host Config modal tabs ─────────────────────────────────────── */
+.hc-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 5px 12px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.hc-tab:hover  { background: var(--surface2); color: var(--text); }
+.hc-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }

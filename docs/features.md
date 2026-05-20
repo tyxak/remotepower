@@ -15,6 +15,7 @@ Day-to-day fleet operations, without leaving the browser:
 | ✨ **AI assistant** | Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain command output, triage CVEs and TLS expiry, prioritise patches, diagnose failed services, generate and audit shell scripts, free-form chat. Disabled by default; no external calls unless you choose a cloud provider. Regex-based secret redaction before any bytes leave the process. |
 | 🤖 **MCP server** | Bundled Model Context Protocol server — lets any MCP-capable AI client (Claude Desktop, etc.) query fleet state through 12 read-only tools. No write tools in this release. |
 | 🔬 **Custom monitoring scripts** | Define bash health checks server-side, assign to devices, run every 5 minutes. Exit 0 = OK, anything else = FAIL. Fleet-wide results table, edge-triggered webhooks (`custom_script_fail` / `custom_script_recover`). AI-assisted script generation built into the create modal. |
+| 🖥️ **Host configuration** | Declare desired state per device: repos, netplan, nmcli, resolv.conf, /etc/hosts, enabled services, users + SSH keys, groups, sudoers, MOTD. Agent applies on heartbeat (~60 s), reports current state every 15 min. Drift detected and `config_drift` webhook fires edge-triggered. Audit-only — never auto-remediates. |
 
 ---
 
@@ -316,11 +317,22 @@ Compatible with Ntfy, Gotify, Slack, Discord, n8n, Home Assistant.
 
 ---
 
-## Added in 2.2.x – 2.5.x
+## Added in 2.2.x – 2.6.x
 
-The features below were added across the 2.2 – 2.5 release series.
+The features below were added across the 2.2 – 2.6 release series.
 Full per-release notes — including the bug-fix releases not listed
 here — are in [`CHANGELOG.md`](../CHANGELOG.md).
+
+### Host configuration management *(v2.6.0)*
+Declare the desired state of each host server-side across ten sections:
+package repos, netplan, NetworkManager (nmcli), resolv.conf, /etc/hosts,
+enabled systemd services, local users + SSH authorized_keys, groups,
+sudoers rules, and the MOTD banner.
+The agent applies changes on the next heartbeat (~60 s) and reports
+current state every 15 minutes for drift detection. Drift fires a
+`config_drift` webhook edge-triggered (once on first divergence, not
+every heartbeat). Audit-only — the agent never auto-remediates.
+Reference: **[host-config.md](host-config.md)**.
 
 ### Custom monitoring scripts *(v2.5.0)*
 Define bash health checks server-side and assign them to devices.

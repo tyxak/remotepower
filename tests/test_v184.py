@@ -265,6 +265,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mailbox_threshold',
             # v2.5.0: custom monitoring script alerts
             'custom_script_fail', 'custom_script_recover',
+            # v2.6.0: host configuration drift
+            'config_drift',
         }
         self.assertEqual(names, expected)
 

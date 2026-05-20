@@ -6726,6 +6726,7 @@ function deviceDropdownHtml(d, isMonitored) {
     ['Metric thresholds', `openMetricThresholds('${idEsc}','${nameEsc}')`],
     ['Allowlist',       `openAllowlistModal('${idEsc}')`],
     ['Icon',            `openIconModal('${idEsc}','${escAttr(d.icon||'')}')`],
+    ['Host Config',     `openHostConfigModal('${idEsc}','${nameEsc}')`],
     [`${isMonitored ? 'Disable' : 'Enable'} monitoring`,
                         `toggleMonitored('${idEsc}', ${isMonitored ? 'false' : 'true'})`],
   ];
@@ -7792,6 +7793,7 @@ function _renderHomeActivity(fleetEvents) {
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
+    'config_drift',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -7925,6 +7927,9 @@ function _homeActivityAction(event, p) {
     case 'custom_script_recover':
       // v2.5.0: Custom Scripts section lives on the Monitor page
       return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
+    case 'config_drift':
+      // v2.6.0: navigate to the Devices page
+      return `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
     default:
       // Fallback: device detail if we know the device, otherwise
       // nothing happens
@@ -9303,4 +9308,331 @@ function _reltime(ts) {
   if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
   return `${Math.floor(diff/86400)}d ago`;
+}
+
+// ─── v2.6.0: Host Configuration Management ────────────────────────────────────
+
+let _hcData    = null;   // {desired, current, drift, desired_at, current_collected_at}
+let _hcDevId   = null;
+let _hcDevName = null;
+const HC_TEXT_SECTIONS    = ['repos','netplan','nmcli','resolv_conf','hosts','sudoers','motd'];
+const HC_SPECIAL_SECTIONS = ['services','users','groups'];
+
+// ── Open modal ─────────────────────────────────────────────────────────────
+
+async function openHostConfigModal(devId, devName) {
+  _hcDevId   = devId;
+  _hcDevName = devName;
+  document.getElementById('hc-device-name').textContent = devName;
+  document.getElementById('hc-device-id').value         = devId;
+
+  hcShowTab('repos', document.querySelector('.hc-tab'));
+  _hcData = null;
+  _hcClearAll();
+  openModal('host-config-modal');
+
+  const data = await api('GET', `/devices/${devId}/host-config`);
+  if (!data) return;
+  _hcData = data;
+
+  const desired = data.desired || {};
+  const current = data.current || {};
+
+  // For each section: use desired if set, otherwise fall back to current
+  // so the editor is always pre-filled if we have any data at all.
+  const merged = {};
+  const ALL_SECTIONS = ['repos','netplan','nmcli','resolv_conf','hosts',
+                        'sudoers','motd','services','users','groups'];
+  ALL_SECTIONS.forEach(s => {
+    const d = desired[s];
+    const c = current[s];
+    const hasDesired = d !== undefined && d !== null &&
+                       (Array.isArray(d) ? d.length > 0 : d !== '');
+    merged[s] = hasDesired ? d : (c !== undefined ? c : d);
+  });
+  _hcPopulateAll(merged);
+  _hcShowDrift(data.drift || {});
+
+  // Show a subtle info note if we're showing current (no desired saved yet)
+  const hasAnyDesired = Object.keys(desired).length > 0;
+  if (!hasAnyDesired && Object.keys(current).length > 0) {
+    const ts = data.current_collected_at
+      ? new Date(data.current_collected_at * 1000).toLocaleString()
+      : 'unknown time';
+    const infoBanner = document.getElementById('hc-info-banner');
+    if (infoBanner) {
+      infoBanner.style.display = '';
+      document.getElementById('hc-info-ts').textContent = ts;
+    }
+  }
+}
+
+function _hcClearAll() {
+  HC_TEXT_SECTIONS.forEach(s => {
+    const el = document.getElementById(`hc-text-${s}`);
+    if (el) el.value = '';
+    const d = document.getElementById(`hc-drift-${s}`);
+    if (d) d.textContent = '';
+  });
+  document.getElementById('hc-text-services').value = '';
+  document.getElementById('hc-drift-services').textContent = '';
+  document.getElementById('hc-users-list').innerHTML = '';
+  document.getElementById('hc-drift-users').textContent = '';
+  document.getElementById('hc-groups-list').innerHTML = '';
+  document.getElementById('hc-drift-groups').textContent = '';
+  document.getElementById('hc-drift-banner').style.display = 'none';
+  const infoBanner = document.getElementById('hc-info-banner');
+  if (infoBanner) infoBanner.style.display = 'none';
+}
+
+function _hcPopulateAll(desired) {
+  HC_TEXT_SECTIONS.forEach(s => {
+    const el = document.getElementById(`hc-text-${s}`);
+    if (el) el.value = desired[s] || '';
+  });
+  // Services: list → textarea (one per line)
+  const svcEl = document.getElementById('hc-text-services');
+  if (svcEl) svcEl.value = (desired.services || []).join('\n');
+  // Users
+  _hcRenderUsers(desired.users || []);
+  // Groups
+  _hcRenderGroups(desired.groups || []);
+}
+
+function _hcShowDrift(drift) {
+  const sections = drift.sections || [];
+  const banner   = document.getElementById('hc-drift-banner');
+  if (sections.length) {
+    banner.style.display = '';
+    document.getElementById('hc-drift-sections').textContent = sections.join(', ');
+    sections.forEach(s => {
+      const el = document.getElementById(`hc-drift-${s}`);
+      if (el) el.textContent = '⚠ drift detected';
+    });
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+
+function hcShowTab(section, btn) {
+  document.querySelectorAll('.hc-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.hc-panel').forEach(p => p.style.display = 'none');
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById(`hc-panel-${section}`);
+  if (panel) panel.style.display = '';
+}
+
+// ── Fetch current from agent ───────────────────────────────────────────────
+
+async function hcFetchCurrent(section) {
+  if (!_hcDevId) return;
+  const data = await api('GET', `/devices/${_hcDevId}/host-config/current`);
+  if (!data) return;
+  const current = data.current || {};
+  const val = current[section];
+  if (val === undefined || val === null) {
+    toast(`No current ${section} data yet — agent reports every 15 min`, 'info');
+    return;
+  }
+  // Populate the appropriate editor
+  if (HC_TEXT_SECTIONS.includes(section)) {
+    document.getElementById(`hc-text-${section}`).value =
+      typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+  } else if (section === 'services') {
+    document.getElementById('hc-text-services').value =
+      Array.isArray(val) ? val.join('\n') : '';
+  } else if (section === 'users') {
+    _hcRenderUsers(Array.isArray(val) ? val : []);
+  } else if (section === 'groups') {
+    _hcRenderGroups(Array.isArray(val) ? val : []);
+  }
+  const ts = data.current_collected_at
+    ? new Date(data.current_collected_at * 1000).toLocaleTimeString()
+    : 'unknown time';
+  toast(`Loaded current ${section} from agent (collected ${ts})`, 'success');
+}
+
+// ── Users editor ───────────────────────────────────────────────────────────
+
+function _hcRenderUsers(users) {
+  const container = document.getElementById('hc-users-list');
+  if (!container) return;
+  container.innerHTML = '';
+  (users || []).forEach((u, i) => {
+    container.appendChild(_hcUserCard(u, i));
+  });
+}
+
+function _hcUserCard(u, i) {
+  const div = document.createElement('div');
+  div.className = 'hc-user-card';
+  div.dataset.idx = i;
+  div.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;position:relative';
+  div.innerHTML = `
+    <button onclick="hcRemoveUser(${i})" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px" title="Remove user">×</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Username</label>
+        <input class="form-input" style="font-size:12px" value="${escAttr(u.name||'')}" data-field="name" oninput="hcUserField(${i},this)"></div>
+      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Shell</label>
+        <input class="form-input" style="font-size:12px" value="${escAttr(u.shell||'/bin/bash')}" data-field="shell" oninput="hcUserField(${i},this)"></div>
+    </div>
+    <div style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Groups (comma-separated)</label>
+      <input class="form-input" style="font-size:12px" value="${escAttr((u.groups||[]).join(', '))}" data-field="groups" oninput="hcUserField(${i},this)"></div>
+    <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">authorized_keys</label>
+      <textarea class="form-textarea" style="font-family:var(--font-mono);font-size:11px;min-height:80px;resize:vertical" data-field="authorized_keys" oninput="hcUserField(${i},this)">${escHtml(u.authorized_keys||'')}</textarea></div>`;
+  return div;
+}
+
+function hcAddUser() {
+  const container = document.getElementById('hc-users-list');
+  const idx = container.querySelectorAll('.hc-user-card').length;
+  container.appendChild(_hcUserCard({name:'',shell:'/bin/bash',groups:[],authorized_keys:''}, idx));
+}
+
+function hcRemoveUser(idx) {
+  const cards = document.querySelectorAll('.hc-user-card');
+  if (cards[idx]) cards[idx].remove();
+  // Re-index remaining cards
+  document.querySelectorAll('.hc-user-card').forEach((c, i) => {
+    c.dataset.idx = i;
+    c.querySelectorAll('[oninput]').forEach(el => {
+      el.setAttribute('oninput', el.getAttribute('oninput').replace(/\d+/, i));
+    });
+    const btn = c.querySelector('button');
+    if (btn) btn.setAttribute('onclick', `hcRemoveUser(${i})`);
+  });
+}
+
+function hcUserField(idx, el) {
+  // Live update handled at save time — no-op here, just for symmetry
+}
+
+function _hcCollectUsers() {
+  const users = [];
+  document.querySelectorAll('.hc-user-card').forEach(card => {
+    const get = (field) => {
+      const el = card.querySelector(`[data-field="${field}"]`);
+      return el ? el.value : '';
+    };
+    const name = get('name').trim();
+    if (!name) return;
+    const groupsRaw = get('groups').split(',').map(g => g.trim()).filter(Boolean);
+    users.push({
+      name,
+      shell:           get('shell').trim() || '/bin/bash',
+      groups:          groupsRaw,
+      authorized_keys: get('authorized_keys'),
+    });
+  });
+  return users;
+}
+
+// ── Groups editor ──────────────────────────────────────────────────────────
+
+function _hcRenderGroups(groups) {
+  const container = document.getElementById('hc-groups-list');
+  if (!container) return;
+  container.innerHTML = '';
+  (groups || []).forEach((g, i) => container.appendChild(_hcGroupRow(g, i)));
+}
+
+function _hcGroupRow(g, i) {
+  const div = document.createElement('div');
+  div.className = 'hc-group-row';
+  div.style.cssText = 'display:flex;gap:10px;align-items:center';
+  div.innerHTML = `
+    <input class="form-input" style="font-size:12px;flex:1" placeholder="groupname"
+           value="${escAttr(g.name||'')}" data-field="name">
+    <input class="form-input" style="font-size:12px;width:90px" placeholder="GID (opt)"
+           value="${g.gid !== null && g.gid !== undefined ? g.gid : ''}" data-field="gid" type="number">
+    <button onclick="this.closest('.hc-group-row').remove()"
+            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">×</button>`;
+  return div;
+}
+
+function hcAddGroup() {
+  const container = document.getElementById('hc-groups-list');
+  container.appendChild(_hcGroupRow({name:'', gid: null}, container.children.length));
+}
+
+function _hcCollectGroups() {
+  const groups = [];
+  document.querySelectorAll('.hc-group-row').forEach(row => {
+    const name = row.querySelector('[data-field="name"]').value.trim();
+    if (!name) return;
+    const gidRaw = row.querySelector('[data-field="gid"]').value;
+    groups.push({ name, gid: gidRaw ? parseInt(gidRaw) : null });
+  });
+  return groups;
+}
+
+// ── Save ───────────────────────────────────────────────────────────────────
+
+async function saveHostConfig() {
+  if (!_hcDevId) return;
+  const desired = {};
+
+  HC_TEXT_SECTIONS.forEach(s => {
+    const el = document.getElementById(`hc-text-${s}`);
+    if (el && el.value.trim()) desired[s] = el.value;
+  });
+
+  // Services: textarea → list
+  const svcEl = document.getElementById('hc-text-services');
+  if (svcEl && svcEl.value.trim()) {
+    desired.services = svcEl.value.split('\n').map(l => l.trim()).filter(Boolean);
+  }
+
+  const users = _hcCollectUsers();
+  if (users.length) desired.users = users;
+
+  const groups = _hcCollectGroups();
+  if (groups.length) desired.groups = groups;
+
+  const r = await api('PUT', `/devices/${_hcDevId}/host-config`, desired);
+  if (!r) return;
+  closeModal('host-config-modal');
+  toast('Host config saved — agent will apply on next heartbeat (~60s)', 'success');
+}
+
+// Trigger agent to collect and send all current config sections via exec command
+async function hcFetchAllCurrent() {
+  if (!_hcDevId) return;
+  const btn = document.getElementById('hc-fetch-all-btn');
+  btn.disabled = true;
+  btn.textContent = '⌛ Requesting…';
+  // Queue command via the standard exec endpoint
+  const r = await api('POST', '/exec', {
+    device_id: _hcDevId,
+    cmd: 'remotepower-agent send_current_configs',
+  });
+  if (!r || !r.ok) {
+    toast(r?.error || 'Failed to queue command', 'error');
+    btn.disabled = false;
+    btn.textContent = '⬇ Collect all current';
+    return;
+  }
+  btn.textContent = '✓ Queued — refreshing in 75s…';
+  toast('Command queued — agent will collect and send config in ~60s', 'success');
+  // After one full poll cycle the agent should have run and sent back the data
+  setTimeout(async () => {
+    const data = await api('GET', `/devices/${_hcDevId}/host-config`);
+    if (data) {
+      _hcData = data;
+      // Populate from current data (what the agent just collected)
+      const current = data.current || {};
+      if (Object.keys(current).length > 0) {
+        _hcPopulateAll(current);
+        toast('Current config loaded — review and click Save to apply as desired', 'success');
+      } else {
+        _hcPopulateAll(data.desired || {});
+        toast('Current config loaded from agent', 'success');
+      }
+      _hcShowDrift(data.drift || {});
+    }
+    btn.disabled = false;
+    btn.textContent = '⬇ Collect all current';
+  }, 75000);
 }

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=2.5.0">
+<link rel="stylesheet" href="static/css/styles.css?v=2.6.0">
 </head>
 <body>
 
@@ -451,7 +451,7 @@
           </table>
         </div>
 
-        <!-- v2.5.0: Custom monitoring scripts section -->
+        <!-- v2.6.0: Custom monitoring scripts section -->
         <div class="section-header" style="margin-top:32px">
           <div style="display:flex;gap:8px;align-items:center">
             <div style="position:relative">
@@ -1323,6 +1323,30 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Alerts:</strong> Status changes fire webhooks — <code>custom_script_fail</code> when a script flips from OK to FAIL (includes the first line of output), <code>custom_script_recover</code> when it returns to OK. Both are edge-triggered: they fire once on the transition, not on every failing run.</p>
               <p><strong>Script execution:</strong> Scripts run as the agent user (root on most setups), with stdout and stderr merged, capped at 4 KB. The script body is written to a private temp file (chmod 700), executed by <code>/bin/bash</code>, then deleted. Scripts are pushed from the server — no SSH needed.</p>
               <p><strong>Examples:</strong> check a web endpoint returns 200, verify a backup file was recently modified, test a database port is accepting connections, confirm a cron job's sentinel file exists.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="host config configuration repos netplan nmcli resolv.conf hosts services users groups sudoers motd drift 2.6">
+            <summary><strong>Host Configuration</strong> — declare and enforce host state from the server</summary>
+            <div class="doc-body">
+              <p>Define the desired state of each Linux host server-side. The agent applies it on the next heartbeat (~60 s) and reports current state every 15 minutes so the server can detect drift.</p>
+              <p><strong>Open the editor:</strong> Devices page → device dropdown → <em>Host Config</em>. A modal opens with one tab per section.</p>
+              <p><strong>Sections managed:</strong></p>
+              <ul style="margin:8px 0 8px 18px;font-size:13px;line-height:1.8">
+                <li><strong>Repos</strong> — full content of <code>/etc/apt/sources.list</code> or <code>/etc/yum.repos.d/remotepower.repo</code></li>
+                <li><strong>Netplan</strong> — written to <code>/etc/netplan/01-remotepower.yaml</code>, then <code>netplan apply</code></li>
+                <li><strong>nmcli</strong> — connection file at <code>/etc/NetworkManager/system-connections/remotepower-managed.nmconnection</code></li>
+                <li><strong>resolv.conf</strong> — DNS resolver config; resolves symlinks on systemd-resolved hosts</li>
+                <li><strong>/etc/hosts</strong> — static host entries</li>
+                <li><strong>Services</strong> — list of systemd units that should be enabled; agent runs <code>systemctl enable --now</code></li>
+                <li><strong>Users</strong> — ensure local users exist with correct shell, groups, and SSH authorized_keys (no passwords)</li>
+                <li><strong>Groups</strong> — ensure local groups exist</li>
+                <li><strong>Sudoers</strong> — written to <code>/etc/sudoers.d/remotepower</code>, validated with <code>visudo -c</code> before applying</li>
+                <li><strong>MOTD</strong> — login banner written to <code>/etc/motd</code></li>
+              </ul>
+              <p><strong>Fetch current:</strong> Each tab has a "⬇ Fetch current" button that loads the live state last reported by the agent. Use it to pre-fill a section before editing, or to inspect what's actually running.</p>
+              <p><strong>Drift detection:</strong> The agent reports current state every 15 minutes. The server compares it against the desired config. If any section diverges, an amber ⚠ banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every heartbeat. Drift is audit-only; the agent does not auto-remediate.</p>
+              <p><strong>Security:</strong> Only admins can write host config. Sudoers content is syntax-checked before writing. authorized_keys are written with mode 0600 and correct ownership. No passwords are ever stored — SSH keys only.</p>
             </div>
           </details>
 
@@ -2829,7 +2853,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 <div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;max-height:200px;overflow-y:auto"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input" placeholder="🖥️" maxlength="4" style="font-size:24px;text-align:center;max-width:80px"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('icon-modal')">Cancel</button><button class="btn-secondary" onclick="saveDeviceIcon('')">Clear</button><button class="btn-primary" onclick="saveDeviceIcon(document.getElementById('icon-custom').value)">Save</button></div></div></div>
 
-<!-- v2.5.0: Custom script create / edit modal -->
+<!-- v2.6.0: Custom script create / edit modal -->
 <div class="modal-overlay" id="custom-script-modal">
   <div class="modal modal-wide">
     <div class="modal-title" id="cs-modal-title">New custom script</div>
@@ -2875,7 +2899,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div>
 
-<!-- v2.5.0: Custom script output detail modal -->
+<!-- v2.6.0: Custom script output detail modal -->
 <div class="modal-overlay" id="cs-output-modal">
   <div class="modal modal-wide">
     <div class="modal-title" id="cs-output-title">Script output</div>
@@ -2886,10 +2910,114 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div>
 
+<!-- v2.6.0: Host Configuration modal -->
+<div class="modal-overlay" id="host-config-modal">
+  <div class="modal modal-wide" style="max-width:860px;width:95vw">
+    <div class="modal-title">Host Configuration — <span id="hc-device-name"></span></div>
+    <input type="hidden" id="hc-device-id">
+
+    <!-- Info banner: shown when no desired config exists yet -->
+    <div id="hc-info-banner" style="display:none;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--accent2)">
+      ℹ Showing live data from agent (collected <span id="hc-info-ts"></span>) — no desired config saved yet. Edit any section and click <strong>Save & push to agent</strong> to set it as desired.
+    </div>
+
+    <!-- Drift banner: shown only when desired ≠ current -->
+    <div id="hc-drift-banner" style="display:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--amber)">
+      ⚠ Config drift detected in: <span id="hc-drift-sections"></span>
+    </div>
+
+    <!-- Section tabs -->
+    <div id="hc-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
+      <button class="hc-tab active" onclick="hcShowTab('repos',this)">Repos</button>
+      <button class="hc-tab" onclick="hcShowTab('netplan',this)">Netplan</button>
+      <button class="hc-tab" onclick="hcShowTab('nmcli',this)">nmcli</button>
+      <button class="hc-tab" onclick="hcShowTab('resolv_conf',this)">resolv.conf</button>
+      <button class="hc-tab" onclick="hcShowTab('hosts',this)">/etc/hosts</button>
+      <button class="hc-tab" onclick="hcShowTab('services',this)">Services</button>
+      <button class="hc-tab" onclick="hcShowTab('users',this)">Users</button>
+      <button class="hc-tab" onclick="hcShowTab('groups',this)">Groups</button>
+      <button class="hc-tab" onclick="hcShowTab('sudoers',this)">Sudoers</button>
+      <button class="hc-tab" onclick="hcShowTab('motd',this)">MOTD</button>
+    </div>
+
+    <!-- Text sections (repos, netplan, nmcli, resolv_conf, hosts, sudoers, motd) -->
+    <div class="hc-panel" id="hc-panel-repos">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Full content of <code>/etc/apt/sources.list</code> or <code>/etc/yum.repos.d/remotepower.repo</code></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('repos')">⬇ Fetch current</button><div id="hc-drift-repos" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-repos" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="deb http://deb.debian.org/debian bookworm main contrib non-free"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-netplan" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/netplan/01-remotepower.yaml</code> then <code>netplan apply</code></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('netplan')">⬇ Fetch current</button><div id="hc-drift-netplan" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-netplan" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="network:&#10;  version: 2&#10;  ethernets:&#10;    eth0:&#10;      dhcp4: true"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-nmcli" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/NetworkManager/system-connections/remotepower-managed.nmconnection</code></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('nmcli')">⬇ Fetch current</button><div id="hc-drift-nmcli" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-nmcli" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="[connection]&#10;id=remotepower-managed&#10;type=ethernet"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-resolv_conf" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/resolv.conf</code> (resolves symlinks on systemd-resolved systems)</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('resolv_conf')">⬇ Fetch current</button><div id="hc-drift-resolv_conf" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-resolv_conf" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical" placeholder="nameserver 1.1.1.1&#10;nameserver 8.8.8.8&#10;search example.com"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-hosts" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Full content of <code>/etc/hosts</code></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('hosts')">⬇ Fetch current</button><div id="hc-drift-hosts" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-hosts" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:200px;resize:vertical" placeholder="127.0.0.1   localhost&#10;::1         localhost&#10;192.168.1.10 myserver"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-sudoers" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/sudoers.d/remotepower</code> (validated with <code>visudo -c</code> before applying)</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('sudoers')">⬇ Fetch current</button><div id="hc-drift-sudoers" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-sudoers" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical" placeholder="jakob ALL=(ALL) NOPASSWD:ALL"></textarea>
+    </div>
+    <div class="hc-panel" id="hc-panel-motd" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/motd</code></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('motd')">⬇ Fetch current</button><div id="hc-drift-motd" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-motd" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:140px;resize:vertical" placeholder="Welcome to production. All access is logged."></textarea>
+    </div>
+
+    <!-- Services section -->
+    <div class="hc-panel" id="hc-panel-services" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Services that should be <strong>enabled</strong> on this host. One per line. Agent runs <code>systemctl enable --now</code> for each.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('services')">⬇ Fetch current</button><div id="hc-drift-services" style="font-size:11px;color:var(--amber)"></div></div>
+      <textarea id="hc-text-services" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:200px;resize:vertical" placeholder="nginx.service&#10;docker.service&#10;ssh.service"></textarea>
+    </div>
+
+    <!-- Users section -->
+    <div class="hc-panel" id="hc-panel-users" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Users to create or update. No passwords — SSH keys only.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('users')">⬇ Fetch current</button>
+        <button class="btn-icon" style="font-size:12px" onclick="hcAddUser()">+ Add user</button>
+        <div id="hc-drift-users" style="font-size:11px;color:var(--amber)"></div>
+      </div>
+      <div id="hc-users-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    </div>
+
+    <!-- Groups section -->
+    <div class="hc-panel" id="hc-panel-groups" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Groups to ensure exist on this host.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('groups')">⬇ Fetch current</button>
+        <button class="btn-icon" style="font-size:12px" onclick="hcAddGroup()">+ Add group</button>
+        <div id="hc-drift-groups" style="font-size:11px;color:var(--amber)"></div>
+      </div>
+      <div id="hc-groups-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-secondary" onclick="closeModal('host-config-modal')">Cancel</button>
+      <button class="btn-icon" id="hc-fetch-all-btn" onclick="hcFetchAllCurrent()" title="Trigger agent to collect and send all current config sections now">⬇ Collect all current</button>
+      <button class="btn-primary" onclick="saveHostConfig()">Save & push to agent</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
-<script src="static/js/app.js?v=2.5.0"></script>
+<script src="static/js/app.js?v=2.6.0"></script>
 
 <!-- v2.4.15: Service Worker registration + PWA install prompt handling.
      Kept separate from app.js so the SW registers even if app.js fails.
