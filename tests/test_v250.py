@@ -81,8 +81,17 @@ class TestWebhookEvents(unittest.TestCase):
         self.assertIn("test_tube", self.api)
 
     def test_webhook_message_handles_fail(self):
-        idx = self.api.find('_webhook_message')
-        block = self.api[idx: idx + 2500]
+        # v3.0.2: anchor on `def _webhook_message` and scan until the next
+        # top-level def/class. My v3.0.2 refactor moved the `titles` dict
+        # out of `_send_webhook_to_url` AND made `_webhook_message` longer
+        # than the original 2500-byte window. Brittle on both counts;
+        # AST-style anchor is more robust.
+        import re as _re
+        m = _re.search(r'^def _webhook_message\b', self.api, _re.MULTILINE)
+        self.assertIsNotNone(m, '_webhook_message function not found')
+        nxt = _re.search(r'^(def [a-zA-Z]|class )', self.api[m.end():], _re.MULTILINE)
+        end = m.end() + nxt.start() if nxt else len(self.api)
+        block = self.api[m.start(): end]
         self.assertIn('custom_script_fail', block)
         self.assertIn('custom_script_recover', block)
 
@@ -201,7 +210,7 @@ class TestHeartbeatWiring(unittest.TestCase):
         cls.api = (_ROOT / 'server/cgi-bin/api.py').read_text()
         # Find handle_heartbeat
         idx = cls.api.find('def handle_heartbeat(')
-        cls.hb = cls.api[idx: idx + 25000]
+        cls.hb = cls.api[idx: idx + 50000]
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)
@@ -269,17 +278,17 @@ class TestAgent(unittest.TestCase):
 
     def test_custom_script_results_in_payload(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 16000]
+        block = self.agent[idx: idx + 32000]
         self.assertIn("'custom_script_results'", block)
 
     def test_custom_scripts_updated_from_response(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 16000]
+        block = self.agent[idx: idx + 32000]
         self.assertIn("'custom_scripts' in resp", block)
 
     def test_script_runs_every_script_check_every_polls(self):
         idx = self.agent.find('def heartbeat(')
-        block = self.agent[idx: idx + 16000]
+        block = self.agent[idx: idx + 32000]
         self.assertIn('SCRIPT_CHECK_EVERY', block)
 
     def test_agent_binary_in_sync(self):

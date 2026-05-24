@@ -267,6 +267,13 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'custom_script_fail', 'custom_script_recover',
             # v2.6.0: host configuration drift
             'config_drift',
+            # v2.6.1: TLS expiry + pending reboot
+            'tls_expiry', 'reboot_required',
+            # v2.7.0: stale Proxmox snapshot
+            'snapshot_old',
+            # v2.8.0: security & audit
+            'new_port_detected', 'ssh_key_added', 'brute_force_detected',
+            'backup_stale',
         }
         self.assertEqual(names, expected)
 

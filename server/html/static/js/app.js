@@ -540,6 +540,11 @@ async function checkServerVersion() {
   try {
     const data = await api('GET', '/version');
     if (!data || !data.update_available) return;
+    // v3.0.1: respect a per-version snooze stored in localStorage.
+    // Key includes the specific version so a new release re-shows the banner.
+    const snoozeKey = `rp_version_snooze_${data.latest}`;
+    const snoozeUntil = parseInt(localStorage.getItem(snoozeKey) || '0', 10);
+    if (snoozeUntil && Date.now() < snoozeUntil) return;
     document.getElementById('update-banner')?.remove();
     const banner = document.createElement('div');
     banner.id = 'update-banner';
@@ -552,6 +557,7 @@ async function checkServerVersion() {
       (you have v${data.current}).</span>
       <a href="${data.release_url}" target="_blank" rel="noopener">Release notes →</a>
       <button type="button" class="update-steps-btn" onclick="toggleUpdateSteps()">How to update</button>
+      <button type="button" class="update-steps-btn" onclick="snoozeUpdateBanner('${escAttr(data.latest)}')" title="Hide for 30 days">Snooze 30d</button>
       <div id="update-steps" style="display:none">
         <div style="font-size:12px;opacity:0.85;margin:6px 0 4px">
           Back up your data directory first, then on the server:</div>
@@ -561,6 +567,14 @@ async function checkServerVersion() {
       </div>`;
     document.querySelector('header').insertAdjacentElement('afterend', banner);
   } catch(e) {}
+}
+
+// v3.0.1: snooze the update banner for 30 days for a specific version.
+function snoozeUpdateBanner(version) {
+  const until = Date.now() + 30 * 86400 * 1000;
+  localStorage.setItem(`rp_version_snooze_${version}`, String(until));
+  document.getElementById('update-banner')?.remove();
+  toast(`Update reminder for v${version} snoozed for 30 days`, 'info');
 }
 function toggleUpdateSteps() {
   const s = document.getElementById('update-steps');
@@ -676,6 +690,26 @@ function showPage(name, btn) {
   const el = document.getElementById('page-' + name);
   if (el) el.classList.add('active');
   if (btn) btn.classList.add('active');
+  // v3.0.2: keep the URL bar in sync with the visible page. Without this,
+  // the hash sticks at whatever switchSettingsTab last wrote (e.g.
+  // #settings/notifs) and stays there as you click through Home, Devices,
+  // Logs etc. replaceState (not pushState) so back-button doesn't trap
+  // the user in deep history of every page they tabbed through.
+  try {
+    if (name === 'settings') {
+      // switchSettingsTab will set #settings/<tab>; leave hash alone here
+      // so we don't fight with it. Just ensure we're at the settings root
+      // when arriving cold.
+      if (!location.hash.startsWith('#settings')) {
+        history.replaceState(null, '', '#settings');
+      }
+    } else {
+      const newHash = '#' + name;
+      if (location.hash !== newHash) {
+        history.replaceState(null, '', newHash);
+      }
+    }
+  } catch (_) { /* private mode, file://, etc — non-fatal */ }
   // v2.0: auto-expand the sidebar group containing this nav button so
   // the active item is always visible (avoids the surprise of clicking
   // a saved bookmark and seeing nothing highlighted in the sidebar).
@@ -687,7 +721,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
-  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); }
+  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
@@ -703,6 +737,7 @@ function showPage(name, btn) {
   if (name === 'maintenance') loadMaintenance();
   if (name === 'logs')     enterLogsPage();
   else                     leaveLogsPage();
+  if (name === 'iac')      loadIacPage();
   if (name === 'calendar') loadCalendar();
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
@@ -713,12 +748,14 @@ function showPage(name, btn) {
   if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
+  if (name === 'self')     loadSelfStatus();
 }
 async function loadDevices() {
   try {
     const data = await api('GET', '/devices');
     if (!data) return;
     devices = data;
+    window._devicesCache = data;  // v3.0.2: command palette consumes this
     renderDevices();
   } catch(e) {
     toast('Failed to load devices', 'error');
@@ -1040,9 +1077,10 @@ async function saveDeviceIcon(icon) { const id = document.getElementById('icon-d
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
 async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
-async function openDetail(id, name) { _lastOpenDeviceName = name; document.getElementById('detail-title').textContent = name; document.getElementById('detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('detail-modal'); const data = await api('GET', '/devices/' + id + '/sysinfo'); if (!data) return; const si = data.sysinfo || {}; const journal = data.journal || []; const pkg = si.packages || {}; let html = ''; if (si.uptime || pkg.manager) { html += `<div class="sysinfo-row">`; if (si.uptime) html += `<div class="sysinfo-pill"><div class="label">Uptime</div><div class="value">${escHtml(si.uptime)}</div></div>`; if (pkg.manager) html += `<div class="sysinfo-pill"><div class="label">Pkg manager</div><div class="value">${escHtml(pkg.manager)}</div></div>`; if (pkg.upgradable !== null && pkg.upgradable !== undefined) { const col = pkg.upgradable > 0 ? 'var(--amber)' : 'var(--green)'; html += `<div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${col}">${pkg.upgradable} package${pkg.upgradable !== 1 ? 's' : ''}</div></div>`; } if (si.platform) html += `<div class="sysinfo-pill"><div class="label">Platform</div><div class="value" style="font-size:11px">${escHtml(si.platform)}</div></div>`; html += `</div>`; } html += _renderHostHealth(si); html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--muted)">Journal — last ${journal.length} lines</div><button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiFindProblemInJournal('${escAttr(name)}', ${journal.length ? "document.querySelector('.journal-wrap').textContent.split('\\n')" : '[]'})">✨ Find the problem</button></div><div class="journal-wrap">${escHtml(journal.join('\n'))}</div>`; if (!si.uptime && !journal.length) html = `<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px">No data yet — the agent reports sysinfo every ~10 minutes.</div>`; document.getElementById('detail-body').innerHTML = html; try { const out = await api('GET', '/devices/' + id + '/output'); if (out?.outputs?.length) { let outHtml = `<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Command output — last ${out.outputs.length}</div>`; outHtml += out.outputs.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap"><code style="font-size:12px;color:var(--accent);overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${escHtml(o.cmd)}</code><div style="display:flex;gap:8px;align-items:center"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainOutput('${escAttr(name)}','${escAttr(o.cmd)}','${escAttr(o.output||'')}')">✨ Explain</button><span style="font-size:11px;color:var(--muted);white-space:nowrap">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); document.getElementById('detail-body').innerHTML += outHtml; } } catch(e) {}  try { const rb = await aiApi('GET', '/devices/' + encodeURIComponent(id) + '/runbook'); const sec = document.createElement('div'); sec.id = 'detail-runbook-section'; sec.innerHTML = _renderRunbookSectionHtml(id, rb); document.getElementById('detail-body').appendChild(sec); } catch(e) {}
-}
-function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
+function openDetail(id, name) {
+  // v2.9.0: replaced by device drawer
+  openDeviceDrawer(id, name, 'audit');
+}function openEnrollModal() { generateNewPin(); openModal('enroll-modal'); }
 async function generateNewPin() { document.getElementById('pin-code').textContent = '……'; try { const data = await api('POST', '/enroll/pin'); document.getElementById('pin-code').textContent = data.pin; startPinCountdown(600); } catch(e) { document.getElementById('pin-code').textContent = 'ERROR'; } }
 function startPinCountdown(seconds) { clearInterval(pinTimer); pinSeconds = seconds; updatePinDisplay(); pinTimer = setInterval(() => { pinSeconds--; updatePinDisplay(); if (pinSeconds <= 0) clearInterval(pinTimer); }, 1000); }
 function updatePinDisplay() { const m = Math.floor(pinSeconds / 60).toString().padStart(2, '0'); const s = (pinSeconds % 60).toString().padStart(2, '0'); document.getElementById('pin-countdown').textContent = `${m}:${s}`; }
@@ -1137,7 +1175,13 @@ function switchSettingsTab(tab) {
     b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.settings-pane').forEach(p =>
     p.classList.toggle('active', p.id === `settings-pane-${tab}`));
-  if (tab) location.hash = `settings/${tab}`;
+  if (tab) {
+    // v3.0.2: replaceState instead of assigning to location.hash so
+    // clicking through settings tabs doesn't bloat browser history
+    // (one history entry per tab click is hostile to back-button users).
+    try { history.replaceState(null, '', `#settings/${tab}`); }
+    catch (_) { location.hash = `settings/${tab}`; }
+  }
   // v2.4.2: populate the SSH username field when the Security pane opens.
   if (tab === 'security') loadSshUsername();
   // v2.4.4: load the mailbox monitor config when its pane opens.
@@ -1201,6 +1245,25 @@ async function loadSettings() {
   document.getElementById('cfg-cve-cache-days').value = data.cve_cache_days || 7;
   document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
   document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
+
+  // v3.0.2: multi-webhook destinations editor
+  _webhookDests = Array.isArray(data.webhook_urls) ? data.webhook_urls.map(d => ({...d})) : [];
+  renderWebhookDests();
+
+  // v3.0.2: session/audit/backup settings
+  const _ss = document.getElementById('session-ttl-short');
+  if (_ss) _ss.value = data.session_ttl_short || '';
+  const _sl = document.getElementById('session-ttl-long');
+  if (_sl) _sl.value = data.session_ttl_long || '';
+  const _ar = document.getElementById('audit-retention-days');
+  if (_ar) _ar.value = data.audit_log_retention_days ?? '';
+  const _bk = data.backup || {};
+  const _be = document.getElementById('backup-enabled');
+  if (_be) _be.checked = _bk.enabled !== false;
+  const _bp = document.getElementById('backup-path');
+  if (_bp) _bp.value = _bk.path || '';
+  const _br = document.getElementById('backup-retain-days');
+  if (_br) _br.value = _bk.retain_days || '';
 
   // v2.3.0: Proxmox connection. Token secret is masked — the field
   // shows a placeholder when one is set; blank means "keep current".
@@ -1292,7 +1355,7 @@ async function loadSettings() {
   try { await loadAISettings(); } catch(e) {}
 }
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
-async function saveSettings() {
+async function saveSettings(btn) {
   const webhook_events = {};
   document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
     webhook_events[cb.dataset.event] = cb.checked;
@@ -1349,14 +1412,45 @@ async function saveSettings() {
     ldap_timeout:        parseInt(document.getElementById('cfg-ldap-timeout').value) || 5,
   };
   // Only send password fields if the user typed something — empty string
+  // v3.0.2: multi-webhook destinations — collect current editor state
+  if (Array.isArray(_webhookDests)) {
+    payload.webhook_urls = _webhookDests.map(d => {
+      const c = {...d};
+      delete c.pushover_token_set;
+      delete c.pushover_user_set;
+      return c;
+    });
+  }
+
+  // v3.0.2: session timeout + audit retention + backup config
+  const _sShort = parseInt(document.getElementById('session-ttl-short')?.value || '', 10);
+  if (!isNaN(_sShort)) payload.session_ttl_short = _sShort;
+  const _sLong  = parseInt(document.getElementById('session-ttl-long')?.value || '', 10);
+  if (!isNaN(_sLong)) payload.session_ttl_long = _sLong;
+  const _aRet   = parseInt(document.getElementById('audit-retention-days')?.value || '', 10);
+  if (!isNaN(_aRet)) payload.audit_log_retention_days = _aRet;
+  // backup is nested
+  const _bkEl = document.getElementById('backup-enabled');
+  if (_bkEl) {
+    payload.backup = {
+      enabled:     _bkEl.checked,
+      path:        (document.getElementById('backup-path')?.value || '').trim() || undefined,
+      retain_days: parseInt(document.getElementById('backup-retain-days')?.value || '14', 10),
+    };
+  }
+
   // would clear them on the server. Leave key out to preserve existing.
   const smtpPw = document.getElementById('cfg-smtp-password').value;
   if (smtpPw) payload.smtp_password = smtpPw;
   const ldapPw = document.getElementById('cfg-ldap-bind-password').value;
   if (ldapPw) payload.ldap_bind_password = ldapPw;
 
+  const _btn = btn || document.getElementById('btn-save-settings');
+  const _origText = _btn ? _btn.textContent : '';
+  if (_btn) { _btn.disabled = true; _btn.textContent = '⏳ Saving…'; }
   const data = await api('POST', '/config', payload);
   if (data?.ok) {
+    if (_btn) { _btn.textContent = '✓ Settings saved'; setTimeout(() => { _btn.textContent = _origText; _btn.disabled = false; }, 2000); }
     toast('Settings saved', 'success');
     // Clear password fields after save so they don't sit in the DOM
     document.getElementById('cfg-smtp-password').value = '';
@@ -1365,6 +1459,7 @@ async function saveSettings() {
     try { await saveAISettings(); } catch(e) {}
     loadSettings(); loadWebhookLog();
   } else {
+    if (_btn) { _btn.textContent = '✗ Save failed'; setTimeout(() => { _btn.textContent = _origText; _btn.disabled = false; }, 2500); }
     toast(data?.error || 'Failed', 'error');
   }
 }
@@ -1565,7 +1660,7 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;
-function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: '✓', error: '✕', info: 'ℹ'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${msg}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
+function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: '✓', error: '✕', info: 'ℹ'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
 function setTagFilter(tag) { activeTagFilter = tag; renderDevices(); }
 // v1.11.5: schedule and history get filter+sort via tableCtl. Minimal
 // refactor — register once on first load, then push rows in.
@@ -2402,7 +2497,7 @@ function _registerCveTable() {
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
       const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();forcePackageScan('${escAttr(d.device_id)}','${escAttr(d.name)}')" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon" style="padding:4px 8px;font-size:11px;margin-left:4px" onclick="event.stopPropagation();triggerCVEScan('${escAttr(d.device_id)}')">Scan</button></td></tr>`;
+      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="_cveBtn(event,()=>forcePackageScan('${escAttr(d.device_id)}','${escAttr(d.name)}',this))" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon" style="padding:4px 8px;font-size:11px;margin-left:4px" onclick="_cveBtn(event,()=>triggerCVEScan('${escAttr(d.device_id)}',this))">Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -2423,11 +2518,20 @@ async function loadCVEReport() {
   document.getElementById('cve-stat-devices').textContent = data.summary.devices_scanned;
   tableCtl.render('cves', data.devices || []);
 }
-async function triggerCVEScan(devId) {
+async function triggerCVEScan(devId, btn) {
   const label = devId ? 'device' : 'all devices';
+  const origText = btn?.textContent || '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Scanning…'; }
   toast(`Scanning ${label}… may take a minute`, 'info');
   const body = devId ? {device_id: devId} : {};
   const result = await api('POST', '/cve/scan', body);
+  if (btn) {
+    const ok = result && !result.errors?.length;
+    btn.textContent = ok ? '✓ Done' : '✗ Error';
+    btn.style.color = ok ? 'var(--green)' : 'var(--red)';
+    btn.disabled = false;
+    setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
+  }
   if (!result) return;
   const s = result.scanned?.length || 0, k = result.skipped?.length || 0, e = result.errors?.length || 0;
   toast(`Scan complete: ${s} scanned, ${k} skipped, ${e} errors`, e > 0 ? 'error' : 'success');
@@ -2441,7 +2545,7 @@ async function openDeviceCVE(devId, devName) {
   if (!data) return;
   const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
   let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value" style="font-size:12px">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value" style="font-size:11px">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
-  html += `<div style="margin-bottom:14px"><button class="btn-icon" style="font-size:12px;padding:6px 12px" onclick="forcePackageScan('${escAttr(devId)}','${escAttr(devName)}')" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
+  html += `<div style="margin-bottom:14px"><button class="btn-icon" style="font-size:12px;padding:6px 12px" onclick="forcePackageScan('${escAttr(devId)}','${escAttr(devName)}',this)" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
   if (data.error) html += `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:var(--red)">${escHtml(data.error)}</div>`;
   if (!data.findings.length) { html += '<div style="color:var(--muted);text-align:center;padding:40px">No vulnerabilities found. 🎉</div>'; }
   else {
@@ -2979,8 +3083,23 @@ async function runLogSearch() {
   document.getElementById('logs-viewer-title').textContent = `Search results for: ${q}`;
   document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">Searching…</div>';
   const data = await api('GET', `/logs/search?${qs.toString()}`);
-  if (!data) return;
-  if (!data.results.length) {
+  if (!data) {
+    document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--red);padding:40px">Request failed — check the console.</div>';
+    return;
+  }
+  // v3.0.2: 400 returns {error: '...'} with no results key — was throwing
+  // TypeError on data.results.length and silently breaking the UI.
+  if (data.error) {
+    document.getElementById('logs-viewer').innerHTML =
+      `<div style="text-align:center;color:var(--red);padding:40px">
+        <div style="font-weight:600;margin-bottom:6px">Search failed</div>
+        <div style="font-size:13px;color:var(--muted)">${escHtml(data.error)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px">Common cause: bad regex. Try escaping special chars or use a plain substring.</div>
+      </div>`;
+    toast('Search error: ' + data.error, 'error');
+    return;
+  }
+  if (!Array.isArray(data.results) || !data.results.length) {
     document.getElementById('logs-viewer').innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px">No matches for <code>${escHtml(q)}</code> in the current buffer.</div>`;
     return;
   }
@@ -3096,16 +3215,27 @@ async function openAddRuleModal() {
 }
 
 async function saveLogRule() {
-  const unit    = document.getElementById('log-rule-unit').value.trim();
-  const pattern = document.getElementById('log-rule-pattern').value.trim();
-  const threshold = parseInt(document.getElementById('log-rule-threshold').value) || 1;
-  if (!unit || !pattern) { toast('Unit and pattern are required', 'error'); return; }
+  const sourceType = document.querySelector('input[name="log-rule-source"]:checked')?.value || 'unit';
+  const unit       = document.getElementById('log-rule-unit').value.trim();
+  const path       = document.getElementById('log-rule-path').value.trim();
+  const pattern    = document.getElementById('log-rule-pattern').value.trim();
+  const threshold  = parseInt(document.getElementById('log-rule-threshold').value) || 1;
+  const severity   = document.getElementById('log-rule-severity')?.value || 'WARN';
+  if (sourceType === 'unit' && !unit) { toast('Unit is required', 'error'); return; }
+  if (sourceType === 'path' && !path) { toast('File path is required', 'error'); return; }
+  if (sourceType === 'path' && !path.startsWith('/')) { toast('File path must be absolute (start with /)', 'error'); return; }
+  if (!pattern) { toast('Pattern is required', 'error'); return; }
   // Validate regex client-side
   try { new RegExp(pattern); } catch(e) { toast('Invalid regex: '+e.message, 'error'); return; }
 
+  // Build the rule payload. Server validates either unit OR path.
+  const rulePayload = sourceType === 'path'
+    ? { path, pattern, threshold, severity }
+    : { unit, pattern, threshold, severity };
+
   if (logsRulesTab === 'global') {
     // Fleet-wide rule
-    const result = await api('POST', '/logs/rules/global', {unit, pattern, threshold});
+    const result = await api('POST', '/logs/rules/global', rulePayload);
     if (result && result.ok) {
       toast('Fleet-wide rule added', 'success');
       closeModal('log-rule-modal');
@@ -3122,14 +3252,18 @@ async function saveLogRule() {
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
   const log_watch = existing.log_watch || [];
-  if (log_watch.some(r => r.unit === unit && r.pattern === pattern)) {
+  // Effective unit name for dedupe — file-path rules use 'file:<path>' synthetic name
+  const effectiveUnit = sourceType === 'path' ? `file:${path}` : unit;
+  if (log_watch.some(r => (r.unit === effectiveUnit || (r.path && `file:${r.path}` === effectiveUnit)) && r.pattern === pattern)) {
     toast('Rule already exists', 'error');
     return;
   }
-  log_watch.push({unit, pattern, threshold});
-  // Also ensure the unit is in services_watched so the agent submits its logs
+  log_watch.push(rulePayload);
+  // For systemd unit rules, also ensure the unit is in services_watched so the
+  // agent submits its logs. File-path rules don't need this — the agent
+  // discovers paths from the log_watch rules directly.
   const watched = existing.services_watched || [];
-  if (unit !== '*' && !watched.includes(unit)) watched.push(unit);
+  if (sourceType === 'unit' && unit !== '*' && !watched.includes(unit)) watched.push(unit);
   const result = await api('POST', `/devices/${devId}/services/config`, {
     services_watched: watched,
     log_watch,
@@ -3141,6 +3275,13 @@ async function saveLogRule() {
   } else {
     toast(result?.error || 'Failed to save rule', 'error');
   }
+}
+
+// v3.0.1: toggle visibility of unit vs path field in the log rule modal
+function _toggleLogRuleSource() {
+  const sourceType = document.querySelector('input[name="log-rule-source"]:checked')?.value || 'unit';
+  document.getElementById('log-rule-unit-row').style.display = sourceType === 'unit' ? '' : 'none';
+  document.getElementById('log-rule-path-row').style.display = sourceType === 'path' ? '' : 'none';
 }
 
 async function deleteLogRule(devId, unit, pattern) {
@@ -4345,7 +4486,18 @@ async function reloadUpdateLogs() {
     body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No update runs captured yet. Run "Upgrade packages" on this device — the output will land here on the next heartbeat (~60s).</div>';
     return;
   }
-  body.innerHTML = logs.map((entry, idx) => {
+  // v2.8.1: deduplicate — suppress consecutive runs with identical output
+  // (agents often send the same "0 upgraded" result every scan cycle)
+  const dedupedLogs = [];
+  let lastOutput = null;
+  for (const entry of logs) {
+    const out = (entry.output || '').trim();
+    if (out !== lastOutput || entry.exit_code !== 0) {
+      dedupedLogs.push(entry);
+      lastOutput = out;
+    }
+  }
+  body.innerHTML = dedupedLogs.map((entry, idx) => {
     const ok = entry.exit_code === 0;
     const status = ok
       ? '<span style="color:var(--green)">● success</span>'
@@ -4453,7 +4605,10 @@ function _registerContainersOverviewTable() {
         <td>${restartingCell}</td>
         <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
         <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
-        <td><button class="btn-icon" onclick="containersOpen('${escAttr(r.device_id)}','${escAttr(r.name)}')">View</button></td>
+        <td style="display:flex;gap:4px">
+          <button class="btn-icon" onclick="containersOpen('${escAttr(r.device_id)}','${escAttr(r.name)}')">View</button>
+          <button class="btn-icon" style="color:var(--muted)" title="Hide this device from the Containers page" onclick="ignoreContainerDevice('${escAttr(r.device_id)}','${escAttr(r.name)}')">×</button>
+        </td>
       </tr>`;
     },
     emptyMsg: 'No devices have reported containers yet. The agent reports every 5 polls (~5 minutes) when Docker, Podman, or Kubernetes is installed. Stale rows are flagged automatically.',
@@ -6682,82 +6837,13 @@ async function aiPageSend() {
 // "Remove device" stays at the bottom in its own danger zone.
 
 function deviceDropdownHtml(d, isMonitored) {
-  const idEsc = d.id;
+  const idEsc   = d.id;
   const nameEsc = escAttr(d.name);
-  const dangerous = (d.version || '').match(/^2\.[1-9]/);   // compose support
-  const composeSuffix = d.compose_projects_count > 0
-    ? ` (${d.compose_projects_count})`
-    : ' (scan pending…)';
-
-  // Each section is a list of [label, onclick-snippet]. Keeps the
-  // template tidy and makes it easy to add or move items.
-  const power = [
-    ['Shut down',       `requestShutdown('${idEsc}','${nameEsc}')`],
-    ['Reboot',          `requestReboot('${idEsc}','${nameEsc}')`],
-  ];
-  if (d.mac) power.push(['Wake-on-LAN', `sendWol('${idEsc}','${nameEsc}')`]);
-  power.push(['Upgrade packages', `upgradePackages('${idEsc}','${nameEsc}')`]);
-
-  const inspect = [
-    ['System info',     `openDetail('${idEsc}','${nameEsc}')`],
-    ['✨ Investigate',  `aiInvestigateDevice('${idEsc}','${nameEsc}')`],
-    ['✨ Generate runbook', `aiGenerateRunbook('${idEsc}','${nameEsc}')`],
-    ['Metrics',         `openMetrics('${idEsc}','${nameEsc}')`],
-    ['Update history',  `openUpdateLogs('${idEsc}','${nameEsc}')`],
-    ['Scan packages now', `forcePackageScan('${idEsc}','${nameEsc}')`],
-  ];
-
-  const operate = [
-    ['Web terminal',    `openWebTerm('${idEsc}','${nameEsc}')`],
-    ['Custom command',  `openExecModal('${idEsc}','${nameEsc}')`],
-    ['Run script…',     `openScriptRunForDevice('${idEsc}','${nameEsc}')`],
-  ];
-  if (!d.agentless && dangerous) {
-    operate.push([`docker compose${composeSuffix}`,
-                  `openComposeModal('${idEsc}','${nameEsc}')`]);
-  }
-  operate.push(['Agent update', `sendUpdate('${idEsc}','${nameEsc}')`]);
-
-  const configure = [
-    ['Edit tags',       `openTagModal('${idEsc}','${escAttr((d.tags||[]).join(','))}')`],
-    ['Set group',       `openGroupModal('${idEsc}','${escAttr(d.group||'')}')`],
-    ['Notes',           `openNotesModal('${idEsc}','${escAttr(d.notes||'')}')`],
-    ['Poll interval',   `openPollModal('${idEsc}','${d.poll_interval||60}')`],
-    ['Metric thresholds', `openMetricThresholds('${idEsc}','${nameEsc}')`],
-    ['Allowlist',       `openAllowlistModal('${idEsc}')`],
-    ['Icon',            `openIconModal('${idEsc}','${escAttr(d.icon||'')}')`],
-    ['Host Config',     `openHostConfigModal('${idEsc}','${nameEsc}')`],
-    [`${isMonitored ? 'Disable' : 'Enable'} monitoring`,
-                        `toggleMonitored('${idEsc}', ${isMonitored ? 'false' : 'true'})`],
-  ];
-
-  const itemsHtml = items =>
-    items.map(([label, action]) =>
-      `<a href="#" onclick="${action}; return false;">${label}</a>`).join('');
-
-  // <details>/<summary> for collapsible groups; no JS needed.
-  // The summary line uses the same styling as a regular item so the
-  // visual rhythm doesn't break.
-  const group = (label, items, opened) =>
-    `<details class="dropdown-group"${opened ? ' open' : ''}>` +
-      `<summary>${label}</summary>${itemsHtml(items)}</details>`;
-
-  return `<div class="device-dropdown" id="dropdown-${idEsc}">` +
-    `<button class="dropdown-btn" onclick="toggleDropdown('${idEsc}')">⋯</button>` +
-    `<div class="dropdown-content compact">` +
-      itemsHtml(power) +
-      `<hr>` +
-      group('Inspect',   inspect,   true) +    // open by default — most used
-      group('Operate',   operate,   false) +
-      group('Configure', configure, false) +
-      `<hr>` +
-      `<a href="#" onclick="removeDevice('${idEsc}'); return false;" ` +
-         `style="color:var(--red)">Remove device</a>` +
-    `</div></div>`;
+  // v2.9.0: ⋮ opens the device drawer on Actions & Settings tab.
+  return `<button class="btn-icon" title="Actions &amp; Settings"
+    style="font-size:18px;padding:2px 8px;line-height:1"
+    onclick="event.stopPropagation();openDeviceDrawer('${idEsc}','${nameEsc}','actions')">⋮</button>`;
 }
-
-// ─── v2.1.5: additional ✨ surfaces ────────────────────────────────────────
-
 function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs) {
   const logs = Array.isArray(recentLogs) ? recentLogs.join('\n') : (recentLogs || '');
   openAIModal({
@@ -7600,6 +7686,27 @@ function renderDiff(baselineText, currentText) {
 // devices, drift, CVEs, patches, webhook log. No new server endpoint
 // needed. Refresh implicit (re-runs on every visit to the page).
 
+// v2.9.1: module-scope so audit drawer and activity feed share the same map
+const EVENT_CLASS = {
+  'device_offline': 'critical', 'device_online': 'ok',
+  'monitor_down': 'critical', 'monitor_up': 'ok',
+  'service_down': 'critical', 'service_up': 'ok',
+  'cve_found': 'warn', 'patch_alert': 'warn',
+  'drift_detected': 'warn',
+  'metric_warning': 'warn', 'metric_critical': 'critical',
+  'metric_recovered': 'ok',
+  'container_stopped': 'warn', 'container_restarting': 'warn',
+  'containers_stale': 'warn',
+  'log_alert': 'warn',
+  'mailbox_threshold': 'warn',
+  'command_queued': 'info', 'command_executed': 'info',
+  'brute_force_detected': 'critical', 'ssh_key_added': 'warn',
+  'new_port_detected': 'warn', 'backup_stale': 'warn',
+  'tls_expiry': 'warn', 'snapshot_old': 'warn',
+  'reboot_required': 'warn', 'custom_script_fail': 'critical',
+  'custom_script_recover': 'ok', 'config_drift': 'warn',
+};
+
 async function loadHome() {
   // Fetch in parallel — independent endpoints. If any fail we still
   // render the rest with placeholder text rather than blocking the
@@ -7611,17 +7718,28 @@ async function loadHome() {
   // got logged anywhere and the activity panel showed empty even
   // when devices were going offline. /fleet/events records every
   // fired event regardless of destinations.
-  const [devs, drift, cves, fleetEvents, mailwatch] = await Promise.all([
+  const [devs, drift, cves, fleetEvents, mailwatch, cfg] = await Promise.all([
     api('GET', '/devices').catch(() => null),
     api('GET', '/drift').catch(() => null),
     api('GET', '/cve/findings').catch(() => null),
     api('GET', '/fleet/events?limit=50').catch(() => null),
     api('GET', '/mailwatch').catch(() => null),
+    api('GET', '/config').catch(() => ({})),
   ]);
+
+  // v2.8.1: filter hidden activity events before rendering
+  let filteredEvents = fleetEvents;
+  const hiddenEvtSet = new Set((cfg || {}).dashboard_hidden_activity_events || []);
+  if (hiddenEvtSet.size && filteredEvents) {
+    const evArr = Array.isArray(filteredEvents) ? filteredEvents
+      : (filteredEvents?.events || filteredEvents?.items || []);
+    const filtered = evArr.filter(e => !hiddenEvtSet.has(e.event));
+    filteredEvents = Array.isArray(fleetEvents) ? filtered : {...fleetEvents, events: filtered};
+  }
 
   _renderHomeTiles(devs || [], drift || {}, cves || {}, mailwatch || {});
   _renderHomeAttention();
-  _renderHomeActivity(fleetEvents);
+  _renderHomeActivity(filteredEvents);
   _renderHomeFleet(devs || []);
 }
 
@@ -7638,27 +7756,39 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const online = counted.filter(d => d.online).length;
   const offline = total - online;
   let pending = 0, criticalPending = 0;
-  devs.forEach(d => {
+  // v3.0.2: iterate `counted` (monitored only), not `devs`. Pending updates
+  // tile should reflect what an operator actually needs to act on —
+  // unmonitored devices (decommissioning, broken, migration in progress)
+  // are explicitly silenced and shouldn't inflate the badge.
+  counted.forEach(d => {
     const u = (d.sysinfo && d.sysinfo.packages && d.sysinfo.packages.upgradable) || 0;
     pending += u;
     if (u >= 20) criticalPending++;
   });
   const driftDevs = (drift.devices || []);
-  const driftedFiles = driftDevs.reduce((s, d) => s + (d.drifted || 0), 0);
-  const cveFindings = cves.findings || cves.devices || [];
-  let totalCves = 0, criticalCves = 0;
-  if (Array.isArray(cveFindings)) {
-    cveFindings.forEach(f => {
-      if (f.findings) f = f.findings;
-      const arr = Array.isArray(f) ? f : [];
-      arr.forEach(c => {
-        totalCves++;
-        if ((c.severity || '').toUpperCase() === 'CRITICAL') criticalCves++;
-      });
-    });
-  }
-  // Fall back to length-of-keys if shape was different
-  if (totalCves === 0 && cves.total) totalCves = cves.total;
+  // v3.0.2: dashboard tiles only report monitored devices. Backend returns
+  // all of them (the Drift / CVE pages need the full list with explicit
+  // markers), so we filter here. Build a Set of monitored ids once.
+  const monitoredIds = new Set(counted.map(d => d.id));
+  const driftDevsMon = driftDevs.filter(d => monitoredIds.has(d.device_id));
+  const driftedFiles = driftDevsMon.reduce((s, d) => s + (d.drifted || 0), 0);
+  // CVE tile: critical count is the headline; high is the sub-label.
+  // Medium and low are shown only in the detail page — too noisy here.
+  const cveDevsMon = ((cves && cves.devices) || []).filter(d => monitoredIds.has(d.device_id));
+  // Recompute the summary from monitored devices only — backend's
+  // `cves.summary` aggregates the whole fleet.
+  const cveSummary = cveDevsMon.reduce((acc, d) => {
+    const c = d.counts || {};
+    acc.critical += c.critical || 0;
+    acc.high     += c.high     || 0;
+    acc.medium   += c.medium   || 0;
+    acc.low      += c.low      || 0;
+    return acc;
+  }, {critical: 0, high: 0, medium: 0, low: 0});
+  const criticalCves = cveSummary.critical || 0;
+  const highCves     = cveSummary.high     || 0;
+  const totalCves    = criticalCves + highCves +
+                       (cveSummary.medium || 0) + (cveSummary.low || 0);
 
   const tiles = [
     {
@@ -7673,7 +7803,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       value: pending,
       sub: criticalPending > 0
         ? `${criticalPending} device${criticalPending === 1 ? '' : 's'} with 20+ pending`
-        : pending === 0 ? 'Fleet fully patched' : 'Across all enrolled devices',
+        : pending === 0 ? 'Fleet fully patched' : 'Across monitored devices',
       cls: criticalPending > 0 ? 'warn' : pending === 0 ? 'ok' : '',
     },
     {
@@ -7681,16 +7811,18 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
       value: driftedFiles,
       sub: driftedFiles === 0
         ? 'All watched files at baseline'
-        : `${driftDevs.filter(d => d.drifted > 0).length} device${driftDevs.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
+        : `${driftDevsMon.filter(d => d.drifted > 0).length} device${driftDevsMon.filter(d => d.drifted > 0).length === 1 ? '' : 's'} affected`,
       cls: driftedFiles > 0 ? 'warn' : 'ok',
     },
     {
-      label: 'CVE findings',
-      value: totalCves,
+      label: 'Critical CVEs',
+      value: criticalCves,
       sub: criticalCves > 0
-        ? `${criticalCves} critical · click for detail`
-        : totalCves === 0 ? 'No active CVEs reported' : 'Across the fleet',
-      cls: criticalCves > 0 ? 'alert' : totalCves > 0 ? 'warn' : 'ok',
+        ? `${highCves} high · ${totalCves - criticalCves - highCves} med/low`
+        : highCves > 0
+          ? `${highCves} high · ${totalCves - highCves} med/low`
+          : totalCves > 0 ? `${totalCves} total (med/low only)` : 'No active CVEs',
+      cls: criticalCves > 0 ? 'alert' : highCves > 0 ? 'warn' : 'ok',
     },
   ];
 
@@ -7747,7 +7879,7 @@ async function _renderHomeAttention() {
     target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
       <div class="empty-state-icon">✓</div>
       <div class="empty-state-title">All clear</div>
-      <div class="empty-state-body">No offline monitored devices, no CVE
+      <div class="empty-state-body">No offline monitored devices, no critical CVE
       findings, no patch backlog, no drift, no mailbox alerts.</div>
     </div>`;
     return;
@@ -7759,19 +7891,61 @@ async function _renderHomeAttention() {
   const PAGE_FOR = {
     offline: 'devices', patches: 'patches', cve: 'cve',
     drift: 'drift', mailbox: 'devices',
+    // v3.0.1 attention audit: route new kinds to sensible pages
+    service_down:       'devices',   // device drawer shows services
+    monitor_down:       'monitor',
+    custom_script_fail: 'monitor',   // custom scripts live on Monitor page
+    backup:             'devices',
+    snapshot:           'devices',
+    brute_force:        'devices',
+    reboot:             'devices',
+    disk:               'devices',
+    tls:                'tls',
+    agent_version:      'devices',
+    // v3.0.1 iteration 3: transient critical events from fleet_events
+    log_alert:          'logs',      // jump to Logs page to see the matches
+    new_port:           'devices',   // device drawer has the port baseline
+    ssh_key:            'devices',
+    // v3.0.2: new NA kinds — surface metric thresholds (memory/swap/cpu)
+    // and container state, parallel to disk above. ACME failures route
+    // to the TLS section where the acme.sh table lives.
+    memory:             'devices',
+    swap:               'devices',
+    cpu:                'devices',
+    container:          'containers',
+    acme:               'tls',
   };
   const PILL = {critical: 'critical', warning: 'warn', info: 'info'};
   target.innerHTML = items.slice(0, 10).map(i => {
     const page = PAGE_FOR[i.kind] || 'home';
     const pill = PILL[i.severity] || 'info';
-    return `<div class="dash-feed-item" style="cursor:pointer"
-        onclick="showPage('${page}',document.querySelector('.nav-btn[onclick*=${page}]'))">
-      <div style="flex:1">
+    const key  = i._ignore_key || '';
+    const lbl  = `${i.device} — ${i.summary}`;
+    // v3.0.1: show 🩺 Investigate when server reported a mitigation_kind
+    const mitBtn = (i.mitigation_kind && i.device_id) ?
+      `<button class="btn-icon" style="font-size:12px;padding:2px 8px" title="Investigate with diagnostic + AI suggestion"
+         onclick="event.stopPropagation();openMitigateModal('${escAttr(i.device_id)}','${escAttr(i.mitigation_kind)}','${escAttr(i.mitigation_target || '')}','${escAttr(i.device)}')">🩺</button>` : '';
+    return `<div class="dash-feed-item" style="display:flex;align-items:center;gap:8px">
+      <div style="flex:1;cursor:pointer"
+           onclick="showPage('${page}',document.querySelector('.nav-btn[onclick*=${page}]'))">
         <span class="status-pill ${pill}">${escHtml(i.kind)}</span>
         <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
       </div>
+      ${mitBtn}
+      <button class="btn-icon" style="font-size:14px;padding:2px 8px;color:var(--muted)" title="Ignore this alert (review later in Settings → Ignored items)" onclick="event.stopPropagation();ignoreAttention('${escAttr(key)}','${escAttr(lbl)}')">×</button>
     </div>`;
   }).join('');
+}
+
+async function ignoreAttention(key, label) {
+  if (!key) return;
+  const r = await api('POST', '/ignored', { category: 'needs_attention', key, label });
+  if (r?.ok) {
+    toast('Hidden from Needs Attention', 'success');
+    _renderHomeAttention();
+  } else {
+    toast(r?.error || 'Failed', 'error');
+  }
 }
 
 function _renderHomeActivity(fleetEvents) {
@@ -7793,7 +7967,8 @@ function _renderHomeActivity(fleetEvents) {
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
-    'config_drift',
+    'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
+    'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -7837,34 +8012,49 @@ function _renderHomeActivity(fleetEvents) {
     </div>`;
     return;
   }
-  const EVENT_CLASS = {
-    'device_offline': 'critical', 'device_online': 'ok',
-    'monitor_down': 'critical', 'monitor_up': 'ok',
-    'service_down': 'critical', 'service_up': 'ok',
-    'cve_found': 'warn', 'patch_alert': 'warn',
-    'drift_detected': 'warn',
-    'metric_warning': 'warn', 'metric_critical': 'critical',
-    'metric_recovered': 'ok',
-    'container_stopped': 'warn', 'container_restarting': 'warn',
-    'containers_stale': 'warn',
-    'log_alert': 'warn',
-    'mailbox_threshold': 'warn',
-    'command_queued': 'info', 'command_executed': 'info',
-  };
+  // EVENT_CLASS is now module-scope (v2.9.1)
   target.innerHTML = entries.map(ev => {
     const ts = ev.ts ? timeAgo(ev.ts) : '—';
     const cls = EVENT_CLASS[ev.event] || 'info';
     const label = (ev.event || '').replace(/_/g, ' ');
     const p = ev.payload || {};
     const dev = p.device_name || p.name || p.host || '';
-    // Pick the most informative detail bit for this event class
-    let detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
-    if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
-    if (!detail && p.critical) detail = `${p.critical} critical`;
-    // v2.2.5: each activity item routes to the most relevant page or
-    // modal for that event class. Computed once per row so the
-    // onclick handler is just a string assignment. escAttr the
-    // device id / name to keep the inline-handler safe.
+    // v2.8.1: show rich detail for security and monitoring events
+    let detail = '';
+    switch (ev.event) {
+      case 'brute_force_detected':
+        if (p.source_ip && p.count) {
+          detail = `${p.count} failed attempts from ${p.source_ip} on ${p.unit || 'ssh'}`;
+        } else if (p.unit) {
+          detail = `suspicious activity on ${p.unit}`;
+        } else {
+          detail = 'failed login attempts detected';
+        }
+        break;
+      case 'ssh_key_added':
+        detail = `${p.user}: ${p.fingerprint||'new key'}`; break;
+      case 'new_port_detected':
+        detail = `${p.proto||'tcp'}/${p.port}${p.process ? ` (${p.process})` : ''}`; break;
+      case 'backup_stale':
+        detail = `"${p.label||p.path}" ${p.age_hours ? `${p.age_hours}h old` : 'missing'}`; break;
+      case 'tls_expiry':
+        detail = `${p.host}: ${p.days_left}d left`; break;
+      case 'snapshot_old':
+        detail = `${p.vm_name}: "${p.snap_name}" ${p.days_old}d old`; break;
+      case 'log_alert':
+        // Show the actual matched log line, not the pattern regex
+        detail = (p.sample && p.sample[0])
+          ? `${p.unit}: ${String(p.sample[0]).substring(0, 100)}`
+          : `${p.unit}: ${p.count || 1} match(es)`; break;
+      case 'drift_detected':
+        detail = p.path || p.unit || ''; break;
+      case 'config_drift':
+        detail = (p.sections||[]).slice(0,3).join(', '); break;
+      default:
+        detail = p.path || p.unit || p.metric || p.cve_id || p.pattern || '';
+        if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
+        if (!detail && p.critical)   detail = `${p.critical} critical`;
+    }
     const action = _homeActivityAction(ev.event, p);
     return `<div class="dash-feed-item" style="cursor:pointer" onclick="${action}" title="Click for details">
       <div style="flex:1"><span class="status-pill ${cls}">${escHtml(label)}</span> ${dev ? `<strong>${escHtml(dev)}</strong>` : ''} ${detail ? `<span style="color:var(--muted);font-size:12px">${escHtml(String(detail).substring(0,80))}</span>` : ''}</div>
@@ -7930,6 +8120,19 @@ function _homeActivityAction(event, p) {
     case 'config_drift':
       // v2.6.0: navigate to the Devices page
       return `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
+    case 'tls_expiry':
+      // v2.6.1: TLS cert expiry — navigate to the TLS monitor page
+      return `showPage('tls',document.querySelector('.nav-btn[onclick*=tls]'))`;
+    case 'reboot_required':
+      // v2.6.1: pending reboot — open device detail
+      return devId ? `openDetail('${devId}','${devName}')` : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
+    case 'snapshot_old':
+      return `showPage('virtualization',document.querySelector('.nav-btn[onclick*=virtualization]'))`;
+    case 'new_port_detected':
+    case 'ssh_key_added':
+    case 'brute_force_detected':
+    case 'backup_stale':
+      return devId ? `openDetail('${devId}','${devName}')` : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
     default:
       // Fallback: device detail if we know the device, otherwise
       // nothing happens
@@ -7980,7 +8183,8 @@ async function _renderHomeFleet(devs) {
     return `<div style="display:flex;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid var(--border)">
       <div style="flex:1;font-size:13px;display:flex;align-items:center;gap:6px">
         ${getDistroIcon(d.os)}
-        <strong>${escHtml(d.name)}</strong>
+        <a href="#" onclick="openDeviceDrawer('${d.id}','${escAttr(d.name)}','audit');return false;"
+           style="color:var(--text);text-decoration:none;font-weight:600">${escHtml(d.name)}</a>
         ${d.group ? `<span style="color:var(--muted);font-size:11px">${escHtml(d.group)}</span>` : ''}
       </div>
       <div>${renderStatusStripe(history)}</div>
@@ -8429,7 +8633,7 @@ async function refreshProxmoxNav() {
 // and decides which action endpoint the buttons hit.
 function _renderProxmoxGuest(g, kind) {
   const running = (g.status || '').toLowerCase() === 'running';
-  const statusColor = running ? 'var(--ok)'
+  const statusColor = running ? 'var(--green)'
                      : (g.status === 'paused' ? 'var(--amber)' : 'var(--muted)');
   // Resource line — only when the guest is running and reported values
   const res = [];
@@ -8627,7 +8831,7 @@ async function testProxmoxConnection() {
     const r = await api('POST', '/proxmox/test', _collectProxmoxForm());
     if (r && r.ok) {
       resultEl.textContent = '✓ ' + (r.message || 'Connected');
-      resultEl.style.color = 'var(--ok)';
+      resultEl.style.color = 'var(--green)';
     } else {
       resultEl.textContent = '✗ ' + ((r && r.message) || 'Connection failed');
       resultEl.style.color = 'var(--red)';
@@ -8955,12 +9159,37 @@ async function saveMailwatch() {
 // heartbeat or two (it does not happen instantly — the agent has to
 // receive the request on its next heartbeat, then report on the one
 // after).
-async function forcePackageScan(devId, name) {
+async function forcePackageScan(devId, name, btn) {
+  // Give immediate visual feedback on the button so the click is confirmed
+  const _origText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled    = true;
+    btn.textContent = '⏳ Sending…';
+    btn.style.cssText += ';opacity:0.7;cursor:wait';
+  }
   try {
     const r = await api('POST', `/devices/${encodeURIComponent(devId)}/scan-packages`, {});
-    toast((r && r.message) || `Package scan queued for ${name}`, 'success');
+    const ok  = r?.ok || r?.message;
+    const msg = r?.message || 'Package scan queued — fresh list within ~60s';
+    if (btn) {
+      btn.textContent    = ok ? '✓ Queued' : '✗ Failed';
+      btn.style.color    = ok ? 'var(--green)' : 'var(--red)';
+      btn.style.opacity  = '1';
+      btn.style.cursor   = 'default';
+      btn.disabled       = false;
+      setTimeout(() => { if (btn.isConnected) { btn.textContent = _origText; btn.style.color = ''; } }, 4000);
+    }
+    toast(msg, ok ? 'success' : 'error');
   } catch (e) {
-    toast('Failed: ' + (e.message || String(e)), 'error');
+    if (btn) {
+      btn.textContent    = '✗ Error';
+      btn.style.color    = 'var(--red)';
+      btn.style.opacity  = '1';
+      btn.style.cursor   = 'default';
+      btn.disabled       = false;
+      setTimeout(() => { if (btn.isConnected) { btn.textContent = _origText; btn.style.color = ''; } }, 4000);
+    }
+    toast('Scan request failed: ' + (e.message || String(e)), 'error');
   }
 }
 
@@ -9113,7 +9342,7 @@ function renderCustomScriptsPage() {
       <td style="font-size:12px;color:var(--muted)">${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '—'}</td>
       <td style="text-align:center">${statusBadge}<br>${changedAgo}</td>
       <td style="font-family:var(--font-mono);font-size:11px;max-width:260px;overflow:hidden;cursor:pointer"
-          onclick="openCsOutput(${JSON.stringify(r.script_name)},${JSON.stringify(r.device_name)},${JSON.stringify(output)})"
+          onclick="openCsOutput(${JSON.stringify(r.script_name).replace(/&/g,'&amp;').replace(/"/g,'&quot;')},${JSON.stringify(r.device_name).replace(/&/g,'&amp;').replace(/"/g,'&quot;')},${JSON.stringify(output).replace(/&/g,'&amp;').replace(/"/g,'&quot;')})"
           title="Click for full output">${outputSnippet}</td>
       <td style="font-size:11px;color:var(--muted)">${ranAt}</td>
       <td style="text-align:right;font-size:11px;color:var(--muted)">${dur}</td>
@@ -9635,4 +9864,3308 @@ async function hcFetchAllCurrent() {
     btn.disabled = false;
     btn.textContent = '⬇ Collect all current';
   }, 75000);
+}
+
+// ── v2.8.1: Listening Ports — Monitor page ───────────────────────────────────
+
+async function loadListeningPorts() {
+  const el = document.getElementById('ports-container');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px">Loading…</span>';
+  const devs = await api('GET', '/devices');
+  if (!Array.isArray(devs)) { el.textContent = 'Failed to load'; return; }
+
+  const monitored = devs.filter(d => d.monitored !== false && !d.agentless && d.online);
+  if (!monitored.length) {
+    el.textContent = 'No online monitored devices.';
+    return;
+  }
+
+  // v2.9.0: fetch sysinfo per device to get persisted listening_ports
+  const portData = await Promise.all(
+    monitored.map(d =>
+      api('GET', `/devices/${d.id}/sysinfo`)
+        .then(r => ({ id: d.id, name: d.name, ports: r?.sysinfo?.listening_ports || [] }))
+        .catch(() => ({ id: d.id, name: d.name, ports: [] }))
+    )
+  );
+
+  const rows = portData.flatMap(d =>
+    d.ports.map(p => ({ device: d.name, dev_id: d.id, proto: p.proto||'tcp', port: p.port||0, process: p.process||'' }))
+  ).sort((a,b) => a.port - b.port || a.device.localeCompare(b.device));
+
+  if (!rows.length) {
+    el.textContent = 'No listening port data yet — agent reports ports with sysinfo (every ~10 min).';
+    return;
+  }
+
+  // Group by port for fleet-wide view
+  const byPort = {};
+  for (const r of rows) {
+    const key = `${r.proto}/${r.port}`;
+    if (!byPort[key]) byPort[key] = { proto: r.proto, port: r.port, hosts: [] };
+    byPort[key].hosts.push({ device: r.device, process: r.process });
+  }
+
+  const sorted = Object.values(byPort).sort((a,b) => a.port - b.port);
+  const visible = sorted.slice(0, 10);
+  const hidden  = sorted.slice(10);
+  el.innerHTML = `
+    <div class="table-card">
+      <table>
+        <thead><tr>
+          <th>Port</th><th>Process</th><th>Devices</th>
+        </tr></thead>
+        <tbody id="ports-table-body">
+          ${visible.map(e => {
+            const procs = [...new Set(e.hosts.map(h => h.process).filter(Boolean))];
+            const devLinks = e.hosts.map(h =>
+              `<span class="cmd-badge" title="${escHtml(h.device)}">${escHtml(h.device)}</span>`
+            ).join(' ');
+            return `<tr>
+              <td><code style="font-size:12px">${escHtml(e.proto)}/${e.port}</code></td>
+              <td style="color:var(--muted);font-size:12px">${escHtml(procs.join(', ') || '—')}</td>
+              <td style="font-size:12px">${devLinks}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>` +
+    (hidden.length ? `<button class="btn-secondary" style="margin-top:8px;font-size:12px"
+       onclick="expandPortsTable(${JSON.stringify(hidden).replace(/&/g, '&amp;').replace(/"/g, '&quot;')})">Show ${hidden.length} more ports</button>` : '');
+}
+
+
+// ── v2.8.1: Settings → Dashboard personalisation ─────────────────────────────
+
+// Attention kinds — each toggle suppresses the kind from Needs Attention
+// AND its linked events from Recent Activity (one toggle, two effects).
+const ATTENTION_KINDS = [
+  // ── Operational alerts ────────────────────────────────────────────
+  ['offline',      'Device offline',          ['device_offline']],
+  ['patches',      'Pending patches',         ['patch_alert']],
+  ['cve',          'CVE findings',            ['cve_found']],
+  ['service',      'Service down/up',         ['service_down', 'service_up']],
+  ['container',    'Container alerts',        ['container_stopped', 'container_restarting', 'containers_stale']],
+  ['script',       'Script failures',         ['custom_script_fail', 'custom_script_recover']],
+  ['log_alert',    'Log alerts',              ['log_alert']],
+  ['drift',        'Config drift',            ['drift_detected', 'config_drift']],
+  ['brute_force',  'Brute-force attacks',     ['brute_force_detected']],
+  ['backup',       'Stale backups',           ['backup_stale']],
+  ['tls',          'TLS/cert expiry',         ['tls_expiry']],
+  ['snapshot',     'Old snapshots',           ['snapshot_old']],
+  ['reboot',       'Pending reboot',          ['reboot_required']],
+  ['new_port',     'New listening ports',     ['new_port_detected']],
+  ['ssh_key',      'SSH key changes',         ['ssh_key_added']],
+  // ── Informational ─────────────────────────────────────────────────
+  ['metric',       'Metric alerts',           ['metric_warning', 'metric_critical', 'metric_recovered']],
+  ['mailbox',      'Mailbox threshold',       ['mailbox_threshold']],
+  ['disk',         'Disk space',              []],
+  ['agent_version','Stale agent version',     []],
+];
+
+// Activity-only events — informational/audit events not covered by attention kinds above.
+// Critical operational events are controlled through the Needs Attention toggles above.
+const ACTIVITY_EVENTS = [
+  ['device_online',    'Device came online'],
+  ['command_queued',   'Command queued'],
+  ['command_executed', 'Command executed'],
+];
+
+async function loadDashboardSettings() {
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+
+  const hiddenAttn = new Set(cfg.dashboard_hidden_attention_kinds || []);
+  const hiddenAct  = new Set(cfg.dashboard_hidden_activity_events || []);
+
+  // Brute force settings
+  const bfEnabled   = cfg.brute_force_enabled !== false;
+  const bfThreshold = cfg.brute_force_threshold || 20;
+  const bfWindow    = Math.round((cfg.brute_force_window_seconds || 300) / 60);
+
+  document.getElementById('dash-bf-enabled').checked  = bfEnabled;
+  document.getElementById('dash-bf-threshold').value  = bfThreshold;
+  document.getElementById('dash-bf-window').value     = bfWindow;
+
+  // Attention kind toggles — each also controls its linked activity events
+  const attnEl = document.getElementById('dash-attn-kinds');
+  if (attnEl) attnEl.innerHTML = ATTENTION_KINDS.map(([kind, label]) =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+       <input type="checkbox" ${hiddenAttn.has(kind) ? '' : 'checked'}
+              onchange="dashToggleAttn('${kind}',this.checked)">
+       <span>${escHtml(label)}</span>
+     </label>`
+  ).join('');
+
+  // Activity event toggles (informational-only events)
+  const actEl = document.getElementById('dash-act-events');
+  if (actEl) actEl.innerHTML = ACTIVITY_EVENTS.map(([ev, label]) =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+       <input type="checkbox" ${hiddenAct.has(ev) ? '' : 'checked'}
+              onchange="dashToggleAct('${ev}',this.checked)">
+       <span>${escHtml(label)}</span>
+     </label>`
+  ).join('');
+
+  // Backup monitors
+  renderBackupMonitors(cfg.backup_monitors || []);
+}
+
+let _dashHiddenAttn = null;
+let _dashHiddenAct  = null;
+
+async function _initDashSets() {
+  if (_dashHiddenAttn !== null) return;
+  const cfg = await api('GET', '/config') || {};
+  _dashHiddenAttn = new Set(cfg.dashboard_hidden_attention_kinds || []);
+  _dashHiddenAct  = new Set(cfg.dashboard_hidden_activity_events  || []);
+}
+
+async function dashToggleAttn(kind, show) {
+  await _initDashSets();
+  if (show) _dashHiddenAttn.delete(kind); else _dashHiddenAttn.add(kind);
+  // Also suppress/restore the linked activity events for this kind
+  const entry = ATTENTION_KINDS.find(([k]) => k === kind);
+  const linked = entry ? entry[2] : [];
+  for (const ev of linked) {
+    if (show) _dashHiddenAct.delete(ev); else _dashHiddenAct.add(ev);
+  }
+  await api('POST', '/config', {
+    dashboard_hidden_attention_kinds:  [..._dashHiddenAttn],
+    dashboard_hidden_activity_events:  [..._dashHiddenAct],
+  });
+}
+async function dashToggleAct(ev, show) {
+  await _initDashSets();
+  if (show) _dashHiddenAct.delete(ev); else _dashHiddenAct.add(ev);
+  await api('POST', '/config', {dashboard_hidden_activity_events: [..._dashHiddenAct]});
+}
+
+async function saveBruteForceSettings() {
+  const enabled   = document.getElementById('dash-bf-enabled').checked;
+  const threshold = parseInt(document.getElementById('dash-bf-threshold').value, 10);
+  const windowMin = parseInt(document.getElementById('dash-bf-window').value, 10);
+  const r = await api('POST', '/config', {
+    brute_force_enabled:        enabled,
+    brute_force_threshold:      threshold,
+    brute_force_window_seconds: windowMin * 60,
+  });
+  if (r?.ok) toast('Brute-force settings saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Backup monitors CRUD ──────────────────────────────────────────────────────
+
+let _backupMonitors = [];
+
+function renderBackupMonitors(monitors) {
+  _backupMonitors = monitors || [];
+  const el = document.getElementById('backup-monitors-list');
+  if (!el) return;
+  if (!_backupMonitors.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No backup monitors configured.</div>';
+    return;
+  }
+  el.innerHTML = _backupMonitors.map((m, i) => `
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1;font-size:13px"><code>${escHtml(m.path)}</code></span>
+      <span style="color:var(--muted);font-size:12px">${escHtml(m.label||m.path)}</span>
+      <span class="cmd-badge">${m.max_age_hours}h</span>
+      <button class="btn-icon" style="color:var(--red)" onclick="removeBackupMonitor(${i})">✕</button>
+    </div>`).join('');
+}
+
+async function addBackupMonitor() {
+  const path  = document.getElementById('bm-path').value.trim();
+  const label = document.getElementById('bm-label').value.trim();
+  const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
+  if (!path) { toast('Path required', 'error'); return; }
+  _backupMonitors.push({path, label: label || path, max_age_hours: hours});
+  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
+  if (r?.ok) {
+    toast('Backup monitor added', 'success');
+    document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
+    renderBackupMonitors(_backupMonitors);
+  } else toast(r?.error || 'Failed', 'error');
+}
+
+async function removeBackupMonitor(idx) {
+  _backupMonitors.splice(idx, 1);
+  const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
+  if (r?.ok) { renderBackupMonitors(_backupMonitors); toast('Removed', 'info'); }
+  else toast('Failed', 'error');
+}
+
+// ══ v2.9.0: Device Drawer ═════════════════════════════════════════════════════
+// Full-screen drawer replacing detail-modal + ⋮ dropdown.
+// Tabs: "Actions & Settings" and "Audit".
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _drawerDeviceId   = null;
+let _drawerDeviceName = null;
+let _drawerDeviceData = null;          // cached device object from /api/devices
+let _drawerAuditLoaded = {};           // which audit sections have been fetched
+
+// ── Open / close ──────────────────────────────────────────────────────────────
+
+async function openDeviceDrawer(id, name, defaultTab = 'actions') {
+  _drawerDeviceId   = id;
+  _drawerDeviceName = name;
+  _drawerAuditLoaded = {};
+
+  document.getElementById('drawer-device-name').textContent = name;
+  document.getElementById('drawer-device-sub').textContent  = 'Loading…';
+
+  const drawer = document.getElementById('device-drawer');
+  drawer.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  // Fetch device data for status badge + settings form
+  try {
+    const devs = await api('GET', '/devices');
+    _drawerDeviceData = (devs || []).find(d => d.id === id) || {};
+    const online = _drawerDeviceData.online;
+    const status = online ? '● Online' : '○ Offline';
+    const color  = online ? 'var(--green)' : 'var(--red)';
+    document.getElementById('drawer-device-sub').innerHTML =
+      `<span style="color:${color}">${status}</span>` +
+      (_drawerDeviceData.group ? ` · ${escHtml(_drawerDeviceData.group)}` : '');
+  } catch(e) {
+    _drawerDeviceData = {};
+    document.getElementById('drawer-device-sub').textContent = '';
+  }
+
+  _renderDrawerActions();
+  _renderDrawerSettings();
+  switchDrawerTab(defaultTab);
+}
+
+function closeDeviceDrawer() {
+  const drawer = document.getElementById('device-drawer');
+  drawer.classList.remove('open');
+  document.body.style.overflow = '';
+  _drawerDeviceId   = null;
+  _drawerDeviceName = null;
+  _drawerAuditLoaded = {};
+}
+
+// Close on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && _drawerDeviceId) closeDeviceDrawer();
+});
+
+function switchDrawerTab(tab) {
+  ['actions', 'audit'].forEach(t => {
+    document.getElementById(`drawer-tab-panel-${t}` ) // handled via id below
+    document.getElementById(`drawer-tab-${t}`)?.style &&
+      (document.getElementById(`drawer-tab-${t}`).style.display = t === tab ? '' : 'none');
+    document.getElementById(`drawer-tab-btn-${t}`)?.classList.toggle('active', t === tab);
+  });
+  if (tab === 'audit' && _drawerDeviceId) _renderDrawerAuditSections();
+}
+
+// ── Actions tab ───────────────────────────────────────────────────────────────
+
+function _renderDrawerActions() {
+  const id   = _drawerDeviceId;
+  const name = _drawerDeviceName;
+  const d    = _drawerDeviceData || {};
+  const agentless = d.agentless;
+
+  // Icon, label, onclick, danger flag
+  const actions = [
+    ['💻', 'Run command',       `closeDeviceDrawer();openExecModal('${id}','${escAttr(name)}')`,              false, agentless],
+    ['🔄', 'Reboot',           `rebootTarget='${id}';closeDeviceDrawer();openModal('reboot-modal');document.getElementById('reboot-name').textContent='${escAttr(name)}'`,   false, agentless],
+    ['⏻',  'Shut down',        `shutdownTarget='${id}';closeDeviceDrawer();openModal('shutdown-modal');document.getElementById('shutdown-name').textContent='${escAttr(name)}'`, false, agentless],
+    ['📡', 'Wake on LAN',      `_wolWithMacCheck('${id}','${escAttr(name)}',this)`,                                false, false],
+    ['📦', 'Upgrade packages', `closeDeviceDrawer();upgradePackages('${id}','${escAttr(name)}')`,             false, agentless],
+    ['🔍', 'Scan packages',    `forcePackageScan('${id}','${escAttr(name)}',this)`,                          false, agentless],
+    ['🖥',  'Web terminal',    `closeDeviceDrawer();openWebTerm('${id}','${escAttr(name)}')`,                 false, agentless],
+    ['📜', 'Run script',       `closeDeviceDrawer();openScriptRunForDevice('${id}','${escAttr(name)}')`,      false, agentless],
+    ['🔧', 'Update agent',     `closeDeviceDrawer();sendUpdate('${id}','${escAttr(name)}')`,                  false, agentless],
+    ['⚡', 'Force-upgrade',    `closeDeviceDrawer();forceAgentUpgrade('${id}','${escAttr(name)}')`,           true,  agentless],
+    ['🐳', 'Docker compose',   `closeDeviceDrawer();openComposeModal('${id}','${escAttr(name)}')`,            false, agentless],
+    ['⚙',  'Host config',     `closeDeviceDrawer();openHostConfigModal('${id}','${escAttr(name)}')`,         false, agentless],
+    ['✨', 'AI Investigate',   `aiInvestigateDevice('${id}','${escAttr(name)}')`,                             false, false],
+    ['📋', 'CMDB',             `closeDeviceDrawer();cmdbOpenAsset('${id}')`,                                  false, false],
+    ['📖', 'Runbook',          `closeDeviceDrawer();aiViewRunbook('${id}','${escAttr(name)}')`,               false, false],
+    ['🔧', 'Maintenance',      `closeDeviceDrawer();openNewMaintModal()`,                                     false, false],
+    ['⏱',  'Adjust poll',     `_drawerAdjustPoll()`,                                                         false, agentless],
+    ['🗑',  'Remove device',   `closeDeviceDrawer();deleteDevice('${id}','${escAttr(name)}')`,                true,  false],
+  ];
+
+  document.getElementById('drawer-actions-grid').innerHTML = actions
+    .filter(([,,,, hidden]) => !hidden)
+    .map(([icon, label, onclick, danger]) =>
+      `<button class="drawer-action-btn${danger ? ' danger' : ''}" onclick="${onclick}">
+        <span style="font-size:15px">${icon}</span>
+        <span>${escHtml(label)}</span>
+      </button>`
+    ).join('');
+}
+
+async function _drawerAdjustPoll() {
+  const d = _drawerDeviceData || {};
+  const cur = d.poll_interval || 60;
+  const val = prompt(`Poll interval for ${_drawerDeviceName} (seconds, min 30):`, cur);
+  if (!val) return;
+  const n = parseInt(val, 10);
+  if (isNaN(n) || n < 30) { toast('Must be ≥ 30 seconds', 'error'); return; }
+  const r = await api('POST', `/devices/${_drawerDeviceId}`, {poll_interval: n});
+  if (r?.ok) { toast('Poll interval updated', 'success'); if (_drawerDeviceData) _drawerDeviceData.poll_interval = n; }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ── Settings tab (form) ───────────────────────────────────────────────────────
+
+function _renderDrawerSettings() {
+  const d    = _drawerDeviceData || {};
+  const id   = _drawerDeviceId;
+
+  const watched   = (d.watched_services || []).join(', ');
+  const driftList = (d.watched_files    || []).join('\n');
+  const allowList = (d.cmd_allowlist    || []).join('\n');
+  const logRules  = (d.log_watch        || []).map(r =>
+    `${r.unit || '*'} : ${r.pattern}`).join('\n');
+
+  document.getElementById('drawer-settings-form').innerHTML = `
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Group</span>
+      <input class="form-input" id="ds-group" value="${escAttr(d.group||'')}" style="flex:1;padding:5px 8px;font-size:12px">
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Tags</span>
+      <input class="form-input" id="ds-tags" value="${escAttr((d.tags||[]).join(', '))}" placeholder="prod, web, linux" style="flex:1;padding:5px 8px;font-size:12px">
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Icon</span>
+      <input class="form-input" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="🖥" style="width:70px;padding:5px 8px;font-size:16px;text-align:center">
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Monitored</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="ds-monitored" ${d.monitored !== false ? 'checked' : ''}>
+        <span style="font-size:12px">Active monitoring</span>
+      </label>
+    </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Poll interval</span>
+      <input class="form-input" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30" style="width:80px;padding:5px 8px;font-size:12px">
+      <span style="font-size:12px;color:var(--muted)">seconds</span>
+    </div>
+    <div class="drawer-setting-row" style="align-items:flex-start">
+      <span class="drawer-setting-label" style="padding-top:4px">Watched services</span>
+      <input class="form-input" id="ds-services" value="${escAttr(watched)}" placeholder="nginx, sshd, postfix" style="flex:1;padding:5px 8px;font-size:12px">
+    </div>
+    <div class="drawer-setting-row" style="align-items:flex-start">
+      <span class="drawer-setting-label" style="padding-top:4px">Log watch rules</span>
+      <textarea class="form-input" id="ds-logrules" rows="3" placeholder="sshd : Failed password\nnginx : 5[0-9][0-9]" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(logRules)}</textarea>
+    </div>
+    <div class="drawer-setting-row" style="align-items:flex-start">
+      <span class="drawer-setting-label" style="padding-top:4px">Drift watch files</span>
+      <textarea class="form-input" id="ds-drift" rows="3" placeholder="/etc/nginx/nginx.conf\n/etc/hosts" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(driftList)}</textarea>
+    </div>
+    <div class="drawer-setting-row" style="align-items:flex-start">
+      <span class="drawer-setting-label" style="padding-top:4px">Command allowlist</span>
+      <textarea class="form-input" id="ds-allowlist" rows="3" placeholder="systemctl status *\nnginx -t" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(allowList)}</textarea>
+    </div>
+    <div style="padding:12px 0 4px;display:flex;gap:8px">
+      <button class="btn-primary" style="font-size:12px;padding:6px 16px" onclick="_drawerSaveSettings()">Save settings</button>
+    </div>`;
+}
+
+async function _drawerSaveSettings() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+
+  const group    = document.getElementById('ds-group')?.value.trim() || '';
+  const tagsRaw  = document.getElementById('ds-tags')?.value  || '';
+  const icon     = document.getElementById('ds-icon')?.value.trim() || '';
+  const monitored= document.getElementById('ds-monitored')?.checked;
+  const poll     = parseInt(document.getElementById('ds-poll')?.value || '60', 10);
+  const svcRaw   = document.getElementById('ds-services')?.value || '';
+  const logRaw   = document.getElementById('ds-logrules')?.value || '';
+  const driftRaw = document.getElementById('ds-drift')?.value || '';
+  const allowRaw = document.getElementById('ds-allowlist')?.value || '';
+
+  const tags     = tagsRaw.split(',').map(s=>s.trim()).filter(Boolean);
+  const services = svcRaw.split(',').map(s=>s.trim()).filter(Boolean);
+  const driftFiles = driftRaw.split('\n').map(s=>s.trim()).filter(s=>s.startsWith('/'));
+  const allowlist  = allowRaw.split('\n').map(s=>s.trim()).filter(Boolean);
+
+  // Parse log rules: "unit : pattern" per line
+  const logWatch = logRaw.split('\n').map(l => {
+    const [unit, ...rest] = l.split(':');
+    return unit && rest.length ? {unit: unit.trim(), pattern: rest.join(':').trim()} : null;
+  }).filter(Boolean);
+
+  const body = {
+    group, tags, icon, monitored,
+    poll_interval: Math.max(30, poll),
+    watched_services: services,
+    log_watch: logWatch,
+    watched_files: driftFiles,
+    cmd_allowlist: allowlist,
+  };
+
+  const r = await api('POST', `/devices/${id}`, body);
+  if (r?.ok) toast('Settings saved', 'success');
+  else toast(r?.error || 'Failed to save', 'error');
+}
+
+// ── Audit tab ─────────────────────────────────────────────────────────────────
+
+const _AUDIT_SECTIONS = [
+  {key: 'sysinfo',   title: 'System Info',      icon: '🖥'},
+  {key: 'ports',     title: 'Listening Ports',  icon: '🔌'},
+  {key: 'packages',  title: 'Packages',         icon: '📦'},
+  {key: 'logs',      title: 'Logs',             icon: '📄'},
+  {key: 'commands',  title: 'Command History',  icon: '💻'},
+  {key: 'events',    title: 'Fleet Events',     icon: '📡'},
+  {key: 'drift',     title: 'Drift State',      icon: '⚖'},
+  {key: 'cve',       title: 'CVE Summary',      icon: '🛡'},
+  {key: 'containers',title: 'Containers',       icon: '🐳'},
+  {key: 'metrics',   title: 'Metrics',          icon: '📊'},
+  {key: 'hostcfg',   title: 'Host Config',      icon: '⚙'},
+];
+
+function _renderDrawerAuditSections() {
+  const el = document.getElementById('drawer-audit-sections');
+  if (!el || el.dataset.rendered === _drawerDeviceId) return;
+  el.dataset.rendered = _drawerDeviceId;
+
+  el.innerHTML = _AUDIT_SECTIONS.map(s =>
+    `<details class="audit-section" id="audit-sec-${s.key}" onToggle="_onAuditToggle('${s.key}', this)">
+      <summary>
+        <span>${s.icon} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
+      </summary>
+      <div class="audit-section-body" id="audit-body-${s.key}">
+        <div style="color:var(--muted)">Click to load…</div>
+      </div>
+    </details>`
+  ).join('');
+}
+
+function _onAuditToggle(key, el) {
+  if (!el.open) return;
+  if (_drawerAuditLoaded[key]) return;   // already loaded
+  _drawerAuditLoaded[key] = true;
+  _loadAuditSection(key);
+}
+
+async function _loadAuditSection(key) {
+  const id   = _drawerDeviceId;
+  const body = document.getElementById(`audit-body-${key}`);
+  const badge= document.getElementById(`audit-badge-${key}`);
+  if (!body || !id) return;
+  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+
+  try {
+    switch (key) {
+
+      case 'sysinfo': {
+        const data = await api('GET', `/devices/${id}/sysinfo`);
+        const si   = data?.sysinfo || {};
+        const jrnl = data?.journal || [];
+        if (!si.uptime && !jrnl.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No sysinfo yet — agent reports every ~10 min.</div>';
+          return;
+        }
+        let h = '';
+        const pills = [
+          ['Uptime',    si.uptime],
+          ['Platform',  si.platform],
+          ['CPU count', si.cpu_count],
+          ['Load avg',  si.loadavg],
+          ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
+        ];
+        h += `<div class="sysinfo-row" style="margin-bottom:10px">` +
+          pills.filter(([,v])=>v!=null).map(([l,v])=>
+            `<div class="sysinfo-pill"><div class="label">${l}</div><div class="value">${escHtml(String(v))}</div></div>`
+          ).join('') + `</div>`;
+        if ((si.network||[]).length) {
+          h += `<div style="margin-bottom:8px">` +
+            si.network.map(n=>
+              `<span class="cmd-badge" style="font-size:11px">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
+            ).join('') + `</div>`;
+        }
+        if ((si.mounts||[]).length) {
+          h += `<table style="font-size:11.5px;width:100%;border-collapse:collapse">
+            <thead><tr style="color:var(--muted)"><th style="text-align:left;padding:3px 6px">Mount</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
+            <tbody>` + si.mounts.map(m=>
+              `<tr><td style="padding:3px 6px"><code>${escHtml(m.path)}</code></td>
+                   <td style="text-align:center">${m.used_gb}GB</td>
+                   <td style="text-align:center">${m.total_gb}GB</td>
+                   <td style="text-align:center;color:${m.percent>85?'var(--red)':m.percent>70?'var(--amber)':'inherit'}">${m.percent}%</td></tr>`
+            ).join('') + `</tbody></table>`;
+        }
+        if (jrnl.length) {
+          h += `<div style="font-size:11px;color:var(--muted);margin:10px 0 4px">Journal — last ${jrnl.length} lines</div>
+                <div class="journal-wrap" style="max-height:200px">${escHtml(jrnl.join('\n'))}</div>`;
+        }
+        body.innerHTML = h;
+        badge.textContent = si.uptime || '';
+        // AI investigate buttons
+        if (jrnl.length) {
+          const aiDiv = document.createElement('div');
+          aiDiv.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
+          aiDiv.innerHTML = `
+            <button class="btn-secondary" style="font-size:12px"
+              onclick="aiFindProblemInJournal('${escAttr(id)}', document.querySelector('.journal-wrap')?.textContent?.split('\\n') || [])">
+              ✨ Find the problem
+            </button>
+            <button class="btn-secondary" style="font-size:12px"
+              onclick="aiInvestigateDevice('${escAttr(id)}','${escAttr(name)}')">
+              ✨ Full investigation
+            </button>`;
+          body.appendChild(aiDiv);
+        }
+        break;
+      }
+
+      case 'ports': {
+        const data = await api('GET', `/devices/${id}/sysinfo`);
+        const ports = data?.sysinfo?.listening_ports || [];
+        if (!ports.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No port data yet. Agent reports ports with sysinfo (~10 min).</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        body.innerHTML = `
+          <input class="audit-filter" placeholder="Filter ports…" oninput="_filterPorts(this, '${id}')">
+          <table class="ports-table" id="ports-tbl-${id}" style="width:100%;border-collapse:collapse">
+            <thead><tr style="color:var(--muted);text-align:left">
+              <th>Proto</th><th>Port</th><th>Process</th>
+            </tr></thead>
+            <tbody id="ports-body-${id}">
+              ${ports.sort((a,b)=>a.port-b.port).map(p=>
+                `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''}`)}">
+                  <td><code>${escHtml(p.proto)}</code></td>
+                  <td><strong>${p.port}</strong></td>
+                  <td style="color:var(--muted)">${escHtml(p.process||'—')}</td>
+                </tr>`
+              ).join('')}
+            </tbody>
+          </table>`;
+        badge.textContent = `${ports.length} ports`;
+        break;
+      }
+
+      case 'packages': {
+        const data = await api('GET', `/devices/${id}/sysinfo`);
+        const pkg  = data?.sysinfo?.packages || {};
+        const upg  = pkg.upgradable ?? '?';
+        body.innerHTML = `
+          <div class="sysinfo-row" style="margin-bottom:10px">
+            <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
+            <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${upg>0?'var(--amber)':'var(--green)'}">${upg}</div></div>
+            <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgo(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
+          </div>
+          <button class="btn-secondary" style="font-size:12px" onclick="forcePackageScan('${id}','${escAttr(_drawerDeviceName)}',this)">⟳ Scan now</button>`;
+        badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
+        break;
+      }
+
+      case 'logs': {
+        const devs = await api('GET', '/devices');
+        const dev  = (devs||[]).find(d=>d.id===id) || {};
+        const units= Object.keys(dev.journal_units || {});
+        if (!units.length) {
+          // try fetching from sysinfo endpoint as fallback
+          const data = await api('GET', `/devices/${id}/sysinfo`);
+          const jrnl = data?.journal || [];
+          if (!jrnl.length) {
+            body.innerHTML = '<div style="color:var(--muted)">No log data yet.</div>';
+            return;
+          }
+          body.innerHTML = `<div class="journal-wrap" style="max-height:300px">${escHtml(jrnl.join('\n'))}</div>`;
+          badge.textContent = `${jrnl.length} lines`;
+          return;
+        }
+        // Fetch all unit logs and let user filter
+        const logData = await api('GET', `/logs?device_id=${encodeURIComponent(id)}&limit=100`);
+        const entries = logData?.entries || logData?.logs || [];
+        badge.textContent = `${entries.length} entries`;
+        body.innerHTML = `
+          <input class="audit-filter" id="log-filter-${id}" placeholder="Filter by unit or text…"
+                 oninput="_filterLogs('${id}')">
+          <div id="log-lines-${id}" style="max-height:320px;overflow-y:auto">
+            ${entries.length
+              ? entries.map(e=>
+                  `<div class="log-line" data-unit="${escAttr(e.unit||'')}" data-line="${escAttr(e.line||e.msg||'')}">
+                    <span class="log-unit-badge">${escHtml(e.unit||'—')}</span>
+                    <span class="journal-wrap" style="font-size:11px">${escHtml(e.line||e.msg||'')}</span>
+                  </div>`
+                ).join('')
+              : '<div style="color:var(--muted)">No log entries.</div>'}
+          </div>`;
+        break;
+      }
+
+      case 'commands': {
+        const data = await api('GET', `/devices/${id}/output`);
+        const outputs = (data?.outputs || []).slice().reverse();
+        if (!outputs.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No commands run yet.</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        // Show last 5 by default (v2.9.0: collapsed, expand button)
+        const recent = outputs.slice(0, 5);
+        const older  = outputs.slice(5);
+        const renderCmds = (cmds) => cmds.map((o, i) => {
+          const rc    = o.rc ?? o.exit_code ?? '?';
+          const ts    = o.ts ? new Date(o.ts*1000).toLocaleString() : '';
+          const outTxt= o.output || o.stdout || '(no output)';
+          return `<div class="audit-cmd-entry" id="cmd-entry-${id}-${i}">
+            <div class="audit-cmd-summary" onclick="toggleAuditCmd('${id}',${i})">
+              <code style="flex:1;font-size:11.5px;color:var(--accent);overflow:hidden;text-overflow:ellipsis">${escHtml(o.cmd||'?')}</code>
+              <span style="font-size:10px;color:var(--muted);white-space:nowrap;margin-left:8px">rc=${rc} · ${ts}</span>
+              <span style="font-size:11px;color:var(--muted);margin-left:6px">▶</span>
+            </div>
+            <div class="audit-cmd-output">${escHtml(outTxt)}</div>
+          </div>`;
+        }).join('');
+        body.innerHTML = renderCmds(recent) +
+          (older.length
+            ? `<div id="older-cmds-${id}" style="display:none">${renderCmds(older)}</div>
+               <button class="btn-secondary" style="font-size:11px;margin-top:6px" onclick="_showOlderCmds('${id}')">Show ${older.length} older commands</button>`
+            : '');
+        badge.textContent = `${outputs.length} commands`;
+        break;
+      }
+
+      case 'events': {
+        const data = await api('GET', `/fleet/events?device_id=${encodeURIComponent(id)}&limit=30`);
+        const evs  = Array.isArray(data) ? data : (data?.events || data?.items || []);
+        if (!evs.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No fleet events for this device.</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        badge.textContent = `${evs.length}`;
+        body.innerHTML = evs.slice(0,30).map(ev => {
+          const p = ev.payload || {};
+          const cls = EVENT_CLASS[ev.event] || 'info';
+          return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span class="activity-dot ${cls}"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px">${escHtml((ev.event||'').replace(/_/g,' '))}</div>
+              <div style="font-size:11px;color:var(--muted)">${ev.ts ? timeAgo(ev.ts) : ''}</div>
+            </div>
+          </div>`;
+        }).join('');
+        break;
+      }
+
+      case 'drift': {
+        const data = await api('GET', '/drift');
+        const devDrift = (data?.drifts || data || []).find?.(d=>d.device_id===id)
+                      || (typeof data==='object' && data[id]) || null;
+        if (!devDrift) {
+          body.innerHTML = '<div style="color:var(--muted)">No drift state for this device.</div>';
+          badge.textContent = 'clean';
+          return;
+        }
+        const drifted = devDrift.drifted || devDrift.files || [];
+        badge.textContent = drifted.length ? `${drifted.length} changed` : 'clean';
+        body.innerHTML = !drifted.length
+          ? '<div style="color:var(--green)">All watched files at baseline.</div>'
+          : drifted.map(f =>
+              `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+                <code style="color:var(--amber)">${escHtml(f.path||f)}</code>
+                ${f.changed_at ? `<span style="color:var(--muted);font-size:11px"> · ${timeAgo(f.changed_at)}</span>` : ''}
+               </div>`
+            ).join('');
+        break;
+      }
+
+      case 'cve': {
+        // Use the per-device endpoint which returns the full findings list
+        const data = await api('GET', `/devices/${id}/cve`);
+        if (!data || data.error) {
+          // Fallback: try fleet summary
+          const fleet = await api('GET', '/cve/findings');
+          const devCve = (fleet?.devices || []).find(d => d.device_id === id);
+          if (!devCve) {
+            body.innerHTML = '<div style="color:var(--muted)">No CVE data for this device yet.</div>';
+            badge.textContent = 'none'; return;
+          }
+          const c = devCve.counts || {};
+          badge.textContent = c.critical > 0 ? `${c.critical} critical` : c.high > 0 ? `${c.high} high` : 'clean';
+          body.innerHTML = `<div class="sysinfo-row">` +
+            ['critical','high','medium','low'].map(s =>
+              `<div class="sysinfo-pill"><div class="label">${s}</div>
+               <div class="value" style="color:${s==='critical'?'var(--red)':s==='high'?'var(--amber)':'inherit'}">${c[s]||0}</div></div>`
+            ).join('') + '</div>';
+          break;
+        }
+        const findings = data.findings || [];
+        // Group by severity — correct accumulation
+        const bySev = {};
+        for (const f of findings) {
+          const sev = f.severity || 'unknown';
+          if (!bySev[sev]) bySev[sev] = [];
+          bySev[sev].push(f);
+        }
+        const crit = (bySev.critical||[]).length;
+        const high = (bySev.high||[]).length;
+        badge.textContent = crit > 0 ? `${crit} critical` : high > 0 ? `${high} high` : findings.length ? `${findings.length} total` : 'clean';
+        body.innerHTML = `
+          <div class="sysinfo-row" style="margin-bottom:10px">
+            ${['critical','high','medium','low'].map(sev =>
+              `<div class="sysinfo-pill">
+                <div class="label">${sev}</div>
+                <div class="value" style="color:${sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'inherit'}">${(bySev[sev]||[]).length}</div>
+              </div>`
+            ).join('')}
+          </div>` +
+          ['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
+            const col = sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'var(--muted)';
+            return `<div style="margin-bottom:6px">
+              <div style="font-size:11px;font-weight:600;color:${col};margin-bottom:3px;text-transform:uppercase">${sev}</div>
+              ${bySev[sev].slice(0,5).map(f =>
+                `<div style="font-size:11px;padding:2px 0;border-bottom:1px solid var(--border)">
+                  <code style="color:${col}">${escHtml(f.cve_id||f.vuln_id||f.id||'')}</code>
+                  <span style="color:var(--muted)"> — ${escHtml(f.package||f.pkg||'')} ${escHtml(f.version||'')}</span>
+                </div>`).join('')}
+              ${bySev[sev].length>5 ? `<div style="font-size:11px;color:var(--muted)">…and ${bySev[sev].length-5} more</div>` : ''}
+            </div>`;
+          }).join('') ||
+          '<div style="color:var(--green)">No CVEs found. 🎉</div>';
+        break;
+      }
+
+      case 'containers': {
+        // Use per-device endpoint — returns {items:[...]} matching containersOpen()
+        const data = await api('GET', `/devices/${id}/containers`);
+        const ctrs = data?.items || data?.containers || [];
+        if (!ctrs.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No container data for this device.</div>';
+          badge.textContent = 'none'; return;
+        }
+        badge.textContent = `${ctrs.length} container${ctrs.length!==1?'s':''}`;
+        body.innerHTML = `<table style="font-size:12px;width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--muted)">
+            <th style="text-align:left;padding:4px 6px">Name</th>
+            <th>Status</th><th>Image</th>
+          </tr></thead>
+          <tbody>
+            ${ctrs.map(c => {
+              const stat = (c.status || c.State || '').toLowerCase();
+              const up   = stat.includes('up ') || stat.includes('running') || stat === 'running';
+              const col  = up ? 'var(--green)' : stat.includes('exit') ? 'var(--red)' : 'var(--muted)';
+              const img  = (c.image || c.Image || '—').split(':')[0];
+              return `<tr style="border-top:1px solid var(--border)">
+                <td style="padding:4px 6px"><code>${escHtml(c.name||c.Names||'?')}</code></td>
+                <td style="text-align:center;color:${col}">${escHtml(c.status||c.State||'?')}</td>
+                <td style="text-align:center;color:var(--muted);font-size:11px">${escHtml(img)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody></table>`;
+        break;
+      }
+
+      case 'metrics': {
+        // Read from the devices list which always has fresh sysinfo metrics
+        const devs  = await api('GET', '/devices');
+        const dev   = (devs || []).find(d => d.id === id);
+        const si    = dev?.sysinfo || {};
+        const mst   = dev?.metric_state || {};
+        const rootM = (si.mounts||[]).find(m => m.path === '/');
+        const pairs = [
+          ['CPU',    si.cpu_percent,   'cpu:'],
+          ['Memory', si.mem_percent,   'memory:'],
+          ['Swap',   si.swap_percent,  'swap:'],
+          ['Load',   si.loadavg_1m,    'cpu:'],
+          ['Disk /', rootM?.percent,   'disk:/'],
+        ].filter(([,v]) => v != null && typeof v === 'number');
+        if (!pairs.length) {
+          body.innerHTML = '<div style="color:var(--muted)">No metric data yet — agent needs psutil.</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        badge.textContent = 'loaded';
+        body.innerHTML = `<div class="sysinfo-row">` +
+          pairs.map(([k, v, sk]) => {
+            const lv  = mst[sk] || 'ok';
+            const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'inherit';
+            return `<div class="sysinfo-pill">
+              <div class="label">${escHtml(k)}</div>
+              <div class="value" style="color:${col}">${v.toFixed(1)}%</div>
+            </div>`;
+          }).join('') + `</div>`;
+        break;
+      }
+
+      case 'hostcfg': {
+        const data = await api('GET', `/devices/${id}/host-config`);
+        const cfg  = data?.current || data || {};
+        if (!cfg || !Object.keys(cfg).length) {
+          body.innerHTML = '<div style="color:var(--muted)">No host config state collected yet.</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        badge.textContent = 'loaded';
+        body.innerHTML = `<pre style="font-size:11px;overflow-x:auto;white-space:pre-wrap;max-height:300px">${escHtml(JSON.stringify(cfg, null, 2))}</pre>`;
+        break;
+      }
+
+      default:
+        body.innerHTML = `<div style="color:var(--muted)">Section "${key}" not implemented.</div>`;
+    }
+  } catch(err) {
+    body.innerHTML = `<div style="color:var(--red)">Error loading: ${escHtml(String(err))}</div>`;
+    if (_drawerAuditLoaded[key]) delete _drawerAuditLoaded[key]; // allow retry
+  }
+}
+
+// ── Audit helpers ─────────────────────────────────────────────────────────────
+
+function toggleAuditCmd(id, idx) {
+  document.getElementById(`cmd-entry-${id}-${idx}`)?.classList.toggle('expanded');
+}
+
+function _showOlderCmds(id) {
+  const el = document.getElementById(`older-cmds-${id}`);
+  if (el) { el.style.display = ''; el.nextElementSibling?.remove(); }
+}
+
+function _filterPorts(input, id) {
+  const q = input.value.toLowerCase();
+  document.querySelectorAll(`#ports-body-${id} tr`).forEach(row => {
+    row.style.display = row.dataset.q?.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+function _filterLogs(id) {
+  const q = document.getElementById(`log-filter-${id}`)?.value.toLowerCase() || '';
+  document.querySelectorAll(`#log-lines-${id} .log-line`).forEach(row => {
+    const unit = (row.dataset.unit||'').toLowerCase();
+    const line = (row.dataset.line||'').toLowerCase();
+    row.style.display = (!q || unit.includes(q) || line.includes(q)) ? '' : 'none';
+  });
+}
+
+// ── Replace openDetail everywhere ─────────────────────────────────────────────
+
+
+function expandPortsTable(hidden) {
+  const tbody = document.getElementById('ports-table-body');
+  if (!tbody) return;
+  hidden.forEach(e => {
+    const procs = [...new Set(e.hosts.map(h => h.process).filter(Boolean))];
+    const devLinks = e.hosts.map(h =>
+      `<span class="cmd-badge" title="${escHtml(h.device)}">${escHtml(h.device)}</span>`
+    ).join(' ');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><code style="font-size:12px">${escHtml(e.proto)}/${e.port}</code></td>
+      <td style="color:var(--muted);font-size:12px">${escHtml(procs.join(', ') || '—')}</td>
+      <td style="font-size:12px">${devLinks}</td>`;
+    tbody.appendChild(tr);
+  });
+  // Remove expand button
+  const btn = document.querySelector('#ports-container .btn-secondary');
+  if (btn) btn.remove();
+}
+
+// ── v2.9.1 drawer helpers ─────────────────────────────────────────────────────
+
+// WoL — send magic packet; prompt for MAC only if server says none is stored
+async function _wolWithMacCheck(id, name, btn) {
+  // NOTE: do NOT closeDeviceDrawer() — the button must stay visible for feedback
+  const _origText = btn?.textContent || '📡 Wake on LAN';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+  const _wolDone = (ok, msg) => {
+    if (btn) {
+      btn.textContent = ok ? '✓ Sent' : '✗ Failed';
+      btn.style.color = ok ? 'var(--green)' : 'var(--red)';
+      btn.disabled = false;
+      setTimeout(() => { if (btn.isConnected) { btn.textContent = _origText; btn.style.color = ''; } }, 4000);
+    }
+    toast(msg, ok ? 'success' : 'error');
+    dbg(`WoL ${ok ? 'success' : 'fail'}: ${msg}`);
+  };
+  try {
+    dbg(`WoL request: device=${id} name=${name}`);
+    let data = await api('POST', '/wol', { device_id: id });
+    if (data?.ok) { _wolDone(true, `Magic packet sent to ${name} (${data.mac})`); return; }
+    const errMsg = (data?.error || '').toLowerCase();
+    if (!data || errMsg.includes('mac') || errMsg.includes('no mac')) {
+      if (btn) { btn.textContent = _origText; btn.disabled = false; }
+      const mac = prompt(
+        `No MAC address stored for ${name}.\nEnter the MAC address (e.g. AA:BB:CC:DD:EE:FF):`, '');
+      if (!mac || !mac.trim()) return;
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+      const save = await api('POST', `/devices/${id}`, { mac: mac.trim() });
+      if (!save?.ok) { _wolDone(false, save?.error || 'Failed to save MAC'); return; }
+      data = await api('POST', '/wol', { device_id: id });
+      if (data?.ok) _wolDone(true, `Magic packet sent to ${name} (${data.mac})`);
+      else _wolDone(false, data?.error || 'WoL failed after saving MAC');
+    } else {
+      _wolDone(false, data?.error || 'WoL request failed');
+    }
+  } catch (err) {
+    _wolDone(false, 'WoL error: ' + (err?.message || String(err)));
+  }
+}
+
+// Add AI "Find the problem" + "✨ Investigate" buttons to the sysinfo audit section
+// Called after sysinfo body is populated
+function _addAiButtonsToSysinfo(devId, devName, journal) {
+  const el = document.getElementById('audit-sysinfo-body');
+  if (!el) return;
+  const journalText = Array.isArray(journal) ? journal : [];
+  const btn = document.createElement('div');
+  btn.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
+  btn.innerHTML = `
+    <button class="btn-secondary" style="font-size:12px"
+      onclick="aiFindProblemInJournal('${escAttr(devName)}', document.getElementById('audit-sysinfo-body').querySelector('.journal-wrap')?.textContent?.split('\\n') || [])">
+      ✨ Find the problem
+    </button>
+    <button class="btn-secondary" style="font-size:12px"
+      onclick="aiInvestigateDevice('${escAttr(devId)}','${escAttr(devName)}')">
+      ✨ Full investigation
+    </button>`;
+  el.appendChild(btn);
+}
+
+// ── v2.9.1: Log ignore patterns ───────────────────────────────────────────────
+
+let _logIgnorePatterns = [];
+
+function _renderLogIgnoreList() {
+  const el = document.getElementById('log-ignore-list');
+  if (!el) return;
+  if (!_logIgnorePatterns.length) {
+    el.innerHTML = '<span style="color:var(--muted)">No patterns configured.</span>';
+    return;
+  }
+  el.innerHTML = _logIgnorePatterns.map((p, i) =>
+    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+       <code style="flex:1;font-size:12px">${escHtml(p)}</code>
+       <button class="btn-icon" style="color:var(--red);font-size:13px" onclick="removeLogIgnorePattern(${i})">✕</button>
+     </div>`
+  ).join('');
+}
+
+async function addLogIgnorePattern() {
+  const input = document.getElementById('log-ignore-input');
+  const pat   = (input?.value || '').trim();
+  if (!pat) return;
+  // Validate regex client-side
+  try { new RegExp(pat); } catch(e) { toast('Invalid regex: ' + e.message, 'error'); return; }
+  _logIgnorePatterns.push(pat);
+  const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
+  if (r?.ok) { toast('Pattern added', 'success'); if (input) input.value = ''; _renderLogIgnoreList(); }
+  else { _logIgnorePatterns.pop(); toast(r?.error || 'Failed', 'error'); }
+}
+
+async function removeLogIgnorePattern(idx) {
+  _logIgnorePatterns.splice(idx, 1);
+  const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
+  if (r?.ok) { _renderLogIgnoreList(); toast('Removed', 'info'); }
+  else toast('Failed', 'error');
+}
+
+// Extend loadDashboardSettings to populate log ignore patterns
+const _origLoadDashboardSettings = loadDashboardSettings;
+loadDashboardSettings = async function() {
+  await _origLoadDashboardSettings();
+  const cfg = await api('GET', '/config') || {};
+  _logIgnorePatterns = cfg.log_ignore_patterns || [];
+  _renderLogIgnoreList();
+};
+
+// CVE table button helper — stops propagation reliably then calls fn
+function _cveBtn(event, fn) {
+  event.stopPropagation();
+  event.preventDefault();
+  fn();
+}
+
+// ── v2.9.1: Global button press feedback ──────────────────────────────────────
+// Gives every button a tactile scale-down on click so the user always knows
+// their tap registered, independent of async results or toast visibility.
+document.addEventListener('click', e => {
+  const btn = e.target.closest('button:not([data-no-press])');
+  if (!btn || btn.disabled) return;
+  btn.style.transition = 'transform 0.08s ease';
+  btn.style.transform  = 'scale(0.94)';
+  setTimeout(() => {
+    btn.style.transform  = '';
+    btn.style.transition = '';
+  }, 120);
+}, { passive: true });
+
+// ── v2.9.1: Debug logging ─────────────────────────────────────────────────────
+
+async function saveDebugLogging(enabled) {
+  const r = await api('POST', '/config', { debug_logging: enabled });
+  if (r?.ok) {
+    toast(enabled ? 'Debug logging enabled — logs at /var/lib/remotepower/debug.log' : 'Debug logging disabled', 'info');
+    if (enabled) console.info('[RemotePower] Debug logging enabled. Server writes to debug.log; client logs to this console.');
+  } else toast(r?.error || 'Failed', 'error');
+}
+
+function downloadDebugLog() {
+  window.open('/api/debug-log', '_blank');
+}
+
+// Load debug logging state when Settings → Advanced is opened
+const _origSwitchSettingsTab = typeof switchSettingsTab === 'function' ? switchSettingsTab : null;
+if (_origSwitchSettingsTab) {
+  window.switchSettingsTab = function(tab) {
+    _origSwitchSettingsTab(tab);
+    if (tab === 'advanced') {
+      api('GET', '/config').then(cfg => {
+        const el = document.getElementById('debug-logging-toggle');
+        if (el && cfg) el.checked = !!cfg.debug_logging;
+      });
+    }
+  };
+}
+
+// ══ v2.9.1: Client-side debug logging ════════════════════════════════════════
+// When enabled in Settings → Advanced, all UI events (button clicks, API calls,
+// toasts, errors) are batched and posted to /api/debug-log. The server appends
+// them to /var/lib/remotepower/debug.log along with its own request log, giving
+// a single unified timeline useful for diagnosing UI bugs.
+// Enabled state lives in localStorage so it survives reloads and is read fresh
+// on every check — no stale closure captures.
+// ═════════════════════════════════════════════════════════════════════════════
+
+function _dbgIsEnabled() {
+  return localStorage.getItem('rp_debug') === '1';
+}
+
+let _dbgBuffer   = [];
+let _dbgFlushing = false;
+let _dbgFlushTimer = null;
+
+function dbg(msg, tag = 'ui') {
+  if (!msg || !_dbgIsEnabled()) return;
+  const ts = new Date().toISOString().slice(0, 19);
+  const entry = { ts, tag, msg: String(msg).slice(0, 1024) };
+  console.log(`%c[dbg]%c [${tag}] ${msg}`, 'color:#888', '');
+  _dbgBuffer.push(entry);
+  // Debounce flushes so a burst of events makes one HTTP request
+  if (_dbgFlushTimer) clearTimeout(_dbgFlushTimer);
+  _dbgFlushTimer = setTimeout(_dbgFlush, 250);
+}
+
+async function _dbgFlush() {
+  if (_dbgFlushing || !_dbgBuffer.length) return;
+  _dbgFlushing = true;
+  const batch = _dbgBuffer.splice(0, 50);
+  try {
+    // Use direct fetch with the real auth token — calling api() here would
+    // recurse infinitely (since api() is instrumented to call dbg())
+    await fetch('/api/debug-log', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Token':      (typeof getToken === 'function' ? getToken() : '')
+      },
+      body: JSON.stringify({ entries: batch }),
+    });
+  } catch (e) { /* swallow — no infinite recursion */ }
+  finally { _dbgFlushing = false; }
+}
+
+// Sync localStorage with server config on page load
+(async function _dbgInit() {
+  try {
+    const cfg = await api('GET', '/config');
+    if (cfg?.debug_logging) {
+      localStorage.setItem('rp_debug', '1');
+      console.info('%c[RemotePower] Debug logging ON — events stream to /var/lib/remotepower/debug.log',
+                   'color:#ffa726;font-weight:bold');
+      dbg('Page loaded: ' + location.pathname, 'nav');
+    } else {
+      localStorage.removeItem('rp_debug');
+    }
+  } catch(_) {}
+})();
+
+// Instrument api() — wrap it to log every request and response
+const _origApi = window.api;
+if (typeof _origApi === 'function') {
+  window.api = async function(method, path, body) {
+    const t0 = performance.now();
+    dbg(`→ ${method} ${path}` + (body ? ' body=' + JSON.stringify(body).slice(0,200) : ''), 'api');
+    try {
+      const r = await _origApi(method, path, body);
+      const dt = Math.round(performance.now() - t0);
+      const resp = JSON.stringify(r || {}).slice(0, 300);
+      dbg(`← ${method} ${path} (${dt}ms) ${resp}`, 'api');
+      return r;
+    } catch (e) {
+      dbg(`✗ ${method} ${path} threw: ${e?.message || e}`, 'api');
+      throw e;
+    }
+  };
+}
+
+// Instrument toast() — log every toast shown
+const _origToast = window.toast;
+if (typeof _origToast === 'function') {
+  window.toast = function(msg, type) {
+    dbg(`toast(${type || 'info'}): ${msg}`, 'toast');
+    return _origToast(msg, type);
+  };
+}
+
+// Catch all uncaught errors & promise rejections
+window.addEventListener('error', e => {
+  dbg(`JS error: ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`, 'error');
+});
+window.addEventListener('unhandledrejection', e => {
+  dbg(`Unhandled rejection: ${e.reason?.message || e.reason}`, 'error');
+});
+
+// Log every button click (with target text/id for traceability)
+document.addEventListener('click', e => {
+  if (!_dbgIsEnabled()) return;
+  const btn = e.target.closest('button, a.btn-primary, a.btn-secondary');
+  if (!btn) return;
+  const label = (btn.textContent || '').trim().slice(0, 40) ||
+                btn.id || btn.className || 'unknown';
+  dbg(`click: "${label}"`, 'click');
+}, true);
+
+// Replace saveDebugLogging on window so HTML onclick gets the new version that
+// updates localStorage. Must be window.X = ..., not bare assignment, because
+// the HTML attribute resolves against the global object.
+window.saveDebugLogging = async function(enabled) {
+  if (enabled) {
+    localStorage.setItem('rp_debug', '1');
+    dbg('Debug logging enabled via Settings', 'system');
+  } else {
+    dbg('Debug logging disabled via Settings', 'system');
+    // Flush remaining buffer before disabling
+    await _dbgFlush();
+    localStorage.removeItem('rp_debug');
+  }
+  const r = await api('POST', '/config', { debug_logging: enabled });
+  if (r?.ok) toast(enabled
+    ? 'Debug logging enabled — open DevTools (F12) Console + tail /var/lib/remotepower/debug.log'
+    : 'Debug logging disabled', 'info');
+  else toast(r?.error || 'Failed', 'error');
+};
+
+// ══ v3.0.0: IaC Generator ════════════════════════════════════════════════════
+// Three-step flow:
+//   1. iacGenerate() → POST /api/iac/request → request_id
+//   2. Poll /api/iac/status/<id> every 5s until ready (~60s typical)
+//   3. POST /api/iac/generate → LLM call → render code in right pane
+// ═════════════════════════════════════════════════════════════════════════════
+
+const IAC_CATEGORIES = [
+  {key:'os_identity', label:'OS & identity',                         source:'agent'},
+  {key:'packages',    label:'Installed packages',                    source:'agent'},
+  {key:'systemd',     label:'Systemd services (enabled)',            source:'agent'},
+  {key:'users',       label:'Local users (uid≥1000)',                source:'agent'},
+  {key:'groups',      label:'Groups (gid≥1000)',                     source:'agent'},
+  {key:'ssh_keys',    label:'SSH authorized_keys (redact to variables)', source:'agent'},
+  {key:'network',     label:'Network configuration',                 source:'agent'},
+  {key:'fstab',       label:'Mounts (fstab)',                        source:'agent'},
+  {key:'containers',  label:'Containers (Docker/Podman)',            source:'agent'},
+  {key:'repos',       label:'Custom repos',                          source:'agent'},
+  {key:'firewall',    label:'Firewall',                              source:'agent'},
+  {key:'cron',        label:'Cron jobs (incl. RemotePower scheduled)', source:'agent'},
+  {key:'tls',         label:'TLS certificates (paths only)',         source:'agent'},
+  {key:'env',         label:'System environment (non-default)',      source:'agent'},
+  {key:'snaps',       label:'Snaps (Ubuntu)',                        source:'agent'},
+  {key:'kmod',        label:'Kernel modules (persistent)',           source:'agent'},
+  {key:'sysctl',      label:'Sysctl parameters (non-default)',       source:'agent'},
+  {key:'remotepower', label:'RemotePower-specific (tags, group, scripts, host-config)', source:'server'},
+];
+
+let _iacLastCode      = '';
+let _iacLastFmt       = '';
+let _iacLastDev       = '';
+let _iacLastRequestId = '';   // v3.0.0: kept so user can re-run AI or download JSON later
+let _iacLastConvo     = null; // v3.0.0: full system+user+assistant for the Conversation tab
+let _iacPollTimer = null;
+
+async function loadIacPage() {
+  // Populate device dropdown
+  const devs = await api('GET', '/devices');
+  const sel  = document.getElementById('iac-device-select');
+  if (sel && Array.isArray(devs)) {
+    const stored = localStorage.getItem('rp_iac_last_device') || '';
+    sel.innerHTML = '<option value="">— select a device —</option>' +
+      devs.map(d => {
+        const status = d.online ? '● online' : '○ offline';
+        return `<option value="${escAttr(d.id)}" ${d.id===stored?'selected':''}>${escHtml(d.name)} (${status})</option>`;
+      }).join('');
+  }
+
+  // Render category checkboxes
+  // v3.0.1: default to NO categories selected. Previously all-on, which led
+  // to massive payloads on first run before the user realised they could
+  // narrow it down. Empty selection = user must pick at least one before
+  // Generate is enabled (validated in _iacRequestGenerate).
+  const storedCats = JSON.parse(localStorage.getItem('rp_iac_categories') || 'null');
+  const defaultCats = Array.isArray(storedCats) ? storedCats : [];
+  const list = document.getElementById('iac-categories');
+  if (list) {
+    list.innerHTML = IAC_CATEGORIES.map(c => `
+      <label class="iac-cat-row">
+        <input type="checkbox" value="${escAttr(c.key)}" ${defaultCats.includes(c.key)?'checked':''} onchange="_iacSavePref()">
+        <span>${escHtml(c.label)}</span>
+        <span class="hint">${c.source}</span>
+      </label>`).join('');
+  }
+
+  // Restore format
+  const fmt = localStorage.getItem('rp_iac_format') || 'terraform';
+  const fmtSel = document.getElementById('iac-format-select');
+  if (fmtSel) fmtSel.value = fmt;
+
+  // Restore custom user instructions
+  const instr = localStorage.getItem('rp_iac_instructions') || '';
+  const instrEl = document.getElementById('iac-user-instructions');
+  if (instrEl) instrEl.value = instr;
+}
+
+function _iacSelectedCategories() {
+  return Array.from(document.querySelectorAll('#iac-categories input:checked')).map(i => i.value);
+}
+
+function _iacSelectAll(on) {
+  document.querySelectorAll('#iac-categories input[type=checkbox]').forEach(i => i.checked = on);
+  _iacSavePref();
+}
+
+function _iacSavePref() {
+  localStorage.setItem('rp_iac_categories', JSON.stringify(_iacSelectedCategories()));
+  const fmt = document.getElementById('iac-format-select')?.value;
+  if (fmt) localStorage.setItem('rp_iac_format', fmt);
+  const dev = document.getElementById('iac-device-select')?.value;
+  if (dev) localStorage.setItem('rp_iac_last_device', dev);
+  const instr = document.getElementById('iac-user-instructions')?.value;
+  if (instr != null) localStorage.setItem('rp_iac_instructions', instr);
+}
+
+function _iacStatus(msg, cls='') {
+  const el = document.getElementById('iac-status');
+  if (!el) return;
+  el.style.display = msg ? '' : 'none';
+  el.className = 'iac-status ' + cls;
+  el.textContent = msg;
+}
+
+async function iacGenerate(btn, withAi) {
+  // v3.0.1: withAi=false → skip the LLM call and just download the masked
+  // JSON state as soon as the agent collects it. Useful for inspecting what
+  // gets sent (or feeding into a different tool).
+  if (withAi === undefined) withAi = true;
+  const devId = document.getElementById('iac-device-select')?.value;
+  const fmt   = document.getElementById('iac-format-select')?.value;
+  const cats  = _iacSelectedCategories();
+
+  if (!devId)       { toast('Select a device first', 'error'); return; }
+  if (!cats.length) { toast('Select at least one category', 'error'); return; }
+  if (!fmt)         { toast('Select an output format', 'error'); return; }
+
+  // Check AI is configured before going further
+  const aiCfg = await api('GET', '/ai/config').catch(() => null);
+  if (!aiCfg?.enabled) {
+    toast('AI provider not configured. Configure in Settings → AI.', 'error');
+    return;
+  }
+
+  _iacSavePref();
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Requesting collection…';
+  _iacStatus('Asking agent to collect data… (~60s on next heartbeat)');
+  document.getElementById('iac-code-output').textContent = '';
+
+  // Step 1: kick off the request
+  const req = await api('POST', '/iac/request', { device_id: devId, categories: cats });
+  if (!req?.ok || !req.request_id) {
+    btn.disabled = false; btn.textContent = origText;
+    _iacStatus(req?.error || 'Failed to start collection', 'error');
+    return;
+  }
+
+  // Step 2: poll status
+  let elapsed = 0;
+  const POLL_MS = 5000;
+  const TIMEOUT_MS = 180_000;   // 3 min
+  if (_iacPollTimer) clearInterval(_iacPollTimer);
+
+  _iacPollTimer = setInterval(async () => {
+    elapsed += POLL_MS;
+    if (elapsed > TIMEOUT_MS) {
+      clearInterval(_iacPollTimer);
+      btn.disabled = false; btn.textContent = origText;
+      _iacStatus('Timeout waiting for agent — try again', 'error');
+      return;
+    }
+    btn.textContent = `⏳ Collecting (${Math.floor(elapsed/1000)}s)…`;
+    const status = await api('GET', `/iac/status/${encodeURIComponent(req.request_id)}`);
+    if (!status) return;
+    if (status.status === 'error') {
+      clearInterval(_iacPollTimer);
+      btn.disabled = false; btn.textContent = origText;
+      _iacStatus('Collection error: ' + (status.error || 'unknown'), 'error');
+      return;
+    }
+    if (status.status === 'ready') {
+      clearInterval(_iacPollTimer);
+      _iacLastRequestId = req.request_id;
+      _iacLastDev       = devId;
+      // v3.0.1: "Gather RAW JSON" path — fetch the masked state and download
+      // it as a file. No LLM call, no token spend.
+      if (!withAi) {
+        _iacStatus('Data collected — preparing JSON download…');
+        btn.textContent = '⏳ Preparing…';
+        const payload = await api('GET', `/iac/payload/${encodeURIComponent(req.request_id)}`);
+        btn.disabled = false; btn.textContent = origText;
+        if (!payload) { _iacStatus('Failed to fetch payload', 'error'); return; }
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `iac-state-${devId}-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById('iac-json-btn').disabled  = false;
+        document.getElementById('iac-rerun-btn').disabled = false;
+        _iacStatus(`Done — JSON downloaded (${(JSON.stringify(payload).length/1024).toFixed(1)} KB). Click "↻ Re-run AI" to feed this same data to the LLM.`, 'done');
+        return;
+      }
+      _iacStatus('Data collected — calling AI provider…');
+      btn.textContent = '⏳ Generating…';
+      // Step 3: generate
+      const instr = document.getElementById('iac-user-instructions')?.value || '';
+      const gen = await api('POST', '/iac/generate', {
+        request_id:        req.request_id,
+        output_format:     fmt,
+        categories:        cats,
+        user_instructions: instr,
+      });
+      btn.disabled = false; btn.textContent = origText;
+      if (!gen?.ok) {
+        _iacStatus(gen?.error || 'Generation failed', 'error');
+        return;
+      }
+      _iacLastCode      = gen.code || '';
+      _iacLastFmt       = fmt;
+      _iacLastDev       = devId;
+      _iacLastRequestId = req.request_id;
+      _iacLastConvo     = gen.conversation || null;
+      const out = document.getElementById('iac-code-output');
+      out.textContent = _iacLastCode;
+      document.getElementById('iac-output-title').textContent =
+        `${fmt} · ${gen.tokens_in||'?'} in / ${gen.tokens_out||'?'} out tokens`;
+      document.getElementById('iac-copy-btn').disabled     = false;
+      document.getElementById('iac-download-btn').disabled = false;
+      document.getElementById('iac-json-btn').disabled     = false;
+      document.getElementById('iac-rerun-btn').disabled    = false;
+      _iacRenderConversation();
+      const sizeKb = (_iacLastCode.length/1024).toFixed(1);
+      if (gen.markers_used === false) {
+        _iacStatus(`⚠ Model ignored the BEGIN_IAC/END_IAC markers — output may include reasoning prose. Try Re-run AI or check the Conversation tab. (${sizeKb} KB)`, 'error');
+      } else {
+        _iacStatus(`Done — ${sizeKb} KB of ${fmt}`, 'done');
+      }
+    }
+  }, POLL_MS);
+}
+
+async function _iacCopy(btn) {
+  if (!_iacLastCode) return;
+  try {
+    await navigator.clipboard.writeText(_iacLastCode);
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  } catch (e) {
+    toast('Copy failed: ' + e.message, 'error');
+  }
+}
+
+function _iacDownload() {
+  if (!_iacLastCode) return;
+  const ext = {
+    'terraform':     'tf',
+    'ansible':       'yml',
+    'pulumi-python': 'py',
+    'pulumi-ts':     'ts',
+    'cloud-init':    'yml',
+  }[_iacLastFmt] || 'txt';
+  const blob = new Blob([_iacLastCode], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `iac-${_iacLastDev || 'device'}-${Date.now()}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// v3.0.0: download the raw masked JSON state — what would be sent to the LLM.
+// Useful for verifying what data the LLM actually saw, or for feeding into a
+// different tool entirely (jq pipeline, custom script, different AI provider).
+async function _iacDownloadJson() {
+  if (!_iacLastRequestId) return;
+  const payload = await api('GET', `/iac/payload/${encodeURIComponent(_iacLastRequestId)}`);
+  if (!payload) { toast('Failed to fetch JSON payload', 'error'); return; }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `iac-state-${_iacLastDev || 'device'}-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// v3.0.0: re-prompt the LLM with the SAME collected data — no agent wait.
+// Useful when the first generation hallucinates or you want a different
+// output format without re-collecting.
+async function _iacRerunAi(btn) {
+  if (!_iacLastRequestId) return;
+  const fmt   = document.getElementById('iac-format-select')?.value;
+  const cats  = _iacSelectedCategories();
+  const instr = document.getElementById('iac-user-instructions')?.value || '';
+  if (!fmt) { toast('Select an output format', 'error'); return; }
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Re-prompting…';
+  _iacStatus('Re-prompting AI with cached data…');
+  try {
+    const gen = await api('POST', '/iac/generate', {
+      request_id:        _iacLastRequestId,
+      output_format:     fmt,
+      categories:        cats,
+      user_instructions: instr,
+    });
+    if (!gen?.ok) {
+      _iacStatus(gen?.error || 'Re-run failed', 'error');
+      return;
+    }
+    _iacLastCode  = gen.code || '';
+    _iacLastFmt   = fmt;
+    _iacLastConvo = gen.conversation || null;
+    document.getElementById('iac-code-output').textContent = _iacLastCode;
+    document.getElementById('iac-output-title').textContent =
+      `${fmt} · ${gen.tokens_in||'?'} in / ${gen.tokens_out||'?'} out tokens (re-run)`;
+    _iacRenderConversation();
+    _iacStatus(`Done — ${(_iacLastCode.length/1024).toFixed(1)} KB of ${fmt}`, 'done');
+  } finally {
+    btn.disabled = false; btn.textContent = origText;
+  }
+}
+
+function _iacSwitchTab(tab) {
+  document.getElementById('iac-code-output').style.display  = tab === 'code'  ? '' : 'none';
+  document.getElementById('iac-convo-output').style.display = tab === 'convo' ? '' : 'none';
+  document.getElementById('iac-tab-btn-code').classList.toggle('active',  tab === 'code');
+  document.getElementById('iac-tab-btn-convo').classList.toggle('active', tab === 'convo');
+}
+
+function _iacRenderConversation() {
+  const el = document.getElementById('iac-convo-output');
+  if (!el) return;
+  if (!_iacLastConvo) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No conversation yet.</div>';
+    return;
+  }
+  const c = _iacLastConvo;
+  el.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+      Provider: <strong>${escHtml(c.provider||'?')}</strong> · Model: <strong>${escHtml(c.model||'?')}</strong>
+    </div>
+    <div class="iac-convo-block">
+      <div class="iac-convo-role system">System prompt</div>
+      <div class="iac-convo-content">${escHtml(c.system||'')}</div>
+    </div>
+    <div class="iac-convo-block">
+      <div class="iac-convo-role user">User prompt</div>
+      <div class="iac-convo-content">${escHtml(c.user||'')}</div>
+    </div>
+    <div class="iac-convo-block">
+      <div class="iac-convo-role assistant">Assistant response (raw — before code-fence stripping)</div>
+      <div class="iac-convo-content">${escHtml(c.assistant||'')}</div>
+    </div>`;
+}
+
+// ══ v3.0.1: AI prompt customization (Settings → AI Assistant) ════════════════
+
+async function loadAiPrompts() {
+  const list = document.getElementById('ai-prompts-list');
+  if (!list) return;
+  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">Loading prompts…</div>';
+  const [r, paramsResp] = await Promise.all([
+    api('GET', '/ai/prompts'),
+    api('GET', '/ai/params'),
+  ]);
+  if (!r?.prompts) {
+    list.innerHTML = '<div style="color:var(--red);font-size:13px">Failed to load prompts.</div>';
+    return;
+  }
+  // Index params by key for easy lookup
+  const paramsByKey = {};
+  for (const p of (paramsResp?.params || [])) paramsByKey[p.key] = p;
+  list.innerHTML = r.prompts.map(p => {
+    const params = paramsByKey[p.key] || {};
+    const hasParams = (params.temperature != null) || (params.top_p != null)
+                   || (params.max_tokens != null)  || (params.num_ctx != null);
+    return `
+    <div class="prompt-card" data-key="${escAttr(p.key)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+        <div>
+          <strong style="font-size:14px">${escHtml(p.label)}</strong>
+          <span style="font-size:11px;color:var(--muted);margin-left:6px">${escHtml(p.key)}</span>
+          ${p.is_customized ? '<span style="font-size:11px;color:var(--amber);margin-left:8px">● customized</span>' : ''}
+          ${hasParams ? '<span style="font-size:11px;color:var(--accent2);margin-left:8px">● tuned</span>' : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="saveAiPrompt('${escAttr(p.key)}', this)">Save prompt</button>
+          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="resetAiPrompt('${escAttr(p.key)}', this)">Default</button>
+        </div>
+      </div>
+      <textarea class="form-input prompt-textarea"
+                style="width:100%;min-height:90px;font-family:var(--font-mono);font-size:12px;resize:vertical"
+                data-default="${escAttr(p.default)}"
+                placeholder="(empty = use default)">${escHtml(p.current)}</textarea>
+
+      <details style="margin-top:10px" ${hasParams ? 'open' : ''}>
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none">⚙ Fine-tuning (temperature, top_p, tokens, context)</summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:8px;padding:10px;background:var(--surface);border-radius:6px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">Temperature (0.0–2.0)</label>
+            <input type="number" step="0.1" min="0" max="2" class="form-input prompt-temp" style="font-size:12px" value="${params.temperature != null ? params.temperature : ''}" placeholder="default">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">top_p (0.0–1.0)</label>
+            <input type="number" step="0.05" min="0" max="1" class="form-input prompt-topp" style="font-size:12px" value="${params.top_p != null ? params.top_p : ''}" placeholder="default">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">max_tokens (1–16000)</label>
+            <input type="number" step="100" min="1" max="16000" class="form-input prompt-maxtok" style="font-size:12px" value="${params.max_tokens != null ? params.max_tokens : ''}" placeholder="default">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">num_ctx (Ollama/LocalAI)</label>
+            <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx" style="font-size:12px" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
+          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="saveAiParams('${escAttr(p.key)}', this)">Save tuning</button>
+          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="resetAiParams('${escAttr(p.key)}', this)">Reset tuning</button>
+        </div>
+      </details>
+    </div>`;
+  }).join('');
+}
+
+async function saveAiParams(key, btn) {
+  const card = btn.closest('.prompt-card');
+  if (!card) return;
+  const _v = sel => {
+    const el = card.querySelector(sel);
+    const v = el ? el.value.trim() : '';
+    return v === '' ? null : v;
+  };
+  const body = {
+    key,
+    temperature: _v('.prompt-temp'),
+    top_p:       _v('.prompt-topp'),
+    max_tokens:  _v('.prompt-maxtok'),
+    num_ctx:     _v('.prompt-numctx'),
+  };
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳';
+  const r = await api('POST', '/ai/params', body);
+  btn.disabled = false;
+  if (r?.ok) {
+    btn.textContent = '✓ Saved';
+    toast(`Tuning saved for "${card.querySelector('strong')?.textContent || key}"`, 'success');
+    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
+  } else {
+    btn.textContent = '✗';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+    toast(r?.error || 'Save failed', 'error');
+  }
+}
+
+async function resetAiParams(key, btn) {
+  const card = btn.closest('.prompt-card');
+  const r = await api('POST', '/ai/params', { key });
+  if (r?.ok) {
+    toast(`Tuning reset for "${card?.querySelector('strong')?.textContent || key}"`, 'info');
+    loadAiPrompts();
+  } else {
+    toast(r?.error || 'Reset failed', 'error');
+  }
+}
+
+async function saveAiPrompt(key, btn) {
+  const card = btn.closest('.prompt-card');
+  const ta   = card?.querySelector('.prompt-textarea');
+  if (!ta) return;
+  const text     = ta.value.trim();
+  const defaultV = ta.dataset.default || '';
+  // If user typed the default exactly, treat that as a reset
+  const payload  = (text && text !== defaultV) ? text : '';
+  const label    = card?.querySelector('strong')?.textContent || key;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const r = await api('POST', '/ai/prompts', { key, text: payload });
+  btn.disabled = false;
+  if (r?.ok) {
+    btn.textContent = '✓ Saved';
+    toast(payload ? `Saved custom prompt for "${label}"` : `Reverted "${label}" to default`, 'success');
+    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
+  } else {
+    btn.textContent = '✗ Failed';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+    toast(r?.error || 'Save failed', 'error');
+  }
+}
+
+async function resetAiPrompt(key, btn) {
+  const card = btn.closest('.prompt-card');
+  const ta   = card?.querySelector('.prompt-textarea');
+  if (!ta) return;
+  const label = card?.querySelector('strong')?.textContent || key;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳…';
+  const r = await api('POST', '/ai/prompts', { key, text: '' });
+  btn.disabled = false;
+  if (r?.ok) {
+    ta.value = ta.dataset.default || '';
+    btn.textContent = '✓ Reverted';
+    toast(`"${label}" reverted to default`, 'info');
+    setTimeout(() => { btn.textContent = orig; loadAiPrompts(); }, 1500);
+  } else {
+    btn.textContent = '✗ Failed';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+    toast(r?.error || 'Reset failed', 'error');
+  }
+}
+
+// Hook into the existing settings tab switcher — load prompts when AI pane opens
+const _origSwitchSettingsTab2 = typeof switchSettingsTab === 'function' ? switchSettingsTab : null;
+if (_origSwitchSettingsTab2) {
+  window.switchSettingsTab = function(tab) {
+    _origSwitchSettingsTab2(tab);
+    if (tab === 'ai') loadAiPrompts();
+    // Note: 'ignored' tab loads via its inline onclick (loadIgnoredItems)
+  };
+}
+
+// v3.0.1: per-item ignores ────────────────────────────────────────────────
+async function ignoreContainerDevice(deviceId, name) {
+  if (!confirm(`Hide "${name}" from the Containers page?\n\nRestore from Settings → Ignored items.`)) return;
+  // Use the 'devices' category — it's a fleet-wide ignore of the device on
+  // the Containers page, regardless of stale state.
+  const r = await api('POST', '/ignored', {
+    category: 'devices',
+    id:       deviceId,
+    label:    name,
+  });
+  if (r?.ok) {
+    toast('Hidden (restore from Settings → Ignored items)', 'success');
+    loadContainersOverview();
+  } else {
+    toast(r?.error || 'Failed', 'error');
+  }
+}
+
+async function loadIgnoredItems() {
+  const list = document.getElementById('ignored-items-list');
+  if (!list) return;
+  const data = await api('GET', '/ignored');
+  if (!data) { list.innerHTML = '<div class="empty-state">Failed to load.</div>'; return; }
+  const sections = [
+    { key: 'needs_attention',  label: 'Needs Attention',  identify: e => e.key },
+    { key: 'stale_containers', label: 'Stale containers', identify: e => `${e.device_id}/${e.container}` },
+    { key: 'devices',          label: 'Devices',          identify: e => e.id },
+  ];
+  let html = '';
+  for (const sec of sections) {
+    const entries = data[sec.key] || [];
+    html += `<div style="margin-bottom:16px">
+      <h4 style="margin:0 0 8px 0">${sec.label} <span style="font-size:11px;color:var(--muted);font-weight:400">(${entries.length})</span></h4>`;
+    if (!entries.length) {
+      html += '<div style="color:var(--muted);font-size:13px;padding:8px 0">— none —</div>';
+    } else {
+      html += entries.map(e => {
+        const id = sec.identify(e);
+        const when = e.ts ? new Date(e.ts * 1000).toLocaleString() : '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;background:var(--surface2)">
+          <div style="flex:1;font-size:13px">${escHtml(e.label || id)}<div style="font-size:11px;color:var(--muted)">${escHtml(when)}</div></div>
+          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="restoreIgnored('${escAttr(sec.key)}', ${JSON.stringify(e).replace(/"/g, '&quot;')})">Restore</button>
+        </div>`;
+      }).join('');
+    }
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+
+async function restoreIgnored(category, entry) {
+  const body = { category };
+  if (category === 'needs_attention')  body.key = entry.key;
+  if (category === 'stale_containers') { body.device_id = entry.device_id; body.container = entry.container; }
+  if (category === 'devices')          body.id = entry.id;
+  const r = await api('POST', '/ignored/remove', body);
+  if (r?.ok) { toast('Restored', 'success'); loadIgnoredItems(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// v3.0.1: force-upgrade agent — re-deploy the current bundled binary
+// regardless of whether the agent already reports that version. Useful for:
+//   - rolling out a rebuilt binary at the same version
+//   - recovery after a corrupt/truncated previous update
+//   - testing the self-update path
+async function forceAgentUpgrade(deviceId, name) {
+  if (!confirm(`Force-upgrade agent on "${name}"?\n\nThe agent will re-download and replace its binary on the next heartbeat, even if it already reports the current version. Use this for corrupt-binary recovery or to push a rebuild.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/agent/force-upgrade`, {});
+  if (r?.ok) toast(r.message || 'Force-upgrade scheduled', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// v3.0.1: collapsible sidebar — toggle and persist preference in localStorage
+function toggleSidebarCollapse() {
+  const collapsed = document.body.classList.toggle('sidebar-collapsed');
+  localStorage.setItem('rp_sidebar_collapsed', collapsed ? '1' : '0');
+  const ico = document.getElementById('sidebar-collapse-icon');
+  if (ico) ico.textContent = collapsed ? '▶' : '◀';
+}
+// Restore preference on load. Use DOMContentLoaded so the class is applied
+// before the first paint — avoids a flash of the expanded sidebar.
+(function _initSidebarCollapse() {
+  if (localStorage.getItem('rp_sidebar_collapsed') === '1') {
+    document.body.classList.add('sidebar-collapsed');
+    // The icon may not exist yet — patch it once DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      const ico = document.getElementById('sidebar-collapse-icon');
+      if (ico) ico.textContent = '▶';
+    });
+  }
+})();
+
+// v3.0.1: short-window in-flight cache for GET /devices. Multiple pages
+// (Monitor in particular) fan out to 3+ independent loaders that each call
+// /devices; without this they all hit the server. Re-use a single promise
+// for any /devices fetch that lands within 500 ms of an existing one.
+(function _installDevicesCoalescer() {
+  if (!window.api) return;            // api() must already be defined
+  const _origApi = window.api;
+  let _inflight = null;
+  let _expires = 0;
+  window.api = function(method, path, body, opts) {
+    if (method === 'GET' && path === '/devices') {
+      const now = Date.now();
+      if (_inflight && now < _expires) return _inflight;
+      _expires = now + 500;
+      _inflight = _origApi(method, path, body, opts).finally(() => {
+        // Let the next fetch through immediately after settlement so
+        // subsequent independent loads (different page, manual refresh)
+        // get a fresh response.
+        _inflight = null;
+      });
+      return _inflight;
+    }
+    return _origApi(method, path, body, opts);
+  };
+})();
+
+// ══ v3.0.1: ACME / acme.sh integration ════════════════════════════════════
+// Fleet-wide cert table under the TLS/DNS page. Three modal flows:
+//   1. loadAcme()         — refresh the table
+//   2. acmeOpenIssue()    — 3-step wizard to issue a new cert (DNS-01)
+//   3. acmeOpenDetail()   — per-cert overview / timeline / logs
+// All backend calls go through /api/acme; the server queues acme.sh on the
+// device via the standard exec: channel and captures output to acme_logs/.
+// ════════════════════════════════════════════════════════════════════════════
+
+let _acmeData = { devices: [], providers: {} };
+
+async function loadAcme() {
+  const tbody = document.getElementById('acme-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  const data = await api('GET', '/acme');
+  if (!data) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:24px">Failed to load.</td></tr>'; return; }
+  _acmeData = data;
+  _acmeRenderTable();
+}
+
+function _acmeRenderTable() {
+  const tbody = document.getElementById('acme-tbody');
+  const empty = document.getElementById('acme-empty');
+  const card  = document.getElementById('acme-table-card');
+  if (!tbody) return;
+
+  // Flatten devices → one row per cert. Devices without acme.sh installed
+  // are skipped entirely (v3.0.2) — they were rendered as "acme.sh not
+  // installed" rows but operators with most of their fleet on different
+  // cert managers don't need to see one row per such device. The "no
+  // certs yet" case (acme.sh present but no certs issued) is still shown
+  // because that's actionable — operator can click "+ Issue" right there.
+  const rows = [];
+  let suppressed_unavailable = 0;
+  for (const dev of (_acmeData.devices || [])) {
+    if (!dev.available) {
+      suppressed_unavailable++;
+      continue;
+    }
+    if (!dev.certs || !dev.certs.length) {
+      rows.push({ _kind: 'no-certs', device_id: dev.device_id, device_name: dev.device_name, home: dev.home, version: dev.version });
+      continue;
+    }
+    for (const cert of dev.certs) {
+      rows.push({ _kind: 'cert', device_id: dev.device_id, device_name: dev.device_name, ...cert });
+    }
+  }
+  // Surface the suppressed count subtly so operators don't think the
+  // table is broken when only N of M devices appear.
+  const hint = document.getElementById('acme-suppressed-hint');
+  if (hint) {
+    if (suppressed_unavailable > 0) {
+      hint.textContent = `${suppressed_unavailable} device${suppressed_unavailable === 1 ? '' : 's'} without acme.sh hidden`;
+      hint.style.display = '';
+    } else {
+      hint.style.display = 'none';
+    }
+  }
+
+  if (!rows.length) {
+    if (card)  card.style.display = 'none';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (card)  card.style.display = '';
+  if (empty) empty.style.display = 'none';
+
+  const now = Math.floor(Date.now() / 1000);
+  const html = rows.map(r => {
+    if (r._kind === 'unavailable') {
+      return `<tr style="opacity:.7">
+        <td>${escHtml(r.device_name)}</td>
+        <td colspan="6" style="font-size:12px;color:var(--muted);font-style:italic">acme.sh not installed on this device</td>
+        <td></td>
+      </tr>`;
+    }
+    if (r._kind === 'no-certs') {
+      return `<tr style="opacity:.85">
+        <td>${escHtml(r.device_name)}</td>
+        <td colspan="6" style="font-size:12px;color:var(--muted)">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
+        <td style="display:flex;gap:4px">
+          <button class="btn-icon" style="font-size:11px;padding:3px 10px" title="Issue a new cert" onclick="acmeOpenIssue('${escAttr(r.device_id)}')">+ Issue</button>
+          <button class="btn-icon" style="font-size:11px;padding:3px 10px" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" onclick="event.stopPropagation();acmeForceRescan('${escAttr(r.device_id)}')">↻ Rescan</button>
+        </td>
+      </tr>`;
+    }
+    // Real cert row
+    const days = r.next_renew_ts ? Math.round((r.next_renew_ts - now) / 86400) : null;
+    let pillCls = 'acme-pill-info', pillText = 'unknown';
+    if (days === null) { pillCls = 'acme-pill-info'; pillText = 'no schedule'; }
+    else if (days < 0) { pillCls = 'acme-pill-crit'; pillText = `overdue ${-days}d`; }
+    else if (days <= 3){ pillCls = 'acme-pill-crit'; pillText = `${days}d`; }
+    else if (days <= 14){ pillCls = 'acme-pill-warn'; pillText = `${days}d`; }
+    else { pillCls = 'acme-pill-ok'; pillText = `${days}d`; }
+    const wildcardGlyph = r.is_wildcard ? '<span class="acme-wildcard-glyph" title="Wildcard cert">★</span>' : '';
+    const altCount = (r.alt_names || []).filter(a => a !== r.domain).length;
+    const altLabel = altCount ? `<span style="font-size:11px;color:var(--muted)"> +${altCount} SAN</span>` : '';
+    const challengeLabel = r.is_dns_challenge ? 'DNS-01' : (r.challenge || '—');
+    const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
+    const createdStr = r.created_ts ? new Date(r.created_ts * 1000).toLocaleDateString() : '—';
+    const renewStr   = r.next_renew_ts ? new Date(r.next_renew_ts * 1000).toLocaleDateString() : '—';
+    return `<tr class="acme-row" onclick="acmeOpenDetail('${escAttr(r.device_id)}','${escAttr(r.domain)}')">
+      <td>${escHtml(r.device_name)}</td>
+      <td>
+        <code style="font-size:12px;font-weight:500">${escHtml(r.domain)}</code>${wildcardGlyph}${altLabel}
+      </td>
+      <td><span class="acme-pill acme-pill-info">${challengeLabel}</span></td>
+      <td style="font-size:12px;color:var(--muted)">${escHtml(providerLabel)}</td>
+      <td style="font-size:12px;color:var(--muted)">${createdStr}</td>
+      <td style="font-size:12px">${renewStr}</td>
+      <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
+      <td onclick="event.stopPropagation()" style="white-space:nowrap">
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px" title="Force renew now"
+                onclick="acmeForceRenew('${escAttr(r.device_id)}','${escAttr(r.domain)}')">↻</button>
+        <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red)" title="Revoke and remove"
+                onclick="acmeRevoke('${escAttr(r.device_id)}','${escAttr(r.domain)}')">✗</button>
+      </td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = html;
+}
+
+// ── Force renew ──────────────────────────────────────────────────────────
+async function acmeForceRenew(devId, domain) {
+  if (!confirm(`Force-renew cert for ${domain}?\n\nLet's Encrypt rate-limits to 5 duplicates per week. Use sparingly.`)) return;
+  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/renew`);
+  if (r?.ok) {
+    toast(`Renew queued — output in detail view (Logs tab)`, 'success');
+    // Re-open detail so the user can follow along
+    acmeOpenDetail(devId, domain);
+  } else {
+    toast(r?.error || 'Failed to queue renewal', 'error');
+  }
+}
+
+// ── Revoke ───────────────────────────────────────────────────────────────
+async function acmeRevoke(devId, domain) {
+  if (!confirm(`Revoke and remove cert for ${domain}?\n\nThis tells Let's Encrypt the cert is no longer trusted, then deletes the local files. To issue a fresh one afterwards, use the "Issue new cert" wizard.`)) return;
+  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}/revoke`);
+  if (r?.ok) {
+    toast('Revoke + remove queued', 'success');
+    setTimeout(loadAcme, 4000);
+  } else {
+    toast(r?.error || 'Failed to revoke', 'error');
+  }
+}
+
+// ── Detail modal ─────────────────────────────────────────────────────────
+let _acmeDetailContext = null;
+
+async function acmeOpenDetail(devId, domain) {
+  _acmeDetailContext = { devId, domain };
+  document.getElementById('acme-detail-title').textContent = domain;
+  document.getElementById('acme-detail-subtitle').textContent = '';
+  document.getElementById('acme-detail-overview').innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Loading…</div>';
+  document.getElementById('acme-detail-timeline').innerHTML = '';
+  document.getElementById('acme-detail-logs').innerHTML = '';
+  acmeDetailTab('overview');
+  openModal('acme-detail-modal');
+  const r = await api('GET', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}`);
+  if (!r || !r.cert) {
+    document.getElementById('acme-detail-overview').innerHTML =
+      `<div style="color:var(--red);padding:20px;text-align:center">${escHtml(r?.error || 'Cert not found in last scan')}</div>`;
+    return;
+  }
+  _acmeRenderDetail(r);
+}
+
+function acmeDetailTab(tab) {
+  document.querySelectorAll('#acme-detail-modal .drawer-tab-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.acmeTab === tab));
+  document.querySelectorAll('.acme-detail-pane').forEach(p =>
+    p.style.display = p.id === `acme-detail-${tab}` ? '' : 'none');
+}
+
+function _acmeRenderDetail(r) {
+  const c = r.cert;
+  const dev = (_acmeData.devices || []).find(d => d.device_id === _acmeDetailContext.devId);
+  const devName = dev ? dev.device_name : _acmeDetailContext.devId;
+  document.getElementById('acme-detail-subtitle').textContent =
+    `on ${devName}${c.is_wildcard ? ' · wildcard' : ''} · ${c.is_dns_challenge ? c.dns_provider_label || c.dns_provider : c.challenge}`;
+
+  // ─── Overview ─────────────────────────────────────────────────────────
+  const now = Math.floor(Date.now() / 1000);
+  const daysToRenew = c.next_renew_ts ? Math.round((c.next_renew_ts - now) / 86400) : null;
+  const overview = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+      ${_acmeStatPill('Primary domain', `<code>${escHtml(c.domain)}</code>`)}
+      ${_acmeStatPill('Wildcard?', c.is_wildcard ? '<span style="color:#9a8dff">★ yes</span>' : 'no')}
+      ${_acmeStatPill('Key length', escHtml(c.key_length || '—'))}
+      ${_acmeStatPill('Challenge', c.is_dns_challenge ? `DNS-01 · ${escHtml(c.dns_provider_label || c.dns_provider)}` : escHtml(c.challenge || '—'))}
+      ${_acmeStatPill('Created', c.created_str ? escHtml(c.created_str) : '—')}
+      ${_acmeStatPill('Next renewal', c.next_renew_str ? `${escHtml(c.next_renew_str)}<br><span style="font-size:11px;color:var(--muted)">${daysToRenew !== null ? `in ${daysToRenew}d` : ''}</span>` : '—')}
+    </div>
+    ${c.alt_names && c.alt_names.length ? `
+      <div style="margin-bottom:14px">
+        <div style="font-weight:500;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Subject Alternative Names</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${c.alt_names.map(a => `<code style="background:var(--surface2);padding:3px 8px;border-radius:4px;font-size:12px">${escHtml(a)}</code>`).join('')}
+        </div>
+      </div>` : ''}
+    ${c.reload_cmd ? `
+      <div style="margin-bottom:14px">
+        <div style="font-weight:500;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Post-renewal hook (Le_ReloadCmd)</div>
+        <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;margin:0;white-space:pre-wrap">${escHtml(c.reload_cmd)}</pre>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Managed by acme.sh — not modified by RemotePower.</div>
+      </div>` : `
+      <div style="margin-bottom:14px;font-size:12px;color:var(--muted);font-style:italic">No reload hook configured for this cert.</div>`}
+    ${c.cert_path ? `
+      <div style="margin-bottom:14px;font-size:12px;color:var(--muted)">
+        <div>Cert: <code>${escHtml(c.cert_path)}</code></div>
+        ${c.fullchain_path ? `<div>Fullchain: <code>${escHtml(c.fullchain_path)}</code></div>` : ''}
+        ${c.key_path ? `<div>Key: <code>${escHtml(c.key_path)}</code></div>` : ''}
+      </div>` : ''}
+    <div style="display:flex;gap:8px;padding-top:14px;border-top:1px solid var(--border)">
+      <button class="btn-icon" onclick="acmeForceRenew('${escAttr(_acmeDetailContext.devId)}','${escAttr(c.domain)}')">↻ Force renew</button>
+      <button class="btn-icon" style="color:var(--red)" onclick="acmeRevoke('${escAttr(_acmeDetailContext.devId)}','${escAttr(c.domain)}')">✗ Revoke + remove</button>
+    </div>`;
+  document.getElementById('acme-detail-overview').innerHTML = overview;
+
+  // ─── Timeline ─────────────────────────────────────────────────────────
+  const events = [];
+  if (c.created_ts)    events.push({ ts: c.created_ts,    label: 'Cert issued',     state: 'ok' });
+  if (c.next_renew_ts) events.push({ ts: c.next_renew_ts, label: 'Next renewal',    state: c.next_renew_ts < now ? 'fail' : 'pending' });
+  for (const l of (r.logs || [])) {
+    events.push({
+      ts:    l.ts,
+      label: l.action === 'renew' ? 'Force renewal' :
+             l.action === 'issue' ? 'Issue command' :
+             l.action === 'revoke'? 'Revoke command' : (l.action || 'action'),
+      state: l.rc === 0 ? 'ok' : (l.rc === null || l.rc === undefined ? 'pending' : 'fail'),
+      logId: l.id,
+      rc:    l.rc,
+    });
+  }
+  events.sort((a, b) => b.ts - a.ts);
+  const timeline = events.length ? events.map(e => `
+    <div class="acme-timeline-item">
+      <div class="acme-timeline-dot ${e.state}"></div>
+      <div style="flex:1">
+        <div style="font-weight:500">${escHtml(e.label)}${e.rc !== undefined && e.rc !== null ? ` <span style="font-size:11px;color:var(--muted)">(rc=${e.rc})</span>` : ''}</div>
+        <div style="font-size:11px;color:var(--muted)">${new Date(e.ts * 1000).toLocaleString()}</div>
+        ${e.logId ? `<button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-top:4px" onclick="acmeLoadLog('${escAttr(e.logId)}')">View log</button>` : ''}
+      </div>
+    </div>`).join('') : '<div style="color:var(--muted);padding:20px;text-align:center">No timeline events yet.</div>';
+  document.getElementById('acme-detail-timeline').innerHTML = timeline;
+
+  // ─── Logs tab ─ list of recent log captures ───────────────────────────
+  const logsHtml = (r.logs && r.logs.length) ? `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Captured stdout from acme.sh runs queued by RemotePower. Click any entry to view.</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${r.logs.map(l => {
+        const isPending   = l.rc === null || l.rc === undefined;
+        const isCancelled = l.rc === -3 || l.rc === -4;
+        let stateLabel;
+        if (isCancelled) stateLabel = `<span style="color:var(--muted)">⊘ cancelled</span>`;
+        else if (isPending) stateLabel = `<span style="color:var(--amber)">⏳ pending</span>`;
+        else if (l.rc === 0) stateLabel = `<span style="color:var(--green)">✓ rc=0</span>`;
+        else stateLabel = `<span style="color:var(--red)">✗ rc=${l.rc}</span>`;
+        return `<div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-secondary" style="flex:1;text-align:left;padding:8px 12px;display:flex;justify-content:space-between;align-items:center"
+                  onclick="acmeLoadLog('${escAttr(l.id)}')">
+            <span>
+              <strong>${escHtml(l.action || 'action')}</strong>
+              <span style="color:var(--muted);font-size:11px;margin-left:8px">${new Date(l.ts * 1000).toLocaleString()}</span>
+            </span>
+            <span style="font-size:11px;color:var(--muted)">
+              ${stateLabel} · ${(l.size / 1024).toFixed(1)} KB
+            </span>
+          </button>
+          ${isPending ? `<button class="btn-icon" style="font-size:11px;padding:6px 10px;color:var(--red)" title="Cancel — remove from queue if still pending" onclick="acmeCancelAction('${escAttr(l.id)}')">⊘ Cancel</button>` : ''}
+          <button class="btn-icon" style="font-size:11px;padding:6px 10px;color:var(--muted)" title="Ignore — delete this row from the log list (does not affect cert state)" onclick="acmeIgnoreAction('${escAttr(l.id)}')">× Ignore</button>
+        </div>`;
+      }).join('')}
+    </div>
+    <div id="acme-log-view" style="margin-top:14px"></div>` : '<div style="color:var(--muted);padding:20px;text-align:center">No logs yet. Trigger a force renew to capture one.</div>';
+  document.getElementById('acme-detail-logs').innerHTML = logsHtml;
+}
+
+function _acmeStatPill(label, valueHtml) {
+  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px">
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${escHtml(label)}</div>
+    <div style="font-size:13px">${valueHtml}</div>
+  </div>`;
+}
+
+async function acmeLoadLog(logId) {
+  if (!_acmeDetailContext) return;
+  const view = document.getElementById('acme-log-view');
+  const target = view || document.getElementById('acme-detail-logs');
+  target.innerHTML = '<div style="color:var(--muted);padding:14px">Loading log…</div>';
+  const r = await api('GET', `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/log/${encodeURIComponent(logId)}`);
+  if (!r) { target.innerHTML = '<div style="color:var(--red);padding:14px">Failed to load log</div>'; return; }
+  target.innerHTML = `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Action <code>${escHtml(logId)}</code> · ${(r.size / 1024).toFixed(1)} KB</div>
+    <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all">${escHtml(r.content)}</pre>`;
+}
+
+// ── Issue wizard ─────────────────────────────────────────────────────────
+let _acmeIssueStep = 1;
+
+function acmeOpenIssue(presetDeviceId) {
+  // Populate device dropdown with devices that have acme.sh available
+  const devSel = document.getElementById('acme-issue-device');
+  const eligibleDevs = (_acmeData.devices || []).filter(d => d.available);
+  if (!eligibleDevs.length) {
+    toast('No devices have acme.sh installed. Install it on a device and wait for the next scan (~1 hour).', 'error');
+    return;
+  }
+  devSel.innerHTML = eligibleDevs.map(d =>
+    `<option value="${escAttr(d.device_id)}">${escHtml(d.device_name)}${d.version ? ` (${escHtml(d.version)})` : ''}</option>`).join('');
+  if (presetDeviceId) devSel.value = presetDeviceId;
+
+  // Populate DNS provider dropdown from server's provider map
+  const dnsSel = document.getElementById('acme-issue-dns');
+  const providers = _acmeData.providers || {};
+  dnsSel.innerHTML = Object.entries(providers).map(([key, label]) =>
+    `<option value="${escAttr(key)}">${escHtml(label)} (<code>${escHtml(key)}</code>)</option>`).join('');
+  dnsSel.value = 'dns_cf';   // sensible default
+  _acmeUpdateTokenHint();
+
+  // Reset state
+  document.getElementById('acme-issue-domain').value = '';
+  document.getElementById('acme-issue-alt').value = '';
+  document.getElementById('acme-issue-wildcard').checked = false;
+  document.getElementById('acme-issue-keylen').value = '4096';
+  _acmeIssueStep = 1;
+  _acmeRenderStep();
+  // Live preview of wildcard label as user types
+  const domInput = document.getElementById('acme-issue-domain');
+  domInput.oninput = () => {
+    const d = domInput.value.trim() || 'example.com';
+    document.getElementById('acme-issue-wildcard-preview').textContent = `*.${d}`;
+  };
+  dnsSel.onchange = _acmeUpdateTokenHint;
+  openModal('acme-issue-modal');
+  setTimeout(() => domInput.focus(), 50);
+}
+
+function _acmeUpdateTokenHint() {
+  const dns = document.getElementById('acme-issue-dns').value;
+  const hints = {
+    'dns_cf':       'Cloudflare requires <code>CF_Token</code> + <code>CF_Account_ID</code> + <code>CF_Zone_ID</code> (or legacy <code>CF_Key</code>/<code>CF_Email</code>) exported in the agent\'s environment, or stored in <code>~/.acme.sh/account.conf</code>. acme.sh will fail in step 3 with a clear message if these are missing.',
+    'dns_aws':      'AWS Route 53 requires <code>AWS_ACCESS_KEY_ID</code> + <code>AWS_SECRET_ACCESS_KEY</code>.',
+    'dns_dgon':     'DigitalOcean requires <code>DO_API_KEY</code>.',
+    'dns_he':       'Hurricane Electric requires <code>HE_Username</code> + <code>HE_Password</code>.',
+    'dns_desec':    'deSEC requires <code>DEDYN_TOKEN</code>.',
+    'dns_hetzner':  'Hetzner requires <code>HETZNER_Token</code>.',
+    'dns_porkbun':  'Porkbun requires <code>PORKBUN_API_KEY</code> + <code>PORKBUN_SECRET_API_KEY</code>.',
+  };
+  document.getElementById('acme-issue-token-hint').innerHTML = hints[dns] ||
+    'API credentials must be exported in the agent\'s environment or written to <code>~/.acme.sh/account.conf</code> on the device.';
+}
+
+function acmeIssueStep(delta) {
+  // Validate before advancing
+  if (delta > 0 && _acmeIssueStep === 1) {
+    const d = document.getElementById('acme-issue-domain').value.trim();
+    if (!d) { toast('Primary domain is required', 'error'); return; }
+    // very loose client-side check; server re-validates
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) { toast('Domain looks invalid', 'error'); return; }
+  }
+  _acmeIssueStep = Math.max(1, Math.min(3, _acmeIssueStep + delta));
+  _acmeRenderStep();
+}
+
+function _acmeRenderStep() {
+  document.querySelectorAll('.acme-step').forEach(el => {
+    el.style.display = parseInt(el.dataset.step) === _acmeIssueStep ? '' : 'none';
+  });
+  document.querySelectorAll('.acme-step-pill').forEach(el => {
+    const s = parseInt(el.dataset.step);
+    el.classList.toggle('active', s === _acmeIssueStep);
+    el.classList.toggle('done', s < _acmeIssueStep);
+  });
+  document.getElementById('acme-issue-back').style.display = _acmeIssueStep > 1 ? '' : 'none';
+  document.getElementById('acme-issue-next').style.display = _acmeIssueStep < 3 ? '' : 'none';
+  document.getElementById('acme-issue-go').style.display   = _acmeIssueStep === 3 ? '' : 'none';
+  if (_acmeIssueStep === 3) _acmeRenderPreview();
+}
+
+function _acmeRenderPreview() {
+  const domain = document.getElementById('acme-issue-domain').value.trim().toLowerCase();
+  const wildcard = document.getElementById('acme-issue-wildcard').checked;
+  const altRaw = document.getElementById('acme-issue-alt').value;
+  const dns = document.getElementById('acme-issue-dns').value;
+  const keylen = document.getElementById('acme-issue-keylen').value;
+  const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  const allDomains = [domain];
+  if (wildcard) allDomains.push(`*.${domain}`);
+  for (const a of alts) if (a !== domain && !allDomains.includes(a)) allDomains.push(a);
+  const dArgs = allDomains.map(d => `-d '${d}'`).join(' ');
+  document.getElementById('acme-issue-preview').textContent =
+    `~/.acme.sh/acme.sh --issue --dns ${dns} ${dArgs} --keylength ${keylen}`;
+}
+
+async function acmeIssueSubmit() {
+  const devId = document.getElementById('acme-issue-device').value;
+  const domain = document.getElementById('acme-issue-domain').value.trim().toLowerCase();
+  const wildcard = document.getElementById('acme-issue-wildcard').checked;
+  const altRaw = document.getElementById('acme-issue-alt').value;
+  const dns = document.getElementById('acme-issue-dns').value;
+  const keylen = document.getElementById('acme-issue-keylen').value;
+  const alts = altRaw.split('\n').map(s => s.trim()).filter(Boolean);
+  if (wildcard) alts.push(`*.${domain}`);
+  const body = {
+    domain, alt_names: alts, dns_provider: dns, key_length: keylen,
+  };
+  const btn = document.getElementById('acme-issue-go');
+  btn.disabled = true; btn.textContent = 'Queuing…';
+  const r = await api('POST', `/acme/${encodeURIComponent(devId)}/issue`, body);
+  btn.disabled = false; btn.textContent = 'Queue issue command';
+  if (r?.ok) {
+    toast(`Issue queued for ${domain} — output appears in the Logs tab once the agent runs it`, 'success');
+    closeModal('acme-issue-modal');
+    acmeOpenDetail(devId, domain);
+    setTimeout(loadAcme, 5000);
+  } else {
+    toast(r?.error || 'Failed to queue', 'error');
+  }
+}
+
+// Auto-load when the TLS page opens. enterTLS() already exists; wrap it so
+// we also kick off the ACME table fetch without modifying its body.
+const _origEnterTLS = typeof enterTLS === 'function' ? enterTLS : null;
+if (_origEnterTLS) {
+  window.enterTLS = function() {
+    _origEnterTLS();
+    loadAcme();
+  };
+}
+
+
+// ── v3.0.1: Mitigation runner ─────────────────────────────────────────────
+// Open from a Needs Attention card. Three tabs: Diagnostic (auto-runs on
+// open), AI Analysis (auto-runs when diagnostic completes), Apply Fix
+// (user-confirmed). All exec happens via the existing agent command queue,
+// tagged so server captures the output to a dedicated log file.
+
+let _mitigateCtx = null;           // { devId, kind, target, actionId, deviceName }
+let _mitigatePollTimer = null;
+let _mitigatePollAttempts = 0;
+const _MITIGATE_POLL_MAX = 90;     // 90 * 2s = 3 min max wait for diagnostic
+
+const _MITIGATE_KIND_LABELS = {
+  patches:      'Pending patches',
+  disk:         'Disk pressure',
+  drift:        'Config drift',
+  service_down: 'Service down',
+  reboot:       'Reboot required',
+  brute_force:  'Brute-force attempts',
+};
+
+// Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
+// on the server. Used to decide whether to show the 🩺 button on a card.
+const MITIGATE_KINDS = new Set(['patches','disk','drift','service_down','reboot','brute_force']);
+
+function openMitigateModal(devId, kind, target, deviceName) {
+  if (!MITIGATE_KINDS.has(kind)) {
+    toast(`No mitigation playbook for "${kind}" yet`, 'info');
+    return;
+  }
+  _mitigateCtx = { devId, kind, target: target || '', deviceName: deviceName || devId, actionId: null };
+  document.getElementById('mitigate-title').textContent =
+    `Investigate: ${_MITIGATE_KIND_LABELS[kind] || kind}`;
+  document.getElementById('mitigate-subtitle').textContent =
+    `on ${deviceName || devId}${target ? ` · target: ${target}` : ''}`;
+  // Reset UI
+  document.getElementById('mitigate-diag-meta').textContent = 'Queueing diagnostic command…';
+  document.getElementById('mitigate-diag-output').textContent = '';
+  document.getElementById('mitigate-ai-status').textContent = '';
+  document.getElementById('mitigate-ai-summary').textContent = '';
+  document.getElementById('mitigate-ai-fix').textContent = '';
+  document.getElementById('mitigate-ai-fix-box').style.display = 'none';
+  document.getElementById('mitigate-ai-use').style.display = 'none';
+  document.getElementById('mitigate-ai-fix-warning').style.display = 'none';
+  document.getElementById('mitigate-fix-cmd').value = '';
+  document.getElementById('mitigate-fix-confirm').value = '';
+  document.getElementById('mitigate-fix-confirm-row').style.display = 'none';
+  document.getElementById('mitigate-fix-safety').innerHTML = '';
+  document.getElementById('mitigate-fix-options').innerHTML = '';
+  document.getElementById('mitigate-fix-result').innerHTML = '';
+  mitigateTab('diagnostic');
+  openModal('mitigate-modal');
+  _mitigateKickoff();
+}
+
+function closeMitigateModal() {
+  if (_mitigatePollTimer) { clearTimeout(_mitigatePollTimer); _mitigatePollTimer = null; }
+  _mitigateCtx = null;
+  closeModal('mitigate-modal');
+}
+
+function mitigateTab(tab) {
+  document.querySelectorAll('#mitigate-modal .drawer-tab-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mitTab === tab));
+  document.querySelectorAll('.mitigate-pane').forEach(p =>
+    p.style.display = p.id === `mitigate-pane-${tab}` ? '' : 'none');
+}
+
+// Step 1: queue the diagnostic
+async function _mitigateKickoff() {
+  const r = await api('POST', `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/investigate`,
+    { kind: _mitigateCtx.kind, target: _mitigateCtx.target });
+  if (!r || !r.ok || !r.action_id) {
+    document.getElementById('mitigate-diag-meta').textContent =
+      r?.error || 'Failed to queue diagnostic';
+    return;
+  }
+  _mitigateCtx.actionId = r.action_id;
+  document.getElementById('mitigate-diag-meta').textContent =
+    `Queued (action ${r.action_id}). Agent picks it up within 60s, then runs ~10–30s depending on the diagnostic.`;
+  _mitigatePollAttempts = 0;
+  _mitigatePollDiag();
+}
+
+// Step 2: poll for diagnostic completion
+async function _mitigatePollDiag() {
+  if (!_mitigateCtx || !_mitigateCtx.actionId) return;
+  _mitigatePollAttempts++;
+  const r = await api('GET',
+    `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/status/${encodeURIComponent(_mitigateCtx.actionId)}`);
+  if (!r) {
+    document.getElementById('mitigate-diag-meta').textContent = 'Failed to read status';
+    return;
+  }
+  if (r.content) document.getElementById('mitigate-diag-output').textContent = r.content;
+  if (r.done) {
+    document.getElementById('mitigate-diag-meta').textContent =
+      `Done (rc=${r.rc}) — captured ${(r.size/1024).toFixed(1)} KB. ` +
+      (r.rc === 0 ? 'Triggering AI analysis…' : 'Diagnostic exited non-zero — AI will still try to interpret.');
+    // Auto-trigger AI on completion
+    setTimeout(_mitigateRunAi, 400);
+    return;
+  }
+  if (_mitigatePollAttempts >= _MITIGATE_POLL_MAX) {
+    document.getElementById('mitigate-diag-meta').textContent =
+      'Timed out waiting for diagnostic. Agent may be offline. Close and retry, or check the agent\'s journal.';
+    return;
+  }
+  _mitigatePollTimer = setTimeout(_mitigatePollDiag, 2000);
+}
+
+// Step 3: AI analysis
+async function _mitigateRunAi() {
+  if (!_mitigateCtx || !_mitigateCtx.actionId) return;
+  mitigateTab('ai');
+  document.getElementById('mitigate-ai-status').textContent = 'Asking the model…';
+  document.getElementById('mitigate-ai-summary').textContent = '';
+  document.getElementById('mitigate-ai-fix-box').style.display = 'none';
+  const r = await api('POST',
+    `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
+    {});
+  if (!r) {
+    document.getElementById('mitigate-ai-status').textContent = 'AI call failed';
+    return;
+  }
+  if (r.error) {
+    document.getElementById('mitigate-ai-status').textContent = '';
+    document.getElementById('mitigate-ai-summary').textContent = `Error: ${r.error}`;
+    return;
+  }
+  document.getElementById('mitigate-ai-status').textContent = 'Done.';
+  document.getElementById('mitigate-ai-summary').textContent = r.summary || '(empty response)';
+  _mitigateRenderFixOptions(r);
+}
+
+function mitigateRerunAi() { _mitigateRunAi(); }
+
+function _mitigateRenderFixOptions(aiResult) {
+  // Show the suggested fix in the AI pane
+  if (aiResult.suggested_fix) {
+    document.getElementById('mitigate-ai-fix-box').style.display = '';
+    document.getElementById('mitigate-ai-fix').textContent = aiResult.suggested_fix;
+    const warn = document.getElementById('mitigate-ai-fix-warning');
+    if (aiResult.denylist_match) {
+      warn.style.display = '';
+      warn.innerHTML = `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px">
+        <strong>⛔ Refused — denylist match.</strong>
+        ${escHtml(aiResult.denylist_reason || '')}
+        <div style="margin-top:6px;font-size:11px;color:var(--muted)">
+          This command will not be executed by RemotePower. Copy it manually if you really need to.
+        </div>
+      </div>`;
+      document.getElementById('mitigate-ai-use').style.display = 'none';
+    } else if (aiResult.requires_confirmation) {
+      warn.style.display = '';
+      warn.innerHTML = `<div style="background:rgba(255,170,40,0.10);color:var(--amber);border:1px solid rgba(255,170,40,0.30);border-radius:6px;padding:10px">
+        <strong>⚠ Sensitive — requires explicit RUN confirmation</strong>
+        <div style="margin-top:4px;font-size:12px">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
+      </div>`;
+      document.getElementById('mitigate-ai-use').style.display = '';
+    } else {
+      warn.style.display = 'none';
+      document.getElementById('mitigate-ai-use').style.display = '';
+    }
+  } else {
+    document.getElementById('mitigate-ai-fix-box').style.display = 'none';
+    document.getElementById('mitigate-ai-use').style.display = 'none';
+  }
+  // Populate the Apply Fix tab's options. Two slots:
+  //   1) Pre-approved playbook fix (if any) — green button
+  //   2) AI-suggested fix (if any, not denylisted)
+  const opts = [];
+  if (aiResult.preapproved_fix) {
+    opts.push({
+      kind: 'preapproved',
+      cmd:  aiResult.preapproved_fix,
+      label: aiResult.preapproved_fix_label || 'Pre-approved fix',
+    });
+  }
+  if (aiResult.suggested_fix && !aiResult.denylist_match) {
+    opts.push({
+      kind: 'ai',
+      cmd:  aiResult.suggested_fix,
+      label: 'AI-suggested fix',
+      sensitive: aiResult.requires_confirmation,
+    });
+  }
+  const optsHtml = opts.map((o, i) => `
+    <label style="display:flex;align-items:flex-start;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;cursor:pointer">
+      <input type="radio" name="mitigate-fix-pick" value="${i}" onchange="_mitigateSelectFixOption(${i})" style="margin-top:3px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;font-size:12px;color:${o.kind === 'preapproved' ? 'var(--green)' : 'var(--text)'}">
+          ${o.kind === 'preapproved' ? '✓ ' : '✨ '}${escHtml(o.label)}
+          ${o.sensitive ? '<span style="color:var(--amber);font-size:11px;margin-left:6px">(RUN required)</span>' : ''}
+        </div>
+        <code style="font-size:11px;color:var(--muted);display:block;margin-top:4px;word-break:break-all">${escHtml(o.cmd)}</code>
+      </div>
+    </label>`).join('');
+  document.getElementById('mitigate-fix-options').innerHTML = optsHtml ||
+    '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">No fix options available. Either nothing to do (read-only diagnostic), or the AI returned no actionable suggestion. You can still type a command manually below.</div>';
+  // Stash for selection
+  window._mitigateFixOpts = opts;
+}
+
+function _mitigateSelectFixOption(idx) {
+  const o = (window._mitigateFixOpts || [])[idx];
+  if (!o) return;
+  document.getElementById('mitigate-fix-cmd').value = o.cmd;
+  _mitigateUpdateSafety();
+}
+
+function mitigateUseAiFix() {
+  const cmd = document.getElementById('mitigate-ai-fix').textContent;
+  document.getElementById('mitigate-fix-cmd').value = cmd;
+  mitigateTab('fix');
+  _mitigateUpdateSafety();
+}
+
+function _mitigateUpdateSafety() {
+  // Client-side preview of whether confirmation will be required. Server is
+  // authoritative — this just gives the user a heads-up so they aren't
+  // surprised by the 400 response.
+  const cmd = document.getElementById('mitigate-fix-cmd').value.trim();
+  const safetyEl = document.getElementById('mitigate-fix-safety');
+  const confirmRow = document.getElementById('mitigate-fix-confirm-row');
+  if (!cmd) {
+    safetyEl.innerHTML = '';
+    confirmRow.style.display = 'none';
+    return;
+  }
+  // Mirror server's regex set (loose, only for UI hint)
+  const SENSITIVE_RX = [
+    /\breboot\b/i, /\bshutdown\b/i, /\bhalt\b/i, /\bpoweroff\b/i,
+    /\bkill\s+-9\b/i, /\bpkill\s+-9\b/i,
+    /\bsystemctl\s+(?:stop|disable|mask)\b/i,
+    /\biptables\s+-[FX]\b/i, /\bnft\s+flush\b/i,
+    /\buserdel\b/i, /\bgroupdel\b/i,
+    /\bapt-get\s+(?:purge|remove)\s+/i,
+    /\bdnf\s+(?:remove|erase)\s+/i,
+    /\bpacman\s+-R[^\s]*\s+/i,
+    /\bcurl\s+[^\|]+\|\s*(?:bash|sh)\b/i,
+    /\bwget\s+[^\|]+\|\s*(?:bash|sh)\b/i,
+  ];
+  const DENY_RX = [
+    /\brm\s+-[rRf]+\s+\/(?:\s|$|\*)/,
+    /\bdd\s+.*of=\/dev\/(?:sd|nvme|xvd|vd|hd)/i,
+    /\bmkfs\b/i, /:\(\)\s*\{.*:\s*\|\s*:&/, /\bdrop\s+database\b/i,
+    /\bchmod\s+(?:-R\s+)?(?:000|777)\s+\/(?:\s|$)/i,
+  ];
+  const denied  = DENY_RX.some(rx => rx.test(cmd));
+  const sensitive = !denied && SENSITIVE_RX.some(rx => rx.test(cmd));
+  if (denied) {
+    safetyEl.innerHTML = `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px;font-size:12px">
+      <strong>⛔ This command appears to match the denylist.</strong> The server will refuse to run it. Edit the command, or run it manually on the host.
+    </div>`;
+    confirmRow.style.display = 'none';
+    document.getElementById('mitigate-fix-go').disabled = true;
+  } else if (sensitive) {
+    safetyEl.innerHTML = `<div style="background:rgba(255,170,40,0.10);color:var(--amber);border:1px solid rgba(255,170,40,0.30);border-radius:6px;padding:10px;font-size:12px">
+      <strong>⚠ Sensitive command.</strong> Type RUN in the confirmation field below.
+    </div>`;
+    confirmRow.style.display = '';
+    document.getElementById('mitigate-fix-go').disabled = false;
+  } else {
+    safetyEl.innerHTML = `<div style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px">
+      Looks like a routine command. Will run as-is on the agent.
+    </div>`;
+    confirmRow.style.display = 'none';
+    document.getElementById('mitigate-fix-go').disabled = false;
+  }
+}
+
+// Wire the textarea change so safety updates live
+document.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('mitigate-fix-cmd');
+  if (el) el.addEventListener('input', _mitigateUpdateSafety);
+});
+
+async function mitigateRunFix() {
+  const cmd = document.getElementById('mitigate-fix-cmd').value.trim();
+  if (!cmd) { toast('Enter a command first', 'error'); return; }
+  const confirmation = document.getElementById('mitigate-fix-confirm').value.trim();
+  const btn = document.getElementById('mitigate-fix-go');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Queueing…';
+  const r = await api('POST', `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/fix`, {
+    kind:         _mitigateCtx.kind,
+    target:       _mitigateCtx.target,
+    command:      cmd,
+    confirmation: confirmation,
+  });
+  btn.disabled = false; btn.textContent = orig;
+  if (!r) {
+    document.getElementById('mitigate-fix-result').innerHTML =
+      '<div style="color:var(--red);font-size:12px">Request failed</div>';
+    return;
+  }
+  if (r.error) {
+    document.getElementById('mitigate-fix-result').innerHTML =
+      `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px;font-size:12px">
+        ${escHtml(r.error)}
+        ${r.hint ? `<div style="margin-top:4px;font-size:11px;color:var(--muted)">${escHtml(r.hint)}</div>` : ''}
+      </div>`;
+    return;
+  }
+  if (r.ok && r.action_id) {
+    _mitigateCtx.actionId = r.action_id;
+    document.getElementById('mitigate-fix-result').innerHTML =
+      `<div style="background:rgba(0,200,120,0.10);color:var(--green);border:1px solid rgba(0,200,120,0.30);border-radius:6px;padding:10px;font-size:12px">
+        ✓ Queued (action ${escHtml(r.action_id)}). Polling for output…
+        <pre id="mitigate-fix-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;margin-top:8px;max-height:280px;overflow:auto;white-space:pre-wrap"></pre>
+      </div>`;
+    _mitigatePollAttempts = 0;
+    _mitigatePollFix();
+  }
+}
+
+async function _mitigatePollFix() {
+  if (!_mitigateCtx || !_mitigateCtx.actionId) return;
+  _mitigatePollAttempts++;
+  const r = await api('GET',
+    `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/status/${encodeURIComponent(_mitigateCtx.actionId)}`);
+  const out = document.getElementById('mitigate-fix-output');
+  if (!r) return;
+  if (out && r.content) out.textContent = r.content;
+  if (r.done) {
+    if (out) {
+      out.textContent = r.content || '(no output)';
+      out.insertAdjacentHTML('afterend',
+        `<div style="margin-top:8px;font-size:11px;color:var(--muted)">Done. rc=${r.rc} · ${(r.size/1024).toFixed(1)} KB</div>`);
+    }
+    return;
+  }
+  if (_mitigatePollAttempts >= _MITIGATE_POLL_MAX) {
+    if (out) out.insertAdjacentHTML('afterend',
+      '<div style="margin-top:8px;font-size:11px;color:var(--amber)">Timed out waiting for output. Agent may be offline.</div>');
+    return;
+  }
+  setTimeout(_mitigatePollFix, 2000);
+}
+
+// v3.0.1: Cancel a pending ACME action (still in queue or already dispatched)
+async function acmeCancelAction(actionId) {
+  if (!_acmeDetailContext) return;
+  if (!confirm(`Cancel pending action ${actionId}?\n\nIf the agent hasn't picked it up yet, it'll be removed from the queue. If it's already running, the cancel only stops RemotePower from waiting — the agent may still finish what it started.`)) return;
+  const r = await api('POST',
+    `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/cancel/${encodeURIComponent(actionId)}`);
+  if (!r) { toast('Cancel request failed', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(r.removed_from_queue
+    ? 'Cancelled — was still in queue, never dispatched'
+    : 'Cancelled — already dispatched, UI will stop polling but agent may finish', 'success');
+  // Re-open detail to refresh log list
+  acmeOpenDetail(_acmeDetailContext.devId, _acmeDetailContext.domain);
+}
+
+// v3.0.1: Ignore (= delete) an ACME action row. Use for stuck-pending entries
+// that won't cancel cleanly. Doesn't touch cert state — only removes the log
+// + meta files from disk so the row disappears.
+async function acmeIgnoreAction(actionId) {
+  if (!_acmeDetailContext) return;
+  if (!confirm(`Remove this action row from the log list?\n\nThis deletes the captured output (if any) and the meta file. The actual cert state on the device is unaffected — this is purely a UI cleanup. Use Cancel instead if you want to stop a pending action from running.`)) return;
+  const r = await api('POST',
+    `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/ignore/${encodeURIComponent(actionId)}`);
+  if (!r) { toast('Ignore request failed', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast('Action row removed', 'success');
+  acmeOpenDetail(_acmeDetailContext.devId, _acmeDetailContext.domain);
+}
+
+// ─── v3.0.2: Self-monitoring page ──────────────────────────────────────────
+// Renders /api/self/status into expandable info cards.
+function _selfFmtBytes(b) {
+  if (b == null) return '—';
+  const u = ['B','KB','MB','GB','TB']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(b < 10 ? 1 : 0) + ' ' + u[i];
+}
+function _selfFmtAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.max(0, Math.floor(Date.now()/1000) - ts);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+async function loadSelfStatus() {
+  const body = document.getElementById('self-status-body');
+  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  const s = await api('GET', '/self/status');
+  if (!s || s.error) {
+    body.innerHTML = '<div style="color:var(--red)">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';
+    return;
+  }
+  // Devices freshness card
+  const dev = s.devices || {};
+  const offlineSev = dev.offline > 0 ? 'var(--red)' : 'var(--green)';
+  // Webhook delivery card
+  const w24 = (s.webhooks || {}).last_24h;
+  const w7d = (s.webhooks || {}).last_7d;
+  const _whHtml = w => !w ? '<span style="color:var(--muted)">no deliveries</span>'
+    : `<strong>${w.success}</strong> / ${w.attempts} (${(w.rate*100).toFixed(1)}%)`;
+  // Disk usage
+  const dd = s.data_dir || {};
+  const diskPct = (dd.fs_free_bytes && dd.fs_total_bytes)
+    ? Math.round((1 - dd.fs_free_bytes / dd.fs_total_bytes) * 100) : null;
+  const bigFiles = (dd.big_files || []).map(f =>
+    `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
+       <code>${escHtml(f.name)}</code><span style="color:var(--muted)">${_selfFmtBytes(f.bytes)}</span>
+     </div>`).join('');
+  // Backup state
+  const bk = s.backup || {};
+  body.innerHTML = `
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Process</div>
+      <table style="font-size:13px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
+        ${s.process?.pid ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">PID</td><td>${s.process.pid}</td></tr>` : ''}
+        ${s.process?.vmrss_kb ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Memory (RSS)</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
+      </table>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Devices</div>
+      <table style="font-size:13px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Currently offline</td><td><span style="color:${offlineSev};font-weight:600">${dev.offline ?? '—'}</span></td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Freshest heartbeat</td><td>${_selfFmtAgo(dev.freshest_seen)}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Oldest heartbeat</td><td>${_selfFmtAgo(dev.oldest_seen)}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Online TTL</td><td>${dev.online_ttl_s ?? '—'}s</td></tr>
+      </table>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Webhook delivery</div>
+      <table style="font-size:13px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last 24h</td><td>${_whHtml(w24)}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Logged total</td><td>${(s.webhooks || {}).total_logged ?? '—'}</td></tr>
+      </table>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
+      <table style="font-size:13px;margin-bottom:10px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
+        ${diskPct != null ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Filesystem used</td><td>${diskPct}% (${_selfFmtBytes(dd.fs_total_bytes - dd.fs_free_bytes)} of ${_selfFmtBytes(dd.fs_total_bytes)})</td></tr>` : ''}
+      </table>
+      ${bigFiles ? `<details><summary style="cursor:pointer;color:var(--muted);font-size:12px">Largest files (>100KB)</summary><div style="margin-top:8px">${bigFiles}</div></details>` : ''}
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Audit log</div>
+      <table style="font-size:13px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Retention</td><td>${(s.audit_log || {}).retention_days ?? '—'} days</td></tr>
+        ${(s.audit_log || {}).archive_bytes ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Archive (gzip)</td><td>${_selfFmtBytes(s.audit_log.archive_bytes)}</td></tr>` : ''}
+      </table>
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Backup</div>
+      ${bk.last_run ? `
+        <table style="font-size:13px">
+          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span style="color:var(--muted)">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
+          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last file</td><td><code style="font-size:11px">${escHtml(bk.last_file || '—')}</code></td></tr>
+          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
+          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
+        </table>` : '<div style="color:var(--muted);font-size:13px">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
+    </div>
+
+    <div class="card" style="padding:16px">
+      <div style="font-weight:600;margin-bottom:10px">Fleet events</div>
+      <table style="font-size:13px">
+        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
+        ${(s.fleet_events || {}).archive_bytes ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Archive (gzip)</td><td>${_selfFmtBytes(s.fleet_events.archive_bytes)}</td></tr>` : ''}
+      </table>
+    </div>
+  `;
+}
+async function runBackupNow() {
+  const btn = document.getElementById('self-backup-btn');
+  if (!confirm('Run a backup snapshot of /var/lib/remotepower now? This may take a few seconds depending on data size.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  const r = await api('POST', '/self/backup-now');
+  btn.disabled = false;
+  btn.textContent = '↓ Run backup now';
+  if (!r || r.error) { toast('Backup failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  if (r.skipped) { toast('Skipped: ' + (r.reason || ''), 'warning'); return; }
+  toast(`Backup written: ${_selfFmtBytes(r.bytes)} (${r.pruned || 0} old files pruned)`, 'success');
+  loadSelfStatus();
+}
+
+// v3.0.2: Force ACME rescan — bypasses the hourly scan cadence.
+async function acmeForceRescan(devId) {
+  if (!confirm('Force the agent to rescan ~/.acme.sh on its next heartbeat?\n\nUseful after renewing/issuing via the CLI when you don\'t want to wait an hour for RemotePower to catch up.')) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(devId)}/acme/force-rescan`);
+  if (!r) { toast('Force-rescan request failed', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(r.message || 'ACME rescan queued', 'success');
+}
+
+// ─── v3.0.2: Global command palette / search ───────────────────────────────
+// Press `/` or `Ctrl+K` to open. Searches devices, pages, audit-log actions,
+// ACME domains, services. Enter to navigate, Esc to close.
+let _palOpen = false;
+let _palItems = [];      // [{label, kind, action: () => void}]
+let _palCursor = 0;
+function _palBuildIndex() {
+  const items = [];
+  // Static pages (sidebar destinations)
+  const pages = [
+    ['Home', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],
+    ['Virtualization', 'virtualization'], ['Monitor', 'monitor'],
+    ['History', 'history'], ['Schedule', 'schedule'], ['Calendar', 'calendar'],
+    ['Tasks', 'tasks'], ['CMDB', 'cmdb'], ['Logs', 'logs'], ['CVEs', 'cve'],
+    ['Patches', 'patches'], ['Drift', 'drift'], ['TLS', 'tls'],
+    ['IaC', 'iac'], ['Network Map', 'netmap'], ['Audit', 'audit'],
+    ['Server status', 'self'], ['Documentation', 'docs'],
+    ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
+    ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
+    ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
+  ];
+  for (const [label, page] of pages) {
+    items.push({label, kind: 'page', sub: 'Go to page',
+                action: () => showPage(page)});
+  }
+  // v3.0.2: actions, not just pages
+  items.push({label: 'Bulk actions…', kind: 'action',
+              sub: 'Fleet-wide upgrade / reboot / scan',
+              action: openBulkActions});
+  items.push({label: 'Keyboard shortcuts', kind: 'action',
+              sub: 'Show cheat sheet (?)',
+              action: showKeyboardShortcuts});
+  items.push({label: 'Run backup now', kind: 'action',
+              sub: 'Snapshot /var/lib/remotepower',
+              action: () => { showPage('self'); setTimeout(runBackupNow, 400); }});
+  // Devices — pulled live from the cached devices list if loaded
+  const cached = window._devicesCache || [];
+  for (const d of cached) {
+    items.push({
+      label: d.name || d.id,
+      kind: 'device',
+      sub: `${d.os || 'device'} · ${d.ip || ''}`,
+      action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id), 100); },
+    });
+  }
+  return items;
+}
+function openCommandPalette() {
+  if (_palOpen) return;
+  _palOpen = true;
+  // v3.0.2: prime the device cache if it's empty so the palette actually
+  // surfaces devices when you open it cold (right after page load, before
+  // visiting the Devices page).
+  if (!window._devicesCache || !window._devicesCache.length) {
+    // Best-effort: fire-and-forget. Palette will refresh once data lands.
+    api('GET', '/devices').then(data => {
+      if (data && Array.isArray(data)) {
+        window._devicesCache = data;
+        if (_palOpen) { _palItems = _palBuildIndex(); _palRender(); }
+      }
+    }).catch(() => {});
+  }
+  _palItems = _palBuildIndex();
+  _palCursor = 0;
+  const overlay = document.createElement('div');
+  overlay.id = 'cmd-palette-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;justify-content:center;padding-top:80px';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:min(580px,90vw);max-height:60vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+      <input id="cmd-palette-input" type="text" placeholder="Search devices, pages, settings…" autocomplete="off"
+             style="width:100%;padding:14px 18px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:15px;outline:none">
+      <div id="cmd-palette-results" style="overflow-y:auto;padding:6px;flex:1"></div>
+      <div style="font-size:11px;color:var(--muted);padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:14px">
+        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">↑↓</kbd> navigate</span>
+        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">⏎</kbd> open</span>
+        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">esc</kbd> close</span>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeCommandPalette(); });
+  document.body.appendChild(overlay);
+  const input = document.getElementById('cmd-palette-input');
+  input.addEventListener('input', _palRender);
+  input.addEventListener('keydown', _palKeydown);
+  input.focus();
+  _palRender();
+}
+function closeCommandPalette() {
+  _palOpen = false;
+  document.getElementById('cmd-palette-overlay')?.remove();
+}
+function _palRender() {
+  const q = (document.getElementById('cmd-palette-input')?.value || '').toLowerCase().trim();
+  const filtered = q
+    ? _palItems.filter(i => i.label.toLowerCase().includes(q) || i.sub?.toLowerCase().includes(q))
+    : _palItems.slice(0, 20);
+  if (_palCursor >= filtered.length) _palCursor = 0;
+  const html = filtered.map((it, idx) => `
+    <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''}"
+         data-idx="${idx}"
+         style="padding:10px 12px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+                ${idx === _palCursor ? 'background:var(--surface2);' : ''}">
+      <div>
+        <div style="font-size:13px">${escHtml(it.label)}</div>
+        ${it.sub ? `<div style="font-size:11px;color:var(--muted)">${escHtml(it.sub)}</div>` : ''}
+      </div>
+      <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">${it.kind}</span>
+    </div>`).join('') || '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No results</div>';
+  document.getElementById('cmd-palette-results').innerHTML = html;
+  document.querySelectorAll('.cmd-palette-row').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = parseInt(el.dataset.idx, 10);
+      _palItems = filtered;  // remember filtered for activation
+      _palActivate(idx);
+    });
+  });
+  // Stash filtered so keyboard activation hits the right slice
+  window._palFiltered = filtered;
+}
+function _palKeydown(e) {
+  const f = window._palFiltered || [];
+  if (e.key === 'Escape') { e.preventDefault(); closeCommandPalette(); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); _palCursor = Math.min(f.length - 1, _palCursor + 1); _palRender(); return; }
+  if (e.key === 'ArrowUp')   { e.preventDefault(); _palCursor = Math.max(0, _palCursor - 1); _palRender(); return; }
+  if (e.key === 'Enter')     { e.preventDefault(); _palActivate(_palCursor); return; }
+}
+function _palActivate(idx) {
+  const f = window._palFiltered || [];
+  const it = f[idx];
+  if (!it) return;
+  closeCommandPalette();
+  try { it.action(); } catch(e) { console.error('palette action failed', e); }
+}
+
+// Global keybind: `/` or Ctrl-K opens the palette. Ignore when typing in an input.
+document.addEventListener('keydown', e => {
+  if (_palOpen) return;
+  const tgt = e.target;
+  const inField = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+  if (inField) return;
+  if ((e.key === '/' && !e.ctrlKey && !e.metaKey) ||
+      ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+    e.preventDefault();
+    openCommandPalette();
+  } else if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    showKeyboardShortcuts();
+  }
+});
+
+// ─── v3.0.2: Keyboard shortcuts cheat sheet ────────────────────────────────
+function showKeyboardShortcuts() {
+  if (document.getElementById('kbd-cheat-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'kbd-cheat-overlay';
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;justify-content:center;align-items:center';
+  o.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:460px;width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h3 style="margin:0;font-size:17px">Keyboard shortcuts</h3>
+        <button class="btn-icon" onclick="document.getElementById('kbd-cheat-overlay')?.remove()" style="font-size:18px;padding:4px 10px">×</button>
+      </div>
+      <table style="width:100%;font-size:13px">
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">/</kbd></td><td>Open command palette</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">Ctrl-K</kbd></td><td>Open command palette</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">?</kbd></td><td>Show this cheat sheet</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g h</kbd></td><td>Go to Home</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g d</kbd></td><td>Go to Devices</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g l</kbd></td><td>Go to Logs</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g s</kbd></td><td>Go to Settings</td></tr>
+        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">Esc</kbd></td><td>Close any modal</td></tr>
+      </table>
+    </div>`;
+  o.addEventListener('click', e => { if (e.target === o) o.remove(); });
+  document.body.appendChild(o);
+}
+
+// 'g' prefix shortcut handler — single-letter follow-up jumps to pages.
+let _gPrefix = false;
+let _gPrefixTimer = null;
+document.addEventListener('keydown', e => {
+  const tgt = e.target;
+  const inField = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable);
+  if (inField || _palOpen) return;
+  if (e.key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (_gPrefix) return;
+    _gPrefix = true;
+    if (_gPrefixTimer) clearTimeout(_gPrefixTimer);
+    _gPrefixTimer = setTimeout(() => { _gPrefix = false; }, 1500);
+    return;
+  }
+  if (_gPrefix) {
+    _gPrefix = false;
+    if (_gPrefixTimer) clearTimeout(_gPrefixTimer);
+    const map = {h:'home', d:'devices', l:'logs', s:'settings', c:'cve', m:'monitor', a:'audit', v:'self'};
+    const dest = map[e.key.toLowerCase()];
+    if (dest) { e.preventDefault(); showPage(dest); }
+  }
+});
+
+// ─── v3.0.2: Settings page search bar — filters visible setting cards ──────
+// Each .settings-section is searchable by its textContent. Results outside
+// the active tab still need their parent .settings-pane to flip visible —
+// so we update per-tab match badges, and auto-switch to the first matching
+// tab when the current tab has zero matches.
+function filterSettings(q) {
+  q = (q || '').toLowerCase().trim();
+
+  // Per-tab match counts. Reset on every keystroke since dynamic sections
+  // (webhook destinations, etc.) can change textContent after first index.
+  const tabCounts = {};
+  const tabHasAny = {};
+
+  document.querySelectorAll('#page-settings .settings-pane').forEach(pane => {
+    // The tab id is the last segment of the pane id: settings-pane-<tab>
+    const tab = (pane.id || '').replace(/^settings-pane-/, '');
+    tabCounts[tab] = 0; tabHasAny[tab] = false;
+    pane.querySelectorAll('.settings-section').forEach(sec => {
+      const text = sec.textContent.toLowerCase();
+      const hit  = !q || text.includes(q);
+      sec.style.display = hit ? '' : 'none';
+      if (q && hit) { tabCounts[tab]++; tabHasAny[tab] = true; }
+      if (!q) tabHasAny[tab] = true;
+    });
+  });
+
+  // Update tab badges + visually grey out tabs that have zero matches
+  document.querySelectorAll('.settings-tab').forEach(btn => {
+    const tab = btn.dataset.tab;
+    // Strip any previous match badge
+    btn.querySelector('.settings-search-badge')?.remove();
+    if (q && tabCounts[tab] > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'settings-search-badge';
+      badge.textContent = ' ' + tabCounts[tab];
+      badge.style.cssText = 'background:var(--accent);color:#fff;font-size:10px;padding:0 6px;border-radius:8px;margin-left:4px';
+      btn.appendChild(badge);
+    }
+    if (q && !tabHasAny[tab]) {
+      btn.style.opacity = '0.4';
+    } else {
+      btn.style.opacity = '';
+    }
+  });
+
+  // If the active tab has 0 matches but another tab does, switch to that tab.
+  // Avoids the "I typed something, the page went blank" experience.
+  if (q) {
+    const active = document.querySelector('.settings-tab.active');
+    const activeTab = active?.dataset.tab;
+    if (activeTab && !tabHasAny[activeTab]) {
+      const firstMatch = Object.entries(tabCounts).find(([_, c]) => c > 0);
+      if (firstMatch && typeof switchSettingsTab === 'function') {
+        switchSettingsTab(firstMatch[0]);
+      }
+    }
+  }
+
+  // Top-of-page hint when search is active and produces zero hits anywhere
+  let hint = document.getElementById('settings-search-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'settings-search-hint';
+    hint.style.cssText = 'font-size:12px;color:var(--muted);margin:-6px 0 10px 0';
+    const searchInput = document.getElementById('settings-search');
+    if (searchInput && searchInput.parentNode) {
+      searchInput.parentNode.insertBefore(hint, searchInput.nextSibling);
+    }
+  }
+  const total = Object.values(tabCounts).reduce((a, b) => a + b, 0);
+  if (!q) {
+    hint.textContent = '';
+  } else if (total === 0) {
+    hint.innerHTML = `No settings match <code>${escHtml(q)}</code>. Try shorter or different terms.`;
+  } else {
+    hint.textContent = `${total} setting${total === 1 ? '' : 's'} match across ${Object.values(tabCounts).filter(c => c > 0).length} tab(s)`;
+  }
+}
+
+// ─── v3.0.2: Bulk actions modal — fleet-wide operations ────────────────────
+// Available from the command palette and from Settings → Advanced. Wraps the
+// existing _queue_command_batch endpoint plus a few server-side helpers.
+function openBulkActions() {
+  const devs = window._devicesCache || [];
+  if (!devs.length) { toast('No devices loaded — visit Devices first', 'warning'); return; }
+  if (document.getElementById('bulk-modal-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'bulk-modal-overlay';
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99997;display:flex;justify-content:center;align-items:center';
+  const groups = {};
+  for (const d of devs) {
+    const g = d.group || 'devices';
+    (groups[g] = groups[g] || []).push(d);
+  }
+  const tagSet = new Set();
+  devs.forEach(d => (d.tags || []).forEach(t => tagSet.add(t)));
+  o.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:640px;width:92vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <h3 style="margin:0;font-size:17px">Bulk actions</h3>
+        <button class="btn-icon" onclick="document.getElementById('bulk-modal-overlay')?.remove()" style="font-size:18px;padding:4px 10px">×</button>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Run an operation across multiple devices at once. Select a filter, pick an action, confirm.</div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">FILTER</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap" id="bulk-filter-options">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="bulk-filter" value="all" checked> All monitored (${devs.length})
+          </label>
+          ${Object.entries(groups).map(([g, ds]) => `
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="radio" name="bulk-filter" value="group:${escAttr(g)}"> Group: <code>${escHtml(g)}</code> (${ds.length})
+            </label>`).join('')}
+          ${[...tagSet].slice(0, 12).map(t => {
+            const ct = devs.filter(d => (d.tags || []).includes(t)).length;
+            return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+              <input type="radio" name="bulk-filter" value="tag:${escAttr(t)}"> Tag: <code>${escHtml(t)}</code> (${ct})
+            </label>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">ACTION</div>
+        <select id="bulk-action" class="form-input" style="width:100%;padding:8px">
+          <option value="upgrade">Upgrade packages — apt/dnf/yum/pacman</option>
+          <option value="reboot">Reboot</option>
+          <option value="shutdown">Shut down</option>
+          <option value="force_pkg_scan">Force package scan (for CVE freshness)</option>
+          <option value="force_acme_rescan">Force ACME rescan</option>
+        </select>
+      </div>
+
+      <div id="bulk-preview" style="font-size:12px;color:var(--muted);padding:10px;background:var(--bg);border-radius:6px;margin-bottom:14px"></div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn-secondary" onclick="document.getElementById('bulk-modal-overlay')?.remove()">Cancel</button>
+        <button class="btn-primary" onclick="runBulkAction()">Run</button>
+      </div>
+    </div>`;
+  document.body.appendChild(o);
+  o.addEventListener('click', e => { if (e.target === o) o.remove(); });
+  document.querySelectorAll('input[name="bulk-filter"]').forEach(el => el.addEventListener('change', _bulkUpdatePreview));
+  document.getElementById('bulk-action').addEventListener('change', _bulkUpdatePreview);
+  _bulkUpdatePreview();
+}
+function _bulkResolveTargets() {
+  const devs = window._devicesCache || [];
+  const sel = document.querySelector('input[name="bulk-filter"]:checked')?.value || 'all';
+  let targets = devs.filter(d => d.monitored !== false);
+  if (sel.startsWith('group:')) {
+    const g = sel.slice(6);
+    targets = targets.filter(d => d.group === g);
+  } else if (sel.startsWith('tag:')) {
+    const t = sel.slice(4);
+    targets = targets.filter(d => (d.tags || []).includes(t));
+  }
+  return targets;
+}
+function _bulkUpdatePreview() {
+  const targets = _bulkResolveTargets();
+  const action = document.getElementById('bulk-action')?.value || '?';
+  const el = document.getElementById('bulk-preview');
+  if (!el) return;
+  el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${targets.length} device(s):
+    <div style="margin-top:6px;font-size:11px;line-height:1.7">
+      ${targets.slice(0, 10).map(d => `<code>${escHtml(d.name || d.id)}</code>`).join(', ')}
+      ${targets.length > 10 ? ` <span style="color:var(--muted)">+${targets.length - 10} more</span>` : ''}
+    </div>`;
+}
+async function runBulkAction() {
+  const targets = _bulkResolveTargets();
+  const action  = document.getElementById('bulk-action')?.value;
+  if (!targets.length) { toast('No targets', 'warning'); return; }
+  // Destructive actions need explicit confirmation
+  const destructive = ['reboot', 'shutdown'].includes(action);
+  if (destructive) {
+    const word = prompt(`Type RUN to confirm ${action} on ${targets.length} device(s).`);
+    if (word !== 'RUN') { toast('Cancelled', 'info'); return; }
+  } else {
+    if (!confirm(`Run ${action} on ${targets.length} device(s)?`)) return;
+  }
+  const ids = targets.map(d => d.id);
+  let endpoint, payload;
+  if (['reboot', 'shutdown'].includes(action)) {
+    endpoint = '/' + action;
+    payload = { device_ids: ids };
+  } else if (action === 'upgrade') {
+    endpoint = '/upgrade';
+    payload = { device_ids: ids };
+  } else if (action === 'force_pkg_scan') {
+    // Per-device endpoint, fan out
+    document.getElementById('bulk-modal-overlay')?.remove();
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      const r = await api('POST', `/devices/${encodeURIComponent(id)}/scan-packages`);
+      if (r && !r.error) ok++; else fail++;
+    }
+    toast(`Package scan queued on ${ok} device(s)${fail ? ', ' + fail + ' failed' : ''}`,
+          fail ? 'warning' : 'success');
+    return;
+  } else if (action === 'force_acme_rescan') {
+    document.getElementById('bulk-modal-overlay')?.remove();
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      const r = await api('POST', `/devices/${encodeURIComponent(id)}/acme/force-rescan`);
+      if (r && !r.error) ok++; else fail++;
+    }
+    toast(`ACME rescan queued on ${ok} device(s)${fail ? ', ' + fail + ' failed' : ''}`,
+          fail ? 'warning' : 'success');
+    return;
+  }
+  const r = await api('POST', endpoint, payload);
+  document.getElementById('bulk-modal-overlay')?.remove();
+  if (!r || r.error) { toast(r?.error || 'Bulk action failed', 'error'); return; }
+  toast(`Queued ${action} on ${ids.length} device(s)`, 'success');
+}
+
+// ─── v3.0.2: Multi-webhook destinations editor ─────────────────────────────
+// Backend stores `config.webhook_urls: [{id, name, url, format, enabled, events?, min_priority?, pushover_*?}, ...]`.
+// Pushover creds are write-once-and-redacted: the GET response gives
+// `pushover_token_set: true/false` instead of the value; saving an empty
+// field preserves the existing secret.
+let _webhookDests = [];
+const _WEBHOOK_FORMATS = [
+  ['discord',   'Discord',        'https://discord.com/api/webhooks/...'],
+  ['slack',     'Slack',          'https://hooks.slack.com/services/...'],
+  ['pushover',  'Pushover',       'https://api.pushover.net/1/messages.json'],
+  ['ntfy',      'ntfy.sh',        'https://ntfy.sh/your-topic'],
+  ['teams',     'Microsoft Teams','https://outlook.office.com/webhook/...'],
+  ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
+];
+function renderWebhookDests() {
+  const wrap = document.getElementById('webhook-dests');
+  if (!wrap) return;
+  if (!_webhookDests.length) {
+    wrap.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:14px;background:var(--surface);border-radius:8px;border:1px dashed var(--border)">No destinations yet. Click "Add destination" to wire one up.</div>';
+    return;
+  }
+  wrap.innerHTML = _webhookDests.map((d, idx) => {
+    const fmtOpts = _WEBHOOK_FORMATS.map(([v, lbl]) =>
+      `<option value="${v}" ${d.format === v ? 'selected' : ''}>${lbl}</option>`).join('');
+    const isPushover = d.format === 'pushover';
+    const tokenSet = d.pushover_token_set;
+    const userSet  = d.pushover_user_set;
+    return `
+      <div class="webhook-dest-card" data-idx="${idx}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="checkbox" data-field="enabled" ${d.enabled ? 'checked' : ''}>
+            <strong>Enabled</strong>
+          </label>
+          <input type="text" data-field="name" class="form-input" placeholder="Label (e.g. Pushover crit-only)" value="${escAttr(d.name || '')}" style="flex:1;padding:6px 10px;font-size:13px">
+          <button class="btn-icon" title="Test — fire a 'test' event to this destination" onclick="testWebhookDest(${idx})" style="padding:4px 10px;font-size:11px">⚡ Test</button>
+          <button class="btn-icon" title="Remove" onclick="removeWebhookDest(${idx})" style="padding:4px 10px;color:var(--red);font-size:14px">×</button>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:10px">
+          <select data-field="format" class="form-input" style="flex:0 0 180px;padding:6px 10px;font-size:13px" onchange="updateWebhookDest(${idx})">${fmtOpts}</select>
+          <input type="url" data-field="url" class="form-input" placeholder="${escAttr(_WEBHOOK_FORMATS.find(f => f[0]===d.format)?.[2] || 'https://...')}" value="${escAttr(d.url || '')}" style="flex:1;padding:6px 10px;font-size:13px">
+        </div>
+        ${isPushover ? `
+          <div style="display:flex;gap:10px;margin-bottom:10px">
+            <input type="text" data-field="pushover_token" class="form-input" placeholder="${tokenSet ? '••••••••••• (set — leave blank to keep)' : 'App token (apXXX...)'}" style="flex:1;padding:6px 10px;font-size:13px;font-family:monospace">
+            <input type="text" data-field="pushover_user"  class="form-input" placeholder="${userSet  ? '••••••••••• (set — leave blank to keep)' : 'User/group key (uXXX...)'}" style="flex:1;padding:6px 10px;font-size:13px;font-family:monospace">
+          </div>` : ''}
+        <details style="font-size:12px">
+          <summary style="cursor:pointer;color:var(--muted)">Advanced — filter which events fire here</summary>
+          <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px">
+              Min severity:
+              <select data-field="min_priority" class="form-input" style="padding:4px 8px;font-size:12px">
+                <option value="" ${d.min_priority == null ? 'selected' : ''}>any</option>
+                <option value="0" ${d.min_priority === 0 ? 'selected' : ''}>info+</option>
+                <option value="1" ${d.min_priority === 1 ? 'selected' : ''}>warning+</option>
+                <option value="2" ${d.min_priority === 2 ? 'selected' : ''}>critical only</option>
+              </select>
+            </label>
+            <div style="font-size:11px;color:var(--muted)">Or specify exact event names (one per line):</div>
+            <textarea data-field="events" class="form-input" rows="3" placeholder="device_offline&#10;cve_found&#10;monitor_down" style="width:100%;padding:6px 10px;font-size:12px;font-family:monospace;resize:vertical">${escHtml((d.events || []).join('\n'))}</textarea>
+          </div>
+        </details>
+      </div>`;
+  }).join('');
+  // Wire change handlers — copy DOM values back into _webhookDests on every edit
+  wrap.querySelectorAll('.webhook-dest-card').forEach(card => {
+    const idx = parseInt(card.dataset.idx, 10);
+    card.querySelectorAll('[data-field]').forEach(el => {
+      const ev = (el.tagName === 'TEXTAREA' || el.type === 'text' || el.type === 'url') ? 'input' : 'change';
+      el.addEventListener(ev, () => _readWebhookDestCard(idx, card));
+    });
+  });
+}
+function _readWebhookDestCard(idx, card) {
+  const d = _webhookDests[idx] || {};
+  card.querySelectorAll('[data-field]').forEach(el => {
+    const f = el.dataset.field;
+    if (el.type === 'checkbox') d[f] = el.checked;
+    else if (f === 'min_priority') d[f] = el.value === '' ? null : parseInt(el.value, 10);
+    else if (f === 'events') d[f] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    else if (f === 'pushover_token' || f === 'pushover_user') {
+      // Don't overwrite the placeholder unless the user typed something
+      if (el.value) d[f] = el.value;
+    }
+    else d[f] = el.value;
+  });
+  _webhookDests[idx] = d;
+}
+function updateWebhookDest(idx) {
+  // Format changed — re-render so the URL placeholder + creds fields update
+  const card = document.querySelectorAll('.webhook-dest-card')[idx];
+  if (card) _readWebhookDestCard(idx, card);
+  renderWebhookDests();
+}
+function addWebhookDest() {
+  _webhookDests.push({
+    id: 'wh_' + Math.random().toString(36).slice(2, 10),
+    name: '', url: '', format: 'discord', enabled: true,
+  });
+  renderWebhookDests();
+}
+function removeWebhookDest(idx) {
+  if (!confirm('Remove this destination?')) return;
+  _webhookDests.splice(idx, 1);
+  renderWebhookDests();
+}
+async function testWebhookDest(idx) {
+  // First sync any pending edits
+  const card = document.querySelectorAll('.webhook-dest-card')[idx];
+  if (card) _readWebhookDestCard(idx, card);
+  const d = _webhookDests[idx];
+  if (!d?.url) { toast('Set a URL first', 'warning'); return; }
+  // Save current state so the test fires against persisted config
+  toast('Saving and firing test event…', 'info');
+  await saveWebhookDests();
+  const r = await api('POST', '/webhook/test', {id: d.id});
+  if (!r) { toast('Test failed (no response)', 'error'); return; }
+  if (r.error) { toast(r.error, 'error'); return; }
+  toast(`Test fired to "${d.name || d.url}". Check the webhook log below for the result.`, 'success');
+  setTimeout(loadWebhookLog, 800);
+}
+async function saveWebhookDests() {
+  // Strip the read-only "*_set" markers; backend doesn't want them on POST
+  const cleaned = _webhookDests.map(d => {
+    const c = {...d};
+    delete c.pushover_token_set;
+    delete c.pushover_user_set;
+    return c;
+  });
+  const r = await api('POST', '/config', {webhook_urls: cleaned});
+  if (!r || r.error) {
+    toast('Save failed: ' + (r?.error || 'unknown'), 'error');
+    return false;
+  }
+  return true;
 }

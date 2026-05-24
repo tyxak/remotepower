@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '2.6.0'
+SERVER_VERSION = '3.0.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -46,6 +46,9 @@ CMD_OUTPUT_FILE  = DATA_DIR / 'cmd_output.json'
 # Stored separately from generic exec output so the Patches page can filter
 # without scanning thousands of unrelated entries.
 UPDATE_LOGS_FILE = DATA_DIR / 'update_logs.json'
+IGNORED_ITEMS_FILE = DATA_DIR / 'ignored_items.json'  # v3.0.1: per-item ignores
+ACME_STATE_FILE    = DATA_DIR / 'acme_state.json'    # v3.0.1: acme.sh per-device state
+ACME_LOGS_DIR      = DATA_DIR / 'acme_logs'           # v3.0.1: captured acme.sh stdout per renewal/issue
 MAX_UPDATE_LOGS_PER_DEVICE = 10                # rolling buffer
 MAX_UPDATE_LOG_BYTES       = 256 * 1024        # apt update -y can spew a lot
 METRICS_FILE     = DATA_DIR / 'metrics.json'
@@ -109,6 +112,9 @@ MAINT_SUPPRESS_LOG  = DATA_DIR / 'maint_suppressed.json'  # audit trail for supp
 
 # v1.8.2: fleet-wide log alert rules (per-device rules still live on device.log_watch)
 LOG_RULES_GLOBAL_FILE = DATA_DIR / 'log_rules_global.json'
+DEBUG_LOG_FILE         = DATA_DIR / 'debug.log'
+# v3.0.0: IaC collection data lives here, keyed by request_id
+IAC_COLLECTION_DIR     = DATA_DIR / 'iac_collection'
 MAX_GLOBAL_LOG_RULES  = 50
 
 # v1.8.3: standalone shared calendar events
@@ -189,6 +195,77 @@ LINK_DEFAULT_CATEGORY    = 'Uncategorised'
 MAX_SERVICES_PER_DEVICE = 50       # sanity cap
 MAX_SERVICE_HIST        = 100      # state transitions kept per (device,unit)
 MAX_LOG_LINES_PER_UNIT  = 100      # per-poll capture window
+# ══ v3.0.1: log ingestion — embedded timestamps + content dedupe ═════════════
+# Why: agents resubmit log files on every poll. The server used to stamp every
+# line with `now`, so apt.history entries from days ago appeared as "new" and
+# the TTL never evicted them. Worse, the resulting bloat pushed nginx.access
+# and brute-force lines past the byte cap (silently dropped). Fix:
+#   1. Parse the embedded timestamp from the line itself when possible.
+#   2. Hash each incoming line and skip ones already present in the buffer.
+# ════════════════════════════════════════════════════════════════════════════
+
+# Compiled once. Each matches a common log timestamp format and yields a
+# tuple (year, month, day, hour, minute, second).
+_APT_HISTORY_RE  = re.compile(r'(?:Start|End)-Date:\s*(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})')
+_NGINX_ACCESS_RE = re.compile(r'\[(\d{2})/([A-Za-z]{3})/(\d{4}):(\d{2}):(\d{2}):(\d{2})')
+_SYSLOG_RE       = re.compile(r'^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})')
+_ISO_RE          = re.compile(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})')
+_MONTH_NUM = {'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
+
+def _extract_log_timestamp(line, unit, default_ts):
+    """Try to parse an embedded timestamp; fall back to default_ts.
+    Returns a unix epoch int. Conservative — only trust formats we recognise."""
+    if not isinstance(line, str) or len(line) < 8:
+        return default_ts
+    s = line[:200]   # bound scan window
+    try:
+        # apt.history / dpkg.log style: 2026-05-23 15:59:46
+        m = _APT_HISTORY_RE.search(s) or _ISO_RE.search(s)
+        if m:
+            yr, mo, dy, hh, mm, ss = (int(x) for x in m.groups())
+            ts = int(time.mktime((yr, mo, dy, hh, mm, ss, 0, 0, -1)))
+            # Sanity: timestamp must be within +/- 5 years of now
+            if abs(ts - default_ts) < 5 * 365 * 86400:
+                return ts
+        # nginx access: [21/May/2026:01:58:25 +0000]
+        m = _NGINX_ACCESS_RE.search(s)
+        if m:
+            dy, mon_str, yr, hh, mm, ss = m.groups()
+            mo = _MONTH_NUM.get(mon_str)
+            if mo:
+                ts = int(time.mktime((int(yr), mo, int(dy), int(hh), int(mm), int(ss), 0, 0, -1)))
+                if abs(ts - default_ts) < 5 * 365 * 86400:
+                    return ts
+        # syslog: "May 21 15:59:46" — no year, assume current year (correct
+        # except near year boundary, where lines are at most a few hours off)
+        m = _SYSLOG_RE.match(s)
+        if m:
+            mon_str, dy, hh, mm, ss = m.groups()
+            mo = _MONTH_NUM.get(mon_str)
+            if mo:
+                yr = time.localtime(default_ts).tm_year
+                ts = int(time.mktime((yr, mo, int(dy), int(hh), int(mm), int(ss), 0, 0, -1)))
+                # If extracted ts is more than 30 days in the future, this is
+                # probably a Dec/Jan rollover — back off a year.
+                if ts - default_ts > 30 * 86400:
+                    ts = int(time.mktime((yr - 1, mo, int(dy), int(hh), int(mm), int(ss), 0, 0, -1)))
+                if abs(ts - default_ts) < 366 * 86400:
+                    return ts
+    except (ValueError, OverflowError):
+        pass
+    return default_ts
+
+
+def _line_signature(line):
+    """Stable hash of a log line for dedupe purposes. Short prefix is enough —
+    the per-unit buffer is small and collisions don't cause data loss, only
+    one missed dedupe."""
+    if not isinstance(line, str):
+        line = str(line)
+    return hashlib.sha1(line.encode('utf-8', errors='replace')).hexdigest()[:16]
+
+
+
 LOG_BUFFER_TTL          = 6 * 3600 # rolling N-hour buffer
 MAX_LOG_BUFFER_BYTES    = 2 * 1024 * 1024   # 2 MB per device cap
 
@@ -348,6 +425,18 @@ WEBHOOK_EVENTS = (
     ('custom_script_recover', 'Custom monitoring script recovered to OK',   True),
     # v2.6.0: host configuration drift
     ('config_drift',          'Host configuration drift detected',          True),
+    # v2.6.1: TLS/DANE certificate expiry
+    ('tls_expiry',            'TLS/DANE certificate expiring soon',         True),
+    # v2.6.1: host pending reboot
+    ('reboot_required',       'Host requires a reboot',                     True),
+    # v2.7.0: Proxmox snapshot older than configured threshold
+    ('snapshot_old',          'Proxmox snapshot older than threshold',      True),
+    # v2.8.0: security & audit events
+    ('new_port_detected',     'New listening port appeared on host',         True),
+    ('ssh_key_added',         'SSH authorized key added to host',            True),
+    ('brute_force_detected',  'Brute-force login attempts detected',         True),
+    # v2.8.1: backup file age monitoring
+    ('backup_stale',          'Backup file is older than threshold',         True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -630,24 +719,45 @@ def load(path):
     The fallback path is the difference between "one bad write makes
     devices invisible until manual recovery" (v1.12.0) and "one bad write
     is silently absorbed using the previous heartbeat's state" (v1.12.1).
+
+    v3.0.2: per-request memoisation. CGI gives us a fresh interpreter per
+    request, so this dict only lives for the duration of one handler call.
+    Within a handler though, files like CONFIG_FILE were being parsed 4×
+    per heartbeat. Cache by path identity, invalidated on save().
     """
+    cached = _LOAD_CACHE.get(path)
+    if cached is not None:
+        # Tuple of (data, sentinel). Sentinel is False after invalidation.
+        if cached[1]:
+            # v3.0.2: deepcopy on hit. Callers routinely do
+            # `d = load(p); d['x'] = v; save(p, d)` — without a copy, the
+            # `d['x'] = v` mutation would leak into the cache. The
+            # mutation+abort path inside _LockedUpdate would also corrupt
+            # subsequent reads with in-flight changes that never made it
+            # to disk. deepcopy is cheaper than the file read + parse it
+            # replaces, so the cache benefit is preserved.
+            import copy as _copy
+            return _copy.deepcopy(cached[0])
+    import copy as _copy
     if not path.exists():
+        _LOAD_CACHE[path] = ({}, True)
         return {}
     try:
-        return json.loads(path.read_text())
+        data = json.loads(path.read_text())
+        # Cache one canonical copy + return a separate one. Both originate
+        # from the same parse — but caller mutations on the returned dict
+        # don't leak into the cache, and vice-versa.
+        _LOAD_CACHE[path] = (data, True)
+        return _copy.deepcopy(data)
     except json.JSONDecodeError as exc:
         bak = _backup_path(path)
         if bak.exists():
             try:
                 data = json.loads(bak.read_text())
-                # Log to stderr so this shows up in nginx error log.
-                # Don't try to "auto-heal" by writing the .bak back over
-                # the corrupted file here — that's load()'s caller's job
-                # if they decide to. Read paths shouldn't have side
-                # effects on disk.
                 sys.stderr.write(
                     f"[remotepower] WARN: {path} corrupted ({exc}); "
                     f"served from {bak.name}\n")
+                # Don't cache the .bak — caller may want to retry primary
                 return data
             except json.JSONDecodeError:
                 pass
@@ -658,6 +768,16 @@ def load(path):
     except Exception as exc:
         sys.stderr.write(f"[remotepower] WARN: {path} read failed: {exc}\n")
         return {}
+
+
+# Process-local cache for load(). Lives only as long as the CGI handler.
+_LOAD_CACHE = {}
+
+def _invalidate_load_cache(path):
+    """Mark a cached file as stale. Called by save()/_save_nb() so the next
+    load() in the same handler re-reads from disk."""
+    if path in _LOAD_CACHE:
+        _LOAD_CACHE[path] = (None, False)
 
 
 # v2.1.0: split critical section. The v1.12.1 design held the lock across
@@ -774,7 +894,12 @@ def save(path, data, non_blocking=False):
 
     Raises LockBusy if non_blocking=True and the lock is contended for
     longer than LOCK_NB_RETRIES * LOCK_NB_SLEEP_S.
+
+    v3.0.2: invalidate the per-request load() cache. A handler that
+    load→modify→save→load again must see the new data, not the cached
+    pre-save snapshot.
     """
+    _invalidate_load_cache(path)
     # Step 1: serialise + validate before any disk write. Same as before —
     # allow_nan=False rejects NaN / Infinity / -Infinity. Standard JSON
     # doesn't allow them; Python's default does. Letting them through
@@ -944,6 +1069,14 @@ class _LockedUpdate:
             # is not safe to publish if the handler bailed out mid-way.
             if exc_type is None and self._data is not None:
                 _save_held(self.path, self._data)
+            else:
+                # v3.0.2: aborted save — invalidate the load cache so the
+                # caller doesn't see the in-flight mutations on the next
+                # load() within the same process. Belt + braces with the
+                # deepcopy in load(); kept here so even a sloppy caller
+                # that captured the yielded dict outside the with-block
+                # can't poison subsequent reads.
+                _invalidate_load_cache(self.path)
         finally:
             if self._lock_fd is not None:
                 try:
@@ -966,6 +1099,7 @@ def _save_held(path, data):
     flock acquisition and release are skipped. Used by _LockedUpdate
     and anywhere else inside an already-locked section.
     """
+    _invalidate_load_cache(path)  # v3.0.2: same invariant as save()
     try:
         serialised = json.dumps(data, indent=2, allow_nan=False)
         json.loads(serialised)
@@ -1110,6 +1244,11 @@ def _check_login_ratelimit(username: str) -> bool:
 
     return True
 
+# v3.0.2: exponential backoff schedule for repeated brute-force attempts.
+# Each successive lockout (after the first) escalates the wait. Resets
+# only on a successful login (handled in _clear_login_failures).
+_LOCKOUT_LADDER_S = [10, 60, 300, 1800, 7200]   # 10s, 1m, 5m, 30m, 2h
+
 def _record_login_failure(username: str):
     rl = load(RATELIMIT_FILE)
     now = int(time.time())
@@ -1118,7 +1257,12 @@ def _record_login_failure(username: str):
     entry['failures'] = [t for t in entry['failures'] if now - t < LOGIN_FAIL_WINDOW]
     entry['failures'].append(now)
     if len(entry['failures']) >= LOGIN_FAIL_MAX:
-        entry['locked_until'] = now + LOGIN_LOCKOUT_TIME
+        # v3.0.2: escalate per consecutive lockout episode
+        lockout_count = int(entry.get('lockout_count', 0))
+        wait = _LOCKOUT_LADDER_S[min(lockout_count, len(_LOCKOUT_LADDER_S) - 1)]
+        entry['locked_until']   = now + wait
+        entry['lockout_count']  = lockout_count + 1
+        entry['last_wait_s']    = wait
         entry['failures'] = []  # reset counter after lockout
     rl[key] = entry
     save(RATELIMIT_FILE, rl)
@@ -1229,6 +1373,22 @@ def require_auth(require_admin=False):
 def require_admin_auth():
     return require_auth(require_admin=True)
 
+
+def current_username():
+    """Return the username for the current request, or None if unauth'd.
+
+    Used by audit-log call sites that don't already capture require_auth()'s
+    return value. v3.0.1: this helper was being called by handle_acme_cancel,
+    handle_acme_ignore, and the mitigation handlers but never defined →
+    NameError on every invocation. The route returned a 500, but since
+    respond() short-circuits via HTTPError BEFORE the NameError would fire
+    in some paths and AFTER in others, the symptom was "Cancel/Ignore
+    silently does nothing." Defined now; same lookup path as require_auth.
+    """
+    token = get_token_from_request()
+    username, _role = verify_token(token)
+    return username
+
 # ── Input sanitization helpers ─────────────────────────────────────────────────
 _IP_RE  = re.compile(
     r'^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)'  # IPv4
@@ -1332,7 +1492,14 @@ def log_command(actor, device_id, device_name, command):
 
 # ── Audit log with IP tracking ─────────────────────────────────────────────────
 def audit_log(actor, action, detail='', source_ip=None):
-    """Log action with actor, IP, and detail for security auditing."""
+    """Log action with actor, IP, and detail for security auditing.
+
+    v3.0.2: retention is both count-bounded (MAX_AUDIT_LOG) and
+    age-bounded. The age limit defaults to 90d and is configurable via
+    `audit_log_retention_days` in config.json. Both bounds apply — we
+    evict on whichever fires first. The archive (gzipped JSONL) preserves
+    the evicted tail for compliance dives.
+    """
     al = load(AUDIT_LOG_FILE)
     entries = al.get('entries', [])
     entries.append({
@@ -1343,6 +1510,25 @@ def audit_log(actor, action, detail='', source_ip=None):
         'source_ip': _sanitize_ip(source_ip or _get_client_ip()),
         'user_agent': _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
     })
+    # Age-bound: drop entries older than retention_days
+    cfg = load(CONFIG_FILE) or {}
+    retention_days = int(cfg.get('audit_log_retention_days') or 90)
+    if retention_days > 0:
+        cutoff = int(time.time()) - retention_days * 86400
+        archive_me = [e for e in entries if e.get('ts', 0) < cutoff]
+        entries = [e for e in entries if e.get('ts', 0) >= cutoff]
+        if archive_me:
+            try:
+                import gzip
+                arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
+                with gzip.open(str(arch), 'at') as f:
+                    for e in archive_me:
+                        f.write(json.dumps(e) + '\n')
+            except Exception as _arch_err:
+                sys.stderr.write(
+                    f'[remotepower] audit archive write failed: {_arch_err}\n')
+    # Count-bound (legacy safety net so a misconfigured retention_days=0
+    # doesn't let the file grow without limit)
     al['entries'] = entries[-MAX_AUDIT_LOG:]
     save(AUDIT_LOG_FILE, al)
 
@@ -1460,8 +1646,23 @@ def _record_fleet_event(event, payload):
             events = store.setdefault('events', [])
             events.append(entry)
             if len(events) > MAX_FLEET_EVENTS:
-                # Keep the newest tail
+                # v3.0.2: archive the overflow before we drop it. The
+                # archive is a gzipped JSONL — one event per line — so
+                # appending is cheap and queries by time scan linearly
+                # without parsing the full file at once. Read by the
+                # self-monitoring page's "Events history" expander.
+                overflow = events[:-MAX_FLEET_EVENTS]
                 del events[:-MAX_FLEET_EVENTS]
+                try:
+                    import gzip
+                    arch = DATA_DIR / 'fleet_events_archive.jsonl.gz'
+                    with gzip.open(str(arch), 'at') as f:
+                        for ev in overflow:
+                            f.write(json.dumps(ev) + '\n')
+                except Exception as _arch_err:
+                    sys.stderr.write(
+                        f'[remotepower] fleet_events archive write failed: '
+                        f'{_arch_err}\n')
     except Exception:
         # Caller wraps us too, but be defensive
         pass
@@ -1493,11 +1694,56 @@ def fire_webhook(event, payload):
 
     cfg = load(CONFIG_FILE)
 
+    # v3.0.2: per-device suppression for unmonitored devices.
+    # Same principle as the offline-detector at line ~2256 — if the
+    # operator marked a device unmonitored (silence during migration,
+    # decommissioning, known-broken state), no alerts about it should
+    # fire to ANY destination (legacy webhook, multi-webhook, email).
+    # device_offline already had this guard; metric_warning / service_*
+    # / log_alert / cve_found / drift_detected / custom_script_* etc.
+    # did not — heartbeat ingestion still ran threshold checks for
+    # unmonitored devices and fired through. This closes that gap once
+    # for every per-device event.
+    dev_id = (payload or {}).get('device_id')
+    if dev_id:
+        try:
+            dev = load(DEVICES_FILE).get(dev_id) or {}
+            if dev and not dev.get('monitored', True):
+                # Log so the operator can see what's being suppressed
+                # (suppression-log URL helper defined below — inline the
+                # fallback chain here since we run before the helper).
+                first_url = (cfg.get('webhook_url') or '').strip()
+                if not first_url:
+                    for e in (cfg.get('webhook_urls') or []):
+                        if isinstance(e, dict) and e.get('url') and e.get('enabled', True):
+                            first_url = e['url']; break
+                if first_url:
+                    _log_webhook(event, first_url, 'suppressed',
+                                 f'device "{dev.get("name", dev_id)}" is unmonitored')
+                return
+        except Exception:
+            pass
+
+    # v3.0.2 helper: find SOME URL to attribute a suppression-log entry to.
+    # Legacy code paths assumed `webhook_url` was always the truth; with
+    # multi-webhook configs that may be empty even though destinations exist.
+    # Without this, suppression events (disabled, filtered, maintenance) on
+    # multi-only setups had no log entry — silent suppression with nothing to
+    # debug against. Picks the first enabled destination; cosmetic only.
+    def _suppression_log_url():
+        u = (cfg.get('webhook_url') or '').strip()
+        if u:
+            return u
+        for e in (cfg.get('webhook_urls') or []):
+            if isinstance(e, dict) and e.get('url') and e.get('enabled', True):
+                return e['url']
+        return ''
+
     # v1.8.4: per-event toggle. If disabled, log it and bail.
     if not is_webhook_event_enabled(event):
-        webhook_url = cfg.get('webhook_url', '').strip()
-        if webhook_url:
-            _log_webhook(event, webhook_url, 'disabled', f'event "{event}" disabled in settings')
+        u = _suppression_log_url()
+        if u:
+            _log_webhook(event, u, 'disabled', f'event "{event}" disabled in settings')
         return
 
     # v1.8.4: cve_found severity filter
@@ -1508,9 +1754,9 @@ def fire_webhook(event, payload):
             ('high' in allowed_sev and payload.get('high', 0) > 0)
         )
         if not any_in_allowlist:
-            url = cfg.get('webhook_url', '').strip()
-            if url:
-                _log_webhook(event, url, 'filtered',
+            u = _suppression_log_url()
+            if u:
+                _log_webhook(event, u, 'filtered',
                              f'no findings match severity filter {sorted(allowed_sev)}')
             return
 
@@ -1524,9 +1770,9 @@ def fire_webhook(event, payload):
             log_suppression(event, payload, mw)
         except Exception:
             pass
-        url = cfg.get('webhook_url', '').strip()
-        if url:
-            _log_webhook(event, url, 'suppressed', f'maintenance: {mw.get("reason", "")}')
+        u = _suppression_log_url()
+        if u:
+            _log_webhook(event, u, 'suppressed', f'maintenance: {mw.get("reason", "")}')
         return
 
     # Build the human-readable message once — used by both channels
@@ -1544,20 +1790,67 @@ def fire_webhook(event, payload):
 
 
 def _send_webhook_to_url(event, safe_payload, message, cfg):
-    """Send the HTTP webhook portion. Was the body of fire_webhook pre-1.8.6."""
-    url = cfg.get('webhook_url', '').strip()
-    if not url:
-        return  # Webhooks disabled (just running for email)
+    """Fan out to every configured webhook destination.
 
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ('http', 'https'):
-        _log_webhook(event, url, 'error', 'invalid scheme (must be http or https)')
+    v3.0.2: was single-URL. Now supports any number of destinations under
+    `webhook_urls` (each with its own format adapter + per-event filter)
+    in addition to the legacy `webhook_url` field which is still honoured
+    for backward compatibility. Use case: Pushover for critical
+    notifications + Discord for everything else, simultaneously.
+
+    Schema:
+      webhook_urls: [
+        {
+          "id":       "wh_abc123",            (stable identifier)
+          "name":     "Pushover crit only",   (display label)
+          "url":      "https://api.pushover.net/1/messages.json",
+          "format":   "pushover",             (generic|discord|slack|ntfy|pushover|teams)
+          "enabled":  true,
+          "events":   ["device_offline", "cve_found", ...],   (omit = all)
+          "min_priority": 0,                  (filter by _webhook_priority)
+          "pushover_token": "...",            (format-specific)
+          "pushover_user":  "..."
+        },
+        ...
+      ]
+    """
+    # Build the destination list: legacy single + new array, deduped by URL.
+    destinations = []
+    legacy = (cfg.get('webhook_url') or '').strip()
+    if legacy:
+        destinations.append({
+            'id':      'legacy',
+            'name':    'Default webhook',
+            'url':     legacy,
+            'format':  _auto_detect_format(legacy),
+            'enabled': True,
+        })
+    for entry in (cfg.get('webhook_urls') or []):
+        if not isinstance(entry, dict): continue
+        url = (entry.get('url') or '').strip()
+        if not url: continue
+        if entry.get('enabled') is False: continue
+        # Skip if it duplicates the legacy field (operator migrated but
+        # didn't clear the old field)
+        if url == legacy: continue
+        destinations.append(entry)
+    if not destinations:
         return
+    # Sanitize the per-event payload once, reuse across destinations
+    safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v)
+                    for k, v in safe_payload.items()}
+    title    = _webhook_title(event)
+    priority = _webhook_priority(event)
+    for dest in destinations:
+        try:
+            _dispatch_one_webhook(event, dest, safe_payload, message, title, priority)
+        except Exception as e:
+            _log_webhook(event, dest.get('url', '?'), 'error',
+                         f'unhandled: {type(e).__name__}: {str(e)[:200]}')
 
-    # Sanitize values
-    safe_payload = {k: (str(v)[:256] if isinstance(v, str) else v) for k, v in safe_payload.items()}
 
-    # Build human-readable title + message for push services
+def _webhook_title(event):
+    """Human-readable title for the event (used by every adapter)."""
     titles = {
         'device_offline': 'Device Offline',
         'device_online':  'Device Online',
@@ -1570,97 +1863,262 @@ def _send_webhook_to_url(event, safe_payload, message, cfg):
         'service_down':    'Service Down',
         'service_up':      'Service Recovered',
         'log_alert':       'Log Pattern Matched',
-        # v1.11.4
         'container_stopped':    'Container Stopped',
         'container_restarting': 'Container Restarting',
         'containers_stale':     'Container Data Stale',
-        # v1.11.10
         'metric_warning':       'Resource Warning',
         'metric_critical':      'Resource Critical',
         'metric_recovered':     'Resource Recovered',
-        # v2.5.0
         'custom_script_fail':    'Custom Script Failed',
         'custom_script_recover': 'Custom Script Recovered',
-        # v2.6.0
         'config_drift':          'Host Config Drift Detected',
+        'tls_expiry':            'TLS/DANE Certificate Expiring',
+        'reboot_required':       'Host Requires Reboot',
+        'snapshot_old':          'Old Proxmox Snapshot',
+        'new_port_detected':     'New Listening Port Detected',
+        'ssh_key_added':         'SSH Key Added to Host',
+        'brute_force_detected':  'Brute-Force Attempts Detected',
+        'backup_stale':          'Backup File Stale',
+        'mailbox_threshold':     'Mailbox Threshold Reached',
+        'drift_detected':        'Configuration Drift',
         'test':            'Webhook Test',
     }
-    title = titles.get(event, f'RemotePower: {event}')
-    # message was passed in (computed once for both webhook + email channels)
-    priority = _webhook_priority(event)
+    return titles.get(event, f'RemotePower: {event}')
 
-    # ── Auto-detect service and build appropriate payload ─────────────────
-    host = parsed.hostname or ''
 
-    if 'discord.com' in host or 'discordapp.com' in host:
-        # Discord expects { content: "..." } or { embeds: [...] }
-        colors = {
-            'device_offline': 0xEF4444, 'device_online': 0x22C55E,
-            'monitor_down': 0xEF4444, 'monitor_up': 0x22C55E,
-            'patch_alert': 0xF59E0B, 'command_queued': 0x3B7EFF,
-            'command_executed': 0x3B7EFF, 'test': 0x7C3AED,
-            # v1.11.4
-            'container_stopped': 0xEF4444,
-            'container_restarting': 0xF59E0B,
-            'containers_stale': 0xF59E0B,
-        }
-        body = json.dumps({
-            'username': 'RemotePower',
-            'embeds': [{
-                'title': title,
-                'description': message,
-                'color': colors.get(event, 0x3B7EFF),
-                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                'footer': {'text': f'RemotePower {SERVER_VERSION}'},
-            }],
-        }).encode()
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': f'RemotePower/{SERVER_VERSION}',
-        }
+def _url_targets_local_or_meta(parsed_url):
+    """Return True if the URL resolves to a host class an SSRF attacker
+    would exploit: loopback, link-local (covers AWS/GCP/Azure metadata
+    services at 169.254.169.254), unspecified (0.0.0.0). RFC1918 private
+    networks are deliberately allowed since RemotePower targets the LAN
+    by design.
 
-    elif 'hooks.slack.com' in host:
-        # Slack expects { text: "..." } or { blocks: [...] }
-        body = json.dumps({
-            'text': f'*{title}*\n{message}',
-        }).encode()
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': f'RemotePower/{SERVER_VERSION}',
-        }
+    Resolves the hostname via socket.getaddrinfo; on resolve failure
+    returns False (don't block what we can't classify — handler will
+    fail later with a network error).
+    """
+    import ipaddress, socket
+    host = parsed_url.hostname or ''
+    if not host:
+        return True   # No host at all — block to be safe
+    try:
+        addrs = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False  # Can't resolve — let the request through, will fail anyway
+    for family, _t, _p, _c, sockaddr in addrs:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except (ValueError, IndexError):
+            continue
+        if ip.is_loopback or ip.is_link_local or ip.is_unspecified:
+            return True
+    return False
 
+
+def _auto_detect_format(url):
+    """Guess the format from the URL hostname. Used for legacy webhook_url
+    entries that don't carry a `format` field. Operators with the new
+    multi-webhook UI pick the format explicitly."""
+    try:
+        host = (urllib.parse.urlparse(url).hostname or '').lower()
+    except Exception:
+        return 'generic'
+    if 'discord.com' in host or 'discordapp.com' in host:    return 'discord'
+    if 'hooks.slack.com' in host:                             return 'slack'
+    if 'api.pushover.net' in host:                            return 'pushover'
+    if 'outlook.office.com' in host or 'webhook.office.com' in host: return 'teams'
+    if host == 'ntfy.sh' or host.endswith('.ntfy.sh'):        return 'ntfy'
+    return 'generic'
+
+
+# Allowed format adapters — anything else falls back to generic.
+_WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams')
+
+
+def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
+    """Build the right body+headers for `dest`'s format, POST, log."""
+    url = dest['url']
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        _log_webhook(event, url, 'error', 'invalid scheme (must be http or https)')
+        return
+    # v3.0.2: SSRF defense-in-depth. Off by default because RemotePower
+    # legitimately fires to local services (Gotify, ntfy on the same
+    # host, dev instances). Enable with config flag `webhook_block_local`
+    # for deployments that should never POST to internal IPs.
+    cfg = load(CONFIG_FILE)
+    if cfg.get('webhook_block_local'):
+        if _url_targets_local_or_meta(parsed):
+            _log_webhook(event, url, 'error',
+                         'blocked: webhook_block_local is on and target resolves to a local/meta address')
+            return
+    # Per-destination event filter (if specified)
+    allowed_events = dest.get('events')
+    if isinstance(allowed_events, list) and allowed_events and event not in allowed_events:
+        return
+    # Per-destination priority filter
+    min_prio = dest.get('min_priority')
+    try:
+        if min_prio is not None and int(min_prio) > priority:
+            return
+    except (TypeError, ValueError):
+        pass
+    fmt = dest.get('format') or _auto_detect_format(url)
+    if fmt not in _WEBHOOK_FORMATS:
+        fmt = 'generic'
+    if fmt == 'discord':
+        body, headers, content_type = _build_discord_body(event, title, message)
+    elif fmt == 'slack':
+        body, headers, content_type = _build_slack_body(event, title, message)
+    elif fmt == 'pushover':
+        body, headers, content_type = _build_pushover_body(
+            event, title, message, priority, dest)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'Pushover destination missing token/user — set them in Settings → Notifications')
+            return
+    elif fmt == 'teams':
+        body, headers, content_type = _build_teams_body(event, title, message)
+    elif fmt == 'ntfy':
+        body, headers, content_type = _build_ntfy_body(
+            event, title, message, priority)
     else:
-        # Generic / Ntfy / Gotify — JSON body + push-friendly headers
-        body = json.dumps({
-            'event': str(event)[:64],
-            'ts': int(time.time()),
-            'title': title,
-            'message': message,
-            'priority': priority,
-            **safe_payload,
-        }).encode()
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': f'RemotePower/{SERVER_VERSION}',
-            # Ntfy / Gotify / Pushover compatible headers
-            'X-Title': title,
-            'X-Priority': str(priority),
-            'X-Tags': _webhook_tags(event),
-        }
-
+        body, headers, content_type = _build_generic_body(
+            event, title, message, priority, safe_payload)
+    headers.setdefault('Content-Type', content_type)
+    headers.setdefault('User-Agent', f'RemotePower/{SERVER_VERSION}')
     req = urllib.request.Request(url, data=body, headers=headers, method='POST')
     try:
         ctx = None
         if parsed.scheme == 'https':
             ctx = _get_ssl_context()
         resp = urllib.request.urlopen(req, timeout=10, context=ctx)
-        _log_webhook(event, url, resp.status, f'OK ({resp.status})')
+        _log_webhook(event, url, resp.status,
+                     f'OK ({resp.status}) [{fmt}]')
     except urllib.error.HTTPError as e:
-        _log_webhook(event, url, e.code, f'HTTP {e.code}: {str(e.reason)[:200]}')
+        _log_webhook(event, url, e.code,
+                     f'HTTP {e.code} [{fmt}]: {str(e.reason)[:200]}')
     except urllib.error.URLError as e:
-        _log_webhook(event, url, 'error', f'URLError: {str(e.reason)[:200]}')
+        _log_webhook(event, url, 'error',
+                     f'URLError [{fmt}]: {str(e.reason)[:200]}')
     except Exception as e:
-        _log_webhook(event, url, 'error', f'{type(e).__name__}: {str(e)[:200]}')
+        _log_webhook(event, url, 'error',
+                     f'{type(e).__name__} [{fmt}]: {str(e)[:200]}')
+
+
+def _build_discord_body(event, title, message):
+    colors = {
+        'device_offline': 0xEF4444, 'device_online': 0x22C55E,
+        'monitor_down': 0xEF4444,   'monitor_up':    0x22C55E,
+        'service_down': 0xEF4444,   'service_up':    0x22C55E,
+        'patch_alert': 0xF59E0B,    'command_queued': 0x3B7EFF,
+        'command_executed': 0x3B7EFF, 'test': 0x7C3AED,
+        'container_stopped': 0xEF4444, 'container_restarting': 0xF59E0B,
+        'containers_stale': 0xF59E0B,
+        'cve_found': 0xEF4444,      'log_alert': 0xF59E0B,
+        'brute_force_detected': 0xEF4444,
+        'tls_expiry': 0xF59E0B,
+    }
+    body = json.dumps({
+        'username': 'RemotePower',
+        'embeds': [{
+            'title': title,
+            'description': message,
+            'color': colors.get(event, 0x3B7EFF),
+            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'footer': {'text': f'RemotePower {SERVER_VERSION}'},
+        }],
+    }).encode()
+    return body, {}, 'application/json'
+
+
+def _build_slack_body(event, title, message):
+    body = json.dumps({'text': f'*{title}*\n{message}'}).encode()
+    return body, {}, 'application/json'
+
+
+def _build_teams_body(event, title, message):
+    """Microsoft Teams uses MessageCard schema. Severity drives the theme color."""
+    severity_colors = {
+        'device_offline': 'EF4444', 'monitor_down': 'EF4444',
+        'service_down': 'EF4444', 'cve_found': 'EF4444',
+        'brute_force_detected': 'EF4444',
+        'device_online': '22C55E', 'monitor_up': '22C55E', 'service_up': '22C55E',
+        'patch_alert': 'F59E0B', 'log_alert': 'F59E0B', 'tls_expiry': 'F59E0B',
+    }
+    body = json.dumps({
+        '@type':       'MessageCard',
+        '@context':    'https://schema.org/extensions',
+        'summary':     title,
+        'themeColor':  severity_colors.get(event, '3B7EFF'),
+        'title':       title,
+        'text':        message,
+    }).encode()
+    return body, {}, 'application/json'
+
+
+def _build_ntfy_body(event, title, message, priority):
+    """ntfy.sh takes a plain-text body + headers for title/priority/tags.
+
+    Priority mapping: our 0-2 internal → ntfy 3-5 (min=1, default=3, urgent=5).
+    """
+    ntfy_prio = {0: 3, 1: 4, 2: 5}.get(priority, 3)
+    body = (message or '').encode()
+    headers = {
+        'Title':    title,
+        'Priority': str(ntfy_prio),
+        'Tags':     _webhook_tags(event),
+    }
+    return body, headers, 'text/plain; charset=utf-8'
+
+
+def _build_pushover_body(event, title, message, priority, dest):
+    """Pushover API: POST application/x-www-form-urlencoded with
+    token + user + message + optional title/priority.
+
+    Reference: https://pushover.net/api
+
+    Priority mapping (our 0-2 → Pushover -2..2):
+      0 (normal)   → 0
+      1 (warning)  → 1
+      2 (critical) → 1  (NOT 2 — Pushover priority=2 requires retry/expire and
+                         escalates to emergency tier with mandatory ack. Reserve
+                         that for caller-explicit configuration.)
+    """
+    token = (dest.get('pushover_token') or '').strip()
+    user  = (dest.get('pushover_user')  or '').strip()
+    if not token or not user:
+        return None, None, None
+    p_prio = {0: 0, 1: 1, 2: 1}.get(priority, 0)
+    form = {
+        'token':    token,
+        'user':     user,
+        'title':    title[:250],
+        'message':  (message or title)[:1024],
+        'priority': str(p_prio),
+    }
+    body = urllib.parse.urlencode(form).encode()
+    return body, {}, 'application/x-www-form-urlencoded'
+
+
+def _build_generic_body(event, title, message, priority, safe_payload):
+    """Generic JSON body + push-friendly extension headers. Catches anything
+    that isn't a recognised hosted service — your homelab Gotify, an internal
+    aggregator, custom scripts via webhook.site, etc."""
+    body = json.dumps({
+        'event':    str(event)[:64],
+        'ts':       int(time.time()),
+        'title':    title,
+        'message':  message,
+        'priority': priority,
+        **safe_payload,
+    }).encode()
+    headers = {
+        'X-Title':    title,
+        'X-Priority': str(priority),
+        'X-Tags':     _webhook_tags(event),
+    }
+    return body, headers, 'application/json'
 
 
 def _webhook_message(event, payload):
@@ -1756,6 +2214,39 @@ def _webhook_message(event, payload):
         sections = payload.get('sections', [])
         sec_str = ', '.join(sections[:5]) if sections else 'unknown'
         return f'{name}: host config drift in {sec_str}'
+    elif event == 'tls_expiry':
+        host  = payload.get('host', '?')
+        days  = payload.get('days_left', '?')
+        sev   = payload.get('severity', 'warning')
+        return f'{host}: certificate expires in {days} day{"s" if days != 1 else ""} ({sev})'
+    elif event == 'reboot_required':
+        return f'{name}: pending reboot — /run/reboot-required exists'
+    elif event == 'snapshot_old':
+        vm   = payload.get('vm_name', payload.get('vmid', '?'))
+        snap = payload.get('snap_name', '?')
+        days = payload.get('days_old', '?')
+        return f'Proxmox snapshot "{snap}" on {vm} is {days} days old'
+    elif event == 'new_port_detected':
+        port  = payload.get('port', '?')
+        proto = payload.get('proto', 'tcp')
+        proc  = payload.get('process', '')
+        extra = f' ({proc})' if proc else ''
+        return f'{name}: new listening port {proto}/{port}{extra}'
+    elif event == 'ssh_key_added':
+        user = payload.get('user', '?')
+        fp   = payload.get('fingerprint', '')
+        extra = f' fingerprint {fp}' if fp else ''
+        return f'{name}: SSH key added for user {user}{extra}'
+    elif event == 'brute_force_detected':
+        unit    = payload.get('unit', '?')
+        src_ip  = payload.get('source_ip', '?')
+        count   = payload.get('count', '?')
+        return f'{name}: {count} failed login attempts from {src_ip} on {unit}'
+    elif event == 'backup_stale':
+        label   = payload.get('label', payload.get('path', '?'))
+        age_h   = payload.get('age_hours', '?')
+        max_h   = payload.get('max_age_hours', '?')
+        return f'{name}: backup "{label}" is {age_h}h old (threshold: {max_h}h)'
     return f'{event}: {name}'
 
 
@@ -1765,7 +2256,9 @@ def _webhook_priority(event):
         return 5
     if event in ('device_offline', 'monitor_down', 'patch_alert', 'service_down',
                  'log_alert', 'container_stopped', 'containers_stale',
-                 'metric_warning', 'custom_script_fail', 'config_drift'):
+                 'metric_warning', 'custom_script_fail', 'config_drift',
+                 'tls_expiry', 'reboot_required', 'snapshot_old',
+                 'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale'):
         return 4
     if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered',
                  'custom_script_recover'):
@@ -1800,6 +2293,14 @@ def _webhook_tags(event):
         'custom_script_recover': 'green_circle,test_tube',
         # v2.6.0: host configuration drift
         'config_drift':          'warning,wrench',
+        # v2.6.1
+        'tls_expiry':            'warning,lock',
+        'reboot_required':       'warning,arrows_counterclockwise',
+        'snapshot_old':          'warning,floppy_disk',
+        'new_port_detected':     'warning,door',
+        'ssh_key_added':         'warning,key',
+        'brute_force_detected':  'rotating_light,skull',
+        'backup_stale':          'warning,floppy_disk',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -2071,10 +2572,25 @@ def handle_login():
     })
 
 
+def _bf_active(dev_bf, cutoff, threshold):
+    """Return list of {unit, source_ip, count} for active brute-force sources."""
+    result = []
+    for unit, ips in dev_bf.items():
+        for src_ip, timestamps in ips.items():
+            recent = [t for t in timestamps if t >= cutoff]
+            if len(recent) >= threshold:
+                result.append({'unit': unit, 'source_ip': src_ip, 'count': len(recent)})
+    return result
+
+
 def handle_devices_list():
     require_auth()
-    devices = load(DEVICES_FILE)
-    now = int(time.time())
+    devices  = load(DEVICES_FILE)
+    now      = int(time.time())
+    bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
+    pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+    _, _bf_thresh, _bf_window = _brute_config()
+    bf_cutoff = now - _bf_window
     result = []
     for dev_id, dev in devices.items():
         last_ping = dev.get('last_seen', 0)
@@ -2109,6 +2625,9 @@ def handle_devices_list():
             # project list comes from GET /api/devices/<id>/compose.
             'compose_projects_count': len(dev.get('compose_projects', []) or []),
             'compose_projects_ts':    dev.get('compose_projects_ts', 0),
+            # v2.8.1: security — brute force active IPs + listening ports
+            'brute_force_active': _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh),
+            'listening_ports':    pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or [],
         })
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
     respond(200, result)
@@ -2854,9 +3373,28 @@ def handle_enroll_register():
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v3.0.2: opportunistic scheduled-backup check. _maybe_run_scheduled_backup
+    # exits in ~1 file-read on heartbeats that aren't due — cheap. Runs once
+    # per 24h regardless of which agent's heartbeat triggers the check.
+    try:
+        _maybe_run_scheduled_backup()
+    except Exception as _bk:
+        sys.stderr.write(f'[remotepower] scheduled backup hook error: {_bk}\n')
     body = get_json_body()
     dev_id    = str(body.get('device_id', '')).strip()
     dev_token = str(body.get('token', '')).strip()
+
+    # v2.9.1: debug log (only when enabled — reads config without lock)
+    try:
+        _dcfg = load(CONFIG_FILE) or {}
+        if _dcfg.get('debug_logging') or os.environ.get('RP_LOG_HEARTBEATS') == '1':
+            import datetime as _dt
+            _dbg = (f"[{_dt.datetime.now().isoformat(timespec='seconds')}] "
+                    f"heartbeat dev={dev_id} ver={body.get('version','?')}\n")
+            with open(DEBUG_LOG_FILE, 'a') as _df:
+                _df.write(_dbg)
+    except Exception:
+        pass
 
     if not _validate_id(dev_id):
         respond(403, {'error': 'Unauthorized device'})
@@ -2893,6 +3431,7 @@ def handle_heartbeat():
     # the wait is short. We cache the few values we need *outside* the
     # lock (device name, poll interval, allowlist, etc.) before exit.
     saved_dev = {}
+    _reboot_webhook_pending = False  # set True inside lock if reboot state changes
     with _locked_update(DEVICES_FILE) as devices:
         dev = devices.get(dev_id)
         if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
@@ -2972,9 +3511,33 @@ def handle_heartbeat():
                 safe_si['mounts'] = safe_mounts
             # v2.4.14: reboot-required flag (Debian/Ubuntu /run/reboot-required)
             if 'reboot_required' in si:
-                safe_si['reboot_required'] = bool(si['reboot_required'])
+                new_reboot = bool(si['reboot_required'])
+                old_reboot = bool((dev.get('sysinfo') or {}).get('reboot_required', False))
+                safe_si['reboot_required'] = new_reboot
                 if si.get('reboot_reason'):
                     safe_si['reboot_reason'] = _sanitize_str(si['reboot_reason'], 256)
+                # v2.6.1: fire webhook edge-triggered (false → true only)
+                _reboot_webhook_pending = new_reboot and not old_reboot
+            else:
+                _reboot_webhook_pending = False
+            # v2.9.0: persist listening_ports so the device drawer can display them
+            if isinstance(si.get('listening_ports'), list):
+                safe_ports = []
+                for p in si['listening_ports'][:80]:
+                    if not isinstance(p, dict):
+                        continue
+                    port_num = p.get('port')
+                    if not isinstance(port_num, int) or not (0 < port_num < 65536):
+                        continue
+                    safe_ports.append({
+                        'proto':   _sanitize_str(p.get('proto', 'tcp'), 8),
+                        'port':    port_num,
+                        'process': _sanitize_str(p.get('process', ''), 64),
+                    })
+                safe_si['listening_ports'] = safe_ports
+            # persist last_boot for the drawer uptime display
+            if isinstance(si.get('last_boot'), (int, float)):
+                safe_si['last_boot'] = int(si['last_boot'])
             dev['sysinfo'] = safe_si
             # _record_metrics writes to METRICS_FILE (different lock — no
             # deadlock with the DEVICES_FILE lock we currently hold)
@@ -3057,6 +3620,44 @@ def handle_heartbeat():
         if dev.get('force_package_scan'):
             saved_dev['force_package_scan'] = True
             dev.pop('force_package_scan', None)
+        # v3.0.0: IaC collection request — also one-shot
+        if dev.get('force_iac_collect'):
+            saved_dev['force_iac_collect'] = dev['force_iac_collect']
+            dev.pop('force_iac_collect', None)
+        # v3.0.1: force-agent-upgrade is also one-shot. The bug was that
+        # this read+clear was happening OUTSIDE the lock further down,
+        # against `saved_dev` which never had the field copied in — so
+        # the flag was set in DEVICES_FILE but never delivered. Symptom:
+        # operator clicks the lightning button, gets the success toast,
+        # nothing happens on the device. Fix: handle it here next to the
+        # other one-shots, atomic with the rest of the heartbeat write.
+        if dev.get('force_agent_upgrade'):
+            saved_dev['force_agent_upgrade'] = True
+            dev.pop('force_agent_upgrade', None)
+        # v3.0.2: ACME force-rescan one-shot flag — same pattern.
+        if dev.get('force_acme_rescan'):
+            saved_dev['force_acme_rescan'] = True
+            dev.pop('force_acme_rescan', None)
+        # v3.0.0: ingest iac_data submitted by the agent in this heartbeat.
+        # Stash into IAC_COLLECTION_DIR/{request_id}.json so the
+        # /api/iac/status endpoint can find it.
+        iac_data = body.get('iac_data')
+        if iac_data and isinstance(iac_data, dict) and iac_data.get('request_id'):
+            try:
+                IAC_COLLECTION_DIR.mkdir(parents=True, exist_ok=True)
+                rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(iac_data['request_id']))[:64]
+                if rid:
+                    iac_file = IAC_COLLECTION_DIR / f'{rid}.json'
+                    save(iac_file, {
+                        'request_id':   rid,
+                        'device_id':    dev_id,
+                        'collected_at': int(time.time()),
+                        'categories':   iac_data.get('categories', []),
+                        'data':         iac_data.get('data', {}),
+                        'error':        iac_data.get('error'),
+                    })
+            except Exception as _iac_e:
+                sys.stderr.write(f'IaC ingest failed: {_iac_e}\n')
         # devices is auto-saved here by _LockedUpdate.__exit__, atomically
         # under the same flock we acquired at __enter__.
 
@@ -3101,9 +3702,72 @@ def handle_heartbeat():
             outputs[dev_id] = []
         # Enforce per-entry output size cap
         raw_output = str(co.get('output', ''))[:MAX_CMD_OUT_BYTES]
+        cmd_display = _sanitize_str(co.get('cmd', ''), 512)
+        # v3.0.1: ACME command tagging. The server prefixes acme commands
+        # with "#acme:<action_id>#" so we can route output to the log file
+        # without polluting the generic cmd_output history with multi-KB
+        # acme.sh dumps. Detect the tag, strip it from the displayed cmd,
+        # and write the full output to ACME_LOGS_DIR.
+        #
+        # IMPORTANT: the agent round-trips the FULL original command in the
+        # `cmd` response field, including the `exec:` prefix it received
+        # from the queue. So cmd_raw looks like:
+        #   exec:#acme:<action_id>#'<actual command...>'
+        # An earlier version of this regex anchored at `^#acme:` and silently
+        # never matched, leaving every ACME run "pending forever" in the UI
+        # because the meta.json never got its rc/done_at update. Accept an
+        # optional `exec:` (or any other ws/punct lead-in) before #acme:.
+        cmd_raw = str(co.get('cmd', ''))
+        acme_match = re.match(r'^(?:exec:)?#acme:([a-zA-Z0-9_-]+)#(.*)$', cmd_raw, re.DOTALL)
+        # v3.0.1: same routing pattern for mitigation runs. The agent strips
+        # the tag before exec and round-trips the original cmd back in the
+        # response, just like ACME.
+        mitigate_match = re.match(r'^(?:exec:)?#mitigate:([a-zA-Z0-9_-]+)#(.*)$', cmd_raw, re.DOTALL) if not acme_match else None
+        if mitigate_match:
+            action_id = mitigate_match.group(1)
+            cmd_display = _sanitize_str(mitigate_match.group(2), 512)
+            try:
+                MITIGATE_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+                log_path = _mitigate_log_path(dev_id, action_id)
+                full_output = str(co.get('output', ''))[:256 * 1024]
+                log_path.write_text(full_output)
+                meta_path = log_path.with_suffix('.meta.json')
+                meta = {}
+                if meta_path.exists():
+                    try:
+                        meta = json.loads(meta_path.read_text())
+                    except Exception:
+                        meta = {}
+                meta['rc']      = int(co['rc']) if isinstance(co.get('rc'), int) else -1
+                meta['done_at'] = now
+                meta_path.write_text(json.dumps(meta))
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] mitigate log capture failed dev={dev_id}: {e}\n")
+        if acme_match:
+            action_id = acme_match.group(1)
+            cmd_display = _sanitize_str(acme_match.group(2), 512)
+            try:
+                ACME_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+                log_path = _acme_log_path(dev_id, action_id)
+                # Store the FULL output (not capped at 8 KB) for the log tab
+                full_output = str(co.get('output', ''))[:256 * 1024]
+                log_path.write_text(full_output)
+                # Update meta with rc + done timestamp
+                meta_path = log_path.with_suffix('.meta.json')
+                meta = {}
+                if meta_path.exists():
+                    try:
+                        meta = json.loads(meta_path.read_text())
+                    except Exception:
+                        meta = {}
+                meta['rc']      = int(co['rc']) if isinstance(co.get('rc'), int) else -1
+                meta['done_at'] = now
+                meta_path.write_text(json.dumps(meta))
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] acme log capture failed dev={dev_id}: {e}\n")
         outputs[dev_id].append({
             'ts':     now,
-            'cmd':    _sanitize_str(co.get('cmd', ''), 512),
+            'cmd':    cmd_display,
             'output': raw_output,
             'rc':     int(co['rc']) if isinstance(co.get('rc'), int) else -1,
         })
@@ -3233,6 +3897,88 @@ def handle_heartbeat():
             sys.stderr.write(f"[remotepower] mailbox ingest failed dev={dev_id}: {e}\n")
     mailbox_paths = (saved_dev.get('mailbox_paths') or [])[:MAX_MAILBOX_PATHS]
 
+    # v3.0.1: ACME / acme.sh state from the device's ~/.acme.sh/ scan.
+    # The agent walks the directory every ACME_CHECK_EVERY polls and sends
+    # full state on each scan. We just persist the latest report per device.
+    if 'acme' in body and isinstance(body['acme'], dict):
+        try:
+            _ingest_acme_state(dev_id, body['acme'])
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] acme ingest failed dev={dev_id}: {e}\n")
+
+    # v2.6.1: fire reboot_required webhook (edge-triggered, set inside lock above)
+    if _reboot_webhook_pending:
+        try:
+            fire_webhook('reboot_required', {
+                'device_id': dev_id,
+                'name':      saved_dev.get('name', dev_id),
+            })
+        except Exception:
+            pass
+
+    # v2.8.1: backup file age monitoring
+    _backup_status = body.get('backup_status')
+    if isinstance(_backup_status, list) and _backup_status:
+        try:
+            _cfg_bak = load(CONFIG_FILE) or {}
+            _bak_monitors = _cfg_bak.get('backup_monitors') or []
+            _bak_state = (load(DATA_DIR / 'backup_state.json') or {}
+                          if (DATA_DIR / 'backup_state.json').exists() else {})
+            _bak_changed = False
+            for entry in _backup_status:
+                _path   = str(entry.get('path', ''))
+                _exists = bool(entry.get('exists', False))
+                _mtime  = entry.get('mtime', 0)
+                _age_h  = round((now - _mtime) / 3600, 1) if _mtime else None
+                # Find matching monitor config
+                _mon = next((m for m in _bak_monitors
+                             if m.get('path') == _path), None)
+                if not _mon:
+                    continue
+                _max_h = float(_mon.get('max_age_hours', 24))
+                _label = _mon.get('label', _path)
+                _state_key = f'{dev_id}:{_path}'
+                _was_ok = _bak_state.get(_state_key, {}).get('ok', True)
+                _is_ok  = _exists and _age_h is not None and _age_h <= _max_h
+                if not _is_ok and _was_ok:
+                    # Edge-triggered: just turned bad
+                    try:
+                        fire_webhook('backup_stale', {
+                            'device_id':    dev_id,
+                            'name':         saved_dev.get('name', dev_id),
+                            'path':         _path,
+                            'label':        _label,
+                            'exists':       _exists,
+                            'age_hours':    _age_h,
+                            'max_age_hours': _max_h,
+                        })
+                    except Exception:
+                        pass
+                _bak_state[_state_key] = {'ok': _is_ok, 'age_h': _age_h}
+                _bak_changed = True
+            if _bak_changed:
+                save(DATA_DIR / 'backup_state.json', _bak_state)
+        except Exception:
+            pass
+
+    # v2.8.0: port audit and SSH key audit (best-effort — never fail heartbeat)
+    _si = saved_dev.get('sysinfo') or {}
+    if _si.get('listening_ports'):
+        try:
+            _audit_listening_ports(dev_id, saved_dev.get('name', dev_id),
+                                   _si['listening_ports'])
+        except Exception:
+            pass
+    _hcc_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+    if _hcc_path.exists():
+        try:
+            _hcc = load(_hcc_path) or {}
+            _users = (_hcc.get('current') or {}).get('users') or []
+            if _users:
+                _audit_ssh_keys(dev_id, saved_dev.get('name', dev_id), _users)
+        except Exception:
+            pass
+
     # v2.5.0: custom monitoring scripts — ingest results from agent,
     # then build the list of scripts assigned to this device for the
     # heartbeat response.
@@ -3275,6 +4021,10 @@ def handle_heartbeat():
         # v2.5.0: push assigned scripts so the agent runs them every 5 min
         'custom_scripts':   custom_scripts_for_device,
     }
+    # v2.8.1: push backup monitor list so agent can report file ages
+    _bak_cfg = load(CONFIG_FILE).get('backup_monitors') or []
+    if _bak_cfg:
+        common_resp['backup_monitors'] = _bak_cfg
     # v2.6.0: include desired host config so agent can apply + audit it
     if host_config_desired:
         common_resp['host_config_desired'] = host_config_desired
@@ -3283,6 +4033,19 @@ def handle_heartbeat():
     # on the single heartbeat after the operator clicked "scan now".
     if saved_dev.get('force_package_scan'):
         common_resp['force_package_scan'] = True
+    # v3.0.0: one-shot IaC collection request — fires once on the heartbeat
+    # right after the operator clicked Generate IaC.
+    if saved_dev.get('force_iac_collect'):
+        common_resp['force_iac_collect'] = saved_dev['force_iac_collect']
+    # v3.0.1: one-shot force-agent-upgrade flag. When set, the agent
+    # downloads and replaces its binary regardless of version match.
+    # Read+cleared inside the heartbeat lock above (next to force_iac_collect).
+    if saved_dev.get('force_agent_upgrade'):
+        common_resp['force_agent_upgrade'] = True
+    # v3.0.2: ACME rescan one-shot. Agent treats `force_acme_rescan: true`
+    # as "scan ~/.acme.sh on this poll regardless of the scan interval".
+    if saved_dev.get('force_acme_rescan'):
+        common_resp['force_acme_rescan'] = True
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
         respond(200, {'command': cmd, **common_resp})
@@ -3426,10 +4189,32 @@ _UPGRADE_CMD = (
     '  apt-get update && apt-get -y upgrade && apt-get -y autoremove && apt-get clean; '
     'elif command -v dnf >/dev/null 2>&1; then '
     '  dnf -y upgrade; '
+    'elif command -v yum >/dev/null 2>&1; then '
+    '  yum -y update; '
     'elif command -v pacman >/dev/null 2>&1; then '
-    '  pacman -Syu --noconfirm; '
+    # v3.0.1: pacman 7+ uses an unprivileged "alpm" sandbox user for
+    # downloads. On hosts where that user isn't usable (CachyOS, some
+    # Arch derivatives) the upgrade fails with "switching to sandbox
+    # user failed". --disable-sandbox bypasses it. Older pacman doesn't
+    # know the flag, so we probe first.
+    #
+    # BUG FIX (iteration 4): the probe was `pacman --help` which only
+    # shows top-level operations, not per-operation flags. --disable-sandbox
+    # is an -S flag and shows in `pacman -S --help`. Wrong probe meant
+    # PACMAN_FLAGS stayed empty on pacman 7 and the sandbox failure
+    # kept happening — exactly what Jakob hit on CachyOS at 00:59:48.
+    #
+    # We also fall back to `--version | grep "v[7-9]"` since some packaged
+    # pacman builds don't list the flag in -S --help even when supported.
+    '  PACMAN_FLAGS=""; '
+    '  if pacman -S --help 2>&1 | grep -q -- "--disable-sandbox"; then '
+    '    PACMAN_FLAGS="--disable-sandbox"; '
+    '  elif pacman --version 2>&1 | head -1 | grep -qE "v[7-9][0-9]*\\."; then '
+    '    PACMAN_FLAGS="--disable-sandbox"; '
+    '  fi; '
+    '  pacman -Syu --noconfirm $PACMAN_FLAGS; '
     'else '
-    '  echo "No supported package manager (apt-get/dnf/pacman) found" >&2; '
+    '  echo "No supported package manager (apt-get/dnf/yum/pacman) found" >&2; '
     '  exit 2; '
     'fi'
 )
@@ -3727,6 +4512,21 @@ def handle_config_get():
     # is enforced at read time by get_container_stale_ttl().
     safe.setdefault('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL)
 
+    # v3.0.2: redact secrets in webhook_urls before sending to the UI.
+    # The UI can tell whether a secret is set (so it can mask the input
+    # field) but never sees the actual value.
+    if 'webhook_urls' in safe and isinstance(safe['webhook_urls'], list):
+        redacted = []
+        for e in safe['webhook_urls']:
+            if not isinstance(e, dict):
+                continue
+            r = {k: v for k, v in e.items()
+                 if k not in ('pushover_token', 'pushover_user')}
+            r['pushover_token_set'] = bool(e.get('pushover_token'))
+            r['pushover_user_set']  = bool(e.get('pushover_user'))
+            redacted.append(r)
+        safe['webhook_urls'] = redacted
+
     # webhook_events: build from explicit dict, falling back to legacy flags
     explicit = cfg.get('webhook_events') or {}
     derived_events = {}
@@ -3802,6 +4602,67 @@ def handle_config_save():
             if parsed.scheme not in ('http', 'https'):
                 respond(400, {'error': 'webhook_url must be http or https'})
         cfg['webhook_url'] = url
+
+    # v3.0.2: multi-webhook list. Lets operators fire to several destinations
+    # at once (e.g. Pushover for crit-only + Discord for everything).
+    if 'webhook_urls' in body:
+        urls_in = body['webhook_urls']
+        if not isinstance(urls_in, list):
+            respond(400, {'error': 'webhook_urls must be a list'})
+        if len(urls_in) > 20:
+            respond(400, {'error': 'webhook_urls limited to 20 entries'})
+        clean = []
+        for i, entry in enumerate(urls_in):
+            if not isinstance(entry, dict):
+                respond(400, {'error': f'webhook_urls[{i}] must be an object'})
+            url = str(entry.get('url') or '').strip()
+            if not url:
+                respond(400, {'error': f'webhook_urls[{i}].url is required'})
+            parsed = urllib.parse.urlparse(url)
+            if parsed.scheme not in ('http', 'https'):
+                respond(400, {'error': f'webhook_urls[{i}].url must be http or https'})
+            fmt = str(entry.get('format') or 'generic').lower()
+            if fmt not in _WEBHOOK_FORMATS:
+                respond(400, {'error': f'webhook_urls[{i}].format must be one of {", ".join(_WEBHOOK_FORMATS)}'})
+            clean_entry = {
+                'id':       _sanitize_str(entry.get('id') or f'wh_{secrets.token_hex(4)}', 32),
+                'name':     _sanitize_str(entry.get('name') or '', 80),
+                'url':      url,
+                'format':   fmt,
+                'enabled':  bool(entry.get('enabled', True)),
+            }
+            # Optional per-destination filters
+            if 'events' in entry and isinstance(entry['events'], list):
+                clean_entry['events'] = [
+                    _sanitize_str(str(e), 64) for e in entry['events'][:64]
+                ]
+            if 'min_priority' in entry:
+                try:
+                    mp = int(entry['min_priority'])
+                    if 0 <= mp <= 2:
+                        clean_entry['min_priority'] = mp
+                except (TypeError, ValueError):
+                    pass
+            # Pushover-specific creds. Empty/missing == "leave unchanged"
+            # vs explicitly set. Look up existing entry by id to preserve
+            # creds when the UI sends the URL+format but not the secrets.
+            if fmt == 'pushover':
+                existing = next(
+                    (e for e in (cfg.get('webhook_urls') or [])
+                     if isinstance(e, dict) and e.get('id') == clean_entry['id']),
+                    None)
+                token = (entry.get('pushover_token') or '').strip()
+                user  = (entry.get('pushover_user')  or '').strip()
+                if token:
+                    clean_entry['pushover_token'] = _sanitize_str(token, 64)
+                elif existing and existing.get('pushover_token'):
+                    clean_entry['pushover_token'] = existing['pushover_token']
+                if user:
+                    clean_entry['pushover_user'] = _sanitize_str(user, 64)
+                elif existing and existing.get('pushover_user'):
+                    clean_entry['pushover_user'] = existing['pushover_user']
+            clean.append(clean_entry)
+        cfg['webhook_urls'] = clean
 
     if 'offline_webhook_enabled' in body:
         cfg['offline_webhook_enabled'] = bool(body['offline_webhook_enabled'])
@@ -4059,6 +4920,120 @@ def handle_config_save():
             cfg['monitor_interval'] = mi
         except (ValueError, TypeError):
             respond(400, {'error': 'monitor_interval must be an integer (60–3600)'})
+
+    # v2.8.1: brute-force detection settings
+    if 'brute_force_enabled' in body:
+        cfg['brute_force_enabled'] = bool(body['brute_force_enabled'])
+    if 'brute_force_threshold' in body:
+        try:
+            t = int(body['brute_force_threshold'])
+            cfg['brute_force_threshold'] = max(1, min(1000, t))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'brute_force_threshold must be an integer'})
+    if 'brute_force_window_seconds' in body:
+        try:
+            w = int(body['brute_force_window_seconds'])
+            cfg['brute_force_window_seconds'] = max(60, min(3600, w))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'brute_force_window_seconds must be an integer'})
+
+    # v2.8.1: backup file monitors [{path, label, max_age_hours}]
+    if 'backup_monitors' in body:
+        raw_bm = body['backup_monitors']
+        if not isinstance(raw_bm, list):
+            respond(400, {'error': 'backup_monitors must be a list'})
+        clean_bm = []
+        for bm in raw_bm[:50]:
+            if not isinstance(bm, dict) or not bm.get('path'):
+                continue
+            clean_bm.append({
+                'path':         _sanitize_str(str(bm['path']), 512),
+                'label':        _sanitize_str(str(bm.get('label', bm['path'])), 128),
+                'max_age_hours': max(1, int(bm.get('max_age_hours', 24))),
+            })
+        cfg['backup_monitors'] = clean_bm
+
+    # v2.8.1: dashboard personalisation — what to show/hide
+    if 'dashboard_hidden_attention_kinds' in body:
+        raw = body['dashboard_hidden_attention_kinds']
+        if isinstance(raw, list):
+            cfg['dashboard_hidden_attention_kinds'] = [
+                _sanitize_str(str(k), 64) for k in raw[:50]]
+    if 'dashboard_hidden_activity_events' in body:
+        raw = body['dashboard_hidden_activity_events']
+        if isinstance(raw, list):
+            cfg['dashboard_hidden_activity_events'] = [
+                _sanitize_str(str(k), 64) for k in raw[:50]]
+
+    # v2.9.1: global log ignore patterns (regex) — lines matching any are dropped
+    if 'log_ignore_patterns' in body:
+        raw_pats = body['log_ignore_patterns']
+        if not isinstance(raw_pats, list):
+            respond(400, {'error': 'log_ignore_patterns must be a list'})
+        clean_pats = []
+        for p in raw_pats[:100]:
+            p = _sanitize_str(str(p), 256)
+            try:
+                re.compile(p)   # validate regex
+                clean_pats.append(p)
+            except re.error:
+                respond(400, {'error': f'Invalid regex: {p}'})
+        cfg['log_ignore_patterns'] = clean_pats
+
+    # v2.9.1: debug logging flag
+    if 'debug_logging' in body:
+        cfg['debug_logging'] = bool(body['debug_logging'])
+
+    # v3.0.2: session timeout
+    for k in ('session_ttl_short', 'session_ttl_long'):
+        if k in body:
+            try:
+                v = int(body[k])
+                if not (300 <= v <= 31_536_000):  # 5min .. 1y
+                    respond(400, {'error': f'{k} must be between 300 and 31_536_000'})
+                cfg[k] = v
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{k} must be an integer (seconds)'})
+
+    # v3.0.2: audit log retention
+    if 'audit_log_retention_days' in body:
+        try:
+            v = int(body['audit_log_retention_days'])
+            if not (0 <= v <= 3650):
+                respond(400, {'error': 'audit_log_retention_days must be 0..3650'})
+            cfg['audit_log_retention_days'] = v
+        except (TypeError, ValueError):
+            respond(400, {'error': 'audit_log_retention_days must be an integer'})
+
+    # v3.0.2: SSRF defense-in-depth toggle. When on, webhook deliveries
+    # whose URL resolves to a loopback / link-local / unspecified IP are
+    # blocked. Off by default (homelab Gotify on 127.0.0.1 is legitimate).
+    if 'webhook_block_local' in body:
+        cfg['webhook_block_local'] = bool(body['webhook_block_local'])
+
+    # v3.0.2: scheduled backup config (nested dict)
+    if 'backup' in body and isinstance(body['backup'], dict):
+        bk = body['backup']
+        clean_bk = cfg.get('backup') or {}
+        if 'enabled' in bk:
+            clean_bk['enabled'] = bool(bk['enabled'])
+        if 'path' in bk and bk['path']:
+            # No shell metacharacters; must be absolute
+            p = _sanitize_str(bk['path'], 512)
+            if not p.startswith('/'):
+                respond(400, {'error': 'backup.path must be absolute'})
+            if any(c in p for c in ('\n', '\r', '\x00', ';', '|', '`', '$', '<', '>')):
+                respond(400, {'error': 'backup.path has illegal characters'})
+            clean_bk['path'] = p
+        if 'retain_days' in bk:
+            try:
+                v = int(bk['retain_days'])
+                if not (1 <= v <= 365):
+                    respond(400, {'error': 'backup.retain_days must be 1..365'})
+                clean_bk['retain_days'] = v
+            except (TypeError, ValueError):
+                respond(400, {'error': 'backup.retain_days must be an integer'})
+        cfg['backup'] = clean_bk
 
     save(CONFIG_FILE, cfg)
     respond(200, {'ok': True})
@@ -4394,6 +5369,246 @@ def handle_agent_download():
     print("Content-Disposition: attachment; filename=remotepower-agent")
     print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store"); print()
     sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush(); sys.exit(0)
+
+
+def handle_self_status():
+    """GET /api/self/status — RemotePower watching itself.
+
+    v3.0.2: addresses the "who monitors the monitor?" gap. Returns:
+      - server_version, uptime estimate (from CONFIG_FILE mtime)
+      - DATA_DIR disk usage breakdown (top-level files >100KB)
+      - last_seen per device and how many are offline
+      - fleet_events file + archive sizes
+      - webhook delivery rate (last 24h, last 7d)
+      - audit log entry count + retention setting
+      - process info (pid, mem if available without psutil)
+    """
+    require_auth()
+    now = int(time.time())
+    out = {'now': now, 'server_version': SERVER_VERSION}
+    # DATA_DIR disk usage
+    try:
+        total_bytes = 0
+        files_info = []
+        for p in DATA_DIR.iterdir():
+            if not p.is_file():
+                continue
+            try:
+                sz = p.stat().st_size
+                total_bytes += sz
+                if sz >= 100 * 1024:
+                    files_info.append({'name': p.name, 'bytes': sz})
+            except OSError:
+                pass
+        files_info.sort(key=lambda x: x['bytes'], reverse=True)
+        out['data_dir'] = {
+            'path':      str(DATA_DIR),
+            'total_bytes': total_bytes,
+            'big_files': files_info[:20],
+        }
+        # Free-space (statvfs)
+        try:
+            st = os.statvfs(str(DATA_DIR))
+            out['data_dir']['fs_free_bytes']  = st.f_bavail * st.f_frsize
+            out['data_dir']['fs_total_bytes'] = st.f_blocks * st.f_frsize
+        except OSError:
+            pass
+    except Exception as e:
+        out['data_dir'] = {'error': str(e)}
+    # Device freshness
+    try:
+        devs = load(DEVICES_FILE)
+        ttl = get_online_ttl()
+        offline_ct = 0; oldest_ts = None; freshest_ts = 0; monitored = 0
+        for d in devs.values():
+            if not d.get('monitored', True):
+                continue
+            monitored += 1
+            ls = d.get('last_seen') or 0
+            if ls and (oldest_ts is None or ls < oldest_ts): oldest_ts = ls
+            if ls > freshest_ts: freshest_ts = ls
+            if (now - (ls or 0)) > ttl:
+                offline_ct += 1
+        out['devices'] = {
+            'monitored':     monitored,
+            'offline':       offline_ct,
+            'oldest_seen':   oldest_ts,
+            'freshest_seen': freshest_ts,
+            'online_ttl_s':  ttl,
+        }
+    except Exception as e:
+        out['devices'] = {'error': str(e)}
+    # Webhook delivery rate
+    try:
+        wl = load(WEBHOOK_LOG_FILE)
+        entries = wl.get('entries') or []
+        def _rate(window_s):
+            recent = [e for e in entries if e.get('ts', 0) >= now - window_s]
+            if not recent: return None
+            ok = sum(1 for e in recent if str(e.get('status', '')).startswith('2'))
+            return {'attempts': len(recent), 'success': ok,
+                    'rate': round(ok / len(recent), 3)}
+        out['webhooks'] = {
+            'last_24h': _rate(86400),
+            'last_7d':  _rate(7 * 86400),
+            'total_logged': len(entries),
+        }
+    except Exception as e:
+        out['webhooks'] = {'error': str(e)}
+    # Audit log size
+    try:
+        al = load(AUDIT_LOG_FILE)
+        out['audit_log'] = {
+            'entries':         len(al.get('entries') or []),
+            'retention_days':  int((load(CONFIG_FILE) or {}).get('audit_log_retention_days') or 90),
+        }
+        arch = DATA_DIR / 'audit_log_archive.jsonl.gz'
+        if arch.exists():
+            out['audit_log']['archive_bytes'] = arch.stat().st_size
+    except Exception as e:
+        out['audit_log'] = {'error': str(e)}
+    # fleet_events
+    try:
+        if FLEET_EVENTS_FILE.exists():
+            out['fleet_events'] = {'bytes': FLEET_EVENTS_FILE.stat().st_size}
+        arch = DATA_DIR / 'fleet_events_archive.jsonl.gz'
+        if arch.exists():
+            out['fleet_events'] = out.get('fleet_events') or {}
+            out['fleet_events']['archive_bytes'] = arch.stat().st_size
+    except Exception:
+        pass
+    # Process info
+    try:
+        out['process'] = {'pid': os.getpid()}
+        try:
+            with open('/proc/self/status') as f:
+                for line in f:
+                    if line.startswith('VmRSS:'):
+                        out['process']['vmrss_kb'] = int(line.split()[1])
+                        break
+        except OSError:
+            pass
+    except Exception:
+        pass
+    # Backup state
+    try:
+        bs_file = DATA_DIR / 'backup_state.json'
+        if bs_file.exists():
+            out['backup'] = load(bs_file)
+    except Exception:
+        pass
+    respond(200, out)
+
+
+def handle_backup_run():
+    """POST /api/self/backup-now — manually run a snapshot backup of DATA_DIR.
+
+    Mirrors what the scheduled job does (`_maybe_run_scheduled_backup`).
+    Writes a tarball into the configured backup_path (default
+    `/var/lib/remotepower/backups/`), records state, prunes by retention.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    try:
+        result = _run_data_backup(triggered_by='manual')
+    except Exception as e:
+        respond(500, {'error': str(e)}); return
+    audit_log(actor, 'backup_run_manual',
+              detail=f"file={result.get('file','?')} bytes={result.get('bytes','?')}")
+    respond(200, result)
+
+
+def _run_data_backup(triggered_by='scheduled'):
+    """Snapshot DATA_DIR to a tarball; prune old ones; record state.
+
+    Excluded: the backup dir itself, .tmp.* in-flight writes, .gz archives
+    (already compressed; their inclusion would double size for no value).
+    """
+    cfg = load(CONFIG_FILE) or {}
+    bcfg = cfg.get('backup') or {}
+    enabled = bcfg.get('enabled', True)
+    if not enabled and triggered_by != 'manual':
+        return {'skipped': True, 'reason': 'backup disabled in config'}
+    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    keep = int(bcfg.get('retain_days') or 14)
+    p_base = Path(base)
+    p_base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    import tarfile
+    ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    out_path = p_base / f'remotepower_data_{ts}.tar.gz'
+    excluded_names = {'backups'}
+    def _filter(tarinfo):
+        # Skip the backups dir, in-flight tmp files, and already-compressed
+        # archive files (re-compressing wastes time).
+        bn = os.path.basename(tarinfo.name)
+        if bn in excluded_names: return None
+        if '.tmp.' in bn: return None
+        if bn.endswith('.gz'): return None
+        # Drop owner/group info so restoring on a different host doesn't
+        # complain about missing uids
+        tarinfo.uid = 0; tarinfo.gid = 0
+        tarinfo.uname = ''; tarinfo.gname = ''
+        return tarinfo
+    with tarfile.open(str(out_path), 'w:gz') as tar:
+        tar.add(str(DATA_DIR), arcname='remotepower', filter=_filter)
+    # Prune
+    cutoff = time.time() - keep * 86400
+    pruned = 0
+    for f in p_base.glob('remotepower_data_*.tar.gz'):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink(); pruned += 1
+        except OSError:
+            pass
+    state = {
+        'last_run':    int(time.time()),
+        'last_file':   str(out_path),
+        'last_bytes':  out_path.stat().st_size,
+        'triggered_by': triggered_by,
+        'pruned':      pruned,
+        'retain_days': keep,
+    }
+    save(DATA_DIR / 'self_backup_state.json', state)
+    return {'ok': True, 'file': str(out_path),
+            'bytes': out_path.stat().st_size, 'pruned': pruned}
+
+
+def _maybe_run_scheduled_backup():
+    """Daily scheduled backup. Called from the heartbeat hot path with
+    a poll-rate gate so the check itself is cheap.
+
+    Schedule: once per 24h, regardless of which agent's heartbeat triggers
+    the check. State stored in self_backup_state.json so a restart of the
+    server doesn't double-fire.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    if not (cfg.get('backup') or {}).get('enabled', True):
+        return
+    state_file = DATA_DIR / 'self_backup_state.json'
+    state = load(state_file) if state_file.exists() else {}
+    last = state.get('last_run') or 0
+    if int(time.time()) - last < 86400:
+        return  # ran within the last 24h
+    # Use a lock-file so two simultaneous heartbeats don't both run it
+    sentinel = DATA_DIR / '.backup_in_progress'
+    if sentinel.exists():
+        # Stale lock recovery: if the sentinel is >1h old, assume the
+        # previous attempt died and clear it.
+        try:
+            if time.time() - sentinel.stat().st_mtime < 3600:
+                return
+            sentinel.unlink()
+        except OSError:
+            return
+    try:
+        sentinel.write_text(str(os.getpid()))
+        _run_data_backup(triggered_by='scheduled')
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] scheduled backup failed: {e}\n')
+    finally:
+        try: sentinel.unlink()
+        except OSError: pass
 
 
 def handle_version_check():
@@ -4842,6 +6057,264 @@ def handle_proxmox_test() -> None:
     respond(200, result)
 
 
+# ── v2.8.0: Listening port audit ──────────────────────────────────────────────
+
+def _audit_listening_ports(dev_id, dev_name, ports):
+    """Compare current listening ports against stored baseline.
+
+    Fires new_port_detected once per new port (edge-triggered).
+    Baseline is stored in PORT_BASELINE_FILE keyed by dev_id.
+    """
+    if not ports:
+        return
+    baseline = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+    known = {(p['proto'], p['port']) for p in (baseline.get(dev_id) or [])}
+    current = [(p.get('proto','tcp'), p.get('port', 0), p.get('process',''))
+               for p in ports if p.get('port')]
+
+    for proto, port, proc in current:
+        if (proto, port) not in known:
+            try:
+                fire_webhook('new_port_detected', {
+                    'device_id': dev_id,
+                    'name':      dev_name,
+                    'proto':     proto,
+                    'port':      port,
+                    'process':   proc,
+                })
+            except Exception:
+                pass
+
+    # Update baseline to current set
+    baseline[dev_id] = [{'proto': p, 'port': q, 'process': r}
+                        for p, q, r in current]
+    try:
+        save(PORT_BASELINE_FILE, baseline)
+    except Exception:
+        pass
+
+
+# ── v2.8.0: SSH key audit ──────────────────────────────────────────────────────
+
+def _ssh_key_fingerprint(key_line):
+    """Return a short fingerprint token for an SSH key line (last field or first 16 chars)."""
+    parts = key_line.strip().split()
+    if len(parts) >= 3:
+        return parts[-1][:40]   # comment field, usually user@host
+    return key_line.strip()[:40]
+
+
+def _audit_ssh_keys(dev_id, dev_name, users):
+    """Compare current authorized_keys against stored baseline.
+
+    Fires ssh_key_added once per new key per user (edge-triggered).
+    """
+    if not users:
+        return
+    baseline = load(SSH_KEY_BASELINE_FILE) or {} if SSH_KEY_BASELINE_FILE.exists() else {}
+    dev_baseline = baseline.get(dev_id) or {}
+
+    changed = False
+    for user_entry in users:
+        uname = user_entry.get('name', '')
+        ak    = user_entry.get('authorized_keys', '') or ''
+        current_keys = set(k.strip() for k in ak.splitlines() if k.strip())
+        known_keys   = set(dev_baseline.get(uname) or [])
+
+        for key in current_keys - known_keys:
+            fp = _ssh_key_fingerprint(key)
+            try:
+                fire_webhook('ssh_key_added', {
+                    'device_id':   dev_id,
+                    'name':        dev_name,
+                    'user':        uname,
+                    'fingerprint': fp,
+                })
+            except Exception:
+                pass
+
+        dev_baseline[uname] = list(current_keys)
+        changed = True
+
+    if changed:
+        baseline[dev_id] = dev_baseline
+        try:
+            save(SSH_KEY_BASELINE_FILE, baseline)
+        except Exception:
+            pass
+
+
+# ── v2.8.0: Brute-force detection ─────────────────────────────────────────────
+
+# Patterns that indicate a failed authentication attempt.
+_BRUTE_PATTERNS = {
+    'ssh': [
+        re.compile(r'Failed password for (?:invalid user )?\S+ from (\S+)', re.I),
+        re.compile(r'Invalid user \S+ from (\S+)', re.I),
+        re.compile(r'authentication failure.*rhost=(\S+)', re.I),
+        re.compile(r'Connection closed by invalid user \S+ (\S+)', re.I),
+    ],
+    'web': [
+        # nginx/apache access log: POST to WordPress endpoints
+        re.compile(r'^(\S+).*"POST /wp-login\.php', re.I),
+        re.compile(r'^(\S+).*"POST /xmlrpc\.php', re.I),
+        # Generic 401/403 (broad — only relevant on auth endpoints)
+        re.compile(r'^(\S+).*" 40[13] '),
+    ],
+}
+
+# Unit names that carry SSH auth messages
+_SSH_UNITS   = {'ssh.service', 'sshd.service', 'openssh.service'}
+# Unit names that carry web access logs
+_WEB_UNITS   = {'nginx.access', 'apache2.access'}
+
+# Rolling window and threshold (configurable via DEFAULT_METRIC_THRESHOLDS area)
+BRUTE_WINDOW_SECONDS = 300    # 5-minute rolling window
+BRUTE_THRESHOLD      = 20     # default — overridden by config brute_force_threshold
+
+
+def _brute_config():
+    """Return (enabled, threshold, window_seconds) from config.json."""
+    cfg = load(CONFIG_FILE) or {}
+    enabled   = cfg.get('brute_force_enabled', True)
+    threshold = int(cfg.get('brute_force_threshold', BRUTE_THRESHOLD))
+    window    = int(cfg.get('brute_force_window_seconds', BRUTE_WINDOW_SECONDS))
+    return bool(enabled), max(1, threshold), max(60, window)
+
+
+def _detect_brute_force(dev_id, dev_name, unit, lines):
+    """Scan new log lines for brute-force patterns; fire webhook on threshold.
+
+    State persisted in BRUTE_FORCE_FILE:
+      {dev_id: {unit: {source_ip: [timestamps...]}}}
+
+    Edge-triggered per (dev_id, unit, source_ip): fires once per window
+    crossing, resets when the IP goes quiet.
+    """
+    now = time.time()
+
+    enabled, threshold, window = _brute_config()
+    if not enabled:
+        return
+
+    if unit in _SSH_UNITS:
+        patterns = _BRUTE_PATTERNS['ssh']
+    elif unit in _WEB_UNITS:
+        patterns = _BRUTE_PATTERNS['web']
+    else:
+        return
+
+    bf = load(BRUTE_FORCE_FILE) or {} if BRUTE_FORCE_FILE.exists() else {}
+    dev_bf  = bf.setdefault(dev_id, {})
+    unit_bf = dev_bf.setdefault(unit, {})
+
+    cutoff = now - window
+    changed = False
+
+    for line_entry in lines:
+        line = line_entry if isinstance(line_entry, str) else line_entry.get('line', '')
+        for pat in patterns:
+            m = pat.search(line)
+            if not m:
+                continue
+            src = m.group(1)
+            if not src or src in ('-', ''):
+                continue
+            # Scrub IPv6 brackets
+            src = src.strip('[]').split(':')[0] if '.' not in src and ':' in src else src
+
+            timestamps = unit_bf.get(src, [])
+            timestamps = [t for t in timestamps if t >= cutoff]  # expire old
+            timestamps.append(now)
+            unit_bf[src] = timestamps
+            changed = True
+
+            if len(timestamps) == threshold + 1:  # just crossed configured threshold
+                try:
+                    fire_webhook('brute_force_detected', {
+                        'device_id': dev_id,
+                        'name':      dev_name,
+                        'unit':      unit,
+                        'source_ip': src,
+                        'count':     len(timestamps),
+                        'window_s':  window,
+                        'threshold': threshold,
+                    })
+                except Exception:
+                    pass
+            break   # one pattern match per line is enough
+
+    if changed:
+        bf[dev_id] = dev_bf
+        try:
+            save(BRUTE_FORCE_FILE, bf)
+        except Exception:
+            pass
+
+
+def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
+    """v2.7.0: Fetch snapshot lists for all guests and persist to
+    PROXMOX_SNAPSHOT_CACHE so _compute_attention() can flag stale snapshots
+    without making live Proxmox API calls on every attention request.
+
+    This is called opportunistically when the Virtualization page loads —
+    no separate cron needed.
+    """
+    now = int(time.time())
+    cache = load(PROXMOX_SNAPSHOT_CACHE) if PROXMOX_SNAPSHOT_CACHE.exists() else {}
+    if not isinstance(cache, dict):
+        cache = {}
+
+    cfg     = load(CONFIG_FILE)
+    warn_days = int(cfg.get('proxmox_snapshot_warn_days', 7))
+
+    for guest in guests:
+        vmid = guest.get('vmid')
+        if not vmid:
+            continue
+        key = f'{guest_type}_{vmid}'
+        try:
+            snaps = proxmox_client.list_snapshots(pc, guest_type, int(vmid))
+        except Exception:
+            snaps = []
+
+        entry = cache.get(key, {})
+        entry.update({
+            'vmid':      vmid,
+            'vm_name':   guest.get('name', str(vmid)),
+            'guest_type': guest_type,
+            'snapshots': snaps,
+            'updated_at': now,
+        })
+
+        # Edge-trigger: fire snapshot_old webhook once per VM per crossing
+        already_notified = entry.get('notified_at', 0)
+        old_snaps = [s for s in snaps
+                     if s.get('snaptime', 0)
+                     and (now - s['snaptime']) > warn_days * 86400]
+        if old_snaps and (now - already_notified) > 86400:
+            # Fire webhook for the oldest snapshot
+            oldest = min(old_snaps, key=lambda s: s.get('snaptime', 0))
+            days_old = max(1, (now - oldest['snaptime']) // 86400)
+            try:
+                fire_webhook('snapshot_old', {
+                    'vmid':      vmid,
+                    'vm_name':   guest.get('name', str(vmid)),
+                    'snap_name': oldest['name'],
+                    'days_old':  days_old,
+                    'warn_days': warn_days,
+                })
+                entry['notified_at'] = now
+            except Exception:
+                pass
+        elif not old_snaps:
+            entry.pop('notified_at', None)   # reset so next crossing fires
+
+        cache[key] = entry
+
+    save(PROXMOX_SNAPSHOT_CACHE, cache)
+
+
 def handle_proxmox_list(guest_type: str) -> None:
     """``GET /api/proxmox/qemu`` or ``/api/proxmox/lxc`` — list guests."""
     require_auth()
@@ -4856,6 +6329,14 @@ def handle_proxmox_list(guest_type: str) -> None:
     except proxmox_client.ProxmoxError as e:
         respond(502, {'error': str(e)})
         return
+
+    # v2.7.0: opportunistically refresh the snapshot age cache so
+    # _compute_attention() has fresh data without a separate cron.
+    try:
+        _refresh_snapshot_cache(pc, guests, guest_type)
+    except Exception:
+        pass
+
     respond(200, {'enabled': True, 'configured': True,
                   'node': pc['node'], 'guests': guests})
 
@@ -4995,18 +6476,29 @@ def handle_containers_overview() -> None:
     store = load(CONTAINERS_FILE)
     ttl = get_container_stale_ttl()
     now = int(time.time())
+    # v3.0.1: respect per-device ignores set by the user from the Containers page
+    ignored_devs = _ignored_keys('devices')
+    ignored_stale = _ignored_keys('stale_containers')
     out = []
     for dev_id, entry in store.items():
         if dev_id not in devices:
             continue
+        # If the user has ignored this device entirely, skip it.
+        if dev_id in ignored_devs:
+            continue
         items = entry.get('items', []) if isinstance(entry, dict) else []
         ts = entry.get('ts', 0) if isinstance(entry, dict) else 0
+        is_stale = containers_mod.is_stale(ts, now, ttl)
+        # If the device is stale AND the user has ignored its stale state, skip.
+        # We use a `<device_id>/<empty>` key to mark "ignore this device when stale".
+        if is_stale and f"{dev_id}/" in ignored_stale:
+            continue
         out.append({
             'device_id':   dev_id,
             'name':        devices[dev_id].get('name', dev_id),
             'os':          devices[dev_id].get('os', ''),
             'reported_at': ts,
-            'is_stale':    containers_mod.is_stale(ts, now, ttl),
+            'is_stale':    is_stale,
             'summary':     containers_mod.summarise(items),
         })
     out.sort(key=lambda r: r['name'].lower())
@@ -5326,6 +6818,32 @@ def handle_tls_add() -> None:
     audit_log(actor, 'tls_target_add',
               detail=f'host={parsed["host"]}:{parsed["port"]}')
     respond(200, {'ok': True, 'id': new_id})
+
+
+def handle_tls_internal_webhook() -> None:
+    """``POST /api/internal/tls-webhook`` — called by remotepower-tls-check cron.
+
+    Only accepts requests from loopback. Fires a tls_expiry webhook with
+    the cert/DANE details supplied by the cron script.
+    """
+    remote = os.environ.get('REMOTE_ADDR', '')
+    hdr    = os.environ.get('HTTP_X_REMOTEPOWER_INTERNAL', '')
+    if remote not in ('127.0.0.1', '::1') or not hdr:
+        respond(403, {'error': 'forbidden'})
+    body = get_json_body() or {}
+    host     = _sanitize_str(body.get('host', ''), 253)
+    port     = int(body.get('port', 443)) if str(body.get('port', 443)).isdigit() else 443
+    days_left= body.get('days_left', 0)
+    severity = body.get('severity', 'warning')
+    if not host:
+        respond(400, {'error': 'host required'})
+    fire_webhook('tls_expiry', {
+        'host':      host,
+        'port':      port,
+        'days_left': days_left,
+        'severity':  severity,
+    })
+    respond(200, {'ok': True})
 
 
 def handle_tls_delete(target_id: str) -> None:
@@ -6549,8 +8067,11 @@ def handle_ai_chat():
 
     raw_system = body.get('system') or ''
     if isinstance(raw_system, str):
-        # If it's a key, look it up — otherwise treat as a literal
-        system_prompt = ai_provider.SYSTEM_PROMPTS.get(raw_system, raw_system)
+        # If it's a key, look it up (with user override) — otherwise treat as literal
+        if raw_system in ai_provider.SYSTEM_PROMPTS:
+            system_prompt = _resolve_system_prompt(raw_system)
+        else:
+            system_prompt = raw_system
         # Bound the literal: don't let the client send a 50-KB system prompt
         if len(system_prompt) > 16 * 1024:
             respond(400, {'error': 'system prompt too long'})
@@ -6605,8 +8126,20 @@ def handle_ai_chat():
                                'Cap is configurable in Settings → AI.'})
 
     t0 = time.monotonic()
-    result = ai_provider.chat(cfg, messages, system=system_prompt,
-                              max_tokens=req_max_tokens, model=req_model)
+    # v3.0.1: per-feature param overrides. When the caller specified a known
+    # prompt key, use its overrides; otherwise leave params at provider defaults.
+    _ai_params = _resolve_ai_params(raw_system) if raw_system in ai_provider.SYSTEM_PROMPTS else {}
+    _chat_kwargs = {
+        'system':     system_prompt,
+        'max_tokens': (_ai_params.get('max_tokens') or req_max_tokens),
+        'model':      req_model,
+    }
+    # Only pass tuning params when set — avoids breaking test mocks that don't
+    # accept the new kwargs, and lets each adapter decide what "default" means.
+    for _p in ('temperature', 'top_p', 'num_ctx'):
+        if _ai_params.get(_p) is not None:
+            _chat_kwargs[_p] = _ai_params[_p]
+    result = ai_provider.chat(cfg, messages, **_chat_kwargs)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
     audit_log(actor, 'ai_chat',
@@ -6752,9 +8285,20 @@ def _build_runbook_snapshot(dev_id, devices):
 
     # Journal: 20 most recent lines (was 40)
     journal = (dev.get('journal') or [])[-20:]
-    services = dev.get('services_watched_state') or dev.get('services') or []
-    # Containers: 10 max, just the fields a runbook actually uses
-    containers = (dev.get('containers') or [])[:10]
+    # Watched services — agent reports state under services_watched_state,
+    # but if it hasn't reported yet, fall back to the configured list.
+    services = (dev.get('services_watched_state')
+                or dev.get('services')
+                or [{'name': s} for s in (dev.get('services_watched') or [])])
+    # Containers live in CONTAINERS_FILE (the /devices/:id/containers endpoint),
+    # not in the device record. Without this lookup the runbook would always
+    # say "No containers reported".
+    try:
+        ctr_store = load(CONTAINERS_FILE) or {}
+        ctr_entry = ctr_store.get(dev_id) or {}
+        containers = (ctr_entry.get('items') or ctr_entry.get('containers') or [])[:10]
+    except Exception:
+        containers = []
     last_seen = dev.get('last_seen')
 
     # Recent command output — last 5 (was 15), output capped to 200 chars
@@ -6854,7 +8398,7 @@ def handle_runbook_generate(dev_id):
     # Prepend project + fleet context if the operator has it enabled.
     # Runbook quality benefits a lot from fleet awareness ("this is
     # one of N webservers" rather than "this is a Linux box").
-    base_system = ai_provider.SYSTEM_PROMPTS['generate_runbook']
+    base_system = _resolve_system_prompt('generate_runbook')
     ctx_opts = cfg.get('context') or {}
     fleet = list(devices.values()) if isinstance(devices, dict) else (devices or [])
     system_prompt = ai_context.build_combined_system_prompt(
@@ -6878,11 +8422,18 @@ def handle_runbook_generate(dev_id):
     )
 
     t0 = time.monotonic()
+    _rb_params = _resolve_ai_params('generate_runbook')
+    _rb_kwargs = {
+        'system':     system_prompt,
+        'max_tokens': (_rb_params.get('max_tokens') or 4000),
+    }
+    for _p in ('temperature', 'top_p', 'num_ctx'):
+        if _rb_params.get(_p) is not None:
+            _rb_kwargs[_p] = _rb_params[_p]
     result = ai_provider.chat(
         cfg,
         messages=[{'role': 'user', 'content': user_msg}],
-        system=system_prompt,
-        max_tokens=4000,
+        **_rb_kwargs,
     )
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
@@ -7072,6 +8623,13 @@ HOST_CONFIG_AUDIT_EVERY      = 15      # drift audit cadence in polls (~15 min)
 # Current state is stored in separate per-device files, NOT in devices.json,
 # to keep devices.json small and fast to read on every API call.
 HOST_CONFIG_CURRENT_DIR = DATA_DIR / 'host_config_current'
+# v2.7.0: Proxmox snapshot age cache — written when guests are listed,
+# read by _compute_attention() to flag stale snapshots.
+PROXMOX_SNAPSHOT_CACHE  = DATA_DIR / 'proxmox_snapshot_cache.json'
+# v2.8.0: port, SSH key, and brute-force detection state
+PORT_BASELINE_FILE      = DATA_DIR / 'port_baseline.json'
+SSH_KEY_BASELINE_FILE   = DATA_DIR / 'ssh_key_baseline.json'
+BRUTE_FORCE_FILE        = DATA_DIR / 'brute_force.json'
 
 
 def _ingest_mailbox_counts(dev_id, counts):
@@ -7657,7 +9215,450 @@ def _compute_attention():
                                f'(over threshold)',
                 })
 
+    # v2.8.1: backup file staleness.
+    bak_state_file = DATA_DIR / 'backup_state.json'
+    if bak_state_file.exists():
+        try:
+            bak_state = load(bak_state_file) or {}
+            cfg_bak   = load(CONFIG_FILE) or {}
+            bak_mons  = {m['path']: m for m in (cfg_bak.get('backup_monitors') or []) if m.get('path')}
+            for state_key, entry in bak_state.items():
+                if ':' not in state_key:
+                    continue
+                dev_id_s, bak_path = state_key.split(':', 1)
+                if not entry.get('ok', True):
+                    dev = monitored.get(dev_id_s, {})
+                    mon = bak_mons.get(bak_path, {})
+                    label   = mon.get('label', bak_path)
+                    age_h   = entry.get('age_h')
+                    max_h   = mon.get('max_age_hours', 24)
+                    age_str = f'{age_h:.0f}h old' if age_h else 'missing'
+                    items.append({'severity': 'critical', 'kind': 'backup',
+                                  'device': dev.get('name', dev_id_s),
+                                  'summary': f'Backup "{label}" is {age_str} (threshold: {max_h:.0f}h)'})
+        except Exception:
+            pass
+
+    # v2.8.0: disk space threshold breaches (reads from sysinfo stored in devices.json).
+    cfg_disk = load(CONFIG_FILE) or {}
+    default_warn = cfg_disk.get('disk_warn_percent', 80)
+    default_crit = cfg_disk.get('disk_crit_percent', 90)
+    for dev_id, dev in monitored.items():
+        si = dev.get('sysinfo') or {}
+        mounts = si.get('mounts') or []
+        overrides = dev.get('metric_thresholds') or {}
+        for mnt in mounts:
+            pct  = mnt.get('percent', 0)
+            path = mnt.get('path', '?')
+            # v3.0.2: was `_get_disk_thresholds(path, overrides)` guarded by
+            # `callable(globals().get(...))` — that helper never existed, so
+            # the fallback (per-device override only) always ran and the
+            # per-mount override map was ignored. _resolve_metric_thresholds
+            # is the canonical resolver and handles per-mount entries.
+            w, c = _resolve_metric_thresholds(dev, 'disk', path)
+            if pct >= c:
+                items.append({'severity': 'critical', 'kind': 'disk',
+                              'device': dev.get('name', dev_id),
+                              'summary': f'{path}: {pct:.0f}% used (critical ≥ {c:.0f}%)'})
+            elif pct >= w:
+                items.append({'severity': 'warning', 'kind': 'disk',
+                              'device': dev.get('name', dev_id),
+                              'summary': f'{path}: {pct:.0f}% used (warn ≥ {w:.0f}%)'})
+
+    # v3.0.2: surface memory/swap/cpu warnings + criticals from metric_state.
+    # Previously only disk made it to Needs Attention even though metric_warning
+    # webhooks fired for every kind. Inconsistent — operator gets a Pushover
+    # ping about swap usage but the dashboard insists nothing needs attention.
+    # The metric_state dict is keyed by f"{kind}:{target}" with values
+    # 'ok'/'warning'/'critical'; surface every non-ok entry that isn't disk
+    # (which we already did above with full percent context).
+    for dev_id, dev in monitored.items():
+        mstate = dev.get('metric_state') or {}
+        if not isinstance(mstate, dict):
+            continue
+        si = dev.get('sysinfo') or {}
+        for key, level in mstate.items():
+            if level not in ('warning', 'critical') or ':' not in key:
+                continue
+            kind, target = key.split(':', 1)
+            if kind == 'disk':
+                continue  # handled above with mount path + pct
+            # Pull current value for the summary line. memory/swap come
+            # from sysinfo top-level fields; cpu from loadavg.
+            val_str = ''
+            try:
+                if kind == 'memory':
+                    pct = si.get('mem_percent')
+                    if pct is not None: val_str = f'{pct:.0f}% used'
+                elif kind == 'swap':
+                    pct = si.get('swap_percent')
+                    if pct is not None: val_str = f'{pct:.0f}% used'
+                elif kind == 'cpu':
+                    la = si.get('loadavg') or [None]
+                    cpu_count = (si.get('cpu_count') or 1) or 1
+                    if la[0] is not None:
+                        val_str = f'load {la[0]:.2f} (ratio {la[0]/cpu_count:.2f})'
+            except Exception:
+                pass
+            w, c = _resolve_metric_thresholds(dev, kind, target)
+            severity = 'critical' if level == 'critical' else 'warning'
+            thresh = c if level == 'critical' else w
+            unit = '%' if kind in ('memory', 'swap') else ''
+            items.append({
+                'severity': severity, 'kind': kind,
+                'device': dev.get('name', dev_id),
+                'summary': f'{kind}: {val_str} ({level} ≥ {thresh:.0f}{unit})'.strip(),
+            })
+
+    # v3.0.2: container state surfaced into Needs Attention. A stopped
+    # container on a host that's still up is an actionable signal —
+    # docker_inspect crash, OOM-killed, exited non-zero — and we'd fire
+    # container_stopped webhooks for it anyway. Stale container data
+    # (no recent heartbeat report) is a warning rather than info.
+    try:
+        cstore   = load(CONTAINERS_FILE) or {}
+        ig_stale = _ignored_keys('stale_containers')
+        ig_devs  = _ignored_keys('devices')
+        c_now    = int(time.time())
+        c_ttl    = get_container_stale_ttl() if 'get_container_stale_ttl' in globals() else 600
+        for dev_id, entry in cstore.items():
+            if dev_id not in monitored:
+                continue
+            if dev_id in ig_devs:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            ts = entry.get('ts', 0)
+            its = entry.get('items', [])
+            summary = containers_mod.summarise(its) if its else {}
+            stopped    = (summary or {}).get('stopped', 0)
+            restarting = (summary or {}).get('restarting', 0)
+            is_stale   = bool(ts) and (c_now - ts) > c_ttl
+            if is_stale and f'{dev_id}/' not in ig_stale:
+                mins = (c_now - ts) // 60
+                items.append({
+                    'severity': 'warning', 'kind': 'container',
+                    'device': monitored[dev_id].get('name', dev_id),
+                    'summary': f'Container data stale — last reported {mins} min ago',
+                })
+                continue  # skip stopped/restarting items if data is stale
+            if stopped > 0:
+                items.append({
+                    'severity': 'warning', 'kind': 'container',
+                    'device': monitored[dev_id].get('name', dev_id),
+                    'summary': f'{stopped} container{"s" if stopped != 1 else ""} stopped',
+                })
+            if restarting > 0:
+                items.append({
+                    'severity': 'warning', 'kind': 'container',
+                    'device': monitored[dev_id].get('name', dev_id),
+                    'summary': f'{restarting} container{"s" if restarting != 1 else ""} restarting',
+                })
+    except Exception:
+        pass
+
+    # v3.0.2: ACME certificate renewal failures. tls_expiry above surfaces
+    # any cert nearing expiry regardless of whether RemotePower is managing
+    # it via acme.sh — this complements with the acme-specific signal that
+    # the LAST renewal attempt actually failed. Status field comes from
+    # the agent's parse of acme.sh's account.conf / renewal log.
+    try:
+        acme_state = load(ACME_STATE_FILE) or {}
+        for dev_id, dev_acme in (acme_state.get('devices') or {}).items():
+            if dev_id not in monitored:
+                continue
+            if not isinstance(dev_acme, dict) or not dev_acme.get('available'):
+                continue
+            for cert in (dev_acme.get('certs') or []):
+                status = (cert.get('status') or 'ok').lower()
+                if status not in ('ok', '', None):
+                    items.append({
+                        'severity': 'warning' if status not in ('failed', 'expired') else 'critical',
+                        'kind': 'acme',
+                        'device': monitored[dev_id].get('name', dev_id),
+                        'summary': f'{cert.get("domain", "?")}: {status}',
+                    })
+    except Exception:
+        pass
+
+    # v2.8.0: active brute-force state.
+    if BRUTE_FORCE_FILE.exists():
+        try:
+            _bf_enabled, _bf_thresh, _bf_window = _brute_config()
+            if _bf_enabled:
+                bf_data = load(BRUTE_FORCE_FILE) or {}
+                cutoff  = now - _bf_window
+                for dev_id, units in bf_data.items():
+                    dev_name = monitored.get(dev_id, {}).get('name', dev_id)
+                    for unit, ips in units.items():
+                        for src_ip, timestamps in ips.items():
+                            recent = [t for t in timestamps if t >= cutoff]
+                            if len(recent) > _bf_thresh:
+                                items.append({
+                                    'severity': 'critical', 'kind': 'brute_force',
+                                    'device': dev_name,
+                                    'summary': (f'{len(recent)} failed login attempts from '
+                                                f'{src_ip} on {unit} (last 5 min)'),
+                                })
+        except Exception:
+            pass
+
+    # v2.7.0: stale Proxmox snapshots.
+    if PROXMOX_SNAPSHOT_CACHE.exists():
+        try:
+            snap_cache = load(PROXMOX_SNAPSHOT_CACHE) or {}
+            cfg_snap   = load(CONFIG_FILE) or {}
+            warn_days  = int(cfg_snap.get('proxmox_snapshot_warn_days', 7))
+            for key, entry in snap_cache.items():
+                snaps = entry.get('snapshots') or []
+                vm    = entry.get('vm_name', key)
+                for s in snaps:
+                    age_days = (now - s.get('snaptime', now)) // 86400
+                    if age_days >= warn_days:
+                        items.append({
+                            'severity': 'warning', 'kind': 'snapshot',
+                            'device': vm,
+                            'summary': (f'Snapshot "{s["name"]}" is '
+                                        f'{age_days}d old (threshold: {warn_days}d)'),
+                        })
+        except Exception:
+            pass
+
+    # v2.6.1: TLS/DANE certificate expiry (reads tls_results.json).
+    tls_targets = load(TLS_TARGETS_FILE) or {}
+    tls_results = load(TLS_RESULTS_FILE) or {}
+    try:
+        import tls_monitor as _tls_mod
+        for tid, t in tls_targets.items():
+            r = tls_results.get(tid) or {}
+            if not r:
+                continue
+            days = _tls_mod.days_until_expiry(r)
+            host = t.get('host', tid)
+            port = t.get('port', 443)
+            label = f'{host}:{port}'
+            if days <= 0:
+                items.append({'severity': 'critical', 'kind': 'tls',
+                              'device': label, 'summary': 'Certificate EXPIRED'})
+            elif days <= 7:
+                items.append({'severity': 'critical', 'kind': 'tls', 'device': label,
+                              'summary': f'Certificate expires in {days} day{"s" if days != 1 else ""}'})
+            elif days <= 30:
+                items.append({'severity': 'warning', 'kind': 'tls', 'device': label,
+                              'summary': f'Certificate expires in {days} days'})
+            if t.get('dane_check') and r.get('dane_status') not in ('ok', 'not_checked', None, ''):
+                items.append({'severity': 'warning', 'kind': 'tls', 'device': label,
+                              'summary': f'DANE check failed: {r.get("dane_status","error")}'})
+    except Exception:
+        pass
+
+    # v2.6.1: pending reboot (Debian/Ubuntu /run/reboot-required).
+    for dev_id, dev in monitored.items():
+        si = dev.get('sysinfo') or {}
+        if si.get('reboot_required'):
+            items.append({'severity': 'warning', 'kind': 'reboot',
+                          'device': dev.get('name', dev_id),
+                          'summary': 'Pending reboot — /run/reboot-required exists'})
+
+    # v2.6.1: stale agent version.
+    for dev_id, dev in monitored.items():
+        agent_ver = dev.get('agent_version') or dev.get('version') or ''
+        if agent_ver and agent_ver != SERVER_VERSION:
+            items.append({'severity': 'info', 'kind': 'agent_version',
+                          'device': dev.get('name', dev_id),
+                          'summary': f'Agent v{agent_ver} — server is v{SERVER_VERSION}'})
+
+    # v3.0.1 (attention audit): services_watched that are NOT active right now.
+    # Recent Activity gets a `service_down` event when the transition happens,
+    # but the previous version of this function never surfaced the ongoing
+    # condition — so a stopped service sat in event history but never showed
+    # up as "fix this now". Now they do. service_down also gets a mitigation
+    # target so the 🩺 button opens the right playbook (status + journal +
+    # restart). systemd's `failed` and `inactive` states both qualify.
+    try:
+        services_store = load(SERVICES_FILE) or {}
+    except Exception:
+        services_store = {}
+    for dev_id, dev in monitored.items():
+        entry = services_store.get(dev_id) or {}
+        for svc in (entry.get('services') or []):
+            active = svc.get('active')
+            unit   = svc.get('unit') or svc.get('name')
+            if not unit or active == 'active' or active == 'activating':
+                continue
+            # Skip units that haven't been loaded — those are agent-side
+            # config issues, not "service down" alerts.
+            if active in (None, 'unknown'):
+                continue
+            sev = 'critical' if active == 'failed' else 'warning'
+            items.append({
+                'severity': sev, 'kind': 'service_down',
+                'device':   dev.get('name', dev_id),
+                'summary':  f'{unit} — {active}{(" / " + svc["sub"]) if svc.get("sub") else ""}',
+                # `target` propagates into mitigation_target via the
+                # decorator below so the diagnostic playbook can substitute it
+                'target':   unit,
+            })
+
+    # v3.0.1 (attention audit): monitor targets currently DOWN. monitor_down
+    # fires a webhook on transition but had no NA item — meaning a service
+    # behind a check that stayed down between dashboard loads would only be
+    # noticed via webhook alerts.
+    try:
+        cfg_for_mon = load(CONFIG_FILE) or {}
+        mon_hist = load(MON_HIST_FILE) or {}
+    except Exception:
+        cfg_for_mon = {}; mon_hist = {}
+    for mon in (cfg_for_mon.get('monitors') or []):
+        label = mon.get('label') or mon.get('target') or ''
+        if not label:
+            continue
+        history = mon_hist.get(label) or []
+        if not history:
+            continue
+        last = history[-1] if isinstance(history, list) else {}
+        if last and last.get('ok') is False:
+            items.append({
+                'severity': 'critical', 'kind': 'monitor_down',
+                'device':   label,
+                'summary':  f'Monitor probe failing — {mon.get("type","?")} {mon.get("target","")[:80]}',
+            })
+
+    # v3.0.1 (attention audit): custom_script_fail. Failing scripts show in
+    # Recent Activity but not in NA — flip that. Results are stored inside
+    # each device record under `custom_script_results: {script_id: {...}}`.
+    for dev_id, dev in monitored.items():
+        script_results = dev.get('custom_script_results') or {}
+        if not isinstance(script_results, dict):
+            continue
+        for script_id, r in script_results.items():
+            if not isinstance(r, dict):
+                continue
+            # exit_code is reported as `rc` or `exit_code` depending on
+            # vintage; accept both.
+            rc = r.get('rc')
+            if rc is None: rc = r.get('exit_code')
+            if rc is None or rc == 0:
+                continue
+            ran = r.get('ran_at') or r.get('ts') or 0
+            items.append({
+                'severity': 'warning', 'kind': 'custom_script_fail',
+                'device':   dev.get('name', dev_id),
+                'summary':  f'{r.get("script_name", script_id)} failed '
+                            f'(rc={rc})' + (f' at {time.strftime("%H:%M", time.localtime(ran))}' if ran else ''),
+            })
+
+    # v3.0.1 (attention audit, iteration 3): transient critical events from
+    # fleet_events.json. Some alerts are events, not states — a log pattern
+    # fires once per match, there's no "currently broken" file to consult.
+    # Per Jakob's directive ("warning -> needs attention"), surface recent
+    # ones as NA items keyed deterministically so the × ignore button can
+    # silence them per-rule. After ATTENTION_EVENT_TTL they auto-expire and
+    # disappear from NA (still visible in Recent Activity, which is what
+    # that surface is for).
+    ATTENTION_EVENT_TTL = 24 * 3600    # 24h window
+    cutoff_ts = now - ATTENTION_EVENT_TTL
+    # Dedup by stable key so a noisy rule firing 50 times in a day produces
+    # exactly one NA card the user can dismiss with one click.
+    seen_event_keys = set()
+    try:
+        events = load(FLEET_EVENTS_FILE) or []
+    except Exception:
+        events = []
+    for ev in events:
+        if not isinstance(ev, dict): continue
+        ts = ev.get('ts', 0)
+        if ts < cutoff_ts: continue
+        ev_type = ev.get('event', '')
+        payload = ev.get('payload') or {}
+        did     = payload.get('device_id', '')
+        # Only events tied to devices we still monitor
+        if did and did not in monitored: continue
+        dev_name = payload.get('name') or (monitored.get(did) or {}).get('name', did)
+        if ev_type == 'log_alert':
+            sev_raw = (payload.get('severity') or 'WARN').upper()
+            # OK severities never get here (silenced earlier in fire path),
+            # but defend anyway
+            if sev_raw == 'OK': continue
+            sev = 'critical' if sev_raw == 'CRIT' else 'warning'
+            unit    = payload.get('unit', '')
+            pattern = payload.get('pattern', '')
+            dedup_key = f'log_alert|{did}|{unit}|{pattern[:60]}'
+            if dedup_key in seen_event_keys: continue
+            seen_event_keys.add(dedup_key)
+            items.append({
+                'severity': sev, 'kind': 'log_alert',
+                'device':   dev_name,
+                'summary':  f'{unit} — matched {payload.get("pattern","?")!r} '
+                            f'({payload.get("count","?")} hit{"s" if payload.get("count") != 1 else ""})',
+            })
+        elif ev_type == 'new_port_detected':
+            # Security signal — surface as warning. User dismisses to
+            # acknowledge.
+            port = payload.get('port', '?')
+            proto = payload.get('proto', 'tcp')
+            dedup_key = f'new_port|{did}|{proto}|{port}'
+            if dedup_key in seen_event_keys: continue
+            seen_event_keys.add(dedup_key)
+            items.append({
+                'severity': 'warning', 'kind': 'new_port',
+                'device':   dev_name,
+                'summary':  f'New listening port {proto}/{port} — '
+                            f'{payload.get("process", "unknown process")}',
+            })
+        elif ev_type == 'ssh_key_added':
+            fp = (payload.get('fingerprint') or '')[:24]
+            user = payload.get('user', '?')
+            dedup_key = f'ssh_key|{did}|{user}|{fp}'
+            if dedup_key in seen_event_keys: continue
+            seen_event_keys.add(dedup_key)
+            items.append({
+                'severity': 'critical', 'kind': 'ssh_key',
+                'device':   dev_name,
+                'summary':  f'New SSH key for {user} — fingerprint {fp}',
+            })
+
     items.sort(key=lambda i: _ATTN_RANK.get(i['severity'], 0), reverse=True)
+
+    # v2.8.1: filter out kinds the admin has hidden in Settings → Dashboard
+    hidden_kinds = (load(CONFIG_FILE) or {}).get('dashboard_hidden_attention_kinds') or []
+    if hidden_kinds:
+        items = [i for i in items if i.get('kind') not in hidden_kinds]
+
+    # v3.0.1: filter per-item ignores. Annotate each surviving item with
+    # its stable key so the frontend can render an × button.
+    ignored = _ignored_keys('needs_attention')
+    filtered = []
+    for i in items:
+        key = _attention_item_key(i)
+        if key in ignored:
+            continue
+        i['_ignore_key'] = key
+        filtered.append(i)
+    items = filtered
+
+    # v3.0.1: decorate with device_id (looked up by device-name reverse map)
+    # and mitigation_kind iff the alert kind has a playbook. Pre-existing
+    # items.append calls don't include device_id — adding it here keeps the
+    # change in one place. TLS items use a URL host for `device` (no real
+    # device behind it) so they don't get a device_id, which is fine —
+    # they're not mitigable anyway (covered by the ACME page).
+    name_to_id = {}
+    for did, dev in devices.items():
+        nm = dev.get('name')
+        if nm and nm not in name_to_id:
+            name_to_id[nm] = did
+    _mitigable_kinds = set(_MITIGATE_PLAYBOOKS.keys()) if '_MITIGATE_PLAYBOOKS' in globals() else set()
+    for i in items:
+        i['device_id'] = name_to_id.get(i.get('device'))
+        if i.get('kind') in _mitigable_kinds and i.get('device_id'):
+            i['mitigation_kind'] = i['kind']
+            # service_down would also carry a target (the unit name); other
+            # kinds don't need one. Keep target out of items for now since
+            # service_down isn't yet emitted — added in a later iteration.
+            if i.get('target'):
+                i['mitigation_target'] = i['target']
+
     return items
 
 
@@ -8284,6 +10285,14 @@ def handle_export():
                     for k in config_secret_keys:
                         if raw.get(k):
                             raw[k] = '(redacted)'
+                    # v3.0.2: redact pushover creds inside webhook_urls entries
+                    if isinstance(raw.get('webhook_urls'), list):
+                        for e in raw['webhook_urls']:
+                            if not isinstance(e, dict): continue
+                            if e.get('pushover_token'):
+                                e['pushover_token'] = '(redacted)'
+                            if e.get('pushover_user'):
+                                e['pushover_user']  = '(redacted)'
                 zf.writestr('config.json', json.dumps(raw, indent=2))
             else:
                 zf.write(f, f.name)
@@ -8677,23 +10686,65 @@ def handle_audit_log_clear():
 
 
 def handle_webhook_test():
-    """Send a test webhook to verify the URL is working."""
+    """Send a test webhook.
+
+    v3.0.2: if the POST body carries `{id: "wh_xxx"}`, fire ONLY to that
+    destination from the multi-webhook list. With no body, fall back to
+    the legacy behaviour of firing to every configured destination.
+    """
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    target_id = (body.get('id') or '').strip() or None
     cfg = load(CONFIG_FILE)
-    url = cfg.get('webhook_url', '').strip()
-    if not url:
-        respond(400, {'error': 'No webhook URL configured — set one in Settings first'})
-    fire_webhook('test', {
-        'server_version': SERVER_VERSION,
-        'triggered_by': actor,
-    })
-    audit_log(actor, 'webhook_test', f'test webhook fired to {url[:80]}')
+    legacy_url = cfg.get('webhook_url', '').strip()
+    multi      = cfg.get('webhook_urls') or []
+    if target_id:
+        # Single-destination test — temporarily synthesize a config where
+        # only the chosen destination is enabled and the legacy URL is
+        # cleared, then run the normal fire path so the format adapter +
+        # logging code is exercised exactly as in production.
+        match = next((e for e in multi if isinstance(e, dict) and e.get('id') == target_id), None)
+        if not match:
+            respond(404, {'error': 'destination not found'})
+        if not match.get('url'):
+            respond(400, {'error': 'destination has no URL'})
+        synthetic = {**cfg, 'webhook_url': '', 'webhook_urls': [{**match, 'enabled': True}]}
+        # Use a private dispatch wrapper that takes the synthetic config
+        _fire_webhook_with_cfg('test', {
+            'server_version': SERVER_VERSION,
+            'triggered_by': actor,
+        }, synthetic)
+        audit_log(actor, 'webhook_test',
+                  f'targeted={target_id} url={match.get("url","?")[:80]}')
+    else:
+        if not legacy_url and not multi:
+            respond(400, {'error': 'No webhook destinations configured — add one in Settings first'})
+        fire_webhook('test', {
+            'server_version': SERVER_VERSION,
+            'triggered_by': actor,
+        })
+        audit_log(actor, 'webhook_test', 'fanned out to all configured destinations')
     # Return the most recent log entry so the UI can show success/failure
     wl = load(WEBHOOK_LOG_FILE)
     entries = wl.get('entries', [])
     last = entries[-1] if entries else None
     respond(200, {'ok': True, 'result': last})
+
+
+def _fire_webhook_with_cfg(event, payload, cfg):
+    """Fire a webhook using an explicitly-passed config dict instead of
+    reading from disk. Used by handle_webhook_test to target a single
+    destination without touching the persisted config.
+    """
+    # Build the same `safe_payload` / `message` the real fire_webhook
+    # would, then call _send_webhook_to_url with the synthetic cfg.
+    safe_payload = {k: v for k, v in (payload or {}).items() if not k.startswith('_')}
+    try:
+        message = _webhook_message(event, payload or {})
+    except Exception:
+        message = f'Test event for {event}'
+    _send_webhook_to_url(event, safe_payload, message, cfg)
 
 
 def handle_fleet_events():
@@ -10183,26 +12234,53 @@ def handle_services_config(dev_id):
         if unit:
             watched.append(unit)
 
-    # Optional: log_watch rules — [{unit, pattern, threshold}]
+    # Optional: log_watch rules — [{unit | path, pattern, threshold, severity}]
     log_rules_raw = body.get('log_watch') or []
     log_rules = []
     if isinstance(log_rules_raw, list):
         for r in log_rules_raw[:10]:
             if not isinstance(r, dict):
                 continue
-            unit = _sanitize_unit_name(r.get('unit', ''))
+            # v3.0.1: rule may specify either a systemd unit OR a file path.
+            # Path-based rules tell the agent to tail the file and submit
+            # new lines under the synthetic unit name 'file:<path>'.
+            path_raw = (r.get('path') or '').strip()
+            if path_raw:
+                # Restrict to absolute filesystem paths; reject globs and
+                # parent-traversal so a misconfigured rule can't grab anything
+                # outside the intended directory.
+                if (not path_raw.startswith('/')
+                        or '..' in path_raw
+                        or len(path_raw) > 512
+                        or any(c in path_raw for c in '*?[]<>\n\r\t')):
+                    continue
+                synthetic_unit = f'file:{path_raw}'
+                unit = synthetic_unit
+                file_path = path_raw
+            else:
+                unit = _sanitize_unit_name(r.get('unit', ''))
+                file_path = None
             pat  = _sanitize_str(r.get('pattern', ''), 128, allow_empty=False)
             try:
                 thr = int(r.get('threshold', 1) or 1)
             except (TypeError, ValueError):
                 thr = 1
+            # v3.0.1: optional severity classification (OK/WARN/CRIT).
+            # Defaults to WARN so existing rules keep firing as before.
+            sev = str(r.get('severity', 'WARN')).upper()
+            if sev not in ('OK', 'WARN', 'CRIT'):
+                sev = 'WARN'
             if unit and pat and 1 <= thr <= 100:
                 # Sanity-check the regex compiles
                 try:
                     re.compile(pat)
                 except re.error:
                     continue
-                log_rules.append({'unit': unit, 'pattern': pat, 'threshold': thr})
+                rule_clean = {'unit': unit, 'pattern': pat,
+                              'threshold': thr, 'severity': sev}
+                if file_path:
+                    rule_clean['path'] = file_path
+                log_rules.append(rule_clean)
 
     devices[dev_id]['services_watched'] = watched
     devices[dev_id]['log_watch']        = log_rules
@@ -10254,6 +12332,13 @@ def handle_log_submit():
     per_device_rules = dev.get('log_watch') or []
     global_rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
 
+    # v2.8.1: virtual log units (apt.history, nginx.access, kernel, etc.)
+    # are new sources added for brute-force detection and log history.
+    # They should NOT fire on wildcard unit='*' global rules that users
+    # set up for service journal logs — the patterns don't apply and
+    # produce noise. Only fire if the rule explicitly names the unit.
+    _VIRTUAL_UNITS = {'apt.history', 'nginx.access', 'apache2.access', 'kernel'}
+
     # Track which (unit, pattern) pairs have already fired this submission — a
     # line matching both a per-device and a global rule with the same pattern
     # should produce one alert, not two.
@@ -10267,20 +12352,54 @@ def handle_log_submit():
             continue
 
         clean_lines = []
-        for line in lines[:MAX_LOG_LINES_PER_UNIT]:
-            s = str(line)[:1024]
-            clean_lines.append({'ts': now, 'line': s})
+        # v2.9.1: load ignore patterns once per submission (from config)
+        _cfg_ignore = load(CONFIG_FILE) or {}
+        _ignore_pats = _cfg_ignore.get('log_ignore_patterns') or []
+        _ignore_res  = []
+        for _pat in _ignore_pats:
+            try:
+                _ignore_res.append(re.compile(_pat, re.IGNORECASE))
+            except re.error:
+                pass
 
-        existing = units_buf.get(unit) or []
-        combined = existing + clean_lines
-        # Trim by age
+        # v3.0.1: build a signature set of lines already in the buffer for
+        # this unit. New lines whose signature matches are skipped, fixing
+        # the apt.history re-submission bloat.
+        existing_lines = units_buf.get(unit) or []
+        existing_sigs = {e.get('sig') for e in existing_lines if isinstance(e, dict) and e.get('sig')}
+
+        for line in lines[:MAX_LOG_LINES_PER_UNIT]:
+            # v2.9.1: dmesg/kernel entries are submitted as dicts —
+            # extract the 'message' field rather than rendering as Python repr
+            if isinstance(line, dict):
+                s = str(line.get('message') or line.get('line') or '').strip()[:1024]
+            else:
+                s = str(line)[:1024]
+            if not s:
+                continue
+            # Apply global ignore patterns — skip matching lines entirely
+            if _ignore_res and any(r.search(s) for r in _ignore_res):
+                continue
+            # v3.0.1: skip lines we've already ingested (content dedupe)
+            sig = _line_signature(s)
+            if sig in existing_sigs:
+                continue
+            existing_sigs.add(sig)
+            # v3.0.1: use the line's own timestamp if it has one. Lines from
+            # apt.history etc. carry an absolute date — without this, every
+            # re-submission stamped them with `now` so they always looked new.
+            line_ts = _extract_log_timestamp(s, unit, now)
+            clean_lines.append({'ts': line_ts, 'line': s, 'sig': sig})
+
+        combined = existing_lines + clean_lines
+        # Trim by age — embedded timestamps mean old lines now get evicted
+        # naturally rather than perpetually re-stamped to `now`.
         cutoff = now - LOG_BUFFER_TTL
         combined = [e for e in combined if e.get('ts', 0) >= cutoff]
-        # Trim by byte-size
-        total_bytes = sum(len(e.get('line', '')) for e in combined)
-        while total_bytes > MAX_LOG_BUFFER_BYTES and combined:
-            removed = combined.pop(0)
-            total_bytes -= len(removed.get('line', ''))
+        # v3.0.1: byte cap removed — was silently dropping nginx.access and
+        # brute-force lines whenever apt.history bloat filled the buffer.
+        # With content dedupe + embedded timestamps + TTL the buffer no
+        # longer grows unboundedly on idle units.
         # v1.8.2: always keep the unit key, even if empty — so the device
         # appears on the Logs page as "watched, quiet in this window"
         units_buf[unit] = combined
@@ -10289,8 +12408,14 @@ def handle_log_submit():
         def _eval_rules(rules, scope):
             for rule in rules:
                 rule_unit = rule.get('unit', '')
-                # Wildcard '*' matches any unit; otherwise exact match
-                if rule_unit != '*' and rule_unit != unit:
+                # Wildcard '*' matches any unit; otherwise exact match.
+                # v2.8.1: wildcard rules skip virtual units (apt.history,
+                # nginx.access, kernel) — users configure those rules for
+                # systemd service journals, not file-based log sources.
+                if rule_unit == '*':
+                    if unit in _VIRTUAL_UNITS:
+                        continue
+                elif rule_unit != unit:
                     continue
                 pattern = rule.get('pattern', '')
                 key = (scope, unit, pattern)
@@ -10306,24 +12431,41 @@ def handle_log_submit():
                     threshold = int(threshold)
                 except (TypeError, ValueError):
                     threshold = 1
+                # v3.0.1: severity classification (OK/WARN/CRIT)
+                severity = str(rule.get('severity', 'WARN')).upper()
+                if severity not in ('OK', 'WARN', 'CRIT'):
+                    severity = 'WARN'
                 if len(matches) >= threshold:
                     fired_keys.add(key)
                     alerts_fired.append({
                         'unit': unit, 'pattern': pattern,
                         'count': len(matches), 'scope': scope,
+                        'severity': severity,
                     })
-                    fire_webhook('log_alert', {
-                        'device_id': dev_id,
-                        'name':      dev.get('name', dev_id),
-                        'unit':      unit,
-                        'pattern':   pattern,
-                        'count':     len(matches),
-                        'sample':    matches[:3],
-                        'scope':     scope,  # v1.8.2: 'device' | 'global'
-                    })
+                    # OK rules don't fire webhooks — they're noise suppressors
+                    # that confirm "this expected pattern is still present".
+                    if severity != 'OK':
+                        fire_webhook('log_alert', {
+                            'device_id': dev_id,
+                            'name':      dev.get('name', dev_id),
+                            'unit':      unit,
+                            'pattern':   pattern,
+                            'count':     len(matches),
+                            'sample':    matches[:3],
+                            'scope':     scope,  # v1.8.2: 'device' | 'global'
+                            'severity':  severity,  # v3.0.1
+                        })
 
         _eval_rules(per_device_rules, 'device')
         _eval_rules(global_rules,     'global')
+
+        # v2.8.0: brute-force detection on SSH and web access units
+        if unit in (_SSH_UNITS | _WEB_UNITS) and clean_lines:
+            try:
+                _detect_brute_force(dev_id, dev.get('name', dev_id),
+                                    unit, clean_lines)
+            except Exception:
+                pass
 
     dev_buf['units'] = units_buf
     dev_buf['updated_at'] = now
@@ -10427,7 +12569,21 @@ def handle_log_rules():
 
 def _validate_global_rule(body):
     """Return (clean_rule, error) — same shape whether valid or not."""
-    unit    = _sanitize_str(body.get('unit', ''), 128, allow_empty=False)
+    # v3.0.1: rule may specify either a systemd unit OR a file path. Path
+    # form tells the agent to tail the file; the synthetic unit name
+    # becomes 'file:<path>'. Mutually exclusive with `unit`.
+    path_raw = (str(body.get('path') or '')).strip()
+    file_path = None
+    if path_raw:
+        if (not path_raw.startswith('/')
+                or '..' in path_raw
+                or len(path_raw) > 512
+                or any(c in path_raw for c in '*?[]<>\n\r\t')):
+            return None, 'invalid file path (must be absolute, no globs/traversal)'
+        file_path = path_raw
+        unit = f'file:{path_raw}'
+    else:
+        unit = _sanitize_str(body.get('unit', ''), 128, allow_empty=False)
     pattern = _sanitize_str(body.get('pattern', ''), 128, allow_empty=False)
     # Don't use `or 1` for threshold — we want to reject 0 explicitly rather
     # than coerce it to 1 silently, so the user gets a clear error.
@@ -10438,11 +12594,15 @@ def _validate_global_rule(body):
         threshold = int(raw_threshold)
     except (TypeError, ValueError):
         return None, 'threshold must be an integer'
+    # v3.0.1: severity classification — OK/WARN/CRIT — default WARN
+    severity = str(body.get('severity', 'WARN')).upper()
+    if severity not in ('OK', 'WARN', 'CRIT'):
+        return None, 'severity must be OK, WARN, or CRIT'
 
     if not unit:
-        return None, 'unit is required (use "*" for any unit)'
-    # Allow '*' OR a valid unit name
-    if unit != '*' and not _sanitize_unit_name(unit):
+        return None, 'unit or path is required (use "*" for any unit)'
+    # Allow '*' OR a valid unit name OR a 'file:<path>' synthetic unit
+    if not file_path and unit != '*' and not _sanitize_unit_name(unit):
         return None, 'invalid unit name'
     if not pattern:
         return None, 'pattern is required'
@@ -10452,7 +12612,11 @@ def _validate_global_rule(body):
         re.compile(pattern)
     except re.error as e:
         return None, f'invalid regex: {e}'
-    return {'unit': unit, 'pattern': pattern, 'threshold': threshold}, None
+    clean = {'unit': unit, 'pattern': pattern,
+             'threshold': threshold, 'severity': severity}
+    if file_path:
+        clean['path'] = file_path
+    return clean, None
 
 
 def handle_log_rules_global_list():
@@ -12020,6 +14184,81 @@ def _enforce_read_only():
     })
 
 
+# v3.0.2 — CSRF defense-in-depth. List of methods that change state.
+# GET/HEAD/OPTIONS are read-only by HTTP semantics so they pass through.
+_STATE_CHANGING_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
+
+
+def _enforce_same_origin():
+    """Reject cross-origin state-changing requests.
+
+    The X-Token header auth scheme is already CSRF-safe by construction:
+    custom request headers force a CORS preflight, and we serve no
+    permissive `Access-Control-Allow-Origin`. This function is
+    belt-and-suspenders against:
+
+      - A future regression that turns on permissive CORS for an
+        integration but forgets to scope it to GET-only endpoints.
+      - Operator confusion where an attacker convinces them to paste
+        a malicious form action targeting the API (form posts are
+        simple-CORS, no preflight required for some content types).
+      - Malicious browser extensions that can set arbitrary headers
+        on attacker-controlled tabs but not on the victim's tab.
+
+    Rule: state-changing methods (POST/PUT/PATCH/DELETE) must either
+    carry no Origin/Referer at all (typical for curl, API keys, agents,
+    other server-to-server clients) OR carry one that matches our Host.
+    Cross-origin browser requests get a 403.
+
+    Skipped for /api/login? **No** — login is a state-changing request
+    but is reachable from the dashboard's own login page, which is on
+    the same origin. The check passes for legitimate browser logins
+    and rejects evil-site form-posts that try to brute-force the API.
+
+    Heartbeat (`POST /api/heartbeat`) is the one exception: agents are
+    server-to-server clients that don't set Origin headers. The check's
+    "no Origin = allow" default covers them.
+    """
+    if method() not in _STATE_CHANGING_METHODS:
+        return
+    origin = os.environ.get('HTTP_ORIGIN', '').strip()
+    referer = os.environ.get('HTTP_REFERER', '').strip()
+    # Server-to-server clients (curl, agents, API automation) send neither.
+    if not origin and not referer:
+        return
+    host = os.environ.get('HTTP_HOST', '').strip().lower()
+    if not host:
+        return  # No Host header at all — can't compare, fail open (handlers do their own auth)
+
+    # Strip the port for the comparison only if the request's origin has it too.
+    def _origin_host(url: str) -> str:
+        try:
+            p = urllib.parse.urlparse(url)
+            return (p.netloc or '').lower()
+        except Exception:
+            return ''
+
+    # Prefer Origin (more reliable, sent on all cross-origin requests).
+    # Fall back to Referer (older browsers and some same-origin POSTs).
+    candidate = _origin_host(origin) if origin else _origin_host(referer)
+    if not candidate:
+        return    # Malformed header — handlers will still require auth
+    # Allow trailing port differences when nginx terminates TLS:
+    # Host=remote.tvipper.com, Origin=https://remote.tvipper.com:443
+    candidate_host = candidate.split(':', 1)[0]
+    host_only      = host.split(':', 1)[0]
+    if candidate == host or candidate_host == host_only:
+        return
+    # Mismatched — reject with a 403 and a diagnostic message that
+    # operators can find in the response body when debugging.
+    respond(403, {
+        'error': 'Cross-origin request blocked',
+        'detail': (f'Origin "{candidate_host}" does not match Host "{host_only}". '
+                   'This is a security check; CLI/API-key clients should '
+                   'omit the Origin/Referer headers, not forge them.'),
+    })
+
+
 def main():
     # v2.1.1: these per-request maintenance sweeps used to be wrapped in
     # bare `except Exception: pass` blocks. That silently swallowed every
@@ -12054,6 +14293,18 @@ def main():
     # so every mutation handler is uniformly protected without needing
     # an assert_writable() call at the top of each one.
     _enforce_read_only()
+
+    # v3.0.2: CSRF defense-in-depth. The X-Token header is already
+    # CSRF-safe because browsers require a CORS preflight for any
+    # cross-origin request carrying a custom header, and we serve no
+    # permissive Access-Control-Allow-Origin. This adds a same-origin
+    # check on state-changing requests as belt-and-suspenders against
+    # future regressions (e.g. an operator turning on permissive CORS
+    # for an integration). API-key clients (CLI scripts, external
+    # automation) typically send no Origin/Referer at all — those are
+    # permitted; the check only rejects when an Origin/Referer IS sent
+    # and points elsewhere.
+    _enforce_same_origin()
 
     pi = path_info(); m = method()
 
@@ -12115,6 +14366,51 @@ def main():
     elif pi == '/api/update-device': handle_update_device()
     elif pi == '/api/upgrade-device': handle_upgrade_device()
     elif pi == '/api/wol': handle_wol()
+    elif pi == '/api/debug-log' and m == 'GET': handle_debug_log_download()
+    elif pi == '/api/debug-log' and m == 'POST': handle_debug_log_post()
+    elif pi == '/api/iac/request'  and m == 'POST': handle_iac_request()
+    elif pi == '/api/iac/generate' and m == 'POST': handle_iac_generate()
+    elif pi.startswith('/api/iac/status/') and m == 'GET': handle_iac_status(pi[len('/api/iac/status/'):])
+    elif pi.startswith('/api/iac/payload/') and m == 'GET': handle_iac_payload(pi[len('/api/iac/payload/'):])
+    elif pi == '/api/ai/prompts' and m == 'GET':  handle_ai_prompts_get()
+    elif pi == '/api/ai/prompts' and m == 'POST': handle_ai_prompts_save()
+    elif pi == '/api/ignored'        and m == 'GET':  handle_ignored_list()
+    elif pi == '/api/ignored'        and m == 'POST': handle_ignored_add()
+    elif pi == '/api/ignored/remove' and m == 'POST': handle_ignored_remove()
+    elif pi == '/api/ai/params' and m == 'GET':  handle_ai_params_get()
+    elif pi == '/api/ai/params' and m == 'POST': handle_ai_params_save()
+    elif pi == '/api/acme' and m == 'GET':                       handle_acme_list()
+    elif pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST':
+        handle_acme_issue(pi[len('/api/acme/'):-len('/issue')])
+    elif pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET':
+        _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/log/', 1)
+        handle_acme_log(_did, _aid)
+    elif pi.startswith('/api/acme/') and pi.endswith('/renew') and m == 'POST':
+        _rest = pi[len('/api/acme/'):-len('/renew')]; _did, _dom = _rest.split('/', 1)
+        handle_acme_force_renew(_did, _dom)
+    elif pi.startswith('/api/acme/') and pi.endswith('/revoke') and m == 'POST':
+        _rest = pi[len('/api/acme/'):-len('/revoke')]; _did, _dom = _rest.split('/', 1)
+        handle_acme_revoke(_did, _dom)
+    elif pi.startswith('/api/acme/') and '/cancel/' in pi and m == 'POST':
+        _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/cancel/', 1)
+        handle_acme_cancel(_did, _aid)
+    elif pi.startswith('/api/acme/') and '/ignore/' in pi and m == 'POST':
+        _rest = pi[len('/api/acme/'):]; _did, _aid = _rest.split('/ignore/', 1)
+        handle_acme_ignore(_did, _aid)
+    elif pi.startswith('/api/acme/') and m == 'GET':
+        _rest = pi[len('/api/acme/'):]; _did, _dom = _rest.split('/', 1) if '/' in _rest else (_rest, '')
+        handle_acme_detail(_did, _dom)
+    # ── v3.0.1: Mitigation runners ────────────────────────────────────────
+    elif pi.startswith('/api/mitigate/') and pi.endswith('/investigate') and m == 'POST':
+        handle_mitigate_investigate(pi[len('/api/mitigate/'):-len('/investigate')])
+    elif pi.startswith('/api/mitigate/') and pi.endswith('/fix') and m == 'POST':
+        handle_mitigate_fix(pi[len('/api/mitigate/'):-len('/fix')])
+    elif pi.startswith('/api/mitigate/') and '/status/' in pi and m == 'GET':
+        _rest = pi[len('/api/mitigate/'):]; _did, _aid = _rest.split('/status/', 1)
+        handle_mitigate_status(_did, _aid)
+    elif pi.startswith('/api/mitigate/') and '/ai/' in pi and m == 'POST':
+        _rest = pi[len('/api/mitigate/'):]; _did, _aid = _rest.split('/ai/', 1)
+        handle_mitigate_ai(_did, _aid)
     elif pi == '/api/monitor' and m == 'GET': handle_monitor_run()
     elif pi == '/api/config' and m == 'GET': handle_config_get()
     elif pi == '/api/config' and m == 'POST': handle_config_save()
@@ -12135,7 +14431,13 @@ def main():
     elif pi == '/api/totp/status' and m == 'GET': handle_totp_status()
     elif pi == '/api/agent/version' and m == 'GET': handle_agent_version()
     elif pi == '/api/agent/download' and m == 'GET': handle_agent_download()
+    elif pi.startswith('/api/devices/') and pi.endswith('/agent/force-upgrade') and m == 'POST':
+        handle_force_agent_upgrade(pi[len('/api/devices/'):-len('/agent/force-upgrade')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/acme/force-rescan') and m == 'POST':
+        handle_force_acme_rescan(pi[len('/api/devices/'):-len('/acme/force-rescan')])
     elif pi == '/api/version' and m == 'GET': handle_version_check()
+    elif pi == '/api/self/status' and m == 'GET': handle_self_status()
+    elif pi == '/api/self/backup-now' and m == 'POST': handle_backup_run()
     elif pi == '/api/schedule' and m == 'GET': handle_schedule_list()
     elif pi == '/api/schedule' and m == 'POST': handle_schedule_add()
     elif pi.startswith('/api/schedule/') and m == 'DELETE':
@@ -12388,6 +14690,7 @@ def main():
     # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
     elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()
     elif pi == '/api/tls/targets' and m == 'POST': handle_tls_add()
+    elif pi == '/api/internal/tls-webhook' and m == 'POST': handle_tls_internal_webhook()
     elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
         handle_tls_delete(pi[len('/api/tls/targets/'):])
     elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
@@ -12663,6 +14966,1741 @@ def handle_device_host_config_current(dev_id):
         'current':              current_data,
         'current_collected_at': collected_at,
     })
+
+
+def handle_debug_log_download():
+    """GET /api/debug-log — stream the server-side debug log file."""
+    require_admin_auth()
+    if not DEBUG_LOG_FILE.exists():
+        respond(404, {'error': 'No debug log file found. Enable debug logging first.'})
+        return
+    try:
+        content = DEBUG_LOG_FILE.read_bytes()
+        import sys
+        sys.stdout.buffer.write(
+            b'Content-Type: text/plain\r\n'
+            b'Content-Disposition: attachment; filename=remotepower-debug.log\r\n'
+            b'X-Content-Type-Options: nosniff\r\n\r\n'
+        )
+        sys.stdout.buffer.write(content)
+        sys.stdout.buffer.flush()
+    except Exception as e:
+        respond(500, {'error': str(e)})
+
+
+
+def handle_debug_log_post():
+    """POST /api/debug-log — accept a batch of client-side log entries
+    and append them to the server debug.log so we have a single timeline
+    of UI events + server activity for diagnosing issues like this one."""
+    require_auth()
+    body = get_json_body() or {}
+    entries = body.get('entries') or []
+    if not isinstance(entries, list):
+        respond(400, {'error': 'entries must be a list'})
+        return
+    # Always check if debug logging is on — silently drop otherwise
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('debug_logging'):
+        respond(200, {'ok': True, 'logged': 0})
+        return
+    # v3.0.1: do file I/O INSIDE its own try/except, and call respond()
+    # OUTSIDE it. The previous version wrapped respond() in the try block,
+    # which caught the HTTPError that respond() raises to signal success
+    # and turned every 200 into a 500. The browser console showed a 500
+    # for every single dbg() flush.
+    logged = 0
+    try:
+        import datetime as _dt
+        with open(DEBUG_LOG_FILE, 'a') as f:
+            for entry in entries[:200]:
+                ts  = entry.get('ts')
+                tag = _sanitize_str(str(entry.get('tag', 'ui'))[:32], 32)
+                msg = _sanitize_str(str(entry.get('msg', ''))[:1024], 1024)
+                if not ts:
+                    ts = _dt.datetime.now().isoformat(timespec='seconds')
+                f.write(f"[{ts}] {tag} {msg}\n")
+                logged += 1
+    except Exception as e:
+        # Log to stderr (visible in apache/nginx error log) but still
+        # respond 200 — debug logging failure must not break the UI.
+        sys.stderr.write(f"[remotepower] debug-log write failed: {e}\n")
+    respond(200, {'ok': True, 'logged': logged})
+
+
+
+# ══ v3.0.0: IaC Generator endpoints ════════════════════════════════════════════
+# Three-step flow:
+#   POST /api/iac/request   → set flag on device, return request_id
+#   GET  /api/iac/status/<id> → poll for collection completion
+#   POST /api/iac/generate  → build payload, mask secrets, call LLM, return code
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Categories the server can resolve from existing data (no agent fetch needed)
+_IAC_SERVER_CATEGORIES = {'remotepower'}
+
+# Categories that must come from the agent
+_IAC_AGENT_CATEGORIES  = {
+    'os_identity', 'packages', 'systemd', 'users', 'groups', 'ssh_keys',
+    'network', 'fstab', 'containers', 'repos', 'firewall', 'cron',
+    'tls', 'env', 'snaps', 'kmod', 'sysctl',
+}
+
+_IAC_ALL_CATEGORIES = _IAC_SERVER_CATEGORIES | _IAC_AGENT_CATEGORIES
+
+# Sensitive env-var key regex (masked before sending to LLM)
+_IAC_SECRET_PATTERN = re.compile(
+    r'(PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|API_?KEY|PRIVATE)',
+    re.IGNORECASE,
+)
+
+
+def handle_iac_request():
+    """POST /api/iac/request — operator clicks Generate IaC.
+
+    Body: {device_id, categories: [...]}
+    Sets force_iac_collect on the device and returns a request_id the
+    frontend can poll with /api/iac/status.
+    """
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+        return
+    body = get_json_body() or {}
+    dev_id     = str(body.get('device_id', '')).strip()
+    categories = body.get('categories') or []
+
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device_id'}); return
+    if not isinstance(categories, list) or not categories:
+        respond(400, {'error': 'categories must be a non-empty list'}); return
+    bad = [c for c in categories if c not in _IAC_ALL_CATEGORIES]
+    if bad:
+        respond(400, {'error': f'unknown categories: {bad}'}); return
+
+    # Only agent-needed categories trigger a fetch
+    agent_cats = [c for c in categories if c in _IAC_AGENT_CATEGORIES]
+    request_id = secrets.token_urlsafe(12)
+
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        dev = devices.get(dev_id)
+        if dev is None:
+            respond(404, {'error': 'device not found'}); return
+        if agent_cats:
+            dev['force_iac_collect'] = {
+                'request_id': request_id,
+                'categories': agent_cats,
+            }
+        # else: all categories resolvable server-side — skip agent fetch
+
+    # If no agent fetch needed, write an immediate "ready" file
+    if not agent_cats:
+        IAC_COLLECTION_DIR.mkdir(parents=True, exist_ok=True)
+        save(IAC_COLLECTION_DIR / f'{request_id}.json', {
+            'request_id':   request_id,
+            'device_id':    dev_id,
+            'collected_at': int(time.time()),
+            'categories':   [],
+            'data':         {},
+            'error':        None,
+        })
+
+    respond(200, {
+        'ok':              True,
+        'request_id':      request_id,
+        'agent_required':  bool(agent_cats),
+        'categories_requested': categories,
+    })
+
+
+def handle_iac_status(request_id):
+    """GET /api/iac/status/<request_id> — poll for completion."""
+    require_admin_auth()
+    rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(request_id))[:64]
+    if not rid:
+        respond(400, {'error': 'invalid request_id'}); return
+    fpath = IAC_COLLECTION_DIR / f'{rid}.json'
+    if not fpath.exists():
+        respond(200, {'status': 'pending', 'request_id': rid})
+        return
+    data = load(fpath) or {}
+    if data.get('error'):
+        respond(200, {'status': 'error', 'request_id': rid, 'error': data['error']})
+        return
+    respond(200, {
+        'status':       'ready',
+        'request_id':   rid,
+        'collected_at': data.get('collected_at'),
+        'categories':   data.get('categories', []),
+    })
+
+
+def _iac_collect_server_side(dev_id, dev, requested):
+    """Collect data for categories that don't need an agent fetch."""
+    out = {}
+    if 'remotepower' in requested:
+        # Read scheduled custom scripts assigned to this device
+        cs_all = load(CUSTOM_SCRIPTS_FILE) or {}
+        assigned = []
+        for sid, script in (cs_all.get('scripts') or {}).items():
+            if dev_id in (script.get('assignments') or []):
+                assigned.append({
+                    'id': sid, 'name': script.get('name', ''),
+                    'schedule': script.get('schedule', ''),
+                    'body_preview': (script.get('body') or '')[:500],
+                })
+        out['remotepower'] = {
+            'group':      dev.get('group'),
+            'tags':       dev.get('tags', []),
+            'icon':       dev.get('icon'),
+            'poll_interval': dev.get('poll_interval'),
+            'watched_services': dev.get('watched_services', []),
+            'drift_files':      dev.get('drift_files', []),
+            'cmd_allowlist':    dev.get('cmd_allowlist', []),
+            'custom_scripts':   assigned,
+            'host_config_desired': dev.get('host_config_desired'),
+        }
+    return out
+
+
+def _iac_mask_secrets(data):
+    """Walk the data tree, masking env-var-style key/value pairs whose KEY
+    matches the SECRET_PATTERN. Containers' env arrays look like 'NAME=value';
+    plain key/value dicts also work.
+
+    v3.0.1: depth-bounded — guards against pathological JSON nesting from
+    an adversarial agent. Beyond MAX_DEPTH, we stop recursing (returning the
+    raw node) rather than risk a RecursionError that would 500 the request.
+    """
+    MAX_DEPTH = 50
+    def visit(obj, depth=0):
+        if depth > MAX_DEPTH:
+            return obj
+        if isinstance(obj, dict):
+            return {k: visit(v, depth+1) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [visit(x, depth+1) for x in obj]
+        if isinstance(obj, str) and '=' in obj:
+            # Container env strings like "DB_PASSWORD=secret123"
+            name, _, _ = obj.partition('=')
+            if _IAC_SECRET_PATTERN.search(name):
+                return f'{name}=<REDACTED_BY_REMOTEPOWER>'
+        return obj
+    return visit(data)
+
+
+def _iac_strip_fences(code):
+    """LLM safety net — robustly extract only code from the response.
+
+    Strategy (in order):
+      1. If <<<BEGIN_IAC>>>...<<<END_IAC>>> markers are present, return only
+         what's between them. Reasoning models (DeepSeek, o1) dump their
+         chain-of-thought as prose; the markers let them think freely while
+         keeping the output clean.
+      2. Strip <think>...</think> blocks (DeepSeek-R1 convention) if present.
+      3. If markdown ```...``` fences are present (possibly multiple), extract
+         and concatenate the contents.
+      4. Last resort: strip a single outer fence if any.
+    """
+    code = (code or '').strip()
+    if not code:
+        return ''
+
+    # 1. Explicit BEGIN/END markers — the most reliable signal
+    m = re.search(
+        r'<<<\s*BEGIN_IAC\s*>>>\s*\n?(.*?)\n?\s*<<<\s*END_IAC\s*>>>',
+        code, re.DOTALL | re.IGNORECASE,
+    )
+    if m:
+        inner = m.group(1).strip()
+        # The model may still have wrapped the inside in code fences;
+        # recurse once to handle that case.
+        if '```' in inner:
+            return _iac_strip_fences(inner)
+        return inner
+
+    # 2. Strip <think>...</think> blocks (DeepSeek-R1 reasoning tokens)
+    code = re.sub(r'<think>.*?</think>', '', code, flags=re.DOTALL | re.IGNORECASE).strip()
+
+    # 3. Find all fenced blocks: ```[lang]?\n...\n```
+    fence_re = re.compile(
+        r'```(?:[a-zA-Z0-9_-]*)\n(.*?)\n```',
+        re.DOTALL,
+    )
+    blocks = fence_re.findall(code)
+    if blocks:
+        return '\n\n'.join(b.strip() for b in blocks).strip()
+
+    # 4. Legacy single-fence strip
+    if code.startswith('```'):
+        first_nl = code.find('\n')
+        code = code[first_nl + 1:] if first_nl > 0 else code[3:]
+    if code.endswith('```'):
+        code = code[:-3].rstrip()
+    return code.strip()
+
+
+_IAC_FORMAT_HINTS = {
+    'terraform':    'Terraform HCL (.tf file)',
+    'ansible':      'Ansible playbook (YAML)',
+    'pulumi-python':'Pulumi program in Python',
+    'pulumi-ts':    'Pulumi program in TypeScript',
+    'cloud-init':   'cloud-init user-data YAML',
+}
+
+
+def handle_iac_generate():
+    """POST /api/iac/generate — build LLM payload, send, return raw code.
+
+    Body: {request_id, output_format, categories?, user_instructions?}
+    """
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(body.get('request_id', '')))[:64]
+    fmt = str(body.get('output_format', '')).strip()
+    user_instructions = _sanitize_str(str(body.get('user_instructions', '') or ''), 2000)
+    if not rid or fmt not in _IAC_FORMAT_HINTS:
+        respond(400, {'error': 'request_id and valid output_format required'}); return
+
+    fpath = IAC_COLLECTION_DIR / f'{rid}.json'
+    if not fpath.exists():
+        respond(404, {'error': 'request not found or still pending'}); return
+    coll = load(fpath) or {}
+    if coll.get('error'):
+        respond(400, {'error': f'collection error: {coll["error"]}'}); return
+
+    dev_id = coll.get('device_id', '')
+    devs = load(DEVICES_FILE) or {}
+    dev = devs.get(dev_id, {})
+    if not dev:
+        respond(404, {'error': 'device no longer exists'}); return
+
+    # Merge server-side categories on top of agent-collected ones
+    all_data = dict(coll.get('data') or {})
+    # Reconstruct full requested list from device + collection
+    requested = body.get('categories') or coll.get('categories') or []
+    if not requested:
+        # If neither side has it, use whatever data we have
+        requested = list(all_data.keys())
+    server_data = _iac_collect_server_side(dev_id, dev, requested)
+    all_data.update(server_data)
+
+    # Mask secret-named env vars / secrets before payload leaves the host
+    safe_data = _iac_mask_secrets(all_data)
+
+    payload = {
+        'device': {
+            'id':       dev_id,
+            'hostname': dev.get('name', dev_id),
+            'status':   ('online' if (int(time.time()) - dev.get('last_seen', 0))
+                                     < get_online_ttl() else 'offline'),
+        },
+        'selected_categories': requested,
+        'data':                safe_data,
+        'output_format':       fmt,
+    }
+
+    prompt = (
+        f"Convert the device state JSON below into a single complete "
+        f"{_IAC_FORMAT_HINTS[fmt]} file.\n\n"
+        f"=== HOW TO RESPOND ===\n"
+        f"Whatever reasoning you need to do, do it. Then output your final code\n"
+        f"between these EXACT markers and nothing outside them will be used:\n\n"
+        f"<<<BEGIN_IAC>>>\n"
+        f"... your complete IaC code here, valid and copy-pasteable ...\n"
+        f"<<<END_IAC>>>\n\n"
+        f"Rules for what goes BETWEEN the markers:\n"
+        f"  - Pure code only. No markdown fences. No prose. No headings.\n"
+        f"  - Use only the target language's native comment syntax (#, //, etc.)\n"
+        f"    if you need any in-code comments.\n"
+        f"  - Generate ONE complete file containing all needed resources.\n\n"
+        f"=== WHAT TO PUT IN THE CODE ===\n"
+        f"CRITICAL — describe ONLY what the JSON contains:\n"
+        f"  - If a category is empty or missing, DO NOT invent tasks/resources for it.\n"
+        f"  - DO NOT add 'best practice' steps that aren't in the data\n"
+        f"    (no timezone config, no SSH hardening, no apt upgrade, no 'install ubuntu-server',\n"
+        f"     unless they appear in the input).\n"
+        f"  - If only OS identity is in the input, generate only what's needed to describe\n"
+        f"    that identity (hostname, etc.) — nothing else.\n"
+        f"  - A short, accurate file is far better than a long, fabricated one.\n\n"
+        f"=== SECURITY ===\n"
+        f"  - Replace SSH keys, container env secrets, and credentials with variables.\n"
+        f"  - For TLS certificates, reference paths only — never emit cert contents.\n"
+    )
+    if user_instructions:
+        prompt += (
+            f"\n=== USER'S EXTRA INSTRUCTIONS (apply where compatible) ===\n"
+            f"{user_instructions}\n"
+        )
+    prompt += f"\n=== INPUT DEVICE STATE (JSON) ===\n{json.dumps(payload, indent=2)[:120000]}\n"
+
+    # Use the existing AI provider — reuses Settings → AI configuration
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+        return
+
+    system_prompt = _resolve_system_prompt('iac_generate')
+    _iac_params = _resolve_ai_params('iac_generate')
+    _iac_kwargs = {
+        'system':     system_prompt,
+        'max_tokens': (_iac_params.get('max_tokens') or 8000),
+    }
+    for _p in ('temperature', 'top_p', 'num_ctx'):
+        if _iac_params.get(_p) is not None:
+            _iac_kwargs[_p] = _iac_params[_p]
+
+    try:
+        result = ai_provider.chat(
+            cfg,
+            messages=[{'role': 'user', 'content': prompt}],
+            **_iac_kwargs,
+        )
+    except Exception as e:
+        respond(500, {'error': f'LLM call failed: {e}'}); return
+
+    if not result.get('ok'):
+        respond(500, {'error': result.get('error', 'LLM returned an error')}); return
+
+    raw_output = result.get('text', '') or result.get('content', '')
+    code = _iac_strip_fences(raw_output)
+    # Detect whether the model honoured the BEGIN/END marker convention
+    markers_used = bool(re.search(r'<<<\s*BEGIN_IAC\s*>>>', raw_output, re.IGNORECASE))
+
+    respond(200, {
+        'ok':              True,
+        'request_id':      rid,
+        'output_format':   fmt,
+        'code':            code,
+        'categories_used': requested,
+        'tokens_in':       result.get('tokens_in', 0),
+        'tokens_out':      result.get('tokens_out', 0),
+        'markers_used':    markers_used,
+        # v3.0.0: full conversation for the "AI Conversation" tab
+        'conversation': {
+            'system':    system_prompt,
+            'user':      prompt,
+            'assistant': raw_output,
+            'model':     result.get('model', '?'),
+            'provider':  cfg.get('provider', '?'),
+        },
+    })
+
+
+
+
+def handle_iac_payload(request_id):
+    """GET /api/iac/payload/<request_id> — return the raw JSON that would be
+    sent to the LLM (after secret masking). Useful for inspecting collected
+    state without spending LLM tokens, or for using the data with a different
+    tool entirely."""
+    require_admin_auth()
+    rid = re.sub(r'[^a-zA-Z0-9_-]', '_', str(request_id))[:64]
+    if not rid:
+        respond(400, {'error': 'invalid request_id'}); return
+    fpath = IAC_COLLECTION_DIR / f'{rid}.json'
+    if not fpath.exists():
+        respond(404, {'error': 'request not found'}); return
+    coll = load(fpath) or {}
+    if coll.get('error'):
+        respond(400, {'error': f'collection error: {coll["error"]}'}); return
+
+    dev_id = coll.get('device_id', '')
+    devs   = load(DEVICES_FILE) or {}
+    dev    = devs.get(dev_id, {})
+    requested = coll.get('categories', []) or list((coll.get('data') or {}).keys())
+
+    all_data = dict(coll.get('data') or {})
+    all_data.update(_iac_collect_server_side(dev_id, dev, requested))
+    safe_data = _iac_mask_secrets(all_data)
+
+    payload = {
+        'device': {
+            'id':       dev_id,
+            'hostname': dev.get('name', dev_id),
+            'status':   ('online' if (int(time.time()) - dev.get('last_seen', 0))
+                                     < get_online_ttl() else 'offline'),
+        },
+        'selected_categories': requested,
+        'data':                safe_data,
+    }
+    respond(200, payload)
+
+
+
+# ══ v3.0.1: AI prompt customization ═══════════════════════════════════════════
+# User-editable overrides for the default system prompts in ai_provider.SYSTEM_PROMPTS.
+# Overrides live in config.json under "ai_prompt_overrides": {key: text, ...}.
+# Empty string / missing key = use the default.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Human-readable labels for each prompt key (shown in Settings UI).
+_AI_PROMPT_LABELS = {
+    'free_form':              'Free-form chat',
+    'explain_output':         'Explain command output',
+    'find_problem':           'Find problem in logs',
+    'explain_script':         'Explain script',
+    'audit_script':           'Audit script (security)',
+    'generate_script':        'Generate script',
+    'triage_cve':             'Triage CVE',
+    'investigate_device':    'Investigate device',
+    'explain_alert':          'Explain webhook alert',
+    'diagnose_service':       'Diagnose failing service',
+    'explain_tls':            'Explain TLS / certificate',
+    'prioritise_patches':     'Prioritise pending patches',
+    'explain_container_logs': 'Explain container logs',
+    'generate_runbook':       'Generate device runbook',
+    'iac_generate':           'IaC Generator',
+    # v3.0.1: Mitigation playbook prompts. One per alert category so a user
+    # can tune the AI's tone independently — e.g. terse for service alerts,
+    # more cautious for disk cleanup proposals.
+    'mitigate_cpu':           'Mitigation — CPU pressure',
+    'mitigate_memory':        'Mitigation — Memory pressure',
+    'mitigate_disk':          'Mitigation — Disk pressure',
+    'mitigate_service':       'Mitigation — Service / runtime issue',
+    'mitigate_patches':       'Mitigation — Pending patches',
+}
+
+def _resolve_system_prompt(key):
+    """Return the user-overridden prompt for `key` if set, else the default."""
+    overrides = (load(CONFIG_FILE) or {}).get('ai_prompt_overrides') or {}
+    custom = overrides.get(key)
+    if custom and isinstance(custom, str) and custom.strip():
+        return custom
+    return ai_provider.SYSTEM_PROMPTS.get(key, '')
+
+
+def handle_ai_prompts_get():
+    """GET /api/ai/prompts — return all known prompts + current overrides."""
+    require_admin_auth()
+    overrides = (load(CONFIG_FILE) or {}).get('ai_prompt_overrides') or {}
+    prompts = []
+    for key, default_text in ai_provider.SYSTEM_PROMPTS.items():
+        prompts.append({
+            'key':           key,
+            'label':         _AI_PROMPT_LABELS.get(key, key),
+            'default':       default_text,
+            'current':       overrides.get(key) or default_text,
+            'is_customized': bool(overrides.get(key)),
+        })
+    respond(200, {'prompts': prompts})
+
+
+def handle_ai_prompts_save():
+    """POST /api/ai/prompts — body {key, text}. Empty text = revert to default."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    key  = str(body.get('key', '')).strip()
+    text = body.get('text', '')
+    if key not in ai_provider.SYSTEM_PROMPTS:
+        respond(400, {'error': f'unknown prompt key: {key}'}); return
+    if not isinstance(text, str):
+        respond(400, {'error': 'text must be a string'}); return
+    text = _sanitize_str(text, 8000)
+
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        overrides = cfg.get('ai_prompt_overrides') or {}
+        if text.strip():
+            overrides[key] = text
+        else:
+            overrides.pop(key, None)   # empty text = revert to default
+        cfg['ai_prompt_overrides'] = overrides
+    respond(200, {
+        'ok':      True,
+        'key':     key,
+        'current': text.strip() or ai_provider.SYSTEM_PROMPTS[key],
+        'is_customized': bool(text.strip()),
+    })
+
+
+
+# ══ v3.0.1: per-item ignore lists ════════════════════════════════════════════
+# Manual ignores for Needs Attention items, stale containers, and stale devices.
+# Stored in ignored_items.json:
+#   {
+#     "needs_attention": [{"key": "<hash>", "ts": <epoch>, "label": "<human>"}],
+#     "stale_containers": [{"device_id": "...", "container": "...", "ts": ...}],
+#     "devices":         [{"id": "...", "ts": ...}]
+#   }
+# Restored manually from Settings → Ignored items.
+# ════════════════════════════════════════════════════════════════════════════
+
+def _attention_item_key(item):
+    """Stable hash of an attention item — kind+device+summary.
+    Identical re-firings produce the same key, so one ignore sticks across polls."""
+    raw = '|'.join([
+        str(item.get('kind') or ''),
+        str(item.get('device') or ''),
+        str(item.get('summary') or ''),
+    ])
+    return hashlib.sha1(raw.encode('utf-8', errors='replace')).hexdigest()[:16]
+
+
+def _ignored_load():
+    data = load(IGNORED_ITEMS_FILE) or {}
+    # Normalise — every category is always a list
+    for k in ('needs_attention', 'stale_containers', 'devices'):
+        if not isinstance(data.get(k), list):
+            data[k] = []
+    return data
+
+
+def _ignored_keys(category):
+    """Return the set of stable keys for a category, for O(1) lookup."""
+    data = _ignored_load()
+    if category == 'needs_attention':
+        return {entry.get('key') for entry in data['needs_attention'] if entry.get('key')}
+    if category == 'stale_containers':
+        return {f"{e.get('device_id','')}/{e.get('container','')}" for e in data['stale_containers']}
+    if category == 'devices':
+        return {e.get('id') for e in data['devices'] if e.get('id')}
+    return set()
+
+
+def handle_ignored_list():
+    """GET /api/ignored — full list across all categories."""
+    require_auth()
+    respond(200, _ignored_load())
+
+
+def handle_ignored_add():
+    """POST /api/ignored — body {category, key/device_id/container/id, label?}."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    cat  = str(body.get('category', '')).strip()
+    if cat not in ('needs_attention', 'stale_containers', 'devices'):
+        respond(400, {'error': 'invalid category'}); return
+    now  = int(time.time())
+    with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
+        for k in ('needs_attention', 'stale_containers', 'devices'):
+            if not isinstance(data.get(k), list):
+                data[k] = []
+        if cat == 'needs_attention':
+            key = _sanitize_str(str(body.get('key', '')), 32)
+            if not key:
+                respond(400, {'error': 'key required'}); return
+            if not any(e.get('key') == key for e in data['needs_attention']):
+                data['needs_attention'].append({
+                    'key':   key,
+                    'ts':    now,
+                    'label': _sanitize_str(str(body.get('label', '')), 200),
+                })
+        elif cat == 'stale_containers':
+            did = _sanitize_str(str(body.get('device_id', '')), 64)
+            ctr = _sanitize_str(str(body.get('container', '')), 200)
+            if not did:
+                respond(400, {'error': 'device_id required'}); return
+            # v3.0.1: empty container = ignore the device entirely on the
+            # Containers page (regardless of stale state). Non-empty container
+            # = ignore that specific container row only.
+            if not any(e.get('device_id') == did and e.get('container') == ctr
+                       for e in data['stale_containers']):
+                data['stale_containers'].append({
+                    'device_id': did, 'container': ctr, 'ts': now,
+                    'label': _sanitize_str(str(body.get('label', '')), 200),
+                })
+        elif cat == 'devices':
+            did = _sanitize_str(str(body.get('id', '')), 64)
+            if not did:
+                respond(400, {'error': 'id required'}); return
+            if not any(e.get('id') == did for e in data['devices']):
+                data['devices'].append({
+                    'id': did, 'ts': now,
+                    'label': _sanitize_str(str(body.get('label', '')), 200),
+                })
+    respond(200, {'ok': True})
+
+
+def handle_ignored_remove():
+    """POST /api/ignored/remove — body {category, key/device_id+container/id}."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    cat  = str(body.get('category', '')).strip()
+    if cat not in ('needs_attention', 'stale_containers', 'devices'):
+        respond(400, {'error': 'invalid category'}); return
+    with _LockedUpdate(IGNORED_ITEMS_FILE) as data:
+        for k in ('needs_attention', 'stale_containers', 'devices'):
+            if not isinstance(data.get(k), list):
+                data[k] = []
+        if cat == 'needs_attention':
+            key = str(body.get('key', ''))
+            data['needs_attention'] = [e for e in data['needs_attention'] if e.get('key') != key]
+        elif cat == 'stale_containers':
+            did = str(body.get('device_id', ''))
+            ctr = str(body.get('container', ''))
+            data['stale_containers'] = [
+                e for e in data['stale_containers']
+                if not (e.get('device_id') == did and e.get('container') == ctr)
+            ]
+        elif cat == 'devices':
+            did = str(body.get('id', ''))
+            data['devices'] = [e for e in data['devices'] if e.get('id') != did]
+    respond(200, {'ok': True})
+
+
+
+def handle_force_agent_upgrade(dev_id):
+    """POST /api/devices/<id>/agent/force-upgrade — set the one-shot
+    force_agent_upgrade flag. The next heartbeat receives the signal
+    and re-downloads the bundled agent regardless of version match."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
+    with _LockedUpdate(DEVICES_FILE) as devs:
+        if dev_id not in devs:
+            respond(404, {'error': 'device not found'}); return
+        devs[dev_id]['force_agent_upgrade'] = True
+    audit_log(actor, 'agent_force_upgrade', detail=f'device={dev_id}')
+    respond(200, {'ok': True, 'message':
+                  'Flag set. Agent will re-download on its next heartbeat (within '
+                  + str(get_online_ttl()) + 's).'})
+
+
+def handle_force_acme_rescan(dev_id):
+    """POST /api/devices/<id>/acme/force-rescan — set the one-shot
+    force_acme_rescan flag. Default scan interval is hourly; this fires
+    a rescan on next heartbeat for ops who just renewed via the CLI and
+    don't want to wait for the UI to catch up.
+
+    Same one-shot-flag pattern as force-upgrade / force-package-scan.
+    Cleared atomically inside the heartbeat lock so it fires exactly once.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    dev_id = _sanitize_str(dev_id, 64, allow_empty=False)
+    with _LockedUpdate(DEVICES_FILE) as devs:
+        if dev_id not in devs:
+            respond(404, {'error': 'device not found'}); return
+        devs[dev_id]['force_acme_rescan'] = True
+    audit_log(actor, 'acme_force_rescan', detail=f'device={dev_id}')
+    respond(200, {'ok': True, 'message':
+                  'ACME rescan queued — agent will report fresh state on next heartbeat.'})
+
+
+
+# ══ v3.0.1: AI per-feature param customization ══════════════════════════════
+# Per-prompt overrides for temperature / top_p / max_tokens / num_ctx.
+# Stored in config.json under "ai_param_overrides": {key: {...}, ...}.
+# None / missing = use the provider's default for that field.
+# ════════════════════════════════════════════════════════════════════════════
+
+def _resolve_ai_params(key):
+    """Return {temperature, top_p, max_tokens, num_ctx} for a prompt key.
+    Each value may be None (caller should pass through as 'use default')."""
+    overrides = (load(CONFIG_FILE) or {}).get('ai_param_overrides') or {}
+    p = overrides.get(key) or {}
+    out = {}
+    for k in ('temperature', 'top_p', 'max_tokens', 'num_ctx'):
+        v = p.get(k)
+        if v is None or v == '':
+            out[k] = None
+        else:
+            try:
+                if k in ('max_tokens', 'num_ctx'):
+                    out[k] = int(v)
+                else:
+                    out[k] = float(v)
+            except (TypeError, ValueError):
+                out[k] = None
+    return out
+
+
+def handle_ai_params_get():
+    """GET /api/ai/params — return all overrides for every prompt key."""
+    require_admin_auth()
+    overrides = (load(CONFIG_FILE) or {}).get('ai_param_overrides') or {}
+    out = []
+    for k, label in _AI_PROMPT_LABELS.items():
+        cur = overrides.get(k) or {}
+        out.append({
+            'key':         k,
+            'label':       label,
+            'temperature': cur.get('temperature'),
+            'top_p':       cur.get('top_p'),
+            'max_tokens':  cur.get('max_tokens'),
+            'num_ctx':     cur.get('num_ctx'),
+        })
+    respond(200, {'params': out})
+
+
+def handle_ai_params_save():
+    """POST /api/ai/params — body {key, temperature, top_p, max_tokens, num_ctx}.
+    Each field may be omitted/empty/null to clear (revert to default)."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    key  = str(body.get('key', '')).strip()
+    if key not in _AI_PROMPT_LABELS:
+        respond(400, {'error': f'unknown prompt key: {key}'}); return
+
+    # Validate ranges. Any None / missing = unset.
+    out = {}
+    def _f(name, lo, hi):
+        v = body.get(name)
+        if v is None or v == '':
+            return  # unset
+        try:
+            f = float(v)
+            if f < lo or f > hi:
+                respond(400, {'error': f'{name} must be {lo}..{hi}'}); return
+            out[name] = f
+        except (TypeError, ValueError):
+            respond(400, {'error': f'{name} must be a number'}); return
+    def _i(name, lo, hi):
+        v = body.get(name)
+        if v is None or v == '':
+            return
+        try:
+            i = int(v)
+            if i < lo or i > hi:
+                respond(400, {'error': f'{name} must be {lo}..{hi}'}); return
+            out[name] = i
+        except (TypeError, ValueError):
+            respond(400, {'error': f'{name} must be an integer'}); return
+
+    _f('temperature', 0.0, 2.0)
+    _f('top_p',       0.0, 1.0)
+    _i('max_tokens',  1,    16000)
+    _i('num_ctx',     512,  131072)
+
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        overrides = cfg.get('ai_param_overrides') or {}
+        if out:
+            overrides[key] = out
+        else:
+            overrides.pop(key, None)
+        cfg['ai_param_overrides'] = overrides
+    respond(200, {'ok': True, 'key': key, 'params': out})
+
+
+
+# ══ v3.0.1: ACME / acme.sh integration ════════════════════════════════════════
+# Per-device cert state lives in ACME_STATE_FILE keyed by device_id. The agent
+# walks ~/.acme.sh/ every ACME_CHECK_EVERY polls and reports the full picture.
+# We never store private keys — only metadata (domain, alt names, challenge
+# type, next renewal, reload command).
+# ════════════════════════════════════════════════════════════════════════════
+
+# Recognised DNS providers — keys map to acme.sh's --dns flag.
+ACME_DNS_PROVIDERS = {
+    'dns_cf':       'Cloudflare',
+    'dns_aws':      'AWS Route 53',
+    'dns_gandi_livedns': 'Gandi',
+    'dns_dgon':     'DigitalOcean',
+    'dns_he':       'Hurricane Electric',
+    'dns_desec':    'deSEC',
+    'dns_namecheap':'Namecheap',
+    'dns_namesilo': 'NameSilo',
+    'dns_ovh':      'OVH',
+    'dns_rfc2136':  'RFC 2136 (dynamic DNS)',
+    'dns_acmedns':  'acme-dns',
+    'dns_hetzner':  'Hetzner',
+    'dns_porkbun':  'Porkbun',
+}
+
+
+def _ingest_acme_state(dev_id, acme):
+    """Persist the latest per-device acme.sh scan. acme is whatever the
+    agent reported under payload['acme']."""
+    if not _validate_id(dev_id):
+        return
+    # Bound — don't trust unbounded lists from the agent
+    if not isinstance(acme, dict):
+        return
+    certs = acme.get('certs') or []
+    if not isinstance(certs, list):
+        certs = []
+    safe_certs = []
+    for c in certs[:200]:  # hard cap
+        if not isinstance(c, dict):
+            continue
+        domain = _sanitize_str(str(c.get('domain', '')), 253)
+        if not domain:
+            continue
+        alt_raw = c.get('alt_names') or []
+        if not isinstance(alt_raw, list):
+            alt_raw = []
+        alt_names = [_sanitize_str(str(a), 253) for a in alt_raw[:50] if a]
+        safe_certs.append({
+            'domain':             domain,
+            'alt_names':          alt_names,
+            'is_wildcard':        bool(c.get('is_wildcard')),
+            'challenge':          _sanitize_str(str(c.get('challenge', '')), 64),
+            'is_dns_challenge':   bool(c.get('is_dns_challenge')),
+            'dns_provider':       _sanitize_str(str(c.get('dns_provider', '')), 64),
+            'dns_provider_label': _sanitize_str(str(c.get('dns_provider_label', '')), 128),
+            'key_length':         _sanitize_str(str(c.get('key_length', '')), 16),
+            'created_ts':         int(c['created_ts']) if isinstance(c.get('created_ts'), int) else None,
+            'next_renew_ts':      int(c['next_renew_ts']) if isinstance(c.get('next_renew_ts'), int) else None,
+            'created_str':        _sanitize_str(str(c.get('created_str', '')), 64),
+            'next_renew_str':     _sanitize_str(str(c.get('next_renew_str', '')), 64),
+            'reload_cmd':         _sanitize_str(str(c.get('reload_cmd', '')), 512),
+            'cert_path':          _sanitize_str(str(c.get('cert_path', '')), 512),
+            'key_path':           _sanitize_str(str(c.get('key_path', '')), 512),
+            'fullchain_path':     _sanitize_str(str(c.get('fullchain_path', '')), 512),
+        })
+    record = {
+        'available': bool(acme.get('available')),
+        'home':      _sanitize_str(str(acme.get('home', '')), 256),
+        'version':   _sanitize_str(str(acme.get('version', '')), 32),
+        'updated_at': int(time.time()),
+        'certs':     safe_certs,
+    }
+    with _LockedUpdate(ACME_STATE_FILE) as store:
+        if not isinstance(store, dict):
+            store = {}
+        store[dev_id] = record
+
+
+def _acme_log_path(dev_id, action_id):
+    """File path for captured acme.sh stdout. action_id is the queued cmd id."""
+    safe_did = re.sub(r'[^a-zA-Z0-9_-]', '_', str(dev_id))[:64]
+    safe_act = re.sub(r'[^a-zA-Z0-9_-]', '_', str(action_id))[:64]
+    return ACME_LOGS_DIR / f'{safe_did}__{safe_act}.log'
+
+
+def _acme_validate_domain(domain):
+    """Strict-ish domain validation. Allows wildcards via '*.example.com'."""
+    if not isinstance(domain, str) or not domain or len(domain) > 253:
+        return False
+    # Wildcard: only as the leftmost label
+    if domain.startswith('*.'):
+        domain = domain[2:]
+    # Standard FQDN regex: labels are 1-63 chars of [A-Za-z0-9-], no leading
+    # or trailing hyphen. At least one dot.
+    return bool(re.match(
+        r'^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+'
+        r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$',
+        domain
+    ))
+
+
+def handle_acme_list():
+    """GET /api/acme — fleet-wide cert overview, joined with device names."""
+    require_auth()
+    store   = load(ACME_STATE_FILE) or {}
+    devices = load(DEVICES_FILE)    or {}
+    now     = int(time.time())
+    out = []
+    for dev_id, dev in devices.items():
+        rec = store.get(dev_id)
+        if not rec:
+            continue
+        out.append({
+            'device_id':   dev_id,
+            'device_name': dev.get('name', dev_id),
+            'available':   bool(rec.get('available')),
+            'home':        rec.get('home', ''),
+            'version':     rec.get('version', ''),
+            'updated_at':  rec.get('updated_at', 0),
+            'stale':       (now - (rec.get('updated_at') or 0)) > 4 * 3600,
+            'cert_count':  len(rec.get('certs') or []),
+            'certs':       rec.get('certs') or [],
+        })
+    out.sort(key=lambda r: r['device_name'].lower())
+    respond(200, {'devices': out, 'providers': ACME_DNS_PROVIDERS})
+
+
+def handle_acme_detail(dev_id, domain):
+    """GET /api/acme/<dev_id>/<domain> — single-cert detail + recent log files."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    if not _acme_validate_domain(domain):
+        respond(400, {'error': 'invalid domain'}); return
+    store = load(ACME_STATE_FILE) or {}
+    rec = store.get(dev_id)
+    if not rec:
+        respond(404, {'error': 'no acme state reported for device'}); return
+    cert = next((c for c in (rec.get('certs') or []) if c.get('domain') == domain), None)
+    if not cert:
+        respond(404, {'error': 'cert not found in last scan'}); return
+    # Walk ACME_LOGS_DIR for matching action logs (most-recent first, last 10)
+    logs = []
+    try:
+        if ACME_LOGS_DIR.is_dir():
+            safe_did = re.sub(r'[^a-zA-Z0-9_-]', '_', dev_id)[:64]
+            for f in sorted(ACME_LOGS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+                # v3.0.1: only .log files are real action logs. Each has a
+                # .meta.json sibling; without this filter the sidecar files
+                # showed up as bogus "actions" named <id>.meta with NaN size,
+                # and "View log" 404'd because no <id>.meta.log exists.
+                if f.suffix != '.log':
+                    continue
+                if not f.name.startswith(f'{safe_did}__'):
+                    continue
+                try:
+                    meta_path = f.with_suffix('.meta.json')
+                    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                except Exception:
+                    meta = {}
+                if meta.get('domain') and meta.get('domain') != domain:
+                    continue
+                logs.append({
+                    'id':       f.stem.split('__', 1)[-1] if '__' in f.stem else f.stem,
+                    'ts':       int(meta.get('queued_at') or f.stat().st_mtime),
+                    'action':   meta.get('action', ''),
+                    'rc':       meta.get('rc'),
+                    'size':     f.stat().st_size,
+                })
+                if len(logs) >= 10:
+                    break
+    except Exception:
+        pass
+    respond(200, {'cert': cert, 'logs': logs})
+
+
+def handle_acme_log(dev_id, action_id):
+    """GET /api/acme/<dev_id>/log/<action_id> — full captured stdout for one action."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    log_path = _acme_log_path(dev_id, action_id)
+    if not log_path.is_file():
+        respond(404, {'error': 'log not found'}); return
+    try:
+        # Cap at 256 KB just in case
+        text = log_path.read_text(errors='replace')[:256 * 1024]
+    except Exception as e:
+        respond(500, {'error': f'failed to read log: {e}'}); return
+    respond(200, {'content': text, 'size': log_path.stat().st_size})
+
+
+def _acme_queue_command(dev_id, action, domain, cmd_str):
+    """Queue an exec: command on the device, and stash a meta-file so the
+    response handler can write the output into the right log slot."""
+    actor = require_admin_auth()
+    devices = load(DEVICES_FILE) or {}
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'}); return None
+    action_id = secrets.token_hex(6)
+    # Reserve the log file so it shows up in the detail view immediately
+    try:
+        ACME_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    log_path = _acme_log_path(dev_id, action_id)
+    try:
+        log_path.write_text('# pending — awaiting agent\n')
+        meta_path = log_path.with_suffix('.meta.json')
+        meta_path.write_text(json.dumps({
+            'action':   action,
+            'domain':   domain,
+            'queued_at': int(time.time()),
+            'actor':    actor,
+        }))
+    except Exception:
+        pass
+    # Queue the exec — output comes back through the standard command-output
+    # ingestion path and gets re-pointed at the acme log in v3.0.1 (handled
+    # in handle_command_output below).
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        pending = cmds.get(dev_id) or []
+        # Tag the command so we can detect its output and route it
+        tagged = f'exec:#acme:{action_id}#{cmd_str}'
+        pending.append(tagged)
+        cmds[dev_id] = pending
+    audit_log(actor, f'acme_{action}',
+              detail=f'device={dev_id} domain={domain} action_id={action_id}')
+    return {'ok': True, 'action_id': action_id}
+
+
+def handle_acme_force_renew(dev_id, domain):
+    """POST /api/acme/<dev_id>/<domain>/renew — queue acme.sh --renew --force."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    if not _validate_id(dev_id) or not _acme_validate_domain(domain):
+        respond(400, {'error': 'invalid device or domain'}); return
+    store = load(ACME_STATE_FILE) or {}
+    rec = store.get(dev_id) or {}
+    home = rec.get('home') or '/root/.acme.sh'
+    # Shell-escape domain via single quotes; domain is already validated against
+    # a strict regex so this is paranoia, not the security boundary.
+    safe_domain = domain.replace("'", "'\\''")
+    cmd = f"'{home}/acme.sh' --renew --force -d '{safe_domain}'"
+    result = _acme_queue_command(dev_id, 'renew', domain, cmd)
+    if result:
+        respond(200, result)
+
+
+def handle_acme_revoke(dev_id, domain):
+    """POST /api/acme/<dev_id>/<domain>/revoke — queue acme.sh --revoke + --remove."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    if not _validate_id(dev_id) or not _acme_validate_domain(domain):
+        respond(400, {'error': 'invalid device or domain'}); return
+    store = load(ACME_STATE_FILE) or {}
+    rec = store.get(dev_id) or {}
+    home = rec.get('home') or '/root/.acme.sh'
+    safe_domain = domain.replace("'", "'\\''")
+    # --revoke tells LE the cert is no longer trusted; --remove drops the
+    # local files so the next scan reflects the change.
+    cmd = (f"'{home}/acme.sh' --revoke -d '{safe_domain}' && "
+           f"'{home}/acme.sh' --remove -d '{safe_domain}'")
+    result = _acme_queue_command(dev_id, 'revoke', domain, cmd)
+    if result:
+        respond(200, result)
+
+
+def handle_acme_cancel(dev_id, action_id):
+    """POST /api/acme/<dev_id>/cancel/<action_id>
+
+    Three cases:
+      1. Still in CMDS_FILE queue (agent hasn't picked it up yet) → remove
+         it from the queue, mark meta as cancelled. Action will never run.
+      2. Already running on the agent (sent in a previous heartbeat,
+         agent hasn't reported back yet) → we can't unkill; mark meta as
+         cancelled-after-dispatch so UI stops polling and shows the state.
+      3. Already completed (meta has rc) → already not pending; return 409.
+    """
+    require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
+        respond(400, {'error': 'invalid action id'}); return
+    log_path = _acme_log_path(dev_id, action_id)
+    meta_path = log_path.with_suffix('.meta.json')
+    if not meta_path.exists():
+        respond(404, {'error': 'action not found'}); return
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception as e:
+        respond(500, {'error': f'meta read failed: {e}'}); return
+    if meta.get('rc') is not None:
+        respond(409, {'error': 'action already completed', 'rc': meta.get('rc')}); return
+    # Try to find and remove from the pending command queue
+    tag_needle = f'#acme:{action_id}#'
+    removed_from_queue = False
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        queue = cmds.get(dev_id) or []
+        kept = [c for c in queue if tag_needle not in c]
+        if len(kept) != len(queue):
+            removed_from_queue = True
+            if kept:
+                cmds[dev_id] = kept
+            else:
+                cmds.pop(dev_id, None)
+    # Mark meta as cancelled regardless. UI distinguishes via rc value:
+    #   -3 = cancelled before dispatch (queue removal succeeded)
+    #   -4 = cancelled after dispatch (queue removal failed, agent may
+    #        still complete; if it does, the rc gets overwritten on
+    #        next ingestion)
+    now = int(time.time())
+    actor = current_username() or 'unknown'
+    meta['rc']            = -3 if removed_from_queue else -4
+    meta['done_at']       = now
+    meta['cancelled_at']  = now
+    meta['cancelled_by']  = actor
+    try:
+        meta_path.write_text(json.dumps(meta))
+        # Replace the placeholder log so the UI shows the cancellation
+        # in the log viewer rather than an empty file.
+        log_path.write_text(
+            f'(Cancelled by {actor} at {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))}.\n'
+            f' {"Removed from queue before dispatch." if removed_from_queue else "Already sent to agent — dispatch cannot be undone, but UI will stop polling."})\n')
+    except Exception as e:
+        respond(500, {'error': f'meta write failed: {e}'}); return
+    audit_log(actor, 'acme_cancel',
+              f'action={action_id} domain={meta.get("domain","?")} '
+              f'queue_removed={removed_from_queue}')
+    respond(200, {
+        'ok':                True,
+        'removed_from_queue': removed_from_queue,
+        'rc':                meta['rc'],
+    })
+
+
+def handle_acme_ignore(dev_id, action_id):
+    """POST /api/acme/<dev_id>/ignore/<action_id>
+
+    Permanently remove the action's log + meta from disk. Used to clean up
+    stuck-pending entries that can't be cancelled (queue already empty but
+    agent never reported — happens if agent crashed mid-dispatch). Unlike
+    cancel, this doesn't try to manage the queue cleanly — it just makes
+    the row disappear from the UI.
+
+    No safety bar: the caller already chose to delete state, and the audit
+    log records what was removed.
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
+        respond(400, {'error': 'invalid action id'}); return
+    log_path = _acme_log_path(dev_id, action_id)
+    meta_path = log_path.with_suffix('.meta.json')
+    if not log_path.exists() and not meta_path.exists():
+        respond(404, {'error': 'action not found'}); return
+    # Snapshot for audit before delete
+    domain = action = '?'
+    try:
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            domain = meta.get('domain', '?')
+            action = meta.get('action', '?')
+    except Exception:
+        pass
+    # Also defensively remove from queue if still there
+    tag_needle = f'#acme:{action_id}#'
+    try:
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            queue = cmds.get(dev_id) or []
+            kept = [c for c in queue if tag_needle not in c]
+            if len(kept) != len(queue):
+                if kept: cmds[dev_id] = kept
+                else: cmds.pop(dev_id, None)
+    except Exception:
+        pass
+    # Delete files
+    for p in (log_path, meta_path):
+        try:
+            if p.exists(): p.unlink()
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] acme_ignore: failed to unlink {p}: {e}\n")
+    actor = current_username() or 'unknown'
+    audit_log(actor, 'acme_ignore',
+              f'action={action_id} domain={domain} kind={action}')
+    respond(200, {'ok': True})
+
+
+def handle_acme_issue(dev_id):
+    """POST /api/acme/<dev_id>/issue — issue a new cert. Body:
+       {domain, alt_names?, dns_provider, key_length?, wildcard?}.
+       Wildcard is implicit when domain or alt_name starts with '*.'."""
+    require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'}); return
+    body = get_json_body() or {}
+    domain = (body.get('domain') or '').strip().lower()
+    if not _acme_validate_domain(domain):
+        respond(400, {'error': 'invalid primary domain'}); return
+    alt_names_raw = body.get('alt_names') or []
+    if not isinstance(alt_names_raw, list):
+        respond(400, {'error': 'alt_names must be a list'}); return
+    alt_names = []
+    for a in alt_names_raw[:20]:
+        a = (a or '').strip().lower()
+        if not _acme_validate_domain(a):
+            respond(400, {'error': f'invalid alt name: {a}'}); return
+        if a != domain and a not in alt_names:
+            alt_names.append(a)
+    dns_provider = (body.get('dns_provider') or '').strip()
+    if dns_provider not in ACME_DNS_PROVIDERS:
+        respond(400, {'error': f'unknown dns provider {dns_provider!r}'}); return
+    key_length = str(body.get('key_length') or '4096').strip()
+    if key_length not in ('2048', '3072', '4096', 'ec-256', 'ec-384'):
+        respond(400, {'error': 'invalid key_length'}); return
+    store = load(ACME_STATE_FILE) or {}
+    rec = store.get(dev_id) or {}
+    home = rec.get('home') or '/root/.acme.sh'
+    # Build the acme.sh command. acme.sh accepts multiple -d for SAN.
+    d_args = [f"-d '{d}'" for d in [domain, *alt_names]]
+    cmd = (f"'{home}/acme.sh' --issue --dns {dns_provider} "
+           f"{' '.join(d_args)} --keylength {key_length}")
+    result = _acme_queue_command(dev_id, 'issue', domain, cmd)
+    if result:
+        respond(200, result)
+
+
+# ── v3.0.1: Mitigation feature ────────────────────────────────────────────
+# Each attention 'kind' that supports investigation maps to a hardcoded
+# diagnostic command (read-only) and an optional standard-fix command
+# (user-confirmed). All commands here are SERVER-DEFINED — no user input
+# ever flows into the diagnostic shell. The AI gets to suggest a fix
+# command, but it's shown in a preview that requires user confirmation
+# before exec, and destructive operations require typing 'RUN'.
+
+MITIGATE_LOGS_DIR = DATA_DIR / 'mitigate_logs'
+
+# Hard denylist for AI-suggested commands. If a fix candidate from the AI
+# matches any of these patterns, the run button is disabled — the user
+# can still copy the command and run it manually if they really want to.
+# This is defense-in-depth, NOT a sandbox: the operator is the final guard.
+_MITIGATE_DENY_PATTERNS = (
+    # rm -rf / followed by space, end-of-string, or *. `\b` after `/` doesn't
+    # work because `/` is not a word character. We anchor to (?:\s|$|\*).
+    r'\brm\s+-[rRf]+\s+/(?:\s|$|\*)',
+    r'\bdd\s+.*of=/dev/(?:sd|nvme|xvd|vd|hd)', # writing to block devices
+    r'\bmkfs\b',                        # filesystem create
+    r'\bshred\s+/dev/',                 # wipe block device
+    r':\(\)\s*\{.*:\s*\|\s*:&',         # fork bomb classic
+    r'>\s*/dev/(?:sd|nvme|xvd|vd|hd)',  # redirect to block device
+    r'\bchmod\s+(?:-R\s+)?(?:000|777)\s+/(?:\s|$)',  # chmod 000/777 /
+    r'>\s*/etc/passwd\b',
+    r'>\s*/etc/shadow\b',
+    r'\bdrop\s+database\b',
+)
+
+
+def _mitigate_is_dangerous(cmd):
+    """Return (is_dangerous, reason). Checks against the denylist."""
+    if not cmd or not isinstance(cmd, str):
+        return False, ''
+    for pat in _MITIGATE_DENY_PATTERNS:
+        try:
+            if re.search(pat, cmd, re.IGNORECASE):
+                return True, f'matches denylist pattern: {pat}'
+        except re.error:
+            continue
+    return False, ''
+
+
+def _mitigate_requires_confirmation(cmd):
+    """Return True for commands that should require typing 'RUN' to execute.
+
+    Less strict than the denylist — these are 'probably ok but user should
+    look twice' operations: reboot, kill -9, systemctl stop, etc.
+    """
+    if not cmd or not isinstance(cmd, str):
+        return False
+    sensitive = (
+        r'\breboot\b', r'\bshutdown\b', r'\bhalt\b', r'\bpoweroff\b',
+        r'\bkill\s+-9\b', r'\bpkill\s+-9\b',
+        r'\bsystemctl\s+(?:stop|disable|mask)\b',
+        r'\biptables\s+-[FX]\b', r'\bnft\s+flush\b',
+        r'\buserdel\b', r'\bgroupdel\b',
+        r'\bapt-get\s+(?:purge|remove)\s+',
+        r'\bdnf\s+(?:remove|erase)\s+',
+        r'\bpacman\s+-R[^\s]*\s+',
+        # Anything that pipes to sh or bash from a network source — very common
+        # in AI-suggested "quick fix" answers from less-careful models.
+        r'\bcurl\s+[^\|]+\|\s*(?:bash|sh)\b',
+        r'\bwget\s+[^\|]+\|\s*(?:bash|sh)\b',
+    )
+    for pat in sensitive:
+        try:
+            if re.search(pat, cmd, re.IGNORECASE):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+# Playbook table. Each entry maps an attention kind to:
+#   diagnostic: shell command, RUN BY THE AGENT. Server-defined, never
+#               substituted with user input. Read-only by convention —
+#               nothing here mutates state.
+#   fix:       optional standard fix command (server-defined). If present,
+#               shown as a pre-approved button next to the AI suggestion.
+#   target_arg: how to interpolate per-alert detail (e.g. service name)
+#               into the command. Hard-coded keys only, never raw user input.
+#   ai_prompt_key: the system prompt key to use for AI analysis.
+#   ai_default:    whether AI analysis runs automatically after diagnostic.
+_MITIGATE_PLAYBOOKS = {
+    'patches': {
+        'label': 'Pending patches',
+        'diagnostic': (
+            'set -e; echo "== UPGRADABLE PACKAGES =="; '
+            'if command -v apt >/dev/null 2>&1; then '
+            '  apt list --upgradable 2>/dev/null | head -100; '
+            'elif command -v dnf >/dev/null 2>&1; then '
+            '  dnf check-update 2>/dev/null | head -100 || true; '
+            'elif command -v yum >/dev/null 2>&1; then '
+            '  yum check-update 2>/dev/null | head -100 || true; '
+            'elif command -v pacman >/dev/null 2>&1; then '
+            '  pacman -Qu 2>/dev/null | head -100; '
+            'fi; '
+            'echo; echo "== REBOOT REQUIRED =="; '
+            '[ -f /var/run/reboot-required ] && cat /var/run/reboot-required.pkgs 2>/dev/null || echo "no reboot flagged"; '
+            'echo; echo "== KERNEL =="; uname -r'
+        ),
+        'fix': None,   # use _UPGRADE_CMD via existing /upgrade endpoint
+        'fix_label': 'Run system upgrade (via existing /upgrade endpoint)',
+        'ai_prompt_key': 'mitigate_patches',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'disk': {
+        'label': 'Disk pressure',
+        'diagnostic': (
+            'set -e; echo "== DF =="; df -h -x tmpfs -x devtmpfs; '
+            'echo; echo "== TOP 20 DIRECTORIES (under /, max depth 2) =="; '
+            'du -h --max-depth=2 / 2>/dev/null | sort -hr | head -20; '
+            'echo; echo "== FILES >500MB =="; '
+            'find /var /home /tmp /opt -xdev -size +500M -type f 2>/dev/null | head -20; '
+            'echo; echo "== JOURNAL DISK USAGE =="; '
+            'journalctl --disk-usage 2>/dev/null || true; '
+            'echo; echo "== /tmp + /var/log =="; '
+            'du -sh /tmp /var/log /var/cache 2>/dev/null'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_disk',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'drift': {
+        'label': 'Config drift',
+        'diagnostic': (
+            # Drift detail is already on the server side; the diagnostic is
+            # informational — current file states to confirm what changed.
+            'set -e; echo "== HOSTNAME == "; hostname -f; echo; '
+            'echo "== /etc git status if available =="; '
+            '(cd /etc && git status --short 2>/dev/null) || echo "(no git in /etc)"; '
+            'echo; echo "== Recently modified files in /etc =="; '
+            'find /etc -type f -mtime -7 2>/dev/null | head -30'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_disk',   # no dedicated prompt — fall back
+        'ai_default': True,
+        'destructive': False,
+    },
+    'service_down': {
+        # Per-alert service unit name comes from the attention item's `target`
+        # field. Validated against systemd unit name regex before substitution.
+        'label': 'Service down',
+        'diagnostic_template': (
+            'set -e; echo "== systemctl status =="; '
+            'systemctl status {unit} --no-pager 2>&1 | head -40; '
+            'echo; echo "== last 100 journal lines =="; '
+            'journalctl -u {unit} --no-pager -n 100 2>&1; '
+            'echo; echo "== process check =="; '
+            'systemctl is-active {unit} 2>&1; '
+            'systemctl is-enabled {unit} 2>&1'
+        ),
+        'fix_template': 'systemctl restart {unit}',
+        'fix_label': 'Restart service',
+        'ai_prompt_key': 'mitigate_service',
+        'ai_default': True,
+        'destructive': False,   # restart is fine; we still confirm via UI
+    },
+    'reboot': {
+        'label': 'Reboot required',
+        'diagnostic': (
+            'set -e; echo "== REBOOT REASON =="; '
+            'cat /var/run/reboot-required 2>/dev/null || echo "(no reboot flag)"; '
+            'echo; echo "== PACKAGES REQUIRING REBOOT =="; '
+            'cat /var/run/reboot-required.pkgs 2>/dev/null || echo "(none)"; '
+            'echo; echo "== UPTIME =="; uptime; '
+            'echo; echo "== RUNNING KERNEL VS INSTALLED =="; '
+            'echo "running: $(uname -r)"; '
+            'if command -v dpkg >/dev/null 2>&1; then '
+            '  dpkg --list | grep -E "^ii\\s+linux-image-[0-9]" | tail -3; '
+            'fi'
+        ),
+        'fix': 'reboot',
+        'fix_label': 'Reboot now (DANGEROUS — requires RUN confirmation)',
+        'ai_prompt_key': 'mitigate_service',
+        'ai_default': True,
+        'destructive': True,
+    },
+    'brute_force': {
+        'label': 'Brute-force attempts',
+        'diagnostic': (
+            'set -e; echo "== RECENT AUTH FAILURES =="; '
+            '(journalctl -u ssh -u sshd --no-pager -n 200 2>/dev/null || cat /var/log/auth.log 2>/dev/null | tail -200) | grep -iE "fail|invalid|refused" | tail -50; '
+            'echo; echo "== TOP OFFENDING IPS =="; '
+            '(journalctl -u ssh -u sshd --no-pager -n 1000 2>/dev/null || cat /var/log/auth.log 2>/dev/null | tail -1000) | grep -ioE "from [0-9.:a-f]+" | sort | uniq -c | sort -rn | head -10; '
+            'echo; echo "== fail2ban (if present) =="; '
+            'fail2ban-client status sshd 2>/dev/null || echo "(no fail2ban)"; '
+            'echo; echo "== ACTIVE SSH SESSIONS =="; '
+            'who 2>/dev/null; ss -tnp state established \'( sport = :22 )\' 2>/dev/null | head -10'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_service',
+        'ai_default': True,
+        'destructive': False,
+    },
+}
+
+
+def _mitigate_safe_unit_name(unit):
+    """Validate a systemd unit name before substituting into a shell command.
+
+    systemd allows: a-z A-Z 0-9 : - _ . @ \\
+    We're stricter — alphanumeric + . - _ @ with @ and . in canonical positions.
+    Reject anything else to prevent shell injection via attention payload.
+    """
+    if not unit or not isinstance(unit, str) or len(unit) > 200:
+        return None
+    if not re.match(r'^[a-zA-Z0-9._@-]+$', unit):
+        return None
+    return unit
+
+
+def _mitigate_build_command(kind, target=''):
+    """Resolve a playbook into a concrete shell command.
+
+    Returns (diagnostic_cmd, fix_cmd_or_None, ai_prompt_key, is_destructive)
+    or (None, None, None, False) if the kind isn't mitigable.
+    """
+    pb = _MITIGATE_PLAYBOOKS.get(kind)
+    if not pb:
+        return None, None, None, False
+    if 'diagnostic_template' in pb:
+        unit = _mitigate_safe_unit_name(target)
+        if not unit:
+            return None, None, None, False
+        # Use format() not f-string so we control the substitution surface
+        # and a malformed template key can only KeyError, not inject.
+        try:
+            diag = pb['diagnostic_template'].format(unit=unit)
+        except (KeyError, IndexError):
+            return None, None, None, False
+        fix = None
+        if pb.get('fix_template'):
+            try:
+                fix = pb['fix_template'].format(unit=unit)
+            except (KeyError, IndexError):
+                fix = None
+    else:
+        diag = pb['diagnostic']
+        fix  = pb.get('fix')
+    return diag, fix, pb.get('ai_prompt_key', 'mitigate_service'), bool(pb.get('destructive'))
+
+
+def _mitigate_log_path(dev_id, action_id):
+    """Per-action log file path, sanitised against path traversal."""
+    safe_did = re.sub(r'[^a-zA-Z0-9_-]', '_', dev_id)[:64]
+    safe_act = re.sub(r'[^a-zA-Z0-9_-]', '_', action_id)[:64]
+    return MITIGATE_LOGS_DIR / f'{safe_did}__{safe_act}.log'
+
+
+def _mitigate_queue_command(dev_id, kind, target, phase, cmd_str, destructive=False):
+    """Queue an exec on the agent tagged for mitigation log capture.
+
+    phase: 'investigate' or 'fix' — recorded in meta for the UI.
+    Returns {ok, action_id} on success.
+    """
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return None
+    devices = load(DEVICES_FILE) or {}
+    if dev_id not in devices:
+        respond(404, {'error': 'device not found'}); return None
+    action_id = secrets.token_hex(6)
+    tagged = f'exec:#mitigate:{action_id}#{cmd_str}'
+    actor = current_username() or 'unknown'
+    now = int(time.time())
+    try:
+        MITIGATE_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = _mitigate_log_path(dev_id, action_id)
+        log_path.write_text('(queued — output will appear here once the agent runs the command)\n')
+        meta_path = log_path.with_suffix('.meta.json')
+        meta_path.write_text(json.dumps({
+            'kind':        kind,
+            'target':      target,
+            'phase':       phase,            # 'investigate' or 'fix'
+            'destructive': bool(destructive),
+            'queued_at':   now,
+            'actor':       actor,
+            'cmd':         cmd_str[:512],    # truncated for display
+        }))
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] mitigate queue: log dir prep failed dev={dev_id}: {e}\n")
+        respond(500, {'error': 'log dir error'}); return None
+    # Queue via existing CMDS_FILE
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.setdefault(dev_id, []).append(tagged)
+    audit_log(actor, f'mitigate_{phase}', f'kind={kind} target={target!r} action={action_id}')
+    return {'ok': True, 'action_id': action_id}
+
+
+def handle_mitigate_investigate(dev_id):
+    """POST /api/mitigate/<dev_id>/investigate
+    Body: {kind: str, target: str (optional, e.g. service unit name)}
+    Queues the read-only diagnostic playbook for the given alert kind.
+    """
+    require_auth()
+    body = get_json_body() or {}
+    kind = _sanitize_str(body.get('kind', ''), 32)
+    target = _sanitize_str(body.get('target', ''), 200)
+    diag, _fix, _prompt, _dest = _mitigate_build_command(kind, target)
+    if not diag:
+        respond(400, {'error': f'no mitigation playbook for kind={kind!r}'}); return
+    result = _mitigate_queue_command(dev_id, kind, target, 'investigate', diag, destructive=False)
+    if result:
+        respond(200, result)
+
+
+def handle_mitigate_fix(dev_id):
+    """POST /api/mitigate/<dev_id>/fix
+    Body: {kind, target, command, confirmation (must equal 'RUN' if destructive)}
+    The `command` may be one of:
+      (a) The exact playbook's fix_template/fix string — server validates by
+          rebuilding from the playbook and comparing.
+      (b) An AI-suggested command. Subject to the denylist + sensitive checks;
+          if either trips, require confirmation==RUN; if denylist trips, refuse.
+    """
+    require_auth()
+    body = get_json_body() or {}
+    kind = _sanitize_str(body.get('kind', ''), 32)
+    target = _sanitize_str(body.get('target', ''), 200)
+    cmd = str(body.get('command', '')).strip()
+    confirmation = str(body.get('confirmation', '')).strip()
+    if not cmd or len(cmd) > 2000:
+        respond(400, {'error': 'command required, max 2000 chars'}); return
+    # Hard denylist — no override possible
+    is_dangerous, reason = _mitigate_is_dangerous(cmd)
+    if is_dangerous:
+        respond(400, {'error': f'command refused: {reason}'}); return
+    # Determine if this is the playbook's pre-approved fix or an AI suggestion
+    pb_diag, pb_fix, _prompt, pb_destructive = _mitigate_build_command(kind, target)
+    is_preapproved = pb_fix is not None and cmd == pb_fix
+    is_sensitive = pb_destructive or _mitigate_requires_confirmation(cmd) or not is_preapproved
+    if is_sensitive and confirmation != 'RUN':
+        respond(400, {
+            'error': 'confirmation required',
+            'reason': 'destructive_or_unverified',
+            'hint': 'Pass {"confirmation": "RUN"} to acknowledge.',
+        }); return
+    result = _mitigate_queue_command(dev_id, kind, target, 'fix', cmd,
+                                       destructive=is_sensitive)
+    if result:
+        respond(200, result)
+
+
+def handle_mitigate_status(dev_id, action_id):
+    """GET /api/mitigate/<dev_id>/status/<action_id>
+    Returns the captured log content + meta, including rc when done.
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
+        respond(400, {'error': 'invalid action id'}); return
+    log_path = _mitigate_log_path(dev_id, action_id)
+    meta_path = log_path.with_suffix('.meta.json')
+    if not log_path.exists():
+        respond(404, {'error': 'action not found'}); return
+    try:
+        content = log_path.read_text(errors='replace')[:256 * 1024]
+    except Exception:
+        content = ''
+    meta = {}
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            meta = {}
+    respond(200, {
+        'action_id':   action_id,
+        'content':     content,
+        'size':        len(content),
+        'meta':        meta,
+        'done':        meta.get('rc') is not None,
+        'rc':          meta.get('rc'),
+    })
+
+
+def handle_mitigate_ai(dev_id, action_id):
+    """POST /api/mitigate/<dev_id>/ai/<action_id>
+    Triggers AI analysis on the captured diagnostic output. Synchronous.
+    Returns {summary, suggested_fix, denylist_match, requires_confirmation}.
+
+    Body (all optional): {kind, target} — defaults pulled from meta.json.
+    """
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    if not re.match(r'^[a-zA-Z0-9_-]{1,64}$', action_id or ''):
+        respond(400, {'error': 'invalid action id'}); return
+    log_path = _mitigate_log_path(dev_id, action_id)
+    meta_path = log_path.with_suffix('.meta.json')
+    if not log_path.exists() or not meta_path.exists():
+        respond(404, {'error': 'action not found'}); return
+    try:
+        captured = log_path.read_text(errors='replace')[:32 * 1024]
+        meta = json.loads(meta_path.read_text())
+    except Exception as e:
+        respond(500, {'error': f'log read failed: {e}'}); return
+    if meta.get('rc') is None:
+        respond(400, {'error': 'diagnostic still running — try again in a moment'}); return
+    kind = meta.get('kind', 'unknown')
+    target = meta.get('target', '')
+    pb = _MITIGATE_PLAYBOOKS.get(kind) or {}
+    prompt_key = pb.get('ai_prompt_key', 'mitigate_service')
+    system_prompt = _resolve_system_prompt(prompt_key)
+    devices = load(DEVICES_FILE) or {}
+    dev_name = (devices.get(dev_id) or {}).get('name', dev_id)
+    user_prompt = (
+        f"Alert: {pb.get('label', kind)} on device {dev_name}\n"
+        f"Target: {target or '(n/a)'}\n\n"
+        f"Diagnostic output (rc={meta.get('rc')}):\n"
+        f"```\n{captured}\n```\n\n"
+        "Identify the most likely root cause in 1–2 sentences. Then propose "
+        "ONE specific shell command to address it. If no fix command is "
+        "appropriate (read-only investigation, manual judgement needed), say "
+        "so explicitly. Wrap the proposed command between BEGIN_FIX and "
+        "END_FIX markers on their own lines. Be conservative — never "
+        "propose destructive operations without flagging them.\n\n"
+        "Example format:\n"
+        "Root cause: <one sentence>\n\n"
+        "Recommended action: <one sentence>\n\n"
+        "BEGIN_FIX\n"
+        "<single shell command, or NONE>\n"
+        "END_FIX"
+    )
+    try:
+        ai_result = _call_ai_with_prompts(system_prompt, user_prompt, prompt_key)
+    except Exception as e:
+        respond(500, {'error': f'AI call failed: {e}'}); return
+    summary = ai_result.get('text', '') or ''
+    # Extract fix
+    suggested_fix = ''
+    fm = re.search(r'BEGIN_FIX\s*\n(.*?)\n\s*END_FIX', summary, re.DOTALL)
+    if fm:
+        suggested_fix = fm.group(1).strip()
+        if suggested_fix.upper() == 'NONE':
+            suggested_fix = ''
+    # Safety classification of the suggestion
+    denylist_match = False
+    deny_reason = ''
+    if suggested_fix:
+        denylist_match, deny_reason = _mitigate_is_dangerous(suggested_fix)
+    requires_confirmation = bool(
+        suggested_fix and (
+            _mitigate_requires_confirmation(suggested_fix) or pb.get('destructive')
+        )
+    )
+    # Store AI result in meta so subsequent loads see it
+    try:
+        meta['ai_summary']      = summary[:8192]
+        meta['ai_suggested_fix']= suggested_fix[:1024]
+        meta['ai_at']           = int(time.time())
+        meta_path.write_text(json.dumps(meta))
+    except Exception:
+        pass
+    respond(200, {
+        'summary':                summary,
+        'suggested_fix':          suggested_fix,
+        'denylist_match':         denylist_match,
+        'denylist_reason':        deny_reason,
+        'requires_confirmation':  requires_confirmation,
+        'preapproved_fix':        pb.get('fix') if isinstance(pb.get('fix'), str) else None,
+        'preapproved_fix_label':  pb.get('fix_label', ''),
+    })
+
+
+def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
+    """Thin wrapper around the existing AI dispatch path that returns
+    {text, …} so we can centralise prompt-key plumbing. The actual provider
+    (Ollama, OpenAI-compatible, Anthropic, …) is resolved from config.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    ai_cfg = cfg.get('ai') or {}
+    if not ai_cfg.get('enabled'):
+        raise RuntimeError('AI not enabled — configure in Settings → AI Assistant')
+    provider = ai_cfg.get('provider', 'ollama')
+    overrides = (ai_cfg.get('ai_param_overrides') or {}).get(prompt_key, {})
+    if provider == 'anthropic':
+        return ai_provider.chat_anthropic(ai_cfg, system_prompt, user_prompt, overrides)
+    return ai_provider.chat_openai_compatible(ai_cfg, system_prompt, user_prompt, overrides)
+
+
 
 if __name__ == '__main__':
     try:

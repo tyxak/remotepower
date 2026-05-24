@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.0.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -94,6 +94,17 @@ The demo is reset every few hours, so feel free to break things.
 | 🔬 **Custom monitoring scripts** | Define bash health checks server-side, assign to devices — agent runs them every 5 minutes. Exit 0 = OK. Fleet results page, edge-triggered alerts, inline AI generation. |
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
+
+## Security
+
+v3.0.2 ships with an end-to-end security audit covering the server, agent,
+WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI provider, and Proxmox
+integration. Posture in brief: PBKDF2-HMAC-SHA256 passwords at OWASP-2023
+parameters, header-based session tokens (CSRF-safe by construction), AES-GCM
+encryption for the CMDB vault, mandatory TLS verification for outbound calls,
+hardened agent state-file handling against local symlink attacks. Full
+posture, threat model, and operator hardening checklist:
+**[docs/security.md](docs/security.md)**.
 
 ## Documentation
 

@@ -49,7 +49,9 @@ class TestGlobalRuleValidation(unittest.TestCase):
     def test_empty_unit_rejected(self):
         r, err = api_module._validate_global_rule({'unit': '', 'pattern': 'x'})
         self.assertIsNone(r)
-        self.assertIn('unit is required', err)
+        # v3.0.1: message updated to mention both unit and path
+        self.assertTrue('unit' in err and 'required' in err,
+                        f'expected unit-required-style error, got: {err!r}')
 
     def test_bad_unit_name_rejected(self):
         r, err = api_module._validate_global_rule({'unit': '../etc/passwd', 'pattern': 'x'})

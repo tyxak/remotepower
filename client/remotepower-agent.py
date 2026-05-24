@@ -29,8 +29,18 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '2.6.0'
+VERSION      = '3.0.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
+
+# v3.0.2: agent state directory. Used for files that should survive a
+# /tmp wipe (boot-reason marker, poll interval override) and that must
+# NOT be writable by non-root users. Previously these lived in /tmp/
+# which is world-writable — a local attacker could symlink the path to
+# /etc/passwd before the agent's write, or stuff fake content for the
+# agent to read on the next heartbeat. /var/lib/remotepower exists on
+# every install (server data dir, but the agent also creates it if
+# missing as a defense against running before the server was set up).
+STATE_DIR = Path('/var/lib/remotepower')
 
 POLL_INTERVAL      = 60
 SYSINFO_EVERY      = 10
@@ -64,10 +74,37 @@ LOG_SUBMIT_EVERY    = 5           # every 5 polls — batches a few minutes of l
 MAX_LOG_LINES_PER_UNIT = 100      # matches server-side cap
 LOG_LOOKBACK_SECONDS   = 360      # capture the last 6 minutes on each submission
 
+# v2.7.0: units auto-added to the watched list if they exist on this host.
+# The server's services_watched config overrides; these are additive defaults
+# that ensure useful logs flow without any manual configuration.
+AUTO_WATCH_UNITS = [
+    'remotepower-agent.service',
+    'nginx.service',
+    'apache2.service',
+    'ssh.service',
+    'sshd.service',
+]
+
+# v2.7.0: dmesg / apt history log collection
+DMESG_LOG_LOOKBACK_HOURS = 24     # window on first run; incremental thereafter
+DMESG_MAX_LINES          = 100    # kernel errors/warnings per submission
+APT_HISTORY_MAX_LINES    = 200    # apt history lines per submission
+
+# v2.8.0: web access log paths for brute-force detection (nginx/apache2).
+WEB_ACCESS_LOGS = [
+    ('/var/log/nginx/access.log',   'nginx.access'),
+    ('/var/log/apache2/access.log', 'apache2.access'),
+]
+WEB_ACCESS_MAX_LINES = 500   # per submission
+
 # v1.11.0: container/pod listing — sent every 5 polls (~5 minutes at default
 # 60s interval). Cheap when no runtime is installed (immediate empty return);
 # bounded to ~1s when Docker/Podman/k8s are present.
 CONTAINER_CHECK_EVERY = 5
+# v3.0.1: scan ~/.acme.sh once an hour by default. Cert state changes only
+# when acme.sh's own cron runs (typically once daily) or after a manual
+# action — no need to re-walk the directory every minute.
+ACME_CHECK_EVERY = 60
 
 # Metrics collection requires psutil (optional - gracefully skipped if absent)
 try:
@@ -97,6 +134,22 @@ def _make_ssl_context():
     return ctx
 
 _SSL_CTX = _make_ssl_context()
+
+def _strip_url_scheme(url: str) -> str:
+    """Remove a leading http:// or https:// scheme from a URL.
+
+    Replaces a long-standing bug: `url.lstrip('http://').lstrip('https://')`
+    looked plausible but lstrip strips any CHARACTER in the argument from
+    the start, not the literal prefix. For `'httpserver.com'`, the old
+    code stripped 'h','t','t','p' (all in the char-set 'h','t','p',':','/')
+    and produced `'server.com'` — wrong. For `'https://example.com'` it
+    happened to work by accident.
+    """
+    for scheme in ('https://', 'http://'):
+        if url.lower().startswith(scheme):
+            return url[len(scheme):]
+    return url
+
 
 # ─── HTTP helpers ───────────────────────────────────────────────────────────────
 def http_post(url, data, timeout=10):
@@ -135,10 +188,105 @@ def load_credentials():
         pass
     return None
 
+def _safe_state_write(name: str, content: str) -> None:
+    """Write a small marker file to STATE_DIR if possible, else /tmp/.
+
+    The /tmp/ fallback uses O_NOFOLLOW + O_EXCL to defeat symlink attacks.
+    If a file or symlink already exists at the /tmp/ path, we unlink it
+    first (root can; this races against an attacker but losing the race
+    leaves us writing to the attacker's location with O_NOFOLLOW failing
+    safely — no security consequence).
+    """
+    primary = STATE_DIR / name
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(str(primary),
+                     os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                     0o600)
+        try:
+            os.write(fd, content.encode())
+        finally:
+            os.close(fd)
+        return
+    except (PermissionError, OSError):
+        pass
+    # Fallback for non-root deploys (rare). Unlink any existing path
+    # (symlink or file) so we start clean, then create with O_EXCL.
+    fallback = Path('/tmp/remotepower-' + name)
+    try:
+        fallback.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return
+    try:
+        fd = os.open(str(fallback),
+                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600)
+        try:
+            os.write(fd, content.encode())
+        finally:
+            os.close(fd)
+    except OSError as e:
+        log.warning(f'_safe_state_write({name}): both STATE_DIR and /tmp failed: {e}')
+
+
+def _safe_state_read(name: str) -> str | None:
+    """Read a marker file from STATE_DIR (preferred) or /tmp/, with
+    O_NOFOLLOW so a pre-placed symlink can't redirect the read. Returns
+    None if neither exists or both fail."""
+    for cand in (STATE_DIR / name, Path('/tmp/remotepower-' + name)):
+        try:
+            fd = os.open(str(cand), os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                return os.read(fd, 4096).decode(errors='replace')
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            continue
+    return None
+
+
+def _safe_state_unlink(name: str) -> None:
+    """Best-effort unlink of marker file in either location."""
+    for cand in (STATE_DIR / name, Path('/tmp/remotepower-' + name)):
+        try:
+            cand.unlink()
+        except (FileNotFoundError, OSError):
+            pass
+
+
 def save_credentials(creds):
     CONF_DIR.mkdir(parents=True, exist_ok=True)
-    CREDS_FILE.write_text(json.dumps(creds, indent=2))
-    CREDS_FILE.chmod(0o600)
+    # v3.0.2: lock the directory to 0700 so a local non-root attacker
+    # can't enumerate the credentials file or set up symlink attacks
+    # inside the dir. mkdir's mode arg is only honoured at CREATE time,
+    # so chmod unconditionally to handle the case where the dir already
+    # exists with a looser mode from an older install.
+    try:
+        CONF_DIR.chmod(0o700)
+    except OSError as e:
+        log.warning(f'chmod {CONF_DIR} failed: {e}')
+    # v3.0.2: atomic write. Previously was write_text → chmod, which
+    # leaves the file at default umask (typically 0644) between the two
+    # calls. A local non-root attacker could open the file for reading
+    # in that window and exfiltrate the enrollment token. Now we open
+    # with O_CREAT|O_EXCL|O_NOFOLLOW so the file is created with mode
+    # 0600 atomically (and a pre-placed symlink with the same name
+    # fails the open instead of redirecting it).
+    try:
+        CREDS_FILE.unlink()    # remove any prior file/symlink
+    except FileNotFoundError:
+        pass
+    fd = os.open(str(CREDS_FILE),
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600)
+    try:
+        os.write(fd, json.dumps(creds, indent=2).encode())
+    finally:
+        os.close(fd)
     log.info(f"Credentials saved to {CREDS_FILE}")
 
 # ─── System info ───────────────────────────────────────────────────────────────
@@ -223,15 +371,83 @@ def get_patch_info():
             if e.returncode == 100 and e.output:
                 result['upgradable'] = sum(1 for l in e.output.splitlines() if l and not l.startswith(' ') and not l.startswith('Last'))
         except Exception: pass
+    # v3.0.1: yum (RHEL 7, older CentOS) — same rpm-based ecosystem as dnf.
+    # Report manager='dnf' so the OSV ecosystem detection (Rocky/Alma/Red Hat)
+    # and CVE scanning paths Just Work — only the status check differs.
+    elif Path('/usr/bin/yum').exists():
+        result['manager'] = 'dnf'
+        try:
+            out = subprocess.check_output(['yum', 'check-update', '--quiet'],
+                text=True, timeout=30, stderr=subprocess.DEVNULL)
+            # yum check-update format: pkg-name.arch  version  repo  (one per line)
+            # skip blank lines and the "Obsoleting Packages" section
+            result['upgradable'] = sum(
+                1 for l in out.splitlines()
+                if l.strip() and not l.startswith(' ') and not l.startswith('Obsoleting'))
+        except subprocess.CalledProcessError as e:
+            if e.returncode == 100 and e.output:
+                result['upgradable'] = sum(
+                    1 for l in e.output.splitlines()
+                    if l.strip() and not l.startswith(' ') and not l.startswith('Obsoleting'))
+        except Exception: pass
     elif Path('/usr/bin/pacman').exists():
         result['manager'] = 'pacman'
+        # v3.0.1: pacman 7+ runs downloads as the unprivileged "alpm" sandbox
+        # user. On CachyOS and some Arch derivatives, that user isn't usable
+        # and `pacman -Sy` fails with "switching to sandbox user failed",
+        # which the previous version silently swallowed and reported as
+        # "0 upgradable" — making the host look fully patched when it wasn't.
+        # Fix: detect --disable-sandbox support and use it; on real failure
+        # leave upgradable=None so the UI shows "unknown" instead of "0".
+        pacman_flags = []
+        # v3.0.1 (iteration 4): --disable-sandbox is an -S operation flag,
+        # so it lives in `pacman -S --help` not the top-level `pacman --help`.
+        # Previous probe checked the wrong help text, returned False on
+        # pacman 7, and CachyOS continued to silent-fail. Try -S --help
+        # first; fall back to version parse if that doesn't list it.
         try:
-            subprocess.check_call(['pacman', '-Sy', '--noconfirm', '--noprogressbar'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
-            out = subprocess.check_output(['pacman', '-Qu'], text=True, timeout=10, stderr=subprocess.DEVNULL)
-            result['upgradable'] = len(out.strip().splitlines())
-        except subprocess.CalledProcessError: result['upgradable'] = 0
-        except Exception: pass
+            help_out = subprocess.check_output(['pacman', '-S', '--help'],
+                text=True, timeout=5, stderr=subprocess.STDOUT)
+            if '--disable-sandbox' in help_out:
+                pacman_flags = ['--disable-sandbox']
+        except Exception:
+            pass
+        if not pacman_flags:
+            try:
+                ver_out = subprocess.check_output(['pacman', '--version'],
+                    text=True, timeout=5, stderr=subprocess.STDOUT)
+                # First line: "Pacman v7.0.0 - libalpm v15.0.0"
+                m = re.search(r'v(\d+)\.', ver_out.splitlines()[0] if ver_out else '')
+                if m and int(m.group(1)) >= 7:
+                    pacman_flags = ['--disable-sandbox']
+            except Exception:
+                pass
+        try:
+            subprocess.check_call(
+                ['pacman', '-Sy', '--noconfirm', '--noprogressbar'] + pacman_flags,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+            )
+            out = subprocess.check_output(['pacman', '-Qu'], text=True, timeout=10,
+                                          stderr=subprocess.DEVNULL)
+            # `pacman -Qu` rc=1 with empty stdout means "no upgrades available"
+            # which CalledProcessError below catches as 0. rc=0 with stdout
+            # means lines = number of upgrades. Both legitimate.
+            result['upgradable'] = len(out.strip().splitlines()) if out.strip() else 0
+        except subprocess.CalledProcessError as e:
+            # rc=1 from `pacman -Qu` on empty result IS the normal "all clean"
+            # path. But CalledProcessError from `pacman -Sy` means the sync
+            # failed (sandbox issue, network, mirror down). Distinguish by
+            # which command was the one that failed.
+            if 'pacman -Qu' in str(e.cmd) if hasattr(e, 'cmd') else False:
+                result['upgradable'] = 0
+            else:
+                # Sync failed — leave upgradable as None so the UI shows
+                # "unknown" rather than falsely reporting fully patched.
+                result['upgradable'] = None
+                log.warning(f'pacman sync failed (rc={e.returncode}); patch status unknown')
+        except Exception as e:
+            result['upgradable'] = None
+            log.warning(f'pacman patch check failed: {e}')
     return result
 
 
@@ -947,7 +1163,7 @@ def get_unit_logs(unit, since_seconds=LOG_LOOKBACK_SECONDS, max_lines=MAX_LOG_LI
         return []
 
 
-def submit_unit_logs(creds, units):
+def submit_unit_logs(creds, units, extra_units=None):
     """
     Collect recent logs for each watched unit and submit to /api/logs.
     Server applies log_watch pattern matching and rolling-buffer storage.
@@ -957,14 +1173,20 @@ def submit_unit_logs(creds, units):
 
     v1.8.3: submission activity logged at INFO level so ops can verify
     from `journalctl -u remotepower-agent` that logs are actually flowing.
+
+    v2.7.0: extra_units — dict of {unit_name: [entry_dicts]} for virtual
+    sources (kernel/dmesg, apt.history) that don't come from journalctl.
     """
-    if not units:
+    if not units and not extra_units:
         return False
     units_payload = {}
-    for unit in units[:50]:
+    for unit in (units or [])[:50]:
         lines = get_unit_logs(unit)
-        # Always include — empty list means "watched but quiet in this window".
         units_payload[unit] = lines or []
+    # Merge virtual log sources (dmesg, apt history)
+    for vunit, ventries in (extra_units or {}).items():
+        if ventries:                         # only include if there's something new
+            units_payload[vunit] = ventries
     try:
         http_post(f"{creds['server_url']}/api/logs", {
             'device_id': creds['device_id'],
@@ -979,6 +1201,453 @@ def submit_unit_logs(creds, units):
     except Exception as e:
         log.warning(f'Log submission FAILED: {e}')
         return False
+
+
+def collect_dmesg_logs(since_ts=None):
+    """v2.7.0: collect kernel errors/warnings from dmesg.
+
+    Submitted through /api/logs as virtual unit 'kernel'.
+    Only emerg/alert/crit/err/warn levels — info/debug are too noisy.
+    """
+    entries = []
+    try:
+        since_arg = since_ts if since_ts else (time.time() - DMESG_LOG_LOOKBACK_HOURS * 3600)
+        result = subprocess.run(
+            ['dmesg', '--level=emerg,alert,crit,err,warn', '--time-format=iso'],
+            capture_output=True, text=True, timeout=10,
+        )
+        now = time.time()
+        for line in result.stdout.splitlines()[-DMESG_MAX_LINES * 3:]:
+            line = line.strip()
+            if not line:
+                continue
+            ts, msg = now, line
+            try:
+                parts = line.split(None, 1)
+                if parts and len(parts[0]) > 10 and 'T' in parts[0]:
+                    import datetime as _dt
+                    dt = _dt.datetime.fromisoformat(parts[0].replace(',', '.'))
+                    ts  = dt.timestamp()
+                    msg = parts[1] if len(parts) > 1 else line
+            except Exception:
+                pass
+            if ts >= since_arg:
+                entries.append({
+                    'ts':      int(ts * 1000),
+                    'message': msg[:512],
+                    'unit':    'kernel',
+                    'level':   'warn',
+                })
+        entries = entries[-DMESG_MAX_LINES:]
+    except Exception as e:
+        log.debug(f'dmesg collection failed: {e}')
+    return entries
+
+
+def collect_apt_history(state_file):
+    """v2.7.0: collect new entries from /var/log/apt/history.log.
+
+    Tracks file position in state_file so only new lines are sent.
+    Submitted as virtual unit 'apt.history'.
+    """
+    apt_log = Path('/var/log/apt/history.log')
+    entries = []
+    try:
+        if not apt_log.exists():
+            return []
+        mtime    = apt_log.stat().st_mtime
+        last_mtime = last_pos = 0
+        if state_file.exists():
+            try:
+                st = json.loads(state_file.read_text())
+                last_mtime = float(st.get('mtime', 0))
+                last_pos   = int(st.get('pos', 0))
+            except Exception:
+                pass
+        if mtime <= last_mtime:
+            return []
+        with apt_log.open('r', errors='replace') as f:
+            f.seek(last_pos)
+            new_text = f.read(APT_HISTORY_MAX_LINES * 300)
+            new_pos  = f.tell()
+        now = int(time.time() * 1000)
+        for line in new_text.splitlines()[-APT_HISTORY_MAX_LINES:]:
+            line = line.strip()
+            if line:
+                entries.append({
+                    'ts': now, 'message': line[:512],
+                    'unit': 'apt.history', 'level': 'info',
+                })
+        try:
+            state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos}))
+        except Exception:
+            pass
+    except Exception as e:
+        log.debug(f'apt history collection failed: {e}')
+    return entries
+
+
+# v3.0.1: arbitrary file-path log collector for log_watch rules with `path`.
+# State persisted per-path as inode+position; on rotation (new inode) we reset
+# to 0 and read from the start of the new file. On truncation (pos > size) we
+# also reset. On first sight, we skip existing content (set pos to current size)
+# so a freshly-configured rule doesn't dump the entire historic file.
+FILE_LOG_MAX_LINES = 200          # per poll, per file
+FILE_LOG_MAX_BYTES = 256 * 1024   # safety: don't read more than 256 KB per poll
+
+# v3.0.2: defense-in-depth deny list for server-pushed log_watch file
+# paths. By the threat model, an admin who pushes a malicious log_watch
+# rule could already run `exec: cat /etc/shadow` and get the contents
+# back the obvious way — so this is not a hard security boundary, just
+# a sanity barrier that catches obviously-wrong configurations and
+# (more usefully) raises the bar for a compromised-server-pivots-to-
+# silently-exfiltrate-creds attack. realpath() resolution defeats
+# symlink-bypass: a server-pushed rule with path=/tmp/innocent that's
+# a symlink to /etc/shadow gets rejected.
+_FILE_LOG_DENY_EXACT = frozenset({
+    '/etc/shadow', '/etc/gshadow', '/etc/sudoers',
+    '/etc/shadow-', '/etc/gshadow-',
+})
+_FILE_LOG_DENY_PREFIX = (
+    '/etc/sudoers.d/',
+    '/root/.ssh/',
+    '/home/',           # too broad on its own — refined below to only block .ssh
+    '/proc/',
+    '/sys/',
+    '/dev/',
+)
+
+
+def _file_log_path_allowed(path_str: str) -> bool:
+    """Return True if the path is safe for log_watch to read.
+
+    Resolves symlinks so a benign-looking path that resolves to /etc/shadow
+    is still rejected. Blocks shadow/sudoers/SSH private keys + kernel/dev
+    interfaces. Allows the common log locations (/var/log, /opt/*, /srv/*,
+    /var/lib/*, ~/.local/share/, etc.).
+    """
+    try:
+        # realpath dereferences symlinks. If the file doesn't exist yet,
+        # realpath returns the unresolved-but-normalized path, which is
+        # still useful for prefix matching.
+        real = os.path.realpath(path_str)
+    except (OSError, ValueError):
+        return False
+    if real in _FILE_LOG_DENY_EXACT:
+        return False
+    for pref in _FILE_LOG_DENY_PREFIX:
+        if pref == '/home/':
+            # Allow most of /home/, deny /home/*/.ssh/.
+            import re as _re
+            if _re.match(r'^/home/[^/]+/\.ssh/', real):
+                return False
+            continue
+        if real.startswith(pref):
+            return False
+    return True
+
+
+def collect_file_log(path_str, state):
+    """Read new lines from an arbitrary file path.
+
+    Args:
+      path_str: absolute file path (e.g. '/var/log/myapp/access.log')
+      state:    dict shared across calls — keyed by path. Caller persists it.
+
+    Returns: list of {ts, message, unit, level} dicts, ready to be put under
+    the synthetic unit name 'file:<path>'. Empty list on missing/unreadable
+    file.
+    """
+    entries = []
+    # v3.0.2: deny list for sensitive paths. See _file_log_path_allowed
+    # for the rationale — this isn't a hard security boundary (server
+    # admin has shell already) but it blocks the most obvious cred
+    # exfiltration paths and resolves symlinks before checking.
+    if not _file_log_path_allowed(path_str):
+        log.warning(f'file_log: refusing to read denied path {path_str!r}')
+        return []
+    try:
+        p = Path(path_str)
+        if not p.exists() or not p.is_file():
+            return []
+        st = p.stat()
+        inode = st.st_ino
+        size  = st.st_size
+        prev  = state.get(path_str) or {}
+        prev_inode = prev.get('inode')
+        prev_pos   = int(prev.get('pos', 0))
+        # Rotation: inode changed → reset to start of the new file
+        if prev_inode is not None and prev_inode != inode:
+            log.debug(f'file_log: rotation detected for {path_str} (inode {prev_inode} -> {inode})')
+            prev_pos = 0
+        # Truncation: file shrank
+        if prev_pos > size:
+            log.debug(f'file_log: truncation detected for {path_str} (pos {prev_pos} > size {size})')
+            prev_pos = 0
+        # First sight: skip existing content, just bookmark current end
+        if prev_inode is None:
+            state[path_str] = {'inode': inode, 'pos': size}
+            return []
+        if prev_pos >= size:
+            # Nothing new
+            state[path_str] = {'inode': inode, 'pos': prev_pos}
+            return []
+        with p.open('r', errors='replace') as f:
+            f.seek(prev_pos)
+            new_text = f.read(FILE_LOG_MAX_BYTES)
+            new_pos  = f.tell()
+        now = int(time.time() * 1000)
+        synthetic_unit = f'file:{path_str}'
+        for line in new_text.splitlines()[-FILE_LOG_MAX_LINES:]:
+            line = line.strip()
+            if not line:
+                continue
+            entries.append({
+                'ts': now, 'message': line[:1024],
+                'unit': synthetic_unit, 'level': 'info',
+            })
+        state[path_str] = {'inode': inode, 'pos': new_pos}
+    except PermissionError:
+        log.debug(f'file_log: permission denied for {path_str} — agent needs read access')
+    except Exception as e:
+        log.debug(f'file_log: collection failed for {path_str}: {e}')
+    return entries
+
+
+# v3.0.1: ACME / Let's Encrypt scanner — reads acme.sh state from
+# ~/.acme.sh/<domain>/<domain>.conf on the device. No mutation, just read.
+# The actual issue/renew/revoke happens via exec: commands queued by the
+# server (acme.sh writes back to the same dir; next scan picks up the new
+# state).
+ACME_HOME_CANDIDATES = (
+    Path('/root/.acme.sh'),                # standard root install
+    Path.home() / '.acme.sh',              # whoever the agent runs as
+    Path('/etc/acme.sh'),                  # rare manual install
+)
+
+# acme.sh's DNS provider keys map to human-readable names. Subset — extend
+# as we add UI support for more providers.
+_ACME_DNS_LABELS = {
+    'dns_cf':       'Cloudflare',
+    'dns_aws':      'AWS Route 53',
+    'dns_gandi_livedns': 'Gandi',
+    'dns_dgon':     'DigitalOcean',
+    'dns_he':       'Hurricane Electric',
+    'dns_desec':    'deSEC',
+    'dns_namecheap':'Namecheap',
+    'dns_namesilo': 'NameSilo',
+    'dns_ovh':      'OVH',
+    'dns_rfc2136':  'RFC 2136 (dynamic DNS)',
+    'dns_acmedns':  'acme-dns',
+    'dns_hetzner':  'Hetzner',
+    'dns_porkbun':  'Porkbun',
+}
+
+MAX_ACME_CERTS = 100
+
+def _acme_decode_reload(s):
+    """acme.sh stores Le_ReloadCmd base64-wrapped between sentinels."""
+    if not isinstance(s, str) or not s:
+        return ''
+    marker_open  = '__ACME_BASE64__START_'
+    marker_close = '__ACME_BASE64__END_'
+    if marker_open not in s:
+        return s
+    try:
+        a = s.index(marker_open) + len(marker_open)
+        b = s.index(marker_close, a)
+        import base64
+        return base64.b64decode(s[a:b]).decode('utf-8', errors='replace').strip()
+    except Exception:
+        return s
+
+def _acme_parse_conf(conf_path):
+    """Parse an acme.sh per-domain .conf file. Returns dict or None."""
+    try:
+        lines = conf_path.read_text(errors='replace').splitlines()
+    except Exception:
+        return None
+    out = {}
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        k, _, v = line.partition('=')
+        k = k.strip()
+        v = v.strip()
+        # Strip matching surrounding quotes (' or ")
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        out[k] = v
+    return out
+
+def collect_acme_state():
+    """Walk acme.sh home and return per-cert metadata. Returns:
+        {'available': bool, 'home': str|None, 'version': str|None, 'certs': [...]}
+
+    A cert entry has: domain, alt_names, challenge, dns_provider, dns_provider_label,
+    is_wildcard, key_length, created_ts, next_renew_ts, created_str, next_renew_str,
+    reload_cmd, cert_path, key_path, fullchain_path."""
+    state = {'available': False, 'home': None, 'version': None, 'certs': []}
+    home = None
+    for candidate in ACME_HOME_CANDIDATES:
+        try:
+            if candidate.is_dir() and (candidate / 'acme.sh').is_file():
+                home = candidate
+                break
+        except (OSError, PermissionError):
+            continue
+    if home is None:
+        return state
+    state['available'] = True
+    state['home'] = str(home)
+    # Probe version. acme.sh --version prints "vX.Y.Z" to stdout.
+    try:
+        proc = subprocess.run([str(home / 'acme.sh'), '--version'],
+                              capture_output=True, text=True, timeout=5,
+                              cwd=str(home))
+        ver_out = (proc.stdout or '').strip().splitlines()
+        for vl in ver_out:
+            vl = vl.strip()
+            if vl.startswith('v') and vl[1:2].isdigit():
+                state['version'] = vl
+                break
+    except Exception:
+        pass
+    # Walk per-domain subdirectories. acme.sh names them after the primary
+    # domain. Subdir's .conf has the same name.
+    count = 0
+    for entry in sorted(home.iterdir()):
+        if count >= MAX_ACME_CERTS:
+            break
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            continue
+        name = entry.name
+        # Skip acme.sh internals — these aren't certs
+        if name in ('ca', 'deploy', 'dnsapi', 'notify', 'zone', 'http.header'):
+            continue
+        conf_path = entry / f'{name}.conf'
+        if not conf_path.is_file():
+            continue
+        conf = _acme_parse_conf(conf_path)
+        if not conf or not conf.get('Le_Domain'):
+            continue
+        domain = conf.get('Le_Domain', name)
+        alt_raw = conf.get('Le_Alt', '')
+        alt_names = []
+        if alt_raw and alt_raw != 'no':
+            alt_names = [a.strip() for a in alt_raw.split(',') if a.strip() and a.strip() != 'no']
+        challenge = conf.get('Le_Webroot', '')   # despite the name, may be 'dns_cf', 'apache', etc.
+        is_dns = challenge.startswith('dns_')
+        dns_provider = challenge if is_dns else ''
+        dns_label = _ACME_DNS_LABELS.get(dns_provider, dns_provider) if is_dns else ''
+        # Cert file paths under the domain dir
+        cert_file = entry / f'{name}.cer'
+        key_file  = entry / f'{name}.key'
+        full_file = entry / 'fullchain.cer'
+        def _int_or_none(s):
+            try:
+                return int(s) if s else None
+            except (TypeError, ValueError):
+                return None
+        cert_entry = {
+            'domain':              domain,
+            'alt_names':           alt_names,
+            'is_wildcard':         any(a.startswith('*.') for a in [domain, *alt_names]),
+            'challenge':           challenge,
+            'is_dns_challenge':    is_dns,
+            'dns_provider':        dns_provider,
+            'dns_provider_label':  dns_label,
+            'key_length':          conf.get('Le_Keylength', ''),
+            'created_ts':          _int_or_none(conf.get('Le_CertCreateTime')),
+            'next_renew_ts':       _int_or_none(conf.get('Le_NextRenewTime')),
+            'created_str':         conf.get('Le_CertCreateTimeStr', ''),
+            'next_renew_str':      conf.get('Le_NextRenewTimeStr', ''),
+            'reload_cmd':          _acme_decode_reload(conf.get('Le_ReloadCmd', ''))[:512],
+            'cert_path':           str(cert_file) if cert_file.is_file() else '',
+            'key_path':            str(key_file)  if key_file.is_file()  else '',
+            'fullchain_path':      str(full_file) if full_file.is_file() else '',
+        }
+        state['certs'].append(cert_entry)
+        count += 1
+    return state
+
+
+
+def collect_web_access_logs(state_dir):
+    """v2.8.0: collect new lines from nginx/apache2 access logs.
+
+    Incremental (mtime + byte-offset gated), same approach as collect_apt_history().
+    Returns {virtual_unit_name: [line_strings]} for any log that has new content.
+    """
+    results = {}
+    for log_path_str, unit_name in WEB_ACCESS_LOGS:
+        log_path = Path(log_path_str)
+        if not log_path.exists():
+            continue
+        state_file = state_dir / f'{unit_name.replace(".", "_")}_state.json'
+        try:
+            mtime    = log_path.stat().st_mtime
+            last_mtime = last_pos = 0
+            if state_file.exists():
+                st = json.loads(state_file.read_text())
+                last_mtime = float(st.get('mtime', 0))
+                last_pos   = int(st.get('pos', 0))
+            if mtime <= last_mtime:
+                continue
+            with log_path.open('r', errors='replace') as f:
+                f.seek(last_pos)
+                new_text = f.read(WEB_ACCESS_MAX_LINES * 300)
+                new_pos  = f.tell()
+            lines = new_text.splitlines()[-WEB_ACCESS_MAX_LINES:]
+            if lines:
+                results[unit_name] = [l.strip() for l in lines if l.strip()]
+            try:
+                state_file.write_text(json.dumps({'mtime': mtime, 'pos': new_pos}))
+            except Exception:
+                pass
+        except Exception as e:
+            log.debug(f'web access log {log_path_str} collect failed: {e}')
+    return results
+
+
+def collect_backup_status(backup_monitors):
+    """v2.8.1: check mtime of configured backup file paths.
+
+    backup_monitors: list of {path, label, max_age_hours} dicts from server config.
+    Returns a list of {path, exists, mtime} for each configured path.
+    """
+    results = []
+    for mon in (backup_monitors or []):
+        p = mon.get('path', '')
+        if not p:
+            continue
+        try:
+            fp = Path(p)
+            exists = fp.exists()
+            mtime  = fp.stat().st_mtime if exists else 0
+        except Exception:
+            exists, mtime = False, 0
+        results.append({'path': p, 'exists': exists, 'mtime': int(mtime)})
+    return results
+
+
+def detect_auto_watch_units():
+    """v2.7.0: return AUTO_WATCH_UNITS that actually exist on this host."""
+    present = []
+    for unit in AUTO_WATCH_UNITS:
+        try:
+            r = subprocess.run(['systemctl', 'cat', unit],
+                               capture_output=True, timeout=5)
+            if r.returncode == 0:
+                present.append(unit)
+        except Exception:
+            pass
+    return present
+
 
 
 def get_host_health():
@@ -1202,19 +1871,27 @@ def hmac_compare(a, b):
     return _hmac.compare_digest(a, b)
 
 # ─── Self-update ───────────────────────────────────────────────────────────────
-def check_for_update(server_url):
+def check_for_update(server_url, force=False):
+    """Poll server for newer agent; upgrade if available.
+    v3.0.1: when force=True, skip the version comparison and download/replace
+    the binary regardless of whether the server reports a newer version. Used
+    by the operator's 'Force-upgrade agent' button to push a rebuild over the
+    current binary."""
     try:
         info = http_get(f"{server_url}/api/agent/version", timeout=10)
     except Exception as e:
         log.debug(f"Update check failed: {e}"); return False
     remote_version = info.get('version'); remote_sha256 = info.get('sha256')
     if not remote_version or not remote_sha256: return False
-    if remote_version == VERSION: return False
-    def vt(v):
-        try: return tuple(int(x) for x in v.split('.'))
-        except: return (0,)
-    if vt(remote_version) <= vt(VERSION): return False
-    log.info(f"Update available: {VERSION} → {remote_version}. Downloading…")
+    if not force:
+        if remote_version == VERSION: return False
+        def vt(v):
+            try: return tuple(int(x) for x in v.split('.'))
+            except: return (0,)
+        if vt(remote_version) <= vt(VERSION): return False
+        log.info(f"Update available: {VERSION} → {remote_version}. Downloading…")
+    else:
+        log.info(f"Force-upgrade: re-downloading agent v{remote_version} (current v{VERSION})")
     try:
         data = http_get_binary(f"{server_url}/agent/remotepower-agent", timeout=30)
     except Exception as e:
@@ -1279,7 +1956,7 @@ def enroll_with_token(server_url, token, device_name=None):
 
     if not server_url.startswith('https://'):
         print("⚠  Only HTTPS is supported. Prepending https://")
-        server_url = 'https://' + server_url.lstrip('http://').lstrip('https://')
+        server_url = 'https://' + _strip_url_scheme(server_url)
 
     if not device_name:
         device_name = socket.gethostname()
@@ -1344,7 +2021,7 @@ def enroll_interactive(re_enroll=False):
     server_url = input("RemotePower server URL (e.g. https://remote.example.com): ").strip().rstrip('/')
     if not server_url.startswith('https://'):
         print("⚠  Only HTTPS is supported. Prepending https://")
-        server_url = 'https://' + server_url.lstrip('http://').lstrip('https://')
+        server_url = 'https://' + _strip_url_scheme(server_url)
     pin = input("Enrollment PIN (shown in web dashboard): ").strip()
     device_name = input(f"Device display name [{socket.gethostname()}]: ").strip()
     if not device_name: device_name = socket.gethostname()
@@ -1386,7 +2063,7 @@ def execute_command(cmd):
     elif cmd == 'reboot':
         log.info("Executing: reboot")
         try:
-            Path('/tmp/remotepower-last-cmd').write_text('reboot')
+            _safe_state_write('last-cmd', 'reboot')
             subprocess.run(['systemctl', 'reboot'], check=True)
         except Exception as e: log.error(f"Reboot failed: {e}")
     elif cmd == 'update':
@@ -1400,29 +2077,43 @@ def execute_command(cmd):
             new_interval = max(10, min(3600, new_interval))
             log.info(f"Poll interval changed to {new_interval}s")
             # Signal main loop by writing to a temp file
-            Path('/tmp/remotepower-poll-interval').write_text(str(new_interval))
+            _safe_state_write('poll-interval', str(new_interval))
         except Exception as e:
             log.warning(f"Failed to set poll interval: {e}")
     elif cmd.startswith('exec:'):
         shell_cmd = cmd[5:]
-        log.info(f"Executing custom command: {shell_cmd!r}")
+        # v3.0.1: Tag-routed commands. The server prefixes certain commands
+        # with "#<scope>:<action_id>#" so the cmd_output ingestion can route
+        # the full stdout to a per-scope log dir (ACME, mitigate). Strip the
+        # tag before passing to the shell; keep it in the returned `cmd`
+        # field so the server can still recognise it.
+        import re as _tag_re
+        acme_tag_m     = _tag_re.match(r'^#acme:[a-zA-Z0-9_-]+#(.*)$',     shell_cmd, _tag_re.DOTALL)
+        mitigate_tag_m = _tag_re.match(r'^#mitigate:[a-zA-Z0-9_-]+#(.*)$', shell_cmd, _tag_re.DOTALL) if not acme_tag_m else None
+        if acme_tag_m:
+            actual_shell = acme_tag_m.group(1)
+        elif mitigate_tag_m:
+            actual_shell = mitigate_tag_m.group(1)
+        else:
+            actual_shell = shell_cmd
+        log.info(f"Executing custom command: {actual_shell!r}")
         try:
             # Parse optional timeout from exec:<timeout>:<cmd> format
             exec_timeout = 300  # default 5 min for longer tasks like apt upgrade
-            result = subprocess.run(shell_cmd, shell=True, capture_output=True, text=True, timeout=exec_timeout)
+            result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")
             # v1.10.0: bump output cap to 256 KB for package-upgrade runs.
-            # `apt -y upgrade` and `dnf -y upgrade` routinely produce 30-80 KB
-            # of useful output; 4 KB used to truncate it mid-package and the
-            # new update-logs feature would lose half the diagnostic info.
-            # The server independently caps at MAX_UPDATE_LOG_BYTES.
-            is_pkg_upgrade = any(needle in shell_cmd for needle in
+            # v3.0.1: also bump for acme.sh runs and mitigation diagnostics
+            # — their output is verbose (cert chains, journalctl dumps, du
+            # output).
+            is_pkg_upgrade = any(needle in actual_shell for needle in
                                  ('apt-get -y upgrade', 'dnf -y upgrade', 'pacman -Syu'))
-            cap = 256 * 1024 if is_pkg_upgrade else 4096
+            is_tagged      = bool(acme_tag_m or mitigate_tag_m)
+            cap = 256 * 1024 if (is_pkg_upgrade or is_tagged) else 4096
             return {'cmd': cmd, 'output': output[:cap], 'rc': result.returncode}
         except subprocess.TimeoutExpired:
-            log.warning(f"Command timed out: {shell_cmd!r}")
+            log.warning(f"Command timed out: {actual_shell!r}")
             return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
         except Exception as e:
             log.error(f"Command failed: {e}")
@@ -2048,6 +2739,26 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v1.8.0: server pushes watched services + log rules in heartbeat response
     services_watched = []
     log_watch_rules  = []
+
+    # v2.7.0: log source expansion state
+    _auto_watch_detected = detect_auto_watch_units()
+    if _auto_watch_detected:
+        log.info(f'Auto-watch units detected: {_auto_watch_detected}')
+    _dmesg_last_ts  = None   # None → 24h window on first run, then incremental
+    _apt_state_file = Path('/var/lib/remotepower/apt-history-state.json')
+    # v3.0.1: per-path tail state for file-based log_watch rules.
+    # Persisted across restarts so we don't re-send the whole file every boot.
+    _file_log_state_file = Path('/var/lib/remotepower/file-log-state.json')
+    _file_log_state = {}
+    if _file_log_state_file.exists():
+        try:
+            _file_log_state = json.loads(_file_log_state_file.read_text())
+            if not isinstance(_file_log_state, dict):
+                _file_log_state = {}
+        except Exception:
+            _file_log_state = {}
+    # v2.8.1: backup monitors pushed from server config
+    _backup_monitors = []
     # v2.2.0: server pushes watched files for drift detection. Empty list
     # before the first heartbeat completes — first heartbeat brings them
     # in, second heartbeat sends the first drift report.
@@ -2058,6 +2769,12 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v2.4.5: set true when the server requests an out-of-band package
     # scan; consumed (and cleared) on the next poll.
     force_pkg_scan = False
+    # v3.0.2: one-shot ACME rescan request from server (operator clicked
+    # "Force rescan" after renewing via CLI; skips the hourly cadence).
+    force_acme_rescan = False
+    # v3.0.0: IaC collection request from server
+    pending_iac_request_id = None
+    pending_iac_categories = None
     # v2.5.0: custom monitoring scripts pushed by the server. Empty list
     # until the first heartbeat response arrives carrying assignments.
     custom_scripts = []
@@ -2065,16 +2782,22 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     host_config_desired = None
     pending_script_results = {}
 
-    # Detect if this is a fresh boot (first heartbeat after restart)
-    boot_reason_file = Path('/tmp/remotepower-last-cmd')
+    # Detect if this is a fresh boot (first heartbeat after restart).
+    # v3.0.2: read via O_NOFOLLOW helper from STATE_DIR (or /tmp fallback)
+    # so a local non-root attacker can't pre-place a symlink and dictate
+    # what the agent thinks the boot reason was, or get the agent to
+    # read from an attacker-chosen file.
     boot_reason = None
-    if boot_reason_file.exists():
-        try:
-            boot_reason = boot_reason_file.read_text().strip()[:64]
-            boot_reason_file.unlink()
-        except Exception:
-            pass
-    interval_override_file = Path('/tmp/remotepower-poll-interval')
+    raw_reason = _safe_state_read('last-cmd')
+    if raw_reason is not None:
+        boot_reason = raw_reason.strip()[:64]
+        _safe_state_unlink('last-cmd')
+    # interval_override_file is still defined for later reads in the
+    # heartbeat loop — we keep a Path reference for the O_NOFOLLOW open.
+    interval_override_file = STATE_DIR / 'poll-interval'
+    if not interval_override_file.parent.exists():
+        # Fall back to legacy location only if STATE_DIR couldn't be created.
+        interval_override_file = Path('/tmp/remotepower-poll-interval')
 
     # v1.11.7: stash file for cmd_output that couldn't be POSTed in its
     # follow-up heartbeat (network blip, server restart). The next
@@ -2082,7 +2805,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # is preferred (survives /tmp clearing on reboot, which would lose
     # the upgrade output across a reboot triggered by the upgrade
     # itself), with /tmp as a fallback for non-root deploys.
-    pending_cmd_output_file = Path('/var/lib/remotepower-pending-cmd.json')
+    # v3.0.2: prefer STATE_DIR over the loose /var/lib path so the file
+    # sits in a directory we control rather than the parent of an
+    # unrelated package install.
+    pending_cmd_output_file = STATE_DIR / 'pending-cmd.json'
     if not pending_cmd_output_file.parent.exists() or not os.access(
             pending_cmd_output_file.parent, os.W_OK):
         pending_cmd_output_file = Path('/tmp/remotepower-pending-cmd.json')
@@ -2120,19 +2846,52 @@ def heartbeat(creds, interval=POLL_INTERVAL):
 
     while True:
         poll_count += 1
-        # Check for dynamically updated interval
-        if interval_override_file.exists():
+        # Check for dynamically updated interval.
+        # v3.0.2: read via O_NOFOLLOW helper. Belt-and-suspenders since
+        # the primary path is now STATE_DIR/poll-interval (root-only),
+        # but the /tmp/ fallback for non-root installs must also resist
+        # symlink redirection.
+        raw_iv = _safe_state_read('poll-interval')
+        if raw_iv is not None:
             try:
-                new_interval = int(interval_override_file.read_text().strip())
+                new_interval = int(raw_iv.strip())
                 if new_interval != interval:
                     log.info(f"Poll interval updated: {interval}s → {new_interval}s")
                     interval = new_interval
-                interval_override_file.unlink()
-            except Exception:
+                _safe_state_unlink('poll-interval')
+            except (ValueError, OSError):
                 pass
 
         payload = {'device_id': dev_id, 'token': token, 'ip': get_local_ip(),
                    'os': get_os_info(), 'version': VERSION}
+
+        # v3.0.0: if the previous heartbeat asked us to collect IaC data,
+        # run the requested collectors now and attach the result.
+        if pending_iac_request_id and pending_iac_categories:
+            log.info(f'Running IaC collection for req {pending_iac_request_id} '
+                     f'({len(pending_iac_categories)} categories)')
+            try:
+                iac_result = run_iac_collection(pending_iac_categories)
+                payload['iac_data'] = {
+                    'request_id': pending_iac_request_id,
+                    'categories': pending_iac_categories,
+                    'data':       iac_result,
+                }
+            except Exception as e:
+                log.warning(f'IaC collection failed: {e}')
+                payload['iac_data'] = {
+                    'request_id': pending_iac_request_id,
+                    'categories': pending_iac_categories,
+                    'error':      str(e),
+                }
+            # Clear — we only attempt once. If the server didn't get it,
+            # the user can simply click Generate again.
+            pending_iac_request_id = None
+            pending_iac_categories = None
+
+        # v2.8.1: backup file age reporting (every poll if monitors configured)
+        if _backup_monitors:
+            payload['backup_status'] = collect_backup_status(_backup_monitors)
 
         # v1.11.7: pick up any cmd_output that couldn't be sent in its
         # follow-up heartbeat last cycle. Piggybacks on this heartbeat.
@@ -2202,6 +2961,27 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 log.debug(f'Mailbox report: {len(payload["mailbox_counts"])} path(s)')
             except Exception as e:
                 log.debug(f'Mailbox count error: {e}')
+
+        # v3.0.1: ACME / acme.sh state scan. Walk ~/.acme.sh/ and report
+        # the per-domain config (next renewal, alt names, challenge type,
+        # reload command). Cheap when acme.sh isn't installed (just a
+        # directory existence check), still cheap when it is (file reads).
+        #
+        # v3.0.2: respect one-shot `force_acme_rescan` flag from server
+        # (operator clicked "Force rescan" after renewing via CLI).
+        # Reuses force_pkg_scan-style pattern; flag is consumed here.
+        if poll_count == 1 or poll_count % ACME_CHECK_EVERY == 0 or force_acme_rescan:
+            try:
+                acme_state = collect_acme_state()
+                # Always send the state — even when acme.sh isn't installed,
+                # so the server can display "not installed" rather than
+                # stale data from a previous reading.
+                payload['acme'] = acme_state
+                if acme_state.get('available'):
+                    log.debug(f'ACME scan: {len(acme_state["certs"])} cert(s) under {acme_state["home"]}')
+            except Exception as e:
+                log.debug(f'ACME scan error: {e}')
+            force_acme_rescan = False
 
         # v2.5.0: run custom monitoring scripts every SCRIPT_CHECK_EVERY polls.
         # Scripts arrive via the heartbeat response and are stored in
@@ -2339,6 +3119,39 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_package_scan'):
                 force_pkg_scan = True
                 log.info('Server requested a package scan')
+            # v3.0.2: one-shot ACME rescan request
+            if resp.get('force_acme_rescan'):
+                force_acme_rescan = True
+                log.info('Server requested an ACME rescan')
+            # v3.0.1: one-shot force-upgrade flag — re-download the agent
+            # binary regardless of version match. Used for re-deploys or
+            # corrupt-binary recovery; the server clears the flag after one
+            # delivery so this fires exactly once.
+            if resp.get('force_agent_upgrade'):
+                log.info('Server requested force agent upgrade — bypassing version check')
+                try:
+                    # Variable in scope is `server` (set at top of heartbeat),
+                    # not `server_url`. Previous code referenced an undefined
+                    # name → NameError caught by the except clause → log line
+                    # "Force upgrade failed: name 'server_url' is not defined"
+                    # which is what tipped Jakob off in the journal.
+                    if check_for_update(server, force=True):
+                        # check_for_update with force=True returns True when it
+                        # has overwritten the binary; restart so systemd picks
+                        # up the new binary (the existing self-update path
+                        # already restarts via the calling loop).
+                        log.info('Force upgrade completed — agent will restart')
+                        return  # Falls out of heartbeat loop; systemd respawns us
+                except Exception as e:
+                    log.error(f'Force upgrade failed: {e}')
+            # v3.0.0: one-shot IaC data collection request from the server.
+            # Categories listed must be collected and returned in the NEXT heartbeat.
+            iac_req = resp.get('force_iac_collect')
+            if isinstance(iac_req, dict) and iac_req.get('request_id') and iac_req.get('categories'):
+                pending_iac_request_id = str(iac_req['request_id'])
+                pending_iac_categories = list(iac_req['categories'])
+                log.info(f'Server requested IaC collection: req={pending_iac_request_id} '
+                         f'categories={pending_iac_categories}')
             # v2.5.0: custom monitoring scripts pushed by the server.
             # Replace the local list on every heartbeat so assignments
             # and script body changes take effect at the next run window.
@@ -2350,6 +3163,9 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                         log.info(f'Config updated: custom_scripts = {len(new_cs)} script(s)')
                     custom_scripts = new_cs
             # v2.6.0: receive desired host config from server
+            if 'backup_monitors' in resp:
+                _backup_monitors = resp['backup_monitors'] or []
+
             if 'host_config_desired' in resp:
                 new_hcd = resp.get('host_config_desired')
                 if isinstance(new_hcd, dict):
@@ -2415,12 +3231,42 @@ def heartbeat(creds, interval=POLL_INTERVAL):
         # v1.8.0: submit recent unit logs every N polls if any units are watched
         # (either as services_watched, or as log_watch targets)
         log_units = set(services_watched)
+        # v2.7.0: auto-add common units that exist on this host
+        for u in _auto_watch_detected:
+            log_units.add(u)
+        # v3.0.1: collect file-path entries separately. log_watch rules with a
+        # `path` field tell us to tail that file and submit lines under unit
+        # name 'file:<path>'. systemd units stay in log_units; file paths go
+        # into extra_units directly so journalctl isn't queried for them.
+        _file_paths = []
         for r in log_watch_rules:
-            if r.get('unit'):
+            if r.get('path'):
+                _file_paths.append(r['path'])
+            elif r.get('unit') and not str(r.get('unit', '')).startswith('file:'):
                 log_units.add(r['unit'])
         if log_units and poll_count % LOG_SUBMIT_EVERY == 0:
             try:
-                submit_unit_logs(creds, sorted(log_units))
+                # v2.7.0: extend with dmesg and apt history as virtual units
+                extra = {}
+                extra['kernel']      = collect_dmesg_logs(_dmesg_last_ts)
+                extra['apt.history'] = collect_apt_history(_apt_state_file)
+                if any(extra['kernel']):
+                    _dmesg_last_ts = time.time()
+                # v2.8.0: web access logs for brute-force detection
+                _web_logs = collect_web_access_logs(_apt_state_file.parent)
+                extra.update(_web_logs)
+                # v3.0.1: file-path log_watch sources
+                if _file_paths:
+                    for _fp in _file_paths:
+                        _file_entries = collect_file_log(_fp, _file_log_state)
+                        if _file_entries:
+                            extra[f'file:{_fp}'] = _file_entries
+                    # Persist state so we don't re-read on agent restart
+                    try:
+                        _file_log_state_file.write_text(json.dumps(_file_log_state))
+                    except Exception as e:
+                        log.debug(f'file_log: failed to persist state: {e}')
+                submit_unit_logs(creds, sorted(log_units), extra_units=extra)
             except Exception as e:
                 log.debug(f'Log submission error: {e}')
 
@@ -2532,6 +3378,376 @@ def main():
         creds = enroll_interactive()
 
     heartbeat(creds, interval=args.interval)
+# ══ v3.0.0: IaC data collection ════════════════════════════════════════════════
+# Each category returns a JSON-serialisable dict/list of raw state.
+# Called on-demand when the server sets force_iac_collect:<categories> in the
+# heartbeat response. The agent runs the requested collectors and returns the
+# results in the NEXT heartbeat as iac_data.
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _safe_run(cmd, timeout=10):
+    """Run a shell command, return (rc, stdout); never raise."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or '')
+    except Exception as e:
+        return -1, f'<error: {e}>'
+
+def _safe_read(path, max_bytes=200_000):
+    try:
+        with open(path, 'r', errors='replace') as f:
+            return f.read(max_bytes)
+    except Exception:
+        return ''
+
+
+def iac_collect_os_identity():
+    """Category 1: OS & identity."""
+    rc, hn = _safe_run(['hostname', '-f'])
+    info = {
+        'hostname': hn.strip() if rc == 0 else os.uname().nodename,
+        'kernel':   ' '.join(os.uname()[2:4]),
+        'arch':     os.uname().machine,
+        'os_release': {},
+    }
+    # Parse /etc/os-release
+    for line in _safe_read('/etc/os-release').splitlines():
+        if '=' in line:
+            k, v = line.split('=', 1)
+            info['os_release'][k.strip()] = v.strip().strip('"')
+    return info
+
+
+def iac_collect_packages():
+    """Category 2: full installed package list (manager + names + versions)."""
+    if shutil.which('dpkg'):
+        rc, out = _safe_run(['dpkg-query', '-W', '-f=${Package}\t${Version}\t${Status}\n'])
+        pkgs = []
+        for line in out.splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 3 and 'installed' in parts[2]:
+                pkgs.append({'name': parts[0], 'version': parts[1]})
+        return {'manager': 'apt', 'packages': pkgs}
+    if shutil.which('rpm'):
+        rc, out = _safe_run(['rpm', '-qa', '--qf', '%{NAME}\t%{VERSION}-%{RELEASE}\n'])
+        pkgs = [{'name': p.split('\t')[0], 'version': p.split('\t')[1]}
+                for p in out.splitlines() if '\t' in p]
+        return {'manager': 'dnf', 'packages': pkgs}
+    if shutil.which('pacman'):
+        rc, out = _safe_run(['pacman', '-Q'])
+        pkgs = [{'name': p.split(' ')[0], 'version': p.split(' ', 1)[1]}
+                for p in out.splitlines() if ' ' in p]
+        return {'manager': 'pacman', 'packages': pkgs}
+    return {'manager': 'unknown', 'packages': []}
+
+
+def iac_collect_systemd():
+    """Category 3: systemd units in enabled state."""
+    rc, out = _safe_run(['systemctl', 'list-unit-files',
+                          '--state=enabled', '--type=service', '--no-legend'])
+    enabled = []
+    for line in out.splitlines():
+        parts = line.split()
+        if parts and parts[0].endswith('.service'):
+            enabled.append(parts[0])
+    return {'enabled_services': enabled}
+
+
+def iac_collect_users():
+    """Category 4: local users with uid>=1000 (excluding nobody=65534)."""
+    users = []
+    for line in _safe_read('/etc/passwd').splitlines():
+        parts = line.split(':')
+        if len(parts) < 7: continue
+        try:
+            uid = int(parts[2])
+        except ValueError:
+            continue
+        if uid >= 1000 and uid != 65534:
+            users.append({
+                'username': parts[0], 'uid': uid, 'gid': int(parts[3] or 0),
+                'gecos': parts[4], 'home': parts[5], 'shell': parts[6],
+            })
+    return {'users': users}
+
+
+def iac_collect_groups():
+    """Category 5: local groups with gid>=1000."""
+    groups = []
+    for line in _safe_read('/etc/group').splitlines():
+        parts = line.split(':')
+        if len(parts) < 4: continue
+        try:
+            gid = int(parts[2])
+        except ValueError:
+            continue
+        if gid >= 1000 and gid != 65534:
+            members = [m for m in parts[3].split(',') if m]
+            groups.append({'name': parts[0], 'gid': gid, 'members': members})
+    return {'groups': groups}
+
+
+def iac_collect_ssh_keys():
+    """Category 6: SSH authorized_keys per user (including root)."""
+    keys = {}
+    homes = [('root', '/root')]
+    for line in _safe_read('/etc/passwd').splitlines():
+        parts = line.split(':')
+        if len(parts) >= 6 and parts[5].startswith('/home/'):
+            try:
+                if int(parts[2]) >= 1000:
+                    homes.append((parts[0], parts[5]))
+            except ValueError:
+                pass
+    for username, home in homes:
+        ak = Path(home) / '.ssh' / 'authorized_keys'
+        if ak.exists():
+            try:
+                content = ak.read_text(errors='replace')
+                user_keys = [ln.strip() for ln in content.splitlines()
+                             if ln.strip() and not ln.strip().startswith('#')]
+                if user_keys:
+                    keys[username] = user_keys
+            except Exception:
+                pass
+    return {'authorized_keys': keys}
+
+
+def iac_collect_network():
+    """Category 7: full network configuration (interfaces, addresses, routes)."""
+    rc, addr = _safe_run(['ip', '-j', 'addr', 'show'])
+    rc2, route = _safe_run(['ip', '-j', 'route', 'show'])
+    try:
+        addrs  = json.loads(addr) if addr else []
+        routes = json.loads(route) if route else []
+    except json.JSONDecodeError:
+        addrs, routes = [], []
+    # /etc/netplan or /etc/network/interfaces
+    cfg_files = {}
+    for path in ('/etc/network/interfaces',):
+        if Path(path).exists():
+            cfg_files[path] = _safe_read(path, 20_000)
+    netplan_dir = Path('/etc/netplan')
+    if netplan_dir.is_dir():
+        for f in netplan_dir.glob('*.yaml'):
+            cfg_files[str(f)] = _safe_read(str(f), 20_000)
+    return {'addresses': addrs, 'routes': routes, 'config_files': cfg_files}
+
+
+def iac_collect_fstab():
+    """Category 8: /etc/fstab entries."""
+    entries = []
+    for line in _safe_read('/etc/fstab').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = line.split()
+        if len(parts) >= 6:
+            entries.append({
+                'fs_spec': parts[0], 'fs_file': parts[1], 'fs_vfstype': parts[2],
+                'fs_mntops': parts[3], 'fs_freq': parts[4], 'fs_passno': parts[5],
+            })
+    return {'fstab': entries}
+
+
+def iac_collect_containers():
+    """Category 9: Docker/Podman containers with full inspect."""
+    out = {'docker': [], 'podman': []}
+    for runtime, key in (('docker', 'docker'), ('podman', 'podman')):
+        if not shutil.which(runtime):
+            continue
+        rc, ids_raw = _safe_run([runtime, 'ps', '-aq'])
+        ids = ids_raw.split()
+        if not ids:
+            continue
+        rc, inspect = _safe_run([runtime, 'inspect'] + ids, timeout=30)
+        try:
+            out[key] = json.loads(inspect) if inspect else []
+        except json.JSONDecodeError:
+            out[key] = [{'_error': 'inspect parse failed'}]
+    return out
+
+
+def iac_collect_repos():
+    """Category 10: custom apt/dnf repos."""
+    repos = {}
+    # apt
+    apt_dir = Path('/etc/apt/sources.list.d')
+    apt_main = Path('/etc/apt/sources.list')
+    if apt_main.exists():
+        repos['/etc/apt/sources.list'] = _safe_read(str(apt_main), 50_000)
+    if apt_dir.is_dir():
+        for f in apt_dir.glob('*.list'):
+            repos[str(f)] = _safe_read(str(f), 50_000)
+        for f in apt_dir.glob('*.sources'):
+            repos[str(f)] = _safe_read(str(f), 50_000)
+    # dnf/yum
+    yum_dir = Path('/etc/yum.repos.d')
+    if yum_dir.is_dir():
+        for f in yum_dir.glob('*.repo'):
+            repos[str(f)] = _safe_read(str(f), 50_000)
+    return {'repos': repos}
+
+
+def iac_collect_firewall():
+    """Category 11: firewall configuration (ufw, iptables, firewalld, nftables)."""
+    out = {}
+    if shutil.which('ufw'):
+        rc, status = _safe_run(['ufw', 'status', 'verbose'])
+        if rc == 0: out['ufw'] = status
+    if shutil.which('firewall-cmd'):
+        rc, info = _safe_run(['firewall-cmd', '--list-all-zones'])
+        if rc == 0: out['firewalld'] = info
+    if shutil.which('nft'):
+        rc, info = _safe_run(['nft', 'list', 'ruleset'])
+        if rc == 0: out['nftables'] = info
+    if shutil.which('iptables-save'):
+        rc, info = _safe_run(['iptables-save'])
+        if rc == 0: out['iptables'] = info
+    return {'firewall': out}
+
+
+def iac_collect_cron():
+    """Category 12: cron jobs across the system."""
+    crons = {}
+    # system crontab
+    if Path('/etc/crontab').exists():
+        crons['/etc/crontab'] = _safe_read('/etc/crontab', 50_000)
+    # /etc/cron.d
+    cron_d = Path('/etc/cron.d')
+    if cron_d.is_dir():
+        for f in cron_d.iterdir():
+            if f.is_file():
+                crons[str(f)] = _safe_read(str(f), 50_000)
+    # user crontabs (root + uid≥1000)
+    user_crons = {}
+    rc, root_c = _safe_run(['crontab', '-u', 'root', '-l'])
+    if rc == 0 and root_c.strip(): user_crons['root'] = root_c
+    for line in _safe_read('/etc/passwd').splitlines():
+        parts = line.split(':')
+        if len(parts) >= 3:
+            try:
+                if int(parts[2]) >= 1000 and parts[2] != '65534':
+                    rc, ct = _safe_run(['crontab', '-u', parts[0], '-l'])
+                    if rc == 0 and ct.strip():
+                        user_crons[parts[0]] = ct
+            except ValueError: pass
+    return {'system_cron_files': crons, 'user_crontabs': user_crons}
+
+
+def iac_collect_tls():
+    """Category 13: TLS certificate FILE PATHS only (no contents)."""
+    paths = []
+    for d in ('/etc/ssl/certs', '/etc/ssl/private', '/etc/letsencrypt/live',
+              '/etc/pki/tls/certs', '/etc/nginx/ssl', '/etc/apache2/ssl'):
+        p = Path(d)
+        if p.is_dir():
+            for f in p.rglob('*'):
+                if f.is_file() and f.suffix in ('.crt', '.pem', '.cert', '.key'):
+                    paths.append(str(f))
+    return {'tls_cert_paths': sorted(set(paths))[:200]}
+
+
+def iac_collect_env():
+    """Category 14: /etc/environment + /etc/profile.d snippets."""
+    out = {}
+    if Path('/etc/environment').exists():
+        out['/etc/environment'] = _safe_read('/etc/environment', 10_000)
+    pd = Path('/etc/profile.d')
+    if pd.is_dir():
+        for f in pd.glob('*.sh'):
+            content = _safe_read(str(f), 10_000)
+            if content.strip():
+                out[str(f)] = content
+    return {'environment_files': out}
+
+
+def iac_collect_snaps():
+    """Category 15: installed snap packages (Ubuntu)."""
+    if not shutil.which('snap'):
+        return {'snaps': []}
+    rc, out = _safe_run(['snap', 'list'])
+    snaps = []
+    for line in out.splitlines()[1:]:    # skip header
+        parts = line.split()
+        if len(parts) >= 3:
+            snaps.append({'name': parts[0], 'version': parts[1], 'rev': parts[2]})
+    return {'snaps': snaps}
+
+
+def iac_collect_kmod():
+    """Category 16: persistent kernel modules (modules-load.d, modprobe.d)."""
+    out = {}
+    for d in ('/etc/modules-load.d', '/etc/modprobe.d', '/usr/lib/modules-load.d'):
+        p = Path(d)
+        if p.is_dir():
+            for f in p.glob('*.conf'):
+                content = _safe_read(str(f), 20_000)
+                if content.strip():
+                    out[str(f)] = content
+    if Path('/etc/modules').exists():
+        out['/etc/modules'] = _safe_read('/etc/modules', 10_000)
+    return {'kernel_module_config': out}
+
+
+def iac_collect_sysctl():
+    """Category 17: non-default sysctl parameters from /etc/sysctl.d/* and /etc/sysctl.conf."""
+    out = {}
+    if Path('/etc/sysctl.conf').exists():
+        out['/etc/sysctl.conf'] = _safe_read('/etc/sysctl.conf', 50_000)
+    for d in ('/etc/sysctl.d', '/usr/lib/sysctl.d', '/run/sysctl.d'):
+        p = Path(d)
+        if p.is_dir():
+            for f in p.glob('*.conf'):
+                content = _safe_read(str(f), 50_000)
+                if content.strip():
+                    out[str(f)] = content
+    return {'sysctl_files': out}
+
+
+# Category 18 is server-side only (RemotePower-specific metadata)
+
+IAC_COLLECTORS = {
+    'os_identity':  iac_collect_os_identity,
+    'packages':     iac_collect_packages,
+    'systemd':      iac_collect_systemd,
+    'users':        iac_collect_users,
+    'groups':       iac_collect_groups,
+    'ssh_keys':     iac_collect_ssh_keys,
+    'network':      iac_collect_network,
+    'fstab':        iac_collect_fstab,
+    'containers':   iac_collect_containers,
+    'repos':        iac_collect_repos,
+    'firewall':     iac_collect_firewall,
+    'cron':         iac_collect_cron,
+    'tls':          iac_collect_tls,
+    'env':          iac_collect_env,
+    'snaps':        iac_collect_snaps,
+    'kmod':         iac_collect_kmod,
+    'sysctl':       iac_collect_sysctl,
+}
+
+
+def run_iac_collection(category_keys):
+    """Run the requested IaC collectors and return a dict of {key: data}.
+
+    Each collector is wrapped to never raise — errors land in
+    `_collection_error` so the LLM can be told a category is missing rather
+    than the whole generation failing.
+    """
+    result = {}
+    for key in category_keys:
+        fn = IAC_COLLECTORS.get(key)
+        if not fn:
+            result[key] = {'_collection_error': f'unknown category: {key}'}
+            continue
+        try:
+            result[key] = fn()
+        except Exception as e:
+            result[key] = {'_collection_error': str(e)}
+    return result
+
+
 
 if __name__ == '__main__':
     main()

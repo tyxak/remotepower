@@ -1059,14 +1059,20 @@
     background: rgba(0,0,0,0.7);
     backdrop-filter: blur(4px);
     z-index: 200;
-    display: flex;
+    display: none;          /* structurally hidden — no FOUC on mobile refresh */
     align-items: center;
     justify-content: center;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
   }
-  .modal-overlay.active { opacity: 1; pointer-events: all; }
+  /* v2.8.1: fade-in on open instead of relying on opacity transition from
+     display:flex so the modal is truly invisible before JS runs */
+  .modal-overlay.active {
+    display: flex;
+    animation: _modal-fade-in 0.18s ease both;
+  }
+  @keyframes _modal-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
   .modal {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -1585,21 +1591,6 @@ input.form-input[type="text"][data-token],
   margin-right: 6px;
   flex-shrink: 0;
 }
-
-/* ─── Per-row hover affordances (REMOVED in v2.2.5) ────────────────────
- * The hover-revealed action strip introduced in 2.2.1 turned out to
- * be persistently fiddly: focus-ring clipping in 2.2.1, the move to
- * the first cell in 2.2.2 that fixed THAT but still felt clunky in
- * placement. The row dropdown chevron in the actions cell already
- * exposes Detail / Logs / Run and is keyboard-friendly. Row click on
- * the device name → openDetail covers the most common action.
- *
- * CSS classes kept defined as no-ops so any HTML still tagged with
- * `has-hover-actions` doesn't break — but no visible affordance is
- * shown. The `openLogsForDevice` helper is also kept for potential
- * future use. */
-tr.has-hover-actions { position: relative; }
-tr.has-hover-actions .row-actions { display: none; }
 
 /* ─── ✨ identity extension ─────────────────────────────────────────────
  * The sparkle button gets a subtle animated glow when AI is reachable.
@@ -2199,10 +2190,496 @@ body.modal-open .modal { touch-action: auto; }
   border-radius: 6px;
   color: var(--muted);
   cursor: pointer;
-  font-family: var(--font-body);
+  font-family: var(--font);
   font-size: 12px;
   padding: 5px 12px;
   transition: background .12s, color .12s, border-color .12s;
 }
 .hc-tab:hover  { background: var(--surface2); color: var(--text); }
 .hc-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── v2.6.0: Mobile performance & UX optimisations ─────────────────────────
+ *
+ * 1. Prevent double-tap zoom on interactive elements — removes the 300ms
+ *    tap delay on touch devices without disabling pinch-zoom on content.
+ * 2. Momentum scrolling on overflowing containers.
+ * 3. Reduce paint complexity by promoting scroll containers to their own
+ *    compositor layer.
+ * 4. Respect the OS-level "reduce motion" preference.
+ * 5. Ensure all tap targets meet the 44×44 px minimum (WCAG 2.5.5).
+ */
+
+/* 1. Kill the 300ms tap delay */
+button, a, [role="button"],
+.nav-btn, .btn-icon, .btn-primary, .btn-secondary,
+.hc-tab, .cs-device-cb + label {
+  touch-action: manipulation;
+}
+
+/* 2+3. Smooth momentum scroll on overflow containers */
+.table-card,
+.modal,
+.sidebar,
+.cmd-output,
+.log-output,
+.hc-panel textarea {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* 4. Honour "prefers-reduced-motion" — turn off decorative animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .ai-btn.available::after { animation: none; }
+  .refresh-bar-fill        { transition: none; }
+}
+
+/* 5. Minimum touch target size — apply only on touch screens */
+@media (hover: none) and (pointer: coarse) {
+  .btn-icon, .btn-secondary, .nav-btn, .hc-tab {
+    min-height: 44px;
+  }
+  /* Batch-bar buttons get extra breathing room */
+  .batch-bar button {
+    padding: 10px 14px;
+  }
+  /* Table action buttons: expand hit area without changing layout */
+  td button.btn-icon {
+    padding: 10px 12px;
+  }
+  /* Checkboxes: larger hit area */
+  input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+
+/* v2.8.1: restore elements hidden by the anti-FOUC <style> in <head>.
+   Once this stylesheet loads, these override the temporary hide rules. */
+.refresh-bar       { display: block; }
+.toast-container   { display: flex; z-index: 9999; } /* must top all modals + drawer */
+#pwa-install-btn   { display: flex; }   /* JS re-hides if PWA not installable */
+
+
+/* ══ v2.9.0: Device Drawer ═══════════════════════════════════════════════════
+ * Full-screen overlay drawer — replaces detail-modal + ⋮ dropdown.
+ * Two tabs: Actions/Settings and Audit.
+ ═══════════════════════════════════════════════════════════════════════════════ */
+
+.device-drawer {
+  position: fixed; inset: 0; z-index: 500;
+  display: none;
+}
+.device-drawer.open { display: flex; }
+
+/* Backdrop */
+.device-drawer .drawer-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  /* No backdrop-filter — it creates a stacking context that can intercept
+     clicks on the panel in Safari/WebKit mobile, making buttons unreachable */
+  z-index: 1;
+}
+
+/* Panel — slides in from right, explicitly above backdrop */
+.device-drawer .drawer-panel {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(640px, 100vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+  z-index: 2;
+}
+.device-drawer.open .drawer-panel { transform: translateX(0); }
+
+/* Header */
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.drawer-device-name { font-weight: 700; font-size: 16px; }
+.drawer-device-sub  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Tabs */
+.drawer-tabs {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.drawer-tab-btn {
+  flex: 1; padding: 10px 12px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted); background: none;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+.drawer-tab-btn.active {
+  color: var(--accent2); border-bottom-color: var(--accent);
+}
+
+/* Content area */
+.drawer-content {
+  flex: 1; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.drawer-tab-panel { padding: 0 0 24px; }
+
+/* Section */
+.drawer-section {
+  padding: 14px 16px 0;
+}
+.drawer-section-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* Actions grid */
+.drawer-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.drawer-action-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; font-size: 12px;
+  color: var(--text); font-family: var(--font);
+  transition: background .12s, border-color .12s;
+  text-align: left; white-space: nowrap;
+}
+.drawer-action-btn:hover { background: var(--surface2); border-color: var(--border); }
+.drawer-action-btn.danger { color: var(--red); }
+.drawer-action-btn.danger:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
+.drawer-action-btn svg { flex-shrink: 0; }
+
+/* Settings form */
+.drawer-setting-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.drawer-setting-row:last-child { border-bottom: none; }
+.drawer-setting-label {
+  font-size: 12px; color: var(--muted); flex-shrink: 0;
+  min-width: 110px;
+}
+
+/* Audit accordion */
+.audit-section {
+  border-bottom: 1px solid var(--border);
+}
+.audit-section summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer; font-size: 13px; font-weight: 500;
+  user-select: none; list-style: none;
+}
+.audit-section summary::-webkit-details-marker { display: none; }
+.audit-section summary::after {
+  content: '›'; font-size: 16px; color: var(--muted);
+  transition: transform .15s;
+}
+.audit-section[open] summary::after { transform: rotate(90deg); }
+.audit-section-body {
+  padding: 0 16px 14px;
+  font-size: 12.5px; line-height: 1.6;
+}
+.audit-section-badge {
+  font-size: 10px; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 10px; margin-left: 6px;
+}
+.audit-filter {
+  width: 100%; padding: 6px 10px; margin-bottom: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 12px; color: var(--text);
+  font-family: var(--font-mono);
+}
+.audit-filter:focus { outline: none; border-color: var(--accent); }
+
+/* Command history in audit */
+.audit-cmd-entry {
+  border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 6px; overflow: hidden;
+}
+.audit-cmd-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; cursor: pointer;
+  background: var(--surface2);
+}
+.audit-cmd-output {
+  padding: 8px 10px; display: none;
+  background: var(--surface2); border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11.5px;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+  word-break: break-all;
+}
+.audit-cmd-entry.expanded .audit-cmd-output { display: block; }
+
+/* Port table */
+.ports-table th, .ports-table td {
+  padding: 5px 8px; font-size: 12px;
+}
+
+/* Mobile: full screen */
+@media (max-width: 720px) {
+  .device-drawer .drawer-panel {
+    width: 100vw; border-left: none;
+  }
+  .drawer-actions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+}
+
+
+/* ══ v3.0.0: IaC Generator page ═══════════════════════════════════════════════ */
+
+.iac-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .iac-layout { grid-template-columns: 1fr; }
+}
+
+.iac-controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.iac-section { margin-bottom: 16px; }
+.iac-section:last-of-type { margin-bottom: 12px; }
+.iac-label {
+  display: block;
+  font-size: 12px; font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.iac-cat-list {
+  max-height: 380px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--surface2);
+}
+.iac-cat-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.iac-cat-row input[type="checkbox"] { cursor: pointer; }
+.iac-cat-row:hover { color: var(--accent2); }
+.iac-cat-row .hint { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+.iac-status {
+  padding: 8px 12px; border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.iac-status.error  { color: var(--red);   border-color: rgba(239,68,68,0.3); }
+.iac-status.done   { color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+.iac-output {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex; flex-direction: column;
+  min-height: 480px;
+}
+.iac-output-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.iac-code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px; line-height: 1.55;
+  padding: 14px 16px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+  background: var(--surface2);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  max-height: 70vh;
+}
+
+
+/* v3.0.0: IaC tabs and conversation view */
+.iac-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border-top-left-radius: 10px; border-top-right-radius: 10px;
+}
+.iac-tab {
+  flex: 0 0 auto; padding: 10px 16px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted); background: none;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+.iac-tab.active {
+  color: var(--accent2); border-bottom-color: var(--accent);
+}
+.iac-convo {
+  flex: 1; overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 12px;
+  background: var(--surface2);
+  border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
+  max-height: 70vh;
+}
+.iac-convo-block {
+  margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden;
+}
+.iac-convo-role {
+  padding: 6px 12px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  background: var(--surface2); color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.iac-convo-role.system    { color: var(--accent2); }
+.iac-convo-role.user      { color: var(--green); }
+.iac-convo-role.assistant { color: var(--amber); }
+.iac-convo-content {
+  padding: 10px 12px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 400px; overflow-y: auto;
+  color: var(--text);
+}
+
+
+/* v3.0.1: collapsible desktop sidebar */
+@media (min-width: 769px) {
+  body.sidebar-collapsed .sidebar {
+    width: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed .sidebar-label,
+  body.sidebar-collapsed .nav-btn span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-items {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-btn,
+  body.sidebar-collapsed .sidebar-group-toggle {
+    justify-content: center;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
+}
+.sidebar-collapse-btn {
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  transition: background .15s, color .15s;
+}
+.sidebar-collapse-btn:hover { background: var(--surface2); color: var(--text); }
+
+
+/* ── v3.0.1: ACME UI ──────────────────────────────────────────────────── */
+.acme-step-pill {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  letter-spacing: .5px;
+}
+.acme-step-pill.active {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent);
+}
+.acme-step-pill.done {
+  border-color: var(--green);
+  color: var(--green);
+}
+.acme-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.acme-pill-ok   { background: rgba(0,200,120,0.12); color: var(--green); border: 1px solid rgba(0,200,120,0.30); }
+.acme-pill-warn { background: rgba(255,170,40,0.12); color: var(--amber); border: 1px solid rgba(255,170,40,0.30); }
+.acme-pill-crit { background: rgba(220,60,60,0.12);  color: var(--red);   border: 1px solid rgba(220,60,60,0.30); }
+.acme-pill-info { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.acme-wildcard-glyph {
+  display: inline-block;
+  width: 18px; height: 18px;
+  text-align: center;
+  line-height: 18px;
+  border-radius: 4px;
+  background: rgba(120, 100, 220, 0.16);
+  color: #9a8dff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.acme-timeline-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.acme-timeline-item:last-child { border-bottom: none; }
+.acme-timeline-dot {
+  flex: 0 0 10px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-top: 6px;
+}
+.acme-timeline-dot.ok    { background: var(--green); }
+.acme-timeline-dot.fail  { background: var(--red); }
+.acme-timeline-dot.pending { background: var(--amber); }
+.acme-row { transition: background .12s; }
+.acme-row:hover { background: var(--surface2); cursor: pointer; }
+
+/* v3.0.1: Mitigation runner modal */
+.mitigate-pane { font-size: 13px; }
+.mitigate-pane pre { font-family: var(--font-mono); }

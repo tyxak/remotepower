@@ -133,6 +133,8 @@ class TestHtmlIdReferences(unittest.TestCase):
         # v2.1.7: Created via document.createElement in _ensureRunbookModal()
         'runbook-modal', 'runbook-modal-body', 'runbook-modal-title',
         'runbook-modal-meta', 'runbook-modal-copy', 'runbook-modal-regen',
+        # v2.9.0: Dynamically created by loadListeningPorts() expand
+        'ports-table-body',
         'runbook-modal-elapsed', 'detail-runbook-section',
         # v2.2.0: Created via document.createElement in _ensureDriftModal()
         'drift-detail-modal', 'drift-detail-body', 'drift-detail-title',

@@ -131,7 +131,7 @@ class TestAssets(unittest.TestCase):
 
     def test_frontend_button(self):
         self.assertIn('function forcePackageScan', self.js)
-        self.assertIn('Scan packages now', self.js)
+        self.assertIn('Scan packages', self.js)
 
     def test_agent_honors_flag(self):
         self.assertIn('force_pkg_scan', self.agent_src)

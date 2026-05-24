@@ -104,7 +104,7 @@ class TestActivityClickable(_AssetTests):
     def test_activity_item_onclick(self):
         # Each rendered item has an onclick handler
         idx = self.js.find('function _renderHomeActivity')
-        chunk = self.js[idx:idx + 5000]
+        chunk = self.js[idx:idx + 12000]
         self.assertIn('onclick=', chunk)
         self.assertIn('_homeActivityAction', chunk,
                       "Activity should call routing helper")
@@ -126,7 +126,7 @@ class TestActivityClickable(_AssetTests):
 
     def test_activity_item_cursor_pointer(self):
         idx = self.js.find('function _renderHomeActivity')
-        chunk = self.js[idx:idx + 5000]
+        chunk = self.js[idx:idx + 12000]
         self.assertIn('cursor:pointer', chunk)
 
 

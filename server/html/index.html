@@ -17,7 +17,23 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=2.6.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.0.2">
+
+  <!-- v2.8.1: anti-FOUC styles — applied before external CSS loads.
+       Keeps fixed/transformed elements invisible during the brief
+       window between HTML parse and stylesheet load. -->
+  <style>
+    /* Sidebar: off-screen on narrow viewports (matches 720px media query) */
+    @media (max-width: 720px) {
+      .sidebar { transform: translateX(-100%); }
+    }
+    /* Toast container: empty on load, but prevent layout shift */
+    .toast-container { display: none; }
+    /* Refresh bar: hidden until progress starts */
+    .refresh-bar { display: none; }
+    /* PWA install button: hidden until JS decides to show it */
+    #pwa-install-btn { display: none; }
+  </style>
 </head>
 <body>
 
@@ -100,6 +116,11 @@
   </header>
 
   <nav class="sidebar">
+    <!-- v3.0.1: collapsible sidebar — preference persisted in localStorage -->
+    <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse/expand sidebar">
+      <span id="sidebar-collapse-icon">◀</span>
+      <span class="sidebar-collapse-btn-text">Collapse</span>
+    </button>
     <div class="sidebar-label"><span>Main</span></div>
     <!-- v2.2.1: Home dashboard — fleet-at-a-glance summary. New default
          landing page; Devices still reachable just below. -->
@@ -142,6 +163,10 @@
     <button class="nav-btn" onclick="showPage('logs',this)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
       <span>Logs</span>
+    </button>
+    <button class="nav-btn" onclick="showPage('iac',this)" title="Generate Infrastructure-as-Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      <span>IaC Generator</span>
     </button>
 
     <!-- v2.0: collapsible Security group. Was 4 separate top-level items
@@ -238,6 +263,10 @@
         <button class="nav-btn" onclick="showPage('audit',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
+        </button>
+        <button class="nav-btn" onclick="showPage('self',this)" title="RemotePower watching itself: disk, webhooks, audit, backups">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          <span>Server status</span>
         </button>
         <button class="nav-btn" onclick="showPage('links',this)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -348,10 +377,16 @@
             <div class="section-title">Enrolled Devices</div>
             <div id="tag-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
           </div>
-          <button class="enroll-btn" onclick="openEnrollModal()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Enroll device
-          </button>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" onclick="openBulkActions()" title="Run an operation across many devices at once (Ctrl-K → Bulk actions)" style="display:flex;align-items:center;gap:6px;padding:8px 14px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+              Bulk actions
+            </button>
+            <button class="enroll-btn" onclick="openEnrollModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Enroll device
+            </button>
+          </div>
         </div>
 
         <div id="batch-bar" class="batch-bar">
@@ -451,6 +486,17 @@
           </table>
         </div>
 
+        <!-- v2.8.1: Listening Ports section -->
+        <div class="section-header" style="margin-top:32px">
+          <div class="section-title">Listening Ports</div>
+          <button class="btn-icon" onclick="loadListeningPorts()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh
+          </button>
+        </div>
+        <div id="ports-container" style="color:var(--muted);font-size:13px;padding:16px 0">
+          Loading…
+        </div>
+
         <!-- v2.6.0: Custom monitoring scripts section -->
         <div class="section-header" style="margin-top:32px">
           <div style="display:flex;gap:8px;align-items:center">
@@ -514,6 +560,13 @@
         <div class="page-title">Settings</div>
         <div class="page-subtitle">Server configuration</div>
 
+        <!-- v3.0.2: search bar — filters visible settings sections live -->
+        <div style="margin-bottom:14px">
+          <input type="text" id="settings-search" class="form-input" placeholder="Search settings… (e.g. webhook, smtp, ldap, totp)" 
+                 oninput="filterSettings(this.value)"
+                 style="max-width:420px;padding:8px 12px;font-size:13px">
+        </div>
+
         <!-- v1.8.4: tab switcher -->
         <div class="settings-tabs">
           <button class="settings-tab active" data-tab="general"  onclick="switchSettingsTab('general')">General</button>
@@ -523,6 +576,8 @@
           <button class="settings-tab"        data-tab="proxmox"  onclick="switchSettingsTab('proxmox')">Proxmox</button>
           <button class="settings-tab"        data-tab="mailbox"  onclick="switchSettingsTab('mailbox')">Mailbox monitor</button>
           <button class="settings-tab"        data-tab="advanced" onclick="switchSettingsTab('advanced')">Advanced</button>
+          <button class="settings-tab"        data-tab="dashboard" onclick="switchSettingsTab('dashboard');loadDashboardSettings()">Dashboard</button>
+          <button class="settings-tab"        data-tab="ignored"   onclick="switchSettingsTab('ignored');loadIgnoredItems()">Ignored items</button>
         </div>
 
         <!-- ── General ──────────────────────────────────────────────────── -->
@@ -604,9 +659,18 @@
 
         <!-- ── Notifications ────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-notifs">
+          <!-- v3.0.2: multi-webhook destinations -->
           <div class="settings-section">
-            <h3>Webhook URL</h3>
-            <p class="hint">POST a JSON payload to this URL on events. Compatible with Ntfy, Gotify, Slack, Discord, Pushover, and any webhook receiver. Push-friendly headers (X-Title, X-Priority, X-Tags) are included automatically.</p>
+            <h3>Webhook destinations</h3>
+            <p class="hint">Fire each event to any number of destinations simultaneously. Each entry has its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON) and optional per-destination event filter. Use case: Pushover for critical-only push notifications + Discord channel for all events.</p>
+            <div id="webhook-dests" style="display:flex;flex-direction:column;gap:10px"></div>
+            <button class="btn-secondary" style="margin-top:10px" onclick="addWebhookDest()">+ Add destination</button>
+            <p class="hint" style="font-size:11px;margin-top:8px">Pushover credentials (token + user key) are stored encrypted in <code>config.json</code> and redacted from the backup export.</p>
+          </div>
+
+          <div class="settings-section">
+            <h3>Legacy webhook URL</h3>
+            <p class="hint">The original single-URL field, still honoured for backward compatibility. New setups should use "Webhook destinations" above — it supports the same formats plus Pushover, Teams, per-event filtering, and labeling.</p>
             <div class="settings-row">
               <div class="form-group" style="flex:1">
                 <label class="form-label">URL</label>
@@ -832,6 +896,64 @@
 
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
+          <!-- v3.0.2: session timeout -->
+          <div class="settings-section">
+            <h3>Session timeout</h3>
+            <p class="hint">How long a login session lasts before re-authentication. Two values: the short timeout (default 24h) applies when "remember me" is unchecked at login; the long timeout (default 30d) applies when checked. Lowering these tightens security but means more frequent logins.</p>
+            <div class="settings-row">
+              <label class="form-label" for="session-ttl-short">Short session (s)</label>
+              <input type="number" id="session-ttl-short" class="form-input" min="900" max="2592000" placeholder="86400" style="max-width:160px">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="session-ttl-long">Long session (s)</label>
+              <input type="number" id="session-ttl-long" class="form-input" min="3600" max="31536000" placeholder="2592000" style="max-width:160px">
+            </div>
+            <p class="hint" style="font-size:11px">Existing sessions keep their original TTL — changes apply only to logins after Save.</p>
+          </div>
+
+          <!-- v3.0.2: audit log retention -->
+          <div class="settings-section">
+            <h3>Audit log retention</h3>
+            <p class="hint">Entries older than this many days are moved to <code>audit_log_archive.jsonl.gz</code> and kept indefinitely (gzipped, append-only). The live <code>audit_log.json</code> only holds recent entries — keeps the loaded-into-memory file small. Default 90 days. Set to 0 to disable age-based eviction (legacy count-only cap still applies).</p>
+            <div class="settings-row">
+              <label class="form-label" for="audit-retention-days">Retention (days)</label>
+              <input type="number" id="audit-retention-days" class="form-input" min="0" max="3650" placeholder="90" style="max-width:160px">
+            </div>
+          </div>
+
+          <!-- v3.0.2: backup config -->
+          <div class="settings-section">
+            <h3>Scheduled backup</h3>
+            <p class="hint">Daily snapshot of <code>/var/lib/remotepower</code> to a tarball. Triggered once per 24h via the heartbeat hook (cheap when not due). Backup state and a "Run now" button are on the <a href="javascript:showPage('self')" style="color:var(--accent)">Server status</a> page.</p>
+            <div class="settings-row">
+              <label class="form-label" for="backup-enabled">Enabled</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="backup-enabled" checked>
+              </label>
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-path">Output path</label>
+              <input type="text" id="backup-path" class="form-input" placeholder="/var/lib/remotepower/backups" style="max-width:380px">
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="backup-retain-days">Retain (days)</label>
+              <input type="number" id="backup-retain-days" class="form-input" min="1" max="365" placeholder="14" style="max-width:160px">
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Debug logging</h3>
+            <p class="hint">When enabled, verbose logs are written to the browser console (F12 → Console) and to <code>/var/lib/remotepower/debug.log</code> on the server. Disable in production — the log file grows unbounded.</p>
+            <div class="settings-row">
+              <label class="form-label">Enable debug logging</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="debug-logging-toggle" onchange="saveDebugLogging(this.checked)">
+              </label>
+            </div>
+            <button class="btn-secondary" style="margin-top:8px;font-size:12px"
+                    onclick="downloadDebugLog()">⬇ Download server debug log</button>
+          </div>
+
           <div class="settings-section">
             <h3>Backup &amp; export</h3>
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
@@ -855,7 +977,7 @@
             <p class="hint">Connect a single Proxmox VE node. The RemotePower server calls the Proxmox API directly to list QEMU VMs (Virtualization page) and LXC containers (Containers page), and to start / shut them down. Authentication uses a Proxmox API token — create one under Datacenter → Permissions → API Tokens.</p>
             <p class="hint" style="color:var(--amber)"><strong>Note:</strong> the API token secret is stored in the server's <code>config.json</code> (file mode 600). It is not encrypted at rest. Use an API token scoped to only the permissions it needs (VM.PowerMgmt, VM.Audit), not a full-access token.</p>
             <p class="hint"><strong>More secure option:</strong> set the token secret in the environment variable <code>RP_PROXMOX_TOKEN_SECRET</code> (in the systemd unit or container env) instead of here. When that variable is set it takes precedence, the secret stays out of <code>config.json</code>, and it is not included in the backup export.</p>
-            <p class="hint" id="proxmox-env-hint" style="display:none;color:var(--ok)">✓ The token secret is currently being read from the <code>RP_PROXMOX_TOKEN_SECRET</code> environment variable. The field below is ignored.</p>
+            <p class="hint" id="proxmox-env-hint" style="display:none;color:var(--green)">✓ The token secret is currently being read from the <code>RP_PROXMOX_TOKEN_SECRET</code> environment variable. The field below is ignored.</p>
             <div class="settings-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
               <div class="form-group" style="min-width:120px">
                 <label class="form-label">Enabled</label>
@@ -1009,17 +1131,329 @@
               <span id="ai-test-result" style="font-size:13px;color:var(--muted)"></span>
             </div>
           </div>
+
+          <!-- v3.0.1: Per-feature system prompt customization -->
+          <div class="settings-section">
+            <h3>Prompt customization</h3>
+            <p class="hint">Each AI feature uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models. Edit if your model needs different wording (e.g. DeepSeek reasoning models, smaller local models, format-specific quirks). Clearing a field reverts to the default for that feature.</p>
+            <div id="ai-prompts-list" style="display:flex;flex-direction:column;gap:14px;margin-top:12px">
+              <div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">Loading prompts…</div>
+            </div>
+          </div>
         </div>
+
+<!-- ── v2.8.1: Dashboard Settings pane ──────────────────────────────── -->
+      <div class="settings-pane" id="settings-pane-dashboard">
+
+        <div class="settings-section">
+          <h3>Brute-force detection</h3>
+          <p class="hint">Counts failed login attempts per source IP in a rolling window. Fires a webhook and shows in Needs Attention when the threshold is exceeded.</p>
+          <div class="settings-row" style="flex-wrap:wrap;gap:12px;align-items:flex-end">
+            <div class="form-group">
+              <label class="form-label">Enabled</label>
+              <select id="dash-bf-enabled" class="form-input" style="width:auto">
+                <option value="1">On</option><option value="0">Off</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Threshold (attempts)</label>
+              <input type="number" id="dash-bf-threshold" class="form-input" min="1" max="1000" value="20" style="width:100px">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Window (minutes)</label>
+              <input type="number" id="dash-bf-window" class="form-input" min="1" max="60" value="5" style="width:80px">
+            </div>
+          </div>
+          <button class="btn-primary" style="margin-top:8px" onclick="saveBruteForceSettings()">Save</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>Backup file monitoring</h3>
+          <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
+          <div id="backup-monitors-list" style="margin-bottom:12px"></div>
+          <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+            <div class="form-group" style="flex:2;min-width:200px">
+              <label class="form-label">File path</label>
+              <input type="text" id="bm-path" class="form-input" placeholder="/backup/db-latest.tar.gz">
+            </div>
+            <div class="form-group" style="flex:1;min-width:140px">
+              <label class="form-label">Label</label>
+              <input type="text" id="bm-label" class="form-input" placeholder="Database backup">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max age (hours)</label>
+              <input type="number" id="bm-hours" class="form-input" value="24" min="1" max="8760" style="width:80px">
+            </div>
+            <button class="btn-secondary" onclick="addBackupMonitor()">Add</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Log ignore patterns</h3>
+          <p class="hint">Regex patterns (case-insensitive). Any log line matching a pattern is silently dropped before storage and alerting — for harmless kernel notes, vendor noise, etc.</p>
+          <div id="log-ignore-list" style="margin-bottom:12px;font-family:var(--font-mono);font-size:12px"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="log-ignore-input" class="form-input"
+                   style="flex:1;font-family:var(--font-mono);font-size:12px"
+                   placeholder="Note: After setting.*old kernels">
+            <button class="btn-secondary" onclick="addLogIgnorePattern()">Add</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Needs Attention — visible kinds</h3>
+          <p class="hint">Toggle an alert kind to hide it from both Needs Attention and Recent Activity in one click. Webhooks are unaffected.</p>
+          <div id="dash-attn-kinds" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Recent Activity — informational events</h3>
+          <p class="hint">Operational alerts are controlled above. These are the remaining informational events in the activity feed.</p>
+          <div id="dash-act-events" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0"></div>
+        </div>
+
+      </div>
+
+      <!-- v3.0.1: dedicated Ignored items pane (sibling of other settings-panes) -->
+      <div class="settings-pane" id="settings-pane-ignored">
+        <div class="settings-section">
+          <h3>Ignored items</h3>
+          <p class="hint">Items you've hidden using the × button on Needs Attention cards, device rows on the Containers page, or stale container rows. Click <em>Restore</em> on any entry to bring it back into view.</p>
+          <div id="ignored-items-list" style="margin-top:12px">
+            <div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">Loading…</div>
+          </div>
+          <button class="btn-secondary" style="font-size:12px;margin-top:12px" onclick="loadIgnoredItems()">↻ Refresh</button>
+        </div>
+      </div>
 
         <!-- Save / reload bar at the bottom (always visible) -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
-          <button class="btn-primary" style="max-width:160px" onclick="saveSettings()">Save settings</button>
+          <button class="btn-primary" id="btn-save-settings" style="max-width:160px" onclick="saveSettings(this)">Save settings</button>
           <button class="btn-secondary" onclick="loadSettings()">Reload</button>
           <button class="btn-icon" onclick="testWebhook()" id="btn-webhook-test"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button>
         </div>
       </div>
 
+
+            <!-- ── v2.9.0: Device Drawer ────────────────────────────────────────────── -->
+      <div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
+        <div class="drawer-backdrop" onclick="closeDeviceDrawer()"></div>
+        <div class="drawer-panel">
+
+          <!-- Header -->
+          <div class="drawer-header">
+            <div>
+              <div class="drawer-device-name" id="drawer-device-name">Device</div>
+              <div class="drawer-device-sub"  id="drawer-device-sub"></div>
+            </div>
+            <button class="btn-icon" onclick="closeDeviceDrawer()" title="Close" style="font-size:18px;padding:4px 8px">✕</button>
+          </div>
+
+          <!-- Tabs -->
+          <div class="drawer-tabs">
+            <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
+                    onclick="switchDrawerTab('actions')">⚡ Actions &amp; Settings</button>
+            <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
+                    onclick="switchDrawerTab('audit')">🔍 Audit</button>
+          </div>
+
+          <!-- Content -->
+          <div class="drawer-content">
+
+            <!-- ── Actions & Settings tab ─────────────────────────────────── -->
+            <div id="drawer-tab-actions" class="drawer-tab-panel">
+
+              <div class="drawer-section">
+                <div class="drawer-section-title">Quick Actions</div>
+                <div class="drawer-actions-grid" id="drawer-actions-grid">
+                  <!-- rendered by JS -->
+                </div>
+              </div>
+
+              <div class="drawer-section" style="margin-top:16px">
+                <div class="drawer-section-title">Device Settings</div>
+                <div id="drawer-settings-form"><!-- rendered by JS --></div>
+              </div>
+
+            </div><!-- /actions tab -->
+
+            <!-- ── Audit tab ───────────────────────────────────────────────── -->
+            <div id="drawer-tab-audit" class="drawer-tab-panel" style="display:none">
+              <div id="drawer-audit-sections"><!-- rendered by JS --></div>
+            </div>
+
+          </div><!-- /drawer-content -->
+        </div><!-- /drawer-panel -->
+      </div><!-- /device-drawer -->
+
+      <!-- ── v2.9.0: Device Drawer ─────────────────────────────────────────── -->
+      <div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
+        <div class="drawer-backdrop" onclick="closeDeviceDrawer()"></div>
+        <div class="drawer-panel">
+          <div class="drawer-header">
+            <div>
+              <div class="drawer-device-name" id="drawer-device-name">Device</div>
+              <div class="drawer-device-sub"  id="drawer-device-sub"></div>
+            </div>
+            <button class="btn-icon" onclick="closeDeviceDrawer()" style="font-size:18px;line-height:1">&#10005;</button>
+          </div>
+          <div class="drawer-tabs">
+            <button class="drawer-tab-btn active" id="drawer-tab-btn-actions" onclick="switchDrawerTab('actions')">Actions &amp; Settings</button>
+            <button class="drawer-tab-btn" id="drawer-tab-btn-audit" onclick="switchDrawerTab('audit')">Audit</button>
+          </div>
+          <div class="drawer-content">
+            <div id="drawer-tab-actions" class="drawer-tab-panel">
+              <div class="drawer-section">
+                <div class="drawer-section-title">Quick Actions</div>
+                <div class="drawer-actions-grid" id="drawer-actions-grid"></div>
+              </div>
+              <div class="drawer-section" style="margin-top:16px">
+                <div class="drawer-section-title">Device Settings</div>
+                <div id="drawer-settings-form"></div>
+              </div>
+            </div>
+            <div id="drawer-tab-audit" class="drawer-tab-panel" style="display:none">
+              <details class="audit-section" id="audit-sysinfo">
+                <summary>System info</summary>
+                <div class="audit-section-body" id="audit-sysinfo-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-ports">
+                <summary>Listening ports</summary>
+                <div class="audit-section-body" id="audit-ports-body">
+                  <input class="audit-filter" id="audit-ports-filter" placeholder="Filter by port or process&#8230;" oninput="_filterAuditPorts()" style="display:none">
+                  <div id="audit-ports-content"><span style="color:var(--muted)">Loading&#8230;</span></div>
+                </div>
+              </details>
+              <details class="audit-section" id="audit-packages">
+                <summary>Packages</summary>
+                <div class="audit-section-body" id="audit-packages-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-logs">
+                <summary>Logs</summary>
+                <div class="audit-section-body" id="audit-logs-body">
+                  <select class="audit-filter" id="audit-logs-unit" onchange="_loadAuditLogs()" style="display:none"></select>
+                  <div id="audit-logs-content"><span style="color:var(--muted)">Loading&#8230;</span></div>
+                </div>
+              </details>
+              <details class="audit-section" id="audit-commands">
+                <summary>Command history</summary>
+                <div class="audit-section-body" id="audit-commands-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-events">
+                <summary>Fleet events</summary>
+                <div class="audit-section-body" id="audit-events-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-drift">
+                <summary>Drift state</summary>
+                <div class="audit-section-body" id="audit-drift-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-cve">
+                <summary>CVE summary</summary>
+                <div class="audit-section-body" id="audit-cve-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-containers">
+                <summary>Containers</summary>
+                <div class="audit-section-body" id="audit-containers-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-metrics">
+                <summary>Metrics</summary>
+                <div class="audit-section-body" id="audit-metrics-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+              <details class="audit-section" id="audit-hostconfig">
+                <summary>Host config</summary>
+                <div class="audit-section-body" id="audit-hostconfig-body"><span style="color:var(--muted)">Loading&#8230;</span></div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── History page (unchanged) ─────────────────────────────────────── -->
+      <!-- ── v3.0.0: IaC Generator page ────────────────────────────────────── -->
+      <div id="page-iac" class="page">
+        <div class="page-title">IaC Generator</div>
+        <div class="page-subtitle">
+          Generate Infrastructure-as-Code (Terraform, Ansible, Pulumi, Cloud-init) for any
+          managed device. Server collects live state on demand, then the configured AI
+          provider transforms it into IaC. Sensitive env vars and SSH keys are masked
+          before leaving the host.
+        </div>
+
+        <div class="iac-layout">
+          <!-- LEFT panel: input controls -->
+          <div class="iac-controls">
+            <div class="iac-section">
+              <label class="iac-label">Device</label>
+              <select id="iac-device-select" class="form-input" onchange="_iacSavePref()">
+                <option value="">— select a device —</option>
+              </select>
+            </div>
+
+            <div class="iac-section">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <label class="iac-label" style="margin:0">Categories</label>
+                <div>
+                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="_iacSelectAll(true)">Select all</button>
+                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="_iacSelectAll(false)">Deselect all</button>
+                </div>
+              </div>
+              <div id="iac-categories" class="iac-cat-list"></div>
+            </div>
+
+            <div class="iac-section">
+              <label class="iac-label">Output format</label>
+              <select id="iac-format-select" class="form-input" onchange="_iacSavePref()">
+                <option value="terraform">Terraform (HCL)</option>
+                <option value="ansible">Ansible (YAML)</option>
+                <option value="pulumi-python">Pulumi (Python)</option>
+                <option value="pulumi-ts">Pulumi (TypeScript)</option>
+                <option value="cloud-init">Cloud-init (YAML)</option>
+              </select>
+            </div>
+
+            <div class="iac-section">
+              <label class="iac-label" for="iac-user-instructions">Extra instructions for the AI <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+              <textarea id="iac-user-instructions" class="form-input"
+                        style="width:100%;min-height:70px;font-family:var(--font-mono);font-size:12px;resize:vertical"
+                        placeholder="e.g. Use Terraform 1.5+ syntax · Mark all variables sensitive=true · Include comments explaining each resource · Wrap in a module"
+                        onchange="_iacSavePref()"></textarea>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-direction:column">
+              <button id="iac-generate-btn" class="btn-primary" style="width:100%" onclick="iacGenerate(this, true)">
+                Generate IaC
+              </button>
+              <button id="iac-rawjson-btn" class="btn-primary" style="width:100%;background:var(--accent2)" onclick="iacGenerate(this, false)">
+                Gather RAW JSON
+              </button>
+            </div>
+
+            <div id="iac-status" class="iac-status" style="display:none;margin-top:10px"></div>
+          </div>
+
+          <!-- RIGHT panel: tabbed output -->
+          <div class="iac-output">
+            <div class="iac-tabs">
+              <button class="iac-tab active" id="iac-tab-btn-code"   onclick="_iacSwitchTab('code')">Generated Code</button>
+              <button class="iac-tab"        id="iac-tab-btn-convo"  onclick="_iacSwitchTab('convo')">AI Conversation</button>
+            </div>
+            <div class="iac-output-header">
+              <span id="iac-output-title" style="color:var(--muted);font-size:13px">Generated code will appear here</span>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button id="iac-rerun-btn"    class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacRerunAi(this)" disabled title="Re-prompt the LLM using the already-collected data (no agent wait)">↻ Re-run AI</button>
+                <button id="iac-json-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacDownloadJson()" disabled title="Download the raw JSON state that was sent to the LLM">{ } JSON</button>
+                <button id="iac-copy-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacCopy(this)" disabled>Copy</button>
+                <button id="iac-download-btn" class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacDownload()" disabled>Download</button>
+              </div>
+            </div>
+            <pre id="iac-code-output"  class="iac-code">Click <strong>Generate IaC</strong> to begin.</pre>
+            <div id="iac-convo-output" class="iac-convo" style="display:none">
+              <div style="color:var(--muted);text-align:center;padding:40px">No conversation yet. Generate something first.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="page-history" class="page">
         <div class="page-title">Command History</div><div class="page-subtitle">Log of all commands sent to devices</div>
         <div class="section-header"><div class="section-title">Recent commands</div><div style="display:flex;gap:8px"><button class="btn-icon" onclick="loadHistory()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearHistory()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
@@ -1577,6 +2011,359 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
+<details class="doc-card" data-keywords="device drawer actions audit settings panel">
+            <summary><strong>Device Drawer</strong> — click any device to open</summary>
+            <div class="doc-body">
+              <p>Clicking a device name (Devices page or Dashboard fleet roster) opens a full-screen drawer with two tabs:</p>
+              <p><strong>Actions &amp; Settings tab</strong> — all actions for that host in one grid:
+                Run command · Reboot · Shut down · Wake on LAN · Upgrade packages · Scan packages ·
+                Web terminal · Run script · Update agent · Docker compose · Host config ·
+                AI Investigate · CMDB · Runbook · Maintenance · Adjust poll · Remove device.
+                Below the grid: inline settings form (group, tags, monitored toggle, poll interval,
+                watched services, log rules, drift files, command allowlist) with a Save button.
+              </p>
+              <p><strong>Audit tab</strong> — 11 collapsible sections, all lazy-loaded on first open:
+                System info (uptime, IPs, mounts, AI "Find the problem") ·
+                Listening ports (searchable) · Packages · Logs (unit selector) ·
+                Command history (last 5, expand per entry) · Fleet events ·
+                Drift state · CVE summary · Containers · Metrics · Host config.
+              </p>
+              <p>The <strong>⋮ button</strong> on the Devices page also opens the drawer directly on the Actions &amp; Settings tab.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="dashboard settings attention activity brute force backup">
+            <summary><strong>Settings → Dashboard</strong> — personalise the dashboard</summary>
+            <div class="doc-body">
+              <p>Settings → Dashboard tab controls what appears on the home dashboard for all users:</p>
+              <p><strong>Brute-force detection</strong> — enable/disable, set threshold (default 20 failed attempts from same IP in a 5-minute window), and window length.</p>
+              <p><strong>Backup file monitoring</strong> — add file paths and max-age thresholds. The agent checks mtime every heartbeat; <code>backup_stale</code> webhook fires edge-triggered and a Needs Attention item appears.</p>
+              <p><strong>Log ignore patterns</strong> — regex patterns (case-insensitive) that silently drop matching log lines before storage and alerting. Useful for noisy kernel notes like <code>Note: After setting.*old kernels</code>.</p>
+              <p><strong>Needs Attention kinds</strong> — one toggle per alert type. Toggling a kind off hides it from both the Needs Attention panel and the Recent Activity feed simultaneously.</p>
+              <p><strong>Recent Activity events</strong> — toggle the remaining informational events (device online, command queued/executed) independently.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="listening ports monitor fleet-wide port process">
+            <summary><strong>Listening Ports</strong> — Monitor page + per-device Audit</summary>
+            <div class="doc-body">
+              <p><strong>Fleet-wide view:</strong> Monitor page → Listening Ports section. Shows all open ports across all online monitored devices, grouped by port number, with process name and which devices are listening. Shows 10 rows by default; expand button for the rest.</p>
+              <p><strong>Per-device view:</strong> Device drawer → Audit tab → Listening Ports section. Searchable table filtered by port number or process name.</p>
+              <p>Port data is collected by the agent as part of sysinfo (every ~10 minutes) and persisted in <code>devices.json</code>. New ports trigger a <code>new_port_detected</code> webhook compared against the port baseline.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="cve scan packages send list osv vulnerability">
+            <summary><strong>CVE Findings</strong> — package vulnerability scanning</summary>
+            <div class="doc-body">
+              <p>RemotePower checks installed packages against <a href="https://osv.dev" target="_blank">OSV.dev</a>. The dashboard tile always shows <strong>Critical CVEs</strong> first with the count, and high/med/low counts in the subtitle.</p>
+              <p><strong>Scan all devices</strong> — runs OSV lookups for every device that has submitted a package list. Can take a minute for large fleets. Button shows progress and result.</p>
+              <p><strong>Send list</strong> (per-device) — asks the agent to send its full installed package list on the next heartbeat (~60 seconds). The CVE scanner then runs automatically. Use this after installing new packages before the agent's next scheduled scan.</p>
+              <p><strong>Scan</strong> (per-device) — re-runs the OSV lookup using the already-stored package list. No need to wait for the agent.</p>
+              <p>The dashboard tile shows 0 for critical even when there are only high/medium/low findings — click it to see the full breakdown per device.</p>
+            </div>
+          </details>
+
+          <!-- v3.0.0 docs ─────────────────────────────────────────── -->
+
+          <details class="doc-card" data-keywords="iac infrastructure code terraform ansible pulumi cloud-init generator">
+            <summary><strong>IaC Generator</strong> — generate Infrastructure-as-Code for a device</summary>
+            <div class="doc-body">
+              <p>The <strong>IaC Generator</strong> page (left nav) produces Terraform, Ansible, Pulumi, or Cloud-init code that describes a managed device's current state. Useful for codifying a host you've configured by hand, or for migrating a host to a new platform.</p>
+              <p><strong>Flow:</strong></p>
+              <ol>
+                <li>Select a device, the categories of state you care about, and an output format.</li>
+                <li>Click <em>Generate IaC</em> (full LLM flow) or <em>Gather RAW JSON</em> (collect only, download masked state).</li>
+                <li>On the agent's next heartbeat (~60 seconds), it collects the requested categories and sends raw state back.</li>
+                <li>The server calls your configured AI provider (Settings → AI) with the raw state, and returns the resulting code.</li>
+              </ol>
+              <p><strong>Categories</strong> (18): OS &amp; identity, installed packages, systemd services (enabled), local users (uid≥1000), groups (gid≥1000), SSH authorized_keys (LLM converts to variables), network configuration, mounts (fstab), containers (Docker/Podman), custom repos, firewall, cron jobs (incl. RemotePower scheduled), TLS certificates (paths only), system environment (non-default), snaps (Ubuntu), kernel modules (persistent), sysctl parameters (non-default), RemotePower-specific (tags, group, custom scripts, host-config desired state).</p>
+              <p><strong>Output formats:</strong> Terraform (HCL), Ansible (YAML), Pulumi (Python), Pulumi (TypeScript), Cloud-init (YAML).</p>
+              <p><strong>Output tabs:</strong> Generated Code | AI Conversation. The Conversation tab shows the full system+user prompt and the raw LLM response, so you can see exactly what the model produced before fence-stripping.</p>
+              <p><strong>Re-run AI / JSON download:</strong> After a successful generation, the <em>↻ Re-run AI</em> button re-prompts the LLM using the already-collected data (no second agent wait). The <em>{ } JSON</em> button downloads the masked state as a JSON file.</p>
+              <p><strong>Extra instructions:</strong> A textarea below the format dropdown lets you append custom guidance ("use Terraform 1.5+ syntax", "wrap in a reusable module"). Persisted in localStorage.</p>
+              <p><strong>Reasoning-model safety net:</strong> The prompt instructs the LLM to wrap output between <code>&lt;&lt;&lt;BEGIN_IAC&gt;&gt;&gt;</code> and <code>&lt;&lt;&lt;END_IAC&gt;&gt;&gt;</code> markers. The stripper extracts only what's between them — so DeepSeek-R1-style reasoning prose gets discarded automatically.</p>
+              <p><strong>Security:</strong> Before the payload leaves your server for the LLM, env vars whose name matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> are masked with <code>&lt;REDACTED_BY_REMOTEPOWER&gt;</code>. TLS certificate <em>paths</em> are sent but never the certificate contents. SSH authorized_keys are sent raw — the LLM is instructed to convert them to variables.</p>
+              <p><strong>Endpoints:</strong> <code>POST /api/iac/request</code> · <code>GET /api/iac/status/&lt;id&gt;</code> · <code>POST /api/iac/generate</code> · <code>GET /api/iac/payload/&lt;id&gt;</code> (v3.0.0)</p>
+            </div>
+          </details>
+
+          <!-- v3.0.1 docs ─────────────────────────────────────────── -->
+
+          <details class="doc-card" data-keywords="ignore hide attention card stale container per-item restore">
+            <summary><strong>Per-item ignore lists</strong> (v3.0.1) — × button on Needs Attention and stale containers</summary>
+            <div class="doc-body">
+              <p>Each Needs Attention card and each stale Containers row now has a <strong>×</strong> button that hides that specific entry from view. Ignores are per-item (one specific CVE on one specific device, not the whole category).</p>
+              <p><strong>Restore:</strong> Settings → AI Assistant → Ignored items lists every hidden entry with a Restore button. Three categories are tracked separately: Needs Attention, Stale containers, Devices.</p>
+              <p><strong>Stability:</strong> Needs Attention items are keyed by a stable SHA1 of <code>kind+device+summary</code>, so the same alert firing in a later poll stays hidden until you restore it. New variants (e.g. the same CVE but a new package version) get a fresh key and re-appear.</p>
+              <p><strong>Storage:</strong> <code>/var/lib/remotepower/ignored_items.json</code></p>
+              <p><strong>Endpoints:</strong> <code>GET /api/ignored</code> · <code>POST /api/ignored</code> · <code>POST /api/ignored/remove</code></p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="logs apt history syslog nginx timestamp dedupe rearchitect ingestion 11000 lines buffer">
+            <summary><strong>Log ingestion (v3.0.1)</strong> — embedded timestamps + content dedupe</summary>
+            <div class="doc-body">
+              <p>The Logs page ingestion path was rearchitected to handle re-submitted file-based logs (apt.history, nginx access, syslog) correctly.</p>
+              <p><strong>Previous bug:</strong> agents resubmit log files on every poll. The server used to stamp every line with <code>now</code>, so apt.history entries from days ago appeared as "new" and the 6-hour TTL never evicted them. Worse, the resulting bloat pushed nginx and brute-force lines past the 2 MB byte cap (silently dropped).</p>
+              <p><strong>Fix (v3.0.1):</strong></p>
+              <ol>
+                <li>Each incoming line is hashed (<code>sha1[:16]</code>) and compared against the buffer. Duplicates are dropped at ingestion.</li>
+                <li>The line's own embedded timestamp is used when present. Supported formats: apt.history <code>Start-Date: YYYY-MM-DD HH:MM:SS</code>, nginx access <code>[DD/MMM/YYYY:HH:MM:SS +TZ]</code>, syslog <code>Mon DD HH:MM:SS</code>, ISO <code>YYYY-MM-DDTHH:MM:SS</code>.</li>
+                <li>The 2 MB byte cap was removed. With dedupe + TTL, the buffer can't grow unboundedly on idle units anymore.</li>
+              </ol>
+              <p><strong>Impact:</strong> If you upgraded from a buffer that had 11 000+ apt.history lines, give it one full TTL window (6 hours) for old entries to drop out. Nginx and brute-force events should re-appear immediately after restart since they're no longer being crowded out.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="logwatch severity ok warn crit checkmk pattern named">
+            <summary><strong>Logwatch severity</strong> (v3.0.1) — OK / WARN / CRIT classification</summary>
+            <div class="doc-body">
+              <p>Log alert rules (per-device and fleet-wide) carry a <strong>severity</strong> field — OK, WARN, or CRIT — modelled after CheckMK's classification.</p>
+              <p><strong>Semantics:</strong></p>
+              <ul>
+                <li><strong>WARN</strong> (default) — fires the <code>log_alert</code> webhook with <code>severity: "WARN"</code>.</li>
+                <li><strong>CRIT</strong> — same as WARN but with <code>severity: "CRIT"</code> in the payload, so your alerting routes accordingly.</li>
+                <li><strong>OK</strong> — silent: the rule fires (the match is recorded internally) but no webhook is sent. Use OK rules as <em>noise-suppressors</em> that confirm an expected pattern is still present, without alert spam.</li>
+              </ul>
+              <p>Set the severity when creating or editing a rule in the Logs page rule modal.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="ai prompt customization tune deepseek ollama claude default override per-feature system">
+            <summary><strong>AI prompt customization &amp; fine-tuning</strong> (v3.0.1) — per-feature settings</summary>
+            <div class="doc-body">
+              <p>Each AI feature (IaC Generator, Investigate, Diagnose Service, Runbook, etc.) uses a system prompt to set tone and constraints. Defaults are tuned for general-purpose models but may need adjusting per-model — a DeepSeek-R1 prompt doesn't necessarily fit a small local Llama.</p>
+              <p><strong>Where:</strong> Settings → AI Assistant → Prompt customization. One card per AI feature (15 cards total).</p>
+              <p><strong>Per card:</strong></p>
+              <ul>
+                <li><strong>System prompt textarea</strong> — edit; click <em>Save prompt</em> to persist; clear and save to revert to default.</li>
+                <li><strong>● customized</strong> badge appears when overridden.</li>
+                <li><strong>Default</strong> button restores the hardcoded default for that feature.</li>
+                <li><strong>⚙ Fine-tuning</strong> (collapsible) — per-call temperature (0.0–2.0), top_p (0.0–1.0), max_tokens (1–16000), num_ctx (512–131072, Ollama/LocalAI only). Empty fields fall back to provider defaults.</li>
+                <li><strong>● tuned</strong> badge appears when any fine-tuning value is set.</li>
+              </ul>
+              <p><strong>Storage:</strong> <code>config.json</code> under <code>ai_prompt_overrides</code> and <code>ai_param_overrides</code>.</p>
+              <p><strong>Endpoints:</strong> <code>GET /api/ai/prompts</code> · <code>POST /api/ai/prompts</code> · <code>GET /api/ai/params</code> · <code>POST /api/ai/params</code></p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="force upgrade agent re-deploy push bundled corrupt recovery">
+            <summary><strong>Force-upgrade agent</strong> (v3.0.1) — re-deploy regardless of version</summary>
+            <div class="doc-body">
+              <p>The Device Drawer's <strong>⚡ Force-upgrade</strong> button pushes the currently-bundled agent binary to a device, even if the agent already reports the same version.</p>
+              <p><strong>Use cases:</strong> recovery after a corrupt or truncated update, pushing a rebuilt binary at the same version, testing the self-update path.</p>
+              <p><strong>How it works:</strong> the server sets <code>force_agent_upgrade: true</code> on the device record. The next heartbeat (within <code>online_ttl</code> seconds) delivers the flag and the server clears it. The agent calls <code>check_for_update(force=True)</code>, which skips the version comparison and re-downloads + replaces its binary. Systemd then respawns the agent with the new binary.</p>
+              <p><strong>Endpoint:</strong> <code>POST /api/devices/&lt;id&gt;/agent/force-upgrade</code> (admin only)</p>
+              <p>Confirmed in the audit log as <code>agent_force_upgrade</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="version available update banner snooze 30 days dismiss hide">
+            <summary><strong>Update banner snooze 30d</strong> (v3.0.1)</summary>
+            <div class="doc-body">
+              <p>The "RemotePower v&lt;X&gt; is available" banner has a <strong>Snooze 30d</strong> button. Click it to hide the banner for that specific version for 30 days.</p>
+              <p>Snooze is per-version, so a newer release re-shows the banner. State lives in <code>localStorage</code> under <code>rp_version_snooze_&lt;version&gt;</code>.</p>
+            </div>
+          </details>
+
+          <!-- v2.6.0 docs (filling gaps) ──────────────────────────── -->
+
+          <details class="doc-card" data-keywords="custom scripts monitoring python bash run scheduled assigned per-device library">
+            <summary><strong>Custom monitoring scripts</strong> (v2.6.0)</summary>
+            <div class="doc-body">
+              <p>Custom scripts let you ship arbitrary monitoring logic to selected devices, run on a schedule, and surface output in the UI.</p>
+              <p><strong>Library:</strong> Scripts page → New script. Each script has a name, description, runtime (bash or python3), assignment selector (devices/tags/groups), schedule (interval in minutes), and timeout. Server pushes the body and metadata in the heartbeat response; agent stores them locally and runs them on schedule.</p>
+              <p><strong>Output:</strong> per-device → Scripts page → Click a device row, or via the Device Drawer → <em>Custom scripts</em> chip. Each run records <code>rc</code>, <code>output</code> (capped at 8 KB), and <code>ts</code>.</p>
+              <p><strong>Security:</strong> Scripts are pushed by the server, signed implicitly via the device token, and run as the agent user (root by default). Treat the script library as you would a CI/CD pipeline.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="host config desired state apt yum kernel package modules sysctl systemd enforce drift">
+            <summary><strong>Host configuration management</strong> (v2.6.0)</summary>
+            <div class="doc-body">
+              <p>Per-device Host Configuration captures a <em>desired state</em> for a small set of system attributes; the agent reconciles on every poll.</p>
+              <p><strong>Where:</strong> Device Drawer → ⚙ Host config.</p>
+              <p><strong>Attributes:</strong> APT/YUM packages to ensure installed, sysctl values to set, systemd units to enable, kernel modules to load. Each is optional.</p>
+              <p><strong>Reconciliation:</strong> agent reports the <em>current</em> state alongside the desired state. A diff is visible in the UI. Drift events are surfaced under the device's Drift tab.</p>
+              <p><strong>Files:</strong> server keeps <code>host_config_current/&lt;dev_id&gt;.json</code> for each device's reported state.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="debug logging troubleshoot client side console api toast instrumentation">
+            <summary><strong>Debug logging</strong> (v2.7.0+) — client-side observability</summary>
+            <div class="doc-body">
+              <p>The UI ships an in-page debug logger that captures <code>api()</code> calls, <code>toast()</code> events, click handlers, and other instrumented events.</p>
+              <p><strong>Enable:</strong> Settings → Advanced → Enable debug logging. State persists in <code>localStorage</code> under <code>rp_debug</code>, so a fresh page load picks it up immediately.</p>
+              <p><strong>Output:</strong> debounced (250 ms) flush to the server, surfaced in the audit log and (when enabled) a developer console panel.</p>
+              <p>Use this when something looks broken but the server logs are quiet. Most "the button doesn't fire" bugs show up clearly here.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="security hardening pbkdf2 password salt secrets redaction backup must-change-password">
+            <summary><strong>Security hardening</strong> (v2.3.2 / v3.0.0)</summary>
+            <div class="doc-body">
+              <p>Several security improvements accumulated through the 2.x and 3.0 line:</p>
+              <ul>
+                <li><strong>Password storage:</strong> PBKDF2-HMAC-SHA256 at 600 000 iterations with per-user salt. The previous bare-SHA-256 fallback was removed.</li>
+                <li><strong>Default admin:</strong> the first <code>admin/admin</code> account has <code>must_change_password</code> set. A persistent banner in the UI nags until the password is changed.</li>
+                <li><strong>Backup export:</strong> the <code>/api/backup</code> export now redacts Proxmox tokens, SMTP passwords, LDAP bind passwords, and similar secrets. The backup is otherwise full-fidelity.</li>
+                <li><strong>IaC payload masking:</strong> env vars whose name matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> are masked before being sent to the LLM. TLS cert <em>paths</em> are sent, never the contents.</li>
+                <li><strong>Recursion depth guard</strong> (v3.0.1) on the IaC mask walker so a pathological JSON payload can't trigger a RecursionError.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="acme letsencrypt cert tls renewal cloudflare dns dns-01 wildcard">
+            <summary><strong>ACME / Let's Encrypt</strong> — manage acme.sh certs across the fleet</summary>
+            <div class="doc-body">
+              <p>Lives under <strong>Security → TLS / DNS expiry</strong>, in the "ACME certificates" section below the existing TLS watchlist.</p>
+              <p><strong>How it works:</strong> the agent walks <code>~/.acme.sh/</code> on each device (root, $HOME, or <code>/etc/acme.sh/</code> — first match wins), parses every <code>&lt;domain&gt;/&lt;domain&gt;.conf</code>, and reports state to the server. No credentials leave the device — the agent uses whatever's already in <code>~/.acme.sh/account.conf</code> or env. acme.sh's own cron handles renewals; RemotePower visualises and provides force-renew/revoke/cancel.</p>
+              <p><strong>DNS-01 only.</strong> v1 supports <code>dns_cf</code> (Cloudflare) explicitly with credential-location hints; the provider dropdown lists Route53, DigitalOcean, deSEC, Hetzner, Porkbun, etc. RemotePower never touches nginx/apache/HTTP-01 plumbing.</p>
+              <p><strong>Wildcards</strong> are supported via the Issue wizard's checkbox. Must-staple is intentionally <em>not</em> exposed — Let's Encrypt is sunsetting OCSP (August 2025), so OCSP-stapled certs would fail.</p>
+              <p><strong>Cancel pending actions:</strong> any queued renew/issue/revoke with no <code>rc</code> yet shows a Cancel button. If the action is still in the queue it's removed cleanly; if the agent has already grabbed it, RemotePower stops polling but the agent may still complete the operation (last-write wins on the meta).</p>
+              <p>Per-domain action logs (captured stdout from acme.sh, 256 KB cap) live in <code>/var/lib/remotepower/acme_logs/</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="mitigate mitigation investigate ai diagnose fix runner alert">
+            <summary><strong>Mitigation runners</strong> — investigate alerts with diagnostic + AI suggestion + confirmed fix</summary>
+            <div class="doc-body">
+              <p>Every <strong>Needs Attention</strong> card with a supported alert kind (<code>patches</code>, <code>disk</code>, <code>drift</code>, <code>service_down</code>, <code>reboot</code>, <code>brute_force</code>) shows a 🩺 <strong>Investigate</strong> button. Three-tab modal:</p>
+              <ol>
+                <li><strong>Diagnostic</strong> — server queues a hardcoded read-only command on the agent (e.g. for disk: <code>df -h</code> + top dirs + files &gt;500MB + journal disk usage). Live-polls every 2s, up to 3 min.</li>
+                <li><strong>AI Analysis</strong> — when diagnostic completes, the AI runs automatically with a playbook-specific system prompt (5 new keys in Settings → AI Assistant: <code>mitigate_cpu</code>, <code>_memory</code>, <code>_disk</code>, <code>_service</code>, <code>_patches</code>). It outputs a root cause + one specific fix command between <code>BEGIN_FIX</code> / <code>END_FIX</code> markers.</li>
+                <li><strong>Apply Fix</strong> — choose pre-approved playbook fix, AI-suggested fix, or paste your own. Safety classifier shows red banner for denylisted commands (<code>rm -rf /</code>, <code>dd of=/dev/sd*</code>, fork bombs, etc. — refused outright) or amber for sensitive ones (<code>reboot</code>, <code>kill -9</code>, <code>systemctl stop</code>, <code>apt purge</code>, <code>curl | bash</code> — requires typing <strong>RUN</strong>).</li>
+              </ol>
+              <p>All investigations and fixes go to the audit log. Output captured per-action in <code>/var/lib/remotepower/mitigate_logs/</code>.</p>
+              <p><strong>Diagnostic commands are server-defined</strong> — user input never flows into the shell. Service unit names go through a strict regex (alphanumeric + <code>._@-</code>) before any template substitution; shell metachars and path traversal are rejected.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="needs attention recent activity alerts critical fix now">
+            <summary><strong>Needs Attention vs Recent Activity</strong> — what goes where</summary>
+            <div class="doc-body">
+              <p><strong>Needs Attention</strong> = "fix this NOW". Only items whose underlying state is <em>currently broken</em>: a service that's down right now, a probe that's failing right now, pending patches that still need to be applied, etc.</p>
+              <p><strong>Recent Activity</strong> = event log of things that happened in the past — transitions, dispatches, ACK'd alerts. A service that went down at 14:30 and came back up at 14:35 shows in Recent Activity but disappears from Needs Attention once it's healthy again.</p>
+              <p><strong>v3.0.1 audit (attention coverage):</strong> these state-derived kinds now appear in NA whenever the condition is active:</p>
+              <ul>
+                <li><code>service_down</code> — any watched systemd unit in <code>failed</code> (critical) or <code>inactive</code>/<code>deactivating</code> (warning). Carries the unit name as <code>target</code> so the 🩺 button can run <code>systemctl status</code> + <code>journalctl -u &lt;unit&gt;</code> automatically.</li>
+                <li><code>monitor_down</code> — any monitor target whose latest probe came back <code>ok: false</code>.</li>
+                <li><code>custom_script_fail</code> — any custom monitoring script reporting non-zero <code>rc</code> in its latest result.</li>
+              </ul>
+              <p>Already covered: <code>offline</code>, <code>patches</code>, <code>cve</code>, <code>drift</code>, <code>mailbox</code>, <code>brute_force</code>, <code>snapshot</code>, <code>backup</code>, <code>disk</code>, <code>tls</code>, <code>reboot</code>, <code>agent_version</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="logwatch log watch file path regex unit systemd">
+            <summary><strong>Log watching</strong> — systemd units AND arbitrary file paths</summary>
+            <div class="doc-body">
+              <p>Per-device and fleet-wide log rules live in <strong>Settings → AI Assistant → Log alerts</strong>. Each rule:</p>
+              <ul>
+                <li><strong>Source type:</strong> systemd unit (via <code>journalctl</code>) <em>or</em> arbitrary file path (agent tails the file directly).</li>
+                <li><strong>Pattern:</strong> Python regex against each new line.</li>
+                <li><strong>Threshold:</strong> minimum matches before firing.</li>
+                <li><strong>Severity:</strong> OK (silent on match — used to suppress noise), WARN, CRIT.</li>
+              </ul>
+              <p>File-path rules: agent tracks inode + byte position in <code>/var/lib/remotepower/file-log-state.json</code>. Rotation (inode change) resets to position 0; truncation also resets. <strong>First-time setup skips existing content</strong> — only new lines from then on are sent, so a freshly-configured rule doesn't dump the entire historic file.</p>
+              <p>Submitted as synthetic unit <code>file:&lt;path&gt;</code>. Caps: 200 lines and 256 KB per poll, per file.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="force upgrade agent push deploy rebuild lightning">
+            <summary><strong>Force-upgrade agent</strong> — push a fresh binary to a single device</summary>
+            <div class="doc-body">
+              <p>Per-device drawer → ⚡ <strong>Force upgrade</strong> button. Sets a one-shot flag on the device record. On the next heartbeat (within 60s), the server includes the flag in the response; agent calls <code>check_for_update(force=True)</code>, which bypasses the version-compare check and re-downloads the binary regardless of "we're already at version X". Flag is cleared atomically inside the heartbeat lock so it fires exactly once.</p>
+              <p><strong>v3.0.1 fix:</strong> the flag had been silently dropped (copied to the wrong scope inside the heartbeat handler) so the operator got a success toast but nothing happened. Now wired through correctly, with a regression test. Use for re-deploys, recovery from corrupted binaries, or rolling out same-version rebuilds.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="sidebar collapse expand navigation">
+            <summary><strong>Collapsible sidebar</strong> — more room for the main pane</summary>
+            <div class="doc-body">
+              <p>Click ◀ at the top of the sidebar to shrink it to a 56-px icon strip. Click ▶ to expand. Preference saved in <code>localStorage.rp_sidebar_collapsed</code> and applied before first paint, so reloads don't flash the wide layout. Mobile (≤768px) ignores this — the slide-in drawer is unchanged.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="pacman cachyos arch yum dnf rhel patch upgrade">
+            <summary><strong>Package manager coverage</strong> — apt, dnf, yum, pacman</summary>
+            <div class="doc-body">
+              <p><strong>Patch status detection</strong> works across all four: apt (<code>apt list --upgradable</code>), dnf (<code>dnf check-update</code>), yum (<code>yum check-update</code> — RHEL 7 / older CentOS, reports as <code>manager: dnf</code> so it shares the CVE path), pacman (<code>pacman -Sy</code> + <code>pacman -Qu</code>).</p>
+              <p><strong>pacman 7+ sandbox:</strong> the new download sandbox user (<code>alpm</code>) fails on hosts where that user isn't usable — CachyOS in particular. v3.0.1 probes <code>pacman --help</code> for <code>--disable-sandbox</code> support and passes it when available, in both the agent's status check and the server's <code>_UPGRADE_CMD</code>. On real failure, <code>upgradable</code> is reported as <code>None</code> (UI shows "unknown") instead of <code>0</code> ("fully patched") — the previous silent-0 was the reason CachyOS devices appeared up-to-date when they weren't.</p>
+              <p><strong>CVE scanning</strong>: uses OSV.dev. Mapping: Debian/Ubuntu by codename, Rocky/AlmaLinux/RedHat for rpm-based, no Fedora (no OSV feed). Arch / CachyOS intentionally unsupported — Arch packages aren't in OSV.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="ignored items hide dismiss restore">
+            <summary><strong>Ignored items</strong> — hide alerts without deleting the underlying state</summary>
+            <div class="doc-body">
+              <p>Every Needs Attention card and Containers row has an × button. Click it to hide the item; restore from <strong>Settings → Ignored items</strong>. Three categories: Needs Attention (per-alert), Stale containers (per-container), Devices (whole-device hide on Containers page).</p>
+              <p>Stored in <code>/var/lib/remotepower/ignored_items.json</code>. Ignores survive backups and aren't redacted in the export.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="webhook pushover discord slack teams ntfy multi destinations format">
+            <summary><strong>Multi-webhook destinations</strong> — fire every alert to multiple endpoints (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>Up to 20 webhook destinations, each with its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON). Per-destination filters: limit by event name or minimum priority. Configure in <strong>Settings → Notifications → Webhook destinations</strong>.</p>
+              <p><strong>Pushover</strong> uses form-encoded POST with <code>token</code> + <code>user</code> + <code>message</code> + <code>priority</code>. Internal critical (priority=2) maps to Pushover priority=1 (high), not 2 (emergency tier) — that requires retry+expire and forced acknowledgment, must be operator-explicit. Credentials are write-once-and-redacted (UI shows <code>••••• (set)</code>) and redacted from the backup export.</p>
+              <p>The legacy single <code>webhook_url</code> field still works for backward compatibility. New setups should use the multi-webhook editor.</p>
+              <p>Full doc at <a href="docs/webhooks.md" style="color:var(--accent)">docs/webhooks.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="server status self monitoring health disk backup webhook delivery">
+            <summary><strong>Server status</strong> — RemotePower watching itself (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>New sidebar entry. Reports server version + memory, <code>/var/lib/remotepower</code> disk usage with the top 20 largest files, fleet device freshness, webhook delivery success rate (24h + 7d), audit log size, and scheduled backup state.</p>
+              <p>Closes the "who monitors the monitor?" gap — if RemotePower itself starts misbehaving (webhooks failing silently, disk filling, agents stuck), the page surfaces it. <code>GET /api/self/status</code> works for external monitoring (Uptime Kuma, Grafana, Homepage).</p>
+              <p>Full doc at <a href="docs/self-monitoring.md" style="color:var(--accent)">docs/self-monitoring.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="backup scheduled tarball restore retention disaster recovery">
+            <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code> (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery. Manual "Run backup now" button on the Server status page.</p>
+              <p><strong>Excluded</strong>: the backups directory itself, in-flight <code>.tmp.*</code> files, existing <code>.gz</code> archives. Owner/group stripped so restoring on a different host doesn't fail.</p>
+              <p><strong>No in-UI restore</strong> — backups are tarballs you extract yourself. Procedure in <a href="docs/self-monitoring.md#restoring-from-a-backup" style="color:var(--accent)">docs/self-monitoring.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="bulk batch fleet wide upgrade reboot shutdown scan rescan">
+            <summary><strong>Bulk operations</strong> — fleet-wide operations on filtered devices (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>From the command palette (<code>/</code> → "Bulk actions") or <strong>Settings → Advanced → Bulk actions</strong>. Filter by all monitored / by group / by tag, then pick an action: upgrade packages, reboot, shutdown, force package scan, force ACME rescan.</p>
+              <p>Destructive actions (reboot, shutdown) require typing <code>RUN</code> to confirm. Every queued command is audit-logged. No undo once a command is queued — operator must reach the agent another way (SSH) to cancel before the next heartbeat picks it up.</p>
+              <p>Full doc at <a href="docs/bulk-operations.md" style="color:var(--accent)">docs/bulk-operations.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="search command palette keybind shortcut keyboard navigation">
+            <summary><strong>Command palette &amp; keyboard shortcuts</strong> — <code>/</code>, <code>Ctrl-K</code>, <code>?</code> (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>Press <kbd>/</kbd> or <kbd>Ctrl-K</kbd> to open the global search. Indexes all pages, every device (from the cached list), and quick actions. Arrow keys to navigate, Enter to activate.</p>
+              <p><kbd>?</kbd> shows the cheat sheet. <strong>g-prefix shortcuts</strong>: press <kbd>g</kbd>, then <kbd>h/d/l/s/c/m/a/v</kbd> within 1.5 seconds to jump to Home/Devices/Logs/Settings/CVE/Monitor/Audit/serVer-status.</p>
+              <p>All shortcuts disabled when an input field has focus. Full doc at <a href="docs/keyboard-shortcuts.md" style="color:var(--accent)">docs/keyboard-shortcuts.md</a>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="acme rescan force letsencrypt cert renewal scan">
+            <summary><strong>Force ACME rescan</strong> — bypass the hourly scan cadence (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>When you've issued or renewed a cert via the acme.sh CLI on the host and don't want to wait up to an hour for RemotePower to catch up: from the ACME table, click ↻ Rescan on the device row.</p>
+              <p>Sets a one-shot <code>force_acme_rescan</code> flag on the device. Next heartbeat (within 60s by default) carries the signal, agent re-walks <code>~/.acme.sh/</code> regardless of the <code>ACME_CHECK_EVERY</code> cadence. Same flag-on-heartbeat-lock pattern as force-upgrade and force-package-scan.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="cache performance load json mtime">
+            <summary><strong>Per-request load() cache</strong> — performance under the hood (v3.0.2)</summary>
+            <div class="doc-body">
+              <p>CGI gives a fresh interpreter per request, so the cache lives only as long as one handler. Within that handler though, <code>CONFIG_FILE</code> was being parsed up to 4× per heartbeat and <code>LONGPOLL_FILE</code> 3× in <code>handle_longpoll_exec</code>. The cache deduplicates redundant reads.</p>
+              <p>Two safety properties: deep-copy on every load() so caller mutations don't corrupt the cache, and explicit invalidation in <code>_LockedUpdate.__exit__</code> when the save aborts due to exception — otherwise the next load would return uncommitted in-flight changes.</p>
+            </div>
+          </details>
+
         </div>
       </div>
 
@@ -1647,6 +2434,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v3.0.2: Self-monitoring page — RemotePower watching itself ───── -->
+      <div id="page-self" class="page">
+        <div class="page-title">Server status</div>
+        <div class="page-subtitle">RemotePower watching itself — disk, devices, webhooks, audit, backups. <a href="docs/self-monitoring.md" style="color:var(--accent)">Documentation</a>.</div>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn-secondary" onclick="loadSelfStatus()">↻ Refresh</button>
+          <button class="btn-secondary" onclick="runBackupNow()" id="self-backup-btn">↓ Run backup now</button>
+        </div>
+        <div id="self-status-body" style="display:flex;flex-direction:column;gap:14px"><div style="color:var(--muted)">Loading…</div></div>
+      </div>
+
       <!-- ── About page ───────────────────────────────────────────────────── -->
       <div id="page-about" class="page">
         <div class="page-title">About</div><div class="page-subtitle">RemotePower — self-hosted device management</div>
@@ -1678,7 +2476,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" style="color:var(--accent)">OSV.dev</a> — scan checks installed packages against known CVEs.</div>
         <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
           <button class="btn-icon" onclick="loadCVEReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-primary" style="max-width:200px" onclick="triggerCVEScan()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
+          <button class="btn-primary" style="max-width:200px" onclick="triggerCVEScan(undefined,this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
           <!-- v1.11.5: filter -->
           <input type="text" id="cve-filter" class="form-input" placeholder="Filter by device, group, ecosystem…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
@@ -1999,6 +2797,46 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
             <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
+        </div>
+
+        <!-- ── v3.0.1: ACME / acme.sh integration ─────────────────────────── -->
+        <div style="margin-top:32px">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px">
+            <div>
+              <div class="page-title" style="margin-bottom:4px">ACME certificates</div>
+              <div class="page-subtitle" style="margin-bottom:0">
+                Lets Encrypt certs managed by <code>acme.sh</code> on each device. Server scans
+                <code>~/.acme.sh/</code> and shows next renewal, alt names, and the configured DNS
+                provider. Renewal stays under acme.sh's own cron; this page just visualises and
+                provides force-renew, revoke, and a wizard to issue new certs (DNS-01 only).
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn-icon" onclick="acmeOpenIssue()" style="font-weight:500">+ Issue new cert</button>
+              <button class="btn-icon" onclick="loadAcme()">↻ Refresh</button>
+            </div>
+          </div>
+          <div id="acme-empty" style="display:none;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;color:var(--muted);font-size:13px">
+            No devices have reported any ACME state yet. Either acme.sh isn't installed,
+            or the agent hasn't completed its first scan (runs ~ once an hour, plus on
+            startup).
+          </div>
+          <div class="table-card" id="acme-table-card">
+            <div id="acme-suppressed-hint" style="display:none;font-size:12px;color:var(--muted);padding:6px 12px;font-style:italic"></div>
+            <table>
+              <thead><tr>
+                <th>Device</th>
+                <th>Domain</th>
+                <th>Challenge</th>
+                <th>Provider</th>
+                <th>Created</th>
+                <th>Next renewal</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr></thead>
+              <tbody id="acme-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -2587,6 +3425,152 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 
+<!-- ── v3.0.1: ACME — Issue new cert wizard (3 steps) ───────────────────── -->
+<div class="modal-overlay" id="acme-issue-modal"><div class="modal modal-wide">
+  <div class="modal-title">Issue new Let's Encrypt cert</div>
+  <div class="modal-subtitle" id="acme-issue-subtitle">acme.sh with DNS-01 challenge. Wildcards supported.</div>
+
+  <!-- step indicator -->
+  <div style="display:flex;gap:6px;margin:8px 0 18px 0;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+    <span class="acme-step-pill" data-step="1">1 · Domain</span>
+    <span class="acme-step-pill" data-step="2">2 · DNS provider</span>
+    <span class="acme-step-pill" data-step="3">3 · Confirm</span>
+  </div>
+
+  <!-- Step 1: device + domain + alt + wildcard -->
+  <div class="acme-step" data-step="1">
+    <div class="form-group">
+      <label class="form-label">Device <span style="color:var(--muted);font-weight:400;font-size:11px">— must have acme.sh installed</span></label>
+      <select id="acme-issue-device" class="form-input"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Primary domain</label>
+      <input type="text" id="acme-issue-domain" class="form-input" placeholder="example.com" maxlength="253" autocomplete="off">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">FQDN. For wildcards, check the box below — don't put <code>*.</code> here.</div>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="acme-issue-wildcard"> Also issue wildcard <code id="acme-issue-wildcard-preview">*.example.com</code>
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Additional SAN (optional, one per line)</label>
+      <textarea id="acme-issue-alt" class="form-input" rows="2" style="font-family:var(--font-mono);font-size:12px" placeholder="www.example.com&#10;api.example.com"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Key length</label>
+      <select id="acme-issue-keylen" class="form-input">
+        <option value="4096">RSA 4096 (default — broad compatibility)</option>
+        <option value="2048">RSA 2048</option>
+        <option value="ec-256">ECDSA P-256 (smaller, faster)</option>
+        <option value="ec-384">ECDSA P-384</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Step 2: DNS provider -->
+  <div class="acme-step" data-step="2" style="display:none">
+    <div class="form-group">
+      <label class="form-label">DNS provider</label>
+      <select id="acme-issue-dns" class="form-input"></select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">acme.sh's <code>--dns</code> plugin. The API token must already be exported in the agent's environment or written to <code>~/.acme.sh/account.conf</code> on the device.</div>
+    </div>
+    <div id="acme-issue-token-hint" style="font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--muted)"></div>
+  </div>
+
+  <!-- Step 3: confirm -->
+  <div class="acme-step" data-step="3" style="display:none">
+    <div style="font-size:13px;margin-bottom:12px">
+      The following command will be queued on the device. Output streams back into the per-cert log tab.
+    </div>
+    <pre id="acme-issue-preview" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all"></pre>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">First issuance may take 1–3 minutes (DNS propagation). Subsequent runs are faster.</div>
+  </div>
+
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('acme-issue-modal')">Cancel</button>
+    <button class="btn-secondary" id="acme-issue-back" onclick="acmeIssueStep(-1)" style="display:none">← Back</button>
+    <button class="btn-primary"   id="acme-issue-next" onclick="acmeIssueStep(1)">Next →</button>
+    <button class="btn-primary"   id="acme-issue-go"   onclick="acmeIssueSubmit()" style="display:none">Queue issue command</button>
+  </div>
+</div></div>
+
+<!-- ── v3.0.1: ACME — Cert detail (overview + timeline + logs) ──────────── -->
+<div class="modal-overlay" id="acme-detail-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="acme-detail-title">Certificate detail</div>
+  <div class="modal-subtitle" id="acme-detail-subtitle"></div>
+  <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px;margin-top:8px">
+    <button class="drawer-tab-btn active" data-acme-tab="overview" onclick="acmeDetailTab('overview')">Overview</button>
+    <button class="drawer-tab-btn" data-acme-tab="timeline" onclick="acmeDetailTab('timeline')">Timeline</button>
+    <button class="drawer-tab-btn" data-acme-tab="logs" onclick="acmeDetailTab('logs')">Logs</button>
+  </div>
+  <div id="acme-detail-overview" class="acme-detail-pane" style="font-size:13px;min-height:240px"></div>
+  <div id="acme-detail-timeline" class="acme-detail-pane" style="font-size:13px;min-height:240px;display:none"></div>
+  <div id="acme-detail-logs" class="acme-detail-pane" style="font-size:13px;min-height:240px;display:none"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" onclick="closeModal('acme-detail-modal')">Close</button>
+  </div>
+</div></div>
+
+<!-- ── v3.0.1: Mitigation runner — diagnostic + AI + fix ──────────────── -->
+<div class="modal-overlay" id="mitigate-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="mitigate-title">Investigate alert</div>
+  <div class="modal-subtitle" id="mitigate-subtitle"></div>
+
+  <!-- Tab bar -->
+  <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px;margin-top:8px">
+    <button class="drawer-tab-btn active" data-mit-tab="diagnostic" onclick="mitigateTab('diagnostic')">1 · Diagnostic</button>
+    <button class="drawer-tab-btn"        data-mit-tab="ai"         onclick="mitigateTab('ai')">2 · AI analysis</button>
+    <button class="drawer-tab-btn"        data-mit-tab="fix"        onclick="mitigateTab('fix')">3 · Apply fix</button>
+  </div>
+
+  <!-- Diagnostic tab -->
+  <div id="mitigate-pane-diagnostic" class="mitigate-pane" style="min-height:280px">
+    <div id="mitigate-diag-meta" style="font-size:12px;color:var(--muted);margin-bottom:8px"></div>
+    <pre id="mitigate-diag-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;margin:0">Queuing diagnostic…</pre>
+  </div>
+
+  <!-- AI tab -->
+  <div id="mitigate-pane-ai" class="mitigate-pane" style="display:none;min-height:280px">
+    <div id="mitigate-ai-status" style="font-size:12px;color:var(--muted);margin-bottom:8px"></div>
+    <div id="mitigate-ai-summary" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px;font-size:13px;white-space:pre-wrap;min-height:120px"></div>
+    <div id="mitigate-ai-fix-box" style="margin-top:14px;display:none">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Suggested fix</div>
+      <pre id="mitigate-ai-fix" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;margin:0;white-space:pre-wrap"></pre>
+      <div id="mitigate-ai-fix-warning" style="margin-top:8px;font-size:12px;display:none"></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-icon" id="mitigate-ai-rerun" onclick="mitigateRerunAi()">↻ Re-run AI</button>
+      <button class="btn-icon" id="mitigate-ai-use" style="display:none" onclick="mitigateUseAiFix()">Use this as fix command →</button>
+    </div>
+  </div>
+
+  <!-- Fix tab -->
+  <div id="mitigate-pane-fix" class="mitigate-pane" style="display:none;min-height:280px">
+    <div id="mitigate-fix-options" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
+    <div class="form-group">
+      <label class="form-label">Command to run</label>
+      <textarea id="mitigate-fix-cmd" class="form-input" rows="3" style="font-family:var(--font-mono);font-size:12px;width:100%" placeholder="System will fill this from the option you pick above, or paste your own"></textarea>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Runs on the device via the agent. All operations are audit-logged. Read-only diagnostics aren't here — those run via the Diagnostic tab automatically.</div>
+    </div>
+    <div id="mitigate-fix-safety" style="margin-bottom:12px"></div>
+    <div class="form-group" id="mitigate-fix-confirm-row" style="display:none">
+      <label class="form-label">Type <code>RUN</code> to confirm</label>
+      <input type="text" id="mitigate-fix-confirm" class="form-input" placeholder="RUN" autocomplete="off" style="font-family:var(--font-mono);max-width:160px">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Confirmation required because the command is destructive, irreversible, or AI-suggested rather than pre-approved.</div>
+    </div>
+    <div style="display:flex;gap:8px;padding-top:14px;border-top:1px solid var(--border)">
+      <button class="btn-primary" id="mitigate-fix-go" onclick="mitigateRunFix()">▶ Run this command</button>
+      <button class="btn-secondary" onclick="mitigateTab('ai')">← Back to AI</button>
+    </div>
+    <div id="mitigate-fix-result" style="margin-top:14px"></div>
+  </div>
+
+  <div class="modal-actions" style="margin-top:14px">
+    <button class="btn-secondary" onclick="closeMitigateModal()">Close</button>
+  </div>
+</div></div>
+
 <!-- ── v1.11.0: Agentless device add ────────────────────────────────────── -->
 <div class="modal-overlay" id="agentless-add-modal"><div class="modal">
   <div class="modal-title">Add agentless device</div>
@@ -2804,9 +3788,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group" id="log-rule-global-hint" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);padding:10px;border-radius:6px">
     Fleet-wide rule: applies to every device that submits logs for this unit. Use <code>*</code> to match any unit on any device (useful for patterns like <code>OOMkilled</code>).
   </div>
-  <div class="form-group"><label>Unit <span id="log-rule-unit-hint" style="display:none;font-size:11px;color:var(--muted)">(or <code>*</code> for any unit)</span></label><input type="text" id="log-rule-unit" placeholder="nginx.service" maxlength="128"></div>
+  <div class="form-group">
+    <label>Source type</label>
+    <div style="display:flex;gap:14px;font-size:13px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="log-rule-source" value="unit" checked onchange="_toggleLogRuleSource()"> systemd unit (via journalctl)
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="radio" name="log-rule-source" value="path" onchange="_toggleLogRuleSource()"> file path (agent tails the file)
+      </label>
+    </div>
+  </div>
+  <div class="form-group" id="log-rule-unit-row"><label>Unit <span id="log-rule-unit-hint" style="display:none;font-size:11px;color:var(--muted)">(or <code>*</code> for any unit)</span></label><input type="text" id="log-rule-unit" placeholder="nginx.service" maxlength="128"></div>
+  <div class="form-group" id="log-rule-path-row" style="display:none">
+    <label>File path</label>
+    <input type="text" id="log-rule-path" placeholder="/var/log/myapp/application.log" maxlength="512" style="font-family:monospace">
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">Absolute path on the device. The agent will tail this file and submit new lines as the synthetic unit <code>file:&lt;path&gt;</code>. Handles log rotation and truncation automatically. First-time setup skips existing content — only new lines from then on are sent.</div>
+  </div>
   <div class="form-group"><label>Pattern (regex, case-insensitive)</label><input type="text" id="log-rule-pattern" placeholder="error|critical|FATAL" maxlength="128" style="font-family:monospace"></div>
   <div class="form-group"><label>Threshold (min matches to fire)</label><input type="number" id="log-rule-threshold" value="1" min="1" max="100"></div>
+  <div class="form-group"><label>Severity</label>
+    <select id="log-rule-severity">
+      <option value="WARN" selected>WARN — fire as warning (default)</option>
+      <option value="CRIT">CRIT — fire as critical</option>
+      <option value="OK">OK — silent (acknowledge expected pattern, no webhook)</option>
+    </select>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">CheckMK-style: WARN/CRIT fire webhooks; OK rules are noise-suppressors that confirm an expected pattern is still present.</div>
+  </div>
   <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('log-rule-modal')">Cancel</button><button class="btn-primary" onclick="saveLogRule()">Add</button></div>
 </div></div>
 <div class="modal-overlay" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>
@@ -3017,7 +4025,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
-<script src="static/js/app.js?v=2.6.0"></script>
+<script src="static/js/app.js?v=3.0.2"></script>
 
 <!-- v2.4.15: Service Worker registration + PWA install prompt handling.
      Kept separate from app.js so the SW registers even if app.js fails.

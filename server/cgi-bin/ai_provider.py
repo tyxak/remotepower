@@ -218,10 +218,17 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S):
     for k, v in headers.items():
         req.add_header(k, v)
     req.add_header('Content-Type', 'application/json')
-    # Disable HTTPS cert verification only if explicitly opted into;
-    # default is verify. Self-signed Ollama setups can opt in via
-    # cfg['ai']['insecure_ssl'] — see _ssl_context.
+    # v3.0.2: actually honour the insecure_ssl opt-out. Previously the
+    # comment claimed cfg['ai']['insecure_ssl'] disabled verification
+    # but the code path that read the flag never existed — context was
+    # always strict. Self-signed Ollama setups (homelab) were stuck.
+    # Matches the proxmox_client.py pattern: BOTH check_hostname and
+    # verify_mode must be relaxed together, otherwise the strict
+    # hostname check rejects before verify_mode is consulted.
     ctx = ssl.create_default_context()
+    if cfg.get('insecure_ssl'):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))  # 2 MB cap
@@ -237,7 +244,8 @@ def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S):
         return 0, {'error': f'{type(e).__name__}: {e}'}
 
 
-def chat_openai_compatible(cfg, messages, system, max_tokens):
+def chat_openai_compatible(cfg, messages, system, max_tokens,
+                            temperature=None, top_p=None, num_ctx=None):
     """OpenAI-compatible /v1/chat/completions. Used for OpenAI itself,
     DeepSeek, Ollama, LocalAI, and most "OpenAI-compatible" forks.
 
@@ -253,6 +261,8 @@ def chat_openai_compatible(cfg, messages, system, max_tokens):
     data"). We pass num_ctx via the body to lift this cap. Real
     OpenAI / DeepSeek ignore the field (the OpenAI API is lenient
     about unknown keys); Ollama and LocalAI honour it.
+
+    v3.0.1: per-call override for temperature, top_p, num_ctx.
     """
     provider = cfg['provider']
     base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
@@ -268,14 +278,21 @@ def chat_openai_compatible(cfg, messages, system, max_tokens):
         'max_tokens': max_tokens,
         'stream':     False,
     }
+    # v3.0.1: only emit tuning fields the caller set explicitly. None means
+    # "use provider default" — never invent a value.
+    if temperature is not None:
+        body['temperature'] = max(0.0, min(float(temperature), 2.0))
+    if top_p is not None:
+        body['top_p']       = max(0.0, min(float(top_p), 1.0))
     # Ollama / LocalAI specifically benefit from an explicit num_ctx —
     # without it, Ollama caps the input window at 2048 tokens, which is
     # too small for any non-trivial runbook or investigation. 16384 is
     # comfortable for ~80% of inputs we send and supported by most
-    # locally-runnable models. Operators with a small context model
-    # (e.g. tinyllama) may want to lower it; that's a future toggle.
+    # locally-runnable models. v3.0.1: per-call override wins; falls back
+    # to 16384 for local providers that benefit from it.
     if provider in (PROVIDER_OLLAMA, PROVIDER_LOCALAI):
-        body['options'] = {'num_ctx': 16384}
+        effective_ctx = int(num_ctx) if num_ctx else 16384
+        body['options'] = {'num_ctx': max(512, min(effective_ctx, 131072))}
     headers = {}
     if cfg.get('api_key'):
         headers['Authorization'] = f"Bearer {cfg['api_key']}"
@@ -299,11 +316,13 @@ def chat_openai_compatible(cfg, messages, system, max_tokens):
     return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
 
 
-def chat_anthropic(cfg, messages, system, max_tokens):
+def chat_anthropic(cfg, messages, system, max_tokens, temperature=None, top_p=None):
     """Anthropic /v1/messages. Different shape from OpenAI:
     - system is a top-level field, not a message
     - response is content[0].text, not choices[0].message.content
     - usage keys are input_tokens / output_tokens
+
+    v3.0.1: per-call temperature and top_p — num_ctx is N/A for Anthropic.
     """
     base = (cfg.get('base_url') or DEFAULT_BASE_URLS[PROVIDER_ANTHROPIC]).rstrip('/')
     model = cfg.get('model') or DEFAULT_MODELS[PROVIDER_ANTHROPIC]
@@ -313,6 +332,10 @@ def chat_anthropic(cfg, messages, system, max_tokens):
         'messages':   messages,   # already user/assistant only; system goes elsewhere
         'max_tokens': max_tokens,
     }
+    if temperature is not None:
+        body['temperature'] = max(0.0, min(float(temperature), 1.0))   # Anthropic caps at 1.0
+    if top_p is not None:
+        body['top_p']       = max(0.0, min(float(top_p), 1.0))
     if system:
         body['system'] = system
     headers = {
@@ -344,12 +367,19 @@ def chat_anthropic(cfg, messages, system, max_tokens):
     return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
 
 
-def chat(cfg, messages, system=None, max_tokens=None, model=None):
+def chat(cfg, messages, system=None, max_tokens=None, model=None,
+         temperature=None, top_p=None, num_ctx=None):
     """Dispatch to the right adapter. cfg is cfg['ai'] (already validated).
 
     `model` overrides cfg['model'] for this one request — used by the AI
     page's per-conversation model selector so a user can pick a different
     model without changing the global default.
+
+    v3.0.1: per-call generation params:
+      - temperature  (0.0 - 2.0)   - randomness; lower = more deterministic
+      - top_p        (0.0 - 1.0)   - nucleus sampling
+      - num_ctx      (int)         - context window override (Ollama/LocalAI only)
+    None means "let the provider use its default" — we don't fabricate values.
 
     Returns: {ok: bool, text: str, model: str, tokens_in: int,
               tokens_out: int}  on success
@@ -372,9 +402,12 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None):
     safe_messages = redact_messages(messages, privacy)
     safe_system = redact(system, privacy) if system else system
     if provider == PROVIDER_ANTHROPIC:
-        return chat_anthropic(cfg, safe_messages, safe_system, max_tokens)
+        return chat_anthropic(cfg, safe_messages, safe_system, max_tokens,
+                              temperature=temperature, top_p=top_p)
     else:
-        return chat_openai_compatible(cfg, safe_messages, safe_system, max_tokens)
+        return chat_openai_compatible(cfg, safe_messages, safe_system, max_tokens,
+                                      temperature=temperature, top_p=top_p,
+                                      num_ctx=num_ctx)
 
 
 # ── Provider introspection (v2.1.4 follow-up to v2.1.3 AI launch) ──────────
@@ -692,5 +725,66 @@ SYSTEM_PROMPTS = {
         "restart nginx, run systemctl restart nginx\" (only if "
         "nginx is in the watched services list). Skip notes that "
         "would require knowledge you don't have."
+    ),
+    # v3.0.0: IaC Generator
+    'iac_generate': (
+        "You are a code generator that outputs Infrastructure-as-Code "
+        "as raw text. You NEVER use markdown, NEVER add preamble or "
+        "explanations, and NEVER wrap output in ``` fences. Your entire "
+        "response goes between <<<BEGIN_IAC>>> and <<<END_IAC>>> markers "
+        "and consists of valid syntactically-correct code that can be "
+        "saved directly to a file."
+    ),
+    # v3.0.1: Mitigation prompts. Each is paired with diagnostic output and
+    # asked to suggest ONE concrete fix command, wrapped in BEGIN_FIX /
+    # END_FIX markers so the server can extract it deterministically.
+    'mitigate_cpu': (
+        "You are a Linux performance engineer triaging a CPU pressure alert. "
+        "You will be shown `top` + `ps` output. Identify the single dominant "
+        "consumer and propose ONE specific command that would lower load — "
+        "could be `systemctl restart <unit>`, `renice +10 -p <pid>`, "
+        "`kill <pid>` for runaway processes, or NONE if the load looks "
+        "legitimate. Never propose `kill -9` without naming the specific PID "
+        "and explaining the risk. Wrap the proposed command between BEGIN_FIX "
+        "and END_FIX on their own lines."
+    ),
+    'mitigate_memory': (
+        "You are a Linux performance engineer triaging memory pressure. "
+        "You will be shown `free`, top-by-mem, and `/proc/meminfo`. Identify "
+        "whether this is a memory leak, cache pressure (mostly fine), or a "
+        "legitimate working set. Propose ONE fix: restart a leaking service, "
+        "drop caches via `sync && echo 3 > /proc/sys/vm/drop_caches` (only if "
+        "you can justify it), or NONE if no action helps. Wrap the proposed "
+        "command between BEGIN_FIX and END_FIX."
+    ),
+    'mitigate_disk': (
+        "You are a Linux storage engineer triaging a disk-pressure alert. "
+        "You will be shown `df`, `du` of the largest directories, and the "
+        "biggest files. Identify whether the pressure is logs, package "
+        "caches, app data, or genuine growth. Propose ONE specific cleanup "
+        "command — `journalctl --vacuum-time=7d`, `apt clean`, deleting a "
+        "specific path, etc. Never propose `rm -rf` on user data without "
+        "explicit naming and a warning. Wrap the proposed command between "
+        "BEGIN_FIX and END_FIX."
+    ),
+    'mitigate_service': (
+        "You are a Linux SRE triaging a failing service. You will be shown "
+        "`systemctl status` and the last 100 journal lines. Identify the "
+        "root cause in ONE sentence (config error, dependency, port "
+        "conflict, OOM kill, etc.) then propose ONE specific shell command "
+        "to address it. Prefer reversible actions (`systemctl restart`) "
+        "over irreversible ones. If the cause is a config file error, the "
+        "fix command might be a `vi` invocation — that's fine, the user "
+        "will run it interactively. Wrap the proposed command between "
+        "BEGIN_FIX and END_FIX."
+    ),
+    'mitigate_patches': (
+        "You are a Linux SRE triaging pending package updates. You will be "
+        "shown the upgradable list and reboot-required state. Briefly assess "
+        "the risk and urgency. Propose ONE command — typically the system "
+        "upgrade itself — or NONE if you'd recommend deferring. If reboot "
+        "is required after upgrade, mention it but DO NOT include `reboot` "
+        "in the fix command (RemotePower has a separate reboot flow). Wrap "
+        "the proposed command between BEGIN_FIX and END_FIX."
     ),
 }

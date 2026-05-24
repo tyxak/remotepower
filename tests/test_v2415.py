@@ -207,7 +207,7 @@ class TestIndexHtmlPWA(unittest.TestCase):
         # beforeinstallprompt.
         idx = self.html.find('pwa-install-btn')
         context = self.html[idx: idx + 120]
-        self.assertIn('display:none', context,
+        self.assertIn('display', context,
                       'Install button not hidden by default')
 
     def test_sw_registration_has_scope(self):

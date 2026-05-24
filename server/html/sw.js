@@ -2,9 +2,10 @@
  * RemotePower — Service Worker (v2.4.15)
  *
  * Strategy:
- *   - App shell (HTML, JS, CSS, icons): cache-first with network fallback.
- *     Assets are fetched and cached on SW install so the app loads instantly
- *     after the first visit, even on flaky connections.
+ *   - HTML navigation requests: network-first with cache fallback.
+ *     Guarantees refresh always shows the latest markup, eliminating the
+ *     stale-cache icon flash on mobile pull-to-refresh.
+ *   - Static assets (JS, CSS, icons): cache-first with network fallback.
  *   - /api/* requests: network-only, NEVER cached.
  *     Fleet data is live; serving stale API responses would show stale device
  *     states and could mislead operations decisions.
@@ -19,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v2.6.0';
+const CACHE_NAME = 'remotepower-shell-v3.0.2';
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
@@ -85,7 +86,26 @@ self.addEventListener('fetch', (event) => {
   // 3. Non-GET requests (POST, DELETE, PATCH) — pass through uncached.
   if (request.method !== 'GET') return;
 
-  // 4. App shell assets — cache-first.
+  // 4. App shell assets — network-first for HTML navigation (prevents stale-cache
+  //    flash on mobile refresh), cache-first for static assets (JS/CSS/images).
+  if (request.mode === 'navigate') {
+    // HTML pages: try network first so a refresh always gets the latest markup.
+    // Fall back to cache only when offline.
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const toCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, toCache));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // Static assets (JS, CSS, images) — cache-first for instant load.
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;

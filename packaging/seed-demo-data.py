@@ -124,9 +124,14 @@ def build_devices() -> dict:
             'last_seen':   last_seen,
             'agentless':   dev['agentless'],
             'connected_to': dev.get('connected_to', []),
-            'monitored':   True,
+            # v3.0.2: most devices are monitored; bk01 (backup.lab) is
+            # intentionally unmonitored to showcase how alerts get
+            # suppressed for a device that's mid-migration / decommissioning.
+            # This is also what makes the dashboard tile counts diverge
+            # from the raw device list.
+            'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '2.2.0' if not dev['agentless'] else None,
+            'version':     '3.0.2' if not dev['agentless'] else None,
             'hostname':    dev['name'],
         }
         if not dev['agentless']:
@@ -727,17 +732,168 @@ def build_log_watch() -> dict:
     }
 
 
+def build_self_backup_state() -> dict:
+    """v3.0.2 — daily backup state. Seed it as 'never run' so visitors see
+    the empty state on the Server status page, with a clear 'Run backup
+    now' affordance."""
+    return {
+        'last_run':    0,
+        'last_path':   '',
+        'last_size':   0,
+        'last_pruned': 0,
+    }
+
+
+def build_ignored_items() -> dict:
+    """v3.0.2 — operator-suppressed alerts. Empty by default; demo visitors
+    can exercise the × button on Needs Attention cards in their session."""
+    return {
+        'needs_attention': [],
+        'containers':      [],
+        'devices':         [],
+    }
+
+
+def build_acme_state() -> dict:
+    """v3.0.2 — per-device acme.sh state. One demo device has acme.sh
+    installed with two certs; the rest are skipped from the table (the
+    'acme.sh not installed' rows are filtered in v3.0.2).
+    """
+    return {
+        'devices': {
+            'ng01': {
+                'available': True,
+                'version':   '3.1.1',
+                'home':      '/root/.acme.sh',
+                'last_scan': now() - 3600,
+                'certs': [
+                    {
+                        'domain':       'demo.lab',
+                        'challenge':    'dns_cf',
+                        'provider':     'cloudflare',
+                        'created_at':   now() - 86400 * 60,
+                        'next_renewal': now() + 86400 * 30,
+                        'status':       'ok',
+                    },
+                    {
+                        'domain':       'wiki.demo.lab',
+                        'challenge':    'http',
+                        'provider':     'letsencrypt',
+                        'created_at':   now() - 86400 * 75,
+                        'next_renewal': now() + 86400 * 15,
+                        'status':       'ok',
+                    },
+                ],
+            },
+            # Other devices: not available (acme.sh not installed) — these
+            # used to render as noise rows in the table; v3.0.2 hides them
+            # and surfaces a count above the table. Including a couple
+            # here exercises that path.
+            'pmx01': {'available': False, 'last_scan': now() - 3600},
+            'tnas':  {'available': False, 'last_scan': now() - 3600},
+        },
+    }
+
+
+def build_port_baseline() -> dict:
+    """v3.0.2 — listening-port baseline for new-port-detected webhook.
+    Empty initial baseline; the demo doesn't simulate detections."""
+    return {}
+
+
+def build_ssh_key_baseline() -> dict:
+    """v3.0.2 — ~/.ssh/authorized_keys baseline. Same pattern."""
+    return {}
+
+
+def build_brute_force() -> dict:
+    """v3.0.2 — sshd auth-failure tracker. Empty in demo (no real auth)."""
+    return {}
+
+
+def build_proxmox_snapshot_cache() -> dict:
+    """v3.0.2 — Proxmox snapshot cache. Empty unless Proxmox is set up."""
+    return {}
+
+
+def build_uptime() -> dict:
+    """v3.0.2 — 7-day uptime history for the Fleet roster stripe.
+
+    Without this, the Fleet roster shows "unknown" for every day until
+    real heartbeats accumulate. For a static demo with no live agents,
+    that's a bad first impression — the page looks broken.
+
+    Seeds a deterministic synthetic history: every monitored agented
+    device gets one 'up' event at the start of each of the past 7 days
+    plus a closing 'up' just before now. One device gets a believable
+    outage to make the stripe visually varied.
+    """
+    DAY = 86400
+    now_ts = now()
+    today_start = now_ts - (now_ts % DAY)
+    out = {}
+    for i, dev in enumerate(FAKE_DEVICES):
+        if dev.get('agentless'):
+            continue
+        # bk01 is unmonitored in the demo — skip per the handler's logic
+        if dev['id'] == 'bk01':
+            continue
+        rng  = _seeded_random(dev['id'], 'uptime')
+        events = []
+        # Insert a believable outage on day 4 (3 days ago) for hosts
+        # whose hash places them in the "had an incident" bucket.
+        had_outage_day = rng.randint(1, 5) if rng.random() < 0.4 else -1
+        for d in range(7):
+            day_start = today_start - (6 - d) * DAY
+            events.append({'ts': day_start + rng.randint(60, 1800), 'online': True})
+            if d == had_outage_day:
+                start  = day_start + rng.randint(7200, 64800)
+                length = rng.randint(300, 1500)
+                events.append({'ts': start,            'online': False})
+                events.append({'ts': start + length,   'online': True})
+        events.append({'ts': now_ts - 30, 'online': True})
+        out[dev['id']] = {'name': dev['name'], 'events': events}
+    return out
+
+
 def build_config() -> dict:
-    """Server config — webhook list, server name, etc."""
+    """Server config — v3.0.2 schema.
+
+    Demonstrates the new multi-webhook editor with two destinations
+    (a Discord-shaped one and a Pushover one with placeholder creds),
+    plus the v3.0.2 reliability config: audit log retention, scheduled
+    backup, session TTLs.
+    """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '2.2.0',
-        'agent_version':     '2.2.0',
+        'server_version':    '3.0.2',
+        'agent_version':     '3.0.2',
         'remember_me_default': True,
-        'webhooks': [
-            {'id': 'wh1', 'url': 'https://example.com/webhook', 'label': 'Demo webhook (no real endpoint)',
-             'events': ['device_offline', 'metric_critical', 'cve_found']},
+
+        # v3.0.2 multi-webhook destinations. The legacy webhook_url is
+        # left empty; new setups should use webhook_urls. Pushover creds
+        # are placeholders (the demo is read-only — no real fires).
+        'webhook_url':       '',
+        'webhook_urls': [
+            {
+                'id':      'wh_discord_demo',
+                'name':    'Discord — operations channel',
+                'url':     'https://discord.com/api/webhooks/000000000000000000/demo-not-a-real-webhook',
+                'format':  'discord',
+                'enabled': True,
+            },
+            {
+                'id':           'wh_pushover_demo',
+                'name':         'Pushover — critical only',
+                'url':          'https://api.pushover.net/1/messages.json',
+                'format':       'pushover',
+                'enabled':      True,
+                'min_priority': 2,                    # critical only
+                'pushover_token': 'apDEMO_TOKEN_NOT_REAL',
+                'pushover_user':  'uDEMO_USER_NOT_REAL',
+            },
         ],
+
         # Default metric thresholds — same as production defaults
         'metric_thresholds': {
             'mem_warn_percent': 85, 'mem_crit_percent': 95,
@@ -745,6 +901,18 @@ def build_config() -> dict:
             'swap_warn_percent': 20, 'swap_crit_percent': 50,
             'cpu_warn_load_ratio': 1.5, 'cpu_crit_load_ratio': 3.0,
         },
+
+        # v3.0.2 — audit log age-based retention
+        'audit_log_retention_days': 90,
+
+        # v3.0.2 — configurable session TTLs (defaults match production)
+        'session_ttl_short': 86400,        # 24h without remember-me
+        'session_ttl_long':  2592000,      # 30d with remember-me
+
+        # v3.0.2 — scheduled backup of /var/lib/remotepower
+        'backup_enabled':         True,
+        'backup_path':            '/var/lib/remotepower/backups',
+        'backup_retention_days':  14,
     }
 
 
@@ -784,6 +952,15 @@ BUILDERS = {
     'scripts.json':          build_scripts,
     'batch_jobs.json':       build_batch_jobs,
     'log_watch.json':        build_log_watch,
+    # v3.0.2 demo content
+    'self_backup_state.json':      build_self_backup_state,
+    'ignored_items.json':          build_ignored_items,
+    'acme_state.json':             build_acme_state,
+    'port_baseline.json':          build_port_baseline,
+    'ssh_key_baseline.json':       build_ssh_key_baseline,
+    'brute_force.json':            build_brute_force,
+    'proxmox_snapshot_cache.json': build_proxmox_snapshot_cache,
+    'uptime.json':                 build_uptime,
 }
 
 

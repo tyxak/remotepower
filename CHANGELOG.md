@@ -2,6 +2,489 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.0.2 — 2026-05-24
+
+### Bug fixes (post-ship polish bundle)
+- **Unmonitored devices fired metric/service/log/CVE webhooks anyway.**
+  `device_offline` had its own per-device `monitored` check (line ~2256),
+  but every other per-device event went through `fire_webhook` unguarded.
+  Result: operator marks a device "unmonitored" to silence alerts during
+  a migration, gets a Pushover ping about its swap usage anyway. Added a
+  single guard inside `fire_webhook` that covers every event carrying a
+  `device_id` — metric_warning/_critical, service_down/_up, log_alert,
+  cve_found, drift_detected, custom_script_fail/_recover, container_*,
+  patch_alert, brute_force_detected, ssh_key_added, tls_expiry,
+  reboot_required, new_port_detected, snapshot_old, backup_stale,
+  config_drift. Logged as `suppressed (device "X" is unmonitored)` so
+  operators can see what got dropped.
+- **ACME page rendered one row per device without acme.sh** ("acme.sh not
+  installed on this device"). For fleets where most hosts use other cert
+  managers, this dominated the table. Now hidden; a discreet count
+  surfaces above the table ("N devices without acme.sh hidden").
+- **`_get_disk_thresholds` was called but never defined**, guarded by
+  `callable(globals().get(...))` so the dead branch was silently always
+  taken — per-mount disk threshold overrides in `_compute_attention`
+  were ignored. Replaced with the canonical `_resolve_metric_thresholds`.
+- **Four CSS variables undefined inside styles.css itself**: `--bg2`,
+  `--bg3`, `--border2`, `--font-body`. Used by the device drawer footer,
+  table footers, and a few body-text styles — rendered with default
+  browser colours in dark mode (white backgrounds, default sans-serif).
+  Replaced with the existing equivalents (`--surface2`, `--border`,
+  `--font`). New test `TestCssVarsDefined` sweeps every `var(--xxx)`
+  reference across `.js`, `.html`, and `.css` against the defined set.
+- **URL bar stuck at last settings tab**: `switchSettingsTab` wrote
+  `#settings/<tab>` to `location.hash`, but `showPage` for other pages
+  never updated the hash. Clicking through Home, Devices, Logs etc.
+  left the URL showing `#settings/notifs` (or wherever you were last).
+  Both functions now use `history.replaceState` so the URL bar tracks
+  the current page without polluting back-button history.
+
+### Improvements
+- **Multi-webhook test button** correctly hits `/api/webhook/test` (was
+  posting to `/api/webhook-test` — 404).
+- **Logs page Search button** handles 400 responses (bad regex etc.) with
+  a clear in-UI error instead of a silent UI freeze on TypeError when
+  reading `data.results.length` from `{error: '...'}`.
+- **Settings search bar** rewrite: re-indexes on every keystroke (was
+  cached, so dynamically-rendered sections like the webhook destinations
+  list never made it into the index), adds per-tab match badges, dims
+  tabs with zero matches, auto-switches to the first matching tab when
+  your current tab has nothing, shows a hint line ("23 settings match
+  across 3 tabs"). Hides the "I typed something and the page went blank"
+  failure mode.
+- **Command palette** primes the device cache on open. Previously you had
+  to visit the Devices page first or no devices would appear.
+- **Bulk-actions button** moved from Settings → Advanced to next to the
+  Enroll device button on the Devices page. That's where operators look
+  for fleet-wide operations; Settings was the wrong shelf.
+- **`var(--ok)` (undefined) replaced with `var(--green)`** — 3 pre-existing
+  uses in the Proxmox env hint and custom-script status indicator that
+  rendered with default browser colour.
+
+### Internals
+- Re-ran AST audit for called-but-undefined names: only `_get_disk_thresholds`
+  remained from before (fixed above).
+- Re-ran `respond()`-inside-broad-except audit: zero remaining.
+- HTML `<div>` open/close balance verified: 1396/1396.
+- `var(--xxx)` reference audit: zero undefined across JS, HTML, CSS.
+
+### Tests added this iteration
+`TestUnmonitoredDeviceSuppression` (4), `TestAcmeNoCertsRowsFiltering` (2),
+`TestUrlBarSync` (2), `TestDeadCodeRemoved` (2), `TestCssVarsDefined` (1).
+Total v3.0.2 suite: 1404 tests, all passing.
+
+---
+
+### Initial release content (shipped earlier on 2026-05-24)
+
+### Bug fixes (static-audit catch)
+- **Mitigation feature was completely broken since v3.0.1.** Two NameErrors hidden
+  by lazy code paths:
+  - `_read_body()` called in `handle_mitigate_investigate` and `handle_mitigate_fix`
+    but never defined → fixed to `get_json_body()`.
+  - `chat_anthropic` / `chat_openai_compatible` called bare from `_call_ai_with_prompts`
+    but defined in the `ai_provider` module → prefixed with `ai_provider.`.
+  Found by an AST audit of every called-but-undefined name. Mitigation modal was
+  hitting 500 on every click; nobody noticed because nobody was clicking it under
+  the test load.
+- **JSON load cache aliasing.** v3.0.2 introduced a per-request `load()` cache to
+  collapse the 4×-per-heartbeat parsing of `config.json`. First version returned
+  the cached dict by reference — caller mutations leaked into the cache, and
+  `_LockedUpdate` exception aborts left the cache holding in-flight changes that
+  were never saved. Fixed: deepcopy on cache hit + explicit cache invalidation
+  in `_LockedUpdate.__exit__` when the save is aborted.
+- **`current_username()` defined.** Last release shipped with this called from
+  three audit-log call sites but never defined; the silent NameError meant the
+  Ignore/Cancel buttons on ACME pending actions appeared dead.
+- **Agent `server_url` typo.** The force-agent-upgrade path referenced an undefined
+  `server_url` (the local in `heartbeat()` is `server`); operator clicked ⚡ and
+  got a journal line saying force upgrade failed.
+- **Pacman `--disable-sandbox` probe was checking the wrong help text.** The flag
+  is an `-S` operation flag, so it shows in `pacman -S --help`, not `pacman --help`.
+  CachyOS continued to silent-fail because the probe never matched.
+
+### New — reliability & operations
+- **Self-monitoring page (Server status).** New sidebar entry. Reports server
+  version + memory, DATA_DIR disk usage with the top 20 largest files, fleet-wide
+  device freshness (oldest/freshest heartbeat, current offline count), webhook
+  delivery rate (last 24h and 7d), audit log entry count + archive size, scheduled
+  backup state. `GET /api/self/status` for external monitoring.
+- **Scheduled backup of `/var/lib/remotepower`.** Daily tarball (gzipped), retention
+  configurable (default 14 days), output path configurable (default
+  `/var/lib/remotepower/backups`). Triggered via the heartbeat hook with a 24h
+  sentinel and a stale-lock recovery for crashes mid-backup. Manual "Run backup
+  now" button on the Server status page (`POST /api/self/backup-now`). Backup
+  excludes the backup dir itself, in-flight `.tmp.*` files, and pre-compressed
+  `.gz` archives.
+- **Audit log retention by age.** Default 90 days, configurable. Entries older
+  than retention are moved to `audit_log_archive.jsonl.gz` (append-only, gzip).
+  Old count-only cap retained as a safety net for misconfiguration.
+- **Fleet events archive.** Events evicted from the 200-entry rolling log now go
+  to `fleet_events_archive.jsonl.gz` instead of being dropped. Surfaces in the
+  Server status page as a size readout.
+- **Exponential lockout ladder for failed logins.** 10s → 1m → 5m → 30m → 2h.
+  Resets on successful login. Brute-force attackers face escalating penalties
+  instead of a fixed 10-min wall they can just sit out.
+
+### New — performance
+- **Per-request `load()` cache.** CGI gives us a fresh interpreter per request, so
+  the cache only lives for one handler's duration — but within that handler,
+  `CONFIG_FILE` was being parsed up to 4× per heartbeat and `LONGPOLL_FILE` 3× in
+  `handle_longpoll_exec`. The cache deduplicates redundant reads within a
+  handler. Invalidated on `save()` and `_save_held()` so writes never leak stale
+  data.
+
+### New — features
+- **Multi-webhook destinations.** Fire every event to multiple endpoints
+  simultaneously with per-destination format adapters. Supported formats: Discord
+  (embed with severity colour), Slack (markdown text), Pushover (form-encoded with
+  app token + user key, internal priority maps to Pushover priority), Microsoft
+  Teams (MessageCard schema with theme colour), ntfy.sh (plain text body + headers),
+  and generic JSON. Per-destination filters: limit to specific event names, or set
+  a minimum priority threshold. Use case: Pushover for `priority >= warning` only,
+  Discord for everything. Legacy single `webhook_url` field still honoured for
+  backward compatibility.
+- **Per-destination test button.** Fire a synthetic `test` event to a single
+  destination from the editor, without touching the persisted config of the other
+  destinations.
+- **Pushover credentials redacted.** App token + user key are write-once in the UI
+  (the GET response only signals whether one is set); also redacted from the
+  backup export tarball.
+- **Force ACME rescan button.** One-shot flag per device — agent re-scans
+  `~/.acme.sh` on next heartbeat instead of waiting for the next hourly cadence.
+  Useful when you've issued/renewed via the CLI and don't want to wait for
+  RemotePower to catch up. Same flag-on-heartbeat-lock pattern as force-upgrade.
+- **Bulk actions modal.** Run an operation across a filtered set of devices: all
+  monitored, by group, or by tag. Operations: package upgrade, reboot, shutdown,
+  force package scan, force ACME rescan. Destructive operations require typing
+  `RUN` to confirm. Reachable from Settings → Advanced or via the command palette.
+- **Command palette (`/` or `Ctrl-K`).** Searches pages, devices, and actions.
+  Arrow-key navigation, Enter to activate, Esc to close.
+- **Keyboard shortcuts.** `?` shows the cheat sheet. `g`-prefix shortcuts:
+  `g h/d/l/s/c/m/a/v` for Home/Devices/Logs/Settings/CVE/Monitor/Audit/serVer.
+- **Settings search bar.** Filters visible settings sections live as you type.
+- **Configurable session timeout.** Both `session_ttl_short` (no remember-me;
+  default 24h) and `session_ttl_long` (with remember-me; default 30d) are
+  configurable in Settings → Advanced. Existing sessions keep their original TTL.
+
+### Improvements
+- **Force-upgrade flag** had been silently dropped after iteration 2's fix landed
+  in the wrong scope. Now wired through correctly inside the heartbeat file lock,
+  same as `force_iac_collect` and `force_package_scan`.
+- **`pacman -S --help`** is now the probe location for `--disable-sandbox` (last
+  release checked `pacman --help` which doesn't list operation flags). Falls back
+  to parsing `pacman --version` and assuming v7+ supports the flag.
+- **Larger archive of historical fleet events** for the Server status page; not
+  just the rolling 200-event window.
+
+### Internals — audits run this release
+- AST sweep of every called name; resolved 7 suspects (2 real bugs, 5 false positives
+  caught by `callable(globals().get(...))` guards or module-level imports).
+- AST sweep of every `respond()` call sites wrapped in `try/except Exception`;
+  zero remaining (the debug-log handler from last release was the only one).
+- Field-shape consistency check — `rc` dominates over `exit_code` (19:2) which is
+  acceptable (the 2 are reading legacy data); `unit`/`name`/`hostname` are distinct
+  concepts not aliases.
+
+## v3.0.1 — 2026-05-23
+
+### Fixes (iteration 2)
+- **Force-upgrade flag silently dropped.** Operator clicked ⚡, got the success toast,
+  agent never re-downloaded. Root cause: heartbeat handler copied `force_iac_collect`
+  and `force_package_scan` into `saved_dev` inside the file lock, but missed
+  `force_agent_upgrade`. The outside-lock check then read `saved_dev` (which never
+  had the field) and never set `common_resp['force_agent_upgrade']`. Now handled
+  next to the other one-shots, atomic with the rest of the heartbeat write. Removed
+  the racy outside-lock clear block.
+- **Force-upgrade NameError in agent.** `check_for_update(server_url, force=True)`
+  referenced an undefined name — the local in `heartbeat()` is `server`, not
+  `server_url`. Visible in agent journal as `Force upgrade failed: name 'server_url'
+  is not defined`. One-character fix; both ends now work end-to-end.
+- **ACME `.meta` row pollution + NaN KB + dead View log.** `handle_acme_detail`
+  listed all files in `ACME_LOGS_DIR` matching the device prefix, including the
+  `.meta.json` sidecars. They showed up as bogus actions named `<id>.meta` with
+  NaN size and a View Log that 404'd. Filter listing to `.log` files only; timestamp
+  now sourced from `meta.queued_at` when available.
+- **ACME action "pending forever".** Agent ran the command, reported rc=0 with full
+  output — but the meta never updated, so UI polled indefinitely. The server's tag
+  regex anchored at `^#acme:` but the agent round-trips the full original cmd
+  including the `exec:` prefix (e.g. `exec:#acme:5646fce92976#...`). Changed regex
+  to `^(?:exec:)?#acme:` — accepts both forms. Added regression tests.
+- **CachyOS shows fully patched** when it isn't. pacman 7's download sandbox user
+  (`alpm`) fails on certain hosts; the agent caught the `CalledProcessError` and
+  silently reported `upgradable=0`. Now probes `pacman --help` for `--disable-sandbox`
+  support, uses it when available, and on real failure reports `upgradable=None`
+  ("unknown") instead of lying as "fully patched". Server-side `_UPGRADE_CMD` got
+  the same probe + flag treatment.
+- **yum branch added** to patch detection and the upgrade command — RHEL 7 / older
+  CentOS still ship yum without dnf. Reports as `manager: dnf` so it shares the OSV
+  CVE path.
+- **"Show N more ports" click did nothing.** `JSON.stringify(hidden)` was embedded
+  raw inside a double-quoted `onclick=""` attribute — JSON's double quotes broke
+  HTML parse. Escaped via `&quot;` + `&amp;`. Same fix applied to the custom-scripts
+  output click handler.
+- **Three duplicate `/devices` GETs** on the Monitor page (one per loader: runMonitor,
+  loadDeviceMetrics, loadCustomScripts, loadListeningPorts). Added a 500ms in-flight
+  cache so they share one fetch.
+- **HTML structure error**: dedicated Ignored items pane was being injected outside
+  `<div id="page-settings">`, causing it to render globally including on the
+  Virtualization page. Moved to a proper sibling of other `.settings-pane` divs.
+- **Test that locked in bad behaviour**: `test_v182.test_empty_unit_rejected` matched
+  "unit is required" literally — updated to accept the broader "unit or path is
+  required" message (rule schema now allows file-path source type).
+
+### Features (iteration 2)
+- **ACME / acme.sh integration.** New section on Security → TLS / DNS expiry. Agent
+  scans `~/.acme.sh/` and reports cert metadata; server provides issue wizard
+  (3-step: domain → DNS provider → confirm), force-renew, revoke, cancel, and
+  per-domain log capture. DNS-01 only (Cloudflare prominent, others available).
+  Wildcards supported. No must-staple (OCSP being sunset). No HTTP-01 (would
+  interfere with nginx/apache). Cancelable pending actions distinguish between
+  "still in queue" (cleanly removed) and "already dispatched" (UI stops polling
+  but agent may still complete). Full doc at `docs/acme.md`.
+- **Mitigation runners with AI.** 🩺 button on every Needs Attention card whose alert
+  kind has a server-defined playbook. Three-tab modal: Diagnostic (auto-runs,
+  live-polls every 2s) → AI Analysis (auto-fires when diagnostic completes, AI
+  proposes one fix command between `BEGIN_FIX`/`END_FIX` markers) → Apply Fix
+  (pre-approved playbook fix or AI suggestion, with two-tier safety classifier:
+  hard denylist refuses outright; sensitive patterns require typing `RUN`).
+  Five new prompt keys (`mitigate_cpu`, `_memory`, `_disk`, `_service`,
+  `_patches`) customisable in Settings → AI Assistant. Diagnostic playbooks for
+  `patches`, `disk`, `drift`, `service_down`, `reboot`, `brute_force`. Service
+  unit names go through strict regex validation before template substitution.
+  All actions audit-logged. Full doc at `docs/mitigation.md`.
+- **File-path log watching.** Log rules can now reference an arbitrary file path
+  instead of a systemd unit. Agent tails the file, handles rotation (inode
+  tracking) and truncation, skips existing content on first sight (so a new
+  rule doesn't dump the entire historic file). State persisted at
+  `/var/lib/remotepower/file-log-state.json`. Submitted as synthetic unit
+  `file:<path>`.
+- **Attention coverage audit** — three new state-derived kinds now produce Needs
+  Attention items whenever the underlying condition is active:
+  - `service_down` — any watched systemd unit in `failed` (critical) or
+    `inactive` (warning). Carries the unit name as `target` so the 🩺 button
+    runs `systemctl status` + `journalctl -u <unit>` automatically. Resolves
+    the bug where Jakob stopped palworld.service and saw it only in Recent
+    Activity, not in NA.
+  - `monitor_down` — any monitor target whose latest probe came back `ok: false`.
+  - `custom_script_fail` — any custom monitoring script reporting non-zero `rc`
+    in its latest result.
+  Full doc at `docs/attention.md`.
+- **Dedicated Ignored items settings tab.** Was inside Settings → AI Assistant;
+  now its own top-level Settings tab.
+- **Collapsible sidebar.** Click ◀ at the top to shrink to a 56-px icon strip;
+  click ▶ to expand. Preference saved in `localStorage` and applied before
+  first paint.
+- **IaC categories default to none-selected.** Empty selection on first load —
+  user must opt in to categories before Generate is enabled.
+
+### Earlier in v3.0.1
+- **Logs ingestion**: dedupe by line content + parse embedded timestamps. apt.history,
+  syslog, and nginx access lines now carry their real date — old re-submissions are
+  evicted by the existing TTL instead of perpetually re-stamped as new. Removed the
+  2 MB byte cap that was silently dropping nginx and brute-force lines whenever
+  apt.history bloat filled the buffer (#4, #8).
+- **Runbook**: containers and watched services now appear correctly (containers were
+  read from the wrong storage; watched services fell back to the configured list if
+  state hadn't been reported yet).
+- **Reboot / shutdown**: drawer buttons set rebootTarget/shutdownTarget so the confirm
+  modal actually sends a valid device_id.
+- **IaC Generator**: fixed NameError on `_is_online`; corrected `result['text']` field
+  (was reading `content`); removed bogus `model=None` kwarg.
+
+### Improvements — UI (early v3.0.1)
+- **Per-item ignore lists** (#1, #2, #3): × button on each Needs Attention card and on
+  each stale container row. Restore from Settings → AI Assistant → Ignored items.
+- **Logwatch severity** (#5): each log rule now carries OK / WARN / CRIT. WARN/CRIT
+  fire webhooks; OK rules are silent noise-suppressors that confirm an expected
+  pattern is still present.
+- **IaC Generator**: two buttons — "Generate IaC" (full LLM flow) and "Gather RAW JSON"
+  (collect-only, downloads the masked state without spending tokens) (#6).
+- **Update banner snooze 30d** (#10): hide a specific version's update notification for
+  30 days. Snooze is per-version, so a newer release re-shows the banner.
+- **Force-upgrade agent button** (#11): re-deploy the bundled binary regardless of
+  version match. Useful for corrupt-update recovery or pushing a rebuild.
+- **Settings → Save settings**: button now shows "✓ Settings saved" inline alongside
+  the toast (#7).
+
+### Improvements — AI
+- **Per-feature AI prompt customization**: Settings → AI Assistant → Prompt customization
+  lets you override the system prompt for every AI feature, with a Default button to
+  revert. Tune per-model (DeepSeek vs Claude vs Ollama) without code changes.
+- **Per-feature AI fine-tuning** (#12): each prompt card has a ⚙ Fine-tuning panel
+  for temperature, top_p, max_tokens, and num_ctx (Ollama / LocalAI). Empty fields
+  fall back to provider defaults.
+
+### Internal
+- **Buffer-overflow audit** (#13): added depth guard to `_iac_mask_secrets` recursion
+  (50 levels max); kept existing caps on body bytes (50 MB), journal lines (200×512B),
+  cmd output (100×8 KB).
+- 1307 unit tests passing.
+
+## v3.0.0 — 2026-05-22
+
+### Added
+- **IaC Generator** (new top-level page) — generates Infrastructure-as-Code
+  for any device on demand using the configured AI provider:
+  - 18 categories: OS & identity, packages, systemd, users, groups, SSH keys,
+    network, fstab, containers, repos, firewall, cron, TLS paths, env,
+    snaps, kernel modules, sysctl, RemotePower-specific (tags/scripts/host-config).
+  - 5 output formats: Terraform (HCL), Ansible (YAML), Pulumi (Python),
+    Pulumi (TypeScript), Cloud-init (YAML).
+  - On-demand collection: server flags the device, agent runs collectors on
+    next heartbeat, server calls LLM with raw state, returns code.
+  - Server-side secret masking — env vars whose NAME matches
+    PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE are redacted before
+    the payload leaves the host.
+  - Markdown code-fence safety net — strips ``` wrappers from LLM output.
+  - Categories + format + last device persist in browser localStorage.
+
+### Changed
+- Three new server endpoints: `POST /api/iac/request`, `GET /api/iac/status/<id>`,
+  `POST /api/iac/generate`.
+- Agent gains 17 collector functions and processes `force_iac_collect` on
+  heartbeat to attach `iac_data` to the following heartbeat.
+
+## v2.9.0 — 2026-05-22
+
+### Added
+- **Device Drawer** — clicking any device on Devices or Dashboard opens a
+  full-screen slide-in drawer with two tabs:
+  - **Actions & Settings**: quick action grid (run command, reboot, shutdown,
+    WoL, upgrade packages, scan packages, web terminal, run script, update
+    agent, docker compose, host config, CMDB, runbook, maintenance, adjust
+    poll, delete) plus inline editable device settings (group, tags, icon,
+    monitored, poll interval, watched services, log rules, drift files,
+    command allowlist) all with a single Save button.
+  - **Audit**: 11 collapsible sections, lazy-loaded on first open — system
+    info, listening ports (searchable), packages, logs (filterable by unit),
+    command history (last 5 shown, all collapsed, expand per entry), fleet
+    events, drift state, CVE summary, containers, metrics, host config.
+- **⋮ button** now opens the drawer on the Actions & Settings tab directly.
+
+### Fixed
+- **Listening Ports** — `listening_ports` was never stored in `devices.json`
+  (whitelist gap). Now persisted in `safe_si` on every heartbeat. Monitor
+  page and device drawer now show real data.
+- **Command output** — last 5 shown by default, all collapsed. Click to expand
+  output. "Show N older commands" button for the rest.
+
+## v2.9.0 — 2026-05-22
+
+### Added
+- **Device Drawer** — full-screen slide-in panel (replaces detail modal + ⋮ dropdown).
+  - **Actions & Settings tab**: Run command, Reboot, Shutdown, WoL, Upgrade packages,
+    Scan packages, Web terminal, Run script, Update agent, Docker compose, Host Config,
+    CMDB, Runbook, Maintenance, Adjust poll, Remove device.
+    Settings form: group, tags, monitored toggle, poll interval, watched services,
+    log watch rules, drift watch files, command allowlist — all inline with Save.
+  - **Audit tab**: 11 collapsible sections, all lazy-loaded on first open:
+    System info, Listening ports (searchable), Packages, Logs (filterable by unit),
+    Command history (last 5 collapsed, expand per entry), Fleet events, Drift state,
+    CVE summary, Containers, Metrics, Host config.
+- Clicking a device name (Devices or Dashboard) opens the drawer on the Audit tab.
+- The ⋮ button opens the drawer on the Actions & Settings tab.
+
+### Fixed
+- **Listening ports "No data yet"** — `listening_ports` was not persisted in
+  `sysinfo` in devices.json (whitelist gap). Now stored on every heartbeat and
+  exposed via `/api/devices/:id/sysinfo`. Monitor page refresh button works.
+- **Command output flooding** — detail view now shows last 5 commands collapsed;
+  expand per entry; "Show N older" button for the rest.
+
+## v2.8.1 — 2026-05-21
+
+### Fixed
+- **Brute-force threshold** raised to 20 (was 10). Now configurable in
+  Settings → Dashboard along with the rolling window. Enable/disable toggle.
+- **Recent Activity details** — each event now shows the most informative
+  payload field inline (source IP for brute-force, user+fingerprint for SSH
+  key, port+process for new port, age for backup stale, host+days for TLS).
+- **Packages dedup** — update history now suppresses consecutive runs with
+  identical "0 upgraded" output so the list stays readable.
+
+### Added
+- **Listening Ports on Monitor page** — fleet-wide table grouped by port/proto,
+  showing which process is listening and on which devices.
+- **Backup file age monitoring** — configure paths + max age in Settings →
+  Dashboard. Agent reports mtime each heartbeat; `backup_stale` webhook fires
+  edge-triggered; critical item in Needs Attention.
+- **Settings → Dashboard** — new tab with brute-force config, backup monitors,
+  per-kind Needs Attention toggles, and per-event-type Recent Activity toggles.
+  All stored in `config.json` (applies to all users).
+
+## v2.8.0 — 2026-05-21
+
+### Added
+- **Disk space in Needs Attention** — mounts above the configured warn/crit
+  thresholds now surface as attention items (warning/critical), using the
+  same per-device and per-mount thresholds already used for metric webhooks.
+- **Listening port audit** — new port on a host fires `new_port_detected`
+  webhook (edge-triggered). Baseline stored per device.
+- **SSH key audit** — new authorized_key for any user fires `ssh_key_added`
+  webhook with user and key fingerprint (edge-triggered). Reads from
+  host_config_current, so "Collect all current" must have run at least once.
+- **Brute-force detection** — SSH (`Failed password`, `Invalid user`) and
+  web (`POST /wp-login.php`, `POST /xmlrpc.php`) failure patterns counted
+  per source IP in a 5-minute rolling window. `brute_force_detected` webhook
+  fires at 10+ attempts. Web access logs (`nginx.access`, `apache2.access`)
+  collected incrementally by the agent.
+- **CVE tile shows critical count** — the dashboard tile now displays the
+  critical CVE count as the headline number. High-severity count shown below
+  as the sub-label. Medium/low remain in the detail page only.
+
+## v2.7.0 — 2026-05-21
+
+### Added
+- **Expanded log sources** — agent now auto-detects and watches
+  `remotepower-agent`, `nginx`, `apache2`, and `ssh` if they exist,
+  with no manual configuration. Logs flow through the existing pipeline.
+- **Kernel log collection** — dmesg errors/warnings (emerg→warn levels)
+  collected every 5 polls as virtual unit `kernel`. Incremental after
+  first run; 24h window on startup.
+- **APT history log** — `/var/log/apt/history.log` new-entry tracking
+  submitted as virtual unit `apt.history`. Only sends when the file
+  actually changes (mtime-gated).
+- **Proxmox snapshot age alerts** — Virtualization page load caches
+  snapshot ages server-side. Any snapshot older than `proxmox_snapshot_warn_days`
+  days (default: 7) appears in Needs Attention.
+- **`snapshot_old` webhook event** — edge-triggered once per VM when
+  the oldest snapshot first crosses the age threshold. Resets when the
+  snapshot is deleted.
+
+## v2.6.1 — 2026-05-21
+
+### Fixed
+- **CVE tile always showed 0** — dashboard read `devices[].findings` (doesn't exist);
+  the endpoint returns `devices[].counts` and a pre-aggregated `summary` field.
+  Tile now reads `summary` directly. Critical/high counts shown in the sub-label.
+- **Reboot/shutdown icon flash on mobile refresh** — service worker served stale
+  cached HTML on pull-to-refresh, briefly showing elements from a previous build.
+  Navigation requests now use network-first (cache is fallback when offline only).
+  Cache bumped to `remotepower-shell-v2.6.1` to evict all stale entries.
+- **Dead CSS removed** — `tr.has-hover-actions` / `.row-actions` block (marked
+  REMOVED in v2.2.5, kept as no-ops for three releases) now deleted.
+
+### Added
+- **TLS/DANE expiry in Needs Attention** — cert within 30 days → warning;
+  within 7 days or expired → critical. DANE failures also surface here.
+  Items appear automatically once `tls_targets.json` has entries and
+  `remotepower-tls-check` has run.
+- **`tls_expiry` webhook event** — `remotepower-tls-check` fires once per
+  threshold crossing (30d warning, 7d critical). Edge-triggered — no repeated
+  alerts for the same state.
+- **`reboot_required` webhook event** — fires once when a host's
+  `/run/reboot-required` flag changes from absent → present (edge-triggered
+  in the heartbeat handler).
+- **Pending reboot in Needs Attention** — warning item for any monitored
+  host with `reboot_required: true` in its latest sysinfo.
+- **Stale agent version in Needs Attention** — info item when an agent
+  reports a version older than the server. No webhook (informational only).
+- **Mobile UX** — `touch-action: manipulation` on all interactive elements
+  (eliminates 300ms tap delay); `-webkit-overflow-scrolling: touch` on scroll
+  containers; `prefers-reduced-motion` support; minimum 44×44px touch targets
+  on coarse-pointer devices.
+
 ## v2.6.0 - 2026-05-20
 
 ### Host Configuration Management
@@ -8742,3 +9225,4 @@ custom commands don't, by design.
 - PIN enrollment
 - No inbound firewall rules on clients
 - Flat JSON storage, Nginx + Python CGI
+
