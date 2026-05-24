@@ -616,6 +616,20 @@ async function api(method, path, body) {
         }
         return parsed;
       }
+      // v3.0.3: F2 interceptor returns must_change_password: true on
+      // every blocked endpoint until the password is changed. The
+      // login-response flag already drives the banner; this branch
+      // covers the case where a user reloads the page or hits an
+      // endpoint directly while still on the default password.
+      if (parsed && parsed.must_change_password) {
+        window._mustChangePassword = true;
+        if (typeof toast === 'function') {
+          toast('Change your password first — every other action is blocked.', 'error');
+        }
+        // Route to Settings → Account so the change form is one click away.
+        try { showPage('settings', document.querySelector('.nav-btn[onclick*=settings]')); } catch (_) {}
+        return parsed;
+      }
     } catch (_) { /* fall through to generic handler */ }
   }
   return r.json();
@@ -1323,6 +1337,20 @@ async function loadSettings() {
   document.getElementById('cfg-smtp-helo').value      = data.smtp_helo_name || '';
   document.getElementById('cfg-smtp-recipients').value = data.smtp_recipients || '';
   document.getElementById('cfg-smtp-pw-set-badge').style.display = data.smtp_password_set ? '' : 'none';
+  // v3.0.3: surface the RP_SMTP_PASSWORD env-var override status. Same
+  // pattern as proxmox_token_secret_from_env (v2.3.1).
+  {
+    const smtpPwEl = document.getElementById('cfg-smtp-password');
+    if (data.smtp_password_from_env) {
+      smtpPwEl.disabled = true;
+      smtpPwEl.placeholder = 'set via RP_SMTP_PASSWORD env var';
+    } else {
+      smtpPwEl.disabled = false;
+      smtpPwEl.placeholder = 'Leave blank to keep existing';
+    }
+    const smtpEnvHint = document.getElementById('smtp-env-hint');
+    if (smtpEnvHint) smtpEnvHint.style.display = data.smtp_password_from_env ? 'block' : 'none';
+  }
 
   // v1.8.6: LDAP
   document.getElementById('cfg-ldap-enabled').checked    = !!data.ldap_enabled;
@@ -1336,6 +1364,19 @@ async function loadSettings() {
   document.getElementById('cfg-ldap-tls-verify').checked = data.ldap_tls_verify !== false;
   document.getElementById('cfg-ldap-timeout').value      = data.ldap_timeout || 5;
   document.getElementById('cfg-ldap-pw-set-badge').style.display = data.ldap_bind_password_set ? '' : 'none';
+  // v3.0.3: RP_LDAP_BIND_PASSWORD env-var override status.
+  {
+    const ldapPwEl = document.getElementById('cfg-ldap-bind-password');
+    if (data.ldap_bind_password_from_env) {
+      ldapPwEl.disabled = true;
+      ldapPwEl.placeholder = 'set via RP_LDAP_BIND_PASSWORD env var';
+    } else {
+      ldapPwEl.disabled = false;
+      ldapPwEl.placeholder = 'Leave blank to keep existing';
+    }
+    const ldapEnvHint = document.getElementById('ldap-env-hint');
+    if (ldapEnvHint) ldapEnvHint.style.display = data.ldap_bind_password_from_env ? 'block' : 'none';
+  }
 
   // Security
   document.getElementById('cfg-session-short').value = Math.round((data.session_ttl_short || 86400) / 3600);
@@ -2425,8 +2466,13 @@ function _registerPatchTable() {
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
       const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
       // v2.1.5: ✨ Prioritise only on devices with pending updates
+      // v3.0.4: pass the event so the handler can disable the button +
+      // show a spinner during the API call (previously the button just
+      // toasted silently — operators reported "I clicked it, nothing
+      // happened" because the toast was easy to miss and there was no
+      // in-place feedback).
       const aiBtn = d.upgradable > 0
-        ? `<button class="btn-icon" style="padding:4px 6px;font-size:11px" onclick="aiPrioritisePatchesForDevice('${d.device_id}','${escAttr(d.name)}')" title="AI: prioritise these updates">✨</button>`
+        ? `<button class="btn-icon" style="padding:4px 6px;font-size:11px" onclick="aiPrioritisePatchesForDevice('${d.device_id}','${escAttr(d.name)}', this)" title="AI: prioritise these updates">✨</button>`
         : '';
       const rebootBadge = d.reboot_required
         ? `<span title="Pending reboot — /run/reboot-required exists on this host" style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-edge);white-space:nowrap;vertical-align:middle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px;margin-right:2px;flex-shrink:0"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
@@ -6904,23 +6950,87 @@ function aiExplainContainerLogs(containerName, image, logs) {
   });
 }
 
-async function aiPrioritisePatchesForDevice(devId, devName) {
-  // Pull the device's patch report and find the most recent upgrade-listing
-  // command output (apt list --upgradable / dnf check-update / etc.) to
-  // feed to the model. That output IS the package list.
-  const data = await api('GET', `/patch-report/device/${encodeURIComponent(devId)}`);
-  if (!data?.patch_history?.length) {
-    toast('No patch-check output recorded yet — agent hasn\'t run one', 'info');
-    return;
+async function aiPrioritisePatchesForDevice(devId, devName, btn) {
+  // v3.0.4: show visible button feedback during the API call. The
+  // previous version toasted silently on the negative paths; operators
+  // reported the button felt unresponsive ("I clicked it, nothing
+  // happened"). Now the button visibly disables, shows a spinner glyph
+  // while the request is in flight, and restores on completion.
+  //
+  // v3.0.4 (iter 2): when patch_history doesn't yet contain an upgrade
+  // listing, the previous version pointed the operator at "Force
+  // re-scan packages" — but that flag only re-syncs the upgradable
+  // COUNT, not the listing (the agent's get_patch_info() discards `out`
+  // and only keeps len()). The only path that populates patch_history
+  // with a real listing is an operator-triggered exec command. Rather
+  // than make the operator dig for that, ✨ now queues the right
+  // listing command for the device's package manager automatically.
+  // One click → next click in ~60s → AI engages.
+  const originalLabel = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳';
+    btn.title = 'Fetching patch history…';
   }
-  const listing = data.patch_history.slice().reverse().find(o =>
+  const restore = () => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalLabel;
+      btn.title = 'AI: prioritise these updates';
+    }
+  };
+  let data;
+  try {
+    data = await api('GET', `/patch-report/device/${encodeURIComponent(devId)}`);
+  } finally {
+    restore();
+  }
+  if (!data) return;   // api() already toasted the error
+
+  // Happy path: listing exists, hand it to the AI.
+  const listing = (data.patch_history || []).slice().reverse().find(o =>
     /upgradable|check-update|list-upgrades|outdated|pacman -Qu/i.test(o.cmd) && o.output
   );
-  if (!listing) {
-    toast('No upgrade listing output in patch history', 'info');
+  if (listing) {
+    aiPrioritisePatches(devName, listing.output);
     return;
   }
-  aiPrioritisePatches(devName, listing.output);
+
+  // No listing — figure out which command WOULD produce one for this
+  // package manager, then offer to queue it on the device. The result
+  // arrives in CMD_OUTPUT_FILE on the next heartbeat (~60s) and shows
+  // up in patch_history on subsequent /patch-report/device fetches.
+  const LISTING_CMD_FOR = {
+    apt:    'apt list --upgradable',
+    dnf:    'dnf check-update',
+    pacman: 'pacman -Qu',
+  };
+  const pkgManager = data.pkg_manager;
+  const listingCmd = LISTING_CMD_FOR[pkgManager];
+
+  if (!listingCmd) {
+    toast(`No upgrade listing in patch history, and no built-in listing `
+          + `command for "${pkgManager || 'unknown'}". Run an appropriate `
+          + `"list upgradable packages" command via Run Command, then `
+          + `click ✨ again.`, 'info');
+    return;
+  }
+
+  if (!confirm(
+        `No upgrade listing recorded for ${devName} yet.\n\n`
+      + `Queue "${listingCmd}" on the device now?\n\n`
+      + `Output arrives in ~60s. Click ✨ again after that to get the `
+      + `AI's upgrade-prioritisation summary.`)) {
+    return;
+  }
+
+  const r = await api('POST', '/exec', {device_id: devId, cmd: listingCmd});
+  if (r?.ok) {
+    toast(`Queued ${listingCmd} on ${devName}. Click ✨ again in ~60s `
+          + `to get the AI analysis.`, 'success');
+  } else {
+    toast(r?.error || 'Failed to queue the listing command', 'error');
+  }
 }
 
 // ─── v2.1.7: Device runbooks ───────────────────────────────────────────────
@@ -8328,14 +8438,49 @@ function toggleMobileNav() {
 // Closing on any nav-btn click — once you've picked a destination, the
 // sidebar should get out of the way. Listen at document level so the
 // hookup survives sidebar re-renders.
+//
+// v3.0.4 fix: previously the "tap outside to close" path required
+// `e.target === document.body`, which only fired when the click bubbled
+// up with body itself as target. With the scrim (`body::after`) catching
+// pointer events at z-index 800, the actual target on mobile Chrome /
+// PWA tended to be the underlying `<div id="app">` or `.app-content`
+// instead. Result: collapse silently broken — only the nav-button-click
+// close path worked. Burger-to-collapse also broken because the burger
+// sits behind the scrim (header z-index 100 < scrim 800), so the
+// burger's own onclick never fires when the drawer is open.
+//
+// New logic: when the drawer is open, ANY click that doesn't land inside
+// the sidebar or on the burger closes the drawer. Robust to scrim
+// targeting quirks, and the burger's now closed via this same path
+// (since taps over the burger position hit the scrim, not the button).
 document.addEventListener('click', e => {
   if (!document.body.classList.contains('mobile-nav-open')) return;
-  const btn = e.target.closest('.nav-btn');
-  if (btn) {
+
+  // Tap on a nav button → close (and let the navigation continue)
+  if (e.target.closest('.nav-btn')) {
     document.body.classList.remove('mobile-nav-open');
+    return;
   }
-  // Also close on overlay click (the ::after pseudo)
-  if (e.target === document.body && window.innerWidth <= 720) {
+
+  // Tap anywhere inside the open drawer (but not on a nav button)
+  // → leave it open. Useful so taps on the sidebar's header, search
+  // box, or scrollbar don't dismiss the menu.
+  if (e.target.closest('.sidebar')) return;
+
+  // Tap directly on the burger button (drawer just opened — possible
+  // only when the user opened it via the burger, since when the drawer
+  // is open the scrim sits in front of the header and intercepts taps
+  // at the burger's position). toggleMobileNav's onclick has already
+  // run and toggled the class; without this guard we'd double-toggle
+  // and the drawer would close on the same tap that opened it.
+  if (e.target.closest('.mobile-burger')) return;
+
+  // Mobile-only: anything else dismisses the drawer. This includes
+  // the scrim area, the burger button's screen location (which is
+  // behind the scrim when open, so taps there hit the scrim — not
+  // the button — and the closest('.mobile-burger') check above fails
+  // through to here), and any content area the scrim covers.
+  if (window.innerWidth <= 720) {
     document.body.classList.remove('mobile-nav-open');
   }
 });
@@ -9026,8 +9171,13 @@ function sshLinkIcon(d) {
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
   if (!host) return '';
   // escAttr the host since it goes into an onclick attribute.
+  // v3.0.3: explicit color:var(--text) — without it the <a> takes the
+  // browser's default link colour (blue), which is hard to read against
+  // the dark sidebar/table. var(--text) resolves to near-white in dark
+  // mode and near-black in light mode, so the icon stays visible in
+  // both themes. The currentColor stroke on the SVG inherits this.
   return ` <a href="#" title="Quick SSH" onclick="quickSsh('${escAttr(host)}'); return false;"` +
-         ` style="text-decoration:none;margin-left:4px">` +
+         ` style="text-decoration:none;margin-left:4px;color:var(--text)">` +
          `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;opacity:0.7">` +
          `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>`;
 }
@@ -12130,11 +12280,24 @@ const _MITIGATE_KIND_LABELS = {
   service_down: 'Service down',
   reboot:       'Reboot required',
   brute_force:  'Brute-force attempts',
+  // v3.0.4: metric playbooks. The server now has _MITIGATE_PLAYBOOKS
+  // entries for memory/swap/cpu; without these labels the modal title
+  // falls back to the raw kind string ("Investigate: swap" — usable
+  // but ugly), and the gate below would refuse the click entirely.
+  memory:       'Memory pressure',
+  swap:         'Swap pressure',
+  cpu:          'CPU load',
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
 // on the server. Used to decide whether to show the 🩺 button on a card.
-const MITIGATE_KINDS = new Set(['patches','disk','drift','service_down','reboot','brute_force']);
+// v3.0.4: added memory/swap/cpu — these alerts always fired with no
+// available playbook before. The two lists are intentionally separate
+// (labels also need a label) and both have to mention every kind.
+const MITIGATE_KINDS = new Set([
+  'patches', 'disk', 'drift', 'service_down', 'reboot', 'brute_force',
+  'memory', 'swap', 'cpu',
+]);
 
 function openMitigateModal(devId, kind, target, deviceName) {
   if (!MITIGATE_KINDS.has(kind)) {

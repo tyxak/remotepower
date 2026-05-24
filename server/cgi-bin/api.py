@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.0.2'
+SERVER_VERSION = '3.0.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -387,6 +387,33 @@ MAX_WEBHOOK_LOG   = 100
 # enough history to show meaningful activity even on quiet fleets
 # where events arrive sparsely.
 MAX_FLEET_EVENTS = 200
+
+# v3.1.0: role enum. Three roles total:
+#
+#   admin   — full control. Can create users, manage API keys, run commands,
+#             modify config. The default role for the seeded admin user and
+#             for newly-created API keys (when no role is specified).
+#   viewer  — read-only. Can browse the dashboard, view device state, see
+#             logs / CVE findings / etc. Cannot queue commands, modify
+#             config, or access API keys. Suitable for read-only humans or
+#             monitoring integrations.
+#   mcp     — read-only PLUS may invoke server-vetted write tools listed in
+#             MCP_ACTION_ALLOWLIST. Strictly for MCP API keys consumed by an
+#             AI host (Claude Desktop, Cursor, etc.). User accounts may NOT
+#             have this role — humans don't log in as MCP. The role's
+#             ability to mutate fleet state is gated through the allowlist
+#             AND a per-device `require_confirmation` flag (see below); a
+#             leaked MCP key cannot rm -rf anything outside what's been
+#             pre-vetted.
+#
+# Stage 1 (v3.1.0): the role exists but MCP_ACTION_ALLOWLIST is empty — no
+# write tools yet. Stage 4 fills the allowlist with the initial set of
+# write tools (run_saved_script, reboot_device, force_package_scan,
+# force_acme_rescan).
+VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp'})
+USER_ROLES         = frozenset({'admin', 'viewer'})         # roles a user account may hold
+APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp'})  # roles an API key may hold
+MCP_ACTION_ALLOWLIST = frozenset()  # populated in v3.1.0 Stage 4; empty for now
 
 
 # v1.8.4: All known webhook events, with metadata used by the UI to render
@@ -1366,12 +1393,74 @@ def require_auth(require_admin=False):
     username, role = verify_token(token)
     if not username:
         respond(401, {'error': 'Unauthorized'})
-    if require_admin and role == 'viewer':
-        respond(403, {'error': 'Viewer accounts cannot perform this action'})
+    # v3.1.0: the 'mcp' role is read-only PLUS the MCP_ACTION_ALLOWLIST set.
+    # For the require_admin gate, mcp behaves exactly like viewer — blocked.
+    # Admin-only endpoints (config edits, user management, API key creation)
+    # stay admin-only regardless of whether the caller is a human viewer
+    # or an MCP key.
+    if require_admin and role in ('viewer', 'mcp'):
+        respond(403, {'error': 'This action requires admin role'})
     return username
 
 def require_admin_auth():
     return require_auth(require_admin=True)
+
+
+def require_mcp_action(action_name):
+    """Gate for MCP write tools (Stage 4).
+
+    Returns the authenticated username if the current token holds the 'mcp'
+    role AND the action is in MCP_ACTION_ALLOWLIST. Anything else short-
+    circuits with the right status:
+
+      - No token / bad token       → 401 Unauthorized
+      - Token has role != 'mcp'    → 403 (this endpoint is MCP-only)
+      - Action not in allowlist    → 403 (action not in allowlist)
+
+    Admin tokens deliberately CANNOT call MCP write tools through this gate
+    — they have their own direct endpoints. The separation makes the audit
+    log unambiguous: anything passing through require_mcp_action() was
+    initiated by an AI host, not a human admin clicking a button.
+
+    Stage 1 stub: the allowlist is empty, so this always 403s. Stage 4
+    populates the allowlist with the initial set of write tools and the
+    function starts handing out access.
+    """
+    token = get_token_from_request()
+    username, role = verify_token(token)
+    if not username:
+        respond(401, {'error': 'Unauthorized'})
+    if role != 'mcp':
+        respond(403, {'error': "This endpoint is reserved for MCP role tokens"})
+    if action_name not in MCP_ACTION_ALLOWLIST:
+        respond(403, {
+            'error': f"MCP action '{action_name}' not in server allowlist",
+            'allowed_actions': sorted(MCP_ACTION_ALLOWLIST),
+        })
+    return username
+
+
+def get_mcp_attribution():
+    """Extract MCP attribution headers from the current request.
+
+    Returns (ai_host, ai_prompt) — either may be None if the header was
+    absent. The MCP server (`mcp/remotepower-mcp.py`) forwards these on
+    every write-tool call so the audit log can record who triggered the
+    action through the AI host. Headers used:
+
+      X-MCP-Client    →  ai_host    (e.g. "claude-desktop", "cursor")
+      X-MCP-Prompt    →  ai_prompt  (the natural-language justification
+                                     the LLM passed as a tool argument,
+                                     forwarded verbatim to the audit log)
+
+    Stage 1: helper exists, no caller yet. Stage 4 writes the MCP server
+    half and the write tools call get_mcp_attribution() right before
+    audit_log() so every state change carries the prompt that caused it.
+    """
+    return (
+        os.environ.get('HTTP_X_MCP_CLIENT') or None,
+        os.environ.get('HTTP_X_MCP_PROMPT') or None,
+    )
 
 
 def current_username():
@@ -1491,7 +1580,8 @@ def log_command(actor, device_id, device_name, command):
     save(HISTORY_FILE, history)
 
 # ── Audit log with IP tracking ─────────────────────────────────────────────────
-def audit_log(actor, action, detail='', source_ip=None):
+def audit_log(actor, action, detail='', source_ip=None,
+              ai_host=None, ai_prompt=None):
     """Log action with actor, IP, and detail for security auditing.
 
     v3.0.2: retention is both count-bounded (MAX_AUDIT_LOG) and
@@ -1499,17 +1589,36 @@ def audit_log(actor, action, detail='', source_ip=None):
     `audit_log_retention_days` in config.json. Both bounds apply — we
     evict on whichever fires first. The archive (gzipped JSONL) preserves
     the evicted tail for compliance dives.
+
+    v3.1.0: optional ai_host / ai_prompt fields for actions initiated
+    through MCP. ai_host identifies the calling AI host (Claude Desktop,
+    Cursor, the device-name-or-host header the MCP server forwarded as
+    `X-MCP-Client`), and ai_prompt captures the natural-language string
+    the LLM passed through to justify the action. Both fields are
+    truncated; ai_prompt has a generous cap (2048) because the audit
+    record is precisely the place the operator needs the full sentence
+    when something goes sideways. Calls without these args (every
+    existing call site) record neither field — the audit-log shape stays
+    backward-compatible.
     """
     al = load(AUDIT_LOG_FILE)
     entries = al.get('entries', [])
-    entries.append({
+    entry = {
         'ts':        int(time.time()),
         'actor':     _sanitize_str(actor, 64),
         'action':    _sanitize_str(action, 128),
         'detail':    _sanitize_str(detail, 512),
         'source_ip': _sanitize_ip(source_ip or _get_client_ip()),
         'user_agent': _sanitize_str(os.environ.get('HTTP_USER_AGENT', ''), 256),
-    })
+    }
+    # Only attach AI fields when present — keeps the entry compact for
+    # the human-initiated path and makes MCP-initiated entries visually
+    # distinct in the audit log table.
+    if ai_host is not None:
+        entry['ai_host'] = _sanitize_str(ai_host, 128)
+    if ai_prompt is not None:
+        entry['ai_prompt'] = _sanitize_str(ai_prompt, 2048)
+    entries.append(entry)
     # Age-bound: drop entries older than retention_days
     cfg = load(CONFIG_FILE) or {}
     retention_days = int(cfg.get('audit_log_retention_days') or 90)
@@ -2613,6 +2722,21 @@ def handle_devices_list():
             'version': dev.get('version', ''), 'tags': dev.get('tags', []),
             'group': dev.get('group', ''), 'notes': dev.get('notes', ''),
             'icon': dev.get('icon', ''), 'monitored': dev.get('monitored', True),
+            # v3.0.4: ship metric_state with the device list. Without this,
+            # the Monitor page row aggregator iterates an empty dict for
+            # every device and shows "OK" even when /api/attention is
+            # screaming about a swap warning on the same host. The state
+            # dict is small (one entry per active alert) and cheap to
+            # serialise — there's no good reason to hide it.
+            'metric_state': dev.get('metric_state') or {},
+            # v3.1.0: per-device MCP confirmation gate. When true, any
+            # write tool invoked through an MCP API key against this device
+            # returns a pending-confirmation handle the operator clears
+            # from the dashboard before the action actually runs. Default
+            # true on every existing device because the conservative
+            # behaviour is "ask first." Operators can flip it off per-host
+            # via the device drawer once they trust a given AI workflow.
+            'require_confirmation': dev.get('require_confirmation', True),
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60), 'sysinfo': dev.get('sysinfo', {}),
@@ -2746,6 +2870,148 @@ def handle_device_notes(dev_id):
     devices[dev_id]['notes'] = notes
     save(DEVICES_FILE, devices)
     respond(200, {'ok': True, 'notes': notes})
+
+
+# v3.0.4: bulk device settings save.
+# The device drawer's "Save settings" button posts the full bundle to
+# `POST /api/devices/<id>`. Before this handler existed, that route
+# fell through to the dispatcher's catch-all 404, so the toast read
+# "Not found" and nothing got saved. Each per-field endpoint
+# (PATCH /api/devices/<id>/{group,tags,monitored,...}) still works
+# independently; this handler exists so the drawer can do one atomic
+# save instead of fanning out into 9 sequential PATCHes (which would
+# have partial-success problems on any error).
+#
+# Validation mirrors the per-field handlers exactly — same regex,
+# same length caps, same type checks. Anything not in the bundle is
+# left alone (no implicit reset to defaults). Empty list = explicit
+# clear; missing key = "don't touch."
+def handle_device_save_bulk(dev_id):
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    if not isinstance(body, dict):
+        respond(400, {'error': 'body must be a JSON object'})
+
+    dev = devices[dev_id]
+    updates = {}
+
+    # group — alphanumeric + - _ /, max MAX_GROUP_LEN
+    if 'group' in body:
+        raw = _sanitize_str(body.get('group') or '', MAX_GROUP_LEN)
+        cleaned = re.sub(r'[^a-zA-Z0-9_\-/]', '', raw)
+        updates['group'] = cleaned
+
+    # tags — list, each filtered, capped
+    if 'tags' in body:
+        raw_tags = body.get('tags') or []
+        if not isinstance(raw_tags, list):
+            respond(400, {'error': 'tags must be a list'})
+        tags = [re.sub(r'[^a-zA-Z0-9_\-/]', '', str(t))[:MAX_TAG_LEN]
+                for t in raw_tags[:MAX_TAG_COUNT]]
+        updates['tags'] = [t for t in tags if t]
+
+    # icon — short ascii label
+    if 'icon' in body:
+        updates['icon'] = _sanitize_str(body.get('icon') or '', MAX_NAME_LEN)
+
+    # monitored — bool
+    if 'monitored' in body:
+        updates['monitored'] = bool(body.get('monitored'))
+
+    # poll_interval — int, clamp to a reasonable floor
+    if 'poll_interval' in body:
+        try:
+            pi_val = int(body.get('poll_interval'))
+        except (TypeError, ValueError):
+            respond(400, {'error': 'poll_interval must be an integer'})
+        if pi_val < 30:
+            respond(400, {'error': 'poll_interval must be >= 30 seconds'})
+        if pi_val > 3600:
+            respond(400, {'error': 'poll_interval must be <= 3600 seconds'})
+        updates['poll_interval'] = pi_val
+
+    # watched_services — list of unit names (server stores them under
+    # the `services_watched` key — historical naming, kept for
+    # back-compat with the heartbeat path that already reads that field).
+    if 'watched_services' in body:
+        raw_svcs = body.get('watched_services') or []
+        if not isinstance(raw_svcs, list):
+            respond(400, {'error': 'watched_services must be a list'})
+        svcs = []
+        for s in raw_svcs[:50]:
+            name = _sanitize_str(str(s), 128)
+            if name:
+                svcs.append(name)
+        updates['services_watched'] = svcs
+
+    # log_watch — list of {unit, pattern} dicts
+    if 'log_watch' in body:
+        raw_lw = body.get('log_watch') or []
+        if not isinstance(raw_lw, list):
+            respond(400, {'error': 'log_watch must be a list'})
+        log_rules = []
+        for entry in raw_lw[:50]:
+            if not isinstance(entry, dict):
+                continue
+            unit = _sanitize_str(entry.get('unit') or '', 128)
+            pattern = _sanitize_str(entry.get('pattern') or '', 256)
+            if unit and pattern:
+                log_rules.append({'unit': unit, 'pattern': pattern})
+        updates['log_watch'] = log_rules
+
+    # watched_files — list of absolute paths
+    if 'watched_files' in body:
+        raw_wf = body.get('watched_files') or []
+        if not isinstance(raw_wf, list):
+            respond(400, {'error': 'watched_files must be a list'})
+        files = []
+        for p in raw_wf[:50]:
+            s = str(p).strip()
+            if s.startswith('/') and len(s) <= 512:
+                files.append(s)
+        updates['watched_files'] = files
+
+    # cmd_allowlist — list of command strings.
+    # Storage name is `allowed_commands` because that's what
+    # _check_exec_allowlist() reads at command-execution time. Any
+    # divergent `cmd_allowlist` field on the device record is
+    # historical noise; cleaning it up is a separate task.
+    if 'cmd_allowlist' in body:
+        raw_al = body.get('cmd_allowlist') or []
+        if not isinstance(raw_al, list):
+            respond(400, {'error': 'cmd_allowlist must be a list'})
+        cmds = [str(c)[:512] for c in raw_al[:50] if str(c).strip()]
+        updates['allowed_commands'] = cmds
+
+    if not updates:
+        respond(400, {'error': 'no recognised settings fields in body'})
+
+    # Single atomic write. If `monitored` is being turned off, mirror
+    # the per-field handler's side effect and clear any pending
+    # offline notification so we don't ping about an opt-out device.
+    dev.update(updates)
+    save(DEVICES_FILE, devices)
+    if updates.get('monitored') is False:
+        cfg = load(CONFIG_FILE)
+        notified = cfg.get('offline_notified', {})
+        if dev_id in notified:
+            del notified[dev_id]
+            cfg['offline_notified'] = notified
+            save(CONFIG_FILE, cfg)
+
+    # Audit the bulk save with the field list (not values — keeps the
+    # audit log compact and avoids logging long allowlists verbatim)
+    audit_log(actor, 'device_save_bulk',
+              f'dev={dev_id} fields={",".join(sorted(updates.keys()))}')
+
+    respond(200, {'ok': True, 'updated': sorted(updates.keys())})
 
 
 # v1.11.10: per-device metric threshold overrides
@@ -2945,6 +3211,30 @@ def handle_device_monitored(dev_id):
             cfg['offline_notified'] = notified
             save(CONFIG_FILE, cfg)
     respond(200, {'ok': True, 'monitored': monitored})
+
+
+# v3.1.0: per-device MCP confirmation gate. When require_confirmation is
+# true (default), any MCP write tool invoked against this device returns
+# a pending-confirmation handle that the operator clears from the dashboard
+# before the action actually runs. Flipping it off opts a device into
+# silent automation — appropriate for staging boxes the operator trusts
+# the AI workflow on, never for prod.
+def handle_device_require_confirmation(dev_id):
+    requester = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    require = bool(body.get('require_confirmation', True))
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['require_confirmation'] = require
+    save(DEVICES_FILE, devices)
+    audit_log(requester, 'device_require_confirmation',
+              f'dev={dev_id} require_confirmation={require}')
+    respond(200, {'ok': True, 'require_confirmation': require})
 
 
 def handle_enroll_pin():
@@ -3546,10 +3836,18 @@ def handle_heartbeat():
             # metric_recovered webhooks. Wrapped in try so a logic bug here never
             # breaks the heartbeat path. process_metric_thresholds touches
             # CONFIG_FILE only, not DEVICES_FILE.
+            # v3.0.4: the previous bare `except: pass` hid every failure
+            # silently — including the one Jakob hit ("threshold change
+            # saved but metric_state never updates"). Now we log the
+            # traceback to stderr (visible in journalctl -u fcgiwrap)
+            # while still keeping the heartbeat path resilient.
             try:
                 process_metric_thresholds(dev_id, dev, safe_si)
-            except Exception:
-                pass
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[remotepower] process_metric_thresholds failed for "
+                    f"{dev_id}: {exc.__class__.__name__}: {exc}\n")
+                traceback.print_exc(file=sys.stderr)
 
         if 'journal' in body and isinstance(body['journal'], list):
             # Cap journal: max lines and max bytes per line
@@ -4547,8 +4845,11 @@ def handle_config_get():
     safe.setdefault('smtp_helo_name', '')
     safe.setdefault('smtp_recipients', '')
     safe.setdefault('email_events', {})
-    # Mask password — show only whether one is set
-    safe['smtp_password_set'] = bool(cfg.get('smtp_password'))
+    # v3.0.3: resolve via the env-var-first helper so the UI can show
+    # "the password is being read from RP_SMTP_PASSWORD" if applicable.
+    _smtp_pw, _smtp_from_env = smtp_notifier.resolve_smtp_password(cfg)
+    safe['smtp_password_set']      = bool(_smtp_pw)
+    safe['smtp_password_from_env'] = _smtp_from_env
     safe.pop('smtp_password', None)
 
     safe.setdefault('ldap_enabled', False)
@@ -4577,7 +4878,11 @@ def handle_config_get():
     safe['proxmox_token_secret_set'] = bool(_px['token_secret'])
     safe['proxmox_token_secret_from_env'] = _px['token_secret_from_env']
     safe.pop('proxmox_token_secret', None)
-    safe['ldap_bind_password_set'] = bool(cfg.get('ldap_bind_password'))
+    # v3.0.3: LDAP bind password is now also resolvable from an env var
+    # (RP_LDAP_BIND_PASSWORD). Same shape as smtp_password / proxmox.
+    _ldap_pw, _ldap_from_env = ldap_auth.resolve_bind_password(cfg)
+    safe['ldap_bind_password_set']      = bool(_ldap_pw)
+    safe['ldap_bind_password_from_env'] = _ldap_from_env
     safe.pop('ldap_bind_password', None)
 
     # Static UI metadata (so the front-end doesn't have to hardcode this)
@@ -5067,7 +5372,12 @@ def handle_user_create():
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
     role     = body.get('role', 'admin')
-    if role not in ('admin', 'viewer'): respond(400, {'error': 'role must be admin or viewer'})
+    # v3.1.0: USER_ROLES = {'admin', 'viewer'}. The 'mcp' role is for API
+    # keys consumed by AI hosts — humans never log in as MCP. Rejecting
+    # it here keeps the human-vs-machine separation crisp.
+    if role not in USER_ROLES:
+        respond(400, {'error': "role must be 'admin' or 'viewer' "
+                               "(the 'mcp' role is reserved for API keys)"})
     if not username or not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
     if not isinstance(password, str) or not password or len(password) > 1024:
@@ -10341,7 +10651,13 @@ def handle_apikeys_create():
     role = body.get('role', 'admin')
     user = _sanitize_str(body.get('user', 'api'), 32)
     if not name: respond(400, {'error': 'name required'})
-    if role not in ('admin', 'viewer'): respond(400, {'error': 'role must be admin or viewer'})
+    # v3.1.0: APIKEY_ROLES = {'admin', 'viewer', 'mcp'}. The 'mcp' role
+    # grants read-only access PLUS the set of vetted write actions in
+    # MCP_ACTION_ALLOWLIST — intended for MCP keys consumed by AI hosts.
+    # Until Stage 4 lands those tools the allowlist is empty, so an 'mcp'
+    # key behaves like 'viewer' for now.
+    if role not in APIKEY_ROLES:
+        respond(400, {'error': "role must be 'admin', 'viewer', or 'mcp'"})
     apikeys = load(APIKEYS_FILE)
     if len(apikeys) >= 50: respond(400, {'error': 'API key limit reached (max 50)'})
     key_value = secrets.token_urlsafe(40)
@@ -14259,6 +14575,71 @@ def _enforce_same_origin():
     })
 
 
+# v3.0.3: F2 — endpoints reachable while must_change_password is set.
+# Kept deliberately tight:
+#   - /api/users/passwd  : the only way to clear the flag
+#   - /api/public-info   : server version and login-screen metadata
+# Anything else returns 403 with `must_change_password: true` so the
+# frontend can route the user into the password-change view rather
+# than letting them poke at the app on the default credentials.
+_PWCHG_ALLOWED_PATHS = frozenset({
+    '/api/users/passwd',
+    '/api/public-info',
+})
+
+
+def _enforce_password_change():
+    """Block requests from sessions whose user has must_change_password set.
+
+    Only fires for session-token requests — agent device tokens and
+    API keys don't carry the flag (and an admin with the flag set
+    cannot have created an API key in the first place, because the
+    create-key endpoint is in the blocked set).
+
+    Anonymous / no-token requests pass through unchanged: they hit the
+    handler's own require_auth() and get 401 the normal way. The
+    interceptor is strictly a gate behind a valid session, not a
+    replacement for auth.
+
+    The 403 payload echoes `must_change_password: true` so the
+    frontend can show the change-password modal without first having
+    to call /api/public-info or /api/users/me. Empty-body requests
+    don't trigger this — the interceptor only runs for already-
+    authenticated sessions.
+    """
+    pi = path_info()
+    if pi in _PWCHG_ALLOWED_PATHS:
+        return
+
+    token = get_token_from_request()
+    if not token:
+        return  # No session yet — require_auth() will 401 in the handler
+
+    # Only block session tokens (those that map into TOKENS_FILE).
+    # API keys live in apikeys.json and are not subject to this gate.
+    tokens = load(TOKENS_FILE)
+    entry = tokens.get(token)
+    if not entry:
+        return  # Probably an API key — pass through
+
+    username = entry.get('user')
+    if not username:
+        return
+
+    users = load(USERS_FILE)
+    user = users.get(username) or {}
+    if not user.get('must_change_password'):
+        return
+
+    respond(403, {
+        'error': 'Password change required',
+        'detail': ('This account is on a default or rotated password. '
+                   'Change it via POST /api/users/passwd before using '
+                   'any other endpoint.'),
+        'must_change_password': True,
+    })
+
+
 def main():
     # v2.1.1: these per-request maintenance sweeps used to be wrapped in
     # bare `except Exception: pass` blocks. That silently swallowed every
@@ -14301,10 +14682,18 @@ def main():
     # check on state-changing requests as belt-and-suspenders against
     # future regressions (e.g. an operator turning on permissive CORS
     # for an integration). API-key clients (CLI scripts, external
-    # automation) typically send no Origin/Referer at all — those are
+    # automation) typically send no Origin at all — those are
     # permitted; the check only rejects when an Origin/Referer IS sent
     # and points elsewhere.
     _enforce_same_origin()
+
+    # v3.0.3: F2 — hard backstop for default-password admin accounts.
+    # The warning banner from 2.3.2 nags but doesn't *force* anything;
+    # an operator on the default password can ignore it and use the
+    # full app. This interceptor blocks every endpoint except the
+    # password-change route (and the bare server-info endpoint the
+    # login page reads) until must_change_password is cleared.
+    _enforce_password_change()
 
     pi = path_info(); m = method()
 
@@ -14324,6 +14713,15 @@ def main():
                                      # v1.11.10
                                      '/metric-thresholds')):
         handle_device_delete(pi[len('/api/devices/'):])
+    # v3.0.4: bulk device settings save from the device drawer.
+    # Matches POST /api/devices/<id> exactly — no further slashes.
+    # Specifically NOT `pi.endswith('<something>') ... not in ...` because
+    # that's the brittle pattern; this check works against any future
+    # sub-routes added below it without needing maintenance.
+    elif (pi.startswith('/api/devices/') and m == 'POST'
+            and '/' not in pi[len('/api/devices/'):]
+            and pi != '/api/devices/agentless'):
+        handle_device_save_bulk(pi[len('/api/devices/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/tags') and m == 'PATCH':
         handle_device_tags(pi[len('/api/devices/'):-len('/tags')])
     elif pi.startswith('/api/devices/') and pi.endswith('/notes') and m == 'PATCH':
@@ -14340,6 +14738,9 @@ def main():
         handle_device_icon(pi[len('/api/devices/'):-len('/icon')])
     elif pi.startswith('/api/devices/') and pi.endswith('/monitored') and m == 'PATCH':
         handle_device_monitored(pi[len('/api/devices/'):-len('/monitored')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH':
+        handle_device_require_confirmation(
+            pi[len('/api/devices/'):-len('/require_confirmation')])
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
     elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
@@ -16415,6 +16816,86 @@ _MITIGATE_PLAYBOOKS = {
         'ai_default': True,
         'destructive': False,
     },
+    # v3.0.4: memory / swap / cpu playbooks. The AI prompt keys
+    # (mitigate_memory, mitigate_cpu) have existed since v3.0.1 but
+    # weren't wired here — so a metric_warning fired on the host, the
+    # alert showed up in Needs Attention, and the operator got no 🩺
+    # button to click. These three playbooks close that loop.
+    'memory': {
+        'label': 'Memory pressure',
+        'diagnostic': (
+            'set -e; echo "== free / meminfo =="; '
+            'free -h; echo; '
+            'awk \'/^(MemTotal|MemAvailable|MemFree|Buffers|Cached|SwapTotal|SwapFree|Dirty|Writeback|Slab|SReclaimable):/ '
+            '{print}\' /proc/meminfo; '
+            'echo; echo "== TOP 20 BY %MEM =="; '
+            'ps -eo pid,user,%mem,%cpu,rss,comm --sort=-%mem 2>/dev/null | head -21; '
+            'echo; echo "== RECENT OOM EVENTS =="; '
+            '(journalctl -k --no-pager --since "-7 days" 2>/dev/null | grep -iE "out of memory|oom-killer|killed process" | tail -20) '
+            '|| (dmesg 2>/dev/null | grep -iE "out of memory|oom-killer|killed process" | tail -20) '
+            '|| echo "(no OOM events found in the last 7 days)"; '
+            'echo; echo "== vm.swappiness / overcommit =="; '
+            'sysctl vm.swappiness vm.overcommit_memory vm.overcommit_ratio 2>/dev/null; '
+            'echo; echo "== systemd-cgtop snapshot =="; '
+            'systemd-cgtop -m -n 1 --depth=2 2>/dev/null | head -15 || echo "(systemd-cgtop unavailable)"'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_memory',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'swap': {
+        'label': 'Swap pressure',
+        'diagnostic': (
+            'set -e; echo "== free / swap state =="; '
+            'free -h; echo; swapon --show 2>/dev/null || echo "(no swapon)"; '
+            'echo; echo "== PER-PROCESS SWAP USAGE (TOP 20) =="; '
+            'for pid in $(ls /proc 2>/dev/null | grep -E "^[0-9]+$"); do '
+            '  swap_kb=$(awk \'/^VmSwap:/ {print $2}\' /proc/$pid/status 2>/dev/null); '
+            '  if [ -n "$swap_kb" ] && [ "$swap_kb" -gt 0 ]; then '
+            '    comm=$(cat /proc/$pid/comm 2>/dev/null); '
+            '    printf "%8d %10d %s\\n" "$pid" "$swap_kb" "$comm"; '
+            '  fi; '
+            'done 2>/dev/null | sort -k2 -rn | head -20; '
+            'echo; echo "== vm.swappiness / pressure =="; '
+            'sysctl vm.swappiness 2>/dev/null; '
+            'cat /proc/pressure/memory 2>/dev/null || echo "(no PSI memory pressure)"; '
+            'echo; echo "== /proc/meminfo swap fields =="; '
+            'awk \'/^Swap/ {print}\' /proc/meminfo; '
+            'echo; echo "== RECENT MEMORY/OOM EVENTS =="; '
+            '(journalctl -k --no-pager --since "-3 days" 2>/dev/null | grep -iE "swap|oom" | tail -20) || true'
+        ),
+        'fix': None,
+        # No dedicated mitigate_swap prompt — memory-pressure prompt covers
+        # the same forensic patterns (top consumers, OOM history, swappiness).
+        'ai_prompt_key': 'mitigate_memory',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'cpu': {
+        'label': 'CPU load',
+        'diagnostic': (
+            'set -e; echo "== UPTIME / LOAD =="; '
+            'uptime; echo; cat /proc/loadavg; '
+            'echo; echo "== TOP 20 BY %CPU =="; '
+            'ps -eo pid,user,%cpu,%mem,stat,comm --sort=-%cpu 2>/dev/null | head -21; '
+            'echo; echo "== PROCESSES IN UNINTERRUPTIBLE STATE (D) =="; '
+            'ps -eo pid,user,stat,wchan,comm 2>/dev/null | awk \'$3 ~ /^D/\' | head -10; '
+            'echo; echo "== IOWAIT / mpstat =="; '
+            'mpstat 1 2 2>/dev/null | tail -10 '
+            '|| iostat -x 1 2 2>/dev/null | tail -20 '
+            '|| awk \'NR==1 {print "cpu        usr nice sys idle iowait irq softirq"} '
+            '   /^cpu / {print}\' /proc/stat; '
+            'echo; echo "== CONTEXT SWITCHES / INTERRUPTS RATE =="; '
+            'vmstat 1 3 2>/dev/null | tail -4 || echo "(no vmstat)"; '
+            'echo; echo "== PRESSURE STALL (PSI cpu) =="; '
+            'cat /proc/pressure/cpu 2>/dev/null || echo "(no PSI cpu)"'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_cpu',
+        'ai_default': True,
+        'destructive': False,
+    },
 }
 
 
@@ -16647,7 +17128,23 @@ def handle_mitigate_ai(dev_id, action_id):
     try:
         ai_result = _call_ai_with_prompts(system_prompt, user_prompt, prompt_key)
     except Exception as e:
+        # v3.0.4: log the traceback to stderr (nginx error log /
+        # fcgiwrap journal) so future AI failures are diagnosable
+        # without bisecting code. Client still gets the short message.
+        sys.stderr.write(
+            f'[remotepower] handle_mitigate_ai AI call failed: '
+            f'{e.__class__.__name__}: {e}\n')
+        traceback.print_exc(file=sys.stderr)
         respond(500, {'error': f'AI call failed: {e}'}); return
+    # v3.0.4: also surface provider-level failures rather than silently
+    # returning an empty summary. ai_provider returns {ok: False, error: ...}
+    # on HTTP errors / malformed responses; the previous code happily
+    # returned 200 OK with summary='' to the operator, who had no idea
+    # the AI never ran.
+    if not ai_result.get('ok'):
+        err = ai_result.get('error') or 'AI provider returned no text'
+        sys.stderr.write(f'[remotepower] handle_mitigate_ai AI provider error: {err}\n')
+        respond(502, {'error': err}); return
     summary = ai_result.get('text', '') or ''
     # Extract fix
     suggested_fix = ''
@@ -16689,6 +17186,19 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
     """Thin wrapper around the existing AI dispatch path that returns
     {text, …} so we can centralise prompt-key plumbing. The actual provider
     (Ollama, OpenAI-compatible, Anthropic, …) is resolved from config.
+
+    v3.0.4: bugfix — the previous version called
+        chat_openai_compatible(ai_cfg, system_prompt, user_prompt, overrides)
+    which mismatched the provider signature
+        chat_openai_compatible(cfg, messages, system, max_tokens, ...)
+    `messages` received the system prompt as a STRING, which
+    payload_messages.extend(messages) then iterated character by
+    character — Ollama rejected the malformed messages array, the
+    function returned {ok: False, error: ...}, and the caller's
+    ai_result.get('text', '') yielded an empty string. Result: 200 OK
+    with every field blank, with no clue what went wrong. Now we
+    build a proper messages=[{role,content}] list and unpack the
+    overrides dict into the matching kwargs.
     """
     cfg = load(CONFIG_FILE) or {}
     ai_cfg = cfg.get('ai') or {}
@@ -16696,9 +17206,38 @@ def _call_ai_with_prompts(system_prompt, user_prompt, prompt_key):
         raise RuntimeError('AI not enabled — configure in Settings → AI Assistant')
     provider = ai_cfg.get('provider', 'ollama')
     overrides = (ai_cfg.get('ai_param_overrides') or {}).get(prompt_key, {})
+
+    # Translate the overrides dict into the kwargs the provider expects.
+    # max_tokens / num_ctx are ints, temperature / top_p are floats;
+    # _resolve_ai_params normalises these elsewhere but here we trust
+    # the stored values (set by an admin via /api/ai/params).
+    kwargs = {}
+    if isinstance(overrides, dict):
+        if overrides.get('max_tokens') is not None:
+            kwargs['max_tokens'] = overrides['max_tokens']
+        if overrides.get('temperature') is not None:
+            kwargs['temperature'] = overrides['temperature']
+        if overrides.get('top_p') is not None:
+            kwargs['top_p'] = overrides['top_p']
+
+    messages = [{'role': 'user', 'content': user_prompt}]
     if provider == 'anthropic':
-        return ai_provider.chat_anthropic(ai_cfg, system_prompt, user_prompt, overrides)
-    return ai_provider.chat_openai_compatible(ai_cfg, system_prompt, user_prompt, overrides)
+        return ai_provider.chat_anthropic(
+            ai_cfg, messages, system_prompt,
+            kwargs.get('max_tokens') or 4000,
+            temperature=kwargs.get('temperature'),
+            top_p=kwargs.get('top_p'),
+        )
+    # OpenAI-compatible path additionally accepts num_ctx for local providers
+    if isinstance(overrides, dict) and overrides.get('num_ctx') is not None:
+        kwargs['num_ctx'] = overrides['num_ctx']
+    return ai_provider.chat_openai_compatible(
+        ai_cfg, messages, system_prompt,
+        kwargs.get('max_tokens') or 4000,
+        temperature=kwargs.get('temperature'),
+        top_p=kwargs.get('top_p'),
+        num_ctx=kwargs.get('num_ctx'),
+    )
 
 
 

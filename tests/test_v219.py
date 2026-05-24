@@ -54,7 +54,9 @@ class TestNumCtxWiring(unittest.TestCase):
 
     def _run(self, cfg):
         sent = {}
-        def fake_post(url, headers, body):
+        def fake_post(url, headers, body, **kwargs):
+            # v3.0.4: accept the new insecure_ssl kwarg (and any future
+            # additions) so this mock doesn't break on signature changes.
             sent['body'] = body
             return 200, {'choices': [{'message': {'content': 'ok'}}],
                          'usage': {'prompt_tokens': 1, 'completion_tokens': 1},

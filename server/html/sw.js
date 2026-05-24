@@ -1,5 +1,5 @@
 /**
- * RemotePower — Service Worker (v2.4.15)
+ * RemotePower — Service Worker (v3.0.3)
  *
  * Strategy:
  *   - HTML navigation requests: network-first with cache fallback.
@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v3.0.2';
+const CACHE_NAME = 'remotepower-shell-v3.0.4';
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.

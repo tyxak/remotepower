@@ -1929,6 +1929,17 @@ input.form-input[type="text"][data-token],
     content: '';
     position: fixed;
     inset: 0;
+    /* v3.0.3: explicit resets for the properties that bleed in from the
+       ambient-glow body::after rule (line ~250). That rule sets a fixed
+       800×400 box with translateX(-50%) and pointer-events:none. Without
+       these resets the scrim inherits the box and shows as a partial
+       rectangle near the top of the screen instead of a full-viewport
+       overlay, and tap-outside-to-close stops working because the ghost
+       overlay can't receive pointer events. */
+    width: auto;
+    height: auto;
+    transform: none;
+    pointer-events: auto;
     background: rgba(0, 0, 0, 0.4);
     z-index: 800;
   }
@@ -1942,7 +1953,11 @@ input.form-input[type="text"][data-token],
     height: 36px;
     margin-right: 8px;
     background: transparent;
-    border: 1px solid var(--border);
+    /* v3.0.3: no border. The previous 1px var(--border) drew a small
+     * square around the icon that looked like a separate clickable
+     * element next to the logo on mobile. The hamburger glyph is
+     * visually distinct enough without a frame. */
+    border: none;
     border-radius: 6px;
     color: var(--text);
     cursor: pointer;
@@ -2147,6 +2162,47 @@ input.form-input[type="text"][data-token],
 
 /* Toasts always on top — they're transient and must never be hidden. */
 .toast-container { z-index: 2000; }
+
+/* v3.0.4: mobile-only ✕ close button inside the sidebar drawer.
+ * Hidden by default; the @media (max-width: 720px) rule below shows it.
+ * Has its own z-index above the sidebar so taps reliably land on it
+ * even if a nav-btn renders close to the top edge. */
+.sidebar-mobile-close {
+  display: none;
+}
+@media (max-width: 720px) {
+  .sidebar-mobile-close {
+    display: flex;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 5;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .sidebar-mobile-close:hover,
+  .sidebar-mobile-close:focus {
+    color: var(--text);
+    border-color: var(--text);
+    background: var(--surface2);
+  }
+  /* v3.0.4 (iter 3): hide the desktop "Collapse" button on mobile.
+   * The collapse-to-icon-rail UX doesn't apply to the mobile drawer
+   * (drawer is already an overlay, not docked) and operators reported
+   * the inert button was confusing. The ✕ is the sole mobile escape;
+   * tap-outside on the scrim is still the secondary path. */
+  .sidebar-collapse-btn { display: none; }
+}
 
 /* v2.2.6: body scroll lock while a modal is open. Without this the
  * page behind the modal scrolls on touch, which on mobile reads as

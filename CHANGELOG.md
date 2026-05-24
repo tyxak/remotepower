@@ -2,6 +2,265 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.0.4 — 2026-05-24
+
+A bug-fix release hot on the heels of v3.0.3. Eight real production bugs, all
+landed the same evening they were spotted. **Recommended for every operator
+who runs the AI features, the metric thresholds, the per-device settings
+drawer, or the mobile / PWA UI — i.e. nearly everyone.** No schema changes,
+no migrations needed.
+
+### Fixed
+
+- **AI chat returned 500 on every request.** `_http_post_json` in
+  `ai_provider.py` referenced `cfg.get('insecure_ssl')` from inside a function
+  that never received `cfg` as a parameter. The reference resolved against an
+  unbound name and raised `NameError` before the request ever left the box.
+  The bug was latent in v3.0.2 — the change that "honoured" the insecure_ssl
+  flag never wired it through — and triggered the first time a v3.0.2+ install
+  actually exercised the chat path. Fix: explicit `insecure_ssl: bool = False`
+  parameter; callers forward `cfg.get('insecure_ssl')`. Anthropic and
+  OpenAI-compatible paths both updated. The matching `_http_get_json` got the
+  same parameter for symmetry.
+
+- **Monitor page showed "OK" badge while Needs Attention was screaming about a
+  swap/memory/CPU warning on the same host.** `handle_devices_list()` returned
+  a curated subset of device fields and silently dropped `metric_state`. The
+  client's row aggregator iterated `d.metric_state || {}`, got empty, and
+  defaulted to "OK" — even though `/api/attention` read the same state on the
+  server side directly and was correctly surfacing the alert. Fix: include
+  `metric_state` in the device list response. The dict is small (one entry per
+  active alert) and cheap to serialise.
+
+- **No 🩺 Investigate button on memory/swap/CPU alerts.** The AI prompt keys
+  (`mitigate_memory`, `mitigate_cpu`) have existed in
+  `ai_provider.SYSTEM_PROMPTS` since v3.0.1, but `_MITIGATE_PLAYBOOKS` only
+  carried `patches / disk / drift / service_down / reboot / brute_force`. The
+  alert kind landed in Needs Attention as `'swap'` / `'memory'` / `'cpu'`, no
+  playbook lookup match, no button rendered. Fix: three new playbooks with
+  concrete read-only diagnostics:
+  - **memory**: `free -h`, `/proc/meminfo` top fields, top 20 by `%mem`,
+    recent OOM events from `journalctl` + `dmesg`, `vm.swappiness` /
+    overcommit sysctls, `systemd-cgtop` snapshot.
+  - **swap**: `free -h`, `swapon --show`, per-process `VmSwap` ranking from
+    `/proc/*/status`, `vm.swappiness`, PSI memory pressure, recent swap-related
+    journal entries.
+  - **cpu**: `uptime`, `loadavg`, top 20 by `%cpu`, processes in
+    uninterruptible D-state, `mpstat` / `iostat` / `vmstat` for iowait, PSI
+    CPU pressure.
+  Each is explicitly marked non-destructive (test enforced). The client-side
+  `MITIGATE_KINDS` set and `_MITIGATE_KIND_LABELS` dict were *also* updated
+  in lockstep (they were a duplicate source of truth that previously had to
+  be maintained manually) and a regression test asserts JS/Python parity.
+
+- **"Save settings" button in the device drawer 404'd with "Not found".** The
+  drawer's `_drawerSaveSettings()` posts the full bundle (`group`, `tags`,
+  `icon`, `monitored`, `poll_interval`, `watched_services`, `log_watch`,
+  `watched_files`, `cmd_allowlist`) to `POST /api/devices/<id>` — but no
+  bulk handler ever existed. The route fell through to the dispatcher's
+  catch-all 404. New `handle_device_save_bulk()` accepts the bundle,
+  validates every field with the same rules as the per-field PATCH endpoints,
+  writes once atomically, and audits the save with the field list. The
+  per-field endpoints still work and are unchanged. Two storage-name
+  divergences are handled inside the bulk handler: client's
+  `watched_services` is written as `services_watched` (server-side historical
+  naming), and client's `cmd_allowlist` is written as `allowed_commands`
+  (the canonical field `_check_exec_allowlist()` reads at command-execution
+  time). The dispatcher route uses a slash-count guard so it cannot collide
+  with any future `/api/devices/<id>/<suffix>` POST route.
+
+- **"Re-run AI" on a mitigation playbook returned 200 OK with every field
+  blank.** `_call_ai_with_prompts()` passed arguments to
+  `chat_openai_compatible()` in the wrong order — the `messages` parameter
+  received the system-prompt STRING, then `payload_messages.extend(messages)`
+  iterated it character by character and sent the LLM a messages array like
+  `[{role:'system', content:'Alert:...'}, 'Y', 'o', 'u', ...]`. Ollama
+  rejected the malformed payload, the provider returned `{ok: False, ...}`,
+  and the caller's `ai_result.get('text', '')` happily returned `''`. Fix:
+  build a proper `messages=[{role, content}]` list, pass the system prompt
+  as `system`, unpack the per-prompt overrides into matching kwargs. And —
+  related — the handler now returns 502 with the actual provider error
+  message rather than 200 with an empty body, and logs the traceback to
+  stderr so future failures are diagnosable.
+
+- **Mobile / PWA sidebar drawer wouldn't collapse.** Tap-outside-to-close
+  silently failed because the handler required `e.target === document.body`,
+  but real browsers report the click target as the underlying `<div id="app">`
+  or `.app-content` rather than body itself. Burger-to-close also broken
+  because the burger button (header z-index 100) sits behind the scrim
+  (z-index 800) once the drawer is open, so the burger's own `onclick`
+  never fires. Only the nav-button-click close path worked, which made the
+  drawer feel half-broken. New handler uses explicit `closest('.sidebar')` /
+  `closest('.mobile-burger')` / `closest('.nav-btn')` guards instead — any
+  tap outside those zones closes the drawer on mobile. Regression test
+  forbids the strict `e.target === document.body` pattern from sneaking
+  back in.
+
+- **"✨ AI Prioritise Updates" button felt unresponsive.** Click, no
+  in-place feedback, eventually a small toast that was easy to miss.
+  Operators reported "I clicked it, nothing happened." Two changes: the
+  button visibly disables and switches to ⏳ during the API call, and the
+  negative-case toasts ("no patch history" / "no upgrade listing in
+  history") got rewritten. **Iter 2:** the earlier "use Force re-scan
+  packages" suggestion was misleading — `force_package_scan` only
+  refreshes the upgradable COUNT, not the listing (the agent's
+  `get_patch_info()` discards `out` and only keeps `len()`). The only
+  path that populates `patch_history` with a real listing is an
+  operator-triggered exec command. Rather than make the operator dig
+  for that, ✨ now auto-queues the right per-package-manager listing
+  command via `POST /api/exec` after a confirmation prompt (`apt list
+  --upgradable`, `dnf check-update`, `pacman -Qu`). One click → wait
+  ~60 s for the heartbeat → click ✨ again, AI engages.
+
+- **Mobile burger button didn't close the open drawer.** Tap-outside
+  worked (v3.0.4 iter 1 fix), but tapping where the burger visually
+  was had no effect on mobile Chrome / installed PWA. Root cause: the
+  scrim (z-index 800, `inset: 0`) covers the burger (header z-index
+  100) once the drawer is open, so the burger's `onclick` never fires.
+  The body-level close handler should catch it via the scrim — and
+  does on desktop browsers' touch emulation — but real mobile Chrome
+  and PWA installs were unreliable here. Standard mobile-drawer fix:
+  a dedicated ✕ button inside the sidebar header, visible only at
+  `max-width: 720px`. Always discoverable, always works, no z-order
+  trickery.
+
+- **Silent except → logged exceptions on the heartbeat metric path.**
+  `handle_heartbeat()` wrapped `process_metric_thresholds()` in a bare
+  `except Exception: pass`. Any logic bug there silently broke metric
+  state recompute and the operator got no clue. Now logs `class: message`
+  + traceback to stderr (`journalctl -u fcgiwrap`) while still keeping the
+  heartbeat path resilient.
+
+### Internals
+- Test suite at **1,532 tests** — `test_v304.py` holds the strict version
+  pins now; `test_v303.py`'s pins loosened to `^3\.\d+\.\d+$` regexes.
+  Same convention test_v302.py followed for v3.0.3.
+- This release ships preliminary scaffolding for v3.1.0 (the `mcp` role
+  enum, an empty `MCP_ACTION_ALLOWLIST`, the `require_mcp_action()` gate, a
+  `get_mcp_attribution()` helper that reads `X-MCP-Client` / `X-MCP-Prompt`
+  headers, optional `ai_host` / `ai_prompt` kwargs on `audit_log`, and a
+  per-device `require_confirmation` field with its own PATCH endpoint). All
+  of it is silent — no MCP write tools are yet registered, so even a valid
+  `mcp`-role API key still gets 403 on every action attempt. Tests for the
+  scaffolding live in `test_v310.py`. Stage 4 of v3.1.0 will populate the
+  allowlist.
+
+## v3.0.3 — 2026-05-24
+
+A small, focused security + UX patch on top of v3.0.2. **Recommended for all
+operators**, especially anyone whose Install-as-app button stopped working in
+Chrome or Brave.
+
+### Fixed
+- **PWA install button silently broken.** Chrome and Brave were never showing
+  the "Install RemotePower" button. Three layered causes:
+  1. A stylesheet rule with ID-selector specificity
+     (`#pwa-install-btn { display: none; }`) was overriding the inline reveal —
+     when the browser fired `beforeinstallprompt` and the JS cleared the inline
+     `display:none`, the stylesheet rule took over and the button stayed hidden.
+  2. A timing race: if `beforeinstallprompt` fired before `DOMContentLoaded`
+     (common on warm reload when manifest + service worker are already cached),
+     the button reference was still `null` and the reveal was a no-op. The
+     event only fires once per session, so the button never came back.
+  3. The two icons declared `purpose: "any maskable"` as a combined value.
+     Some Chrome / Brave builds treat that as maskable-only, which doesn't
+     satisfy the installability gate that requires at least one pure-`any`
+     icon. Now split into separate `any` + `maskable` entries.
+
+  The service worker cache name was bumped to `remotepower-shell-v3.0.3` so
+  existing installs evict the stale shell on first reload. If your install
+  button still doesn't appear after upgrading, do one hard reload to pick up
+  the new service worker.
+
+- **Mobile drawer scrim rendered as a half-sized floating rectangle.** Opening
+  the mobile nav drawer dropped a partial translucent black box near the top
+  of the screen instead of dimming the whole page behind the drawer, and
+  tap-outside-to-close did nothing. Root cause: two `body::after` rules
+  collided. The ambient blue-glow effect (a fixed 800×400 box with
+  `translateX(-50%)` and `pointer-events:none`) sets properties that the
+  mobile-nav scrim rule didn't override — `inset: 0` only resets
+  `top/right/bottom/left`, not `width/height/transform/pointer-events`. The
+  scrim now explicitly resets those properties so it fills the viewport and
+  catches taps. Mobile-only — desktop never used the scrim path.
+
+- **Mobile hamburger had a visible square box around it.** The
+  `.mobile-burger` style carried `border: 1px solid var(--border)`,
+  which on the dark theme rendered as a discrete framed button next
+  to the logo — easy to mistake for a separate clickable element.
+  The hamburger glyph reads fine on its own; the border is now `none`.
+
+- **Quick-SSH icon next to hostnames was unreadable blue on dark
+  mode.** The `<a>` carried no explicit `color`, so the browser's
+  default link colour bled through and clashed with the dark
+  sidebar/table. The icon now uses `color:var(--text)` (near-white
+  in dark, near-black in light), so it stays visible in both themes.
+
+### Added
+- **`RP_SMTP_PASSWORD` and `RP_LDAP_BIND_PASSWORD` environment variables.**
+  The two remaining plaintext secrets in `config.json` can now be supplied
+  via the environment — same pattern as `RP_PROXMOX_TOKEN_SECRET` (v2.3.1).
+  When the env var is set it takes precedence over the config file, the
+  secret stays out of `/var/lib/remotepower/`, and it is **not included in
+  the backup export** (so backups can be shared with support safely).
+
+  Set them in your systemd unit or container env:
+  ```ini
+  # /etc/systemd/system/remotepower.service (or your override)
+  Environment=RP_SMTP_PASSWORD=…
+  Environment=RP_LDAP_BIND_PASSWORD=…
+  ```
+  ```yaml
+  # docker-compose.yml
+  environment:
+    RP_SMTP_PASSWORD: "${RP_SMTP_PASSWORD}"
+    RP_LDAP_BIND_PASSWORD: "${RP_LDAP_BIND_PASSWORD}"
+  ```
+  The Settings page detects the env vars and shows a green "✓ Password is
+  currently being read from `RP_SMTP_PASSWORD`" hint above the (now disabled)
+  config field. Existing setups that keep the password in `config.json` are
+  unchanged.
+
+- **Forced password change for default-credential accounts.** A fresh
+  install seeds `admin / remotepower`. Since v2.3.2 the UI has shown a red
+  banner nagging the operator to change it, but the app remained fully
+  usable on the default password — the banner could be ignored. As of
+  v3.0.3, **every API call returns 403 until the password is changed**,
+  with only `POST /api/users/passwd` and `GET /api/public-info` reachable.
+  The dashboard catches the 403, surfaces a clear toast, and routes you
+  straight to the change-password form. As soon as the password is changed,
+  the flag clears and everything unlocks.
+
+  This applies only to accounts that still carry the `must_change_password`
+  flag — once changed, never blocked again. API keys are unaffected (they
+  can only be created from an already-cleared account in the first place).
+
+### Internals
+- Test suite at **1,453 tests** (`test_v303.py` covers the new behaviour;
+  one brittle fixed-offset slice in `test_v227.py` widened to use the
+  whole `@media` block).
+- `test_v302.py` strict version pins loosened to `3.x.x` regexes since
+  `test_v303.py` now holds the strict pin role. Same convention going forward.
+
+### Upgrading from v3.0.2
+
+Drop-in. Pull and redeploy:
+```bash
+cd /path/to/remotepower
+git pull origin main
+sudo bash deploy-server.sh
+```
+- Agents auto-upgrade on next heartbeat. No data migration. `config.json`
+  format unchanged.
+- If you want to move SMTP / LDAP secrets to the environment now, edit your
+  unit / compose file as shown above, restart the server, then **clear the
+  fields** in Settings → Notifications (SMTP) and Settings → Security (LDAP)
+  and save — that drops the plaintext from `config.json`.
+- If your dashboard's Install button has been missing, force a hard reload
+  (Ctrl+Shift+R / Cmd+Shift+R) once after upgrading so the new service
+  worker takes over.
+
+---
+
 ## v3.0.2 — 2026-05-24
 
 ### Bug fixes (post-ship polish bundle)

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.0.2">
+<link rel="stylesheet" href="static/css/styles.css?v=3.0.4">
 
   <!-- v2.8.1: anti-FOUC styles — applied before external CSS loads.
        Keeps fixed/transformed elements invisible during the brief
@@ -31,8 +31,13 @@
     .toast-container { display: none; }
     /* Refresh bar: hidden until progress starts */
     .refresh-bar { display: none; }
-    /* PWA install button: hidden until JS decides to show it */
-    #pwa-install-btn { display: none; }
+    /* v3.0.3: the PWA install button rule that used to live here was the
+       reason the Install button never appeared. The button has its own
+       inline style="display:none" — when the beforeinstallprompt handler
+       set element.style.display='' to reveal it, removing the inline rule,
+       this ID-selector rule (specificity 0,1,0,0) silently took over and
+       kept the button hidden. The inline style alone is enough for the
+       initial hidden state. Do NOT re-add an !important rule here. */
   </style>
 </head>
 <body>
@@ -116,6 +121,15 @@
   </header>
 
   <nav class="sidebar">
+    <!-- v3.0.4 (iter 2): mobile-only close button. With the drawer open
+         the burger button sits behind the z-index 800 scrim, so tapping
+         where the burger visually is hits the scrim — the tap closes
+         via the document-level tap-outside handler in some browsers but
+         was reported as unreliable on mobile Chrome / installed PWA.
+         An explicit ✕ inside the sidebar is the standard drawer
+         pattern: always discoverable, always works, no z-order trickery.
+         Hidden on desktop via CSS (.sidebar-mobile-close). -->
+    <button class="sidebar-mobile-close" onclick="toggleMobileNav()" title="Close menu" aria-label="Close menu">✕</button>
     <!-- v3.0.1: collapsible sidebar — preference persisted in localStorage -->
     <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse/expand sidebar">
       <span id="sidebar-collapse-icon">◀</span>
@@ -743,6 +757,8 @@
               <div class="form-group" style="flex:1">
                 <label class="form-label">Password <span id="cfg-smtp-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
                 <input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <p class="hint" style="font-size:11px;color:var(--muted);margin-top:4px"><strong>More secure option:</strong> set <code>RP_SMTP_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+                <p class="hint" id="smtp-env-hint" style="font-size:11px;color:var(--green);margin-top:4px;display:none">✓ Password is currently being read from <code>RP_SMTP_PASSWORD</code>. The field above is ignored.</p>
               </div>
             </div>
 
@@ -856,6 +872,8 @@
               <div class="form-group" style="flex:1">
                 <label class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
                 <input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <p class="hint" style="font-size:11px;color:var(--muted);margin-top:4px"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+                <p class="hint" id="ldap-env-hint" style="font-size:11px;color:var(--green);margin-top:4px;display:none">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
               </div>
             </div>
 
@@ -1486,6 +1504,23 @@
         </div>
 
         <div id="docs-container" style="display:flex;flex-direction:column;gap:12px;max-width:920px">
+          <details class="doc-card" data-keywords="release notes changelog v3.0.4 bug fixes ai monitor save mitigation mobile pwa sidebar drawer prioritise patches">
+            <summary><strong>v3.0.4 release notes</strong> — eight bug fixes, no schema changes</summary>
+            <div class="doc-body">
+              <p>A bug-fix release on top of v3.0.3. Drop in the new tarball, reload nginx, hard-reload the browser once for the service worker to pick up the new cache (<code>remotepower-shell-v3.0.4</code>).</p>
+              <ul>
+                <li><strong>AI chat returned 500 on every request.</strong> <code>_http_post_json</code> referenced an unbound <code>cfg</code> name. Latent in v3.0.2; triggered the first time anyone exercised the chat path.</li>
+                <li><strong>Monitor page showed "OK" badge while Needs Attention flagged a swap/memory/CPU warning on the same host.</strong> <code>/api/devices</code> wasn't including <code>metric_state</code>; the row aggregator iterated an empty dict.</li>
+                <li><strong>No 🩺 Investigate button on memory/swap/CPU alerts.</strong> Three new playbooks added with read-only diagnostics (free, top consumers, OOM events, PSI pressure files).</li>
+                <li><strong>Device drawer "Save settings" 404'd.</strong> New <code>POST /api/devices/&lt;id&gt;</code> bulk handler that validates and atomically writes the bundle.</li>
+                <li><strong>"Re-run AI" on a mitigation playbook returned an empty summary.</strong> Argument-shape bug in <code>_call_ai_with_prompts</code> — provider received the system prompt as a string in place of the messages list.</li>
+                <li><strong>Mobile / PWA sidebar drawer wouldn't collapse.</strong> Tap-outside-to-close required <code>e.target === document.body</code>, but real browsers report the target as the underlying <code>&lt;div id="app"&gt;</code>. Burger-to-close also broken because the burger sat behind the z-index 800 scrim. New handler uses <code>closest()</code> guards + a dedicated ✕ button inside the sidebar header on mobile.</li>
+                <li><strong>"✨ AI Prioritise Updates" felt unresponsive.</strong> Button now visibly disables and shows ⏳ during the API call. When <code>patch_history</code> has no listing yet, ✨ auto-queues the right per-package-manager command (<code>apt list --upgradable</code> / <code>dnf check-update</code> / <code>pacman -Qu</code>) via <code>POST /api/exec</code> after a confirmation prompt — instead of telling the operator to dig elsewhere.</li>
+              </ul>
+              <p>Full forensic detail in <code>CHANGELOG.md</code> and <code>docs/v3.0.4.md</code>.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="enroll device pin agent">
             <summary><strong>Enrolling devices</strong> — get a host into RemotePower</summary>
             <div class="doc-body">
@@ -4025,7 +4060,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
-<script src="static/js/app.js?v=3.0.2"></script>
+<script src="static/js/app.js?v=3.0.4"></script>
 
 <!-- v2.4.15: Service Worker registration + PWA install prompt handling.
      Kept separate from app.js so the SW registers even if app.js fails.
@@ -4036,41 +4071,116 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   'use strict';
 
   // ── Service Worker registration ───────────────────────────────────────────
+  //
+  // v3.0.4 (iter 2): hardened against `InvalidStateError: The document is in
+  // an invalid state`. Chrome throws this when register() runs during a
+  // transient document state — BFCache restore, navigation in progress,
+  // partitioned-storage hiccup. The previous code waited for the `load`
+  // event then registered once; on slow networks or back/forward navigation,
+  // `load` could fire after the document state was already wrong, the
+  // registration would throw, the old (v3.0.3) SW kept running, and the
+  // browser kept serving stale cached assets. Operators reported "page
+  // looks broken after deploy" — the giant unstyled icon symptom.
+  //
+  // Three changes: register on DOMContentLoaded instead of load (fires
+  // earlier, less timing-sensitive); retry once on InvalidStateError;
+  // and check existing registrations to nudge a stuck SW.
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
+    var _swAttempts = 0;
+    var _registerSW = function () {
+      _swAttempts += 1;
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(function (reg) {
-          // Check for updates on every page load.
+          // Force a check for an updated SW on every page load — without
+          // this, the browser may serve the cached SW indefinitely.
           reg.update();
         })
         .catch(function (err) {
-          // SW registration failure is non-fatal — the app works fine
-          // without it, just without offline support / installability.
+          // InvalidStateError is transient; one retry usually clears it.
+          // Anything else is a real failure and we just warn — the app
+          // still works without offline / installability.
+          if (err && err.name === 'InvalidStateError' && _swAttempts < 2) {
+            setTimeout(_registerSW, 750);
+            return;
+          }
           console.warn('[RemotePower] SW registration failed:', err);
+          // If a previous SW is still controlling the page and we can't
+          // register the new one, surface a hint to the operator so they
+          // can clear it. Once. Console-only — no user-visible toast since
+          // most installs work fine.
+          if (navigator.serviceWorker.controller) {
+            console.warn('[RemotePower] An older Service Worker is still ' +
+              'controlling this page. To clear: DevTools → Application → ' +
+              'Service Workers → Unregister, then hard-reload.');
+          }
         });
-    });
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', _registerSW);
+    } else {
+      // DOM is already ready (script lives at the end of <body>, so this
+      // is the typical path). Register synchronously.
+      _registerSW();
+    }
   }
 
   // ── PWA install prompt ────────────────────────────────────────────────────
+  //
+  // v3.0.3 — two bugs fixed:
+  //
+  //   1. The CSS rule `#pwa-install-btn { display: none; }` in the <head>
+  //      (specificity 0,1,0,0) was overriding the JS reveal. Setting
+  //      element.style.display = '' just removes the *inline* property,
+  //      after which the stylesheet rule took effect and kept the button
+  //      hidden. Removed the stylesheet rule; the inline style="display:none"
+  //      handles the initial hidden state, and we now set the display to
+  //      an explicit 'inline-flex' value when revealing.
+  //
+  //   2. beforeinstallprompt can fire BEFORE DOMContentLoaded in Chrome
+  //      (especially on a warm reload where the manifest+SW are already
+  //      cached). The old code grabbed the button reference in a
+  //      DOMContentLoaded handler and just bailed if the reference was
+  //      null when the event fired — silently never showing the button
+  //      again because beforeinstallprompt only fires once per session.
+  //      Now we look the button up lazily inside the event handler and
+  //      stash a pending-show flag if the DOM isn't ready yet.
+  //
   var _installPrompt = null;
-  var _installBtn = null;
+  var _installBtn    = null;
+  var _installPending = false;
+
+  function _revealInstallBtn() {
+    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
+    if (!_installBtn) { _installPending = true; return; }
+    // Explicit value beats any future stylesheet rule with ID specificity.
+    _installBtn.style.display = 'inline-flex';
+    _installPending = false;
+  }
+
+  function _hideInstallBtn() {
+    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
+    if (_installBtn) _installBtn.style.display = 'none';
+    _installPending = false;
+  }
 
   window.addEventListener('DOMContentLoaded', function () {
     _installBtn = document.getElementById('pwa-install-btn');
+    if (_installPending && _installPrompt) _revealInstallBtn();
   });
 
-  // Chrome fires this when the PWA install criteria are met.
-  // We intercept it and keep a reference so we can trigger it on demand.
+  // Chrome / Brave / Edge fire this when the PWA install criteria are met.
+  // We intercept and stash the event so we can trigger it on demand from
+  // the header button rather than letting the browser show its own UI.
   window.addEventListener('beforeinstallprompt', function (e) {
     e.preventDefault();
     _installPrompt = e;
-    if (_installBtn) _installBtn.style.display = '';
+    _revealInstallBtn();
   });
 
   // Called when the user clicks the Install button in the header.
   window.pwaInstall = function () {
     if (!_installPrompt) return;
-    _installBtn.style.display = 'none';
+    _hideInstallBtn();
     _installPrompt.prompt();
     _installPrompt.userChoice.then(function (result) {
       if (result.outcome === 'accepted') {
@@ -4083,7 +4193,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   // Hide the button if the user installs via the browser's own UI.
   window.addEventListener('appinstalled', function () {
     _installPrompt = null;
-    if (_installBtn) _installBtn.style.display = 'none';
+    _hideInstallBtn();
   });
 }());
 </script>

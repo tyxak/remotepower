@@ -207,26 +207,32 @@ def validate_messages(messages):
 
 # ── Provider adapters ──────────────────────────────────────────────────────
 
-def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S):
+def _http_post_json(url, headers, body, timeout=HTTP_TIMEOUT_S, insecure_ssl=False):
     """Pure-stdlib HTTP POST returning (status, parsed-json-or-str).
 
     Distinguished from the rest of api.py's HTTP helpers so we can
     set a longer timeout for AI calls without affecting the rest.
+
+    v3.0.4: bugfix — `insecure_ssl` is now an explicit parameter
+    rather than a reference to a closed-over `cfg` that never
+    existed. The previous code (`if cfg.get('insecure_ssl'):`)
+    raised NameError on every call into the OpenAI-compat or
+    Anthropic chat path, returning a 500 to the operator. The
+    fault was latent in v3.0.2 (the change that "honoured" the
+    flag) and only fired the first time a v3.0.2+ install
+    actually called chat_*. Callers pass cfg.get('insecure_ssl')
+    explicitly.
     """
     data = json.dumps(body).encode('utf-8')
     req = urllib.request.Request(url, data=data, method='POST')
     for k, v in headers.items():
         req.add_header(k, v)
     req.add_header('Content-Type', 'application/json')
-    # v3.0.2: actually honour the insecure_ssl opt-out. Previously the
-    # comment claimed cfg['ai']['insecure_ssl'] disabled verification
-    # but the code path that read the flag never existed — context was
-    # always strict. Self-signed Ollama setups (homelab) were stuck.
-    # Matches the proxmox_client.py pattern: BOTH check_hostname and
-    # verify_mode must be relaxed together, otherwise the strict
-    # hostname check rejects before verify_mode is consulted.
+    # BOTH check_hostname and verify_mode must be relaxed together,
+    # otherwise the strict hostname check rejects before verify_mode
+    # is consulted (matches proxmox_client.py).
     ctx = ssl.create_default_context()
-    if cfg.get('insecure_ssl'):
+    if insecure_ssl:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     try:
@@ -296,7 +302,8 @@ def chat_openai_compatible(cfg, messages, system, max_tokens,
     headers = {}
     if cfg.get('api_key'):
         headers['Authorization'] = f"Bearer {cfg['api_key']}"
-    status, resp = _http_post_json(url, headers, body)
+    status, resp = _http_post_json(url, headers, body,
+                                    insecure_ssl=bool(cfg.get('insecure_ssl')))
     if status == 200 and isinstance(resp, dict):
         try:
             text = resp['choices'][0]['message']['content']
@@ -342,7 +349,8 @@ def chat_anthropic(cfg, messages, system, max_tokens, temperature=None, top_p=No
         'x-api-key':         cfg.get('api_key', ''),
         'anthropic-version': '2023-06-01',
     }
-    status, resp = _http_post_json(url, headers, body)
+    status, resp = _http_post_json(url, headers, body,
+                                    insecure_ssl=bool(cfg.get('insecure_ssl')))
     if status == 200 and isinstance(resp, dict):
         try:
             # content is a list of blocks; first text block is our answer
@@ -417,13 +425,21 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None,
 # /api/ps, /api/version); LocalAI / OpenAI / DeepSeek speak the
 # OpenAI-compat /v1/models endpoint; Anthropic ships a hardcoded list.
 
-def _http_get_json(url, headers=None, timeout=10):
+def _http_get_json(url, headers=None, timeout=10, insecure_ssl=False):
     """GET + parse JSON. Same error shape as _http_post_json. Short
-    timeout — if /api/tags hangs, the provider has bigger problems."""
+    timeout — if /api/tags hangs, the provider has bigger problems.
+
+    v3.0.4: matching insecure_ssl param so callers can opt out of
+    cert verification on self-signed LAN endpoints. Default False
+    (strict) — opt-in only.
+    """
     req = urllib.request.Request(url, method='GET')
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     ctx = ssl.create_default_context()
+    if insecure_ssl:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
             return r.status, json.loads(r.read(2 * 1024 * 1024))

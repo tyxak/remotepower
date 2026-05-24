@@ -53,9 +53,15 @@ class TestMobileDrawerFix(unittest.TestCase):
                          'CSS brace mismatch')
 
     def test_content_margin_reset_on_mobile(self):
-        # Content must not keep a left margin for a now-removed rail
+        # Content must not keep a left margin for a now-removed rail.
+        # v3.0.3: was a fixed [idx:idx+3000] slice; broke whenever the
+        # @media (max-width:720px) block grew past 3 KB. Now we slice to
+        # the end of the file — the rule has to live somewhere inside
+        # the mobile media query block, and the prior brace-balance
+        # check (test_css_braces_balance) guards the block structure.
         idx = self.css.find('@media (max-width: 720px)')
-        block = self.css[idx:idx + 3000]
+        self.assertNotEqual(idx, -1, '720px media query missing')
+        block = self.css[idx:]
         self.assertIn('.app-content { margin-left: 0', block)
 
 

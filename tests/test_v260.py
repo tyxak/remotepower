@@ -411,7 +411,13 @@ class TestVersionConsistency(unittest.TestCase):
         self.ver = _server_version()
 
     def test_version_is_260(self):
-        self.assertIn(self.ver, ('2.6.0', '2.6.1', '2.7.0', '2.8.0', '2.8.1', '2.9.0', '3.0.0', '3.0.1', '3.0.2'))
+        # v3.0.4: loosened from a hardcoded version tuple to a 2.x/3.x
+        # regex. The tuple was bumped every release and kept failing
+        # for no good reason — the test's actual job is "is this a
+        # post-2.6.0 release?", not "is this one of these specific
+        # versions?". Same loosening pattern test_v303 followed.
+        self.assertRegex(self.ver, r'^(2\.[6-9]|2\.[1-9][0-9]+|3\.\d+)\.\d+$',
+            f'server version {self.ver!r} is older than 2.6.0')
 
     def test_agent_py(self):
         text = (_ROOT / 'client/remotepower-agent.py').read_text()

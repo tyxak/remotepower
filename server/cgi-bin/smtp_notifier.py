@@ -12,8 +12,15 @@ Stdlib only. Three TLS modes:
 
 Auth optional. If smtp_username is empty, no AUTH is attempted (useful
 for localhost relays that allow anonymous submission from 127.0.0.1).
+
+v3.0.3: the SMTP password may be supplied via the RP_SMTP_PASSWORD
+environment variable instead of config.json. When set, the env var
+takes precedence; the secret then lives in the systemd unit /
+container env and stays out of the data directory (and out of the
+backup export). Same pattern as RP_PROXMOX_TOKEN_SECRET (v2.3.1).
 """
 
+import os
 import smtplib
 import ssl
 import socket
@@ -23,6 +30,24 @@ from email.utils import formatdate, make_msgid
 
 # Reasonable timeouts so a misconfigured server doesn't hang the CGI request
 SMTP_CONNECT_TIMEOUT = 8
+
+# v3.0.3: env-var override for the SMTP password. Set this in the systemd
+# unit (`Environment=RP_SMTP_PASSWORD=...`) or the container env to keep
+# the secret out of /var/lib/remotepower/config.json entirely.
+ENV_SMTP_PASSWORD = 'RP_SMTP_PASSWORD'
+
+
+def resolve_smtp_password(cfg: dict) -> tuple:
+    """Return (password, from_env) — env wins over config.
+
+    Returned password may be an empty string when neither source is set.
+    `from_env` is True when the env var was non-empty (used by the UI
+    so it can tell the operator the config field is being ignored).
+    """
+    env_pw = os.environ.get(ENV_SMTP_PASSWORD, '')
+    if env_pw:
+        return env_pw, True
+    return (cfg.get('smtp_password') or ''), False
 
 
 class SmtpError(Exception):
@@ -67,7 +92,10 @@ def send_email(cfg: dict, recipients: list, subject: str, body: str) -> dict:
         raise SmtpError('smtp_from must be a valid email address')
 
     username = (cfg.get('smtp_username') or '').strip()
-    password = (cfg.get('smtp_password') or '')
+    # v3.0.3: env-var first, config.json fallback. resolve_smtp_password()
+    # returns ('', False) if nothing is set — the SMTP server may still
+    # accept the connection anonymously (helpful for localhost relays).
+    password, _from_env = resolve_smtp_password(cfg)
     helo     = (cfg.get('smtp_helo_name') or '').strip() or socket.gethostname()
 
     msg = MIMEText(body, _charset='utf-8')
