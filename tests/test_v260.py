@@ -411,7 +411,7 @@ class TestVersionConsistency(unittest.TestCase):
         self.ver = _server_version()
 
     def test_version_is_260(self):
-        self.assertIn(self.ver, ('2.6.0', '2.6.1', '2.7.0', '2.8.0', '2.8.1', '2.9.0', '3.0.0', '3.0.1', '3.0.2'))
+        self.assertIn(self.ver, ('2.6.0', '2.6.1', '2.7.0', '2.8.0', '2.8.1', '2.9.0', '3.0.0', '3.0.1', '3.0.2', '3.0.3'))
 
     def test_agent_py(self):
         text = (_ROOT / 'client/remotepower-agent.py').read_text()

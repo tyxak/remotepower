@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.0.2'
+SERVER_VERSION = '3.0.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -4547,8 +4547,11 @@ def handle_config_get():
     safe.setdefault('smtp_helo_name', '')
     safe.setdefault('smtp_recipients', '')
     safe.setdefault('email_events', {})
-    # Mask password — show only whether one is set
-    safe['smtp_password_set'] = bool(cfg.get('smtp_password'))
+    # v3.0.3: resolve via the env-var-first helper so the UI can show
+    # "the password is being read from RP_SMTP_PASSWORD" if applicable.
+    _smtp_pw, _smtp_from_env = smtp_notifier.resolve_smtp_password(cfg)
+    safe['smtp_password_set']      = bool(_smtp_pw)
+    safe['smtp_password_from_env'] = _smtp_from_env
     safe.pop('smtp_password', None)
 
     safe.setdefault('ldap_enabled', False)
@@ -4577,7 +4580,11 @@ def handle_config_get():
     safe['proxmox_token_secret_set'] = bool(_px['token_secret'])
     safe['proxmox_token_secret_from_env'] = _px['token_secret_from_env']
     safe.pop('proxmox_token_secret', None)
-    safe['ldap_bind_password_set'] = bool(cfg.get('ldap_bind_password'))
+    # v3.0.3: LDAP bind password is now also resolvable from an env var
+    # (RP_LDAP_BIND_PASSWORD). Same shape as smtp_password / proxmox.
+    _ldap_pw, _ldap_from_env = ldap_auth.resolve_bind_password(cfg)
+    safe['ldap_bind_password_set']      = bool(_ldap_pw)
+    safe['ldap_bind_password_from_env'] = _ldap_from_env
     safe.pop('ldap_bind_password', None)
 
     # Static UI metadata (so the front-end doesn't have to hardcode this)
@@ -14259,6 +14266,71 @@ def _enforce_same_origin():
     })
 
 
+# v3.0.3: F2 — endpoints reachable while must_change_password is set.
+# Kept deliberately tight:
+#   - /api/users/passwd  : the only way to clear the flag
+#   - /api/public-info   : server version and login-screen metadata
+# Anything else returns 403 with `must_change_password: true` so the
+# frontend can route the user into the password-change view rather
+# than letting them poke at the app on the default credentials.
+_PWCHG_ALLOWED_PATHS = frozenset({
+    '/api/users/passwd',
+    '/api/public-info',
+})
+
+
+def _enforce_password_change():
+    """Block requests from sessions whose user has must_change_password set.
+
+    Only fires for session-token requests — agent device tokens and
+    API keys don't carry the flag (and an admin with the flag set
+    cannot have created an API key in the first place, because the
+    create-key endpoint is in the blocked set).
+
+    Anonymous / no-token requests pass through unchanged: they hit the
+    handler's own require_auth() and get 401 the normal way. The
+    interceptor is strictly a gate behind a valid session, not a
+    replacement for auth.
+
+    The 403 payload echoes `must_change_password: true` so the
+    frontend can show the change-password modal without first having
+    to call /api/public-info or /api/users/me. Empty-body requests
+    don't trigger this — the interceptor only runs for already-
+    authenticated sessions.
+    """
+    pi = path_info()
+    if pi in _PWCHG_ALLOWED_PATHS:
+        return
+
+    token = get_token_from_request()
+    if not token:
+        return  # No session yet — require_auth() will 401 in the handler
+
+    # Only block session tokens (those that map into TOKENS_FILE).
+    # API keys live in apikeys.json and are not subject to this gate.
+    tokens = load(TOKENS_FILE)
+    entry = tokens.get(token)
+    if not entry:
+        return  # Probably an API key — pass through
+
+    username = entry.get('user')
+    if not username:
+        return
+
+    users = load(USERS_FILE)
+    user = users.get(username) or {}
+    if not user.get('must_change_password'):
+        return
+
+    respond(403, {
+        'error': 'Password change required',
+        'detail': ('This account is on a default or rotated password. '
+                   'Change it via POST /api/users/passwd before using '
+                   'any other endpoint.'),
+        'must_change_password': True,
+    })
+
+
 def main():
     # v2.1.1: these per-request maintenance sweeps used to be wrapped in
     # bare `except Exception: pass` blocks. That silently swallowed every
@@ -14301,10 +14373,18 @@ def main():
     # check on state-changing requests as belt-and-suspenders against
     # future regressions (e.g. an operator turning on permissive CORS
     # for an integration). API-key clients (CLI scripts, external
-    # automation) typically send no Origin/Referer at all — those are
+    # automation) typically send no Origin at all — those are
     # permitted; the check only rejects when an Origin/Referer IS sent
     # and points elsewhere.
     _enforce_same_origin()
+
+    # v3.0.3: F2 — hard backstop for default-password admin accounts.
+    # The warning banner from 2.3.2 nags but doesn't *force* anything;
+    # an operator on the default password can ignore it and use the
+    # full app. This interceptor blocks every endpoint except the
+    # password-change route (and the bare server-info endpoint the
+    # login page reads) until must_change_password is cleared.
+    _enforce_password_change()
 
     pi = path_info(); m = method()
 

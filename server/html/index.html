@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.0.2">
+<link rel="stylesheet" href="static/css/styles.css?v=3.0.3">
 
   <!-- v2.8.1: anti-FOUC styles — applied before external CSS loads.
        Keeps fixed/transformed elements invisible during the brief
@@ -31,8 +31,13 @@
     .toast-container { display: none; }
     /* Refresh bar: hidden until progress starts */
     .refresh-bar { display: none; }
-    /* PWA install button: hidden until JS decides to show it */
-    #pwa-install-btn { display: none; }
+    /* v3.0.3: the PWA install button rule that used to live here was the
+       reason the Install button never appeared. The button has its own
+       inline style="display:none" — when the beforeinstallprompt handler
+       set element.style.display='' to reveal it, removing the inline rule,
+       this ID-selector rule (specificity 0,1,0,0) silently took over and
+       kept the button hidden. The inline style alone is enough for the
+       initial hidden state. Do NOT re-add an !important rule here. */
   </style>
 </head>
 <body>
@@ -743,6 +748,8 @@
               <div class="form-group" style="flex:1">
                 <label class="form-label">Password <span id="cfg-smtp-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
                 <input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <p class="hint" style="font-size:11px;color:var(--muted);margin-top:4px"><strong>More secure option:</strong> set <code>RP_SMTP_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+                <p class="hint" id="smtp-env-hint" style="font-size:11px;color:var(--green);margin-top:4px;display:none">✓ Password is currently being read from <code>RP_SMTP_PASSWORD</code>. The field above is ignored.</p>
               </div>
             </div>
 
@@ -856,6 +863,8 @@
               <div class="form-group" style="flex:1">
                 <label class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" style="font-size:11px;color:var(--green);display:none"> · saved</span></label>
                 <input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <p class="hint" style="font-size:11px;color:var(--muted);margin-top:4px"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
+                <p class="hint" id="ldap-env-hint" style="font-size:11px;color:var(--green);margin-top:4px;display:none">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
               </div>
             </div>
 
@@ -4025,7 +4034,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress" id="refresh-progress" style="width:100%"></div></div>
 
-<script src="static/js/app.js?v=3.0.2"></script>
+<script src="static/js/app.js?v=3.0.3"></script>
 
 <!-- v2.4.15: Service Worker registration + PWA install prompt handling.
      Kept separate from app.js so the SW registers even if app.js fails.
@@ -4052,25 +4061,62 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   }
 
   // ── PWA install prompt ────────────────────────────────────────────────────
+  //
+  // v3.0.3 — two bugs fixed:
+  //
+  //   1. The CSS rule `#pwa-install-btn { display: none; }` in the <head>
+  //      (specificity 0,1,0,0) was overriding the JS reveal. Setting
+  //      element.style.display = '' just removes the *inline* property,
+  //      after which the stylesheet rule took effect and kept the button
+  //      hidden. Removed the stylesheet rule; the inline style="display:none"
+  //      handles the initial hidden state, and we now set the display to
+  //      an explicit 'inline-flex' value when revealing.
+  //
+  //   2. beforeinstallprompt can fire BEFORE DOMContentLoaded in Chrome
+  //      (especially on a warm reload where the manifest+SW are already
+  //      cached). The old code grabbed the button reference in a
+  //      DOMContentLoaded handler and just bailed if the reference was
+  //      null when the event fired — silently never showing the button
+  //      again because beforeinstallprompt only fires once per session.
+  //      Now we look the button up lazily inside the event handler and
+  //      stash a pending-show flag if the DOM isn't ready yet.
+  //
   var _installPrompt = null;
-  var _installBtn = null;
+  var _installBtn    = null;
+  var _installPending = false;
+
+  function _revealInstallBtn() {
+    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
+    if (!_installBtn) { _installPending = true; return; }
+    // Explicit value beats any future stylesheet rule with ID specificity.
+    _installBtn.style.display = 'inline-flex';
+    _installPending = false;
+  }
+
+  function _hideInstallBtn() {
+    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
+    if (_installBtn) _installBtn.style.display = 'none';
+    _installPending = false;
+  }
 
   window.addEventListener('DOMContentLoaded', function () {
     _installBtn = document.getElementById('pwa-install-btn');
+    if (_installPending && _installPrompt) _revealInstallBtn();
   });
 
-  // Chrome fires this when the PWA install criteria are met.
-  // We intercept it and keep a reference so we can trigger it on demand.
+  // Chrome / Brave / Edge fire this when the PWA install criteria are met.
+  // We intercept and stash the event so we can trigger it on demand from
+  // the header button rather than letting the browser show its own UI.
   window.addEventListener('beforeinstallprompt', function (e) {
     e.preventDefault();
     _installPrompt = e;
-    if (_installBtn) _installBtn.style.display = '';
+    _revealInstallBtn();
   });
 
   // Called when the user clicks the Install button in the header.
   window.pwaInstall = function () {
     if (!_installPrompt) return;
-    _installBtn.style.display = 'none';
+    _hideInstallBtn();
     _installPrompt.prompt();
     _installPrompt.userChoice.then(function (result) {
       if (result.outcome === 'accepted') {
@@ -4083,7 +4129,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   // Hide the button if the user installs via the browser's own UI.
   window.addEventListener('appinstalled', function () {
     _installPrompt = null;
-    if (_installBtn) _installBtn.style.display = 'none';
+    _hideInstallBtn();
   });
 }());
 </script>

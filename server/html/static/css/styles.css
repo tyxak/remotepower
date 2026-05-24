@@ -1929,6 +1929,17 @@ input.form-input[type="text"][data-token],
     content: '';
     position: fixed;
     inset: 0;
+    /* v3.0.3: explicit resets for the properties that bleed in from the
+       ambient-glow body::after rule (line ~250). That rule sets a fixed
+       800×400 box with translateX(-50%) and pointer-events:none. Without
+       these resets the scrim inherits the box and shows as a partial
+       rectangle near the top of the screen instead of a full-viewport
+       overlay, and tap-outside-to-close stops working because the ghost
+       overlay can't receive pointer events. */
+    width: auto;
+    height: auto;
+    transform: none;
+    pointer-events: auto;
     background: rgba(0, 0, 0, 0.4);
     z-index: 800;
   }
@@ -1942,7 +1953,11 @@ input.form-input[type="text"][data-token],
     height: 36px;
     margin-right: 8px;
     background: transparent;
-    border: 1px solid var(--border);
+    /* v3.0.3: no border. The previous 1px var(--border) drew a small
+     * square around the icon that looked like a separate clickable
+     * element next to the logo on mobile. The hamburger glyph is
+     * visually distinct enough without a frame. */
+    border: none;
     border-radius: 6px;
     color: var(--text);
     cursor: pointer;

@@ -30,7 +30,34 @@ Three failure outcomes:
   - LDAP unreachable / config bad   → LdapTransientError, caller falls through to local auth
   - Search returns nothing          → LdapAuthDenied, caller treats as wrong-username
   - User bind rejected (bad pw)     → LdapAuthDenied, caller treats as wrong-password
+
+v3.0.3: the bind password may be supplied via the RP_LDAP_BIND_PASSWORD
+environment variable instead of config.json. When set, the env var
+takes precedence; the secret stays out of the data directory (and out
+of the backup export). Same pattern as RP_PROXMOX_TOKEN_SECRET (v2.3.1)
+and RP_SMTP_PASSWORD (v3.0.3).
 """
+
+import os
+
+
+# v3.0.3: env-var override for the LDAP service-account password. Set
+# this in the systemd unit or container env to keep the secret out of
+# /var/lib/remotepower/config.json.
+ENV_LDAP_BIND_PASSWORD = 'RP_LDAP_BIND_PASSWORD'
+
+
+def resolve_bind_password(cfg: dict) -> tuple:
+    """Return (password, from_env) — env wins over config.
+
+    `from_env` is True when the env var was non-empty (the UI uses
+    this to surface a "secret is being read from the environment"
+    hint instead of implying config.json holds the value).
+    """
+    env_pw = os.environ.get(ENV_LDAP_BIND_PASSWORD, '')
+    if env_pw:
+        return env_pw, True
+    return (cfg.get('ldap_bind_password') or ''), False
 
 
 class LdapTransientError(Exception):
@@ -76,7 +103,9 @@ def authenticate(cfg: dict, username: str, password: str) -> LdapResult:
         raise LdapTransientError('ldap_url is empty')
 
     bind_dn   = (cfg.get('ldap_bind_dn') or '').strip()
-    bind_pw   = cfg.get('ldap_bind_password') or ''
+    # v3.0.3: env-var first, config.json fallback. _from_env is logged
+    # by the caller for auditability — not used inside this function.
+    bind_pw, _from_env = resolve_bind_password(cfg)
     user_base = (cfg.get('ldap_user_base') or '').strip()
     user_filter_tpl = (cfg.get('ldap_user_filter') or '(uid={u})').strip()
     required_group  = (cfg.get('ldap_required_group') or '').strip()
@@ -206,7 +235,8 @@ def test_connection(cfg: dict) -> dict:
         return {'ok': False, 'detail': 'ldap_url is empty'}
 
     bind_dn = (cfg.get('ldap_bind_dn') or '').strip()
-    bind_pw = cfg.get('ldap_bind_password') or ''
+    # v3.0.3: same env-var override as authenticate()
+    bind_pw, _from_env = resolve_bind_password(cfg)
     tls_verify = bool(cfg.get('ldap_tls_verify', True))
     try:
         timeout = int(cfg.get('ldap_timeout') or 5)

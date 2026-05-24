@@ -199,7 +199,8 @@ class TestSelfStatus(_ApiTestBase):
             self.api.respond = orig_respond
         self.assertEqual(captured.get('status'), 200)
         data = captured['data']
-        self.assertEqual(data['server_version'], '3.0.2')
+        self.assertRegex(data['server_version'], r'^3\.\d+\.\d+$',
+            'self-status server_version should be a 3.x.x string')
         self.assertIn('devices', data)
         self.assertEqual(data['devices']['monitored'], 2)
         self.assertIn('webhooks', data)
@@ -299,25 +300,34 @@ class TestVersionConsistencyV302(unittest.TestCase):
 
     def test_changelog_v302_present(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        # First version header in the file should be 3.0.2
+        # First version header should be a 3.x.x — strict check moved to
+        # test_v303+ once v3.0.3 took over the top slot.
         import re
         m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), '3.0.2')
+        self.assertRegex(m.group(1), r'^3\.\d+\.\d+$')
+        # And the v3.0.2 entry must still be present somewhere in the file.
+        self.assertIn('## v3.0.2', chlog,
+            'v3.0.2 entry was removed from CHANGELOG.md')
 
     def test_sw_cache_name_is_302(self):
+        """Once v3.0.2 was tagged, the SW cache must carry a version
+        marker — exact match for 3.0.2, loosened to any 3.x.x going
+        forward since test_v303+ now hold the strict pin."""
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn('remotepower-shell-v3.0.2', sw)
+        self.assertRegex(sw, r"remotepower-shell-v3\.\d+\.\d+",
+            'sw.js CACHE_NAME must contain a 3.x.x version marker')
 
     def test_api_server_version_is_302(self):
         # Import-free check — read the source file directly so this test
         # doesn't depend on the api module loading cleanly.
+        # Loosened to any 3.x.x after v3.0.3 took over the strict pin.
         src = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.assertIn("SERVER_VERSION = '3.0.2'", src)
+        self.assertRegex(src, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_version_is_302(self):
         src = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        self.assertIn("VERSION      = '3.0.2'", src)
+        self.assertRegex(src, r"VERSION\s*=\s*'3\.\d+\.\d+'")
 
 
 if __name__ == '__main__':

@@ -616,6 +616,20 @@ async function api(method, path, body) {
         }
         return parsed;
       }
+      // v3.0.3: F2 interceptor returns must_change_password: true on
+      // every blocked endpoint until the password is changed. The
+      // login-response flag already drives the banner; this branch
+      // covers the case where a user reloads the page or hits an
+      // endpoint directly while still on the default password.
+      if (parsed && parsed.must_change_password) {
+        window._mustChangePassword = true;
+        if (typeof toast === 'function') {
+          toast('Change your password first — every other action is blocked.', 'error');
+        }
+        // Route to Settings → Account so the change form is one click away.
+        try { showPage('settings', document.querySelector('.nav-btn[onclick*=settings]')); } catch (_) {}
+        return parsed;
+      }
     } catch (_) { /* fall through to generic handler */ }
   }
   return r.json();
@@ -1323,6 +1337,20 @@ async function loadSettings() {
   document.getElementById('cfg-smtp-helo').value      = data.smtp_helo_name || '';
   document.getElementById('cfg-smtp-recipients').value = data.smtp_recipients || '';
   document.getElementById('cfg-smtp-pw-set-badge').style.display = data.smtp_password_set ? '' : 'none';
+  // v3.0.3: surface the RP_SMTP_PASSWORD env-var override status. Same
+  // pattern as proxmox_token_secret_from_env (v2.3.1).
+  {
+    const smtpPwEl = document.getElementById('cfg-smtp-password');
+    if (data.smtp_password_from_env) {
+      smtpPwEl.disabled = true;
+      smtpPwEl.placeholder = 'set via RP_SMTP_PASSWORD env var';
+    } else {
+      smtpPwEl.disabled = false;
+      smtpPwEl.placeholder = 'Leave blank to keep existing';
+    }
+    const smtpEnvHint = document.getElementById('smtp-env-hint');
+    if (smtpEnvHint) smtpEnvHint.style.display = data.smtp_password_from_env ? 'block' : 'none';
+  }
 
   // v1.8.6: LDAP
   document.getElementById('cfg-ldap-enabled').checked    = !!data.ldap_enabled;
@@ -1336,6 +1364,19 @@ async function loadSettings() {
   document.getElementById('cfg-ldap-tls-verify').checked = data.ldap_tls_verify !== false;
   document.getElementById('cfg-ldap-timeout').value      = data.ldap_timeout || 5;
   document.getElementById('cfg-ldap-pw-set-badge').style.display = data.ldap_bind_password_set ? '' : 'none';
+  // v3.0.3: RP_LDAP_BIND_PASSWORD env-var override status.
+  {
+    const ldapPwEl = document.getElementById('cfg-ldap-bind-password');
+    if (data.ldap_bind_password_from_env) {
+      ldapPwEl.disabled = true;
+      ldapPwEl.placeholder = 'set via RP_LDAP_BIND_PASSWORD env var';
+    } else {
+      ldapPwEl.disabled = false;
+      ldapPwEl.placeholder = 'Leave blank to keep existing';
+    }
+    const ldapEnvHint = document.getElementById('ldap-env-hint');
+    if (ldapEnvHint) ldapEnvHint.style.display = data.ldap_bind_password_from_env ? 'block' : 'none';
+  }
 
   // Security
   document.getElementById('cfg-session-short').value = Math.round((data.session_ttl_short || 86400) / 3600);
@@ -9026,8 +9067,13 @@ function sshLinkIcon(d) {
   const host = (d.ip || '').trim() || (d.hostname || '').trim();
   if (!host) return '';
   // escAttr the host since it goes into an onclick attribute.
+  // v3.0.3: explicit color:var(--text) — without it the <a> takes the
+  // browser's default link colour (blue), which is hard to read against
+  // the dark sidebar/table. var(--text) resolves to near-white in dark
+  // mode and near-black in light mode, so the icon stays visible in
+  // both themes. The currentColor stroke on the SVG inherits this.
   return ` <a href="#" title="Quick SSH" onclick="quickSsh('${escAttr(host)}'); return false;"` +
-         ` style="text-decoration:none;margin-left:4px">` +
+         ` style="text-decoration:none;margin-left:4px;color:var(--text)">` +
          `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;opacity:0.7">` +
          `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>`;
 }

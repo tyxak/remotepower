@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual — v2.4.13</title>
+<title>RemotePower Manual — v3.0.3</title>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.55; background: #fafafa; }
   h1 { font-size: 2em; border-bottom: 2px solid #444; padding-bottom: 6px; }
@@ -24,14 +24,19 @@
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 2.4.13 — the long-form reference: CGI architecture, the agent and heartbeat, commands, monitoring, CVE scanning, configuration drift, Proxmox virtualization and the MCP server.</em></p>
+<p><em>Version 3.0.3 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
 
-<div class="note"><strong>v2.0 note:</strong> the dashboard has an in-app Documentation page (sidebar → Help → Documentation) covering the most common tasks plus per-page reference cards, all with substring search across topics. This Manual.html remains the long-form reference.</div>
+<div class="note"><strong>How this doc fits together.</strong> The in-app Documentation page (sidebar → Help → Documentation) covers common tasks with substring search across topics; this Manual.html is the long-form reference; the dedicated <code>docs/&lt;feature&gt;.md</code> files are the source of truth for each subsystem. Where a section here is intentionally brief, follow the link to the matching <code>docs/*.md</code>.</div>
 
-<div class="note"><strong>v2.0 polish features:</strong>
+<div class="note"><strong>What's new in v3.0.x:</strong>
 <ul style="margin:8px 0 0 20px">
-  <li><strong>Multi-doc CMDB:</strong> assets now hold an arbitrary list of titled Markdown documents instead of one blob. CMDB tab → "+ Add document". Existing single-blob assets auto-migrate on first read.</li>
-  <li><strong>Demo / read-only mode:</strong> set <code>RP_READ_ONLY=1</code> in the systemd unit's environment (or <code>fastcgi_param RP_READ_ONLY 1;</code> in nginx) and the server blocks every non-GET request with a friendly 403, except login/logout/totp/public-info. Use with <code>packaging/seed-demo-data.py</code> for a public sandbox like <code>demoremote.tvipper.com</code>.</li>
+  <li><strong>v3.0.3:</strong> env-var overrides for SMTP / LDAP secrets (<code>RP_SMTP_PASSWORD</code>, <code>RP_LDAP_BIND_PASSWORD</code>); forced password change for default-credential accounts; PWA install-button fix.</li>
+  <li><strong>v3.0.2:</strong> multi-webhook destinations with per-destination formats and filters; server self-monitoring page; scheduled backup of the data directory; audit log retention; exponential login lockout; bulk operations; command palette and keyboard shortcuts; configurable session timeout.</li>
+  <li><strong>v3.0.1:</strong> ACME / acme.sh integration; AI-driven mitigation runners; file-path log watching.</li>
+  <li><strong>v3.0.0:</strong> IaC Generator (Terraform / Ansible / Pulumi / cloud-init / Salt) from live host inventory.</li>
+  <li><strong>v2.9.0:</strong> Device Drawer — full-screen slide-in panel with Actions, Settings, and Audit tabs.</li>
+  <li><strong>v2.8.0–v2.8.1:</strong> brute-force detection (SSH + web), SSH-key-added audit, new-listening-port audit, backup-file-age monitoring.</li>
+  <li><strong>v2.0:</strong> demo / read-only mode (<code>RP_READ_ONLY=1</code>), multi-doc CMDB.</li>
 </ul>
 </div>
 
@@ -46,37 +51,43 @@
   <li><a href="#monitor">6. External monitors (ping/TCP/HTTP)</a></li>
   <li><a href="#metrics">7. Device metrics &amp; alert thresholds</a></li>
   <li><a href="#webterm">8. Web terminal (browser SSH)</a></li>
-  <li><a href="#webhooks">9. Webhooks</a></li>
+  <li><a href="#webhooks">9. Webhooks &amp; notification destinations</a></li>
   <li><a href="#cve">10. CVE scanning</a></li>
   <li><a href="#drift">11. Configuration drift detection</a></li>
   <li><a href="#proxmox">12. Proxmox virtualization</a></li>
   <li><a href="#mcp">13. MCP server</a></li>
   <li><a href="#fleet-health">14. Fleet health: Needs Attention &amp; status endpoint</a></li>
-  <li><a href="#ui">15. Dashboard UI: filter, sort, density</a></li>
-  <li><a href="#troubleshooting">16. Troubleshooting</a></li>
+  <li><a href="#acme">15. ACME / TLS / DNS expiry</a></li>
+  <li><a href="#audit">16. Audits: brute-force, SSH keys, listening ports, backup age</a></li>
+  <li><a href="#mitigate">17. Mitigation runners</a></li>
+  <li><a href="#iac">18. IaC Generator</a></li>
+  <li><a href="#selfmon">19. Server self-monitoring &amp; scheduled backup</a></li>
+  <li><a href="#security">20. Security &amp; authentication</a></li>
+  <li><a href="#ui">21. Dashboard UI: drawer, palette, shortcuts, density</a></li>
+  <li><a href="#troubleshooting">22. Troubleshooting</a></li>
 </ul>
 </div>
 
 
 <h2 id="overview">1. What it is, what it isn't</h2>
 
-<p>RemotePower is a self-hosted fleet manager for Linux/Windows boxes. Each managed machine runs an agent that polls a central server every 60s. The dashboard lets you reboot, shutdown, run commands, monitor patches/services/CVEs/containers, and (v1.11.10+) alert on metric thresholds, plus (v1.11.11+) open browser-based SSH terminals.</p>
+<p>RemotePower is a self-hosted fleet manager for Linux (and Windows, with limits). Each managed host runs an agent that polls the central server every 60 s — outbound HTTPS only, no inbound ports. The dashboard runs commands, monitors patches and services and CVEs and containers, alerts on metric thresholds, opens browser-based SSH terminals, and (from v3.0.0 onward) generates Terraform / Ansible / Pulumi / cloud-init from live host inventory.</p>
 
-<p>What it isn't: a configuration-management system. It runs ad-hoc commands and reports back; it doesn't enforce desired state. Pair with Ansible/Puppet/Salt/Rudder for that.</p>
+<p>What it isn't: a configuration-management system. It runs ad-hoc commands and reports back; it doesn't enforce desired state. Pair with Ansible / Puppet / Salt for that. The IaC Generator (§18) bridges the two — it produces IaC <em>from</em> what RemotePower sees, so you can hand off to a CM tool with a real starting point.</p>
 
 <p>The architecture is deliberately boring:</p>
 <ul>
-  <li><strong>Server:</strong> Python CGI scripts behind nginx + fcgiwrap. State in flat JSON files under <code>/var/lib/remotepower/</code>. No database. Scales to 50–500 devices comfortably; beyond that look at SQLite.</li>
-  <li><strong>Agent:</strong> Single Python script polled via HTTPS. Heartbeats every 60s with sysinfo, services, containers, and any pending command output.</li>
-  <li><strong>Web terminal daemon (v1.11.11+):</strong> Separate systemd unit for the WebSocket+SSH bits, because CGI can't hold persistent connections. Optional — skip the install and the rest still works.</li>
+  <li><strong>Server:</strong> Python CGI scripts behind nginx + fcgiwrap. State in flat JSON files under <code>/var/lib/remotepower/</code>. No database, no Node.js, no Redis. Scales to 50–500 devices comfortably; beyond that look at SQLite.</li>
+  <li><strong>Agent:</strong> Single Python script polled via HTTPS. Heartbeats every 60 s with sysinfo, services, containers, and any pending command output.</li>
+  <li><strong>Web terminal daemon:</strong> Separate systemd unit for the WebSocket+SSH bits, because CGI can't hold persistent connections. Optional — skip the install and the rest still works.</li>
 </ul>
 
 
 <h2 id="install">2. Install &amp; deploy</h2>
 
 <h3>2.1 Server</h3>
-<pre><code>tar xzf remotepower-2.4.13.tar.gz
-cd remotepower-2.4.13
+<pre><code>tar xzf remotepower-3.0.3.tar.gz
+cd remotepower-3.0.3
 sudo bash deploy-server.sh
 </code></pre>
 
@@ -328,10 +339,25 @@ curl -X DELETE -H "X-Token: $TOKEN" \
 </code></pre>
 
 
-<h2 id="webhooks">9. Webhooks</h2>
+<h2 id="webhooks">9. Webhooks &amp; notification destinations</h2>
 
-<p>RemotePower can fire webhooks for any of the following events. Configure the URL and per-event toggles in Settings.</p>
+<p>RemotePower fires webhooks for fleet events. As of v3.0.2 you can configure <strong>multiple destinations</strong>, each with its own format and filter, in <strong>Settings → Notifications</strong>. The legacy single <code>webhook_url</code> field is still honoured for backward compatibility but the multi-destination array is the recommended shape.</p>
 
+<h3>9.1 Destinations and formats</h3>
+<p>Each destination is self-contained: URL, format adapter, optional event allowlist, optional minimum priority. Supported formats:</p>
+<ul>
+  <li><strong>Discord</strong> — embed with severity-coloured stripe</li>
+  <li><strong>Slack</strong> — markdown text</li>
+  <li><strong>Pushover</strong> — form-encoded with app token + user key (credentials are write-once in the UI and redacted from backup exports)</li>
+  <li><strong>Microsoft Teams</strong> — MessageCard schema with theme colour</li>
+  <li><strong>ntfy.sh</strong> — plain body + Title/Priority/Tags headers</li>
+  <li><strong>Generic JSON</strong> — auto-detected fallback</li>
+</ul>
+<p>Per-destination filters let you do things like "Pushover only for critical-and-above" while another destination gets everything. Format is auto-detected from the URL when not explicitly set.</p>
+
+<p>Full reference and the wire formats: <a href="webhooks.md">webhooks.md</a>.</p>
+
+<h3>9.2 Events</h3>
 <table>
   <tr><th>Event</th><th>Default</th><th>Trigger</th></tr>
   <tr><td><code>device_offline</code></td><td>on</td><td>No heartbeat in 2× poll_interval</td></tr>
@@ -342,21 +368,31 @@ curl -X DELETE -H "X-Token: $TOKEN" \
   <tr><td><code>service_up</code></td><td>on</td><td>Watched systemd unit recovered</td></tr>
   <tr><td><code>patch_alert</code></td><td>on</td><td>Pending updates exceed configured threshold</td></tr>
   <tr><td><code>cve_found</code></td><td>on</td><td>OSV scan turned up new CVEs</td></tr>
-  <tr><td><code>log_alert</code></td><td>on</td><td>Watched log pattern matched</td></tr>
+  <tr><td><code>log_alert</code></td><td>on</td><td>Watched log pattern matched (systemd unit or file path)</td></tr>
   <tr><td><code>container_stopped</code></td><td>on</td><td>Container/pod disappeared or stopped</td></tr>
   <tr><td><code>container_restarting</code></td><td>on</td><td>Container restart count climbed</td></tr>
   <tr><td><code>containers_stale</code></td><td>on</td><td>No container report for &gt;TTL</td></tr>
-  <tr><td><code>metric_warning</code> (v1.11.10)</td><td>on</td><td>Resource crossed warning threshold</td></tr>
-  <tr><td><code>metric_critical</code> (v1.11.10)</td><td>on</td><td>Resource crossed critical threshold</td></tr>
-  <tr><td><code>metric_recovered</code> (v1.11.10)</td><td>on</td><td>Resource dropped below warn − buffer</td></tr>
+  <tr><td><code>metric_warning</code></td><td>on</td><td>Resource crossed warning threshold</td></tr>
+  <tr><td><code>metric_critical</code></td><td>on</td><td>Resource crossed critical threshold</td></tr>
+  <tr><td><code>metric_recovered</code></td><td>on</td><td>Resource dropped below warn − buffer</td></tr>
   <tr><td><code>drift_detected</code></td><td>on</td><td>Watched config file changed against its baseline</td></tr>
   <tr><td><code>mailbox_threshold</code></td><td>on</td><td>Mailbox file count crossed its alert threshold</td></tr>
   <tr><td><code>proxmox_action</code></td><td>on</td><td>VM/LXC start, shutdown or snapshot via the Virtualization page</td></tr>
+  <tr><td><code>snapshot_old</code> (v2.7.0)</td><td>on</td><td>Proxmox snapshot first crosses age threshold</td></tr>
+  <tr><td><code>tls_expiry</code> (v2.6.1)</td><td>on</td><td>Cert within 30d (warning) or 7d / expired (critical)</td></tr>
+  <tr><td><code>reboot_required</code> (v2.6.1)</td><td>on</td><td><code>/run/reboot-required</code> appears on a host</td></tr>
+  <tr><td><code>ssh_key_added</code> (v2.8.0)</td><td>on</td><td>New <code>authorized_keys</code> entry on a host (edge-triggered)</td></tr>
+  <tr><td><code>new_port_detected</code> (v2.8.0)</td><td>on</td><td>New listening port on a host</td></tr>
+  <tr><td><code>brute_force_detected</code> (v2.8.0)</td><td>on</td><td>10+ SSH or web login failures from one IP in 5 minutes</td></tr>
+  <tr><td><code>backup_stale</code> (v2.8.1)</td><td>on</td><td>Configured backup path exceeded its max age</td></tr>
+  <tr><td><code>custom_script_fail</code></td><td>on</td><td>Custom monitoring script returned non-zero</td></tr>
+  <tr><td><code>custom_script_recover</code></td><td>on</td><td>Custom monitoring script returned 0 after a failure</td></tr>
   <tr><td><code>command_queued</code></td><td>off</td><td>Command sent to a device</td></tr>
   <tr><td><code>command_executed</code></td><td>off</td><td>Command completed on a device</td></tr>
 </table>
 
-<p>Output formats: generic JSON, Discord-flavoured embeds, and Ntfy-flavoured (with priority + emoji tags). Format auto-detected from URL.</p>
+<h3>9.3 Per-destination test, secrets, and unmonitored-device suppression</h3>
+<p>Each destination has a <strong>Test</strong> button that fires a synthetic event using that destination's config only, without touching others. Pushover credentials are stored write-once and never echoed back from <code>/api/config</code>; they are also excluded from the backup export. Any event carrying a <code>device_id</code> is suppressed for devices marked unmonitored — operators silencing a host during a migration won't get pinged about its disk usage anyway.</p>
 
 
 <h2 id="cve">10. CVE scanning</h2>
@@ -404,10 +440,99 @@ curl -X DELETE -H "X-Token: $TOKEN" \
 <p><code>/api/status</code> is a machine-readable fleet summary for external dashboards — Uptime Kuma, Homepage, Grafana. It is authenticated by a dedicated status token (generated in Settings), not a login session, so a monitoring tool can poll it without the endpoint being public. It returns a rolled-up health word, device online/offline counts and attention counts by severity.</p>
 
 
-<h2 id="ui">15. Dashboard UI</h2>
+<h2 id="acme">15. ACME / TLS / DNS expiry</h2>
 
-<h3>10.1 Filter, sort, density (v1.11.5+)</h3>
-<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables (Users, API Keys, Command Library) — has a substring filter input and clickable column headers.</p>
+<p>RemotePower watches certificate and DNS expiry from two complementary angles:</p>
+<ul>
+  <li><strong>External probing</strong> (since v2.6.1): the server walks a watchlist of <code>host:port</code> targets in <code>tls_targets.json</code>, fetches the leaf cert, records the expiry. 30 d → warning, 7 d / expired → critical. Both thresholds fire <code>tls_expiry</code> once on the crossing (edge-triggered). Details in <a href="tls-monitor.md">tls-monitor.md</a>.</li>
+  <li><strong>Agent-side ACME inventory</strong> (since v3.0.1): the agent walks <code>~/.acme.sh</code> on each host once per hour and reports every certificate it manages — domain, challenge type, provider, dates, status. Surfaces in <strong>Security → TLS / DNS expiry</strong>. The dashboard can issue / renew / remove certs by sending one-shot flags back through the heartbeat. v3.0.2 adds a <strong>Force ACME rescan</strong> button per device so you don't have to wait for the hourly cadence after issuing on the CLI. Devices without <code>acme.sh</code> installed are hidden from the table; a discreet count is surfaced above. Full reference: <a href="acme.md">acme.md</a>.</li>
+</ul>
+
+
+<h2 id="audit">16. Audits: brute-force, SSH keys, listening ports, backup age</h2>
+
+<p>The agent does four edge-triggered audits per heartbeat. All four fire only on the <em>change</em>; baseline state is silent.</p>
+
+<ul>
+  <li><strong>Brute-force detection</strong> (v2.8.0). SSH (<code>Failed password</code>, <code>Invalid user</code>) and web (<code>POST /wp-login.php</code>, <code>POST /xmlrpc.php</code>) failure patterns are counted per source IP in a 5-minute rolling window. The threshold (default 20, configurable in <strong>Settings → Dashboard</strong> with an enable toggle) fires <code>brute_force_detected</code> once per source. Web access logs <code>nginx.access</code> / <code>apache2.access</code> are collected incrementally by the agent.</li>
+  <li><strong>SSH key audit</strong> (v2.8.0). A new entry in any user's <code>authorized_keys</code> fires <code>ssh_key_added</code> with the user and key fingerprint. Requires "Collect all current" to have run at least once for the baseline.</li>
+  <li><strong>Listening port audit</strong> (v2.8.0). A new <code>LISTEN</code> entry not in the per-device baseline fires <code>new_port_detected</code> with port + protocol + process. The Monitor page shows a fleet-wide grouped view.</li>
+  <li><strong>Backup file age</strong> (v2.8.1). Configure paths and a max age in <strong>Settings → Dashboard</strong>; the agent reports mtime on each heartbeat and fires <code>backup_stale</code> once on the threshold crossing. Also a critical item in <strong>Needs Attention</strong>.</li>
+</ul>
+
+
+<h2 id="mitigate">17. Mitigation runners</h2>
+
+<p>Every <strong>Needs Attention</strong> card whose alert has a deterministic remediation gets a <em>Mitigate</em> button (v3.0.1+). Clicking it asks the configured AI provider to generate a playbook for the specific finding, with operator sign-off required before any step runs. Each run is logged to <code>mitigate_logs/&lt;run_id&gt;.json</code> for audit. This is opt-in and disabled unless AI assistant is configured. See <a href="mitigation.md">mitigation.md</a>.</p>
+
+
+<h2 id="iac">18. IaC Generator</h2>
+
+<p>The IaC page (v3.0.0+) generates Infrastructure-as-Code for any device on demand. Pick the device, pick categories (18 total: OS &amp; identity, packages, systemd, users, groups, SSH keys, networking, fstab, containers, repos, firewall, cron, TLS paths, env, snaps, kernel modules, sysctl, RemotePower-specific) and the output format (Terraform HCL, Ansible YAML, Pulumi Python, Pulumi TypeScript, cloud-init YAML). The server flags the device, the agent runs the relevant collectors on the next heartbeat, and the configured AI provider renders the result.</p>
+
+<p><strong>Server-side secret masking:</strong> any env var whose <em>name</em> matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> is redacted before the payload leaves the host. The LLM never sees those values.</p>
+
+
+<h2 id="selfmon">19. Server self-monitoring &amp; scheduled backup</h2>
+
+<p>The <strong>Server status</strong> sidebar entry (v3.0.2+) reports the things you want to know about RemotePower itself — server version and memory, <code>DATA_DIR</code> disk usage with the top 20 largest files, fleet-wide device freshness, webhook delivery rate (24 h and 7 d), audit log entry count plus archive size, and scheduled backup state. <code>GET /api/self/status</code> is the machine-readable form for external monitoring.</p>
+
+<p>A daily gzipped tarball of <code>/var/lib/remotepower/</code> runs from the heartbeat hook on a 24-hour sentinel with stale-lock recovery. Retention defaults to 14 days; output path defaults to <code>/var/lib/remotepower/backups/</code>. The backup <strong>excludes the backups directory itself</strong>, in-flight <code>.tmp.*</code> files, and existing <code>.gz</code> archives. Owner / group are stripped so restoring on a different host doesn't fight over UIDs. A manual <strong>Run backup now</strong> button on the Server status page hits <code>POST /api/self/backup-now</code>.</p>
+
+<p>The audit log itself has age-based retention (default 90 days, configurable). Entries older than retention are moved to <code>audit_log_archive.jsonl.gz</code> rather than dropped, and the rolling 200-event fleet log evicts to <code>fleet_events_archive.jsonl.gz</code> on the same principle.</p>
+
+
+<h2 id="security">20. Security &amp; authentication</h2>
+
+<p>The full posture, threat model and operator hardening checklist live in <a href="security.md">security.md</a>. This section covers what an operator needs to act on or set.</p>
+
+<h3>20.1 Authentication</h3>
+<ul>
+  <li><strong>Local users:</strong> PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP 2023 minimum) with per-account 16-byte salts. Legacy SHA-256 hashes are auto-upgraded on next login.</li>
+  <li><strong>TOTP 2FA:</strong> 160-bit secrets, ±1 step window, failures count against the login rate limit.</li>
+  <li><strong>LDAP / LDAPS:</strong> server-side service-account bind, then re-bind as the user. <code>CERT_REQUIRED</code> TLS by default; opt out only for known self-signed internal CAs.</li>
+  <li><strong>API keys:</strong> 320-bit, <code>hmac.compare_digest</code> match, shown to the operator only at creation, per-key expiry, capped at 50 per server.</li>
+</ul>
+
+<h3>20.2 Login lockout ladder (v3.0.2)</h3>
+<p>Failed logins escalate per consecutive episode: 10 s → 1 min → 5 min → 30 min → 2 h. Resets on the next successful login. A missing-user verify path runs a dummy hash so the timing doesn't enumerate accounts.</p>
+
+<h3>20.3 Forced password change (v3.0.3)</h3>
+<p>Fresh installs seed <code>admin / remotepower</code> with the <code>must_change_password</code> flag set. <strong>Every API call returns 403 until that password is changed</strong>; only <code>POST /api/users/passwd</code> and <code>GET /api/public-info</code> are reachable through the gate. The dashboard catches the 403, surfaces a clear toast and routes the user to <strong>Settings → Account</strong>; the flag clears the moment the new password is saved.</p>
+<p>The gate is per-account — once cleared, never enforced again. API keys are unaffected (a default-password admin can't create them anyway, since the create-key endpoint is in the blocked set).</p>
+
+<h3>20.4 Env-var secrets (v3.0.3)</h3>
+<p>Three secret fields can now live in the environment instead of <code>config.json</code> — env wins over config, the secret stays out of the data directory, and it is excluded from the backup export:</p>
+<ul>
+  <li><code>RP_PROXMOX_TOKEN_SECRET</code> (since v2.3.1)</li>
+  <li><code>RP_SMTP_PASSWORD</code> (v3.0.3)</li>
+  <li><code>RP_LDAP_BIND_PASSWORD</code> (v3.0.3)</li>
+</ul>
+<pre><code># /etc/systemd/system/remotepower.service.d/secrets.conf
+[Service]
+Environment=RP_PROXMOX_TOKEN_SECRET=…
+Environment=RP_SMTP_PASSWORD=…
+Environment=RP_LDAP_BIND_PASSWORD=…
+</code></pre>
+<p>When set, the relevant input under Settings is disabled and a green hint reads "✓ Password is currently being read from <code>RP_…</code>". To finish migrating, clear the field once and Save — the plaintext drops from <code>config.json</code> and from the backup export.</p>
+
+<h3>20.5 CSRF / X-Token / same-origin</h3>
+<p>Session tokens travel in the custom <code>X-Token</code> header rather than a cookie. Browsers require a CORS preflight for any cross-origin request that carries a custom header, and RemotePower serves no permissive <code>Access-Control-Allow-Origin</code>, so classic CSRF cannot apply. Defence-in-depth: every <code>POST</code>/<code>PUT</code>/<code>PATCH</code>/<code>DELETE</code> additionally passes an Origin / Referer same-origin check before route dispatch (v3.0.2). CLI / agent / API-key clients send no Origin and are unaffected.</p>
+
+<h3>20.6 Agent hardening</h3>
+<p>Agent state files in <code>/var/lib/remotepower/</code> (mode <code>0700</code>) use <code>O_NOFOLLOW</code> on every read and write to defeat symlink attacks from local non-root users; the enrolment credentials file is written with <code>O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW</code> at <code>0600</code> atomically. Server-pushed log-watch paths pass through a deny list (<code>/etc/shadow</code>, <code>/root/.ssh/</code>, <code>/proc/</code>, <code>/sys/</code>, <code>/dev/</code>, …) with <code>realpath()</code> resolution so symlinks cannot bypass.</p>
+
+
+<h2 id="ui">21. Dashboard UI</h2>
+
+<h3>21.1 Device Drawer (v2.9.0)</h3>
+<p>Clicking a device name or the ⋮ button on Devices / Dashboard opens a full-screen slide-in drawer with two tabs. <strong>Actions &amp; Settings</strong> has the quick-action grid (run command, reboot, shutdown, WoL, upgrade packages, scan, web terminal, run script, update agent, docker compose, host config, CMDB, runbook, maintenance, adjust poll, delete) plus inline-editable device settings (group, tags, icon, monitored, poll interval, watched services, log rules, drift files, command allowlist) — all behind a single Save button. <strong>Audit</strong> has 11 collapsible sections, lazy-loaded on first open: system info, listening ports, packages, logs (filterable by unit), command history, fleet events, drift state, CVE summary, containers, metrics, host config.</p>
+
+<h3>21.2 Command palette (v3.0.2)</h3>
+<p><kbd>/</kbd> or <kbd>Ctrl-K</kbd> opens the global palette. Indexes pages, devices and quick actions. Arrow keys to navigate, Enter to activate, Esc to close. <kbd>?</kbd> opens the keyboard shortcut cheat sheet. <code>g</code>-prefix navigation: <kbd>g h</kbd> / <kbd>d</kbd> / <kbd>l</kbd> / <kbd>s</kbd> / <kbd>c</kbd> / <kbd>m</kbd> / <kbd>a</kbd> / <kbd>v</kbd> for Home / Devices / Logs / Settings / CVE / Monitor / Audit / serVer.</p>
+
+<h3>21.3 Filter, sort, density</h3>
+<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables — has a substring filter input and clickable column headers.</p>
 <ul>
   <li>First click sorts ascending</li>
   <li>Second click descending</li>
@@ -415,13 +540,22 @@ curl -X DELETE -H "X-Token: $TOKEN" \
   <li>Hold <kbd>Shift</kbd> while clicking a second header to add a secondary sort key (small superscript shows the priority)</li>
 </ul>
 
-<h3>10.2 Density (v1.11.6+, table layout in v1.11.7+)</h3>
+<h3>21.4 Density</h3>
 <p>The Devices grid has four density modes: Minimal (table layout, one device per row, sortable), Compact, Comfortable (default), Spacious. Selection persists per user.</p>
 
 <p>Filter / sort / density preferences are stored under <code>users[username].ui_prefs</code> server-side, so they follow you across browsers and devices. Sanitised: 256-char filter cap, 5-key sort cap, 16 KB total per user.</p>
 
 
-<h2 id="troubleshooting">16. Troubleshooting</h2>
+<h2 id="troubleshooting">22. Troubleshooting</h2>
+
+<h3>"Install RemotePower" button missing in Chrome / Brave</h3>
+<p>Fixed in v3.0.3. The fix lands as soon as the new service worker takes over — force one hard reload (<kbd>Ctrl-Shift-R</kbd> / <kbd>Cmd-Shift-R</kbd>) after upgrading. If it's still missing, the browser has cached the manifest; clear site data for the host and reload. If it's still missing after that, the install criteria aren't met (most often: not served over HTTPS, or the service worker registration failed — check the browser console).</p>
+
+<h3>"Password change required" 403 on every endpoint</h3>
+<p>Expected (v3.0.3). The account still has the <code>must_change_password</code> flag set — usually because nobody changed the default <code>admin / remotepower</code> password yet. Go to <strong>Settings → Account</strong> and set a new one; the flag clears and the rest of the app unlocks immediately.</p>
+
+<h3>SMTP / LDAP password field is disabled and shows "set via RP_..." placeholder</h3>
+<p>Expected (v3.0.3). The corresponding env var (<code>RP_SMTP_PASSWORD</code> or <code>RP_LDAP_BIND_PASSWORD</code>) is set in the systemd unit / container env and is taking precedence over <code>config.json</code>. To revert to config-file storage, unset the env var, restart the server, and re-enter the password in the field.</p>
 
 <h3>WebSocket fails with 404</h3>
 <p>The <code>^~ /api/</code> location is winning over the exact-match <code>= /api/webterm/connect</code>. Make sure the exact-match location appears in the file <em>before</em> the prefix-match.</p>

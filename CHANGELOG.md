@@ -2,6 +2,122 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.0.3 — 2026-05-24
+
+A small, focused security + UX patch on top of v3.0.2. **Recommended for all
+operators**, especially anyone whose Install-as-app button stopped working in
+Chrome or Brave.
+
+### Fixed
+- **PWA install button silently broken.** Chrome and Brave were never showing
+  the "Install RemotePower" button. Three layered causes:
+  1. A stylesheet rule with ID-selector specificity
+     (`#pwa-install-btn { display: none; }`) was overriding the inline reveal —
+     when the browser fired `beforeinstallprompt` and the JS cleared the inline
+     `display:none`, the stylesheet rule took over and the button stayed hidden.
+  2. A timing race: if `beforeinstallprompt` fired before `DOMContentLoaded`
+     (common on warm reload when manifest + service worker are already cached),
+     the button reference was still `null` and the reveal was a no-op. The
+     event only fires once per session, so the button never came back.
+  3. The two icons declared `purpose: "any maskable"` as a combined value.
+     Some Chrome / Brave builds treat that as maskable-only, which doesn't
+     satisfy the installability gate that requires at least one pure-`any`
+     icon. Now split into separate `any` + `maskable` entries.
+
+  The service worker cache name was bumped to `remotepower-shell-v3.0.3` so
+  existing installs evict the stale shell on first reload. If your install
+  button still doesn't appear after upgrading, do one hard reload to pick up
+  the new service worker.
+
+- **Mobile drawer scrim rendered as a half-sized floating rectangle.** Opening
+  the mobile nav drawer dropped a partial translucent black box near the top
+  of the screen instead of dimming the whole page behind the drawer, and
+  tap-outside-to-close did nothing. Root cause: two `body::after` rules
+  collided. The ambient blue-glow effect (a fixed 800×400 box with
+  `translateX(-50%)` and `pointer-events:none`) sets properties that the
+  mobile-nav scrim rule didn't override — `inset: 0` only resets
+  `top/right/bottom/left`, not `width/height/transform/pointer-events`. The
+  scrim now explicitly resets those properties so it fills the viewport and
+  catches taps. Mobile-only — desktop never used the scrim path.
+
+- **Mobile hamburger had a visible square box around it.** The
+  `.mobile-burger` style carried `border: 1px solid var(--border)`,
+  which on the dark theme rendered as a discrete framed button next
+  to the logo — easy to mistake for a separate clickable element.
+  The hamburger glyph reads fine on its own; the border is now `none`.
+
+- **Quick-SSH icon next to hostnames was unreadable blue on dark
+  mode.** The `<a>` carried no explicit `color`, so the browser's
+  default link colour bled through and clashed with the dark
+  sidebar/table. The icon now uses `color:var(--text)` (near-white
+  in dark, near-black in light), so it stays visible in both themes.
+
+### Added
+- **`RP_SMTP_PASSWORD` and `RP_LDAP_BIND_PASSWORD` environment variables.**
+  The two remaining plaintext secrets in `config.json` can now be supplied
+  via the environment — same pattern as `RP_PROXMOX_TOKEN_SECRET` (v2.3.1).
+  When the env var is set it takes precedence over the config file, the
+  secret stays out of `/var/lib/remotepower/`, and it is **not included in
+  the backup export** (so backups can be shared with support safely).
+
+  Set them in your systemd unit or container env:
+  ```ini
+  # /etc/systemd/system/remotepower.service (or your override)
+  Environment=RP_SMTP_PASSWORD=…
+  Environment=RP_LDAP_BIND_PASSWORD=…
+  ```
+  ```yaml
+  # docker-compose.yml
+  environment:
+    RP_SMTP_PASSWORD: "${RP_SMTP_PASSWORD}"
+    RP_LDAP_BIND_PASSWORD: "${RP_LDAP_BIND_PASSWORD}"
+  ```
+  The Settings page detects the env vars and shows a green "✓ Password is
+  currently being read from `RP_SMTP_PASSWORD`" hint above the (now disabled)
+  config field. Existing setups that keep the password in `config.json` are
+  unchanged.
+
+- **Forced password change for default-credential accounts.** A fresh
+  install seeds `admin / remotepower`. Since v2.3.2 the UI has shown a red
+  banner nagging the operator to change it, but the app remained fully
+  usable on the default password — the banner could be ignored. As of
+  v3.0.3, **every API call returns 403 until the password is changed**,
+  with only `POST /api/users/passwd` and `GET /api/public-info` reachable.
+  The dashboard catches the 403, surfaces a clear toast, and routes you
+  straight to the change-password form. As soon as the password is changed,
+  the flag clears and everything unlocks.
+
+  This applies only to accounts that still carry the `must_change_password`
+  flag — once changed, never blocked again. API keys are unaffected (they
+  can only be created from an already-cleared account in the first place).
+
+### Internals
+- Test suite at **1,453 tests** (`test_v303.py` covers the new behaviour;
+  one brittle fixed-offset slice in `test_v227.py` widened to use the
+  whole `@media` block).
+- `test_v302.py` strict version pins loosened to `3.x.x` regexes since
+  `test_v303.py` now holds the strict pin role. Same convention going forward.
+
+### Upgrading from v3.0.2
+
+Drop-in. Pull and redeploy:
+```bash
+cd /path/to/remotepower
+git pull origin main
+sudo bash deploy-server.sh
+```
+- Agents auto-upgrade on next heartbeat. No data migration. `config.json`
+  format unchanged.
+- If you want to move SMTP / LDAP secrets to the environment now, edit your
+  unit / compose file as shown above, restart the server, then **clear the
+  fields** in Settings → Notifications (SMTP) and Settings → Security (LDAP)
+  and save — that drops the plaintext from `config.json`.
+- If your dashboard's Install button has been missing, force a hard reload
+  (Ctrl+Shift+R / Cmd+Shift+R) once after upgrading so the new service
+  worker takes over.
+
+---
+
 ## v3.0.2 — 2026-05-24
 
 ### Bug fixes (post-ship polish bundle)
