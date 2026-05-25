@@ -158,18 +158,25 @@ class TestCspReportEndpoint(unittest.TestCase):
             '_enforce_same_origin must exempt /api/csp-report')
 
     def test_handler_logs_to_audit(self):
-        # Must call log_command on the audit log. Captures the function
-        # all the way to the next top-level `def ` so we don't miss the
-        # log call further into the body. The first regex hit was too
-        # short and stopped at _CSP_REPORT_MAX_BYTES.
+        # Must call audit_log (writes audit_log.json which the
+        # /api/security/diag panel reads), NOT log_command (which
+        # would target history.json and be invisible to the panel).
+        # Captures the function all the way to the next top-level
+        # `def ` so we don't miss the log call deep in the body.
         m = re.search(
             r'(?ms)^def handle_csp_report\(\):.+?(?=^def )',
             self.api_py)
         self.assertIsNotNone(m, 'handle_csp_report body not found')
         body = m.group(0)
         self.assertIn('respond(204,', body, 'must ack with 204')
-        self.assertIn('log_command(', body,
-            'handle_csp_report must append to the audit log via log_command()')
+        self.assertIn('audit_log(', body,
+            "handle_csp_report must write through audit_log() — the diag "
+            "panel scans audit_log.json, not history.json")
+        # Specifically with action='csp_report' so the diag scan
+        # (handle_security_diag) can count matches.
+        self.assertRegex(body, r"action\s*=\s*['\"]csp_report['\"]",
+            "audit entry must use action='csp_report' so the diag "
+            "counter recognises it")
 
     def test_csp_header_has_report_uri(self):
         for cfg in ('server/conf/remotepower.conf', 'docker/nginx-docker.conf'):

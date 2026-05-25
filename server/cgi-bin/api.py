@@ -2592,14 +2592,16 @@ def handle_security_diag():
     """
     require_admin_auth()
     cfg = load(CONFIG_FILE) or {}
-    audit = load(AUDIT_LOG_FILE) or []
+    # audit_log() writes a {'entries': [...]} shape; unwrap to the list.
+    audit_raw = load(AUDIT_LOG_FILE) or {}
+    audit = audit_raw.get('entries', []) if isinstance(audit_raw, dict) else (audit_raw or [])
     audit_archive = (DATA_DIR / 'audit_log_archive.jsonl.gz')
     cutoff = int(time.time()) - 86400
     csp_24h = sum(
         1 for e in audit
         if isinstance(e, dict)
         and (e.get('ts') or 0) >= cutoff
-        and str(e.get('cmd') or '').startswith('csp:')
+        and e.get('action') == 'csp_report'
     )
     respond(200, {
         'audit_log_entries':              len(audit),
@@ -2667,17 +2669,22 @@ def handle_csp_report():
     so we don't pollute the user's console with secondary failures.
 
     Body format is the W3C CSP report — `{"csp-report": {...}}` for
-    `report-uri`, or a flat object for `report-to`. We log either shape
-    via log_command so it shows up alongside other security events.
+    `report-uri`, or a flat object for `report-to`. We write the
+    parsed report through ``audit_log()`` (audit_log.json) with
+    ``action='csp_report'`` so it shows up alongside other security
+    events AND so the Settings → Security counter in
+    ``handle_security_diag`` can scan for it.
+
     Body is size-capped (16 KB) and the per-IP rate is throttled
     (`csp_report_throttle_per_minute`) so a misbehaving client can't
     flood the audit log.
 
-    The log line carries the directive that was violated, the blocked
-    URI, the source file + line, a short script-sample, and the
-    HTTP_REFERER (the page that triggered the report — useful for
-    forensics; Origin is sometimes `null` on CSP reports so Referer
-    is the more reliable attribution).
+    The audit entry's ``detail`` carries the directive that was
+    violated, the blocked URI, the source file + line, a short
+    script-sample, and the HTTP_REFERER (the page that triggered the
+    report — useful for forensics; Origin is sometimes `null` on CSP
+    reports so Referer is the more reliable attribution). ``source_ip``
+    is captured separately via the audit_log()'s standard field.
     """
     try:
         length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
@@ -2714,13 +2721,19 @@ def handle_csp_report():
         line_no    = (r or {}).get('line-number')        or ''
         sample     = (r or {}).get('script-sample')      or ''
         referer    = os.environ.get('HTTP_REFERER', '')[:120]
-        log_command(
+        # v3.0.6 fix: write through audit_log (audit_log.json) — NOT
+        # log_command (history.json). The diag panel reads audit_log;
+        # the previous draft hit history.json and the panel's "reports
+        # last 24h" counter never ticked. audit_log uses `action` /
+        # `detail` field names + source_ip captured from the request
+        # environment.
+        audit_log(
             actor='browser',
-            dev_id='',
-            dev_name='',
-            cmd=(f'csp:{violated} blocked={blocked} '
-                 f'src={source_file}:{line_no} ip={ip} ref={referer} '
-                 f'sample={sample[:120]}'),
+            action='csp_report',
+            detail=(f'{violated} blocked={blocked} '
+                    f'src={source_file}:{line_no} ref={referer} '
+                    f'sample={sample[:120]}'),
+            source_ip=ip,
         )
     except Exception:
         # Reporter is best-effort. Never let a malformed report break
