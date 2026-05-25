@@ -10291,10 +10291,14 @@ document.addEventListener('keydown', e => {
 });
 
 function switchDrawerTab(tab) {
+  // CSP L1 fallout (v3.0.5): the drawer-tab-audit panel has the d-none
+  // utility class for its initial-hide; setting style.display = '' to
+  // show it only clears the inline attribute and leaves the class
+  // hiding the panel. Use explicit 'block' so the inline value beats
+  // the class. Same bug pattern as the AI page reveal.
   ['actions', 'audit'].forEach(t => {
-    document.getElementById(`drawer-tab-panel-${t}` ) // handled via id below
-    document.getElementById(`drawer-tab-${t}`)?.style &&
-      (document.getElementById(`drawer-tab-${t}`).style.display = t === tab ? '' : 'none');
+    const panel = document.getElementById(`drawer-tab-${t}`);
+    if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
     document.getElementById(`drawer-tab-btn-${t}`)?.classList.toggle('active', t === tab);
   });
   if (tab === 'audit' && _drawerDeviceId) _renderDrawerAuditSections();
