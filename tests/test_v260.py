@@ -334,9 +334,10 @@ class TestFrontend(unittest.TestCase):
         self.assertIn('id="host-config-modal"', self.html)
 
     def test_tabs_exist(self):
+        # CSP L1 (v3.0.4): inline onclick became data-action delegation.
         for tab in ('repos', 'netplan', 'nmcli', 'resolv_conf',
                     'hosts', 'services', 'users', 'groups', 'sudoers', 'motd'):
-            self.assertIn(f"hcShowTab('{tab}'", self.html)
+            self.assertIn(f'data-action="hcShowTab" data-arg="{tab}"', self.html)
 
     def test_text_panels_exist(self):
         for section in ('repos', 'netplan', 'nmcli', 'resolv_conf',
@@ -356,10 +357,12 @@ class TestFrontend(unittest.TestCase):
         self.assertIn('id="hc-drift-banner"', self.html)
 
     def test_fetch_current_buttons(self):
-        self.assertIn("hcFetchCurrent('repos')", self.html)
+        # CSP L1 (v3.0.4): inline onclick → data-action delegation.
+        self.assertIn('data-action="hcFetchCurrent" data-arg="repos"', self.html)
 
     def test_save_button(self):
-        self.assertIn('saveHostConfig()', self.html)
+        # CSP L1 (v3.0.4): inline onclick → data-action delegation.
+        self.assertIn('data-action="saveHostConfig"', self.html)
 
     def test_device_menu_entry(self):
         self.assertIn("openHostConfigModal(", self.js)

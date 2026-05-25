@@ -182,19 +182,21 @@ class TestFleetAndDrift(unittest.TestCase):
 class TestNavMove(unittest.TestCase):
 
     def test_services_logs_in_main(self):
+        # CSP L1 (v3.0.4): inline onclick="showPage('X', this)" became
+        # data-page="X" event delegation. The structural check (Services
+        # and Logs sit in Main, before the Security group) is unchanged.
         html = (_ROOT / 'server/html/index.html').read_text()
         sec = html.find('data-group="security"')
         self.assertGreater(sec, 0)
-        svc = html.find("showPage('services'")
-        log = html.find("showPage('logs'")
-        # Both appear before the Security group → they're in Main now
+        svc = html.find('data-page="services"')
+        log = html.find('data-page="logs"')
         self.assertGreater(svc, 0)
         self.assertGreater(log, 0)
         self.assertLess(svc, sec, 'Services still inside/after Security group')
         self.assertLess(log, sec, 'Logs still inside/after Security group')
-        # Exactly once each — not duplicated
-        self.assertEqual(html.count("showPage('services'"), 1)
-        self.assertEqual(html.count("showPage('logs'"), 1)
+        # The nav-btn for each appears exactly once.
+        self.assertEqual(html.count('class="nav-btn" data-page="services"'), 1)
+        self.assertEqual(html.count('class="nav-btn" data-page="logs"'), 1)
 
 
 if __name__ == '__main__':

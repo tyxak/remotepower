@@ -343,33 +343,36 @@ class TestPwaInstallFix(unittest.TestCase):
     SW_JS      = REPO_ROOT / 'server' / 'html' / 'sw.js'
 
     def test_no_id_rule_hiding_install_button(self):
-        """The `#pwa-install-btn { display: none; }` stylesheet rule had
-        higher specificity than the inline style and silently defeated
-        the JS reveal. It must stay out of any <style> block.
-
-        Scoped to <style> tags only — JS comments and docs may legitimately
-        mention the pattern to document the fix.
-        """
-        html = self.INDEX_HTML.read_text()
-        style_blocks = re.findall(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
-        self.assertTrue(style_blocks, 'no <style> blocks found in index.html — '
-                                       'the file structure has changed unexpectedly')
-        for css in style_blocks:
-            bad = re.search(
-                r'#pwa-install-btn\s*\{[^}]*display\s*:\s*none', css, re.IGNORECASE)
-            self.assertIsNone(bad,
-                'A CSS rule with ID specificity is hiding the PWA install button '
-                'and will defeat the JS reveal. Remove it from <style> in <head>.')
+        """CSP L1 (v3.0.4): all inline <style> was removed from index.html.
+        The same regression now lives one level out — assert that no rule
+        with `#pwa-install-btn` ID specificity in any stylesheet hides
+        the button."""
+        css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+        bad = re.search(
+            r'#pwa-install-btn\s*\{[^}]*display\s*:\s*none', css, re.IGNORECASE)
+        self.assertIsNone(bad,
+            'A CSS rule with ID specificity is hiding the PWA install button '
+            'and will defeat the JS reveal.')
 
     def test_install_button_still_starts_hidden_inline(self):
-        """The button itself should still have `style="display:none"`
-        so it doesn't flash visible on first paint."""
+        """CSP L1 (v3.0.4): the inline style="display:none" was replaced
+        with an auto-generated class carrying display:none. Same effect,
+        no FOUC."""
         html = self.INDEX_HTML.read_text()
-        m = re.search(
-            r'<button[^>]*id="pwa-install-btn"[^>]*style="[^"]*display:\s*none',
-            html)
-        self.assertIsNotNone(m,
-            'Install button must keep its inline display:none for initial hide.')
+        m = re.search(r'<button[^>]*id="pwa-install-btn"[^>]*class="([^"]+)"', html)
+        self.assertIsNotNone(m, 'pwa-install-btn missing class attribute')
+        css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+        hidden = False
+        for cls in m.group(1).split():
+            for rule in re.finditer(rf'\.{re.escape(cls)}\s*\{{([^}}]*)\}}', css):
+                body = rule.group(1)
+                if 'display' in body and 'none' in body:
+                    hidden = True
+                    break
+            if hidden:
+                break
+        self.assertTrue(hidden,
+            'Install button must start hidden — no class with display:none.')
 
     def test_manifest_icons_split_any_and_maskable(self):
         """v3.0.3 splits `purpose: "any maskable"` (which some Brave builds
@@ -388,24 +391,23 @@ class TestPwaInstallFix(unittest.TestCase):
 
     def test_sw_cache_name_bumped(self):
         """The SW cache must change with every release so the activate
-        handler evicts the previous shell on first reload. Originally
-        pinned v3.0.3 exactly; loosened to "any 3.x.x marker and not the
-        v3.0.2 one" once v3.0.4 took over the strict pin."""
+        handler evicts the previous shell on first reload. Loosened from
+        the strict v3.0.3 / v3.0.4 pins to accept a v3.x.x marker with
+        an optional suffix (v3.0.4-csp1, etc.)."""
         sw = self.SW_JS.read_text()
-        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+'",
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
             'sw.js CACHE_NAME must carry a v3.x.x marker.')
         self.assertNotIn("'remotepower-shell-v3.0.2'", sw,
             'sw.js still references the v3.0.2 cache name.')
 
     def test_install_js_uses_explicit_display_value(self):
-        """`element.style.display = ''` is the bug — it removes the inline
-        rule and exposes whatever the stylesheet says. We now use an
-        explicit value (inline-flex)."""
-        html = self.INDEX_HTML.read_text()
-        # The reveal function should set an explicit display value, not ''
-        m = re.search(r"_installBtn\.style\.display\s*=\s*'inline-flex'", html)
+        """CSP L1 (v3.0.4): the inline reveal moved from index.html to
+        /static/js/sw-register.js. Same fix: explicit display:'inline-flex'
+        rather than display:'' which would expose whatever a stylesheet says."""
+        sw_reg = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'sw-register.js').read_text()
+        m = re.search(r"_installBtn\.style\.display\s*=\s*'inline-flex'", sw_reg)
         self.assertIsNotNone(m,
-            'PWA reveal must set an explicit display value, not "".')
+            'PWA reveal must set an explicit display value (inline-flex), not "".')
 
 
 # ─── Version bumps ───────────────────────────────────────────────────────────

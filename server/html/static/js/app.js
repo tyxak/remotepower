@@ -337,7 +337,7 @@ const densityCtl = (() => {
     const cur = getDensity(name);
     const btn = (val, label, title) => {
       const sel = cur === val;
-      return `<button data-action-btn="_densityCtlBtn" data-dname="${escAttr(name)}" data-val="${val}" title="${escHtml(title)}" class="isl-307">${escHtml(label)}</button>`;
+      return `<button data-action-btn="_densityCtlBtn" data-dname="${escAttr(name)}" data-val="${val}" title="${escHtml(title)}" class="isl-307 ${sel ? 'sel' : ''}">${escHtml(label)}</button>`;
     };
     // Stash the callback under a deterministic global so the inline onclick
     // can find it. Slightly hacky, but avoids needing a UUID per control.
@@ -815,7 +815,7 @@ function renderDevices() {
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {
-    filterBar.innerHTML = allTags.map(t => `<button data-action="setTagFilter" data-arg="${escAttr(t)}" class="isl-311">${escHtml(t)}</button>`).join('');
+    filterBar.innerHTML = allTags.map(t => `<button data-action="setTagFilter" data-arg="${escAttr(t)}" class="isl-311 ${activeTagFilter===t ? 'active' : ''}">${escHtml(t)}</button>`).join('');
     if (activeTagFilter) filterBar.innerHTML += `<button data-action="_setTagFilterClear" class="isl-312">✕ clear</button>`;
   }
   let filtered = activeTagFilter ? devices.filter(d => (d.tags || []).includes(activeTagFilter)) : devices;
@@ -884,7 +884,7 @@ function renderDevices() {
     const memSpark = memPct != null && memHist.length >= 2
       ? renderSparkline(memHist, {width: 52, height: 14, color: memPct > 85 ? 'var(--red)' : memPct > 70 ? 'var(--amber)' : 'var(--accent)'})
       : '';
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314">
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
@@ -1146,7 +1146,7 @@ async function runMonitor() {
 function openMonitorAdd() { document.getElementById('mon-label').value = ''; document.getElementById('mon-type').value = 'ping'; document.getElementById('mon-target').value = ''; openModal('monitor-add-modal'); }
 async function addMonitor() { const label = document.getElementById('mon-label').value.trim(); const type = document.getElementById('mon-type').value; const target = document.getElementById('mon-target').value.trim(); if (!target) { toast('Target is required', 'error'); return; } const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = [...(cfg.monitors || []), {label: label || target, type, target}]; const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Monitor added', 'success'); closeModal('monitor-add-modal'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
-async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" class="isl-329"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${pct>=90?'c-green': pct>=70?'c-amber': 'c-red'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // v1.11.6: users page gets filter+sort
 let _usersRegistered = false;
 function _registerUsersTable() {
@@ -1597,7 +1597,7 @@ async function runLdapTestUser() {
   }
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
-async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`; }).join(''); }
+async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`; }).join(''); }
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
 // the background. The "auto-refresh closes browser window" bug had two
 // independent triggers in 2.0.0:
@@ -2002,7 +2002,7 @@ function _registerDeviceMetricsTable() {
         if (v === undefined || v === null) return '<span class="c-muted">—</span>';
         const lv = state[key] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        return `<span class="isl-348">${Number(v).toFixed(1)}%</span>`;
+        return `<span class="isl-348" data-color="${color}">${Number(v).toFixed(1)}%</span>`;
       };
 
       const memCell  = fmtPct(si.mem_percent,  'memory:');
@@ -2013,7 +2013,7 @@ function _registerDeviceMetricsTable() {
         const ratio = si.loadavg_1m / si.cpu_count;
         const lv = state['cpu:'] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        cpuCell = `<span class="isl-348">${si.loadavg_1m.toFixed(2)} / ${si.cpu_count} (${ratio.toFixed(2)}×)</span>`;
+        cpuCell = `<span class="isl-348" data-color="${color}">${si.loadavg_1m.toFixed(2)} / ${si.cpu_count} (${ratio.toFixed(2)}×)</span>`;
       }
 
       // Disks: list each mount with its percent + alert state
@@ -2023,14 +2023,14 @@ function _registerDeviceMetricsTable() {
         const items = mounts.map(m => {
           const lv = state[`disk:${m.path}`] || 'ok';
           const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
-          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB" class="isl-349">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
+          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB" class="isl-349" data-color="${color}">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
         });
         diskCell = items.join('');
       } else if (si.disk_percent !== undefined) {
         // Pre-v1.11.10 agent: only legacy root disk
         const lv = state['disk:/'] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        diskCell = `<span class="isl-348">/ ${si.disk_percent.toFixed(1)}%</span>`;
+        diskCell = `<span class="isl-348" data-color="${color}">/ ${si.disk_percent.toFixed(1)}%</span>`;
       }
 
       return `<tr>
@@ -2349,7 +2349,7 @@ function openPollModal(id, current) { document.getElementById('poll-device-id').
 async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 async function openAllowlistModal(id) { document.getElementById('allowlist-device-id').value = id; document.getElementById('allowlist-input').value = ''; openModal('allowlist-modal'); const r = await api('GET', '/devices/' + id + '/allowlist'); if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n'); }
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
-async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
+async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
 // v1.11.6: API keys page gets filter+sort
 let _apikeysRegistered = false;
@@ -2491,7 +2491,7 @@ function _registerPatchTable() {
       const rebootBadge = d.reboot_required
         ? `<span title="Pending reboot — /run/reboot-required exists on this host" class="isl-372"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="isl-373"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -2556,7 +2556,7 @@ function _registerCveTable() {
         'unsupported': '<span class="c-amber">●</span> unsupported',
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
-      const cell = (n, color) => n > 0 ? `<td class="isl-384">${n}</td>` : '<td class="isl-385">0</td>';
+      const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
       return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon isl-386" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
@@ -2613,7 +2613,7 @@ async function openDeviceCVE(devId, devName) {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" class="c-accent">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390"><div class="isl-391"><div><span class="isl-392">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">✨ Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">✨ Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -2700,7 +2700,7 @@ function _registerServicesTable() {
       const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span class="meta-sm-nm">never</span>';
       const unitList = (d.services || []).map(s => {
         const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-        return `<span class="isl-400"><span class="isl-401">●</span> ${escHtml(s.unit)}</span>`;
+        return `<span class="isl-400"><span class="isl-401" data-color="${color}">●</span> ${escHtml(s.unit)}</span>`;
       }).join('');
       const watchedCell = d.total > 0 ? unitList : '<span class="meta-sm-nm">(none configured)</span>';
       const upCell   = d.up > 0 ? `<td class="isl-402">${d.up}</td>` : '<td class="isl-385">0</td>';
@@ -2788,7 +2788,7 @@ async function openServiceDetail(devId, devName) {
 
       return `<div class="isl-379">
         <div class="isl-407">
-          <div class="isl-408"><span class="isl-409">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
+          <div class="isl-408"><span class="isl-409" data-color="${color}">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
           <div class="meta-sm-nm">since: ${sinceText}</div>
         </div>
         <details${histItems.length ? ' open' : ''} class="mb-6"><summary class="isl-412">${histLabel}</summary><div class="isl-413">${histBody}</div></details>
@@ -3093,7 +3093,7 @@ function renderLogsViewer() {
   viewer.innerHTML = logsState.lines.map(l => {
     const color = lineSeverityColor(l.line);
     const ts = new Date(l.ts*1000).toLocaleTimeString();
-    return `<div class="isl-419">`
+    return `<div class="isl-419" data-color="${color||''}">`
       + `<span class="c-muted">${ts}</span> `
       + `<span class="c-accent">${escHtml(l.name)}</span> `
       + `<span class="c-muted">${escHtml(l.unit)}</span>  `
@@ -3174,7 +3174,7 @@ async function runLogSearch() {
     html += `<details open class="mb-8"><summary class="isl-423">${escHtml(g.name)} <span class="meta-sm-nm">(${g.lines.length})</span></summary>`;
     html += g.lines.map(l => {
       const color = lineSeverityColor(l.line);
-      return `<div class="isl-424"><span class="c-muted">${new Date(l.ts*1000).toLocaleString()}</span> <span class="c-muted">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
+      return `<div class="isl-424" data-color="${color||''}"><span class="c-muted">${new Date(l.ts*1000).toLocaleString()}</span> <span class="c-muted">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
     }).join('');
     html += `</details>`;
   }
@@ -4710,7 +4710,7 @@ async function containersOpen(deviceId, name) {
       : statusLower.includes('exit') ? 'var(--red)' : 'var(--muted)';
     const ports = (c.ports || []).map(p => `<code class="isl-453">${escHtml(p)}</code>`).join(' ');
     const restart = c.restart_count > 0
-      ? `<span class="isl-454">restart×${c.restart_count}</span>`
+      ? `<span class="isl-454 ${c.restart_count >= 5 ? 'c-red' : 'c-amber'}">restart×${c.restart_count}</span>`
       : '';
     const ns = c.namespace ? `<span class="c-muted">${escHtml(c.namespace)}/</span>` : '';
     // v2.2.6: container health badge — the agent parses (healthy)/
@@ -4736,7 +4736,7 @@ async function containersOpen(deviceId, name) {
                      : c.mem_percent > 70 ? 'var(--amber)' : 'var(--muted)';
       resourceLine = `<div class="isl-456">
         ${cpuTxt ? `<span>${cpuTxt}</span>` : ''}
-        ${memTxt ? `<span class="isl-457">${memTxt}</span>` : ''}
+        ${memTxt ? `<span class="isl-457" data-color="${memColor}">${memTxt}</span>` : ''}
       </div>`;
     }
     const cid = c.id || c.name || '';
@@ -4754,7 +4754,7 @@ async function containersOpen(deviceId, name) {
       <div class="isl-461">
         <div class="isl-462">${ns}${escHtml(c.name)}${healthBadge}</div>
         <div class="isl-463">
-          <span class="isl-376">${escHtml(c.status || '?')}</span>
+          <span class="isl-376" data-color="${statusColor}">${escHtml(c.status || '?')}</span>
           ${restart}
           <span class="cmd-badge ${escHtml(c.runtime)} isl-464">${escHtml(c.runtime)}</span>
         </div>
@@ -5211,7 +5211,7 @@ function _registerTlsTable() {
         const s = t.dane_status || 'not_checked';
         const colours = { ok: 'var(--green)', mismatch: 'var(--amber)', insecure: 'var(--red)', error: 'var(--red)', missing: 'var(--muted)', not_checked: 'var(--muted)' };
         const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
-        return `<span class="isl-472">${labels[s] || s}</span>`;
+        return `<span class="isl-472" data-color="${colours[s] || 'var(--muted)'}">${labels[s] || s}</span>`;
       })();
       const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
       const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
@@ -5395,7 +5395,7 @@ function tlsDetailOpen(id) {
     }
     daneHtml = `<div class="isl-483">
       <div class="isl-421">DANE / TLSA</div>
-      <div class="isl-484">${escHtml(text)}</div>
+      <div class="isl-484" data-color="${colour}">${escHtml(text)}</div>
       ${t.dane_error ? `<div class="isl-485">${escHtml(t.dane_error)}</div>` : ''}
       ${recordsHtml}
     </div>`;
@@ -5587,7 +5587,7 @@ function _renderLinkCard(l) {
   // ctrl-click work naturally for power users.
   const cardInner = `<div
     onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface2)'"
-    title="${escHtml(l.description || l.url)}" class="isl-496">
+    title="${escHtml(l.description || l.url)}" class="isl-496 ${_linksEditMode ? 'edit-mode' : ''}" data-bd-style="${borderStyle}" data-bd-color="${borderColor}">
     <div>
       <div class="isl-497">
         <div class="isl-498">${escHtml(l.title)}</div>
@@ -6700,7 +6700,7 @@ function _aiPageRenderConv() {
       content = `<div class="ai-content">${renderMarkdown(m.content || '')}</div>`;
     }
     return `<div class="mb-12"><div class="isl-524">${label}</div>` +
-           `<div class="isl-525">${content}${meta}</div></div>`;
+           `<div class="isl-525" data-bg="${bg}" data-bd="${border}">${content}${meta}</div></div>`;
   }).join('');
   wrap.scrollTop = wrap.scrollHeight;
 }
@@ -7278,8 +7278,8 @@ function _renderDrift(rows) {
       <td class="fw-500">${escHtml(r.device_name)}</td>
       <td class="hint">${escHtml(r.group || '—')}</td>
       <td>${r.total}</td>
-      <td class="isl-535">${r.drifted}</td>
-      <td class="isl-536">${r.missing}</td>
+      <td class="isl-535 ${r.drifted > 0 ? 'fw-600' : ''}" data-color="${driftColor}">${r.drifted}</td>
+      <td class="isl-536" data-color="${missingColor}">${r.missing}</td>
       <td class="hint">${lastCheck}</td>
       <td><button class="btn-icon cell-sm" data-action="openDriftDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">Detail</button></td>
     </tr>`;
@@ -8770,7 +8770,7 @@ function _renderProxmoxGuest(g, kind) {
       </div>
       <div class="row-8-center">
         ${upLine}
-        <span class="isl-576">${escHtml(g.status || '?')}</span>
+        <span class="isl-576" data-color="${statusColor}">${escHtml(g.status || '?')}</span>
       </div>
     </div>
     ${resLine}
@@ -10239,7 +10239,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
     const status = online ? '● Online' : '○ Offline';
     const color  = online ? 'var(--green)' : 'var(--red)';
     document.getElementById('drawer-device-sub').innerHTML =
-      `<span class="isl-401">${status}</span>` +
+      `<span class="isl-401" data-color="${color}">${status}</span>` +
       (_drawerDeviceData.group ? ` · ${escHtml(_drawerDeviceData.group)}` : '');
   } catch(e) {
     _drawerDeviceData = {};
@@ -10510,7 +10510,7 @@ async function _loadAuditSection(key) {
               `<tr><td class="isl-629"><code>${escHtml(m.path)}</code></td>
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
-                   <td class="isl-630">${m.percent}%</td></tr>`
+                   <td class="isl-630 ${m.percent>85?'c-red': m.percent>70?'c-amber': ''}">${m.percent}%</td></tr>`
             ).join('') + `</tbody></table>`;
         }
         if (jrnl.length) {
@@ -10572,7 +10572,7 @@ async function _loadAuditSection(key) {
         body.innerHTML = `
           <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
-            <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635">${upg}</div></div>
+            <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635 ${upg>0?'c-amber':'c-green'}">${upg}</div></div>
             <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgo(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
           </div>
           <button class="btn-secondary fs-12" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
@@ -10737,10 +10737,10 @@ async function _loadAuditSection(key) {
           ['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
             const col = sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'var(--muted)';
             return `<div class="mb-6">
-              <div class="isl-646">${sev}</div>
+              <div class="isl-646" data-color="${col}">${sev}</div>
               ${bySev[sev].slice(0,5).map(f =>
                 `<div class="isl-647">
-                  <code class="isl-648">${escHtml(f.cve_id||f.vuln_id||f.id||'')}</code>
+                  <code class="isl-648" data-color="${col}">${escHtml(f.cve_id||f.vuln_id||f.id||'')}</code>
                   <span class="c-muted"> — ${escHtml(f.package||f.pkg||'')} ${escHtml(f.version||'')}</span>
                 </div>`).join('')}
               ${bySev[sev].length>5 ? `<div class="meta-sm-nm">…and ${bySev[sev].length-5} more</div>` : ''}
@@ -10772,7 +10772,7 @@ async function _loadAuditSection(key) {
               const img  = (c.image || c.Image || '—').split(':')[0];
               return `<tr class="border-top">
                 <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code></td>
-                <td class="isl-652">${escHtml(c.status||c.State||'?')}</td>
+                <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td class="isl-653">${escHtml(img)}</td>
               </tr>`;
             }).join('')}
@@ -12427,7 +12427,7 @@ function _mitigateRenderFixOptions(aiResult) {
     <label class="isl-697">
       <input type="radio" name="mitigate-fix-pick" value="${i}" data-change="_mitigateSelectFixOption" data-change-arg="${i}" class="isl-698">
       <div class="isl-445">
-        <div class="isl-699">
+        <div class="isl-699 ${o.kind === 'preapproved' ? 'is-pre' : ''}">
           ${o.kind === 'preapproved' ? '✓ ' : '✨ '}${escHtml(o.label)}
           ${o.sensitive ? '<span class="isl-700">(RUN required)</span>' : ''}
         </div>
@@ -12954,7 +12954,7 @@ async function loadSelfStatus() {
       <div class="fw-600-mb10">Devices</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
-        <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713">${dev.offline ?? '—'}</span></td></tr>
+        <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713" data-color="${offlineSev}">${dev.offline ?? '—'}</span></td></tr>
         <tr><td class="c-muted-padded">Freshest heartbeat</td><td>${_selfFmtAgo(dev.freshest_seen)}</td></tr>
         <tr><td class="c-muted-padded">Oldest heartbeat</td><td>${_selfFmtAgo(dev.oldest_seen)}</td></tr>
         <tr><td class="c-muted-padded">Online TTL</td><td>${dev.online_ttl_s ?? '—'}s</td></tr>
@@ -13583,3 +13583,32 @@ async function saveWebhookDests() {
   }
   return true;
 }
+
+// ── CSP L1: apply data-color / data-bg / data-bd attributes after innerHTML ──
+// The auto-class generator dropped dynamic `color: ${...}` declarations
+// because CSS can't carry JS expressions. Templates that used those
+// classes now also carry `data-color="<value>"` and a MutationObserver
+// applies the value via the CSP-safe element.style IDL setter.
+const _dynColorObserver = new MutationObserver((muts) => {
+  for (const m of muts) {
+    for (const node of m.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.dataset?.color) node.style.color = node.dataset.color;
+      if (node.dataset?.bg) node.style.background = node.dataset.bg;
+      if (node.dataset?.bd) node.style.border = '1px solid ' + node.dataset.bd;
+      if (node.dataset?.bdStyle && node.dataset?.bdColor) {
+        node.style.border = '1px ' + node.dataset.bdStyle + ' ' + node.dataset.bdColor;
+      }
+      if (node.querySelectorAll) {
+        node.querySelectorAll('[data-color]').forEach(el => { el.style.color = el.dataset.color; });
+        node.querySelectorAll('[data-bg]').forEach(el => { el.style.background = el.dataset.bg; });
+        node.querySelectorAll('[data-bd]').forEach(el => { el.style.border = '1px solid ' + el.dataset.bd; });
+        node.querySelectorAll('[data-bd-style][data-bd-color]').forEach(el => {
+          el.style.border = '1px ' + el.dataset.bdStyle + ' ' + el.dataset.bdColor;
+        });
+      }
+    }
+  }
+});
+_dynColorObserver.observe(document.documentElement, { childList: true, subtree: true });
+

@@ -109,9 +109,14 @@ class TestVersionBumps(unittest.TestCase):
             'remotepower-agent and remotepower-agent.py have drifted')
 
     def test_sw_cache_name(self):
+        # CSP L1 (v3.0.4): suffix "-csp1" was appended to invalidate the
+        # caches that pointed at the old CDN URLs. Accept either pure
+        # version or version-suffix form.
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
-            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+        import re
+        pat = rf"'remotepower-shell-v{re.escape(self.EXPECTED)}(?:-[a-z0-9]+)?'"
+        self.assertRegex(sw, pat,
+            f'sw.js CACHE_NAME must carry v{self.EXPECTED} marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
@@ -1030,22 +1035,23 @@ class TestMobileSidebarCloseButton(unittest.TestCase):
             '(class="sidebar-mobile-close")')
 
     def test_close_button_calls_toggleMobileNav(self):
+        """CSP L1 (v3.0.4): inline onclick was replaced with a JS
+        addEventListener in app.js — assert the wiring exists there."""
         html = self.INDEX_HTML.read_text()
-        # Find the close button line and check its onclick
+        # Aria-label must still be on the button (accessibility)
         import re
         m = re.search(
             r'<button[^>]*class="sidebar-mobile-close"[^>]*>',
             html)
         self.assertIsNotNone(m, 'sidebar-mobile-close button not found')
-        btn = m.group(0)
-        self.assertIn(
-            'toggleMobileNav()', btn,
-            'Close button must call toggleMobileNav() so it uses the '
-            'same toggle path as the burger')
-        # Accessibility — must have an aria-label
-        self.assertIn(
-            'aria-label=', btn,
+        self.assertIn('aria-label=', m.group(0),
             'Close button must have an aria-label for screen readers')
+        # The toggleMobileNav wiring lives in app.js now
+        app_js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn(
+            ".sidebar-mobile-close')?.addEventListener('click', toggleMobileNav",
+            app_js,
+            'app.js must bind toggleMobileNav to .sidebar-mobile-close')
 
     def test_close_button_hidden_on_desktop(self):
         css = self.STYLES_CSS.read_text()
@@ -1113,57 +1119,57 @@ class TestServiceWorkerRegistrationHardening(unittest.TestCase):
     on .catch. When the new SW failed to register, the old SW kept
     running with its stale cache — operators saw "page looks broken
     after deploy" (unstyled icons, missing new behaviours).
+
+    CSP L1 (v3.0.4 iter 3): the inline <script> with the SW-registration
+    block was extracted from index.html to /static/js/sw-register.js. The
+    same hardening lives there now.
     """
 
-    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'index.html'
+    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'sw-register.js'
 
     def test_no_longer_registers_inside_load_event(self):
         """The brittle `window.addEventListener('load', ...)` pattern
         must not be the SW registration trigger. DOMContentLoaded (or
         synchronous registration when DOM is already ready) is more
         reliable."""
-        html = self.INDEX_HTML.read_text()
-        # Find the SW registration block by anchor
+        body = self.INDEX_HTML.read_text()
+        # Find the SW registration block by anchor (just look for the
+        # `if ('serviceWorker' in navigator)` line and read forward).
         import re
         m = re.search(
-            r"if \('serviceWorker' in navigator\) \{(.+?)\n  \}",
-            html, re.DOTALL)
+            r"if \('serviceWorker' in navigator\) \{(.+?)\n\s{0,4}\}",
+            body, re.DOTALL)
         self.assertIsNotNone(m, 'SW registration block not found')
         block = m.group(1)
         self.assertNotIn(
             "window.addEventListener('load'", block,
-            "SW registration must not be gated on the `load` event — that "
-            "fires too late on slow networks and during BFCache restore, "
-            "causing InvalidStateError. Use DOMContentLoaded or register "
-            "synchronously when DOM is ready.")
+            "SW registration must not be gated on the `load` event.")
 
     def test_retries_on_invalid_state_error(self):
         """One retry on InvalidStateError clears the transient case."""
-        html = self.INDEX_HTML.read_text()
+        body = self.INDEX_HTML.read_text()
         self.assertIn(
-            'InvalidStateError', html,
+            'InvalidStateError', body,
             "SW registration must explicitly handle InvalidStateError")
         # And there must be a retry mechanism (setTimeout somewhere
         # near the InvalidStateError check)
         import re
         m = re.search(
-            r"InvalidStateError[^}]+setTimeout",
-            html, re.DOTALL)
+            r"InvalidStateError[\s\S]+?setTimeout",
+            body)
         self.assertIsNotNone(
             m, 'After detecting InvalidStateError, registration must '
-               'retry via setTimeout — one retry typically succeeds.')
+               'retry via setTimeout.')
 
     def test_warns_when_stale_sw_blocks_registration(self):
         """When a previous SW is still controlling the page and the new
         registration fails, surface a console hint pointing at the
         DevTools fix. Operators need a discoverable remediation path."""
-        html = self.INDEX_HTML.read_text()
+        body = self.INDEX_HTML.read_text()
         self.assertIn(
-            'navigator.serviceWorker.controller', html,
+            'navigator.serviceWorker.controller', body,
             "On registration failure, code must check "
-            "navigator.serviceWorker.controller (the existing SW) and "
-            "log a hint about how to clear it")
+            "navigator.serviceWorker.controller (the existing SW)")
         self.assertIn(
-            'Unregister', html,
-            "The remediation hint must mention 'Unregister' so operators "
-            "can find the DevTools action")
+            'Unregister', body,
+            "The remediation hint must mention 'Unregister'")
