@@ -8,7 +8,14 @@
  * JetBrains Mono: monospaced font for technical identifiers (device IDs,
  *        hashes, paths, command output, code).
  */
-@import url('https://fonts.bunny.net/css?family=inter:400,500,600,700|jetbrains-mono:400,500,600&display=swap');
+@import url('../vendor/fonts/inter-jetbrains.css');
+
+/* CMDB active tab — moved out of inline <style> injection (CSP L1). */
+.cmdb-tab-btn.active {
+  background: rgba(59, 126, 255, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 
   :root {
     --bg: #0a0c10;
@@ -2171,37 +2178,54 @@ input.form-input[type="text"][data-token],
   display: none;
 }
 @media (max-width: 720px) {
-  .sidebar-mobile-close {
-    display: flex;
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 32px;
-    height: 32px;
-    align-items: center;
+  /* v3.0.4 (iter 6): on mobile, the sidebar is an overlay drawer that
+   * closes via tap-outside (handled by the document-level click handler
+   * in app.js). Both the ✕ close button AND the Collapse button are
+   * hidden — neither makes sense in the drawer UX. ✕ was redundant
+   * with the scrim-tap, Collapse never worked here (the sidebar is
+   * out of flow, not docked). */
+  .sidebar-mobile-close { display: none !important; }
+  .sidebar-collapse-btn { display: none !important; }
+}
+
+/* v3.0.4 (iter 5+6): PWA / installed-app standalone mode at >720px.
+ *
+ * When the dashboard is launched as an installed PWA at a width above
+ * the mobile breakpoint, the sidebar should be docked (not an overlay
+ * drawer) and the Collapse button should work at any of those widths —
+ * including the 721–768px gap where the default desktop rules
+ * (min-width: 769px) don't apply. The ✕ close button is suppressed:
+ * collapse is the docked-sidebar's equivalent.
+ *
+ * At ≤720px (mobile-shaped PWA window, e.g. a phone home-screen app)
+ * the mobile rules above still apply — drawer UX, no buttons,
+ * scrim-tap to dismiss.
+ */
+@media (display-mode: standalone) and (min-width: 721px) {
+  .sidebar-mobile-close { display: none !important; }
+  .sidebar-collapse-btn { display: block; }
+
+  /* Apply collapse-rail width + label hiding at 721–768px in standalone
+     (the default @media (min-width: 769px) rule misses that gap). */
+  body.sidebar-collapsed .sidebar {
+    width: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed .sidebar-label,
+  body.sidebar-collapsed .nav-btn span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-items {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-btn,
+  body.sidebar-collapsed .sidebar-group-toggle {
     justify-content: center;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--muted);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    z-index: 5;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    padding-left: 6px;
+    padding-right: 6px;
   }
-  .sidebar-mobile-close:hover,
-  .sidebar-mobile-close:focus {
-    color: var(--text);
-    border-color: var(--text);
-    background: var(--surface2);
-  }
-  /* v3.0.4 (iter 3): hide the desktop "Collapse" button on mobile.
-   * The collapse-to-icon-rail UX doesn't apply to the mobile drawer
-   * (drawer is already an overlay, not docked) and operators reported
-   * the inert button was confusing. The ✕ is the sole mobile escape;
-   * tap-outside on the scrim is still the secondary path. */
-  .sidebar-collapse-btn { display: none; }
+  body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
 }
 
 /* v2.2.6: body scroll lock while a modal is open. Without this the
@@ -2315,11 +2339,17 @@ button, a, [role="button"],
 }
 
 
-/* v2.8.1: restore elements hidden by the anti-FOUC <style> in <head>.
-   Once this stylesheet loads, these override the temporary hide rules. */
+/* v2.8.1: utility display values for elements that need a non-default
+   display. Used to be paired with an anti-FOUC inline <style> in <head>
+   that hid them initially — that <style> was removed during the CSP L1
+   migration (v3.0.4), but these rules still serve as the canonical
+   "this is how the element should render" declarations.
+   #pwa-install-btn removed from this list: it MUST start hidden
+   (.isl-6 carries display:none) and only be revealed by JS when
+   beforeinstallprompt fires. An ID rule with display:flex here
+   would override the class and the button would always show. */
 .refresh-bar       { display: block; }
 .toast-container   { display: flex; z-index: 9999; } /* must top all modals + drawer */
-#pwa-install-btn   { display: flex; }   /* JS re-hides if PWA not installable */
 
 
 /* ══ v2.9.0: Device Drawer ═══════════════════════════════════════════════════
@@ -2739,3 +2769,919 @@ button, a, [role="button"],
 /* v3.0.1: Mitigation runner modal */
 .mitigate-pane { font-size: 13px; }
 .mitigate-pane pre { font-family: var(--font-mono); }
+
+/* CSP migration (L1): rules moved from inline <style> in index.html */
+@media (max-width: 720px) {
+  .sidebar { transform: translateX(-100%); }
+}
+.toast-container { display: none; }
+.refresh-bar { display: none; }
+
+/* CSP L1 fix: utility classes replacing inline style= attributes */
+.d-none { display: none; }
+.grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.w-full { width: 100%; }
+.flex-1 { flex: 1; }
+.c-accent { color: var(--accent); }
+.c-muted { color: var(--muted); }
+.c-red { color: var(--red); }
+.c-green { color: var(--green); }
+.c-amber { color: var(--amber); }
+.c-danger-outline { color: var(--red); border-color: rgba(239,68,68,0.3); }
+.c-warn-outline { color: var(--amber); border-color: rgba(245,158,11,0.3); }
+.fs-11 { font-size: 11px; }
+.fs-12 { font-size: 12px; }
+.fs-13 { font-size: 13px; }
+.fs-14 { font-size: 14px; }
+.meta-sm { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.hint-mb { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.meta-sm-nm { font-size: 11px; color: var(--muted); }
+.meta-amber { font-size: 11px; color: var(--amber); }
+.hint { font-size: 12px; color: var(--muted); }
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 600; }
+.empty-state { color: var(--muted); text-align: center; padding: 40px; }
+.empty-state-sm { color: var(--muted); text-align: center; padding: 24px; }
+.ta-center { text-align: center; }
+.ta-right { text-align: right; }
+.ff-mono { font-family: monospace; }
+.row-8 { display: flex; gap: 8px; }
+.row-8-mb8 { display: flex; gap: 8px; margin-bottom: 8px; }
+.row-8-center { display: flex; gap: 8px; align-items: center; }
+.toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.toolbar-mb24 { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; align-items: center; }
+.click-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.click-row-mb6 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; cursor: pointer; }
+.click-row-6 { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.row-12-center { display: flex; align-items: center; gap: 12px; }
+.row-6-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+.col-4 { display: flex; flex-direction: column; gap: 4px; }
+.mb-6 { margin-bottom: 6px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-16 { margin-bottom: 16px; }
+.mb-24 { margin-bottom: 24px; }
+.mt-8 { margin-top: 8px; }
+.mt-16 { margin-top: 16px; }
+.mt-32 { margin-top: 32px; }
+.mw-160 { max-width: 160px; }
+.mw-200 { max-width: 200px; }
+.mw-380 { max-width: 380px; }
+.input-wide { max-width: 400px; padding: 8px 12px; font-size: 13px; }
+.input-wide-sm { max-width: 380px; padding: 8px 12px; font-size: 13px; }
+.input-auto { width: auto; padding: 8px 12px; font-size: 13px; }
+.input-search { padding: 8px 12px 8px 34px; font-size: 13px; }
+.select-sm { padding: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; min-width: 160px; }
+.icon-btn { width: 14px; height: 14px; margin-right: 4px; display: inline-block; vertical-align: -2px; }
+.icon-noshrink { width: 13px; height: 13px; flex-shrink: 0; }
+.icon-search-abs { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; pointer-events: none; }
+.icon-search-abs-sm { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; pointer-events: none; }
+
+/* CSP L1 fix: one-off inline styles (auto-generated) */
+.isl-1 { text-align:center; font-size:20px; letter-spacing:6px; font-weight:700 }
+.isl-2 { display:flex; align-items:center; gap:8px; cursor:pointer; margin:8px 0 16px; font-size:13px; color:var(--muted) }
+.isl-3 { width:16px; height:16px; accent-color:var(--accent) }
+.isl-4 { display:none; background:linear-gradient(90deg,#1e3a8a,#7c3aed); color:white; padding:8px 18px; font-size:13px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.1) }
+.isl-5 { color:#bfdbfe; margin-left:8px }
+.isl-6 { display:none; padding:4px 10px; font-size:12px; gap:5px }
+.isl-7 { display:flex; align-items:center; gap:6px; padding:8px 14px }
+.isl-8 { font-size:13px; color:var(--accent); font-weight:600 }
+.isl-9 { padding:7px 14px }
+.isl-10 { margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.isl-11 { position:relative; flex:1; max-width:300px }
+.isl-12 { margin-left:auto }
+.isl-13 { color:var(--muted); font-size:13px; padding:16px 0 }
+.isl-14 { position:relative }
+.isl-15 { padding:6px 10px 6px 28px; font-size:12px; width:160px }
+.isl-16 { width:auto; padding:6px 10px; font-size:12px }
+.isl-17 { padding:6px 14px; font-size:12px }
+.isl-18 { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap }
+.isl-19 { margin-bottom:14px }
+.isl-20 { max-width:420px; padding:8px 12px; font-size:13px }
+.isl-21 { flex:1; max-width:320px }
+.isl-22 { font-size:12px; color:var(--muted); align-self:flex-end; padding-bottom:12px }
+.isl-23 { max-width:180px }
+.isl-24 { max-width:120px }
+.isl-25 { display:flex; flex-direction:column; gap:10px }
+.isl-26 { margin-top:10px }
+.isl-27 { font-size:11px; margin-top:8px }
+.isl-28 { flex:0 0 auto; align-self:flex-end }
+.isl-29 { padding:9px 12px }
+.isl-30 { font-size:12px; color:var(--green); margin-top:4px; display:none }
+.isl-31 { font-size:12px; color:var(--muted); margin-top:6px; font-family:monospace; word-break:break-all; display:none }
+.isl-32 { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:4px 16px }
+.isl-33 { display:flex; align-items:center; gap:8px; margin-bottom:14px; cursor:pointer }
+.isl-34 { width:18px; height:18px; accent-color:var(--accent) }
+.isl-35 { flex:2 }
+.isl-36 { font-size:11px; color:var(--green); display:none }
+.isl-37 { font-size:11px; color:var(--green); margin-top:4px; display:none }
+.isl-38 { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap }
+.isl-39 { flex:1; min-width:240px }
+.isl-40 { padding:8px 14px }
+.isl-41 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px }
+.isl-42 { margin:0 }
+.isl-43 { display:flex; gap:6px }
+.isl-44 { padding:4px 8px }
+.isl-45 { padding:4px 8px; color:var(--red); border-color:rgba(239,68,68,0.3) }
+.isl-46 { max-height:300px; overflow-y:auto }
+.isl-47 { display:flex; align-items:center; gap:10px; cursor:pointer; margin-top:14px }
+.isl-48 { font-size:13px; font-weight:500 }
+.isl-49 { max-width:280px }
+.isl-50 { margin-top:6px }
+.isl-51 { display:flex; align-items:center; gap:6px; cursor:pointer; padding:9px 4px }
+.isl-52 { flex:0 0 90px }
+.isl-53 { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap }
+.isl-54 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px; font-family:monospace }
+.isl-55 { margin-top:8px; font-size:12px }
+.isl-56 { display:none; color:var(--green) }
+.isl-57 { flex-wrap:wrap; gap:12px; align-items:flex-end }
+.isl-58 { min-width:120px }
+.isl-59 { min-width:220px }
+.isl-60 { min-width:140px }
+.isl-61 { flex-wrap:wrap; gap:12px; align-items:flex-end; margin-top:12px }
+.isl-62 { min-width:260px }
+.isl-63 { min-width:160px }
+.isl-64 { display:flex; gap:10px; margin-top:14px; align-items:center }
+.isl-65 { max-width:340px }
+.isl-66 { font-family:var(--font-mono); font-size:12px }
+.isl-67 { display:flex; align-items:center; gap:10px; cursor:pointer; margin:10px 0 }
+.isl-68 { max-width:240px }
+.isl-69 { font-size:12px; color:var(--muted); margin-top:4px }
+.isl-70 { margin-top:14px }
+.isl-71 { flex:1; min-width:280px }
+.isl-72 { flex-wrap:wrap; gap:12px }
+.isl-73 { flex:1; min-width:260px }
+.isl-74 { font-size:11px; color:var(--muted); font-weight:400 }
+.isl-75 { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.isl-76 { font-size:13px; color:var(--muted) }
+.isl-77 { display:flex; flex-direction:column; gap:14px; margin-top:12px }
+.isl-78 { color:var(--muted); font-size:13px; text-align:center; padding:30px }
+.isl-79 { width:auto }
+.isl-80 { width:100px }
+.isl-81 { width:80px }
+.isl-82 { flex-wrap:wrap; gap:8px; align-items:flex-end }
+.isl-83 { flex:2; min-width:200px }
+.isl-84 { flex:1; min-width:140px }
+.isl-85 { margin-bottom:12px; font-family:var(--font-mono); font-size:12px }
+.isl-86 { flex:1; font-family:var(--font-mono); font-size:12px }
+.isl-87 { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:0 }
+.isl-88 { margin-top:12px }
+.isl-89 { font-size:12px; margin-top:12px }
+.isl-90 { display:flex; gap:10px; flex-wrap:wrap; margin-top:24px; padding-top:20px; border-top:1px solid var(--border) }
+.isl-91 { font-size:18px; padding:4px 8px }
+.isl-92 { font-size:18px; line-height:1 }
+.isl-93 { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px }
+.isl-94 { font-size:11px; padding:3px 8px }
+.isl-95 { color:var(--muted); font-weight:400; text-transform:none; letter-spacing:0 }
+.isl-96 { width:100%; min-height:70px; font-family:var(--font-mono); font-size:12px; resize:vertical }
+.isl-97 { display:flex; gap:8px; flex-direction:column }
+.isl-98 { width:100%; background:var(--accent2) }
+.isl-99 { display:none; margin-top:10px }
+.isl-100 { color:var(--muted); font-size:13px }
+.isl-101 { font-size:12px; padding:4px 10px }
+.isl-102 { display:flex; flex-direction:column; gap:12px; max-width:920px }
+.isl-103 { margin:24px 0 8px; padding-top:16px; border-top:1px solid var(--border) }
+.isl-104 { margin:8px 0 8px 18px; font-size:13px; line-height:1.8 }
+.isl-105 { display:none; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); padding:16px; border-radius:8px; margin-bottom:16px }
+.isl-106 { font-weight:600; color:var(--red); margin-bottom:6px }
+.isl-107 { margin-bottom:16px; display:none }
+.isl-108 { display:flex; flex-wrap:wrap; gap:24px; align-items:flex-start }
+.isl-109 { font-weight:600; margin-top:2px }
+.isl-110 { font-size:12px; color:var(--muted); font-family:monospace }
+.isl-111 { margin-top:2px }
+.isl-112 { margin-top:2px; font-size:13px }
+.isl-113 { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center }
+.isl-114 { max-width:340px; font-size:13px }
+.isl-115 { font-size:12px; margin-left:auto }
+.isl-116 { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; min-height:300px; max-height:55vh; overflow-y:auto; font-size:14px; line-height:1.55 }
+.isl-117 { color:var(--muted); text-align:center; padding:40px 12px }
+.isl-118 { margin-top:12px; display:flex; gap:8px; align-items:flex-end }
+.isl-119 { flex:1; resize:vertical; min-height:60px; font-family:inherit; font-size:14px }
+.isl-120 { height:60px; min-width:90px }
+.isl-121 { margin-top:6px; font-size:11px; color:var(--muted) }
+.isl-122 { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
+.isl-123 { display:flex; flex-direction:column; gap:14px }
+.isl-124 { max-width:600px }
+.isl-125 { display:flex; align-items:center; gap:16px; margin-bottom:24px }
+.isl-126 { width:52px; height:52px; border-radius:12px; display:block; object-fit:contain }
+.isl-127 { font-size:22px; font-weight:700 }
+.isl-128 { margin-bottom:20px }
+.isl-129 { color:var(--muted); padding:6px 12px 6px 0; width:160px }
+.isl-130 { color:var(--muted); padding:6px 12px 6px 0 }
+.isl-131 { font-size:13px; color:var(--muted); line-height:1.7 }
+.isl-132 { position:relative; flex:1; max-width:280px }
+.isl-133 { width:auto; padding:8px 12px; font-size:13px; max-width:220px }
+.isl-134 { grid-template-columns:repeat(5,1fr) }
+.isl-135 { flex:1; min-width:240px; max-width:380px; padding:8px 12px; font-size:13px }
+.isl-136 { grid-template-columns:repeat(5,1fr); margin-bottom:24px }
+.isl-137 { color:#f97316 }
+.isl-138 { display:none; font-size:12px; color:var(--amber); margin-left:12px }
+.isl-139 { grid-template-columns:repeat(4,1fr); margin-bottom:24px }
+.isl-140 { flex:1; min-width:300px; padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:monospace; font-size:13px }
+.isl-141 { max-width:100px }
+.isl-142 { grid-template-columns:repeat(4,1fr); margin-bottom:16px }
+.isl-143 { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
+.isl-144 { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px }
+.isl-145 { max-height:500px; min-height:300px; font-size:12px; overflow-y:auto; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px }
+.isl-146 { padding:18px }
+.isl-147 { margin:24px 0 12px; display:flex; justify-content:space-between; align-items:center }
+.isl-148 { font-size:16px; margin:0 }
+.isl-149 { display:flex; gap:0; margin-bottom:-1px; position:relative; z-index:1 }
+.isl-150 { border-radius:6px 6px 0 0; border-bottom:1px solid transparent }
+.isl-151 { border-radius:6px 6px 0 0; border-bottom:1px solid var(--border); background:var(--surface2) }
+.isl-152 { font-size:12px; color:var(--muted); padding:12px 16px 0 }
+.isl-153 { margin-top:24px; display:none }
+.isl-154 { font-size:16px; margin-top:24px }
+.isl-155 { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px; flex-wrap:wrap }
+.isl-156 { display:flex; align-items:center; gap:8px }
+.isl-157 { font-size:18px; font-weight:600; min-width:180px; text-align:center }
+.isl-158 { margin-left:8px; font-size:12px }
+.isl-159 { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; padding:0 4px 8px }
+.isl-160 { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; min-height:500px }
+.isl-161 { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px }
+.isl-162 { padding:8px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; min-width:180px }
+.isl-163 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; min-height:500px }
+.isl-164 { color:#60a5fa }
+.isl-165 { color:#a78bfa }
+.isl-166 { margin-bottom:16px; padding:12px 16px; border:1px solid var(--border); border-radius:8px; background:var(--surface2); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px }
+.isl-167 { display:flex; align-items:center; gap:10px; font-size:13px }
+.isl-168 { flex:1; min-width:240px; display:flex; gap:8px; align-items:center }
+.isl-169 { flex:1; max-width:480px }
+.isl-170 { flex:1; min-width:240px; max-width:380px }
+.isl-171 { display:none; margin-top:24px }
+.isl-172 { font-size:18px }
+.isl-173 { display:flex; gap:10px; margin-bottom:16px; align-items:center }
+.isl-174 { color:var(--muted); font-size:13px; margin-left:auto }
+.isl-175 { padding:16px }
+.isl-176 { background:var(--surface); border-radius:6px }
+.isl-177 { flex:1; min-width:200px; max-width:340px; padding:8px 12px; font-size:13px }
+.isl-178 { display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:8px }
+.isl-179 { margin-bottom:4px }
+.isl-180 { margin-bottom:0 }
+.isl-181 { display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+.isl-182 { font-weight:500 }
+.isl-183 { display:none; padding:24px; background:var(--surface); border:1px solid var(--border); border-radius:8px; text-align:center; color:var(--muted); font-size:13px }
+.isl-184 { display:none; font-size:12px; color:var(--muted); padding:6px 12px; font-style:italic }
+.isl-185 { display:flex; flex-direction:column; gap:24px }
+.isl-186 { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; align-items:center }
+.isl-187 { width:30% }
+.isl-188 { width:90px }
+.isl-189 { width:120px }
+.isl-190 { width:220px }
+.isl-191 { font-size:12px; display:none; padding:8px 12px; border-radius:6px; margin-bottom:8px }
+.isl-192 { min-height:100px }
+.isl-193 { max-width:640px; max-height:85vh; overflow-y:auto }
+.isl-194 { background:var(--surface2); padding:12px; border-radius:6px; margin:12px 0; font-size:11px; color:var(--muted) }
+.isl-195 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:8px; font-size:11px; color:var(--muted); text-transform:uppercase }
+.isl-196 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:6px; align-items:center }
+.isl-197 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px; align-items:center }
+.isl-198 { border-top:1px solid var(--border); padding-top:12px; margin-bottom:8px }
+.isl-199 { font-size:13px; font-weight:600; margin-bottom:6px }
+.isl-200 { font-size:11px; color:var(--muted); margin-bottom:8px }
+.isl-201 { display:flex; flex-direction:column; gap:6px }
+.isl-202 { color:var(--red); font-size:13px; margin:8px 0; display:none }
+.isl-203 { max-width:500px }
+.isl-204 { border-top:1px solid var(--border); padding-top:12px }
+.isl-205 { background:rgba(0,0,0,0.92) }
+.isl-206 { max-width:1100px; width:90vw; height:80vh; display:flex; flex-direction:column; padding:12px }
+.isl-207 { display:flex; align-items:center; gap:12px; margin-bottom:8px }
+.isl-208 { flex:1; font-weight:600; font-family:monospace; font-size:13px }
+.isl-209 { flex:1; background:#000; border-radius:6px; overflow:hidden }
+.isl-210 { min-height:80px }
+.isl-211 { min-height:160px; font-family:monospace }
+.isl-212 { display:none; margin-bottom:16px }
+.isl-213 { font-family:monospace; min-height:240px; resize:vertical; white-space:pre }
+.isl-214 { display:none; font-size:12px; padding:10px 12px; border-radius:6px; margin-bottom:8px; font-family:monospace; white-space:pre-wrap; word-break:break-word }
+.isl-215 { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px }
+.isl-216 { font-size:11px; color:var(--muted); margin-left:auto }
+.isl-217 { margin-right:auto }
+.isl-218 { display:none; font-size:12px; color:var(--amber); margin-bottom:8px; cursor:pointer }
+.isl-219 { margin-right:6px }
+.isl-220 { min-height:120px; max-height:60vh; overflow-y:auto }
+.isl-221 { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap }
+.isl-222 { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-family:monospace; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:280px; overflow-y:auto; color:var(--muted) }
+.isl-223 { min-height:120px; max-height:70vh; overflow-y:auto }
+.isl-224 { font-size:13px; color:var(--muted); margin-bottom:12px }
+.isl-225 { display:flex; align-items:center; gap:8px; margin:6px 0; cursor:pointer; font-size:13px }
+.isl-226 { width:100%; font-family:monospace; font-size:13px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; resize:vertical }
+.isl-227 { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:0 }
+.isl-228 { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px }
+.isl-229 { font-weight:600; font-size:14px }
+.isl-230 { display:none; padding:24px; text-align:center; color:var(--muted); background:var(--surface2); border:1px dashed var(--border); border-radius:8px; font-size:13px }
+.isl-231 { display:none; padding:12px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:6px; color:var(--amber); font-size:13px; margin-bottom:12px }
+.isl-232 { color:var(--muted); text-align:center; padding:24px; font-size:13px }
+.isl-233 { display:flex; gap:6px; margin-bottom:6px }
+.isl-234 { min-height:300px; font-family:monospace; font-size:13px }
+.isl-235 { display:none; min-height:300px; padding:12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-size:13px; line-height:1.55; overflow-y:auto; max-height:50vh }
+.isl-236 { min-height:120px; max-height:65vh; overflow-y:auto }
+.isl-237 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family:monospace }
+.isl-238 { font-size:11px; padding:2px 8px }
+.isl-239 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-family:monospace; word-break:break-all }
+.isl-240 { padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-size:13px; color:var(--muted) }
+.isl-241 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px }
+.isl-242 { font-size:11px; color:var(--muted); margin-top:4px; padding-left:24px }
+.isl-243 { display:flex; gap:6px; margin:8px 0 18px 0; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px }
+.isl-244 { color:var(--muted); font-weight:400; font-size:11px }
+.isl-245 { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px }
+.isl-246 { font-size:12px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:10px; color:var(--muted) }
+.isl-247 { font-size:13px; margin-bottom:12px }
+.isl-248 { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; font-size:12px; overflow-x:auto; white-space:pre-wrap; word-break:break-all }
+.isl-249 { font-size:11px; color:var(--muted); margin-top:8px }
+.isl-250 { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:14px; margin-top:8px }
+.isl-251 { font-size:13px; min-height:240px }
+.isl-252 { font-size:13px; min-height:240px; display:none }
+.isl-253 { min-height:280px }
+.isl-254 { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:12px; font-size:11px; max-height:420px; overflow:auto; white-space:pre-wrap; word-break:break-word; margin:0 }
+.isl-255 { display:none; min-height:280px }
+.isl-256 { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:14px; font-size:13px; white-space:pre-wrap; min-height:120px }
+.isl-257 { margin-top:14px; display:none }
+.isl-258 { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px }
+.isl-259 { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px; font-size:12px; margin:0; white-space:pre-wrap }
+.isl-260 { margin-top:8px; font-size:12px; display:none }
+.isl-261 { margin-top:14px; display:flex; gap:8px; flex-wrap:wrap }
+.isl-262 { display:flex; flex-direction:column; gap:10px; margin-bottom:14px }
+.isl-263 { font-family:var(--font-mono); font-size:12px; width:100% }
+.isl-264 { font-family:var(--font-mono); max-width:160px }
+.isl-265 { display:flex; gap:8px; padding-top:14px; border-top:1px solid var(--border) }
+.isl-266 { max-height:60vh; overflow-y:auto }
+.isl-267 { display:flex; gap:14px; font-size:13px }
+.isl-268 { display:flex; gap:10px; margin-bottom:12px; align-items:flex-end; flex-wrap:wrap }
+.isl-269 { flex:1; min-width:160px }
+.isl-270 { max-height:50vh; overflow-y:auto }
+.isl-271 { width:100%; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:8px; border-radius:6px; font-size:13px; resize:vertical }
+.isl-272 { width:28px; height:28px; border-radius:4px; background:#3b82f6; cursor:pointer; border:2px solid transparent }
+.isl-273 { width:28px; height:28px; border-radius:4px; background:#22c55e; cursor:pointer; border:2px solid transparent }
+.isl-274 { width:28px; height:28px; border-radius:4px; background:#f59e0b; cursor:pointer; border:2px solid transparent }
+.isl-275 { width:28px; height:28px; border-radius:4px; background:#ef4444; cursor:pointer; border:2px solid transparent }
+.isl-276 { width:28px; height:28px; border-radius:4px; background:#a855f7; cursor:pointer; border:2px solid transparent }
+.isl-277 { width:28px; height:28px; border-radius:4px; background:#14b8a6; cursor:pointer; border:2px solid transparent }
+.isl-278 { width:28px; height:28px; border-radius:4px; background:#64748b; cursor:pointer; border:2px solid transparent }
+.isl-279 { justify-content:space-between }
+.isl-280 { display:none; color:var(--red); border-color:rgba(239,68,68,0.3) }
+.isl-281 { font-size:11px; color:var(--muted); margin:4px 0 8px; display:none }
+.isl-282 { display:none; font-size:12px; color:var(--muted); background:var(--surface2); border:1px solid var(--border); padding:10px; border-radius:6px }
+.isl-283 { display:none; font-size:11px; color:var(--muted) }
+.isl-284 { display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:13px }
+.isl-285 { display:flex; flex-wrap:wrap; gap:6px; margin:16px 0; max-height:200px; overflow-y:auto }
+.isl-286 { font-size:24px; text-align:center; max-width:80px }
+.isl-287 { white-space:nowrap; padding:0 14px }
+.isl-288 { font-size:12px; color:var(--muted); margin-top:3px }
+.isl-289 { color:var(--muted); font-size:11px; margin-left:6px }
+.isl-290 { font-family:var(--font-mono); font-size:12px; resize:vertical }
+.isl-291 { display:flex; flex-wrap:wrap; gap:8px; max-height:200px; overflow-y:auto; padding:8px; background:var(--surface2); border:1px solid var(--border); border-radius:8px }
+.isl-292 { color:var(--muted); font-size:12px }
+.isl-293 { font-family:var(--font-mono); font-size:12px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; max-height:60vh; overflow-y:auto; white-space:pre-wrap; word-break:break-word }
+.isl-294 { max-width:860px; width:95vw }
+.isl-295 { display:none; background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:13px; color:var(--accent2) }
+.isl-296 { display:none; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:13px; color:var(--amber) }
+.isl-297 { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:10px }
+.isl-298 { font-family:var(--font-mono); font-size:12px; min-height:280px; resize:vertical }
+.isl-299 { font-family:var(--font-mono); font-size:12px; min-height:180px; resize:vertical }
+.isl-300 { font-family:var(--font-mono); font-size:12px; min-height:200px; resize:vertical }
+.isl-301 { font-family:var(--font-mono); font-size:12px; min-height:140px; resize:vertical }
+.isl-302 { display:flex; flex-direction:column; gap:12px }
+.isl-303 { display:flex; flex-direction:column; gap:8px }
+
+/* CSP L1 fix: additional utility classes for app.js inline styles */
+.c-muted-padded { color: var(--muted); padding: 4px 12px 4px 0; }
+.fw-600 { font-weight: 600; }
+.fw-500 { font-weight: 500; }
+.badge-sm { font-size: 11px; padding: 3px 10px; }
+.badge-xs { font-size: 11px; padding: 3px 8px; }
+.cell-pad { padding: 6px 4px; }
+.cell-padl { padding: 6px 16px 6px 0; }
+.fs-10 { font-size: 10px; }
+.code-pill { background: var(--bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); font-family: monospace; }
+.mono-12 { font-family: monospace; font-size: 12px; }
+.fw-600-mb10 { font-weight: 600; margin-bottom: 10px; }
+.nowrap { white-space: nowrap; }
+.hint-nowrap { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.cell-sm { padding: 4px 8px; font-size: 11px; }
+.hint-mb6 { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.cell-m { padding: 6px 8px; }
+.c-red-p20 { color: var(--red); padding: 20px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; }
+.empty-p20 { color: var(--muted); padding: 20px; text-align: center; }
+.c-muted-13 { font-size: 13px; color: var(--muted); }
+.fw-600-13 { font-size: 13px; font-weight: 600; }
+.p-16 { padding: 16px; }
+.p-8 { padding: 8px; }
+.mb-14 { margin-bottom: 14px; }
+.fs-12-p4-10 { font-size: 12px; padding: 4px 10px; }
+.c-green-bold { color: var(--green); font-weight: 600; }
+.c-red-bold { color: var(--red); font-weight: 600; }
+.c-amber-bold { color: var(--amber); font-weight: 600; }
+.pointer { cursor: pointer; }
+.cursor-default { cursor: default; }
+.p-2-8 { padding: 2px 8px; }
+.fs-11-bold { font-size: 11px; font-weight: 600; }
+.fs-12-bold { font-size: 12px; font-weight: 600; }
+.fw-600-14 { font-size: 14px; font-weight: 600; }
+.row-space-between { display: flex; justify-content: space-between; }
+.row-between-center { display: flex; align-items: center; justify-content: space-between; }
+.row-4-center { display: flex; align-items: center; gap: 4px; }
+.row-4 { display: flex; gap: 4px; }
+.row-6 { display: flex; gap: 6px; }
+.row-6-center { display: flex; gap: 6px; align-items: center; }
+.mb-4 { margin-bottom: 4px; }
+.mt-6 { margin-top: 6px; }
+.mt-12 { margin-top: 12px; }
+.fs-12-mb6 { font-size: 12px; margin-bottom: 6px; }
+.opacity-60 { opacity: 0.6; }
+.opacity-50 { opacity: 0.5; }
+.va-middle { vertical-align: middle; }
+.meta-red { font-size: 11px; color: var(--red); }
+.meta-green { font-size: 11px; color: var(--green); }
+.meta-accent { font-size: 11px; color: var(--accent); }
+.text-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-15 { font-size: 15px; }
+.p-4-0 { padding: 4px 0; }
+.p-0 { padding: 0; }
+.p-8-12 { padding: 8px 12px; }
+.p-12 { padding: 12px; }
+.p-16-0 { padding: 16px 0; }
+.gap-8 { gap: 8px; }
+.c-muted-fs13 { color: var(--muted); font-size: 13px; }
+.fs-12-center { font-size: 12px; text-align: center; }
+.border-top { border-top: 1px solid var(--border); }
+.border-bottom { border-bottom: 1px solid var(--border); }
+.c-accent-12 { color: var(--accent); font-size: 12px; }
+.c-accent-bold { color: var(--accent); font-weight: 600; }
+.min-w-0 { min-width: 0; }
+.max-w-full { max-width: 100%; }
+.fs-13-accent { font-size: 13px; color: var(--accent); }
+.meta-right { font-size: 11px; color: var(--muted); text-align: right; }
+
+/* CSP L1 fix: one-off auto-generated classes from app.js */
+.isl-304 { color: var(--muted); opacity: .3; font-size: 10px }
+.isl-305 { font-size: 9px; opacity: .7 }
+.isl-306 { color: var(--accent); font-size: 10px }
+.isl-307 { padding: 6px 10px; font-size: 11px; font-weight: 500; background: var(--surface); color: var(--muted); border: 1px solid var(--border); cursor: pointer }
+.isl-308 { display: inline-flex; border-radius: 6px; overflow: hidden; border: 1px solid var(--border) }
+.isl-309 { font-size: 12px; opacity: 0.85; margin: 6px 0 4px }
+.isl-310 { font-size: 12px; opacity: 0.7; margin-top: 6px }
+.isl-311 { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--muted); font-family: var(--font) }
+.isl-312 { padding: 3px 10px; border-radius: 20px; font-size: 11px; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: transparent; font-family: var(--font) }
+.isl-313 { font-size: 22px; line-height: 1 }
+/* .isl-314 — dynamic colour, applied via data-color attribute */
+.isl-315 { font-size: 10px; color: var(--muted); background: var(--surface2); padding: 1px 5px; border-radius: 4px }
+.isl-316 { font-size: 10px; padding: 1px 5px }
+.isl-317 { text-align: center; padding: 0 6px }
+.isl-318 { padding: 1px 8px; font-size: 10px }
+.isl-319 { color: var(--text); text-decoration: none; font-weight: 500 }
+.isl-320 { font-size: 9px; color: var(--muted); background: var(--surface2); padding: 1px 4px; border-radius: 3px }
+.isl-321 { width: 36px; text-align: center }
+.isl-322 { width: 190px }
+.isl-323 { width: 160px }
+.isl-324 { width: 130px }
+.isl-325 { width: 50px }
+.isl-326 { font-size: 24px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); cursor: pointer; transition: all 0.15s; min-width: 44px; text-align: center }
+/* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP; now CSS. */
+.isl-326:hover { border-color: var(--accent); }
+.isl-327 { font-family: monospace; font-size: 11px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
+.isl-328 { font-family: monospace; font-size: 12px; color: var(--muted) }
+.isl-329 { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 2px; background: var(--muted) }
+/* .isl-330 — dynamic colour, applied via data-color attribute */
+/* .isl-331 — dynamic colour, applied via data-color attribute */
+.isl-332 { padding: 8px 0 }
+.isl-333 { margin-top: 16px; max-height: 240px; overflow-y: auto }
+.isl-334 { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; font-weight: 500 }
+.isl-335 { text-align: center; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; font-weight: 500; width: 70px }
+.isl-336 { width: 100px; padding: 4px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px }
+.isl-337 { font-size: 12px; color: var(--muted); margin-bottom: 4px }
+.isl-338 { display: flex; gap: 10px; flex-wrap: wrap }
+.isl-339 { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px }
+.isl-340 { accent-color: var(--accent) }
+.isl-341 { font-family: monospace; font-size: 11px }
+.isl-342 { background: rgba(59,126,255,0.1); color: var(--accent) }
+.isl-343 { font-weight: 600 }
+.isl-344 { font-size: 12px; color: var(--muted); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.isl-345 { color: var(--muted); font-size: 12px; white-space: nowrap }
+.isl-346 { color: var(--red); border-color: rgba(239,68,68,0.3); font-size: 14px; padding: 4px 8px }
+.isl-347 { background: rgba(239,68,68,0.18); color: var(--red); font-size: 10px }
+.isl-348 { font-family: monospace }
+.isl-349 { font-family: monospace; font-size: 11px; margin-right: 10px }
+.isl-350 { color: var(--text); text-decoration: none }
+.isl-351 { font-size: 11px; padding: 4px 8px; margin-right: 4px }
+.isl-352 { font-size: 11px; padding: 4px 8px }
+.isl-353 { font-weight: 600 }
+.isl-354 { display: grid; gap: 16px }
+.isl-355 { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px }
+.isl-356 { font-size: 12px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px }
+.isl-357 { font-size: 12px; color: var(--muted); margin-top: 12px }
+.isl-358 { font-family: monospace; font-size: 12px; color: var(--accent) }
+.isl-359 { padding: 16px; color: #666; font-size: 12px; text-align: center }
+.isl-360 { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px }
+.isl-361 { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap }
+.isl-362 { background: #fff; padding: 8px; border-radius: 8px; flex-shrink: 0; min-width: 168px; min-height: 168px; display: flex; align-items: center; justify-content: center }
+.isl-363 { color: #999; font-size: 12px }
+.isl-364 { flex: 1; min-width: 200px }
+.isl-365 { font-size: 13px; font-weight: 600; margin-bottom: 8px }
+.isl-366 { font-size: 12px; color: var(--muted); margin-bottom: 12px }
+.isl-367 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px }
+.isl-368 { font-family: monospace; font-size: 14px; letter-spacing: 2px; color: var(--accent); word-break: break-all; background: var(--surface2); padding: 10px; border-radius: 6px; cursor: pointer }
+.isl-369 { max-width: 200px; text-align: center; font-size: 18px; letter-spacing: 4px }
+.isl-370 { font-size: 11px; font-family: monospace; color: var(--muted); margin-top: 2px }
+.isl-371 { padding: 4px 6px; font-size: 11px }
+.isl-372 { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 600; color: var(--amber); background: var(--amber-soft); border: 1px solid var(--amber-edge); white-space: nowrap; vertical-align: middle }
+.isl-373 { width: 10px; height: 10px; margin-right: 2px; flex-shrink: 0 }
+.isl-374 { font-weight: 600 }
+.isl-375 { display: flex; gap: 4px; align-items: center }
+/* .isl-376 — dynamic colour, applied via data-color attribute */
+/* .isl-377 — dynamic colour, applied via data-color attribute */
+.isl-378 { font-size: 13px; font-weight: 600; margin: 16px 0 8px; color: var(--muted) }
+.isl-379 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px }
+.isl-380 { display: flex; justify-content: space-between; margin-bottom: 6px }
+.isl-381 { font-size: 12px; color: var(--accent) }
+.isl-382 { max-height: 120px }
+.isl-383 { color: var(--muted); font-size: 13px; padding: 12px }
+.isl-384 { text-align: center; font-weight: 600 }
+.isl-385 { text-align: center; color: var(--muted) }
+.isl-386 { padding: 4px 8px; font-size: 11px; margin-left: 4px }
+.isl-387 { font-size: 12px; padding: 6px 12px }
+.isl-388 { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; color: var(--red) }
+.isl-389 { background: var(--surface2); padding: 2px 6px; border-radius: 4px }
+.isl-390 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px }
+.isl-391 { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px }
+.isl-392 { color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase }
+.isl-393 { margin-left: 8px; font-size: 13px; color: var(--accent) }
+.isl-394 { margin-left: 8px; font-size: 11px; color: var(--muted) }
+.isl-395 { font-size: 11px; color: var(--muted); white-space: nowrap }
+.isl-396 { font-size: 13px; margin-bottom: 6px }
+.isl-397 { display: flex; gap: 8px; font-size: 11px; flex-wrap: wrap; align-items: center }
+.isl-398 { padding: 2px 6px; font-size: 11px; margin-left: auto }
+.isl-399 { padding: 2px 6px; font-size: 11px }
+.isl-400 { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 2px 8px; font-size: 11px; margin: 1px; font-family: monospace }
+/* .isl-401 — dynamic colour, applied via data-color attribute */
+.isl-402 { text-align: center; color: var(--green); font-weight: 600 }
+.isl-403 { text-align: center; color: var(--red); font-weight: 600 }
+.isl-404 { font-size: 11px; color: var(--muted); font-family: monospace }
+.isl-405 { font-size: 11px; color: var(--muted); font-style: italic; padding: 4px 0 }
+.isl-406 { font-size: 11px; padding: 2px 8px; margin-left: 8px }
+.isl-407 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px }
+.isl-408 { display: flex; align-items: center; flex-wrap: wrap }
+.isl-409 { font-weight: 600 }
+.isl-410 { font-size: 13px; color: var(--accent); margin-left: 6px }
+.isl-411 { margin-left: 8px; font-size: 12px; color: var(--muted) }
+.isl-412 { font-size: 12px; color: var(--muted); cursor: pointer }
+.isl-413 { padding-top: 6px }
+.isl-414 { max-height: 200px; margin-top: 6px }
+.isl-415 { font-size: 12px; font-family: monospace; color: var(--muted) }
+.isl-416 { padding: 4px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-417 { font-family: monospace; font-size: 11px; color: var(--muted) }
+.isl-418 { text-align: center; color: var(--muted); padding: 20px }
+.isl-419 { font-family: monospace; font-size: 12px; line-height: 1.5; padding: 1px 4px }
+.isl-420 { text-align: center; color: var(--red); padding: 40px }
+.isl-421 { font-weight: 600; margin-bottom: 6px }
+.isl-422 { font-size: 11px; color: var(--muted); margin-top: 10px }
+.isl-423 { font-size: 13px; color: var(--accent); cursor: pointer; padding: 4px 0 }
+.isl-424 { font-family: monospace; font-size: 12px; padding: 1px 4px 1px 20px }
+.isl-425 { font-size: 12px; background: var(--surface2); padding: 2px 6px; border-radius: 4px }
+.isl-426 { font-size: 12px; color: var(--amber) }
+.isl-427 { font-size: 12px; color: var(--muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis }
+.isl-428 { font-size: 10px; color: var(--muted); padding: 0 4px }
+.isl-429 { font-size: 11px; color: var(--muted); padding: 12px 4px; text-align: center; font-style: italic }
+.isl-430 { text-align: center; font-size: 12px; color: var(--muted) }
+.isl-431 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px }
+.isl-432 { padding: 10px 14px; cursor: pointer; list-style: none; display: flex; align-items: center; gap: 10px; user-select: none }
+.isl-433 { font-weight: 600; font-size: 13px }
+.isl-434 { padding: 3px 8px; font-size: 11px }
+.isl-435 { padding: 3px 8px; font-size: 11px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-436 { padding: 0 14px 14px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.55 }
+.isl-437 { background: var(--surface); padding: 10px; border-radius: 6px; overflow-x: auto }
+.isl-438 { margin: 6px 0 6px 22px }
+.isl-439 { margin: 12px 0 6px }
+.isl-440 { margin: 14px 0 6px }
+.isl-441 { margin: 16px 0 8px }
+.isl-442 { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 0.92em }
+.isl-443 { text-decoration: none }
+.isl-444 { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface2); display: flex; justify-content: space-between; align-items: flex-start; gap: 10px }
+.isl-445 { flex: 1; min-width: 0 }
+.isl-446 { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end }
+.isl-447 { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; background: var(--surface2) }
+.isl-448 { padding: 10px 12px; cursor: pointer; display: flex; gap: 12px; align-items: center; flex-wrap: wrap }
+.isl-449 { margin: 0; padding: 12px; background: var(--surface); border-top: 1px solid var(--border); font-family: monospace; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px; overflow-y: auto }
+.isl-450 { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: var(--amber); color: #000; font-weight: 600 }
+.isl-451 { opacity: .75 }
+.isl-452 { background: var(--amber); color: #000; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 500 }
+.isl-453 { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 11px }
+/* .isl-454 — dynamic colour, applied via data-color attribute */
+.isl-455 { font-size: 10px; padding: 1px 7px }
+.isl-456 { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono); display: flex; gap: 12px }
+/* .isl-457 — dynamic colour, applied via data-color attribute */
+.isl-458 { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap }
+.isl-459 { font-size: 11px; padding: 3px 8px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-460 { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface2) }
+.isl-461 { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap }
+.isl-462 { font-weight: 600; display: flex; align-items: center; gap: 6px }
+.isl-463 { display: flex; gap: 8px; align-items: center; font-size: 12px }
+.isl-464 { font-size: 10px; padding: 2px 6px }
+.isl-465 { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: monospace }
+.isl-466 { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap }
+.isl-467 { cursor: grab }
+.isl-468 { text-align: left; border-bottom: 1px solid var(--border) }
+.isl-469 { padding: 6px 8px; font-weight: 500 }
+.isl-470 { padding: 6px 8px; color: var(--muted); font-size: 12px }
+.isl-471 { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface2); display: flex; justify-content: space-between; align-items: center; gap: 10px }
+.isl-472 { font-size: 11px; margin-left: 8px; background: rgba(255,255,255,0.04); padding: 1px 5px; border-radius: 3px; color: var(--muted) }
+.isl-473 { color: var(--muted); font-size: 11px; margin-top: 2px }
+.isl-474 { color: var(--accent); font-size: 10px; margin-left: 6px; background: rgba(59,126,255,0.12); padding: 1px 5px; border-radius: 3px; text-transform: uppercase }
+.isl-475 { padding: 2px 6px; font-size: 11px; margin-right: 6px }
+.isl-476 { font-family: monospace; color: var(--muted) }
+.isl-477 { background: var(--surface); padding: 1px 5px; border-radius: 3px; font-size: 11px; margin-right: 4px }
+.isl-478 { color: var(--red); margin-top: 4px }
+.isl-479 { color: var(--amber); margin-top: 4px }
+.isl-480 { width: 100%; margin-top: 8px; font-family: monospace; font-size: 11px; border-collapse: collapse }
+.isl-481 { border-bottom: 1px solid var(--border); text-align: left }
+.isl-482 { padding: 4px 8px; word-break: break-all }
+.isl-483 { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border) }
+.isl-484 { font-size: 13px }
+.isl-485 { color: var(--red); font-size: 12px; margin-top: 4px }
+.isl-486 { display: grid; grid-template-columns: 140px 1fr; gap: 8px 14px }
+.isl-487 { color: var(--muted); text-align: center; padding: 60px }
+.isl-488 { display: flex; align-items: center; gap: 10px; margin-bottom: 10px }
+.isl-489 { margin: 0; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px }
+.isl-490 { font-size: 11px; color: var(--muted); opacity: 0.7 }
+.isl-491 { flex: 1; height: 1px; background: var(--border) }
+.isl-492 { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px }
+.isl-493 { font-size: 10px; color: var(--amber); background: rgba(245,158,11,0.12); padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600 }
+.isl-494 { font-size: 10px; color: var(--accent); background: rgba(59,126,255,0.12); padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600 }
+.isl-495 { display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px }
+.isl-496 { border-radius: 8px; padding: 12px 14px; background: var(--surface2); transition: background 0.1s; height: 100%; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; border: 1px solid var(--border) }
+.isl-497 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px }
+.isl-498 { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.isl-499 { font-family: monospace; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.isl-500 { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.isl-501 { text-decoration: none; color: inherit; display: block }
+.isl-502 { font-size: 11px; padding: 4px 8px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-503 { margin-top: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word }
+.isl-504 { font-size: 11px; color: var(--muted); margin-top: 2px }
+.isl-505 { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: var(--surface) }
+.isl-506 { display: flex; justify-content: space-between; align-items: center; gap: 8px }
+.isl-507 { color: var(--muted); padding: 20px }
+.isl-508 { max-width: 720px; width: 92vw; max-height: 88vh; display: flex; flex-direction: column }
+.isl-509 { padding: 8px 16px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border) }
+.isl-510 { flex: 1; overflow: auto; padding: 14px 16px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-family: ui-sans-serif,-apple-system,Segoe UI,sans-serif }
+.isl-511 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap }
+.isl-512 { display: flex; align-items: center; gap: 10px; color: var(--muted) }
+.isl-513 { color: var(--red); white-space: pre-wrap }
+.isl-514 { background: var(--surface2); border: 1px solid var(--border); ` +
+      `padding: 10px 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; ` +
+      `margin: 8px 0; line-height: 1.5 }
+.isl-515 { background: var(--surface2); padding: 1px 5px; ` +
+      `border-radius: 3px; font-size: 90%; font-family: ui-monospace,monospace }
+.isl-516 { font-size: 14px; font-weight: 600; margin: 10px 0 4px }
+.isl-517 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px }
+.isl-518 { font-size: 17px; font-weight: 700; margin: 14px 0 8px }
+.isl-519 { margin: 6px 0; padding-left: 22px }
+.isl-520 { border-left: 3px solid var(--border); padding: 2px 10px; color: var(--muted); margin: 6px 0 }
+.isl-521 { margin: 6px 0; line-height: 1.55 }
+.isl-522 { font-size: 10px; color: var(--muted); margin-top: 6px }
+.isl-523 { white-space: pre-wrap }
+.isl-524 { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px }
+.isl-525 { border-radius: 8px; padding: 10px 14px; word-wrap: break-word; background: var(--surface2); border: 1px solid var(--border) }
+.isl-526 { font-size: 18px; padding: 2px 8px; line-height: 1 }
+.isl-527 { max-width: 820px; width: 94vw; max-height: 88vh; display: flex; flex-direction: column }
+.isl-528 { flex: 1; overflow: auto; padding: 16px 20px; font-size: 13px; line-height: 1.55 }
+.isl-529 { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.isl-530 { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 16px }
+.isl-531 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px }
+.isl-532 { max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.55; padding: 8px 16px }
+.isl-533 { text-align: center; color: var(--red); padding: 30px }
+.isl-534 { text-align: center; color: var(--muted); padding: 30px }
+/* .isl-535 — dynamic colour, applied via data-color attribute */
+/* .isl-536 — dynamic colour, applied via data-color attribute */
+.isl-537 { max-width: 900px; width: 96vw; max-height: 88vh; display: flex; flex-direction: column }
+.isl-538 { flex: 1; overflow: auto; padding: 14px 18px; font-size: 13px }
+.isl-539 { font-size: 11px; color: var(--muted); margin-bottom: 12px }
+.isl-540 { width: 100%; font-size: 12px }
+.isl-541 { font-size: 10px; padding: 2px 6px; margin-right: 4px }
+.isl-542 { font-size: 10px; color: var(--muted); margin-right: 4px }
+/* .isl-543 — dynamic colour, applied via data-color attribute */
+.isl-544 { padding: 6px 4px; font-family: var(--font-mono); font-size: 11px }
+.isl-545 { padding: 6px 4px; color: var(--muted) }
+.isl-546 { padding: 6px 4px; text-align: right }
+.isl-547 { opacity: 0.55 }
+.isl-548 { padding: 0 4px 6px 16px; font-size: 10px; color: var(--muted) }
+.isl-549 { padding: 0 4px 8px 16px }
+.isl-550 { font-size: 11px; color: var(--muted); cursor: pointer }
+.isl-551 { margin-top: 4px; font-family: monospace; font-size: 10px; color: var(--muted) }
+.isl-552 { color: var(--muted); font-size: 18px }
+.isl-553 { padding: 14px 8px }
+.isl-554 { font-size: 12px; padding: 2px 8px }
+.isl-555 { flex: 1; cursor: pointer }
+.isl-556 { font-size: 14px; padding: 2px 8px; color: var(--muted) }
+.isl-557 { display: flex; align-items: center; gap: 10px; padding: 5px 4px; border-bottom: 1px solid var(--border) }
+.isl-558 { flex: 1; font-size: 13px; display: flex; align-items: center; gap: 6px }
+.isl-559 { color: var(--text); text-decoration: none; font-weight: 600 }
+.isl-560 { width: 80px; text-align: right; font-size: 11px; color: var(--muted) }
+.isl-561 { max-width: 1100px; width: 96vw; max-height: 88vh; display: flex; flex-direction: column }
+.isl-562 { font-family: var(--font-mono); font-size: 11px; color: var(--muted) }
+.isl-563 { font-size: 12px; color: var(--muted); margin-bottom: 10px }
+.isl-564 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 10px }
+.isl-565 { background: var(--amber-soft); border: 1px solid var(--amber-edge); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: var(--amber) }
+.isl-566 { background: var(--red-soft); border: 1px solid var(--red-edge); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px }
+.isl-567 { color: var(--red); font-weight: 600; margin-bottom: 4px }
+.isl-568 { font-family: var(--font-mono); font-size: 11px }
+.isl-569 { font-family: var(--font-mono); font-size: 11px; font-weight: 600 }
+.isl-570 { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 4px 0 }
+.isl-571 { margin-top: 8px; max-height: 220px; overflow-y: auto }
+.isl-572 { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--font-mono) }
+.isl-573 { font-size: 11px; padding: 3px 10px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
+.isl-574 { color: var(--muted); font-family: var(--font-mono); font-size: 12px }
+.isl-575 { font-size: 10px; color: var(--muted); background: var(--surface); padding: 1px 5px; border-radius: 3px; margin-left: 4px }
+.isl-576 { font-size: 12px; font-weight: 600 }
+.isl-577 { padding: 20px; color: var(--red) }
+.isl-578 { padding: 20px; color: var(--muted) }
+.isl-579 { padding: 14px }
+.isl-580 { padding: 16px; color: var(--muted) }
+.isl-581 { max-width: 620px }
+.isl-582 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px }
+.isl-583 { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; align-items: flex-end }
+.isl-584 { flex: 2; min-width: 160px; margin: 0 }
+.isl-585 { color: var(--muted); padding: 12px }
+.isl-586 { color: var(--red); padding: 12px }
+.isl-587 { padding: 6px 4px; font-family: var(--font-mono) }
+.isl-588 { font-size: 9px; color: var(--muted) }
+.isl-589 { padding: 6px 4px; text-align: right; white-space: nowrap }
+.isl-590 { font-size: 10px; padding: 2px 6px; margin-right: 4px; color: var(--amber); border-color: rgba(245,158,11,0.3) }
+.isl-591 { font-size: 10px; padding: 2px 6px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-592 { text-decoration: none; margin-left: 4px; color: var(--text) }
+.isl-593 { vertical-align: middle; opacity: 0.7 }
+.isl-594 { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px }
+.isl-595 { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border) }
+.isl-596 { margin-top: 8px; display: flex; gap: 8px }
+.isl-597 { text-align: center; color: var(--red); padding: 20px }
+.isl-598 { opacity: 0.65 }
+.isl-599 { color: var(--muted); font-style: italic }
+.isl-600 { font-size: 11px; padding: 2px 8px; margin-right: 4px }
+.isl-601 { font-size: 11px; padding: 2px 8px; color: var(--red); border-color: rgba(239,68,68,0.3) }
+.isl-602 { font-size: 10px; color: var(--muted) }
+.isl-603 { font-family: var(--font-mono); font-size: 11px; max-width: 260px; overflow: hidden; cursor: pointer }
+.isl-604 { text-align: right; font-size: 11px; color: var(--muted) }
+.isl-605 { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; background: var(--surface); border: 1px solid var(--border) }
+.isl-606 { width: 14px; height: 14px }
+.isl-607 { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px }
+.isl-608 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px }
+.isl-609 { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px }
+.isl-610 { margin-bottom: 10px }
+.isl-611 { font-family: var(--font-mono); font-size: 11px; min-height: 80px; resize: vertical }
+.isl-612 { font-size: 12px; flex: 1 }
+.isl-613 { font-size: 12px; width: 90px }
+.isl-614 { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px }
+.isl-615 { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer }
+.isl-616 { color: var(--muted); font-size: 13px; padding: 8px 0 }
+.isl-617 { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border) }
+.isl-618 { flex: 1; font-size: 13px }
+.isl-619 { flex: 1; padding: 5px 8px; font-size: 12px }
+.isl-620 { width: 70px; padding: 5px 8px; font-size: 16px; text-align: center }
+.isl-621 { width: 80px; padding: 5px 8px; font-size: 12px }
+.isl-622 { align-items: flex-start }
+.isl-623 { padding-top: 4px }
+.isl-624 { flex: 1; padding: 5px 8px; font-size: 11.5px; font-family: var(--font-mono); resize: vertical }
+.isl-625 { padding: 12px 0 4px; display: flex; gap: 8px }
+.isl-626 { font-size: 12px; padding: 6px 16px }
+.isl-627 { font-size: 11.5px; width: 100%; border-collapse: collapse }
+.isl-628 { text-align: left; padding: 3px 6px }
+.isl-629 { padding: 3px 6px }
+.isl-630 { text-align: center }
+.isl-631 { font-size: 11px; color: var(--muted); margin: 10px 0 4px }
+.isl-632 { max-height: 200px }
+.isl-633 { width: 100%; border-collapse: collapse }
+.isl-634 { color: var(--muted); text-align: left }
+/* .isl-635 — dynamic colour, applied via data-color attribute */
+.isl-636 { max-height: 300px }
+.isl-637 { max-height: 320px; overflow-y: auto }
+.isl-638 { flex: 1; font-size: 11.5px; color: var(--accent); overflow: hidden; text-overflow: ellipsis }
+.isl-639 { font-size: 10px; color: var(--muted); white-space: nowrap; margin-left: 8px }
+.isl-640 { font-size: 11px; color: var(--muted); margin-left: 6px }
+.isl-641 { font-size: 11px; margin-top: 6px }
+.isl-642 { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border) }
+.isl-643 { font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border) }
+/* .isl-644 — dynamic colour, applied via data-color attribute */
+/* .isl-645 — dynamic colour, applied via data-color attribute */
+.isl-646 { font-size: 11px; font-weight: 600; margin-bottom: 3px; text-transform: uppercase }
+.isl-647 { font-size: 11px; padding: 2px 0; border-bottom: 1px solid var(--border) }
+/* .isl-648 — dynamic colour, applied via data-color attribute */
+.isl-649 { font-size: 12px; width: 100%; border-collapse: collapse }
+.isl-650 { text-align: left; padding: 4px 6px }
+.isl-651 { padding: 4px 6px }
+.isl-652 { text-align: center }
+.isl-653 { text-align: center; color: var(--muted); font-size: 11px }
+.isl-654 { font-size: 11px; overflow-x: auto; white-space: pre-wrap; max-height: 300px }
+.isl-655 { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border) }
+.isl-656 { flex: 1; font-size: 12px }
+.isl-657 { color: var(--red); font-size: 13px }
+.isl-658 { font-size: 11px; color: var(--muted); margin-bottom: 10px }
+.isl-659 { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface2) }
+.isl-660 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 10px; flex-wrap: wrap }
+.isl-661 { font-size: 11px; color: var(--amber); margin-left: 8px }
+.isl-662 { font-size: 11px; color: var(--accent2); margin-left: 8px }
+.isl-663 { width: 100%; min-height: 90px; font-family: var(--font-mono); font-size: 12px; resize: vertical }
+.isl-664 { cursor: pointer; font-size: 12px; color: var(--muted); user-select: none }
+.isl-665 { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 10px; margin-top: 8px; padding: 10px; background: var(--surface); border-radius: 6px }
+.isl-666 { font-size: 11px; color: var(--muted); display: block; margin-bottom: 2px }
+.isl-667 { display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end }
+.isl-668 { margin: 0 0 8px 0 }
+.isl-669 { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; background: var(--surface2) }
+.isl-670 { text-align: center; color: var(--red); padding: 24px }
+.isl-671 { opacity: .7 }
+.isl-672 { font-size: 12px; color: var(--muted); font-style: italic }
+.isl-673 { opacity: .85 }
+.isl-674 { font-size: 12px; font-weight: 500 }
+.isl-675 { font-size: 11px; padding: 3px 8px; color: var(--red) }
+.isl-676 { color: var(--red); padding: 20px; text-align: center }
+.isl-677 { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin-bottom: 18px }
+.isl-678 { color: #9a8dff }
+.isl-679 { font-weight: 500; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px }
+.isl-680 { display: flex; flex-wrap: wrap; gap: 6px }
+.isl-681 { background: var(--surface2); padding: 3px 8px; border-radius: 4px; font-size: 12px }
+.isl-682 { margin-bottom: 14px; font-size: 12px; color: var(--muted); font-style: italic }
+.isl-683 { margin-bottom: 14px; font-size: 12px; color: var(--muted) }
+.isl-684 { font-size: 11px; padding: 2px 8px; margin-top: 4px }
+.isl-685 { flex: 1; text-align: left; padding: 8px 12px; display: flex; justify-content: space-between; align-items: center }
+.isl-686 { color: var(--muted); font-size: 11px; margin-left: 8px }
+.isl-687 { font-size: 11px; padding: 6px 10px; color: var(--red) }
+.isl-688 { font-size: 11px; padding: 6px 10px; color: var(--muted) }
+.isl-689 { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px }
+.isl-690 { color: var(--muted); padding: 14px }
+.isl-691 { color: var(--red); padding: 14px }
+.isl-692 { font-size: 11px; color: var(--muted); margin-bottom: 4px }
+.isl-693 { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 11px; max-height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all }
+.isl-694 { background: rgba(220,60,60,0.12); color: var(--red); border: 1px solid rgba(220,60,60,0.30); border-radius: 6px; padding: 10px }
+.isl-695 { background: rgba(255,170,40,0.10); color: var(--amber); border: 1px solid rgba(255,170,40,0.30); border-radius: 6px; padding: 10px }
+.isl-696 { margin-top: 4px; font-size: 12px }
+.isl-697 { display: flex; align-items: flex-start; gap: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; cursor: pointer }
+.isl-698 { margin-top: 3px }
+.isl-699 { font-weight: 500; font-size: 12px }
+.isl-700 { color: var(--amber); font-size: 11px; margin-left: 6px }
+.isl-701 { font-size: 11px; color: var(--muted); display: block; margin-top: 4px; word-break: break-all }
+.isl-702 { color: var(--muted); font-size: 12px; text-align: center; padding: 20px }
+.isl-703 { background: rgba(220,60,60,0.12); color: var(--red); border: 1px solid rgba(220,60,60,0.30); border-radius: 6px; padding: 10px; font-size: 12px }
+.isl-704 { background: rgba(255,170,40,0.10); color: var(--amber); border: 1px solid rgba(255,170,40,0.30); border-radius: 6px; padding: 10px; font-size: 12px }
+.isl-705 { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 12px }
+.isl-706 { color: var(--red); font-size: 12px }
+.isl-707 { margin-top: 4px; font-size: 11px; color: var(--muted) }
+.isl-708 { background: rgba(0,200,120,0.10); color: var(--green); border: 1px solid rgba(0,200,120,0.30); border-radius: 6px; padding: 10px; font-size: 12px }
+.isl-709 { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11px; margin-top: 8px; max-height: 280px; overflow: auto; white-space: pre-wrap }
+.isl-710 { margin-top: 8px; font-size: 11px; color: var(--muted) }
+.isl-711 { margin-top: 8px; font-size: 11px; color: var(--amber) }
+.isl-712 { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0 }
+.isl-713 { font-weight: 600 }
+.isl-714 { font-size: 13px; margin-bottom: 10px }
+.isl-715 { cursor: pointer; color: var(--muted); font-size: 12px }
+.isl-716 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: min(580px,90vw); max-height: 60vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-717 { width: 100%; padding: 14px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 15px; outline: none }
+.isl-718 { overflow-y: auto; padding: 6px; flex: 1 }
+.isl-719 { font-size: 11px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 14px }
+.isl-720 { background: var(--bg); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border) }
+.isl-721 { padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+/* v3.0.5+: highlight the row at the keyboard cursor in the command palette.
+   The JS template already adds `.cmd-palette-active` for that row; the
+   auto-class generator left a `${idx === _palCursor ? …}` interpolation
+   in the .isl-721 rule that the browser silently dropped. */
+.isl-721.cmd-palette-active { background: var(--surface2); }
+.isl-722 { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px }
+.isl-723 { padding: 20px; text-align: center; color: var(--muted); font-size: 13px }
+.isl-724 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 460px; width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-725 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px }
+.isl-726 { margin: 0; font-size: 17px }
+.isl-727 { font-size: 18px; padding: 4px 10px }
+.isl-728 { width: 100%; font-size: 13px }
+.isl-729 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 640px; width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
+.isl-730 { font-size: 13px; color: var(--muted); margin-bottom: 16px }
+.isl-731 { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px }
+.isl-732 { width: 100%; padding: 8px }
+.isl-733 { font-size: 12px; color: var(--muted); padding: 10px; background: var(--bg); border-radius: 6px; margin-bottom: 14px }
+.isl-734 { margin-top: 6px; font-size: 11px; line-height: 1.7 }
+.isl-735 { font-size: 13px; color: var(--muted); padding: 14px; background: var(--surface); border-radius: 8px; border: 1px dashed var(--border) }
+.isl-736 { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px }
+.isl-737 { display: flex; gap: 10px; margin-bottom: 10px; align-items: center }
+.isl-738 { flex: 1; padding: 6px 10px; font-size: 13px }
+.isl-739 { padding: 4px 10px; font-size: 11px }
+.isl-740 { padding: 4px 10px; color: var(--red); font-size: 14px }
+.isl-741 { display: flex; gap: 10px; margin-bottom: 10px }
+.isl-742 { flex: 0 0 180px; padding: 6px 10px; font-size: 13px }
+.isl-743 { flex: 1; padding: 6px 10px; font-size: 13px; font-family: monospace }
+.isl-744 { cursor: pointer; color: var(--muted) }
+.isl-745 { margin-top: 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap }
+.isl-746 { display: flex; align-items: center; gap: 6px }
+.isl-747 { padding: 4px 8px; font-size: 12px }
+.isl-748 { width: 100%; padding: 6px 10px; font-size: 12px; font-family: monospace; resize: vertical }
+.icon-inline-flex { display: inline-flex; vertical-align: middle; line-height: 0; }
+.input-url-dest { flex: 1; padding: 6px 10px; font-size: 13px; }
+
+/* CSP L1 — variant classes for the rules that used JS expressions */
+.isl-307.sel { background: var(--accent); color: #fff }
+.isl-311.active { background: rgba(59,126,255,0.2); color: var(--accent); border-color: var(--accent) }
+.isl-314.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,126,255,0.2) }
+.isl-329.ok { background: var(--green) }
+.isl-329.bad { background: var(--red) }
+.isl-390.is-ignored { opacity: 0.5 }
+.isl-496.edit-mode { cursor: default }
+/* v3.0.5: hover effect was inline `onmouseover`/`onmouseout` pre-CSP. */
+.isl-496:hover { background: var(--surface); }
+.isl-496.edit-mode:hover { background: var(--surface2); }
+.isl-699.is-pre { color: var(--green) }
+/* Anything with data-color is coloured at runtime by JS that walks the
+   tree and applies element.style.color via the CSP-safe IDL setter
+   (see _applyDataColors in app.js). Same for data-bg / data-bd. */

@@ -286,10 +286,14 @@ class TestPolishAssets(unittest.TestCase):
         cls.html = (_ROOT / 'server/html/index.html').read_text()
 
     def test_css_typography_fonts_imported(self):
-        # bunny.net Inter + JetBrains Mono — privacy-friendly GFonts mirror
-        self.assertIn('fonts.bunny.net', self.css)
-        self.assertIn('inter', self.css.lower())
-        self.assertIn('jetbrains-mono', self.css.lower())
+        # CSP L1 (v3.0.4): bunny.net fonts are now self-hosted under
+        # /static/vendor/fonts/. styles.css @imports the local copy.
+        self.assertIn('inter-jetbrains.css', self.css,
+                      'styles.css should @import the self-hosted fonts CSS')
+        vendor_css = (_ROOT / 'server' / 'html' / 'static' / 'vendor'
+                      / 'fonts' / 'inter-jetbrains.css').read_text()
+        self.assertIn('inter', vendor_css.lower())
+        self.assertIn('jetbrains-mono', vendor_css.lower())
 
     def test_css_status_palette_refined(self):
         # The soft+edge variants
@@ -405,18 +409,25 @@ class TestPolishAssets(unittest.TestCase):
         self.assertNotIn('id="page-devices" class="page active"', self.html)
 
     def test_html_logo_points_home(self):
-        # The header logo's onclick navigates to 'home', not 'devices'
+        # CSP L1 (v3.0.4): the logo's inline onclick was removed; JS now
+        # adds the click listener via querySelector('.logo-link').
         idx = self.html.find('class="logo logo-link"')
         self.assertGreater(idx, 0, "logo link not found")
-        snippet = self.html[idx:idx + 400]
-        self.assertIn("showPage('home'", snippet,
-                      "logo should navigate to home dashboard")
-        self.assertNotIn("showPage('devices'", snippet[:200],
-                         "logo should no longer point to devices page")
+        self.assertIn(".logo-link')?.addEventListener('click'", self.js,
+                      "JS should bind a click handler to .logo-link")
+        # And the handler navigates to 'home', not 'devices'
+        wire = self.js[self.js.find(".logo-link')?.addEventListener('click'"):]
+        wire = wire[:300]
+        self.assertIn("'home'", wire,
+                      "logo click should navigate to home dashboard")
 
     def test_html_burger_button(self):
+        # CSP L1: the inline onclick was removed; JS now binds the burger
+        # via querySelector('.mobile-burger'). The function is still defined.
         self.assertIn('mobile-burger', self.html)
-        self.assertIn('toggleMobileNav', self.html)
+        self.assertIn(".mobile-burger')?.addEventListener('click', toggleMobileNav", self.js,
+                      "JS should bind toggleMobileNav to .mobile-burger")
+        self.assertIn('function toggleMobileNav', self.js)
 
     def test_html_skeleton_loaders_present(self):
         # Verify at least one skeleton-row replaced a Loading… spinner

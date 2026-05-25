@@ -102,21 +102,21 @@ class TestScrollWrap(_AssetTests):
 class TestActivityClickable(_AssetTests):
 
     def test_activity_item_onclick(self):
-        # Each rendered item has an onclick handler
+        # CSP L1 (v3.0.4): the inline onclick was replaced with
+        # data-action-btn="_homeNavAction" event delegation; the
+        # per-event routing helper was renamed _homeActivityAction →
+        # _homeActivityAttrs (returns the data-* attribute string).
         idx = self.js.find('function _renderHomeActivity')
         chunk = self.js[idx:idx + 12000]
-        self.assertIn('onclick=', chunk)
-        self.assertIn('_homeActivityAction', chunk,
-                      "Activity should call routing helper")
+        self.assertIn('data-action-btn="_homeNavAction"', chunk)
+        self.assertIn('_homeActivityAttrs', chunk,
+                      "Activity should call routing-attrs helper")
 
     def test_action_helper_covers_all_fleet_events(self):
-        # The router switch must have a case for every event in the
-        # server's WEBHOOK_EVENTS tuple. Missing cases fall through
-        # to the default branch which only routes to detail if a
-        # device_id is present — that's OK as a safety net but a
-        # missing explicit case means a sub-optimal landing page.
-        idx = self.js.find('function _homeActivityAction')
-        self.assertGreater(idx, 0, "_homeActivityAction missing")
+        # The router switch in _homeActivityAttrs must have a case for
+        # every event in the server's WEBHOOK_EVENTS tuple.
+        idx = self.js.find('function _homeActivityAttrs')
+        self.assertGreater(idx, 0, "_homeActivityAttrs missing")
         chunk = self.js[idx:idx + 4000]
         for ev in api.WEBHOOK_EVENT_NAMES:
             if ev == 'test':
@@ -125,9 +125,12 @@ class TestActivityClickable(_AssetTests):
                           f"no explicit routing case for fleet event {ev!r}")
 
     def test_activity_item_cursor_pointer(self):
+        # CSP L1: cursor:pointer is no longer inline; the class
+        # `pointer` (defined in styles.css) is applied instead.
         idx = self.js.find('function _renderHomeActivity')
         chunk = self.js[idx:idx + 12000]
-        self.assertIn('cursor:pointer', chunk)
+        self.assertIn('"dash-feed-item pointer"', chunk,
+                      'activity items should carry the .pointer utility class')
 
 
 # ─── Fix 4: favicon at root, deploy script publishes it ─────────────────

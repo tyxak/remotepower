@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '3.0.4'
+VERSION      = '3.0.6'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.0.2: agent state directory. Used for files that should survive a

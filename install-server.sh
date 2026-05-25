@@ -149,6 +149,11 @@ for f in "$SCRIPT_DIR"/server/html/favicon.* \
     [[ -f "$f" ]] || continue
     install -m 644 "$f" /var/www/remotepower/"$(basename "$f")"
 done
+# Long-form Manual lives in docs/ but is linked from the dashboard as
+# /Manual.html — copy it to the web root.
+if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
+    install -m 644 "$SCRIPT_DIR/docs/Manual.html" /var/www/remotepower/Manual.html
+fi
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
 # api.py needs +x for CGI; others are imports so 644 is fine.

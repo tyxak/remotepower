@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.0.4'
+SERVER_VERSION = '3.0.6'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -132,6 +132,7 @@ CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
+MAX_CMDB_VLAN_LEN   = 64
 MAX_CMDB_ASSET_ID   = 64
 MAX_CMDB_URL_LEN    = 512
 MAX_CMDB_LABEL      = 64
@@ -148,6 +149,11 @@ MAX_CMDB_DOC_TITLE  = 120           # single line title length
 # server_function is a free-text field, but we restrict the charset so we can
 # safely use it in the searchbox / autocomplete without escaping every char.
 _CMDB_FUNC_RE       = re.compile(r'^[A-Za-z0-9 _\-/]{0,64}$')
+# VLAN field: same liberal pattern as server_function, plus comma (for
+# trunked lists like "10,20,30") and parentheses (for descriptive
+# labels like "100 (DMZ)"). Operators write whatever convention their
+# network team uses.
+_CMDB_VLAN_RE       = re.compile(r'^[A-Za-z0-9 _\-/,()]{0,64}$')
 
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
@@ -2542,6 +2548,198 @@ def handle_public_info():
         # lets the UI pre-emptively hide pointless buttons.
         'read_only':           _is_demo_read_only(),
     })
+
+
+def handle_health():
+    """
+    GET /api/health — no auth, cheap liveness check. Used by:
+      - Docker HEALTHCHECK (replaces the previous `/` probe that loaded
+        the whole SPA on every poll).
+      - External orchestrators / load balancers.
+      - CSP violation reporter (see handle_csp_report below) — confirms
+        the server is up before it tries to log a report.
+
+    Returns 200 with a small JSON body. The body is intentionally minimal
+    so probes can be cheap and so we don't surface any deployment detail
+    to unauthenticated clients beyond the version we already publish
+    via /api/public-info.
+    """
+    respond(200, {
+        'status':  'ok',
+        'version': SERVER_VERSION,
+    })
+
+
+def handle_security_diag():
+    """
+    GET /api/security/diag — admin-only diagnostic for the Settings →
+    Security pane. Returns:
+      * `audit_log_entries`: number of entries in the live audit log
+        (entries older than ``audit_log_retention_days`` have already
+        rolled into the gzipped archive — those are NOT counted).
+      * `audit_log_archive_size_bytes`: size of the rotated archive,
+        for "is retention working?" eyeballing.
+      * `csp_report_logging`, `csp_report_throttle_per_minute`: the
+        currently-active CSP-report settings.
+      * `csp_reports_last_24h`: number of audit-log lines starting with
+        ``csp:`` from the last 24 h.
+      * `hsts_recommended`: bool, always True — the UI uses this to
+        render the "uncomment in nginx" hint when HSTS is missing. The
+        actual presence of HSTS on the response is something the UI
+        detects from its own response headers; the server can't tell.
+
+    Read-only. No fleet data exposed.
+    """
+    require_admin_auth()
+    cfg = load(CONFIG_FILE) or {}
+    # audit_log() writes a {'entries': [...]} shape; unwrap to the list.
+    audit_raw = load(AUDIT_LOG_FILE) or {}
+    audit = audit_raw.get('entries', []) if isinstance(audit_raw, dict) else (audit_raw or [])
+    audit_archive = (DATA_DIR / 'audit_log_archive.jsonl.gz')
+    cutoff = int(time.time()) - 86400
+    csp_24h = sum(
+        1 for e in audit
+        if isinstance(e, dict)
+        and (e.get('ts') or 0) >= cutoff
+        and e.get('action') == 'csp_report'
+    )
+    respond(200, {
+        'audit_log_entries':              len(audit),
+        'audit_log_archive_size_bytes':   audit_archive.stat().st_size if audit_archive.is_file() else 0,
+        'audit_log_retention_days':       int(cfg.get('audit_log_retention_days') or 90),
+        'csp_report_logging':             bool(cfg.get('csp_report_logging', True)),
+        'csp_report_throttle_per_minute': int(cfg.get('csp_report_throttle_per_minute', 10) or 0),
+        'csp_reports_last_24h':           csp_24h,
+        'hsts_recommended':               True,
+    })
+
+
+# v3.0.6: CSP violation reports. The strict CSP shipped in v3.0.5
+# (`script-src 'self'; style-src 'self'` — no 'unsafe-inline') blocks
+# any future inline script/style. Adding `report-uri /api/csp-report`
+# to the policy directs the browser to POST a JSON report here
+# whenever it blocks something — so a regression that reintroduces
+# inline code surfaces as a logged event in the audit log instead of
+# a silent visual bug an operator stumbles on weeks later.
+#
+# Behaviour is operator-controllable via Settings → Security:
+#   - `csp_report_logging`           (bool, default True)
+#       If False, the endpoint still responds 204 (so the browser
+#       doesn't retry) but skips the log_command write entirely.
+#   - `csp_report_throttle_per_minute` (int, default 10)
+#       Per-source-IP rate limit. 0 = unlimited (any non-positive).
+#       Throttle decisions live in a tiny in-memory dict — they don't
+#       survive a CGI restart, which is fine for this use case (we
+#       only care about avoiding sustained log floods).
+_CSP_REPORT_MAX_BYTES = 16 * 1024     # browser reports are tiny; cap defensively
+_csp_report_rate = {}                 # ip -> [timestamp, …] (last minute)
+
+
+def _csp_report_should_throttle(ip: str, per_minute: int) -> bool:
+    """Per-IP sliding-window rate limiter for /api/csp-report.
+
+    Returns True if the caller has already submitted ``per_minute`` or
+    more reports within the last 60 s — in which case the handler
+    skips logging this one. Side-effect: prunes timestamps older than
+    60 s out of ``_csp_report_rate`` whenever we touch a bucket, so
+    the dict can't grow without bound under sustained traffic.
+
+    A `per_minute` of zero (or any non-positive value) disables
+    throttling entirely; the function returns False without touching
+    the bucket.
+    """
+    if per_minute <= 0:
+        return False
+    now = time.time()
+    bucket = _csp_report_rate.get(ip, [])
+    # Drop entries older than 60 s.
+    bucket = [t for t in bucket if now - t < 60.0]
+    if len(bucket) >= per_minute:
+        _csp_report_rate[ip] = bucket
+        return True
+    bucket.append(now)
+    _csp_report_rate[ip] = bucket
+    return False
+
+
+def handle_csp_report():
+    """
+    POST /api/csp-report — no auth, no CSRF check. The browser sends
+    these as fire-and-forget; we always ack 204 even if parsing fails
+    so we don't pollute the user's console with secondary failures.
+
+    Body format is the W3C CSP report — `{"csp-report": {...}}` for
+    `report-uri`, or a flat object for `report-to`. We write the
+    parsed report through ``audit_log()`` (audit_log.json) with
+    ``action='csp_report'`` so it shows up alongside other security
+    events AND so the Settings → Security counter in
+    ``handle_security_diag`` can scan for it.
+
+    Body is size-capped (16 KB) and the per-IP rate is throttled
+    (`csp_report_throttle_per_minute`) so a misbehaving client can't
+    flood the audit log.
+
+    The audit entry's ``detail`` carries the directive that was
+    violated, the blocked URI, the source file + line, a short
+    script-sample, and the HTTP_REFERER (the page that triggered the
+    report — useful for forensics; Origin is sometimes `null` on CSP
+    reports so Referer is the more reliable attribution). ``source_ip``
+    is captured separately via the audit_log()'s standard field.
+    """
+    try:
+        length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
+        if length > _CSP_REPORT_MAX_BYTES:
+            respond(204, '')
+            return
+        cfg = load(CONFIG_FILE) or {}
+        # Toggle: operator-disabled → silent ack, no log write.
+        if not cfg.get('csp_report_logging', True):
+            respond(204, '')
+            return
+        # Throttle: silently drop reports beyond the per-IP per-minute
+        # cap. Default 10 is comfortably above what a healthy page
+        # generates and well below an abusive flood.
+        ip = os.environ.get('REMOTE_ADDR', '?') or '?'
+        per_min = int(cfg.get('csp_report_throttle_per_minute', 10) or 0)
+        if _csp_report_should_throttle(ip, per_min):
+            respond(204, '')
+            return
+        raw = sys.stdin.buffer.read(length) if length else b''
+        try:
+            report = json.loads(raw.decode('utf-8', errors='replace'))
+        except Exception:
+            report = {'raw': raw.decode('utf-8', errors='replace')[:512]}
+        # Normalise both report-uri and report-to shapes.
+        if isinstance(report, dict) and 'csp-report' in report:
+            r = report['csp-report']
+        else:
+            r = report
+        # Pull the most useful fields without choking on a missing key.
+        violated   = (r or {}).get('violated-directive') or (r or {}).get('effective-directive') or '?'
+        blocked    = (r or {}).get('blocked-uri')        or '?'
+        source_file= (r or {}).get('source-file')        or ''
+        line_no    = (r or {}).get('line-number')        or ''
+        sample     = (r or {}).get('script-sample')      or ''
+        referer    = os.environ.get('HTTP_REFERER', '')[:120]
+        # v3.0.6 fix: write through audit_log (audit_log.json) — NOT
+        # log_command (history.json). The diag panel reads audit_log;
+        # the previous draft hit history.json and the panel's "reports
+        # last 24h" counter never ticked. audit_log uses `action` /
+        # `detail` field names + source_ip captured from the request
+        # environment.
+        audit_log(
+            actor='browser',
+            action='csp_report',
+            detail=(f'{violated} blocked={blocked} '
+                    f'src={source_file}:{line_no} ref={referer} '
+                    f'sample={sample[:120]}'),
+            source_ip=ip,
+        )
+    except Exception:
+        # Reporter is best-effort. Never let a malformed report break
+        # the request pipeline.
+        pass
+    respond(204, '')
 
 
 def handle_openapi_spec() -> None:
@@ -5309,6 +5507,20 @@ def handle_config_save():
             cfg['audit_log_retention_days'] = v
         except (TypeError, ValueError):
             respond(400, {'error': 'audit_log_retention_days must be an integer'})
+
+    # v3.0.6: CSP violation reporting toggle + per-IP rate limit.
+    # Both are surfaced in Settings → Security so operators can
+    # tune noise without editing config.json by hand.
+    if 'csp_report_logging' in body:
+        cfg['csp_report_logging'] = bool(body['csp_report_logging'])
+    if 'csp_report_throttle_per_minute' in body:
+        try:
+            v = int(body['csp_report_throttle_per_minute'])
+            if not (0 <= v <= 1000):
+                respond(400, {'error': 'csp_report_throttle_per_minute must be 0..1000'})
+            cfg['csp_report_throttle_per_minute'] = v
+        except (TypeError, ValueError):
+            respond(400, {'error': 'csp_report_throttle_per_minute must be an integer'})
 
     # v3.0.2: SSRF defense-in-depth toggle. When on, webhook deliveries
     # whose URL resolves to a loopback / link-local / unspecified IP are
@@ -13416,6 +13628,7 @@ def _cmdb_record_default() -> dict:
     return {
         'asset_id':        '',
         'server_function': '',
+        'vlan':            '',
         'hypervisor_url':  '',
         'ssh_port':        CMDB_DEFAULT_SSH_PORT,
         'documentation':   '',     # v1.x: single Markdown blob (kept for back-compat)
@@ -13598,6 +13811,7 @@ def handle_cmdb_list() -> None:
             'tags':            dev.get('tags', []),
             'asset_id':        rec_safe.get('asset_id', ''),
             'server_function': rec_safe.get('server_function', ''),
+            'vlan':            rec_safe.get('vlan', ''),
             'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
             'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
             'has_documentation': bool(rec_safe.get('documentation')),
@@ -13609,7 +13823,7 @@ def handle_cmdb_list() -> None:
             haystack = ' '.join([
                 entry['name'], entry['hostname'], entry['os'], entry['ip'],
                 entry['mac'], entry['group'], entry['asset_id'],
-                entry['server_function'], entry['hypervisor_url'],
+                entry['server_function'], entry['vlan'], entry['hypervisor_url'],
                 ' '.join(entry['tags'] or []),
                 rec_safe.get('documentation', ''),
             ]).lower()
@@ -13698,6 +13912,9 @@ def handle_cmdb_update(dev_id: str) -> None:
     Writable fields:
         ``asset_id``: Free text, ``[A-Za-z0-9_-]{0,64}``.
         ``server_function``: Free text, ``[A-Za-z0-9 _\\-/]{0,64}``.
+        ``vlan``: Free text, ``[A-Za-z0-9 _\\-/,()]{0,64}``. Lets the
+            operator capture single IDs, comma-lists for trunks, or
+            descriptive labels like "100 (DMZ)".
         ``hypervisor_url``: ``http(s)://…``, max 512 chars.
         ``ssh_port``: 1-65535. Empty/0 resets to default 22.
         ``documentation``: Markdown, max 64 KB.
@@ -13735,6 +13952,13 @@ def handle_cmdb_update(dev_id: str) -> None:
             respond(400, {'error': 'server_function: alphanumerics/spaces/_-/, max 64 chars'})
         rec['server_function'] = fn
         changed.append('server_function')
+
+    if 'vlan' in body:
+        vlan = str(body.get('vlan') or '').strip()
+        if vlan and not _CMDB_VLAN_RE.match(vlan):
+            respond(400, {'error': 'vlan: alphanumerics/spaces/_-/,() , max 64 chars'})
+        rec['vlan'] = vlan
+        changed.append('vlan')
 
     if 'hypervisor_url' in body:
         url = _cmdb_validate_url(body.get('hypervisor_url'))
@@ -14534,8 +14758,16 @@ def _enforce_same_origin():
     Heartbeat (`POST /api/heartbeat`) is the one exception: agents are
     server-to-server clients that don't set Origin headers. The check's
     "no Origin = allow" default covers them.
+
+    v3.0.6 exception: CSP violation reports (`POST /api/csp-report`)
+    come from the browser's CSP machinery, which in some configurations
+    (e.g. Chromium sandboxed iframes) sends `Origin: null`. The endpoint
+    is otherwise harmless — it appends one audit-log line — so we let
+    those reports through unconditionally.
     """
     if method() not in _STATE_CHANGING_METHODS:
+        return
+    if path_info() == '/api/csp-report':
         return
     origin = os.environ.get('HTTP_ORIGIN', '').strip()
     referer = os.environ.get('HTTP_REFERER', '').strip()
@@ -14585,6 +14817,8 @@ def _enforce_same_origin():
 _PWCHG_ALLOWED_PATHS = frozenset({
     '/api/users/passwd',
     '/api/public-info',
+    '/api/health',
+    '/api/csp-report',
 })
 
 
@@ -14699,6 +14933,9 @@ def main():
 
     if pi == '/api/login': handle_login()
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
+    elif pi == '/api/health' and m == 'GET': handle_health()
+    elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()
+    elif pi == '/api/security/diag' and m == 'GET': handle_security_diag()
     elif pi == '/api/openapi.json' and m == 'GET': handle_openapi_spec()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     # v1.11.0: agentless device creation. Must precede the prefix-DELETE

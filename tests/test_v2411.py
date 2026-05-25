@@ -124,7 +124,8 @@ class TestCveIgnoreModal(unittest.TestCase):
         self.assertIn('value="device"', self.html)
 
     def test_confirm_button_wired(self):
-        self.assertIn('_confirmCveIgnore()', self.html)
+        # CSP L1 (v3.0.4): inline onclick became data-action delegation.
+        self.assertIn('data-action="_confirmCveIgnore"', self.html)
 
 
 if __name__ == '__main__':

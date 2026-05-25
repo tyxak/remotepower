@@ -85,22 +85,27 @@ class _ApiTestBase(unittest.TestCase):
         return token
 
 
-# ─── Version pins (strict — this is the live v3.0.4 release) ────────────────
+# ─── Version pins (loosened — v3.0.5 holds the strict pins now) ────────────
+#
+# Same pattern as test_v303.py loosened when v3.0.4 took over: the
+# strict EXPECTED='3.0.4' pin moved to test_v305.py. The v3.0.4
+# *features* (mobile sidebar close button, SW registration hardening,
+# the mitigate playbook fixes) are still asserted strictly above. The
+# pin block here just checks the project has SOME 3.x.x version
+# stamped consistently across api.py / agent / SW cache / README /
+# CHANGELOG, without enforcing the exact value.
 
 class TestVersionBumps(unittest.TestCase):
-    EXPECTED = '3.0.4'
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^SERVER_VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -110,31 +115,36 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
-            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+            'sw.js CACHE_NAME must carry a v3.x.x marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertIn(f'?v={self.EXPECTED}', html,
-            f'index.html cache-bust ?v= must be {self.EXPECTED}')
+        self.assertRegex(html, r'\?v=3\.\d+\.\d+',
+            'index.html cache-bust ?v= must be a 3.x.x version')
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
-            'README.md version badge not bumped')
+        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+            'README.md version badge missing 3.x.x marker')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
-        self.assertEqual(m.group(1), self.EXPECTED,
-            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
-    def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
-        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
-        text = path.read_text()
-        self.assertIn(self.EXPECTED, text)
+    def test_release_notes_doc_present_for_current_version(self):
+        """docs/vX.Y.Z.md must exist for the current SERVER_VERSION.
+        Loosened from the v3.0.4-specific pin so v3.0.5+ continues to
+        satisfy it as long as a matching release-notes file is shipped."""
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", api, re.MULTILINE)
+        self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
+        ver = m.group(1)
+        path = REPO_ROOT / 'docs' / f'v{ver}.md'
+        self.assertTrue(path.is_file(),
+            f'docs/v{ver}.md is missing — expected one release-notes '
+            f'file per SERVER_VERSION')
 
 
 class TestCallAiWithPromptsArgumentShape(unittest.TestCase):
@@ -1030,22 +1040,23 @@ class TestMobileSidebarCloseButton(unittest.TestCase):
             '(class="sidebar-mobile-close")')
 
     def test_close_button_calls_toggleMobileNav(self):
+        """CSP L1 (v3.0.4): inline onclick was replaced with a JS
+        addEventListener in app.js — assert the wiring exists there."""
         html = self.INDEX_HTML.read_text()
-        # Find the close button line and check its onclick
+        # Aria-label must still be on the button (accessibility)
         import re
         m = re.search(
             r'<button[^>]*class="sidebar-mobile-close"[^>]*>',
             html)
         self.assertIsNotNone(m, 'sidebar-mobile-close button not found')
-        btn = m.group(0)
-        self.assertIn(
-            'toggleMobileNav()', btn,
-            'Close button must call toggleMobileNav() so it uses the '
-            'same toggle path as the burger')
-        # Accessibility — must have an aria-label
-        self.assertIn(
-            'aria-label=', btn,
+        self.assertIn('aria-label=', m.group(0),
             'Close button must have an aria-label for screen readers')
+        # The toggleMobileNav wiring lives in app.js now
+        app_js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn(
+            ".sidebar-mobile-close')?.addEventListener('click', toggleMobileNav",
+            app_js,
+            'app.js must bind toggleMobileNav to .sidebar-mobile-close')
 
     def test_close_button_hidden_on_desktop(self):
         css = self.STYLES_CSS.read_text()
@@ -1056,28 +1067,27 @@ class TestMobileSidebarCloseButton(unittest.TestCase):
             '(only the burger-equivalent is needed on mobile)')
 
     def test_close_button_shown_on_mobile(self):
-        """Inside @media (max-width: 720px) there must be a rule that
-        sets display: flex (or similar visible value) on the button."""
+        """v3.0.4 (iter 6): the design changed. On the mobile drawer,
+        BOTH the ✕ close button and the Collapse button are hidden —
+        the sidebar dismisses via tap-outside (document-level click
+        handler in app.js). The ✕ button HTML stays in place for the
+        case where someone resizes to a tablet PWA width, but it's
+        suppressed at ≤720px."""
         css = self.STYLES_CSS.read_text()
-        # Find the mobile @media block that contains our selector
         import re
-        # Match @media (max-width: 720px) { ... } blocks (non-nested ok
-        # since our CSS isn't nested)
         for m in re.finditer(
                 r'@media\s*\(\s*max-width:\s*720px\s*\)\s*\{(.+?)\n\}',
                 css, re.DOTALL):
             block = m.group(1)
-            if '.sidebar-mobile-close' in block and 'display' in block:
-                # Confirm it's a visible display value, not 'none'
-                rule = re.search(
-                    r'\.sidebar-mobile-close\s*\{[^}]*display:\s*(\w+)',
-                    block)
-                if rule:
-                    self.assertNotEqual(
-                        rule.group(1), 'none',
-                        'On mobile the close button must be visible')
-                    return
-        self.fail('No mobile rule showing .sidebar-mobile-close found')
+            rule = re.search(
+                r'\.sidebar-mobile-close\s*\{[^}]*display:\s*none',
+                block)
+            if rule:
+                return
+        self.fail(
+            'No mobile rule hiding .sidebar-mobile-close found. '
+            'On mobile the ✕ close button must be hidden — the '
+            'scrim-tap handler is the sole close path.')
 
     def test_collapse_button_hidden_on_mobile(self):
         """v3.0.4 (iter 3): the desktop Collapse button is meaningless
@@ -1113,57 +1123,57 @@ class TestServiceWorkerRegistrationHardening(unittest.TestCase):
     on .catch. When the new SW failed to register, the old SW kept
     running with its stale cache — operators saw "page looks broken
     after deploy" (unstyled icons, missing new behaviours).
+
+    CSP L1 (v3.0.4 iter 3): the inline <script> with the SW-registration
+    block was extracted from index.html to /static/js/sw-register.js. The
+    same hardening lives there now.
     """
 
-    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'index.html'
+    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'sw-register.js'
 
     def test_no_longer_registers_inside_load_event(self):
         """The brittle `window.addEventListener('load', ...)` pattern
         must not be the SW registration trigger. DOMContentLoaded (or
         synchronous registration when DOM is already ready) is more
         reliable."""
-        html = self.INDEX_HTML.read_text()
-        # Find the SW registration block by anchor
+        body = self.INDEX_HTML.read_text()
+        # Find the SW registration block by anchor (just look for the
+        # `if ('serviceWorker' in navigator)` line and read forward).
         import re
         m = re.search(
-            r"if \('serviceWorker' in navigator\) \{(.+?)\n  \}",
-            html, re.DOTALL)
+            r"if \('serviceWorker' in navigator\) \{(.+?)\n\s{0,4}\}",
+            body, re.DOTALL)
         self.assertIsNotNone(m, 'SW registration block not found')
         block = m.group(1)
         self.assertNotIn(
             "window.addEventListener('load'", block,
-            "SW registration must not be gated on the `load` event — that "
-            "fires too late on slow networks and during BFCache restore, "
-            "causing InvalidStateError. Use DOMContentLoaded or register "
-            "synchronously when DOM is ready.")
+            "SW registration must not be gated on the `load` event.")
 
     def test_retries_on_invalid_state_error(self):
         """One retry on InvalidStateError clears the transient case."""
-        html = self.INDEX_HTML.read_text()
+        body = self.INDEX_HTML.read_text()
         self.assertIn(
-            'InvalidStateError', html,
+            'InvalidStateError', body,
             "SW registration must explicitly handle InvalidStateError")
         # And there must be a retry mechanism (setTimeout somewhere
         # near the InvalidStateError check)
         import re
         m = re.search(
-            r"InvalidStateError[^}]+setTimeout",
-            html, re.DOTALL)
+            r"InvalidStateError[\s\S]+?setTimeout",
+            body)
         self.assertIsNotNone(
             m, 'After detecting InvalidStateError, registration must '
-               'retry via setTimeout — one retry typically succeeds.')
+               'retry via setTimeout.')
 
     def test_warns_when_stale_sw_blocks_registration(self):
         """When a previous SW is still controlling the page and the new
         registration fails, surface a console hint pointing at the
         DevTools fix. Operators need a discoverable remediation path."""
-        html = self.INDEX_HTML.read_text()
+        body = self.INDEX_HTML.read_text()
         self.assertIn(
-            'navigator.serviceWorker.controller', html,
+            'navigator.serviceWorker.controller', body,
             "On registration failure, code must check "
-            "navigator.serviceWorker.controller (the existing SW) and "
-            "log a hint about how to clear it")
+            "navigator.serviceWorker.controller (the existing SW)")
         self.assertIn(
-            'Unregister', html,
-            "The remediation hint must mention 'Unregister' so operators "
-            "can find the DevTools action")
+            'Unregister', body,
+            "The remediation hint must mention 'Unregister'")

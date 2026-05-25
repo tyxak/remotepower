@@ -1,0 +1,22 @@
+/* RemotePower — Swagger UI page styles.
+   Moved out of the inline <style> in swagger.html as part of CSP L1
+   (no 'unsafe-inline'). */
+
+body { margin: 0; background: #0f1419; color: #e6edf3; font-family: system-ui, sans-serif; }
+
+#rp-bar { padding: 10px 20px; background: #1c2128; border-bottom: 1px solid #30363d; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+#rp-bar a { color: #58a6ff; text-decoration: none; font-size: 14px; }
+#rp-bar a:hover { text-decoration: underline; }
+#rp-bar .rp-title { font-weight: 600; font-size: 15px; color: #e6edf3; }
+#rp-bar .rp-version { color: #8b949e; font-size: 12px; }
+#rp-bar .rp-spacer { flex: 1; }
+#rp-bar .rp-status { font-size: 12px; color: #8b949e; }
+#rp-bar .rp-status.ok  { color: #3fb950; }
+#rp-bar .rp-status.bad { color: #f85149; }
+
+#swagger-ui { background: #fff; min-height: calc(100vh - 50px); }
+#fallback   { padding: 20px; font-family: monospace; white-space: pre-wrap; display: none; }
+
+/* Used by the "Not logged in" placeholder built in swagger-init.js — must
+   be a class, not an inline style="…", under the strict CSP. */
+.swagger-login-required { padding: 40px; text-align: center; color: #0f1419; }

@@ -174,7 +174,13 @@ class TestIndexHtmlPWA(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.html = (_ROOT / 'server/html/index.html').read_text()
+        # CSP L1 (v3.0.4): the inline <script> that did SW registration +
+        # the PWA install handlers was extracted from index.html into
+        # /static/js/sw-register.js. Search both files so the PWA-shape
+        # assertions still apply.
+        idx = (_ROOT / 'server/html/index.html').read_text()
+        sw  = (_ROOT / 'server/html/static/js/sw-register.js').read_text()
+        cls.html = idx + '\n' + sw
 
     def test_manifest_link_present(self):
         self.assertIn('rel="manifest"', self.html)
@@ -204,11 +210,28 @@ class TestIndexHtmlPWA(unittest.TestCase):
 
     def test_install_button_hidden_by_default(self):
         # Button starts hidden; shown only when browser fires
-        # beforeinstallprompt.
+        # beforeinstallprompt. CSP L1 (v3.0.4): the inline
+        # `style="display:none"` was replaced by the auto-generated class
+        # .isl-6 which carries `display:none` — assert the rule still
+        # hides it by default.
         idx = self.html.find('pwa-install-btn')
-        context = self.html[idx: idx + 120]
-        self.assertIn('display', context,
-                      'Install button not hidden by default')
+        context = self.html[idx: idx + 200]
+        # Pull the class names attached to the button
+        import re
+        m = re.search(r'class="([^"]+)"', context)
+        self.assertIsNotNone(m, 'Install button has no class attribute')
+        css = (_ROOT / 'server/html/static/css/styles.css').read_text()
+        # At least one of the button's classes must carry display:none
+        hidden = False
+        for cls in m.group(1).split():
+            for rule in re.finditer(rf'\.{re.escape(cls)}\s*\{{([^}}]*)\}}', css):
+                if 'display' in rule.group(1) and 'none' in rule.group(1):
+                    hidden = True
+                    break
+            if hidden:
+                break
+        self.assertTrue(hidden,
+                        'Install button not hidden by default — no class with display:none')
 
     def test_sw_registration_has_scope(self):
         self.assertIn("scope: '/'", self.html)

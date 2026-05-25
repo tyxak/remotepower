@@ -2,6 +2,195 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.0.6 — 2026-05-25
+
+Production-readiness polish on top of v3.0.5. **Recommended for any
+operator running the v3.0.5 release** — every change here strengthens
+the existing posture without changing visible behaviour for end users.
+No schema changes, no migrations.
+
+### Added
+
+- **`/api/health` liveness endpoint.** Unauthenticated, returns
+  `{"status":"ok","version":"<x.y.z>"}` and nothing else. Replaces
+  `/` in the Docker `HEALTHCHECK` (probing the full SPA on every
+  poll was wasteful) and gives external orchestrators / reverse
+  proxies / uptime monitors a cheap, stable endpoint. Path is in
+  `_PWCHG_ALLOWED_PATHS` so it works even from a session pending a
+  forced password change.
+
+- **CSP violation reporting at `/api/csp-report`.** The strict CSP
+  shipped in v3.0.5 has been silently blocking any inline script or
+  style the browser tries to execute. With `report-uri /api/csp-report`
+  added to the policy directive, every block now POSTs a JSON
+  report to the new handler, which appends one audit-log line per
+  violation (directive, blocked URI, source file, line, sample). A
+  future regression that reintroduces inline code surfaces as a
+  logged event instead of a silent visual bug. Endpoint is request-
+  size-capped at 16 KB and is the one POST exempted from the same-
+  origin CSRF check (browsers sometimes send `Origin: null` on CSP
+  reports).
+
+- **Subresource Integrity (SHA-384) on every bundled vendor library.**
+  `swagger.html` adds `integrity=` to the static `<link>` and
+  `<script>` tags for swagger-ui; `app.js` adds it to the dynamic
+  `_loadXtermOnce()` (xterm.js, xterm.min.css, addon-fit) and
+  `generateQRCode()` (qrcode-generator) loads. If the file on disk is
+  ever overwritten — corrupt deploy, swapped tarball, supply-chain
+  compromise — the browser refuses to execute it. Updating a vendor
+  version means recomputing one SHA-384; the procedure is documented
+  inline next to each `integrity=` attribute.
+
+- **GitHub Actions CI workflow** (`.github/workflows/ci.yml`). Runs
+  the full unittest suite on every push and PR to `main`. The
+  `TestCSPMigrationFidelity` checks introduced in v3.0.5 are now
+  CI-enforced — any commit that reintroduces an inline event
+  handler, an unresolved CSS `${…}` template, a `javascript:` URI, a
+  duplicate ID, etc. fails the workflow before the PR can merge.
+  On main-branch pushes the workflow also runs `make dist` to catch
+  "works on dev, breaks on fresh checkout" issues.
+
+### Changed
+
+- Dockerfile `HEALTHCHECK` now probes `/api/health` instead of `/`.
+- Both nginx CSP directives carry `report-uri /api/csp-report;` —
+  configure-time addition for fresh installs, one-line append for
+  existing deploys (see docs/v3.0.6.md §Upgrade).
+- Service worker cache name bumped to `remotepower-shell-v3.0.6` so
+  the activate handler evicts the previous shell on first reload.
+
+### Internals
+
+- Test suite at **1,560+ tests, all passing**.
+- `test_v306.py` holds the strict version pins now; `test_v305.py`'s
+  pins loosened to `^3\.\d+\.\d+$` regexes (same convention every
+  prior release-bump test followed).
+
+## v3.0.5 — 2026-05-25
+
+A security + UX release on top of v3.0.4. The headline is the Content
+Security Policy hardening: `'unsafe-inline'` is gone from both
+`script-src` and `style-src`, closing the L1 finding from the v2.3.2
+security review. **Recommended for every operator** — the new CSP is
+strictly more restrictive, blocks injected inline scripts the previous
+policy let through, and several user-visible bugs that the migration
+exposed are fixed here.
+
+### Security
+
+- **CSP `'unsafe-inline'` removed from `script-src` and `style-src`.**
+  The previous policy let injected inline `<script>` and `onclick=`
+  payloads execute (a single missed `escHtml` / `escAttr` was the only
+  thing between a stored XSS bug and arbitrary code execution). The
+  new policy blocks them in the browser, not just by escape discipline.
+  Required removing every inline event handler from `index.html`,
+  `swagger.html`, and the long-form `docs/Manual.html`, plus every
+  `style=` attribute and `<style>` block — replaced with external CSS,
+  utility classes, and `data-action` event delegation. Re-published
+  `docs/security-review-3.0.5.md` follows the v2.3.2 format and tracks
+  the change.
+
+- **Vendor libraries self-hosted under `/static/vendor/`.** xterm.js
+  5.5.0 + addon-fit (web terminal), qrcode-generator 1.4.4 (TOTP
+  enrolment QR), Swagger UI 5.17.14 (API docs page), and the Inter +
+  JetBrains Mono web fonts (92 woff/woff2 subset files). Previously
+  loaded from cdn.jsdelivr.net, cdnjs.cloudflare.com, and bunny.net —
+  all blocked under the new strict CSP and, on closer look, were
+  *also* blocked under the previous CSP for the cross-origin reason
+  (the `'unsafe-inline'` keyword never allowed external origins, so
+  these features had been silently broken for any operator who
+  actually tried to use them). Browsers only fetch the font subsets
+  they need via `unicode-range` — typical pageload is ~30 KB of fonts.
+
+### Fixed
+
+- **AI Assistant page (`/#ai`) rendered blank** under the new CSP.
+  Root cause: the auto-class generator that replaced inline
+  `style="display:none"` with CSS rules left the JS reveal path
+  (`element.style.display = ''`) unable to override the class — the
+  exact same pattern as the v3.0.3 `#pwa-install-btn` fix, now
+  affecting eight more sites across the AI page, the Services
+  maintenance badge, and the Mitigation modal's AI-suggested-fix panel.
+  All reveals now use explicit display values so the inline style
+  beats the class.
+
+- **"Install app" button stayed visible after install on Chrome.**
+  Two layered causes: (1) a leftover `#pwa-install-btn { display: flex; }`
+  rule with ID specificity overrode the class-based initial-hide; (2)
+  Chrome keeps firing `beforeinstallprompt` on regular browser tabs
+  even when the PWA is already installed in that profile, and there's
+  no web-page-accessible API for "am I installed?". Fix: removed the
+  override rule, and a `localStorage` flag now persists the
+  installed-state — set the first time the page loads in standalone
+  mode (which the OS always launches at least once post-install), and
+  on the `appinstalled` event. Subsequent regular-tab loads on the
+  same profile check the flag and suppress the install button.
+
+- **Sidebar UX on mobile / PWA.** On the mobile drawer (≤720px), both
+  the ✕ close button and the Collapse button are now hidden — the
+  drawer dismisses via tap-outside-to-close (the scrim handler in
+  `app.js`). The Collapse button never visually worked at mobile width
+  because its CSS rules were gated on `min-width: 769px`, so the
+  button was just dead clickable area. When running as an installed
+  PWA at >720px, the docked-sidebar collapse-rail rules now apply at
+  every width above the mobile breakpoint — previously they missed the
+  721–768px gap and a phone-sized desktop-PWA window saw an inert
+  Collapse button.
+
+- **Login form, Change Password, and Add User flows** now use real
+  `<form>` elements with `<button type="submit">`, so browser password
+  managers can reliably extract / autofill credentials. The
+  long-standing `[DOM] Password field is not contained in a form`
+  warnings on those three flows disappear. (The remaining warnings on
+  admin-config secrets — SMTP / LDAP / Proxmox tokens, CMDB vault
+  keys — are intentional; password managers shouldn't be autofilling
+  service-account credentials.)
+
+- **Service Worker registration hardened against the persistent
+  `InvalidStateError`** seen on Chrome / Brave after BFCache restore
+  or partitioned-storage hiccups. The v3.0.4 retry chain handled
+  transient cases but couldn't recover from a stuck previous
+  registration. Now: 4 retries on `InvalidStateError` with linear
+  backoff, then a last-resort unregister-all-and-retry from a clean
+  slate (capped at one attempt per document so it can't loop), and a
+  one-shot guard against the duplicate-fire that happens when
+  `pageshow` and the synchronous bootstrap both kick at initial load.
+
+- **`docs/Manual.html` was linked from the in-app Documentation page
+  but never actually deployed.** The dashboard's `<a href="/Manual.html">`
+  silently 404'd in production for every operator. `Dockerfile`,
+  `deploy-server.sh`, and `install-server.sh` now copy it to the web
+  root.
+
+### Improved
+
+- **Per-file content-hash cache-busting.** `deploy-server.sh` now
+  rewrites the `?v=...` query strings on the deployed `index.html`'s
+  `<script>` and `<link>` references to a 12-character SHA-256 prefix
+  of each file's content. Previously the version marker only changed
+  when `SERVER_VERSION` did, so between-release JS or CSS fixes
+  required operators to manually clear browser cache. With this in
+  place every deploy invalidates exactly the files that changed.
+  Source-tree `index.html` still carries `?v=<SERVER_VERSION>` so the
+  regression tests pass; the rewrite happens at install time.
+
+- **Strict CSP regression tests.** `tests/test_v232.py` now scans every
+  shipped HTML file (`index.html`, `swagger.html`, `Manual.html`) for
+  inline `<script>`, inline `<style>`, inline event handlers, inline
+  `style=` attributes, `javascript:` URIs, and any auto-loaded external
+  resource. Catches a future commit that tries to reintroduce any of
+  these patterns. Vendor-libraries-present check ensures the bundled
+  copies stay in tree.
+
+### Internals
+- Test suite at **1,545+ tests, all passing**. `test_v303.py` /
+  `test_v304.py` pins loosened where they asserted the pre-migration
+  inline-handler patterns; new pins live in this release's
+  regression coverage.
+- Service worker cache name bumped to `remotepower-shell-v3.0.5` so
+  the activate handler evicts every cache from earlier releases on
+  first reload.
+
 ## v3.0.4 — 2026-05-24
 
 A bug-fix release hot on the heels of v3.0.3. Eight real production bugs, all
