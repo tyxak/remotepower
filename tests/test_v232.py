@@ -139,20 +139,33 @@ class TestSecurityAssets(unittest.TestCase):
                              f"{name} CSP directive still contains 'unsafe-inline' (L1 finding)")
 
     def test_no_inline_scripts_in_html(self):
-        html_path = _ROOT / 'server' / 'html' / 'index.html'
-        html = html_path.read_text()
         import re
-        inline_scripts = re.findall(r'<script(?![^>]*src=)[^>]*>', html, re.IGNORECASE)
-        self.assertEqual(inline_scripts, [],
-                         f'Inline <script> blocks found in index.html: {inline_scripts}')
+        for fname in ('index.html', 'swagger.html'):
+            html = (_ROOT / 'server' / 'html' / fname).read_text()
+            inline_scripts = re.findall(r'<script(?![^>]*src=)[^>]*>', html, re.IGNORECASE)
+            self.assertEqual(inline_scripts, [],
+                             f'Inline <script> blocks found in {fname}: {inline_scripts}')
+            inline_styles = re.findall(r'<style[^>]*>', html, re.IGNORECASE)
+            self.assertEqual(inline_styles, [],
+                             f'Inline <style> blocks found in {fname}: {inline_styles}')
+            # Only flag tags that the browser auto-loads (script/link/img/iframe),
+            # not user-clickable <a href> documentation links.
+            ext = re.findall(
+                r'<(?:script|link|img|iframe)[^>]*\s(?:src|href)="(https?://[^"]+)"',
+                html, re.IGNORECASE)
+            self.assertEqual(ext, [],
+                             f'{fname} auto-loads external resources: {ext}')
 
     def test_no_inline_event_handlers_in_html(self):
-        html_path = _ROOT / 'server' / 'html' / 'index.html'
-        html = html_path.read_text()
         import re
-        handlers = re.findall(r'\s(on(?:click|change|input|keydown|drop|dragover|dragleave)=)', html)
-        self.assertEqual(handlers, [],
-                         f'Inline event handlers found in index.html: {handlers}')
+        for fname in ('index.html', 'swagger.html'):
+            html = (_ROOT / 'server' / 'html' / fname).read_text()
+            handlers = re.findall(r'\s(on(?:click|change|input|keydown|drop|dragover|dragleave)=)', html)
+            self.assertEqual(handlers, [],
+                             f'Inline event handlers found in {fname}: {handlers}')
+            attr_styles = re.findall(r'<[a-zA-Z][^>]*\sstyle="', html)
+            self.assertEqual(attr_styles, [],
+                             f'Inline style= attrs found in {fname}: {len(attr_styles)}')
 
     def test_vendor_libs_are_self_hosted(self):
         # CSP 'self' only allows /static/* origins, so the vendor libs the
@@ -165,6 +178,8 @@ class TestSecurityAssets(unittest.TestCase):
             'xterm-addon-fit/addon-fit.min.js',
             'qrcode-generator/qrcode.min.js',
             'fonts/inter-jetbrains.css',
+            'swagger-ui/swagger-ui-bundle.min.js',
+            'swagger-ui/swagger-ui.min.css',
         ]
         for rel in expected:
             self.assertTrue((vendor_dir / rel).is_file(),
