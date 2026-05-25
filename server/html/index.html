@@ -735,7 +735,7 @@
               </div>
               <div class="form-group flex-1">
                 <label class="form-label">Password <span id="cfg-smtp-pw-set-badge" class="isl-36"> · saved</span></label>
-                <input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-smtp-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
                 <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_SMTP_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
                 <p class="hint isl-37" id="smtp-env-hint">✓ Password is currently being read from <code>RP_SMTP_PASSWORD</code>. The field above is ignored.</p>
               </div>
@@ -850,7 +850,7 @@
               </div>
               <div class="form-group flex-1">
                 <label class="form-label">Service account password <span id="cfg-ldap-pw-set-badge" class="isl-36"> · saved</span></label>
-                <input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing">
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-ldap-bind-password" class="form-input" autocomplete="new-password" placeholder="Leave blank to keep existing"></form>
                 <p class="hint meta-sm"><strong>More secure option:</strong> set <code>RP_LDAP_BIND_PASSWORD</code> in the systemd unit or container env. The env var takes precedence, keeps the secret out of <code>config.json</code>, and is excluded from the backup export.</p>
                 <p class="hint isl-37" id="ldap-env-hint">✓ Bind password is currently being read from <code>RP_LDAP_BIND_PASSWORD</code>. The field above is ignored.</p>
               </div>
@@ -888,6 +888,40 @@
               </button>
             </div>
             <div id="cfg-ldap-test-result" class="isl-54"></div>
+          </div>
+
+          <!-- ── v3.0.6: Transport & CSP diagnostics ─────────────────────── -->
+          <div class="settings-section">
+            <h3>Content-Security-Policy reporting</h3>
+            <p class="hint">When the browser blocks something the CSP forbids (an injected inline script, a stylesheet from a disallowed origin, …) it POSTs a report to <code>/api/csp-report</code>. Each report becomes one audit-log line tagged <code>csp:…</code>. Disable here if reports get noisy; raise the per-IP throttle if you're investigating an active issue.</p>
+            <label class="isl-2">
+              <input type="checkbox" id="cfg-csp-report-logging">
+              <div>
+                <div class="isl-48">Log CSP violations to audit log</div>
+                <div class="hint">Off → the endpoint silently 204s and no row is appended. Default <strong>on</strong>.</div>
+              </div>
+            </label>
+            <div class="form-group mw-300">
+              <label class="form-label" for="cfg-csp-throttle">Rate limit (reports per IP per minute)</label>
+              <input type="number" id="cfg-csp-throttle" class="form-input" min="0" max="1000" placeholder="10">
+              <div class="meta-sm"><code>0</code> = unlimited. Reports beyond the cap are silently dropped (no log row, still HTTP 204).</div>
+            </div>
+            <div class="hint" id="cfg-csp-stats">CSP reports in the last 24 h: <span id="cfg-csp-stat-24h">—</span></div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Audit log</h3>
+            <p class="hint">Records every login, command, settings change, and CSP report. Live entries persist in <code>audit_log.json</code>; entries older than the retention window roll into the gzipped archive next to it. Retention is set in <strong>Settings → Advanced</strong>.</p>
+            <div class="hint">Live entries: <span id="cfg-audit-entries">—</span></div>
+            <div class="hint">Archive on disk: <span id="cfg-audit-archive">—</span></div>
+            <div class="hint">Retention window: <span id="cfg-audit-retention">—</span> days</div>
+          </div>
+
+          <div class="settings-section">
+            <h3>Transport security (HSTS)</h3>
+            <p class="hint">HSTS forces every future visit to use HTTPS — defence against a downgrade attack. Set by nginx, not the application; this panel just reports whether the response on your current page is carrying the header.</p>
+            <div id="cfg-hsts-status" class="hint">Checking…</div>
+            <div class="hint fs-12">To enable: uncomment the <code>add_header Strict-Transport-Security</code> line in <code>server/conf/remotepower.conf</code> (or your in-place nginx config), then <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>. Only do this once you're certain the site is HTTPS-only — HSTS is sticky in the browser for the configured <code>max-age</code>.</div>
           </div>
         </div>
 
@@ -996,7 +1030,7 @@
               </div>
               <div class="form-group isl-62">
                 <label class="form-label">Token secret</label>
-                <input type="password" id="proxmox-token-secret" class="form-input" placeholder="••••••••  (leave blank to keep current)" autocomplete="new-password">
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="proxmox-token-secret" class="form-input" placeholder="••••••••  (leave blank to keep current)" autocomplete="new-password"></form>
               </div>
               <div class="form-group isl-63">
                 <label class="form-label">Verify TLS</label>
@@ -1078,7 +1112,7 @@
             <div class="settings-row isl-72">
               <div class="form-group isl-73">
                 <label class="form-label">API key</label>
-                <input type="password" id="ai-api-key" class="form-input" placeholder="(unchanged)" autocomplete="off">
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="ai-api-key" class="form-input" placeholder="(unchanged)" autocomplete="off"></form>
                 <div class="meta-sm">Leave blank to keep the saved key. Type <code>__clear__</code> to remove it. Not used for Ollama or LocalAI.</div>
               </div>
               <div class="form-group isl-73">
@@ -2843,7 +2877,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title">Test LDAP user login</div>
   <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>
   <div class="form-group"><label class="form-label">Username</label><input type="text" id="ldap-test-user-name" class="form-input" autocomplete="off" placeholder="alice"></div>
-  <div class="form-group"><label class="form-label">Password</label><input type="password" id="ldap-test-user-pw" class="form-input" autocomplete="off" placeholder=""></div>
+  <div class="form-group"><label class="form-label">Password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="ldap-test-user-pw" class="form-input" autocomplete="off" placeholder=""></form></div>
   <div id="ldap-test-user-result" class="isl-191"></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ldap-test-user-modal" >Close</button><button class="btn-primary" data-action="runLdapTestUser" >Test</button></div>
 </div></div>
@@ -2925,10 +2959,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <input type="number" id="webterm-port" class="form-input" value="22" min="1" max="65535"></div>
     </div>
     <div class="form-group"><label class="form-label">SSH password</label>
-      <input type="password" id="webterm-ssh-pw" class="form-input" autocomplete="new-password"></div>
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="webterm-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
     <div class="form-group isl-204">
       <label class="form-label">Your RemotePower admin password</label>
-      <input type="password" id="webterm-admin-pw" class="form-input" autocomplete="current-password">
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="webterm-admin-pw" class="form-input" autocomplete="current-password"></form>
       <div class="meta-sm">Required every time you open a terminal.</div>
     </div>
     <div id="webterm-error" class="isl-202"></div>
@@ -3078,11 +3112,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">Choose a passphrase that will encrypt every credential stored in the CMDB. <strong>This passphrase is never stored on the server</strong> — losing it permanently destroys access to the credentials. All admins share this passphrase.</div>
   <div class="form-group">
     <label class="form-label">Vault passphrase (min 12 chars, mixed character classes)</label>
-    <input type="password" id="cmdb-vault-setup-pw" class="form-input" autocomplete="new-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-setup-pw" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
     <label class="form-label">Confirm passphrase</label>
-    <input type="password" id="cmdb-vault-setup-pw2" class="form-input" autocomplete="new-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-setup-pw2" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-setup-modal" >Cancel</button>
@@ -3095,7 +3129,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">The derived key is held only in this browser tab and cleared on logout or page reload.</div>
   <div class="form-group">
     <label class="form-label">Passphrase</label>
-    <input type="password" id="cmdb-vault-unlock-pw" class="form-input" autocomplete="current-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-unlock-pw" class="form-input" autocomplete="current-password"></form>
   </div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-unlock-modal" >Cancel</button>
@@ -3108,15 +3142,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">All stored credentials will be re-encrypted under the new passphrase.</div>
   <div class="form-group">
     <label class="form-label">Current passphrase</label>
-    <input type="password" id="cmdb-vault-rotate-old" class="form-input" autocomplete="current-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-old" class="form-input" autocomplete="current-password"></form>
   </div>
   <div class="form-group">
     <label class="form-label">New passphrase</label>
-    <input type="password" id="cmdb-vault-rotate-new" class="form-input" autocomplete="new-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-new" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
     <label class="form-label">Confirm new passphrase</label>
-    <input type="password" id="cmdb-vault-rotate-new2" class="form-input" autocomplete="new-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-vault-rotate-new2" class="form-input" autocomplete="new-password"></form>
   </div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-rotate-modal" >Cancel</button>
@@ -3141,6 +3175,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group">
       <label class="form-label">Server function</label>
       <input type="text" id="cmdb-asset-function" class="form-input" list="cmdb-func-datalist" placeholder="web, db, logging, dc, …" maxlength="64">
+    </div>
+    <div class="form-group">
+      <label class="form-label">VLAN</label>
+      <input type="text" id="cmdb-asset-vlan" class="form-input" placeholder="10, 20 (trunk), DMZ" maxlength="64">
+      <div class="meta-sm">Free text — a single ID, a comma-separated list for trunked, or a descriptive label.</div>
     </div>
     <div class="form-group">
       <label class="form-label">Hypervisor URL (optional)</label>
@@ -3240,7 +3279,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group">
     <label class="form-label">Password</label>
-    <input type="password" id="cmdb-cred-password" class="form-input" maxlength="1024" autocomplete="new-password">
+    <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-cred-password" class="form-input" maxlength="1024" autocomplete="new-password"></form>
   </div>
   <div class="form-group">
     <label class="form-label">Note (optional)</label>

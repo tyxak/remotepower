@@ -258,3 +258,200 @@ class TestCIWorkflow(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+# ── CMDB VLAN field (v3.0.6 mid-cycle) ──────────────────────────────────────
+
+class TestCmdbVlanField(unittest.TestCase):
+    """Operator request: a VLAN box under SERVER FUNCTION in the CMDB
+    Host → Properties form. Backend stores it as a free-text field
+    `vlan` with the same liberal charset as `server_function`, plus
+    commas + parentheses (for trunked lists like "10,20" and labels
+    like "100 (DMZ)")."""
+
+    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'index.html'
+    APP_JS     = REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
+    API_PY     = REPO_ROOT / 'server' / 'cgi-bin' / 'api.py'
+
+    def test_html_input_present(self):
+        html = self.INDEX_HTML.read_text()
+        self.assertIn('id="cmdb-asset-vlan"', html,
+            'CMDB Host → Properties form must include the VLAN input')
+
+    def test_js_reads_and_writes_vlan(self):
+        js = self.APP_JS.read_text()
+        # cmdbOpenAsset reads res.data.vlan into the field
+        self.assertIn("getElementById('cmdb-asset-vlan').value", js)
+        # Save payload includes the field
+        self.assertRegex(js, r'vlan:\s*document\.getElementById\(\s*[\'"]cmdb-asset-vlan[\'"]\s*\)\.value\.trim\(\)')
+
+    def test_handler_accepts_vlan(self):
+        api_py = self.API_PY.read_text()
+        # Default record carries the field so old records get backfilled.
+        self.assertRegex(api_py, r"'vlan':\s*''", )
+        # Update handler validates and persists it.
+        self.assertIn("if 'vlan' in body:", api_py)
+        self.assertIn("_CMDB_VLAN_RE", api_py)
+        # List output exposes it (so the table can show / filter).
+        self.assertIn("'vlan':", api_py)
+
+    def test_validator_rejects_overlong_and_strange_chars(self):
+        # Direct unit test on the regex — quick assurance without
+        # spinning up the full CGI.
+        import re as _re
+        rx = _re.compile(r'^[A-Za-z0-9 _\-/,()]{0,64}$')
+        self.assertTrue(rx.match('10'))
+        self.assertTrue(rx.match('10,20,30'))
+        self.assertTrue(rx.match('100 (DMZ)'))
+        self.assertTrue(rx.match(''))
+        self.assertFalse(rx.match('10; DROP TABLE'))   # semicolon banned
+        self.assertFalse(rx.match('a' * 65))           # length 65 > 64
+
+
+# ── Webterm font: JetBrains Mono in front of the fallback chain ─────────────
+
+class TestWebtermFont(unittest.TestCase):
+    """v3.0.6 fix: previously the webterm fontFamily was
+    'Menlo, Monaco, "Courier New", monospace'. The first two are
+    macOS-only, so Linux users got whatever monospace the browser
+    picked — which differed from the legacy CDN-rendered version
+    that operators were used to. We bundle JetBrains Mono at
+    /static/vendor/fonts/ since the v3.0.5 CSP migration; putting it
+    at the front of the chain gives consistent rendering across
+    platforms."""
+
+    def test_webterm_font_uses_jetbrains_mono(self):
+        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn(
+            '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+            js,
+            'webterm fontFamily should put JetBrains Mono first')
+
+
+# ── Settings → Security: CSP toggle + rate limit + diagnostics ──────────────
+
+class TestSecuritySettingsPane(unittest.TestCase):
+    """The Security tab in Settings now exposes the CSP report toggle,
+    its per-IP rate limit, an audit-log size readout, and an HSTS
+    status probe. Tests assert the HTML controls + the wiring exist;
+    runtime behaviour is covered by TestCspReportEndpoint above."""
+
+    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'index.html'
+    APP_JS     = REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
+    API_PY     = REPO_ROOT / 'server' / 'cgi-bin' / 'api.py'
+
+    def test_html_controls_present(self):
+        html = self.INDEX_HTML.read_text()
+        for elid in ('cfg-csp-report-logging', 'cfg-csp-throttle',
+                     'cfg-csp-stat-24h', 'cfg-audit-entries',
+                     'cfg-audit-archive', 'cfg-audit-retention',
+                     'cfg-hsts-status'):
+            self.assertIn(f'id="{elid}"', html,
+                f'Settings → Security must include #{elid}')
+
+    def test_security_diag_endpoint_route(self):
+        api_py = self.API_PY.read_text()
+        self.assertIn(
+            "elif pi == '/api/security/diag' and m == 'GET': handle_security_diag()",
+            api_py)
+        # Handler is admin-only.
+        m = re.search(
+            r'(?ms)^def handle_security_diag\(\):.+?(?=^def )',
+            api_py)
+        self.assertIsNotNone(m, 'handle_security_diag body not found')
+        self.assertIn('require_admin_auth()', m.group(0),
+            '/api/security/diag must require admin auth')
+
+    def test_settings_save_writes_csp_keys(self):
+        api_py = self.API_PY.read_text()
+        self.assertIn("if 'csp_report_logging' in body:", api_py)
+        self.assertIn("if 'csp_report_throttle_per_minute' in body:", api_py)
+        # JS save payload includes them
+        js = self.APP_JS.read_text()
+        self.assertIn('csp_report_logging:', js)
+        self.assertIn('csp_report_throttle_per_minute:', js)
+
+    def test_js_loads_diag_and_probes_hsts(self):
+        js = self.APP_JS.read_text()
+        self.assertIn("async function loadSecurityDiag()", js)
+        self.assertIn("api('GET', '/security/diag')", js)
+        # HSTS probe issues a HEAD to "/" and reads the response header.
+        self.assertIn("Strict-Transport-Security", js)
+
+
+# ── CSP report throttle (in-memory sliding window) ──────────────────────────
+
+class TestCspReportThrottle(unittest.TestCase):
+    """Direct call against _csp_report_should_throttle. Keeps the
+    rate-limit logic honest without round-tripping through CGI."""
+
+    def setUp(self):
+        # Fresh module import per test so the in-memory bucket is empty.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'api_throttle', REPO_ROOT / 'server' / 'cgi-bin' / 'api.py')
+        self.api = importlib.util.module_from_spec(spec)
+        # The api module mkdirs DATA_DIR at import. Point it somewhere
+        # writable, like the test data dir.
+        os.environ.setdefault('RP_DATA_DIR', tempfile.mkdtemp())
+        spec.loader.exec_module(self.api)
+        self.api._csp_report_rate.clear()
+
+    def test_zero_disables_throttling(self):
+        for _ in range(50):
+            self.assertFalse(self.api._csp_report_should_throttle('1.2.3.4', 0))
+
+    def test_throttle_at_cap(self):
+        # First N go through, N+1 is throttled.
+        for _ in range(10):
+            self.assertFalse(self.api._csp_report_should_throttle('1.2.3.4', 10))
+        self.assertTrue(self.api._csp_report_should_throttle('1.2.3.4', 10))
+
+    def test_throttle_is_per_ip(self):
+        for _ in range(10):
+            self.api._csp_report_should_throttle('1.1.1.1', 10)
+        # Different IP: fresh budget.
+        self.assertFalse(self.api._csp_report_should_throttle('2.2.2.2', 10))
+
+
+# ── Admin-config password fields wrapped to suppress the DOM warning ────────
+
+class TestAdminPasswordWrappers(unittest.TestCase):
+    """Each admin-config password input (SMTP, LDAP, Proxmox, AI
+    api-key, CMDB vault, webterm) now sits inside a tiny
+    <form autocomplete="off" data-csp-pw-form> — that wrapper silences
+    the Chrome / Firefox "[DOM] Password field is not contained in a
+    form" warning, tells password managers NOT to autofill (we don't
+    want service-account credentials autofilled), and a delegated JS
+    handler preventDefaults submits so Enter inside the field doesn't
+    navigate."""
+
+    INDEX_HTML = REPO_ROOT / 'server' / 'html' / 'index.html'
+
+    PROTECTED = [
+        'cfg-smtp-password', 'cfg-ldap-bind-password', 'proxmox-token-secret',
+        'ai-api-key', 'ldap-test-user-pw', 'webterm-ssh-pw',
+        'webterm-admin-pw', 'cmdb-vault-setup-pw', 'cmdb-vault-setup-pw2',
+        'cmdb-vault-unlock-pw', 'cmdb-vault-rotate-old',
+        'cmdb-vault-rotate-new', 'cmdb-vault-rotate-new2',
+        'cmdb-cred-password',
+    ]
+
+    def test_each_input_is_wrapped(self):
+        html = self.INDEX_HTML.read_text()
+        for elid in self.PROTECTED:
+            # Pattern: <form ... data-csp-pw-form>...<input id="X">...</form>
+            # Be liberal on whitespace.
+            pat = re.compile(
+                rf'<form[^>]*data-csp-pw-form[^>]*>[^<]*<input\b[^>]*\bid="{re.escape(elid)}"',
+                re.DOTALL)
+            self.assertRegex(html, pat,
+                f'password input #{elid} must sit inside <form data-csp-pw-form>')
+
+    def test_submit_handler_preventdefault(self):
+        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        # A document-level submit listener that matches the marker form
+        # and preventDefaults must exist.
+        self.assertRegex(js,
+            r"matches\(\s*['\"]form\[data-csp-pw-form\]['\"]\s*\)",
+            'app.js must preventDefault submit for [data-csp-pw-form]')

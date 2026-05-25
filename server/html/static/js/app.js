@@ -1394,7 +1394,51 @@ async function loadSettings() {
   // Lives in its own endpoint so non-admins can still load /api/config
   // for their own use.
   try { await loadAISettings(); } catch(e) {}
+
+  // v3.0.6: load Security pane diagnostics (audit-log counts, CSP
+  // toggle state, HSTS detection). Lives in its own endpoint and
+  // is fire-and-forget — failures degrade gracefully to placeholders.
+  try { await loadSecurityDiag(); } catch(e) {}
 }
+
+// v3.0.6: populate the Security pane's diagnostics from /api/security/diag
+// plus a live read of the current document's response headers (for HSTS).
+async function loadSecurityDiag() {
+  const diag = await api('GET', '/security/diag');
+  if (diag && !diag.error) {
+    document.getElementById('cfg-csp-report-logging').checked =
+      diag.csp_report_logging !== false;
+    document.getElementById('cfg-csp-throttle').value =
+      Number.isFinite(diag.csp_report_throttle_per_minute)
+        ? diag.csp_report_throttle_per_minute
+        : 10;
+    document.getElementById('cfg-csp-stat-24h').textContent =
+      String(diag.csp_reports_last_24h ?? '—');
+    document.getElementById('cfg-audit-entries').textContent =
+      String(diag.audit_log_entries ?? '—');
+    const archive = diag.audit_log_archive_size_bytes || 0;
+    document.getElementById('cfg-audit-archive').textContent =
+      archive > 0 ? `${(archive / 1024).toFixed(1)} KB` : '—';
+    document.getElementById('cfg-audit-retention').textContent =
+      String(diag.audit_log_retention_days ?? '—');
+  }
+  // HSTS detection — issue a HEAD against the current page and read
+  // the Strict-Transport-Security header out of the response. Fetch
+  // is same-origin, doesn't need any auth context.
+  const hstsEl = document.getElementById('cfg-hsts-status');
+  try {
+    const r = await fetch('/', { method: 'HEAD', credentials: 'omit' });
+    const sts = r.headers.get('Strict-Transport-Security');
+    if (sts) {
+      hstsEl.innerHTML = `<span class="c-green">✓ HSTS enabled.</span> Header: <code>${escHtml(sts)}</code>`;
+    } else {
+      hstsEl.innerHTML = '<span class="c-amber">⚠ HSTS is not currently being served.</span> Enable in nginx (see below) once your deployment is HTTPS-only.';
+    }
+  } catch (_) {
+    hstsEl.textContent = 'Unable to probe HSTS — could not reach the server.';
+  }
+}
+
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
 async function saveSettings(btn) {
   const webhook_events = {};
@@ -1451,6 +1495,14 @@ async function saveSettings(btn) {
     ldap_admin_group:    document.getElementById('cfg-ldap-admin-group').value.trim(),
     ldap_tls_verify:     document.getElementById('cfg-ldap-tls-verify').checked,
     ldap_timeout:        parseInt(document.getElementById('cfg-ldap-timeout').value) || 5,
+
+    // v3.0.6: CSP report toggle + per-IP throttle. Both editable on the
+    // Security pane; defaults are on / 10-per-minute.
+    csp_report_logging:             document.getElementById('cfg-csp-report-logging')?.checked ?? true,
+    csp_report_throttle_per_minute: (() => {
+      const el = document.getElementById('cfg-csp-throttle');
+      return el ? (parseInt(el.value, 10) || 0) : 10;
+    })(),
   };
   // Only send password fields if the user typed something — empty string
   // v3.0.2: multi-webhook destinations — collect current editor state
@@ -2227,7 +2279,12 @@ async function webtermConnect() {
   const Term = window.Terminal;
   const FitAddon = window.FitAddon?.FitAddon;
   const term = new Term({
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    // JetBrains Mono ships under /static/vendor/fonts/ — the strict-CSP
+    // migration self-hosted it. Putting it at the front of the chain
+    // gives a consistent monospace across Linux / macOS / Windows
+    // instead of the per-OS fallback that operators reported as
+    // "the font changed after the migration".
+    fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
     fontSize: 13,
     theme: { background: '#000000', foreground: '#dddddd' },
     cursorBlink: true,
@@ -4120,6 +4177,7 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-deviceid').value = deviceId;
   document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
+  document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
   document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
   document.getElementById('cmdb-asset-ssh-port').value   = res.data.ssh_port || 22;
   document.getElementById('cmdb-asset-hostname').textContent = res.data.hostname || '—';
@@ -4344,6 +4402,7 @@ async function cmdbAssetSave() {
   const body = {
     asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
+    vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
   };
@@ -12573,6 +12632,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // default navigation.
   ['passwd-form', 'user-add-form'].forEach(id => {
     document.getElementById(id)?.addEventListener('submit', e => e.preventDefault());
+  });
+
+  // v3.0.6: admin-config password fields (SMTP / LDAP / Proxmox /
+  // CMDB vault / etc.) are wrapped in tiny <form autocomplete="off"
+  // data-csp-pw-form> elements so the browser silences the "[DOM]
+  // Password field is not contained in a form" cosmetic warning AND
+  // doesn't offer password-manager autofill for service-account
+  // credentials. Pressing Enter inside one would otherwise navigate
+  // (default form submit) — preventDefault here keeps the page put.
+  document.addEventListener('submit', e => {
+    if (e.target && e.target.matches('form[data-csp-pw-form]')) {
+      e.preventDefault();
+    }
   });
 
   // Header buttons
