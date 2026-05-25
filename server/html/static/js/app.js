@@ -6052,9 +6052,16 @@ async function runCompose(action) {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadPublicInfo();
-  document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-  document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-  document.getElementById('login-user').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-pass').focus(); });
+  // The login fields are now inside #login-form so Enter triggers the
+  // form's submit naturally — no per-field keydown listeners required.
+  // Keep the username → password focus-on-Enter so tab-less keyboards
+  // (and operators who hit Enter after username) still flow through.
+  document.getElementById('login-user').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('login-pass').focus();
+    }
+  });
   // v1.11.5: best-effort flush on tab close. Browsers limit what fetch()
   // can do in 'beforeunload', but a fire-and-forget request often makes
   // it out before the page is gone. The 600ms debounce already covers
@@ -12516,8 +12523,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // CSP L1 fix: wire up all static HTML event handlers removed from index.html
 document.addEventListener('DOMContentLoaded', () => {
-  // Login button
-  document.querySelector('.login-btn')?.addEventListener('click', doLogin);
+  // Login submit (form-wrapped in v3.0.4 so the browser's password manager
+  // can offer autofill — "[DOM] Password field is not contained in a form").
+  // preventDefault on submit so the form doesn't try to navigate.
+  document.getElementById('login-form')?.addEventListener('submit', e => {
+    e.preventDefault();
+    doLogin();
+  });
 
   // Header buttons
   document.querySelector('.theme-btn')?.addEventListener('click', toggleTheme);

@@ -33,28 +33,28 @@
   <div class="login-logo-wrap">
     <img src="static/img/logo-primary.png" alt="RemotePower" class="login-logo-img">
   </div>
-  <div class="login-card">
+  <form class="login-card" id="login-form" autocomplete="on">
     <div class="login-title">Sign in</div>
     <div class="login-sub">Access your device control panel</div>
     <div class="form-group">
-      <label class="form-label">Username</label>
-      <input type="text" id="login-user" class="form-input" placeholder="admin" autocomplete="username">
+      <label class="form-label" for="login-user">Username</label>
+      <input type="text" id="login-user" name="username" class="form-input" placeholder="admin" autocomplete="username">
     </div>
     <div class="form-group">
-      <label class="form-label">Password</label>
-      <input type="password" id="login-pass" class="form-input" placeholder="••••••••" autocomplete="current-password">
+      <label class="form-label" for="login-pass">Password</label>
+      <input type="password" id="login-pass" name="password" class="form-input" placeholder="••••••••" autocomplete="current-password">
     </div>
     <div class="form-group d-none" id="totp-group">
-      <label class="form-label">Authenticator Code (2FA)</label>
-      <input type="text" id="login-totp" class="form-input isl-1" placeholder="123456" maxlength="6" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*">
+      <label class="form-label" for="login-totp">Authenticator Code (2FA)</label>
+      <input type="text" id="login-totp" name="totp" class="form-input isl-1" placeholder="123456" maxlength="6" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*">
     </div>
     <label class="isl-2">
       <input type="checkbox" id="login-remember" class="isl-3">
       Remember me on this device
     </label>
-    <button class="login-btn" >Sign in</button>
+    <button type="submit" class="login-btn" >Sign in</button>
     <div id="login-error" class="login-error">Invalid username or password</div>
-  </div>
+  </form>
 </div>
 
 <!-- ══ APP ════════════════════════════════════════════════════════════════════ -->
