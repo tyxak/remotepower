@@ -1086,7 +1086,7 @@ async function confirmReboot() { closeModal('reboot-modal'); const data = await 
 async function sendWol(id, name) { const data = await api('POST', '/wol', {device_id: id}); if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success'); else toast(data?.error || 'WoL failed', 'error'); }
 async function removeDevice(id) { if (!confirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
 const deviceIcons = ['🖥️','💻','🖲️','📱','🖨️','📡','🌐','🗄️','🔌','💾','📟','🎮','📺','🏠','🏢','🏭','☁️','🐳','🐧','🪟','🍎','🔴','🟢','🔵','🟡','⚡','🛡️','🔒','📦','🧪'];
-function openIconModal(id, current) { document.getElementById('icon-device-id').value = id; document.getElementById('icon-custom').value = current || ''; const picker = document.getElementById('icon-picker'); picker.innerHTML = deviceIcons.map(e => `<button data-set-icon-val="${e}" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" class="isl-326">${e}</button>`).join(''); openModal('icon-modal'); }
+function openIconModal(id, current) { document.getElementById('icon-device-id').value = id; document.getElementById('icon-custom').value = current || ''; const picker = document.getElementById('icon-picker'); picker.innerHTML = deviceIcons.map(e => `<button data-set-icon-val="${e}" class="isl-326">${e}</button>`).join(''); openModal('icon-modal'); }
 async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -3193,8 +3193,13 @@ let logsRulesTab = 'device';  // 'device' | 'global'
 
 function switchRulesTab(tab) {
   logsRulesTab = tab;
-  document.getElementById('logs-rules-device-wrap').style.display = (tab === 'device') ? '' : 'none';
-  document.getElementById('logs-rules-global-wrap').style.display = (tab === 'global') ? '' : 'none';
+  // CSP L1 (v3.0.5): the Fleet-wide tab's wrapper has .d-none in its
+  // initial markup (display:none from the utility class). Setting
+  // style.display = '' only clears the inline attribute, leaving the
+  // class rule in effect — the user reported "Fleet-wide tab not
+  // loading". Use explicit 'block' to beat the class.
+  document.getElementById('logs-rules-device-wrap').style.display = (tab === 'device') ? 'block' : 'none';
+  document.getElementById('logs-rules-global-wrap').style.display = (tab === 'global') ? 'block' : 'none';
   // Style the active tab
   const dBtn = document.getElementById('logs-tab-device');
   const gBtn = document.getElementById('logs-tab-global');
@@ -3727,8 +3732,7 @@ function renderTaskCard(t) {
     meta.push(ago);
   }
   return `<div class="kanban-card" draggable="true"
-              ondragstart="onTaskDragStart(event,'${escHtml(t.id)}')"
-              ondragend="onTaskDragEnd(event)"
+              data-task-id="${escAttr(t.id)}"
               data-action="openTaskModal" data-arg="${escAttr(t.id)}" >
     <div class="kanban-card-title">${escHtml(t.title)}</div>
     <div class="kanban-card-meta">
@@ -5596,7 +5600,6 @@ function _renderLinkCard(l) {
   // <a> wrapper rather than onclick=window.open so middle-click and
   // ctrl-click work naturally for power users.
   const cardInner = `<div
-    onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface2)'"
     title="${escHtml(l.description || l.url)}" class="isl-496 ${_linksEditMode ? 'edit-mode' : ''}" data-bd-style="${borderStyle}" data-bd-color="${borderColor}">
     <div>
       <div class="isl-497">
@@ -10470,8 +10473,12 @@ function _renderDrawerAuditSections() {
   if (!el || el.dataset.rendered === _drawerDeviceId) return;
   el.dataset.rendered = _drawerDeviceId;
 
+  // CSP L1 (v3.0.5 fix): the inline `onToggle="…"` attribute was
+  // blocked by `script-src 'self'`. <details> has no `data-action`
+  // equivalent through the delegated-click handler (toggle isn't a
+  // click), so we attach the toggle listener directly after rendering.
   el.innerHTML = _AUDIT_SECTIONS.map(s =>
-    `<details class="audit-section" id="audit-sec-${s.key}" onToggle="_onAuditToggle('${s.key}', this)">
+    `<details class="audit-section" id="audit-sec-${s.key}" data-audit-key="${s.key}">
       <summary>
         <span>${s.icon} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
       </summary>
@@ -10480,6 +10487,10 @@ function _renderDrawerAuditSections() {
       </div>
     </details>`
   ).join('');
+  // Wire the toggle event for each <details> after innerHTML.
+  el.querySelectorAll('details[data-audit-key]').forEach(d => {
+    d.addEventListener('toggle', () => _onAuditToggle(d.dataset.auditKey, d));
+  });
 }
 
 function _onAuditToggle(key, el) {
@@ -12615,9 +12626,19 @@ document.addEventListener('DOMContentLoaded', () => {
     saveDeviceIcon(document.getElementById('icon-custom').value);
   });
 
-  // Kanban drag-drop — delegated on the board container
+  // Kanban drag-drop — delegated on the board container.
+  // v3.0.5: dragstart/dragend also wired here so the kanban-card markup
+  // doesn't need inline `ondragstart=` / `ondragend=` (CSP-blocked).
   const kanbanBoard = document.querySelector('.kanban-board');
   if (kanbanBoard) {
+    kanbanBoard.addEventListener('dragstart', e => {
+      const card = e.target.closest('.kanban-card[data-task-id]');
+      if (card) onTaskDragStart(e, card.dataset.taskId);
+    });
+    kanbanBoard.addEventListener('dragend', e => {
+      const card = e.target.closest('.kanban-card');
+      if (card) onTaskDragEnd(e);
+    });
     kanbanBoard.addEventListener('dragover', e => {
       const col = e.target.closest('.kanban-column');
       if (col) onKanbanDragOver(e);
