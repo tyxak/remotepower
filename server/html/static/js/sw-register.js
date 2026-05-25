@@ -126,15 +126,46 @@
   var _installBtn    = null;
   var _installPending = false;
 
-  // When the page is loaded as an installed PWA (standalone display
-  // mode), the install button must not show — there's nothing left to
-  // install. Some browsers still fire beforeinstallprompt in that
-  // context for the manifest update flow; we suppress it here.
-  function _isInstalledPwa() {
+  // Detect whether the app is installed.
+  //
+  // Three signals, any one of which counts as "installed":
+  //   1. Currently loaded in standalone display mode (e.g. opened from
+  //      the OS app launcher) — definitive for *this* page.
+  //   2. iOS Safari's window.navigator.standalone (older API).
+  //   3. localStorage flag set the first time we ever loaded in
+  //      standalone mode — covers the case where the user installed,
+  //      opened the PWA once (so the flag was written), and is now
+  //      looking at the same origin in a normal browser tab. Chrome
+  //      fires `beforeinstallprompt` again in that tab; we don't want
+  //      to offer install when the user already has it.
+  //
+  // (3) is the only one that works in a regular browser tab — Chrome
+  // doesn't expose "the user installed this PWA" to the page for
+  // privacy reasons. We bootstrap the flag by writing it whenever the
+  // PWA is opened in standalone (which happens at least once after
+  // install since the OS launches the standalone window).
+  var _PWA_INSTALLED_KEY = 'rp_pwa_installed';
+
+  function _isStandalone() {
     try {
-      return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-          || window.navigator.standalone === true;
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.navigator.standalone === true) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function _isInstalledPwa() {
+    if (_isStandalone()) return true;
+    try {
+      return localStorage.getItem(_PWA_INSTALLED_KEY) === '1';
     } catch (_) { return false; }
+  }
+
+  // Bootstrap: if we're currently loaded as standalone, the PWA is
+  // installed — write the flag so future regular-tab loads on this
+  // profile can suppress the install button.
+  if (_isStandalone()) {
+    try { localStorage.setItem(_PWA_INSTALLED_KEY, '1'); } catch (_) {}
   }
 
   function _revealInstallBtn() {
@@ -180,8 +211,12 @@
   };
 
   // Hide the button if the user installs via the browser's own UI.
+  // Persist the flag so the install button stays hidden on subsequent
+  // page loads in a regular browser tab (Chrome will keep firing
+  // beforeinstallprompt for the same profile, even after install).
   window.addEventListener('appinstalled', function () {
     _installPrompt = null;
+    try { localStorage.setItem(_PWA_INSTALLED_KEY, '1'); } catch (_) {}
     _hideInstallBtn();
   });
 }());
