@@ -2729,7 +2729,9 @@ async function loadServicesReport() {
   const maint = await api('GET', '/maintenance');
   const active = (maint?.windows || []).filter(w => w.active).length;
   if (active > 0) {
-    document.getElementById('services-maint-badge').style.display = '';
+    // CSP L1: the badge's initial-hide lives in .isl-138 (CSS class);
+    // setting `display = ''` would leave it hidden. Explicit value wins.
+    document.getElementById('services-maint-badge').style.display = 'inline-block';
     document.getElementById('services-maint-count').textContent = active;
   } else {
     document.getElementById('services-maint-badge').style.display = 'none';
@@ -6777,22 +6779,27 @@ async function loadAIPage() {
   _aiPageRenderConv();
 
   const cfg = await aiApi('GET', '/ai/config');
+  // CSP L1 (v3.0.4): the initial-hide for these elements is now a CSS
+  // class with `display: none` (auto-generated from the original
+  // inline style="display:none"). `element.style.display = ''` removes
+  // only the *inline* property — the class rule keeps the element
+  // hidden. Reveal must use an explicit display value (same lesson as
+  // the v3.0.3 #pwa-install-btn fix).
   if (!cfg.ok && cfg.error && /disabled/i.test(cfg.error)) {
-    // Show the "AI is disabled" banner and hide everything else
-    document.getElementById('ai-page-disabled').style.display = '';
+    document.getElementById('ai-page-disabled').style.display = 'block';
     document.getElementById('ai-page-status').style.display = 'none';
     document.getElementById('ai-page-chat-wrap').style.display = 'none';
     return;
   }
   if (!cfg.ok || !cfg.enabled) {
-    document.getElementById('ai-page-disabled').style.display = '';
+    document.getElementById('ai-page-disabled').style.display = 'block';
     document.getElementById('ai-page-status').style.display = 'none';
     document.getElementById('ai-page-chat-wrap').style.display = 'none';
     return;
   }
   document.getElementById('ai-page-disabled').style.display = 'none';
-  document.getElementById('ai-page-status').style.display = '';
-  document.getElementById('ai-page-chat-wrap').style.display = '';
+  document.getElementById('ai-page-status').style.display = 'block';
+  document.getElementById('ai-page-chat-wrap').style.display = 'block';
 
   // Fire these in parallel — they don't depend on each other
   aiPageRefreshStats();
@@ -12381,13 +12388,17 @@ async function _mitigateRunAi() {
 function mitigateRerunAi() { _mitigateRunAi(); }
 
 function _mitigateRenderFixOptions(aiResult) {
-  // Show the suggested fix in the AI pane
+  // Show the suggested fix in the AI pane.
+  // CSP L1: explicit display values for everything that's hidden by a
+  // CSS class with `display: none` (was inline `style="display:none"`
+  // pre-migration). Empty string would just remove the inline attribute
+  // and leave the class rule in effect.
   if (aiResult.suggested_fix) {
-    document.getElementById('mitigate-ai-fix-box').style.display = '';
+    document.getElementById('mitigate-ai-fix-box').style.display = 'block';
     document.getElementById('mitigate-ai-fix').textContent = aiResult.suggested_fix;
     const warn = document.getElementById('mitigate-ai-fix-warning');
     if (aiResult.denylist_match) {
-      warn.style.display = '';
+      warn.style.display = 'block';
       warn.innerHTML = `<div class="isl-694">
         <strong>⛔ Refused — denylist match.</strong>
         ${escHtml(aiResult.denylist_reason || '')}
@@ -12397,15 +12408,15 @@ function _mitigateRenderFixOptions(aiResult) {
       </div>`;
       document.getElementById('mitigate-ai-use').style.display = 'none';
     } else if (aiResult.requires_confirmation) {
-      warn.style.display = '';
+      warn.style.display = 'block';
       warn.innerHTML = `<div class="isl-695">
         <strong>⚠ Sensitive — requires explicit RUN confirmation</strong>
         <div class="isl-696">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
       </div>`;
-      document.getElementById('mitigate-ai-use').style.display = '';
+      document.getElementById('mitigate-ai-use').style.display = 'inline-flex';
     } else {
       warn.style.display = 'none';
-      document.getElementById('mitigate-ai-use').style.display = '';
+      document.getElementById('mitigate-ai-use').style.display = 'inline-flex';
     }
   } else {
     document.getElementById('mitigate-ai-fix-box').style.display = 'none';
@@ -12529,6 +12540,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form')?.addEventListener('submit', e => {
     e.preventDefault();
     doLogin();
+  });
+  // The Change Password and Add User modals are also <form> elements so
+  // browser password managers can offer to save/autofill credentials.
+  // Their type="submit" button's data-action click handler runs the
+  // actual API call; we just need to stop the form from doing its
+  // default navigation.
+  ['passwd-form', 'user-add-form'].forEach(id => {
+    document.getElementById(id)?.addEventListener('submit', e => e.preventDefault());
   });
 
   // Header buttons
