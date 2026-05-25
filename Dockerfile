@@ -26,6 +26,8 @@ COPY server/html/                   /var/www/remotepower/
 COPY server/cgi-bin/                /var/www/remotepower/cgi-bin/
 COPY server/remotepower-passwd      /var/www/remotepower/cgi-bin/remotepower-passwd
 COPY client/remotepower-agent       /var/www/remotepower/agent/remotepower-agent
+# Long-form Manual.html — linked from the in-app Documentation page as /Manual.html.
+COPY docs/Manual.html               /var/www/remotepower/Manual.html
 RUN chmod 755 /var/www/remotepower/cgi-bin/api.py \
               /var/www/remotepower/cgi-bin/remotepower-passwd \
               /var/www/remotepower/agent/remotepower-agent && \

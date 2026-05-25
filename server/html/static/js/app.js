@@ -12703,6 +12703,7 @@ function _homeNavAction(btn) {
     case 'history':  showPage('history',         document.querySelector('.nav-btn[data-page="history"]')); break;
     case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-page="tls"]')); break;
     case 'virtualization': showPage('virtualization', document.querySelector('.nav-btn[data-page="virtualization"]')); break;
+    case 'self':     showPage('self',            document.querySelector('.nav-btn[data-page="self"]')); break;
     default:
       if (devId) openDetail(devId, devName);
       else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));

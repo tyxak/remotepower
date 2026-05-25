@@ -138,34 +138,53 @@ class TestSecurityAssets(unittest.TestCase):
             self.assertNotIn("'unsafe-inline'", csp_line,
                              f"{name} CSP directive still contains 'unsafe-inline' (L1 finding)")
 
+    # All HTML files that get served to a browser. Anything added here is
+    # subject to the strict CSP and must contain no inline code or external
+    # auto-loaded resources.
+    _SHIPPED_HTML = [
+        ('server/html/index.html',   'index.html'),
+        ('server/html/swagger.html', 'swagger.html'),
+        ('docs/Manual.html',         'Manual.html'),
+    ]
+
     def test_no_inline_scripts_in_html(self):
         import re
-        for fname in ('index.html', 'swagger.html'):
-            html = (_ROOT / 'server' / 'html' / fname).read_text()
+        for relpath, name in self._SHIPPED_HTML:
+            html = (_ROOT / relpath).read_text()
             inline_scripts = re.findall(r'<script(?![^>]*src=)[^>]*>', html, re.IGNORECASE)
             self.assertEqual(inline_scripts, [],
-                             f'Inline <script> blocks found in {fname}: {inline_scripts}')
+                             f'Inline <script> blocks found in {name}: {inline_scripts}')
             inline_styles = re.findall(r'<style[^>]*>', html, re.IGNORECASE)
             self.assertEqual(inline_styles, [],
-                             f'Inline <style> blocks found in {fname}: {inline_styles}')
+                             f'Inline <style> blocks found in {name}: {inline_styles}')
             # Only flag tags that the browser auto-loads (script/link/img/iframe),
             # not user-clickable <a href> documentation links.
             ext = re.findall(
                 r'<(?:script|link|img|iframe)[^>]*\s(?:src|href)="(https?://[^"]+)"',
                 html, re.IGNORECASE)
             self.assertEqual(ext, [],
-                             f'{fname} auto-loads external resources: {ext}')
+                             f'{name} auto-loads external resources: {ext}')
 
     def test_no_inline_event_handlers_in_html(self):
         import re
-        for fname in ('index.html', 'swagger.html'):
-            html = (_ROOT / 'server' / 'html' / fname).read_text()
-            handlers = re.findall(r'\s(on(?:click|change|input|keydown|drop|dragover|dragleave)=)', html)
+        for relpath, name in self._SHIPPED_HTML:
+            html = (_ROOT / relpath).read_text()
+            handlers = re.findall(r'\s(on(?:click|change|input|keydown|drop|dragover|dragleave|load|error)=)', html)
             self.assertEqual(handlers, [],
-                             f'Inline event handlers found in {fname}: {handlers}')
+                             f'Inline event handlers found in {name}: {handlers}')
             attr_styles = re.findall(r'<[a-zA-Z][^>]*\sstyle="', html)
             self.assertEqual(attr_styles, [],
-                             f'Inline style= attrs found in {fname}: {len(attr_styles)}')
+                             f'Inline style= attrs found in {name}: {len(attr_styles)}')
+
+    def test_no_javascript_uri_in_html(self):
+        # CSP `script-src 'self'` blocks javascript: URIs (e.g. <a href="javascript:foo()">).
+        # Use data-action="…" data-prevent-default instead.
+        import re
+        for relpath, name in self._SHIPPED_HTML:
+            html = (_ROOT / relpath).read_text()
+            uris = re.findall(r'(?:href|src)\s*=\s*[\'"]javascript:[^\'"]*[\'"]', html, re.IGNORECASE)
+            self.assertEqual(uris, [],
+                             f'{name} contains javascript: URIs: {uris}')
 
     def test_vendor_libs_are_self_hosted(self):
         # CSP 'self' only allows /static/* origins, so the vendor libs the

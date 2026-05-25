@@ -64,6 +64,14 @@ for f in "$SCRIPT_DIR"/server/html/favicon.* \
     echo "      → $name"
 done
 
+# Long-form Manual.html lives in docs/ in the repo (developer-facing tree)
+# but is linked from the in-app Documentation page as /Manual.html — copy it
+# to the web root so that link works in production.
+if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
+    install -m 644 "$SCRIPT_DIR/docs/Manual.html" /var/www/remotepower/Manual.html
+    echo "      → Manual.html"
+fi
+
 # v2.0: deploy /static/ tree (logos, future CSS/JS extraction targets).
 # rsync rather than cp -r so re-runs don't fail on existing-dir.
 if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
