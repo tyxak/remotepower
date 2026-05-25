@@ -12568,6 +12568,13 @@ document.addEventListener('DOMContentLoaded', () => {
     showPage('home', document.querySelector('.nav-btn[data-page="home"]'));
   });
 
+  // Settings → AI assistant deep-link
+  document.getElementById('link-to-ai-settings')?.addEventListener('click', e => {
+    e.preventDefault();
+    showPage('settings', document.querySelector('.nav-btn[data-page="settings"]'));
+    setTimeout(() => switchSettingsTab('ai'), 50);
+  });
+
   // Mobile sidebar open/close
   document.querySelector('.mobile-burger')?.addEventListener('click', toggleMobileNav);
   document.querySelector('.sidebar-mobile-close')?.addEventListener('click', toggleMobileNav);
@@ -12591,6 +12598,108 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleSidebarGroup(group);
       }
     });
+  }
+
+  // Specific buttons that pass `this` (the element) to their handler
+  document.getElementById('btn-save-settings')?.addEventListener('click', function () { saveSettings(this); });
+  document.getElementById('btn-trigger-cve-scan')?.addEventListener('click', function () { triggerCVEScan(undefined, this); });
+  document.getElementById('iac-generate-btn')?.addEventListener('click', function () { iacGenerate(this, true); });
+  document.getElementById('iac-rawjson-btn')?.addEventListener('click', function () { iacGenerate(this, false); });
+  document.getElementById('iac-rerun-btn')?.addEventListener('click', function () { _iacRerunAi(this); });
+  document.getElementById('iac-copy-btn')?.addEventListener('click', function () { _iacCopy(this); });
+
+  // Device icon modal buttons
+  document.getElementById('btn-device-icon-clear')?.addEventListener('click', () => saveDeviceIcon(''));
+  document.getElementById('btn-device-icon-save')?.addEventListener('click', () => {
+    saveDeviceIcon(document.getElementById('icon-custom').value);
+  });
+
+  // Kanban drag-drop — delegated on the board container
+  const kanbanBoard = document.querySelector('.kanban-board');
+  if (kanbanBoard) {
+    kanbanBoard.addEventListener('dragover', e => {
+      const col = e.target.closest('.kanban-column');
+      if (col) onKanbanDragOver(e);
+    });
+    kanbanBoard.addEventListener('dragleave', e => {
+      const col = e.target.closest('.kanban-column');
+      if (col) onKanbanDragLeave(e);
+    });
+    kanbanBoard.addEventListener('drop', e => {
+      const col = e.target.closest('[data-kanban-col]');
+      if (col) onKanbanDrop(e, col.dataset.kanbanCol);
+    });
+  }
+
+  // Keydown handlers (elements have IDs)
+  document.getElementById('ai-page-input')?.addEventListener('keydown', aiPageInputKey);
+  document.getElementById('logs-search-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') runLogSearch();
+  });
+});
+
+// Delegated click handler for page-level buttons using data-action / data-arg
+document.addEventListener('click', e => {
+  // data-action-btn: functions that need the element as first or second arg
+  const btnEl = e.target.closest('[data-action-btn]');
+  if (btnEl) {
+    const fn = window[btnEl.dataset.actionBtn];
+    if (!fn) return;
+    const boolArg = btnEl.dataset.argBool;
+    if (boolArg !== undefined) fn(btnEl, boolArg === 'true');
+    else fn(btnEl);
+    return;
+  }
+
+  // data-action: standard function call with optional arg
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const fn = window[el.dataset.action];
+  if (!fn) return;
+
+  const rawArg = el.dataset.arg;
+  const boolArg = el.dataset.argBool;
+  const passBtn = el.dataset.passBtn;
+
+  if (boolArg !== undefined) {
+    // boolean literal arg (true/false stored as string)
+    const b = boolArg === 'true';
+    if (passBtn) fn(b, el);
+    else fn(b);
+  } else if (rawArg !== undefined) {
+    // string or numeric arg — coerce to number when the string is a valid number
+    const arg = (rawArg !== '' && !isNaN(rawArg)) ? Number(rawArg) : rawArg;
+    if (passBtn) fn(arg, el);
+    else fn(arg);
+  } else {
+    fn();
+  }
+
+  if (el.dataset.action2) {
+    const fn2 = window[el.dataset.action2];
+    if (fn2) fn2();
+  }
+});
+
+// Delegated change handler for data-change attributes
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.dataset.change) {
+    const fn = window[el.dataset.change];
+    if (!fn) return;
+    if (el.dataset.changeChecked) fn(el.checked);
+    else fn();
+  }
+});
+
+// Delegated input handler for data-input attributes
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.dataset.input) {
+    const fn = window[el.dataset.input];
+    if (!fn) return;
+    if (el.dataset.inputValue) fn(el.value);
+    else fn();
   }
 });
 

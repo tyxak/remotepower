@@ -372,11 +372,11 @@
             <div id="tag-filter-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-secondary" onclick="openBulkActions()" title="Run an operation across many devices at once (Ctrl-K → Bulk actions)" style="display:flex;align-items:center;gap:6px;padding:8px 14px">
+            <button class="btn-secondary" data-action="openBulkActions" title="Run an operation across many devices at once (Ctrl-K → Bulk actions)" style="display:flex;align-items:center;gap:6px;padding:8px 14px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
               Bulk actions
             </button>
-            <button class="enroll-btn" onclick="openEnrollModal()">
+            <button class="enroll-btn" data-action="openEnrollModal" >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Enroll device
             </button>
@@ -385,43 +385,43 @@
 
         <div id="batch-bar" class="batch-bar">
           <span style="font-size:13px;color:var(--accent);font-weight:600"><span id="batch-count">0</span> selected</span>
-          <button class="btn-shutdown" onclick="batchAction('shutdown')">
+          <button class="btn-shutdown" data-action="batchAction" data-arg="shutdown" >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down all
           </button>
-          <button class="btn-reboot" onclick="batchAction('reboot')">
+          <button class="btn-reboot" data-action="batchAction" data-arg="reboot" >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot all
           </button>
-          <button class="btn-upgrade" onclick="batchAction('upgrade')" title="Upgrade packages via apt / dnf / pacman on each device">
+          <button class="btn-upgrade" data-action="batchAction" data-arg="upgrade" title="Upgrade packages via apt / dnf / pacman on each device">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg> Upgrade packages
           </button>
-          <button class="btn-update" onclick="batchAction('update')" title="Update the RemotePower agent binary on each device">
+          <button class="btn-update" data-action="batchAction" data-arg="update" title="Update the RemotePower agent binary on each device">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8"/><polyline points="8 6 12 2 16 6"/><path d="M20 13v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6"/></svg> Update agent
           </button>
           <!-- v2.1.0: queue a saved script (multi-line) across the selected devices -->
-          <button class="btn-icon" style="padding:7px 14px" onclick="openScriptRunForBatch()" title="Pick a saved script and queue it on the selected devices">
+          <button class="btn-icon" style="padding:7px 14px" data-action="openScriptRunForBatch" title="Pick a saved script and queue it on the selected devices">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Run script
           </button>
-          <button class="btn-secondary" style="padding:7px 14px" onclick="clearSelection()">Clear</button>
+          <button class="btn-secondary" style="padding:7px 14px" data-action="clearSelection" >Clear</button>
         </div>
         <!-- Search / filter bar -->
         <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="position:relative;flex:1;max-width:300px">
             <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="device-search-input" class="form-input" placeholder="Search devices…" oninput="filterDevices()" style="padding:8px 12px 8px 34px;font-size:13px">
+            <input type="text" id="device-search-input" class="form-input" placeholder="Search devices…" data-input="filterDevices" style="padding:8px 12px 8px 34px;font-size:13px">
           </div>
-          <select id="device-status-filter" class="form-input" onchange="filterDevices()" style="width:auto;padding:8px 12px;font-size:13px">
+          <select id="device-status-filter" class="form-input" data-change="filterDevices" style="width:auto;padding:8px 12px;font-size:13px">
             <option value="all">All status</option>
             <option value="online">Online only</option>
             <option value="offline">Offline only</option>
           </select>
-          <select id="device-group-filter" class="form-input" onchange="filterDevices()" style="width:auto;padding:8px 12px;font-size:13px">
+          <select id="device-group-filter" class="form-input" data-change="filterDevices" style="width:auto;padding:8px 12px;font-size:13px">
             <option value="all">All groups</option>
           </select>
           <!-- v1.11.5: density toggle. Rendered programmatically so the
                selected state matches the user's stored preference on first
                paint. Empty placeholder; populated by renderDevices(). -->
           <span id="devices-density-toggle" style="margin-left:auto"></span>
-          <button class="btn-icon" onclick="agentlessAddOpen()" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
+          <button class="btn-icon" data-action="agentlessAddOpen" title="Add a switch, AP, printer, or other device that can't run the agent">+ Agentless device</button>
         </div>
         <div id="devices-container" class="devices-grid"></div>
       </div>
@@ -433,9 +433,9 @@
         <div class="section-header">
           <div class="section-title">Targets</div>
           <div style="display:flex;gap:8px">
-            <button class="btn-icon" onclick="runMonitor()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Check now</button>
-            <button class="btn-icon" onclick="clearMonitorAlerts()" style="color:var(--amber);border-color:rgba(245,158,11,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Reset alerts</button>
-            <button class="enroll-btn" onclick="openMonitorAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add target</button>
+            <button class="btn-icon" data-action="runMonitor" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Check now</button>
+            <button class="btn-icon" data-action="clearMonitorAlerts" style="color:var(--amber);border-color:rgba(245,158,11,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Reset alerts</button>
+            <button class="enroll-btn" data-action="openMonitorAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add target</button>
           </div>
         </div>
         <!-- v1.11.5: filter input -->
@@ -457,7 +457,7 @@
           <div class="section-title">Device metrics</div>
           <div style="display:flex;gap:8px;align-items:center">
             <span id="device-metrics-summary" style="font-size:12px;color:var(--muted)"></span>
-            <button class="btn-icon" onclick="loadDeviceMetrics()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-icon" data-action="loadDeviceMetrics" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           </div>
         </div>
         <div style="margin-bottom:12px">
@@ -483,7 +483,7 @@
         <!-- v2.8.1: Listening Ports section -->
         <div class="section-header" style="margin-top:32px">
           <div class="section-title">Listening Ports</div>
-          <button class="btn-icon" onclick="loadListeningPorts()">
+          <button class="btn-icon" data-action="loadListeningPorts" >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh
           </button>
         </div>
@@ -496,15 +496,15 @@
           <div style="display:flex;gap:8px;align-items:center">
             <div style="position:relative">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);width:13px;height:13px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="cs-filter" class="form-input" placeholder="Filter…" oninput="renderCustomScriptsPage()" style="padding:6px 10px 6px 28px;font-size:12px;width:160px">
+              <input type="text" id="cs-filter" class="form-input" placeholder="Filter…" data-input="renderCustomScriptsPage" style="padding:6px 10px 6px 28px;font-size:12px;width:160px">
             </div>
-            <select id="cs-status-filter" class="form-input" onchange="renderCustomScriptsPage()" style="width:auto;padding:6px 10px;font-size:12px">
+            <select id="cs-status-filter" class="form-input" data-change="renderCustomScriptsPage" style="width:auto;padding:6px 10px;font-size:12px">
               <option value="all">All</option>
               <option value="fail">Failing</option>
               <option value="ok">OK</option>
             </select>
-            <button class="btn-icon" onclick="loadCustomScripts()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-            <button class="enroll-btn" onclick="openCustomScriptModal()" style="padding:6px 14px;font-size:12px">
+            <button class="btn-icon" data-action="loadCustomScripts" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="enroll-btn" data-action="openCustomScriptModal" style="padding:6px 14px;font-size:12px">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:12px;height:12px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New script
             </button>
           </div>
@@ -543,7 +543,7 @@
       <div id="page-users" class="page">
         <div class="page-title">Admin Users</div>
         <div class="page-subtitle">Manage who can access this dashboard</div>
-        <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" onclick="openUserAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
+        <div class="section-header"><div class="section-title">Accounts</div><button class="enroll-btn" data-action="openUserAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add user</button></div>
         <!-- v1.11.6: filter -->
         <div style="margin-bottom:16px"><input type="text" id="users-filter" class="form-input" placeholder="Filter by username or role…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
@@ -557,21 +557,21 @@
         <!-- v3.0.2: search bar — filters visible settings sections live -->
         <div style="margin-bottom:14px">
           <input type="text" id="settings-search" class="form-input" placeholder="Search settings… (e.g. webhook, smtp, ldap, totp)" 
-                 oninput="filterSettings(this.value)"
+                 data-input="filterSettings" data-input-value="1" 
                  style="max-width:420px;padding:8px 12px;font-size:13px">
         </div>
 
         <!-- v1.8.4: tab switcher -->
         <div class="settings-tabs">
-          <button class="settings-tab active" data-tab="general"  onclick="switchSettingsTab('general')">General</button>
-          <button class="settings-tab"        data-tab="notifs"   onclick="switchSettingsTab('notifs')">Notifications</button>
-          <button class="settings-tab"        data-tab="security" onclick="switchSettingsTab('security')">Security</button>
-          <button class="settings-tab"        data-tab="ai"       onclick="switchSettingsTab('ai')">AI assistant</button>
-          <button class="settings-tab"        data-tab="proxmox"  onclick="switchSettingsTab('proxmox')">Proxmox</button>
-          <button class="settings-tab"        data-tab="mailbox"  onclick="switchSettingsTab('mailbox')">Mailbox monitor</button>
-          <button class="settings-tab"        data-tab="advanced" onclick="switchSettingsTab('advanced')">Advanced</button>
-          <button class="settings-tab"        data-tab="dashboard" onclick="switchSettingsTab('dashboard');loadDashboardSettings()">Dashboard</button>
-          <button class="settings-tab"        data-tab="ignored"   onclick="switchSettingsTab('ignored');loadIgnoredItems()">Ignored items</button>
+          <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
+          <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+          <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
+          <button class="settings-tab"        data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
+          <button class="settings-tab"        data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Proxmox</button>
+          <button class="settings-tab"        data-tab="mailbox"  data-action="switchSettingsTab" data-arg="mailbox" >Mailbox monitor</button>
+          <button class="settings-tab"        data-tab="advanced" data-action="switchSettingsTab" data-arg="advanced" >Advanced</button>
+          <button class="settings-tab"        data-tab="dashboard" data-action="switchSettingsTab" data-arg="dashboard" data-action2="loadDashboardSettings" >Dashboard</button>
+          <button class="settings-tab"        data-tab="ignored"   data-action="switchSettingsTab" data-arg="ignored" data-action2="loadIgnoredItems" >Ignored items</button>
         </div>
 
         <!-- ── General ──────────────────────────────────────────────────── -->
@@ -658,7 +658,7 @@
             <h3>Webhook destinations</h3>
             <p class="hint">Fire each event to any number of destinations simultaneously. Each entry has its own format adapter (Discord, Slack, Pushover, Teams, ntfy, generic JSON) and optional per-destination event filter. Use case: Pushover for critical-only push notifications + Discord channel for all events.</p>
             <div id="webhook-dests" style="display:flex;flex-direction:column;gap:10px"></div>
-            <button class="btn-secondary" style="margin-top:10px" onclick="addWebhookDest()">+ Add destination</button>
+            <button class="btn-secondary" style="margin-top:10px" data-action="addWebhookDest" >+ Add destination</button>
             <p class="hint" style="font-size:11px;margin-top:8px">Pushover credentials (token + user key) are stored encrypted in <code>config.json</code> and redacted from the backup export.</p>
           </div>
 
@@ -671,7 +671,7 @@
                 <input type="url" id="cfg-webhook" class="form-input" placeholder="https://ntfy.sh/your-topic">
               </div>
               <div class="form-group" style="flex:0 0 auto;align-self:flex-end">
-                <button class="btn-icon" style="padding:9px 12px" onclick="clearWebhook()" title="Clear webhook URL">
+                <button class="btn-icon" style="padding:9px 12px" data-action="clearWebhook" title="Clear webhook URL">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
@@ -750,7 +750,7 @@
 
             <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
               <input type="email" id="cfg-smtp-test-recipient" class="form-input" placeholder="Send a test to (optional override)" style="flex:1;min-width:240px">
-              <button class="btn-icon" id="btn-smtp-test" onclick="testSmtp()" style="padding:8px 14px">
+              <button class="btn-icon" id="btn-smtp-test" data-action="testSmtp" style="padding:8px 14px">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg> Send test email
               </button>
             </div>
@@ -762,8 +762,8 @@
             <div class="section-header" style="margin-bottom:12px">
               <div class="section-title" style="margin:0">Recent deliveries</div>
               <div style="display:flex;gap:6px">
-                <button class="btn-icon" style="padding:4px 8px" onclick="loadWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-                <button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="clearWebhookLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
+                <button class="btn-icon" style="padding:4px 8px" data-action="loadWebhookLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+                <button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" data-action="clearWebhookLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
               </div>
             </div>
             <div class="table-card" style="max-height:300px;overflow-y:auto">
@@ -814,7 +814,7 @@
                 <input type="text" id="cfg-ssh-username" class="form-input" placeholder="e.g. root, deploy, jmo" maxlength="32" autocomplete="off">
               </div>
             </div>
-            <button class="btn-primary" style="margin-top:6px" onclick="saveSshUsername()">Save SSH username</button>
+            <button class="btn-primary" style="margin-top:6px" data-action="saveSshUsername" >Save SSH username</button>
           </div>
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
@@ -879,11 +879,11 @@
             </div>
 
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-              <button class="btn-icon" onclick="testLdap()">
+              <button class="btn-icon" data-action="testLdap" >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                 Test connection
               </button>
-              <button class="btn-icon" onclick="openLdapTestUserModal()">
+              <button class="btn-icon" data-action="openLdapTestUserModal" >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 Test user login
               </button>
@@ -945,17 +945,17 @@
             <div class="settings-row">
               <label class="form-label">Enable debug logging</label>
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-                <input type="checkbox" id="debug-logging-toggle" onchange="saveDebugLogging(this.checked)">
+                <input type="checkbox" id="debug-logging-toggle" data-change="saveDebugLogging" data-change-checked="1" >
               </label>
             </div>
             <button class="btn-secondary" style="margin-top:8px;font-size:12px"
-                    onclick="downloadDebugLog()">⬇ Download server debug log</button>
+                    data-action="downloadDebugLog" >⬇ Download server debug log</button>
           </div>
 
           <div class="settings-section">
             <h3>Backup &amp; export</h3>
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
-            <button class="btn-icon" onclick="exportBackup()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
+            <button class="btn-icon" data-action="exportBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
           </div>
 
           <!-- v2.4.7: status endpoint for external dashboards -->
@@ -963,7 +963,7 @@
             <h3>Status endpoint</h3>
             <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
             <div id="status-token-box">
-              <button class="btn-primary" onclick="generateStatusToken()">Generate status token</button>
+              <button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>
             </div>
           </div>
         </div>
@@ -1006,8 +1006,8 @@
             </div>
             <p class="hint">Proxmox ships a self-signed certificate by default — if you haven't installed a trusted cert, set Verify TLS to Off. Prefer installing a real certificate.</p>
             <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
-              <button class="btn-primary" onclick="saveProxmoxSettings()">Save Proxmox settings</button>
-              <button class="btn-icon" onclick="testProxmoxConnection()">Test connection</button>
+              <button class="btn-primary" data-action="saveProxmoxSettings" >Save Proxmox settings</button>
+              <button class="btn-icon" data-action="testProxmoxConnection" >Test connection</button>
               <span id="proxmox-test-result" style="font-size:13px"></span>
             </div>
           </div>
@@ -1021,7 +1021,7 @@
             <div class="settings-row">
               <div class="form-group" style="max-width:340px">
                 <label class="form-label">Device</label>
-                <select id="mailwatch-device" class="form-input" onchange="loadMailwatchForDevice()">
+                <select id="mailwatch-device" class="form-input" data-change="loadMailwatchForDevice" >
                   <option value="">— select a device —</option>
                 </select>
               </div>
@@ -1043,7 +1043,7 @@
                 <input type="number" id="mailwatch-threshold" class="form-input" min="1" placeholder="e.g. 50">
                 <div style="font-size:12px;color:var(--muted);margin-top:4px">When any watched mailbox reaches this many messages, RemotePower fires a webhook alert. Leave blank to disable.</div>
               </div>
-              <button class="btn-primary" onclick="saveMailwatch()">Save mailbox monitor</button>
+              <button class="btn-primary" data-action="saveMailwatch" >Save mailbox monitor</button>
               <div id="mailwatch-current" style="margin-top:14px"></div>
             </div>
           </div>
@@ -1061,7 +1061,7 @@
               </div>
               <div class="form-group" style="min-width:220px">
                 <label class="form-label">Provider</label>
-                <select id="ai-provider" class="form-input" onchange="onAIProviderChange()">
+                <select id="ai-provider" class="form-input" data-change="onAIProviderChange" >
                   <option value="anthropic">Anthropic (Claude)</option>
                   <option value="openai">OpenAI (ChatGPT)</option>
                   <option value="deepseek">DeepSeek</option>
@@ -1125,7 +1125,7 @@
             <h3>Test connection</h3>
             <p class="hint">Round-trip a one-word "say hi" request against the configured provider. Saves a settings round-trip before you start using the ✨ buttons in anger.</p>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <button class="btn-icon" onclick="testAIConnection()">✨ Test connection</button>
+              <button class="btn-icon" data-action="testAIConnection" >✨ Test connection</button>
               <span id="ai-test-result" style="font-size:13px;color:var(--muted)"></span>
             </div>
           </div>
@@ -1162,7 +1162,7 @@
               <input type="number" id="dash-bf-window" class="form-input" min="1" max="60" value="5" style="width:80px">
             </div>
           </div>
-          <button class="btn-primary" style="margin-top:8px" onclick="saveBruteForceSettings()">Save</button>
+          <button class="btn-primary" style="margin-top:8px" data-action="saveBruteForceSettings" >Save</button>
         </div>
 
         <div class="settings-section">
@@ -1182,7 +1182,7 @@
               <label class="form-label">Max age (hours)</label>
               <input type="number" id="bm-hours" class="form-input" value="24" min="1" max="8760" style="width:80px">
             </div>
-            <button class="btn-secondary" onclick="addBackupMonitor()">Add</button>
+            <button class="btn-secondary" data-action="addBackupMonitor" >Add</button>
           </div>
         </div>
 
@@ -1194,7 +1194,7 @@
             <input type="text" id="log-ignore-input" class="form-input"
                    style="flex:1;font-family:var(--font-mono);font-size:12px"
                    placeholder="Note: After setting.*old kernels">
-            <button class="btn-secondary" onclick="addLogIgnorePattern()">Add</button>
+            <button class="btn-secondary" data-action="addLogIgnorePattern" >Add</button>
           </div>
         </div>
 
@@ -1220,22 +1220,22 @@
           <div id="ignored-items-list" style="margin-top:12px">
             <div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">Loading…</div>
           </div>
-          <button class="btn-secondary" style="font-size:12px;margin-top:12px" onclick="loadIgnoredItems()">↻ Refresh</button>
+          <button class="btn-secondary" style="font-size:12px;margin-top:12px" data-action="loadIgnoredItems" >↻ Refresh</button>
         </div>
       </div>
 
         <!-- Save / reload bar at the bottom (always visible) -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
-          <button class="btn-primary" id="btn-save-settings" style="max-width:160px" onclick="saveSettings(this)">Save settings</button>
-          <button class="btn-secondary" onclick="loadSettings()">Reload</button>
-          <button class="btn-icon" onclick="testWebhook()" id="btn-webhook-test"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button>
+          <button class="btn-primary" id="btn-save-settings" style="max-width:160px" data-action-btn="saveSettings">Save settings</button>
+          <button class="btn-secondary" data-action="loadSettings" >Reload</button>
+          <button class="btn-icon" data-action="testWebhook" id="btn-webhook-test"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send test webhook</button>
         </div>
       </div>
 
 
             <!-- ── v2.9.0: Device Drawer ────────────────────────────────────────────── -->
       <div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
-        <div class="drawer-backdrop" onclick="closeDeviceDrawer()"></div>
+        <div class="drawer-backdrop" data-action="closeDeviceDrawer" ></div>
         <div class="drawer-panel">
 
           <!-- Header -->
@@ -1244,15 +1244,15 @@
               <div class="drawer-device-name" id="drawer-device-name">Device</div>
               <div class="drawer-device-sub"  id="drawer-device-sub"></div>
             </div>
-            <button class="btn-icon" onclick="closeDeviceDrawer()" title="Close" style="font-size:18px;padding:4px 8px">✕</button>
+            <button class="btn-icon" data-action="closeDeviceDrawer" title="Close" style="font-size:18px;padding:4px 8px">✕</button>
           </div>
 
           <!-- Tabs -->
           <div class="drawer-tabs">
             <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
-                    onclick="switchDrawerTab('actions')">⚡ Actions &amp; Settings</button>
+                    data-action="switchDrawerTab" data-arg="actions" >⚡ Actions &amp; Settings</button>
             <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
-                    onclick="switchDrawerTab('audit')">🔍 Audit</button>
+                    data-action="switchDrawerTab" data-arg="audit" >🔍 Audit</button>
           </div>
 
           <!-- Content -->
@@ -1286,18 +1286,18 @@
 
       <!-- ── v2.9.0: Device Drawer ─────────────────────────────────────────── -->
       <div id="device-drawer" class="device-drawer" role="dialog" aria-modal="true">
-        <div class="drawer-backdrop" onclick="closeDeviceDrawer()"></div>
+        <div class="drawer-backdrop" data-action="closeDeviceDrawer" ></div>
         <div class="drawer-panel">
           <div class="drawer-header">
             <div>
               <div class="drawer-device-name" id="drawer-device-name">Device</div>
               <div class="drawer-device-sub"  id="drawer-device-sub"></div>
             </div>
-            <button class="btn-icon" onclick="closeDeviceDrawer()" style="font-size:18px;line-height:1">&#10005;</button>
+            <button class="btn-icon" data-action="closeDeviceDrawer" style="font-size:18px;line-height:1">&#10005;</button>
           </div>
           <div class="drawer-tabs">
-            <button class="drawer-tab-btn active" id="drawer-tab-btn-actions" onclick="switchDrawerTab('actions')">Actions &amp; Settings</button>
-            <button class="drawer-tab-btn" id="drawer-tab-btn-audit" onclick="switchDrawerTab('audit')">Audit</button>
+            <button class="drawer-tab-btn active" id="drawer-tab-btn-actions" data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
+            <button class="drawer-tab-btn" id="drawer-tab-btn-audit" data-action="switchDrawerTab" data-arg="audit" >Audit</button>
           </div>
           <div class="drawer-content">
             <div id="drawer-tab-actions" class="drawer-tab-panel">
@@ -1318,7 +1318,7 @@
               <details class="audit-section" id="audit-ports">
                 <summary>Listening ports</summary>
                 <div class="audit-section-body" id="audit-ports-body">
-                  <input class="audit-filter" id="audit-ports-filter" placeholder="Filter by port or process&#8230;" oninput="_filterAuditPorts()" style="display:none">
+                  <input class="audit-filter" id="audit-ports-filter" placeholder="Filter by port or process&#8230;" data-input="_filterAuditPorts" style="display:none">
                   <div id="audit-ports-content"><span style="color:var(--muted)">Loading&#8230;</span></div>
                 </div>
               </details>
@@ -1329,7 +1329,7 @@
               <details class="audit-section" id="audit-logs">
                 <summary>Logs</summary>
                 <div class="audit-section-body" id="audit-logs-body">
-                  <select class="audit-filter" id="audit-logs-unit" onchange="_loadAuditLogs()" style="display:none"></select>
+                  <select class="audit-filter" id="audit-logs-unit" data-change="_loadAuditLogs" style="display:none"></select>
                   <div id="audit-logs-content"><span style="color:var(--muted)">Loading&#8230;</span></div>
                 </div>
               </details>
@@ -1382,7 +1382,7 @@
           <div class="iac-controls">
             <div class="iac-section">
               <label class="iac-label">Device</label>
-              <select id="iac-device-select" class="form-input" onchange="_iacSavePref()">
+              <select id="iac-device-select" class="form-input" data-change="_iacSavePref" >
                 <option value="">— select a device —</option>
               </select>
             </div>
@@ -1391,8 +1391,8 @@
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                 <label class="iac-label" style="margin:0">Categories</label>
                 <div>
-                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="_iacSelectAll(true)">Select all</button>
-                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" onclick="_iacSelectAll(false)">Deselect all</button>
+                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" data-action="_iacSelectAll" data-arg-bool="true">Select all</button>
+                  <button class="btn-secondary" style="font-size:11px;padding:3px 8px" data-action="_iacSelectAll" data-arg-bool="false">Deselect all</button>
                 </div>
               </div>
               <div id="iac-categories" class="iac-cat-list"></div>
@@ -1400,7 +1400,7 @@
 
             <div class="iac-section">
               <label class="iac-label">Output format</label>
-              <select id="iac-format-select" class="form-input" onchange="_iacSavePref()">
+              <select id="iac-format-select" class="form-input" data-change="_iacSavePref" >
                 <option value="terraform">Terraform (HCL)</option>
                 <option value="ansible">Ansible (YAML)</option>
                 <option value="pulumi-python">Pulumi (Python)</option>
@@ -1414,14 +1414,14 @@
               <textarea id="iac-user-instructions" class="form-input"
                         style="width:100%;min-height:70px;font-family:var(--font-mono);font-size:12px;resize:vertical"
                         placeholder="e.g. Use Terraform 1.5+ syntax · Mark all variables sensitive=true · Include comments explaining each resource · Wrap in a module"
-                        onchange="_iacSavePref()"></textarea>
+                        data-change="_iacSavePref" ></textarea>
             </div>
 
             <div style="display:flex;gap:8px;flex-direction:column">
-              <button id="iac-generate-btn" class="btn-primary" style="width:100%" onclick="iacGenerate(this, true)">
+              <button id="iac-generate-btn" class="btn-primary" style="width:100%" data-action-btn="iacGenerate" data-arg-bool="true">
                 Generate IaC
               </button>
-              <button id="iac-rawjson-btn" class="btn-primary" style="width:100%;background:var(--accent2)" onclick="iacGenerate(this, false)">
+              <button id="iac-rawjson-btn" class="btn-primary" style="width:100%;background:var(--accent2)" data-action-btn="iacGenerate" data-arg-bool="false">
                 Gather RAW JSON
               </button>
             </div>
@@ -1432,16 +1432,16 @@
           <!-- RIGHT panel: tabbed output -->
           <div class="iac-output">
             <div class="iac-tabs">
-              <button class="iac-tab active" id="iac-tab-btn-code"   onclick="_iacSwitchTab('code')">Generated Code</button>
-              <button class="iac-tab"        id="iac-tab-btn-convo"  onclick="_iacSwitchTab('convo')">AI Conversation</button>
+              <button class="iac-tab active" id="iac-tab-btn-code"   data-action="_iacSwitchTab" data-arg="code" >Generated Code</button>
+              <button class="iac-tab"        id="iac-tab-btn-convo"  data-action="_iacSwitchTab" data-arg="convo" >AI Conversation</button>
             </div>
             <div class="iac-output-header">
               <span id="iac-output-title" style="color:var(--muted);font-size:13px">Generated code will appear here</span>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button id="iac-rerun-btn"    class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacRerunAi(this)" disabled title="Re-prompt the LLM using the already-collected data (no agent wait)">↻ Re-run AI</button>
-                <button id="iac-json-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacDownloadJson()" disabled title="Download the raw JSON state that was sent to the LLM">{ } JSON</button>
-                <button id="iac-copy-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacCopy(this)" disabled>Copy</button>
-                <button id="iac-download-btn" class="btn-secondary" style="font-size:12px;padding:4px 10px" onclick="_iacDownload()" disabled>Download</button>
+                <button id="iac-rerun-btn"    class="btn-secondary" style="font-size:12px;padding:4px 10px" data-action-btn="_iacRerunAi" disabled title="Re-prompt the LLM using the already-collected data (no agent wait)">↻ Re-run AI</button>
+                <button id="iac-json-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" data-action="_iacDownloadJson" disabled title="Download the raw JSON state that was sent to the LLM">{ } JSON</button>
+                <button id="iac-copy-btn"     class="btn-secondary" style="font-size:12px;padding:4px 10px" data-action-btn="_iacCopy" disabled>Copy</button>
+                <button id="iac-download-btn" class="btn-secondary" style="font-size:12px;padding:4px 10px" data-action="_iacDownload" disabled>Download</button>
               </div>
             </div>
             <pre id="iac-code-output"  class="iac-code">Click <strong>Generate IaC</strong> to begin.</pre>
@@ -1454,7 +1454,7 @@
 
       <div id="page-history" class="page">
         <div class="page-title">Command History</div><div class="page-subtitle">Log of all commands sent to devices</div>
-        <div class="section-header"><div class="section-title">Recent commands</div><div style="display:flex;gap:8px"><button class="btn-icon" onclick="loadHistory()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" onclick="clearHistory()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
+        <div class="section-header"><div class="section-title">Recent commands</div><div style="display:flex;gap:8px"><button class="btn-icon" data-action="loadHistory" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button><button class="btn-icon" data-action="clearHistory" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button></div></div>
         <!-- v1.11.5: filter + sortable headers via tableCtl -->
         <div style="margin-bottom:16px"><input type="text" id="history-filter" class="form-input" placeholder="Filter by actor, device, or command…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="history-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="device_name">Device</th><th data-col="command">Command</th></tr></thead><tbody id="history-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
@@ -1463,7 +1463,7 @@
       <!-- ── Schedule page (unchanged) ────────────────────────────────────── -->
       <div id="page-schedule" class="page">
         <div class="page-title">Scheduled Commands</div><div class="page-subtitle">Queue shutdown or reboot at a specific time</div>
-        <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" onclick="openScheduleAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add job</button></div>
+        <div class="section-header"><div class="section-title">Pending jobs</div><button class="enroll-btn" data-action="openScheduleAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add job</button></div>
         <!-- v1.11.5: filter -->
         <div style="margin-bottom:16px"><input type="text" id="schedule-filter" class="form-input" placeholder="Filter by device, command, or actor…" style="max-width:400px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="schedule-thead"><tr><th data-col="device_name">Device</th><th data-col="command">Command</th><th data-col="run_at">Scheduled for</th><th data-col="actor">By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No scheduled jobs. </td></tr></tbody></table></div>
@@ -1480,7 +1480,7 @@
         <div class="page-subtitle">How to use RemotePower — quick reference for the common tasks</div>
 
         <div style="margin-bottom:16px">
-          <input type="text" id="docs-search" class="form-input" placeholder="Search docs…" style="max-width:400px;padding:8px 12px;font-size:13px" oninput="filterDocs(this.value)">
+          <input type="text" id="docs-search" class="form-input" placeholder="Search docs…" style="max-width:400px;padding:8px 12px;font-size:13px" data-input="filterDocs" data-input-value="1" >
         </div>
 
         <div id="docs-container" style="display:flex;flex-direction:column;gap:12px;max-width:920px">
@@ -2390,7 +2390,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- Provider status header. Hidden when AI is disabled in settings. -->
         <div id="ai-page-disabled" style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);padding:16px;border-radius:8px;margin-bottom:16px">
           <div style="font-weight:600;color:var(--red);margin-bottom:6px">AI is disabled</div>
-          <div style="font-size:13px;color:var(--muted)">Enable it in <a href="#settings/ai" onclick="showPage('settings',document.querySelector('.nav-btn[onclick*=settings]'));setTimeout(()=>switchSettingsTab('ai'),50);return false;" style="color:var(--accent)">Settings → AI assistant</a> first.</div>
+          <div style="font-size:13px;color:var(--muted)">Enable it in <a href="#settings/ai" id="link-to-ai-settings" style="color:var(--accent)">Settings → AI assistant</a> first.</div>
         </div>
 
         <div id="ai-page-status" class="settings-section" style="margin-bottom:16px;display:none">
@@ -2413,7 +2413,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <div id="ai-page-stat-loaded" style="margin-top:2px;font-size:13px">—</div>
             </div>
             <div>
-              <button class="btn-icon" onclick="aiPageRefreshStats()" style="font-size:12px">
+              <button class="btn-icon" data-action="aiPageRefreshStats" style="font-size:12px">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
                 Refresh
               </button>
@@ -2428,7 +2428,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <select id="ai-page-model" class="form-input" style="max-width:340px;font-size:13px">
               <option value="">(configured default)</option>
             </select>
-            <button class="btn-icon" style="font-size:12px;margin-left:auto" onclick="aiPageClear()" title="Clear conversation">
+            <button class="btn-icon" style="font-size:12px;margin-left:auto" data-action="aiPageClear" title="Clear conversation">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
               Clear
             </button>
@@ -2440,8 +2440,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </div>
           <div style="margin-top:12px;display:flex;gap:8px;align-items:flex-end">
-            <textarea id="ai-page-input" class="form-input" rows="3" placeholder="Ask anything. Ctrl/⌘+Enter to send." style="flex:1;resize:vertical;min-height:60px;font-family:inherit;font-size:14px" onkeydown="aiPageInputKey(event)"></textarea>
-            <button class="btn-primary" onclick="aiPageSend()" id="ai-page-send" style="height:60px;min-width:90px">Send</button>
+            <textarea id="ai-page-input" class="form-input" rows="3" placeholder="Ask anything. Ctrl/⌘+Enter to send." style="flex:1;resize:vertical;min-height:60px;font-family:inherit;font-size:14px" ></textarea>
+            <button class="btn-primary" data-action="aiPageSend" id="ai-page-send" style="height:60px;min-width:90px">Send</button>
           </div>
           <div id="ai-page-footer" style="margin-top:6px;font-size:11px;color:var(--muted)">
             Each request is audited. Privacy redaction follows the toggles in Settings → AI assistant.
@@ -2454,8 +2454,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Server status</div>
         <div class="page-subtitle">RemotePower watching itself — disk, devices, webhooks, audit, backups. <a href="docs/self-monitoring.md" style="color:var(--accent)">Documentation</a>.</div>
         <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-          <button class="btn-secondary" onclick="loadSelfStatus()">↻ Refresh</button>
-          <button class="btn-secondary" onclick="runBackupNow()" id="self-backup-btn">↓ Run backup now</button>
+          <button class="btn-secondary" data-action="loadSelfStatus" >↻ Refresh</button>
+          <button class="btn-secondary" data-action="runBackupNow" id="self-backup-btn">↓ Run backup now</button>
         </div>
         <div id="self-status-body" style="display:flex;flex-direction:column;gap:14px"><div style="color:var(--muted)">Loading…</div></div>
       </div>
@@ -2471,7 +2471,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── API Keys page (unchanged) ─────────────────────────────────────── -->
       <div id="page-apikeys" class="page">
         <div class="page-title">API Keys</div><div class="page-subtitle">Named non-expiring keys for scripts and CI pipelines</div>
-        <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" onclick="openApiKeyCreate()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>
+        <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" data-action="openApiKeyCreate" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>
         <!-- v1.11.6: filter -->
         <div style="margin-bottom:16px"><input type="text" id="apikeys-filter" class="form-input" placeholder="Filter by name, role, or user…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
@@ -2480,8 +2480,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
       <div id="page-patches" class="page">
         <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data</div>
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><div style="position:relative;flex:1;max-width:280px"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="patch-search-input" class="form-input" placeholder="Search patches…" oninput="renderPatchTable()" style="padding:8px 12px 8px 34px;font-size:13px"></div><select id="patch-group-filter" class="form-input" onchange="renderPatchTable()" style="width:auto;padding:8px 12px;font-size:13px"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input" onchange="renderPatchTable()" style="width:auto;padding:8px 12px;font-size:13px;max-width:220px"><option value="all">All devices</option></select><button class="btn-icon" onclick="loadPatchReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button></div>
-        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--muted)">Export (filtered):</span><button class="btn-icon" onclick="exportPatchFiltered('csv')">CSV</button><button class="btn-icon" onclick="exportPatchFiltered('xml')">XML</button></div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><div style="position:relative;flex:1;max-width:280px"><svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;pointer-events:none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" id="patch-search-input" class="form-input" placeholder="Search patches…" data-input="renderPatchTable" style="padding:8px 12px 8px 34px;font-size:13px"></div><select id="patch-group-filter" class="form-input" data-change="renderPatchTable" style="width:auto;padding:8px 12px;font-size:13px"><option value="all">All groups</option></select><select id="patch-device-filter" class="form-input" data-change="renderPatchTable" style="width:auto;padding:8px 12px;font-size:13px;max-width:220px"><option value="all">All devices</option></select><button class="btn-icon" data-action="loadPatchReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button></div>
+        <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--muted)">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
         <div class="stats-row" id="patch-summary" style="grid-template-columns:repeat(5,1fr)"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value" id="patch-patched" style="color:var(--green)">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value" id="patch-pending" style="color:var(--amber)">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-value" id="patch-count" style="color:var(--red)">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value" id="patch-pct" style="color:var(--green)">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pkg_manager">Pkg Manager</th><th data-col="upgradable">Pending</th><th data-col="patch_status">Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">Click Refresh to load patch report. </td></tr></tbody></table></div>
       </div>
@@ -2490,8 +2490,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">CVE Findings</div>
         <div class="page-subtitle">Package vulnerabilities per device, via <a href="https://osv.dev" target="_blank" style="color:var(--accent)">OSV.dev</a> — scan checks installed packages against known CVEs.</div>
         <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
-          <button class="btn-icon" onclick="loadCVEReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-primary" style="max-width:200px" onclick="triggerCVEScan(undefined,this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
+          <button class="btn-icon" data-action="loadCVEReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-primary" style="max-width:200px" id="btn-trigger-cve-scan" data-action-btn="triggerCVEScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
           <!-- v1.11.5: filter -->
           <input type="text" id="cve-filter" class="form-input" placeholder="Filter by device, group, ecosystem…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
@@ -2510,7 +2510,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Services <span id="services-maint-badge" style="display:none;font-size:12px;color:var(--amber);margin-left:12px">🔧 <span id="services-maint-count">0</span> maintenance window(s) active</span></div>
         <div class="page-subtitle">systemd units watched per device. Click a row to see history, logs, and configuration.</div>
         <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
-          <button class="btn-icon" onclick="loadServicesReport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="loadServicesReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <!-- v1.11.5: filter input — substring match across visible columns. -->
           <input type="text" id="services-filter" class="form-input" placeholder="Filter by device, group, unit…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
@@ -2532,15 +2532,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
           <input type="text" id="logs-search-input" placeholder="regex (e.g. error|critical)  — blank shows live tail"
                  style="flex:1;min-width:300px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:monospace;font-size:13px"
-                 onkeydown="if(event.key==='Enter')runLogSearch()">
-          <select id="logs-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" onchange="onLogFilterChange()">
+                 >
+          <select id="logs-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" data-change="onLogFilterChange" >
             <option value="">All devices</option>
           </select>
-          <select id="logs-unit-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" onchange="onLogFilterChange()">
+          <select id="logs-unit-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:160px" data-change="onLogFilterChange" >
             <option value="">All units</option>
           </select>
-          <button class="btn-primary" style="max-width:100px" onclick="runLogSearch()">Search</button>
-          <button class="btn-icon" onclick="clearLogSearch()" title="Clear search and return to live tail">✕ Clear</button>
+          <button class="btn-primary" style="max-width:100px" data-action="runLogSearch" >Search</button>
+          <button class="btn-icon" data-action="clearLogSearch" title="Clear search and return to live tail">✕ Clear</button>
         </div>
 
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
@@ -2569,13 +2569,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="page-title" style="font-size:16px;margin:0">Alert rules</div>
             <div style="font-size:12px;color:var(--muted)">Regex match on incoming log lines fires a <code>log_alert</code> webhook.</div>
           </div>
-          <button class="btn-primary" style="max-width:180px" onclick="openAddRuleModal()">+ Add rule</button>
+          <button class="btn-primary" style="max-width:180px" data-action="openAddRuleModal" >+ Add rule</button>
         </div>
 
         <!-- v1.8.2: tab switcher -->
         <div style="display:flex;gap:0;margin-bottom:-1px;position:relative;z-index:1">
-          <button id="logs-tab-device" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid transparent" onclick="switchRulesTab('device')">Per-device</button>
-          <button id="logs-tab-global" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);background:var(--surface2)" onclick="switchRulesTab('global')">Fleet-wide</button>
+          <button id="logs-tab-device" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid transparent" data-action="switchRulesTab" data-arg="device" >Per-device</button>
+          <button id="logs-tab-global" class="btn-secondary" style="border-radius:6px 6px 0 0;border-bottom:1px solid var(--border);background:var(--surface2)" data-action="switchRulesTab" data-arg="global" >Fleet-wide</button>
         </div>
 
         <div class="table-card" id="logs-rules-device-wrap">
@@ -2600,9 +2600,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Maintenance Windows</div>
         <div class="page-subtitle">Scheduled windows suppress webhook alerts for specific devices, groups, or the whole fleet.</div>
         <div style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;align-items:center">
-          <button class="btn-icon" onclick="loadMaintenance()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-primary" style="max-width:200px" onclick="openNewMaintModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New window</button>
-          <button class="btn-icon" onclick="loadMaintSuppressions()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Suppression log</button>
+          <button class="btn-icon" data-action="loadMaintenance" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-primary" style="max-width:200px" data-action="openNewMaintModal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New window</button>
+          <button class="btn-icon" data-action="loadMaintSuppressions" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Suppression log</button>
           <!-- v1.11.6: filter -->
           <input type="text" id="maint-filter" class="form-input" placeholder="Filter by reason, scope, target…" style="flex:1;min-width:240px;max-width:380px;padding:8px 12px;font-size:13px">
         </div>
@@ -2620,14 +2620,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:8px">
-            <button class="btn-icon" onclick="calNav(-1)" title="Previous month">‹</button>
+            <button class="btn-icon" data-action="calNav" data-arg="-1" title="Previous month">‹</button>
             <div id="cal-title" style="font-size:18px;font-weight:600;min-width:180px;text-align:center">—</div>
-            <button class="btn-icon" onclick="calNav(1)" title="Next month">›</button>
-            <button class="btn-icon" onclick="calNav(0)" style="margin-left:8px;font-size:12px">Today</button>
+            <button class="btn-icon" data-action="calNav" data-arg="1" title="Next month">›</button>
+            <button class="btn-icon" data-action="calNav" data-arg="0" style="margin-left:8px;font-size:12px">Today</button>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-icon" onclick="loadCalendar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-            <button class="btn-primary" style="max-width:160px" onclick="openEventModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New event</button>
+            <button class="btn-icon" data-action="loadCalendar" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-primary" style="max-width:160px" data-action="openEventModal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New event</button>
           </div>
         </div>
 
@@ -2644,31 +2644,31 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
           <div style="display:flex;gap:8px;align-items:center">
-            <select id="tasks-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:180px" onchange="loadTasks()">
+            <select id="tasks-device-filter" style="padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;min-width:180px" data-change="loadTasks" >
               <option value="">All devices</option>
               <option value="__none__">No device linked</option>
             </select>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-icon" onclick="loadTasks()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-            <button class="btn-primary" style="max-width:160px" onclick="openTaskModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New task</button>
+            <button class="btn-icon" data-action="loadTasks" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-primary" style="max-width:160px" data-action="openTaskModal" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:4px;display:inline-block;vertical-align:-2px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New task</button>
           </div>
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;min-height:500px" id="kanban-board">
-          <div class="kanban-column" data-state="upcoming" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'upcoming')">
+          <div class="kanban-column" data-state="upcoming" data-kanban-col="upcoming" >
             <div class="kanban-header" style="color:#60a5fa">● Upcoming <span class="kanban-count" id="tasks-count-upcoming">0</span></div>
             <div class="kanban-list" id="tasks-col-upcoming"></div>
           </div>
-          <div class="kanban-column" data-state="ongoing" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'ongoing')">
+          <div class="kanban-column" data-state="ongoing" data-kanban-col="ongoing" >
             <div class="kanban-header" style="color:var(--amber)">● Ongoing <span class="kanban-count" id="tasks-count-ongoing">0</span></div>
             <div class="kanban-list" id="tasks-col-ongoing"></div>
           </div>
-          <div class="kanban-column" data-state="pending" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'pending')">
+          <div class="kanban-column" data-state="pending" data-kanban-col="pending" >
             <div class="kanban-header" style="color:#a78bfa">● Pending <span class="kanban-count" id="tasks-count-pending">0</span></div>
             <div class="kanban-list" id="tasks-col-pending"></div>
           </div>
-          <div class="kanban-column" data-state="closed" ondragover="onKanbanDragOver(event)" ondragleave="onKanbanDragLeave(event)" ondrop="onKanbanDrop(event,'closed')">
+          <div class="kanban-column" data-state="closed" data-kanban-col="closed" >
             <div class="kanban-header" style="color:var(--muted)">● Closed <span class="kanban-count" id="tasks-count-closed">0</span></div>
             <div class="kanban-list" id="tasks-col-closed"></div>
           </div>
@@ -2686,20 +2686,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <span id="cmdb-vault-state" style="color:var(--muted)">Checking vault status…</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-icon" id="cmdb-vault-action" onclick="cmdbVaultAction()" style="display:none">Unlock vault</button>
-            <button class="btn-icon" id="cmdb-vault-rotate" onclick="cmdbOpenRotateModal()" style="display:none">Rotate passphrase</button>
-            <button class="btn-icon" id="cmdb-vault-lock" onclick="cmdbLockVault()" style="display:none">Lock</button>
+            <button class="btn-icon" id="cmdb-vault-action" data-action="cmdbVaultAction" style="display:none">Unlock vault</button>
+            <button class="btn-icon" id="cmdb-vault-rotate" data-action="cmdbOpenRotateModal" style="display:none">Rotate passphrase</button>
+            <button class="btn-icon" id="cmdb-vault-lock" data-action="cmdbLockVault" style="display:none">Lock</button>
           </div>
         </div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
           <div style="flex:1;min-width:240px;display:flex;gap:8px;align-items:center">
-            <input type="text" id="cmdb-search" class="form-input" placeholder="Search name, asset_id, IP, function, docs…" oninput="cmdbDebounceSearch()" style="flex:1;max-width:480px">
-            <select id="cmdb-func-filter" class="form-input" onchange="cmdbReloadList()" style="max-width:200px">
+            <input type="text" id="cmdb-search" class="form-input" placeholder="Search name, asset_id, IP, function, docs…" data-input="cmdbDebounceSearch" style="flex:1;max-width:480px">
+            <select id="cmdb-func-filter" class="form-input" data-change="cmdbReloadList" style="max-width:200px">
               <option value="">All functions</option>
             </select>
           </div>
-          <button class="btn-icon" onclick="cmdbReloadList()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="cmdbReloadList" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
 
         <div class="table-card">
@@ -2731,7 +2731,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
           <input type="text" id="containers-search" class="form-input" placeholder="Filter by device or container name…" style="flex:1;min-width:240px;max-width:380px">
-          <button class="btn-icon" onclick="loadContainersOverview()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="loadContainersOverview" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
         <div class="table-card">
           <table>
@@ -2753,8 +2753,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Virtualization</div>
         <div class="page-subtitle">QEMU virtual machines on the Proxmox node. Start / shutdown actions call the Proxmox VE API directly from the RemotePower server.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
-          <button class="btn-icon" onclick="loadVirtualization()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <input type="text" id="virt-search" class="form-input" placeholder="Search VMs by name or VMID…" style="max-width:280px" oninput="filterVirtualization()">
+          <button class="btn-icon" data-action="loadVirtualization" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" id="virt-search" class="form-input" placeholder="Search VMs by name or VMID…" style="max-width:280px" data-input="filterVirtualization" >
           <span id="virtualization-node" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
         </div>
         <div id="virtualization-body"></div>
@@ -2765,10 +2765,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Network map</div>
         <div class="page-subtitle">Topology view from manually-set <code>connected_to</code> links and tunnels (peer links). Drag nodes to reposition — positions persist across refresh. Add agentless devices on the Devices page.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center">
-          <button class="btn-icon" onclick="loadNetmap()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-icon" onclick="netmapEditOpen()">Edit links</button>
-          <button class="btn-icon" onclick="netmapTunnelsOpen()">Tunnels</button>
-          <button class="btn-icon" onclick="netmapResetPositions()" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
+          <button class="btn-icon" data-action="loadNetmap" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="netmapEditOpen" >Edit links</button>
+          <button class="btn-icon" data-action="netmapTunnelsOpen" >Tunnels</button>
+          <button class="btn-icon" data-action="netmapResetPositions" title="Clear all manual positions and revert to auto-layout">Reset positions</button>
           <span id="netmap-stats" style="color:var(--muted);font-size:13px;margin-left:auto"></span>
         </div>
         <div class="table-card" style="padding:16px">
@@ -2781,7 +2781,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Configuration drift</div>
         <div class="page-subtitle">Watched config files across the fleet. Agent hashes each file every few heartbeats; server alerts when a hash diverges from the stored baseline. Hash-only — no file content crosses the wire. <a href="docs/drift.md" style="color:var(--accent)">Documentation</a>.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <button class="btn-icon" onclick="loadDrift()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="loadDrift" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" id="drift-filter" class="form-input" placeholder="Filter by device name…" style="flex:1;min-width:200px;max-width:340px;padding:8px 12px;font-size:13px">
           <span id="drift-summary" style="color:var(--muted);font-size:13px"></span>
         </div>
@@ -2801,9 +2801,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">TLS / DNS expiry</div>
         <div class="page-subtitle">Server-side cert and DNS watchlist. Probes run from the RemotePower server. Defaults: warn at 14 days, critical at 3 days.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <button class="btn-icon" onclick="tlsAddOpen()">+ Add target</button>
-          <button class="btn-icon" onclick="tlsScanNow()">Scan now</button>
-          <button class="btn-icon" onclick="loadTLS()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="tlsAddOpen" >+ Add target</button>
+          <button class="btn-icon" data-action="tlsScanNow" >Scan now</button>
+          <button class="btn-icon" data-action="loadTLS" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" id="tls-filter" class="form-input" placeholder="Filter by host, issuer, status…" style="flex:1;min-width:200px;max-width:340px;padding:8px 12px;font-size:13px">
           <span id="tls-status-summary" style="color:var(--muted);font-size:13px"></span>
         </div>
@@ -2827,8 +2827,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <button class="btn-icon" onclick="acmeOpenIssue()" style="font-weight:500">+ Issue new cert</button>
-              <button class="btn-icon" onclick="loadAcme()">↻ Refresh</button>
+              <button class="btn-icon" data-action="acmeOpenIssue" style="font-weight:500">+ Issue new cert</button>
+              <button class="btn-icon" data-action="loadAcme" >↻ Refresh</button>
             </div>
           </div>
           <div id="acme-empty" style="display:none;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;text-align:center;color:var(--muted);font-size:13px">
@@ -2860,15 +2860,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Links</div>
         <div class="page-subtitle">Shared bookmark dashboard. Card grid grouped by category. Click any card to open the link in a new tab. <strong>Internal</strong> links (LAN-only, behind VPN, etc.) are amber-bordered; <strong>external</strong> links are accent-bordered.</div>
         <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-          <input type="text" id="links-search" class="form-input" placeholder="Filter by title, URL, or description…" oninput="renderLinks()" style="flex:1;min-width:240px;max-width:380px">
-          <select id="links-scope-filter" class="form-input" onchange="renderLinks()" style="max-width:160px">
+          <input type="text" id="links-search" class="form-input" placeholder="Filter by title, URL, or description…" data-input="renderLinks" style="flex:1;min-width:240px;max-width:380px">
+          <select id="links-scope-filter" class="form-input" data-change="renderLinks" style="max-width:160px">
             <option value="">All scopes</option>
             <option value="internal">Internal only</option>
             <option value="external">External only</option>
           </select>
-          <button class="btn-icon" onclick="loadLinks()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-icon" onclick="linkAddOpen()" style="margin-left:auto">+ Add link</button>
-          <button class="btn-icon" id="links-edit-toggle" onclick="linksToggleEditMode()" title="Toggle edit/delete buttons on each card">Edit mode</button>
+          <button class="btn-icon" data-action="loadLinks" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="linkAddOpen" style="margin-left:auto">+ Add link</button>
+          <button class="btn-icon" id="links-edit-toggle" data-action="linksToggleEditMode" title="Toggle edit/delete buttons on each card">Edit mode</button>
         </div>
         <div id="links-grid" style="display:flex;flex-direction:column;gap:24px"></div>
         <datalist id="links-category-datalist"></datalist>
@@ -2878,19 +2878,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
         <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
           <input type="text" id="audit-filter-text" class="form-input" placeholder="Filter by actor, action, or detail…" style="flex:1;min-width:240px;max-width:380px">
-          <select id="audit-filter-action" class="form-input" onchange="renderAuditLog()" style="max-width:240px">
+          <select id="audit-filter-action" class="form-input" data-change="renderAuditLog" style="max-width:240px">
             <option value="">All actions</option>
           </select>
-          <button class="btn-icon" onclick="loadAuditLog()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <button class="btn-icon" onclick="clearAuditLog()" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
-          <button class="btn-icon" onclick="revokeAllSessions()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
+          <button class="btn-icon" data-action="loadAuditLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon" data-action="clearAuditLog" style="color:var(--red);border-color:rgba(239,68,68,0.3)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg> Clear</button>
+          <button class="btn-icon" data-action="revokeAllSessions" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Revoke all sessions</button>
         </div>
         <div class="table-card"><table><thead id="audit-thead"><tr><th data-col="ts">Time</th><th data-col="actor">Actor</th><th data-col="action">Action</th><th data-col="detail">Detail</th><th data-col="source_ip">Source IP</th></tr></thead><tbody id="audit-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
       <div id="page-cmdlib" class="page">
         <div class="page-title">Command Library</div><div class="page-subtitle">Saved shell command snippets — pick from the exec modal</div>
-        <div class="section-header"><div class="section-title">Snippets</div><button class="enroll-btn" onclick="openCmdLibAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add snippet</button></div>
+        <div class="section-header"><div class="section-title">Snippets</div><button class="enroll-btn" data-action="openCmdLibAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add snippet</button></div>
         <!-- v1.11.6: filter -->
         <div style="margin-bottom:16px"><input type="text" id="cmdlib-filter" class="form-input" placeholder="Filter by name, command, or description…" style="max-width:380px;padding:8px 12px;font-size:13px"></div>
         <div class="table-card"><table><thead id="cmdlib-thead"><tr><th data-col="name">Name</th><th data-col="cmd">Command</th><th data-col="description">Description</th><th></th></tr></thead><tbody id="cmdlib-tbody"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:40px">No snippets yet. </td></tr></tbody></table></div>
@@ -2902,9 +2902,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Multi-line bash scripts. Lint with <code>bash -n</code> + dangerous-command detection before they go anywhere. Run on a single device from the device dropdown, or on a batch via the multi-select bar.</div>
         <div class="section-header">
           <div class="section-title">Saved scripts</div>
-          <button class="enroll-btn" onclick="openScriptAdd()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New script</button>
+          <button class="enroll-btn" data-action="openScriptAdd" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New script</button>
         </div>
-        <div style="margin-bottom:16px"><input type="text" id="scripts-filter" class="form-input" placeholder="Filter by name or description…" style="max-width:380px;padding:8px 12px;font-size:13px" oninput="renderScriptsList()"></div>
+        <div style="margin-bottom:16px"><input type="text" id="scripts-filter" class="form-input" placeholder="Filter by name or description…" style="max-width:380px;padding:8px 12px;font-size:13px" data-input="renderScriptsList" ></div>
         <div class="table-card"><table>
           <thead><tr>
             <th style="width:30%">Name</th>
@@ -2931,18 +2931,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label class="form-label">Username</label><input type="text" id="ldap-test-user-name" class="form-input" autocomplete="off" placeholder="alice"></div>
   <div class="form-group"><label class="form-label">Password</label><input type="password" id="ldap-test-user-pw" class="form-input" autocomplete="off" placeholder=""></div>
   <div id="ldap-test-user-result" style="font-size:12px;display:none;padding:8px 12px;border-radius:6px;margin-bottom:8px"></div>
-  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('ldap-test-user-modal')">Close</button><button class="btn-primary" onclick="runLdapTestUser()">Test</button></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ldap-test-user-modal" >Close</button><button class="btn-primary" data-action="runLdapTestUser" >Test</button></div>
 </div></div>
-<div class="modal-overlay" id="enroll-modal"><div class="modal"><div class="modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('enroll-modal')">Close</button><button class="btn-primary" onclick="generateNewPin()">Generate new PIN</button></div></div></div>
-<div class="modal-overlay" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></div><div class="modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('shutdown-modal')">Cancel</button><button class="btn-shutdown" style="flex:1" onclick="confirmShutdown()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down</button></div></div></div>
-<div class="modal-overlay" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg></div><div class="modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('reboot-modal')">Cancel</button><button class="btn-reboot" style="flex:1" onclick="confirmReboot()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot</button></div></div></div>
-<div class="modal-overlay" id="detail-modal"><div class="modal modal-wide"><div class="modal-title" id="detail-title">Device details</div><div id="detail-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('detail-modal')">Close</button></div></div></div>
-<div class="modal-overlay" id="tag-modal"><div class="modal"><div class="modal-title">Edit tags</div><div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div><input type="hidden" id="tag-device-id"><div class="form-group"><label class="form-label">Tags</label><input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('tag-modal')">Cancel</button><button class="btn-primary" onclick="saveTags()">Save</button></div></div></div>
-<div class="modal-overlay" id="monitor-add-modal"><div class="modal"><div class="modal-title">Add monitor target</div><div class="form-group"><label class="form-label">Label</label><input type="text" id="mon-label" class="form-input" placeholder="My Router"></div><div class="form-group"><label class="form-label">Type</label><select id="mon-type" class="form-input"><option value="ping">Ping (ICMP)</option><option value="tcp">TCP port</option><option value="http">HTTP / HTTPS</option></select></div><div class="form-group"><label class="form-label">Target</label><input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('monitor-add-modal')">Cancel</button><button class="btn-primary" onclick="addMonitor()">Add</button></div></div></div>
-<div class="modal-overlay" id="user-add-modal"><div class="modal"><div class="modal-title">Add admin user</div><div class="form-group"><label class="form-label">Username</label><input type="text" id="new-username" class="form-input" autocomplete="off"></div><div class="form-group"><label class="form-label">Password</label><input type="password" id="new-password" class="form-input" autocomplete="new-password"></div><div class="form-group"><label class="form-label">Role</label><select id="new-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option></select></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('user-add-modal')">Cancel</button><button class="btn-primary" onclick="createUser()">Create</button></div></div></div>
-<div class="modal-overlay" id="passwd-modal"><div class="modal"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username"><div class="form-group" id="passwd-old-wrap"><label class="form-label">Current password</label><input type="password" id="passwd-old" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label">New password</label><input type="password" id="passwd-new" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('passwd-modal')">Cancel</button><button class="btn-primary" onclick="submitPasswd()">Update</button></div></div></div>
-<div class="modal-overlay" id="schedule-add-modal"><div class="modal"><div class="modal-title">Schedule command</div><div class="form-group"><label class="form-label">Device</label><select id="sched-device" class="form-input"></select></div><div class="form-group"><label class="form-label">Command</label><select id="sched-command" class="form-input"><option value="shutdown">Shut down</option><option value="reboot">Reboot</option></select></div><div class="form-group"><label class="form-label">Date &amp; time (one-shot)</label><input type="datetime-local" id="sched-datetime" class="form-input"></div><div class="form-group"><label class="form-label">— or — Cron expression (recurring)</label><input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace"><div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('schedule-add-modal')">Cancel</button><button class="btn-primary" onclick="addScheduleJob()">Schedule</button></div></div></div>
-<div class="modal-overlay" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" onchange="pickFromLibrary()"><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('exec-modal')">Cancel</button><button class="btn-primary" onclick="sendExecCmd()">Run</button></div></div></div>
+<div class="modal-overlay" id="enroll-modal"><div class="modal"><div class="modal-title">Enroll a device</div><div class="modal-subtitle">Run the client installer on the target machine and enter this PIN when prompted. Expires after 10 minutes.</div><div class="pin-display"><div class="pin-label">Enrollment PIN</div><div class="pin-code" id="pin-code">------</div><div class="pin-timer">Expires in <span class="pin-countdown" id="pin-countdown">10:00</span></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="enroll-modal" >Close</button><button class="btn-primary" data-action="generateNewPin" >Generate new PIN</button></div></div></div>
+<div class="modal-overlay" id="shutdown-modal"><div class="modal"><div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></div><div class="modal-title">Shut down device?</div><div class="modal-subtitle">Are you sure you want to shut down <strong id="shutdown-name"></strong>? This will power off the machine immediately.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="shutdown-modal" >Cancel</button><button class="btn-shutdown" style="flex:1" data-action="confirmShutdown" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Shut down</button></div></div></div>
+<div class="modal-overlay" id="reboot-modal"><div class="modal"><div class="confirm-icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg></div><div class="modal-title">Reboot device?</div><div class="modal-subtitle">Reboot <strong id="reboot-name"></strong>? The machine will restart and come back online within a minute.</div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="reboot-modal" >Cancel</button><button class="btn-reboot" style="flex:1" data-action="confirmReboot" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Reboot</button></div></div></div>
+<div class="modal-overlay" id="detail-modal"><div class="modal modal-wide"><div class="modal-title" id="detail-title">Device details</div><div id="detail-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="detail-modal" >Close</button></div></div></div>
+<div class="modal-overlay" id="tag-modal"><div class="modal"><div class="modal-title">Edit tags</div><div class="modal-subtitle">Comma-separated. Use tags like: servers, homelab, workstations</div><input type="hidden" id="tag-device-id"><div class="form-group"><label class="form-label">Tags</label><input type="text" id="tag-input" class="form-input" placeholder="servers, homelab, workstations"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="tag-modal" >Cancel</button><button class="btn-primary" data-action="saveTags" >Save</button></div></div></div>
+<div class="modal-overlay" id="monitor-add-modal"><div class="modal"><div class="modal-title">Add monitor target</div><div class="form-group"><label class="form-label">Label</label><input type="text" id="mon-label" class="form-input" placeholder="My Router"></div><div class="form-group"><label class="form-label">Type</label><select id="mon-type" class="form-input"><option value="ping">Ping (ICMP)</option><option value="tcp">TCP port</option><option value="http">HTTP / HTTPS</option></select></div><div class="form-group"><label class="form-label">Target</label><input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="monitor-add-modal" >Cancel</button><button class="btn-primary" data-action="addMonitor" >Add</button></div></div></div>
+<div class="modal-overlay" id="user-add-modal"><div class="modal"><div class="modal-title">Add admin user</div><div class="form-group"><label class="form-label">Username</label><input type="text" id="new-username" class="form-input" autocomplete="off"></div><div class="form-group"><label class="form-label">Password</label><input type="password" id="new-password" class="form-input" autocomplete="new-password"></div><div class="form-group"><label class="form-label">Role</label><select id="new-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="user-add-modal" >Cancel</button><button class="btn-primary" data-action="createUser" >Create</button></div></div></div>
+<div class="modal-overlay" id="passwd-modal"><div class="modal"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username"><div class="form-group" id="passwd-old-wrap"><label class="form-label">Current password</label><input type="password" id="passwd-old" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label">New password</label><input type="password" id="passwd-new" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button class="btn-primary" data-action="submitPasswd" >Update</button></div></div></div>
+<div class="modal-overlay" id="schedule-add-modal"><div class="modal"><div class="modal-title">Schedule command</div><div class="form-group"><label class="form-label">Device</label><select id="sched-device" class="form-input"></select></div><div class="form-group"><label class="form-label">Command</label><select id="sched-command" class="form-input"><option value="shutdown">Shut down</option><option value="reboot">Reboot</option></select></div><div class="form-group"><label class="form-label">Date &amp; time (one-shot)</label><input type="datetime-local" id="sched-datetime" class="form-input"></div><div class="form-group"><label class="form-label">— or — Cron expression (recurring)</label><input type="text" id="sched-cron" class="form-input" placeholder="0 3 * * 0  (every Sunday 03:00)" style="font-family:monospace"><div style="font-size:11px;color:var(--muted);margin-top:4px">5 fields: min hour dom mon dow — leave blank for one-shot</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="schedule-add-modal" >Cancel</button><button class="btn-primary" data-action="addScheduleJob" >Schedule</button></div></div></div>
+<div class="modal-overlay" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" ><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" data-action="sendExecCmd" >Run</button></div></div></div>
 
 <!-- v1.12.0: per-device metric thresholds editor -->
 <div class="modal-overlay" id="metric-thresholds-modal">
@@ -2984,14 +2984,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div style="font-size:13px;font-weight:600;margin-bottom:6px">Per-mount disk overrides</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Different thresholds for specific mount points. Useful when /var fills with logs (lower threshold) or /backup is meant to fill (higher threshold).</div>
       <div id="thr-mounts-list" style="display:flex;flex-direction:column;gap:6px"></div>
-      <button class="btn-icon" type="button" onclick="addMountThresholdRow()" style="margin-top:8px;font-size:12px">+ Add mount</button>
+      <button class="btn-icon" type="button" data-action="addMountThresholdRow" style="margin-top:8px;font-size:12px">+ Add mount</button>
     </div>
 
     <div id="metric-thresholds-error" style="color:var(--red);font-size:13px;margin:8px 0;display:none"></div>
     <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal('metric-thresholds-modal')">Cancel</button>
-      <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="resetMetricThresholds()">Reset to defaults</button>
-      <button class="btn-primary" onclick="saveMetricThresholds()">Save</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="metric-thresholds-modal" >Cancel</button>
+      <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" data-action="resetMetricThresholds" >Reset to defaults</button>
+      <button class="btn-primary" data-action="saveMetricThresholds" >Save</button>
     </div>
   </div>
 </div>
@@ -3019,8 +3019,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
     <div id="webterm-error" style="color:var(--red);font-size:13px;margin:8px 0;display:none"></div>
     <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal('webterm-modal')">Cancel</button>
-      <button class="btn-primary" id="webterm-connect-btn" onclick="webtermConnect()">Connect</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="webterm-modal" >Cancel</button>
+      <button class="btn-primary" id="webterm-connect-btn" data-action="webtermConnect" >Connect</button>
     </div>
   </div>
 </div>
@@ -3031,18 +3031,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
       <div id="webterm-screen-title" style="flex:1;font-weight:600;font-family:monospace;font-size:13px"></div>
       <div id="webterm-screen-status" style="font-size:11px;color:var(--muted)">connecting…</div>
-      <button class="btn-icon" onclick="webtermDisconnect()" style="font-size:11px">Disconnect</button>
+      <button class="btn-icon" data-action="webtermDisconnect" style="font-size:11px">Disconnect</button>
     </div>
     <div id="webterm-xterm" style="flex:1;background:#000;border-radius:6px;overflow:hidden"></div>
   </div>
 </div>
-<div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('mon-history-modal')">Close</button></div></div></div>
-<div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('notes-modal')">Cancel</button><button class="btn-primary" onclick="saveNotes()">Save</button></div></div></div>
-<div class="modal-overlay" id="group-modal"><div class="modal"><div class="modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('group-modal')">Cancel</button><button class="btn-primary" onclick="saveGroup()">Save</button></div></div></div>
-<div class="modal-overlay" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('poll-modal')">Cancel</button><button class="btn-primary" onclick="savePollInterval()">Apply</button></div></div></div>
-<div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea" style="min-height:160px;font-family:monospace" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('allowlist-modal')">Cancel</button><button class="btn-primary" onclick="saveAllowlist()">Save</button></div></div></div>
-<div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" style="display:none;margin-bottom:16px"><div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('apikey-create-modal')">Close</button><button class="btn-primary" id="apikey-create-btn" onclick="createApiKey()">Create</button></div></div></div>
-<div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cmdlib-add-modal')">Cancel</button><button class="btn-primary" onclick="addCmdSnippet()">Add</button></div></div></div>
+<div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
+<div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
+<div class="modal-overlay" id="group-modal"><div class="modal"><div class="modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
+<div class="modal-overlay" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
+<div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea" style="min-height:160px;font-family:monospace" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
+<div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" style="display:none;margin-bottom:16px"><div class="form-label" style="margin-bottom:6px">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
+<div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input" placeholder="apt-get clean" style="font-family:monospace"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
 
 <!-- v2.1.0: script editor modal (handles both add + edit; mode flag in script-edit-id) -->
 <div class="modal-overlay" id="script-edit-modal"><div class="modal modal-wide">
@@ -3061,15 +3061,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
        on whatever's currently in the body. All three respect the same
        admin/redaction/rate-limit machinery as everywhere else. -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px">
-    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIGenerate()">✨ Generate from prompt…</button>
-    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIExplain()">✨ Explain</button>
-    <button class="btn-icon" style="font-size:12px" onclick="scriptEditorAIAudit()">✨ Audit for risks</button>
+    <button class="btn-icon" style="font-size:12px" data-action="scriptEditorAIGenerate" >✨ Generate from prompt…</button>
+    <button class="btn-icon" style="font-size:12px" data-action="scriptEditorAIExplain" >✨ Explain</button>
+    <button class="btn-icon" style="font-size:12px" data-action="scriptEditorAIAudit" >✨ Audit for risks</button>
     <span style="font-size:11px;color:var(--muted);margin-left:auto">Output is reviewed + dry-run before save — same path as a human-written script.</span>
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('script-edit-modal')">Cancel</button>
-    <button class="btn-icon" onclick="runScriptDryRunFromEditor()" style="margin-right:auto">Dry run</button>
-    <button class="btn-primary" onclick="saveScriptFromEditor()">Save</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="script-edit-modal" >Cancel</button>
+    <button class="btn-icon" data-action="runScriptDryRunFromEditor" style="margin-right:auto">Dry run</button>
+    <button class="btn-primary" data-action="saveScriptFromEditor" >Save</button>
   </div>
 </div></div>
 
@@ -3080,7 +3080,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="script-run-device-id">
   <input type="hidden" id="script-run-mode"><!-- 'single' | 'batch' -->
   <div class="form-group"><label class="form-label">Script</label>
-    <select id="script-run-pick" class="form-input" onchange="onScriptRunPick()">
+    <select id="script-run-pick" class="form-input" data-change="onScriptRunPick" >
       <option value="">— Choose a saved script —</option>
     </select>
   </div>
@@ -3090,8 +3090,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     I understand this script contains dangerous patterns and want to run it anyway
   </label>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('script-run-modal')">Cancel</button>
-    <button class="btn-primary" onclick="confirmScriptRun()">Queue</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="script-run-modal" >Cancel</button>
+    <button class="btn-primary" data-action="confirmScriptRun" >Queue</button>
   </div>
 </div></div>
 
@@ -3102,8 +3102,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <input type="hidden" id="batch-job-id">
   <div id="batch-job-body" style="min-height:120px;max-height:60vh;overflow-y:auto"></div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeBatchJobModal()">Close</button>
-    <button class="btn-icon" id="batch-job-refresh-btn" onclick="refreshBatchJob()">Refresh</button>
+    <button class="btn-secondary" data-action="closeBatchJobModal" >Close</button>
+    <button class="btn-icon" id="batch-job-refresh-btn" data-action="refreshBatchJob" >Refresh</button>
   </div>
 </div></div>
 
@@ -3116,24 +3116,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <select id="compose-project-pick" class="form-input"></select>
   </div>
   <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
-    <button class="btn-icon" onclick="runCompose('up')">Up</button>
-    <button class="btn-icon" onclick="runCompose('down')" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Down</button>
-    <button class="btn-icon" onclick="runCompose('restart')">Restart</button>
-    <button class="btn-icon" onclick="runCompose('pull')">Pull</button>
-    <button class="btn-icon" onclick="runCompose('logs')">Logs (last 50)</button>
+    <button class="btn-icon" data-action="runCompose" data-arg="up" >Up</button>
+    <button class="btn-icon" data-action="runCompose" data-arg="down" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Down</button>
+    <button class="btn-icon" data-action="runCompose" data-arg="restart" >Restart</button>
+    <button class="btn-icon" data-action="runCompose" data-arg="pull" >Pull</button>
+    <button class="btn-icon" data-action="runCompose" data-arg="logs" >Logs (last 50)</button>
   </div>
   <div id="compose-result" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:280px;overflow-y:auto;color:var(--muted)">Queue an action — output arrives on the next heartbeat (~60s).</div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('compose-modal')">Close</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="compose-modal" >Close</button>
   </div>
 </div></div>
-<div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('metrics-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" style="min-height:80px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="metrics-modal" >Close</button></div></div></div>
 <!-- v2.1.5: device-patch-modal — has been referenced by openDevicePatchReport
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property
      textContent, document.getElementById(...) is null". Restored here. -->
-<div class="modal-overlay" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('device-patch-modal')">Close</button></div></div></div>
-<div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('cve-detail-modal')">Close</button></div></div></div>
+<div class="modal-overlay" id="device-patch-modal"><div class="modal modal-wide"><div class="modal-title" id="device-patch-title">Patch Report</div><div id="device-patch-body" style="min-height:100px"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-patch-modal" >Close</button></div></div></div>
+<div class="modal-overlay" id="cve-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="cve-detail-title">CVE Findings</div><div id="cve-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cve-detail-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="cve-ignore-modal"><div class="modal">
   <div class="modal-title">Ignore CVE</div>
   <div class="modal-subtitle" style="font-size:13px;color:var(--muted);margin-bottom:12px">Mark <code id="cve-ignore-vuln" style="color:var(--accent)"></code> as an accepted risk. It stays recorded but stops counting as a finding or raising attention.</div>
@@ -3151,12 +3151,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </label>
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cve-ignore-modal')">Cancel</button>
-    <button class="btn-primary" id="cve-ignore-confirm" onclick="_confirmCveIgnore()">Ignore CVE</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cve-ignore-modal" >Cancel</button>
+    <button class="btn-primary" id="cve-ignore-confirm" data-action="_confirmCveIgnore" >Ignore CVE</button>
   </div>
 </div></div>
-<div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" onclick="closeModal('service-detail-modal')">Close</button></div></div></div>
-<div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('service-edit-modal')">Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
+<div class="modal-overlay" id="service-detail-modal"><div class="modal modal-wide"><div class="modal-title" id="service-detail-title">Services</div><div id="service-detail-body" style="min-height:120px;max-height:70vh;overflow-y:auto"><div style="color:var(--muted);text-align:center;padding:40px">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" id="service-edit-btn">Edit watched units</button><button class="btn-secondary" data-action="closeModal" data-arg="service-detail-modal" >Close</button></div></div></div>
+<div class="modal-overlay" id="service-edit-modal"><div class="modal"><div class="modal-title">Configure watched services</div><div style="font-size:13px;color:var(--muted);margin-bottom:12px">One systemd unit per line (e.g. <code>nginx.service</code>, <code>postgresql.service</code>). Agent reports their state on every heartbeat.</div><textarea id="service-edit-textarea" rows="10" style="width:100%;font-family:monospace;font-size:13px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px;border-radius:6px;resize:vertical" placeholder="nginx.service&#10;postgresql.service&#10;sshd.service"></textarea><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="service-edit-modal" >Cancel</button><button class="btn-primary" id="service-edit-save">Save</button></div></div></div>
 
 <!-- ── v1.9.0: CMDB modals ───────────────────────────────────────────── -->
 <div class="modal-overlay" id="cmdb-vault-setup-modal"><div class="modal">
@@ -3171,8 +3171,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="password" id="cmdb-vault-setup-pw2" class="form-input" autocomplete="new-password">
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-vault-setup-modal')">Cancel</button>
-    <button class="btn-primary" onclick="cmdbVaultSetup()">Create vault</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-setup-modal" >Cancel</button>
+    <button class="btn-primary" data-action="cmdbVaultSetup" >Create vault</button>
   </div>
 </div></div>
 
@@ -3184,8 +3184,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="password" id="cmdb-vault-unlock-pw" class="form-input" autocomplete="current-password">
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-vault-unlock-modal')">Cancel</button>
-    <button class="btn-primary" onclick="cmdbVaultUnlock()">Unlock</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-unlock-modal" >Cancel</button>
+    <button class="btn-primary" data-action="cmdbVaultUnlock" >Unlock</button>
   </div>
 </div></div>
 
@@ -3205,17 +3205,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="password" id="cmdb-vault-rotate-new2" class="form-input" autocomplete="new-password">
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-vault-rotate-modal')">Cancel</button>
-    <button class="btn-primary" onclick="cmdbVaultRotate()">Rotate</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-vault-rotate-modal" >Cancel</button>
+    <button class="btn-primary" data-action="cmdbVaultRotate" >Rotate</button>
   </div>
 </div></div>
 
 <div class="modal-overlay" id="cmdb-asset-modal"><div class="modal modal-wide">
   <div class="modal-title" id="cmdb-asset-title">Asset</div>
   <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:0">
-    <button class="btn-icon cmdb-tab-btn active" data-tab="props" onclick="cmdbSwitchTab('props')">Properties</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="docs" onclick="cmdbSwitchTab('docs')">Documentation</button>
-    <button class="btn-icon cmdb-tab-btn" data-tab="creds" onclick="cmdbSwitchTab('creds')">Credentials</button>
+    <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
   </div>
 
   <div id="cmdb-tab-props">
@@ -3255,7 +3255,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div id="cmdb-tab-docs" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div style="font-weight:600;font-size:14px">Documents</div>
-      <button class="btn-icon" id="cmdb-doc-add-btn" onclick="cmdbDocAddOpen()">+ Add document</button>
+      <button class="btn-icon" id="cmdb-doc-add-btn" data-action="cmdbDocAddOpen" >+ Add document</button>
     </div>
     <div id="cmdb-docs-list" style="display:flex;flex-direction:column;gap:10px">
       <!-- Filled by cmdbRenderDocs() — one .cmdb-doc-card per entry. -->
@@ -3271,7 +3271,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div style="font-weight:600;font-size:14px">Credentials</div>
-      <button class="btn-icon" id="cmdb-creds-add-btn" onclick="cmdbCredAddOpen()">+ Add credential</button>
+      <button class="btn-icon" id="cmdb-creds-add-btn" data-action="cmdbCredAddOpen" >+ Add credential</button>
     </div>
     <div id="cmdb-creds-list">
       <div style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No credentials yet.</div>
@@ -3279,8 +3279,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-asset-modal')">Close</button>
-    <button class="btn-primary" id="cmdb-asset-save-btn" onclick="cmdbAssetSave()">Save changes</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-asset-modal" >Close</button>
+    <button class="btn-primary" id="cmdb-asset-save-btn" data-action="cmdbAssetSave" >Save changes</button>
   </div>
 </div></div>
 
@@ -3299,15 +3299,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="form-group">
     <div style="display:flex;gap:6px;margin-bottom:6px">
-      <button class="btn-icon active" id="cmdb-doc-modal-edit-btn" onclick="cmdbDocModalSwitch('edit')">Edit</button>
-      <button class="btn-icon" id="cmdb-doc-modal-preview-btn" onclick="cmdbDocModalSwitch('preview')">Preview</button>
+      <button class="btn-icon active" id="cmdb-doc-modal-edit-btn" data-action="cmdbDocModalSwitch" data-arg="edit" >Edit</button>
+      <button class="btn-icon" id="cmdb-doc-modal-preview-btn" data-action="cmdbDocModalSwitch" data-arg="preview" >Preview</button>
     </div>
     <textarea id="cmdb-doc-modal-body" class="form-textarea" style="min-height:300px;font-family:monospace;font-size:13px" placeholder="# Markdown supported&#10;&#10;Headings, bold, italic, code, links, lists."></textarea>
     <div id="cmdb-doc-modal-preview" style="display:none;min-height:300px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;line-height:1.55;overflow-y:auto;max-height:50vh"></div>
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-doc-edit-modal')">Cancel</button>
-    <button class="btn-primary" onclick="cmdbDocSave()">Save</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-doc-edit-modal" >Cancel</button>
+    <button class="btn-primary" data-action="cmdbDocSave" >Save</button>
   </div>
 </div></div>
 
@@ -3333,8 +3333,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="text" id="cmdb-cred-note" class="form-input" maxlength="512">
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('cmdb-cred-add-modal')">Cancel</button>
-    <button class="btn-primary" onclick="cmdbCredSave()">Save</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-cred-add-modal" >Cancel</button>
+    <button class="btn-primary" data-action="cmdbCredSave" >Save</button>
   </div>
 </div></div>
 
@@ -3346,8 +3346,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>
   </div>
   <div class="modal-actions">
-    <button class="btn-icon" onclick="reloadUpdateLogs()">Refresh</button>
-    <button class="btn-secondary" onclick="closeModal('update-logs-modal')">Close</button>
+    <button class="btn-icon" data-action="reloadUpdateLogs" >Refresh</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="update-logs-modal" >Close</button>
   </div>
 </div></div>
 
@@ -3359,11 +3359,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div id="cmdb-cred-reveal-label" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace">—</div>
   </div>
   <div class="form-group">
-    <label class="form-label">Username <button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="cmdbCredCopy('cmdb-cred-reveal-username')">Copy</button></label>
+    <label class="form-label">Username <button class="btn-icon" style="font-size:11px;padding:2px 8px" data-action="cmdbCredCopy" data-arg="cmdb-cred-reveal-username" >Copy</button></label>
     <div id="cmdb-cred-reveal-username" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace;word-break:break-all">—</div>
   </div>
   <div class="form-group">
-    <label class="form-label">Password <button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="cmdbCredCopy('cmdb-cred-reveal-password')">Copy</button></label>
+    <label class="form-label">Password <button class="btn-icon" style="font-size:11px;padding:2px 8px" data-action="cmdbCredCopy" data-arg="cmdb-cred-reveal-password" >Copy</button></label>
     <div id="cmdb-cred-reveal-password" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:monospace;word-break:break-all">—</div>
   </div>
   <div class="form-group" id="cmdb-cred-reveal-note-wrap">
@@ -3371,7 +3371,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div id="cmdb-cred-reveal-note" style="padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--muted)">—</div>
   </div>
   <div class="modal-actions">
-    <button class="btn-primary" onclick="cmdbCredRevealClose()">Close</button>
+    <button class="btn-primary" data-action="cmdbCredRevealClose" >Close</button>
   </div>
 </div></div>
 
@@ -3426,8 +3426,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div style="font-size:11px;color:var(--muted);margin-top:4px;padding-left:24px">Looks up <code>_PORT._tcp.HOSTNAME</code> for TLSA records, validates DNSSEC, and compares the cert against them. Without DNSSEC the check refuses to trust the records (status: <code>insecure</code>).</div>
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('tls-add-modal')">Cancel</button>
-    <button class="btn-primary" onclick="tlsAddSave()">Add</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="tls-add-modal" >Cancel</button>
+    <button class="btn-primary" data-action="tlsAddSave" >Add</button>
   </div>
 </div></div>
 
@@ -3436,7 +3436,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="tls-detail-title">Certificate detail</div>
   <div id="tls-detail-body" style="font-size:13px"></div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('tls-detail-modal')">Close</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="tls-detail-modal" >Close</button>
   </div>
 </div></div>
 
@@ -3503,10 +3503,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('acme-issue-modal')">Cancel</button>
-    <button class="btn-secondary" id="acme-issue-back" onclick="acmeIssueStep(-1)" style="display:none">← Back</button>
-    <button class="btn-primary"   id="acme-issue-next" onclick="acmeIssueStep(1)">Next →</button>
-    <button class="btn-primary"   id="acme-issue-go"   onclick="acmeIssueSubmit()" style="display:none">Queue issue command</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="acme-issue-modal" >Cancel</button>
+    <button class="btn-secondary" id="acme-issue-back" data-action="acmeIssueStep" data-arg="-1" style="display:none">← Back</button>
+    <button class="btn-primary"   id="acme-issue-next" data-action="acmeIssueStep" data-arg="1" >Next →</button>
+    <button class="btn-primary"   id="acme-issue-go"   data-action="acmeIssueSubmit" style="display:none">Queue issue command</button>
   </div>
 </div></div>
 
@@ -3515,15 +3515,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-title" id="acme-detail-title">Certificate detail</div>
   <div class="modal-subtitle" id="acme-detail-subtitle"></div>
   <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px;margin-top:8px">
-    <button class="drawer-tab-btn active" data-acme-tab="overview" onclick="acmeDetailTab('overview')">Overview</button>
-    <button class="drawer-tab-btn" data-acme-tab="timeline" onclick="acmeDetailTab('timeline')">Timeline</button>
-    <button class="drawer-tab-btn" data-acme-tab="logs" onclick="acmeDetailTab('logs')">Logs</button>
+    <button class="drawer-tab-btn active" data-acme-tab="overview" data-action="acmeDetailTab" data-arg="overview" >Overview</button>
+    <button class="drawer-tab-btn" data-acme-tab="timeline" data-action="acmeDetailTab" data-arg="timeline" >Timeline</button>
+    <button class="drawer-tab-btn" data-acme-tab="logs" data-action="acmeDetailTab" data-arg="logs" >Logs</button>
   </div>
   <div id="acme-detail-overview" class="acme-detail-pane" style="font-size:13px;min-height:240px"></div>
   <div id="acme-detail-timeline" class="acme-detail-pane" style="font-size:13px;min-height:240px;display:none"></div>
   <div id="acme-detail-logs" class="acme-detail-pane" style="font-size:13px;min-height:240px;display:none"></div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('acme-detail-modal')">Close</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="acme-detail-modal" >Close</button>
   </div>
 </div></div>
 
@@ -3534,9 +3534,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
   <!-- Tab bar -->
   <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:14px;margin-top:8px">
-    <button class="drawer-tab-btn active" data-mit-tab="diagnostic" onclick="mitigateTab('diagnostic')">1 · Diagnostic</button>
-    <button class="drawer-tab-btn"        data-mit-tab="ai"         onclick="mitigateTab('ai')">2 · AI analysis</button>
-    <button class="drawer-tab-btn"        data-mit-tab="fix"        onclick="mitigateTab('fix')">3 · Apply fix</button>
+    <button class="drawer-tab-btn active" data-mit-tab="diagnostic" data-action="mitigateTab" data-arg="diagnostic" >1 · Diagnostic</button>
+    <button class="drawer-tab-btn"        data-mit-tab="ai"         data-action="mitigateTab" data-arg="ai" >2 · AI analysis</button>
+    <button class="drawer-tab-btn"        data-mit-tab="fix"        data-action="mitigateTab" data-arg="fix" >3 · Apply fix</button>
   </div>
 
   <!-- Diagnostic tab -->
@@ -3555,8 +3555,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="mitigate-ai-fix-warning" style="margin-top:8px;font-size:12px;display:none"></div>
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn-icon" id="mitigate-ai-rerun" onclick="mitigateRerunAi()">↻ Re-run AI</button>
-      <button class="btn-icon" id="mitigate-ai-use" style="display:none" onclick="mitigateUseAiFix()">Use this as fix command →</button>
+      <button class="btn-icon" id="mitigate-ai-rerun" data-action="mitigateRerunAi" >↻ Re-run AI</button>
+      <button class="btn-icon" id="mitigate-ai-use" style="display:none" data-action="mitigateUseAiFix" >Use this as fix command →</button>
     </div>
   </div>
 
@@ -3575,14 +3575,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Confirmation required because the command is destructive, irreversible, or AI-suggested rather than pre-approved.</div>
     </div>
     <div style="display:flex;gap:8px;padding-top:14px;border-top:1px solid var(--border)">
-      <button class="btn-primary" id="mitigate-fix-go" onclick="mitigateRunFix()">▶ Run this command</button>
-      <button class="btn-secondary" onclick="mitigateTab('ai')">← Back to AI</button>
+      <button class="btn-primary" id="mitigate-fix-go" data-action="mitigateRunFix" >▶ Run this command</button>
+      <button class="btn-secondary" data-action="mitigateTab" data-arg="ai" >← Back to AI</button>
     </div>
     <div id="mitigate-fix-result" style="margin-top:14px"></div>
   </div>
 
   <div class="modal-actions" style="margin-top:14px">
-    <button class="btn-secondary" onclick="closeMitigateModal()">Close</button>
+    <button class="btn-secondary" data-action="closeMitigateModal" >Close</button>
   </div>
 </div></div>
 
@@ -3649,8 +3649,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <label><input type="checkbox" id="al-status" checked> Mark as currently up</label>
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('agentless-add-modal')">Cancel</button>
-    <button class="btn-primary" onclick="agentlessSave()">Add device</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="agentless-add-modal" >Cancel</button>
+    <button class="btn-primary" data-action="agentlessSave" >Add device</button>
   </div>
 </div></div>
 
@@ -3660,8 +3660,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-subtitle">Set <code>connected_to</code> for each device — what it plugs into upstream (typically a switch or AP). Leave blank for devices with no parent (the internet gateway, root switch, etc.).</div>
   <div id="netmap-edit-body" style="max-height:60vh;overflow-y:auto"></div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('netmap-edit-modal')">Close</button>
-    <button class="btn-primary" onclick="netmapEditSaveAll()">Save changes</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="netmap-edit-modal" >Close</button>
+    <button class="btn-primary" data-action="netmapEditSaveAll" >Save changes</button>
   </div>
 </div></div>
 
@@ -3699,8 +3699,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="text" id="link-edit-description" class="form-input" maxlength="512" placeholder="Short note shown on hover">
   </div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('link-edit-modal')">Cancel</button>
-    <button class="btn-primary" onclick="linkSave()">Save</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="link-edit-modal" >Cancel</button>
+    <button class="btn-primary" data-action="linkSave" >Save</button>
   </div>
 </div></div>
 
@@ -3717,11 +3717,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="form-label" style="font-size:12px">To</label>
       <select id="tun-to" class="form-input"><option value="">— pick —</option></select>
     </div>
-    <button class="btn-icon" onclick="tunnelAdd()">+ Add tunnel</button>
+    <button class="btn-icon" data-action="tunnelAdd" >+ Add tunnel</button>
   </div>
   <div id="tun-list" style="max-height:50vh;overflow-y:auto"></div>
   <div class="modal-actions">
-    <button class="btn-secondary" onclick="closeModal('netmap-tunnels-modal')">Close</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="netmap-tunnels-modal" >Close</button>
   </div>
 </div></div>
 
@@ -3733,8 +3733,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <!-- v1.11.4: clear stored container data for this device. Useful for
          decommissioning or for forcing a redraw without waiting ~5 min for
          the next heartbeat. The agent will repopulate on its next report. -->
-    <button class="btn-secondary" onclick="containersClearCurrent()" id="containers-detail-clear" style="margin-right:auto">Clear data</button>
-    <button class="btn-secondary" onclick="closeModal('containers-detail-modal')">Close</button>
+    <button class="btn-secondary" data-action="containersClearCurrent" id="containers-detail-clear" style="margin-right:auto">Clear data</button>
+    <button class="btn-secondary" data-action="closeModal" data-arg="containers-detail-modal" >Close</button>
   </div>
 </div></div>
 
@@ -3761,10 +3761,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
   </div>
   <div class="modal-actions" style="justify-content:space-between">
-    <button class="btn-secondary" id="event-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCurrentEvent()">Delete</button>
+    <button class="btn-secondary" id="event-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" data-action="deleteCurrentEvent" >Delete</button>
     <div style="display:flex;gap:8px">
-      <button class="btn-secondary" onclick="closeModal('event-modal')">Cancel</button>
-      <button class="btn-primary" onclick="saveEvent()">Save</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="event-modal" >Cancel</button>
+      <button class="btn-primary" data-action="saveEvent" >Save</button>
     </div>
   </div>
 </div></div>
@@ -3789,10 +3789,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div id="task-meta" style="font-size:11px;color:var(--muted);margin:4px 0 8px;display:none"></div>
   <div class="modal-actions" style="justify-content:space-between">
-    <button class="btn-secondary" id="task-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCurrentTask()">Delete</button>
+    <button class="btn-secondary" id="task-delete-btn" style="display:none;color:var(--red);border-color:rgba(239,68,68,0.3)" data-action="deleteCurrentTask" >Delete</button>
     <div style="display:flex;gap:8px">
-      <button class="btn-secondary" onclick="closeModal('task-modal')">Cancel</button>
-      <button class="btn-primary" onclick="saveTask()">Save</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="task-modal" >Cancel</button>
+      <button class="btn-primary" data-action="saveTask" >Save</button>
     </div>
   </div>
 </div></div>
@@ -3807,10 +3807,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <label>Source type</label>
     <div style="display:flex;gap:14px;font-size:13px">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="log-rule-source" value="unit" checked onchange="_toggleLogRuleSource()"> systemd unit (via journalctl)
+        <input type="radio" name="log-rule-source" value="unit" checked data-change="_toggleLogRuleSource" > systemd unit (via journalctl)
       </label>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="radio" name="log-rule-source" value="path" onchange="_toggleLogRuleSource()"> file path (agent tails the file)
+        <input type="radio" name="log-rule-source" value="path" data-change="_toggleLogRuleSource" > file path (agent tails the file)
       </label>
     </div>
   </div>
@@ -3830,12 +3830,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </select>
     <div style="font-size:11px;color:var(--muted);margin-top:4px">CheckMK-style: WARN/CRIT fire webhooks; OK rules are noise-suppressors that confirm an expected pattern is still present.</div>
   </div>
-  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('log-rule-modal')">Cancel</button><button class="btn-primary" onclick="saveLogRule()">Add</button></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="log-rule-modal" >Cancel</button><button class="btn-primary" data-action="saveLogRule" >Add</button></div>
 </div></div>
 <div class="modal-overlay" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>
   <div class="form-group"><label>Reason</label><input type="text" id="maint-reason" placeholder="Monthly patching" maxlength="120"></div>
   <div class="form-group"><label>Scope</label>
-    <select id="maint-scope" onchange="onMaintScopeChange()">
+    <select id="maint-scope" data-change="onMaintScopeChange" >
       <option value="device">Single device</option>
       <option value="group">Group</option>
       <option value="global">Entire fleet</option>
@@ -3846,7 +3846,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <input type="text" id="maint-target-group" placeholder="group name" style="display:none" maxlength="60">
   </div>
   <div class="form-group"><label>Window type</label>
-    <select id="maint-type" onchange="onMaintTypeChange()">
+    <select id="maint-type" data-change="onMaintTypeChange" >
       <option value="oneshot">One-shot (specific time)</option>
       <option value="cron">Recurring (cron)</option>
     </select>
@@ -3872,9 +3872,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label><input type="checkbox" class="maint-event-cb" value="log_alert"> log_alert</label>
     </div>
   </div>
-  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('new-maint-modal')">Cancel</button><button class="btn-primary" onclick="saveMaintenance()">Create</button></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-maint-modal" >Cancel</button><button class="btn-primary" data-action="saveMaintenance" >Create</button></div>
 </div></div>
-<div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;max-height:200px;overflow-y:auto"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input" placeholder="🖥️" maxlength="4" style="font-size:24px;text-align:center;max-width:80px"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeModal('icon-modal')">Cancel</button><button class="btn-secondary" onclick="saveDeviceIcon('')">Clear</button><button class="btn-primary" onclick="saveDeviceIcon(document.getElementById('icon-custom').value)">Save</button></div></div></div>
+<div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;max-height:200px;overflow-y:auto"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input" placeholder="🖥️" maxlength="4" style="font-size:24px;text-align:center;max-width:80px"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
 <div class="modal-overlay" id="custom-script-modal">
@@ -3896,7 +3896,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="form-label">Generate with AI</label>
       <div style="display:flex;gap:8px">
         <input type="text" id="cs-ai-prompt" class="form-input" placeholder="e.g. check if nginx is accepting connections on port 80 and returns 200" style="flex:1">
-        <button class="btn-icon" id="cs-ai-btn" onclick="csGenerateWithAI()" style="white-space:nowrap;padding:0 14px">✨ Generate</button>
+        <button class="btn-icon" id="cs-ai-btn" data-action="csGenerateWithAI" style="white-space:nowrap;padding:0 14px">✨ Generate</button>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:4px">Exit 0 = OK · non-zero = FAIL · runs as root · 30 s timeout · stdout captured</div>
       <div id="cs-ai-status" style="font-size:12px;color:var(--muted);margin-top:3px"></div>
@@ -3915,9 +3915,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
 
     <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal('custom-script-modal')">Cancel</button>
-      <button class="btn-danger" id="cs-modal-delete-btn" style="display:none" onclick="deleteCustomScript()">Delete</button>
-      <button class="btn-primary" onclick="saveCustomScript()">Save</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="custom-script-modal" >Cancel</button>
+      <button class="btn-danger" id="cs-modal-delete-btn" style="display:none" data-action="deleteCustomScript" >Delete</button>
+      <button class="btn-primary" data-action="saveCustomScript" >Save</button>
     </div>
   </div>
 </div>
@@ -3928,7 +3928,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="modal-title" id="cs-output-title">Script output</div>
     <div id="cs-output-body" style="font-family:var(--font-mono);font-size:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:60vh;overflow-y:auto;white-space:pre-wrap;word-break:break-word"></div>
     <div class="modal-actions">
-      <button class="btn-secondary" onclick="closeModal('cs-output-modal')">Close</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="cs-output-modal" >Close</button>
     </div>
   </div>
 </div>
@@ -3951,59 +3951,59 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
     <!-- Section tabs -->
     <div id="hc-tabs" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px">
-      <button class="hc-tab active" onclick="hcShowTab('repos',this)">Repos</button>
-      <button class="hc-tab" onclick="hcShowTab('netplan',this)">Netplan</button>
-      <button class="hc-tab" onclick="hcShowTab('nmcli',this)">nmcli</button>
-      <button class="hc-tab" onclick="hcShowTab('resolv_conf',this)">resolv.conf</button>
-      <button class="hc-tab" onclick="hcShowTab('hosts',this)">/etc/hosts</button>
-      <button class="hc-tab" onclick="hcShowTab('services',this)">Services</button>
-      <button class="hc-tab" onclick="hcShowTab('users',this)">Users</button>
-      <button class="hc-tab" onclick="hcShowTab('groups',this)">Groups</button>
-      <button class="hc-tab" onclick="hcShowTab('sudoers',this)">Sudoers</button>
-      <button class="hc-tab" onclick="hcShowTab('motd',this)">MOTD</button>
+      <button class="hc-tab active" data-action="hcShowTab" data-arg="repos" data-pass-btn="1" >Repos</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="netplan" data-pass-btn="1" >Netplan</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="nmcli" data-pass-btn="1" >nmcli</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="resolv_conf" data-pass-btn="1" >resolv.conf</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="hosts" data-pass-btn="1" >/etc/hosts</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="services" data-pass-btn="1" >Services</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="users" data-pass-btn="1" >Users</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="groups" data-pass-btn="1" >Groups</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="sudoers" data-pass-btn="1" >Sudoers</button>
+      <button class="hc-tab" data-action="hcShowTab" data-arg="motd" data-pass-btn="1" >MOTD</button>
     </div>
 
     <!-- Text sections (repos, netplan, nmcli, resolv_conf, hosts, sudoers, motd) -->
     <div class="hc-panel" id="hc-panel-repos">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Full content of <code>/etc/apt/sources.list</code> or <code>/etc/yum.repos.d/remotepower.repo</code></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('repos')">⬇ Fetch current</button><div id="hc-drift-repos" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="repos" >⬇ Fetch current</button><div id="hc-drift-repos" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-repos" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="deb http://deb.debian.org/debian bookworm main contrib non-free"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-netplan" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/netplan/01-remotepower.yaml</code> then <code>netplan apply</code></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('netplan')">⬇ Fetch current</button><div id="hc-drift-netplan" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="netplan" >⬇ Fetch current</button><div id="hc-drift-netplan" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-netplan" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="network:&#10;  version: 2&#10;  ethernets:&#10;    eth0:&#10;      dhcp4: true"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-nmcli" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/NetworkManager/system-connections/remotepower-managed.nmconnection</code></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('nmcli')">⬇ Fetch current</button><div id="hc-drift-nmcli" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="nmcli" >⬇ Fetch current</button><div id="hc-drift-nmcli" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-nmcli" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:280px;resize:vertical" placeholder="[connection]&#10;id=remotepower-managed&#10;type=ethernet"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-resolv_conf" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/resolv.conf</code> (resolves symlinks on systemd-resolved systems)</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('resolv_conf')">⬇ Fetch current</button><div id="hc-drift-resolv_conf" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="resolv_conf" >⬇ Fetch current</button><div id="hc-drift-resolv_conf" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-resolv_conf" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical" placeholder="nameserver 1.1.1.1&#10;nameserver 8.8.8.8&#10;search example.com"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-hosts" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Full content of <code>/etc/hosts</code></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('hosts')">⬇ Fetch current</button><div id="hc-drift-hosts" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="hosts" >⬇ Fetch current</button><div id="hc-drift-hosts" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-hosts" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:200px;resize:vertical" placeholder="127.0.0.1   localhost&#10;::1         localhost&#10;192.168.1.10 myserver"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-sudoers" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/sudoers.d/remotepower</code> (validated with <code>visudo -c</code> before applying)</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('sudoers')">⬇ Fetch current</button><div id="hc-drift-sudoers" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="sudoers" >⬇ Fetch current</button><div id="hc-drift-sudoers" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-sudoers" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical" placeholder="jakob ALL=(ALL) NOPASSWD:ALL"></textarea>
     </div>
     <div class="hc-panel" id="hc-panel-motd" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Written to <code>/etc/motd</code></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('motd')">⬇ Fetch current</button><div id="hc-drift-motd" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="motd" >⬇ Fetch current</button><div id="hc-drift-motd" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-motd" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:140px;resize:vertical" placeholder="Welcome to production. All access is logged."></textarea>
     </div>
 
     <!-- Services section -->
     <div class="hc-panel" id="hc-panel-services" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Services that should be <strong>enabled</strong> on this host. One per line. Agent runs <code>systemctl enable --now</code> for each.</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('services')">⬇ Fetch current</button><div id="hc-drift-services" style="font-size:11px;color:var(--amber)"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="services" >⬇ Fetch current</button><div id="hc-drift-services" style="font-size:11px;color:var(--amber)"></div></div>
       <textarea id="hc-text-services" class="form-textarea" style="font-family:var(--font-mono);font-size:12px;min-height:200px;resize:vertical" placeholder="nginx.service&#10;docker.service&#10;ssh.service"></textarea>
     </div>
 
@@ -4011,8 +4011,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="hc-panel" id="hc-panel-users" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Users to create or update. No passwords — SSH keys only.</div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('users')">⬇ Fetch current</button>
-        <button class="btn-icon" style="font-size:12px" onclick="hcAddUser()">+ Add user</button>
+        <button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="users" >⬇ Fetch current</button>
+        <button class="btn-icon" style="font-size:12px" data-action="hcAddUser" >+ Add user</button>
         <div id="hc-drift-users" style="font-size:11px;color:var(--amber)"></div>
       </div>
       <div id="hc-users-list" style="display:flex;flex-direction:column;gap:12px"></div>
@@ -4022,17 +4022,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="hc-panel" id="hc-panel-groups" style="display:none">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Groups to ensure exist on this host.</div>
       <div style="display:flex;gap:8px;margin-bottom:8px">
-        <button class="btn-icon" style="font-size:12px" onclick="hcFetchCurrent('groups')">⬇ Fetch current</button>
-        <button class="btn-icon" style="font-size:12px" onclick="hcAddGroup()">+ Add group</button>
+        <button class="btn-icon" style="font-size:12px" data-action="hcFetchCurrent" data-arg="groups" >⬇ Fetch current</button>
+        <button class="btn-icon" style="font-size:12px" data-action="hcAddGroup" >+ Add group</button>
         <div id="hc-drift-groups" style="font-size:11px;color:var(--amber)"></div>
       </div>
       <div id="hc-groups-list" style="display:flex;flex-direction:column;gap:8px"></div>
     </div>
 
     <div class="modal-actions" style="margin-top:16px">
-      <button class="btn-secondary" onclick="closeModal('host-config-modal')">Cancel</button>
-      <button class="btn-icon" id="hc-fetch-all-btn" onclick="hcFetchAllCurrent()" title="Trigger agent to collect and send all current config sections now">⬇ Collect all current</button>
-      <button class="btn-primary" onclick="saveHostConfig()">Save & push to agent</button>
+      <button class="btn-secondary" data-action="closeModal" data-arg="host-config-modal" >Cancel</button>
+      <button class="btn-icon" id="hc-fetch-all-btn" data-action="hcFetchAllCurrent" title="Trigger agent to collect and send all current config sections now">⬇ Collect all current</button>
+      <button class="btn-primary" data-action="saveHostConfig" >Save & push to agent</button>
     </div>
   </div>
 </div>
