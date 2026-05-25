@@ -85,22 +85,27 @@ class _ApiTestBase(unittest.TestCase):
         return token
 
 
-# ─── Version pins (strict — this is the live v3.0.4 release) ────────────────
+# ─── Version pins (loosened — v3.0.5 holds the strict pins now) ────────────
+#
+# Same pattern as test_v303.py loosened when v3.0.4 took over: the
+# strict EXPECTED='3.0.4' pin moved to test_v305.py. The v3.0.4
+# *features* (mobile sidebar close button, SW registration hardening,
+# the mitigate playbook fixes) are still asserted strictly above. The
+# pin block here just checks the project has SOME 3.x.x version
+# stamped consistently across api.py / agent / SW cache / README /
+# CHANGELOG, without enforcing the exact value.
 
 class TestVersionBumps(unittest.TestCase):
-    EXPECTED = '3.0.4'
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^SERVER_VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -109,37 +114,37 @@ class TestVersionBumps(unittest.TestCase):
             'remotepower-agent and remotepower-agent.py have drifted')
 
     def test_sw_cache_name(self):
-        # CSP L1 (v3.0.4): suffix "-csp1" was appended to invalidate the
-        # caches that pointed at the old CDN URLs. Accept either pure
-        # version or version-suffix form.
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        import re
-        pat = rf"'remotepower-shell-v{re.escape(self.EXPECTED)}(?:-[a-z0-9]+)?'"
-        self.assertRegex(sw, pat,
-            f'sw.js CACHE_NAME must carry v{self.EXPECTED} marker')
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+            'sw.js CACHE_NAME must carry a v3.x.x marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertIn(f'?v={self.EXPECTED}', html,
-            f'index.html cache-bust ?v= must be {self.EXPECTED}')
+        self.assertRegex(html, r'\?v=3\.\d+\.\d+',
+            'index.html cache-bust ?v= must be a 3.x.x version')
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
-            'README.md version badge not bumped')
+        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+            'README.md version badge missing 3.x.x marker')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
-        self.assertEqual(m.group(1), self.EXPECTED,
-            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
-    def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
-        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
-        text = path.read_text()
-        self.assertIn(self.EXPECTED, text)
+    def test_release_notes_doc_present_for_current_version(self):
+        """docs/vX.Y.Z.md must exist for the current SERVER_VERSION.
+        Loosened from the v3.0.4-specific pin so v3.0.5+ continues to
+        satisfy it as long as a matching release-notes file is shipped."""
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", api, re.MULTILINE)
+        self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
+        ver = m.group(1)
+        path = REPO_ROOT / 'docs' / f'v{ver}.md'
+        self.assertTrue(path.is_file(),
+            f'docs/v{ver}.md is missing — expected one release-notes '
+            f'file per SERVER_VERSION')
 
 
 class TestCallAiWithPromptsArgumentShape(unittest.TestCase):

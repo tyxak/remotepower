@@ -1,4 +1,4 @@
-# RemotePower — Security Review (v3.0.4)
+# RemotePower — Security Review (v3.0.5)
 
 Date: 2026-05-25. Scope: a focused security re-review eight months on
 from the v2.3.2 review. Same brief as before — auth, command

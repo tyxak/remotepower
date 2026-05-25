@@ -4821,13 +4821,21 @@ async function enterNetmap() {
 async function loadNetmap() {
   const data = await api('GET', '/network-map');
   if (!data) return;
-  _netmapData = data;
+  // v3.0.5: guard against the demo / read-only API path that returns
+  // `{}` (or `{error: ...}`) instead of the full shape. Previously
+  // `data.nodes.map(...)` would throw "can't access property 'map',
+  // data.nodes is undefined" and the page would render blank.
+  _netmapData = {
+    nodes:   Array.isArray(data.nodes)   ? data.nodes   : [],
+    edges:   Array.isArray(data.edges)   ? data.edges   : [],
+    tunnels: Array.isArray(data.tunnels) ? data.tunnels : [],
+  };
   _netmapDirty.clear();
   // Auto-layout for nodes without a saved position. We keep saved positions
   // exactly as the server returned them so a refresh shows the same picture.
   const w = document.getElementById('netmap-svg')?.clientWidth || 900;
   const byType = {};
-  _netmapNodes = data.nodes.map(n => ({...n}));
+  _netmapNodes = _netmapData.nodes.map(n => ({...n}));
   _netmapNodes.forEach(n => { (byType[n.type] = byType[n.type] || []).push(n); });
   const types = Object.keys(byType).sort();
   let yPos = 80;
@@ -4848,7 +4856,7 @@ async function loadNetmap() {
   });
   renderNetmap();
   document.getElementById('netmap-stats').textContent =
-    `${data.nodes.length} node(s), ${data.edges.length} link(s), ${(data.tunnels||[]).length} tunnel(s)`;
+    `${_netmapData.nodes.length} node(s), ${_netmapData.edges.length} link(s), ${_netmapData.tunnels.length} tunnel(s)`;
 }
 
 // SVG renderer — physical edges as solid lines, tunnels as dashed amber.

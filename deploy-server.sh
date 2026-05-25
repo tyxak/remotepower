@@ -115,6 +115,53 @@ print(f"  Agent version  → {agent_v}")
 print(f"  Server version → {server_v}")
 PYEOF
 
+# v3.0.5: per-file content-hash cache-busting for the linked /static/
+# assets in index.html. Without this, every JS/CSS change between
+# releases requires operators to manually clear browser cache or
+# unregister the service worker — the ?v=<server_version> query string
+# only bumps when SERVER_VERSION bumps, not when code changes.
+#
+# Each `<script src="static/X.js?v=...">` and `<link href="static/X.css?v=...">`
+# reference in the *deployed* index.html gets rewritten to carry the
+# first 12 chars of the SHA-256 of that file's content. The repo's
+# index.html is left untouched (tests assert ?v=<SERVER_VERSION> there).
+info "Rewriting ?v= query strings to per-file content hashes..."
+python3 - << 'PYEOF'
+import hashlib, re
+from pathlib import Path
+
+WEB_ROOT = Path('/var/www/remotepower')
+INDEX    = WEB_ROOT / 'index.html'
+if not INDEX.is_file():
+    raise SystemExit('  index.html missing — skipping cache-bust step')
+
+html = INDEX.read_text()
+edits = 0
+
+def _hash(rel_path: str) -> str:
+    p = WEB_ROOT / rel_path.lstrip('/')
+    if not p.is_file():
+        return ''
+    return hashlib.sha256(p.read_bytes()).hexdigest()[:12]
+
+def _replace(match: re.Match) -> str:
+    global edits
+    tag, rel = match.group(1), match.group(2)
+    h = _hash(rel)
+    if not h:
+        return match.group(0)  # file missing — leave alone
+    edits += 1
+    return f'{tag}"{rel}?v={h}"'
+
+# <script src="static/…?v=…">
+html = re.sub(r'(<script\s+src=)"((?:static|/static)/[^"?]+)\?v=[^"]+"', _replace, html)
+# <link  href="static/…?v=…">
+html = re.sub(r'(<link [^>]*href=)"((?:static|/static)/[^"?]+)\?v=[^"]+"', _replace, html)
+
+INDEX.write_text(html)
+print(f"  Rewrote {edits} ?v= reference(s) in deployed index.html to content hashes")
+PYEOF
+
 success "Done. Changes are live immediately (CGI — no restart needed)."
 echo ""
 echo "  Enrolled agents will self-update within ~1 hour."

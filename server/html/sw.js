@@ -20,7 +20,7 @@
  *     match the current name, preventing stale-cache confusion after upgrades.
  */
 
-const CACHE_NAME = 'remotepower-shell-v3.0.4-csp1';
+const CACHE_NAME = 'remotepower-shell-v3.0.5';
 
 // Files cached on install — the minimum set needed for the app to load.
 // Paths must match what nginx actually serves at those URLs.
