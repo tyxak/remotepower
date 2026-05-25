@@ -2417,7 +2417,35 @@ function openCmdLibAdd() { document.getElementById('cmdlib-name').value = ''; do
 async function addCmdSnippet() { const name = document.getElementById('cmdlib-name').value.trim(); const cmd = document.getElementById('cmdlib-cmd').value.trim(); const desc = document.getElementById('cmdlib-desc').value.trim(); if (!name || !cmd) { toast('Name and command required', 'error'); return; } const data = await api('POST', '/cmd-library', {name, cmd, description: desc}); if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; closeModal('cmdlib-add-modal'); toast('Command pasted into exec modal', 'info'); }
-function generateQRCode(containerId, text) { if (window.qrcode) { _renderQR(containerId, text); return; } const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; script.onload = () => _renderQR(containerId, text); script.onerror = () => { const el = document.getElementById(containerId); if (el) { const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`; el.innerHTML = `<img src="${fallbackUrl}" width="160" height="160" onerror="this.parentElement.innerHTML='<div style=\\'padding:16px;color:#666;font-size:12px;text-align:center\\' class="audit-cmd-output">QR unavailable.<br>Enter secret manually.</div>'">`; } }; document.head.appendChild(script); }
+function generateQRCode(containerId, text) {
+  if (window.qrcode) { _renderQR(containerId, text); return; }
+  const script = document.createElement('script');
+  // Note: this CDN load is also blocked under CSP `script-src 'self'`.
+  // To make TOTP setup work fully, self-host qrcode-generator in
+  // /static/vendor/ or add 'https://cdnjs.cloudflare.com' to script-src.
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+  script.onload  = () => _renderQR(containerId, text);
+  script.onerror = () => _qrFallbackImage(containerId, text);
+  document.head.appendChild(script);
+}
+function _qrFallbackImage(containerId, text) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  // Build the fallback DOM without inline on*/style attributes (CSP L1).
+  // img-src is also 'self' data:, so api.qrserver.com may still be blocked —
+  // operator can either self-host the QR lib or relax img-src to fix fully.
+  el.replaceChildren();
+  const img = document.createElement('img');
+  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`;
+  img.width = 160; img.height = 160;
+  img.addEventListener('error', () => {
+    const fallback = document.createElement('div');
+    fallback.className = 'isl-359';
+    fallback.textContent = 'QR unavailable. Enter secret manually.';
+    el.replaceChildren(fallback);
+  });
+  el.appendChild(img);
+}
 function _renderQR(containerId, text) { const el = document.getElementById(containerId); if (!el || !window.qrcode) return; try { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); el.innerHTML = qr.createSvgTag(4, 0); const svg = el.querySelector('svg'); if (svg) { svg.style.display = 'block'; svg.style.width = '160px'; svg.style.height = '160px'; } } catch(e) { el.innerHTML = '<div class="isl-359">QR generation failed.<br>Enter secret manually.</div>'; } }
 async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span class="c-green-bold">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
 async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${data.secret}" title="Click to copy" class="isl-368">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
@@ -5669,12 +5697,8 @@ async function linkDelete(linkId, title) {
 }
 
 
-// Make the bundle look professional — a tiny CSS hook for active tab styling.
-(function _cmdbInjectCss() {
-  const css = '.cmdb-tab-btn.active{background:rgba(59,126,255,0.12);border-color:var(--accent);color:var(--accent)}';
-  const s = document.createElement('style'); s.textContent = css;
-  document.head.appendChild(s);
-})();
+// CMDB active-tab styling lives in styles.css (.cmdb-tab-btn.active) —
+// dynamic <style> injection was blocked by CSP after L1 (no 'unsafe-inline').
 
 // Helper for CMDB rendering — escapes both quote styles since we interpolate
 // user-supplied labels into single-quoted onclick attributes. The project's
@@ -9824,14 +9848,14 @@ function hcAddUser() {
 function hcRemoveUser(idx) {
   const cards = document.querySelectorAll('.hc-user-card');
   if (cards[idx]) cards[idx].remove();
-  // Re-index remaining cards
+  // Re-index remaining cards. After CSP L1, the remove button uses
+  // data-action="hcRemoveUser" data-arg="${i}" instead of an inline
+  // onclick, so re-indexing means updating the dataset arg, not the
+  // attribute.
   document.querySelectorAll('.hc-user-card').forEach((c, i) => {
     c.dataset.idx = i;
-    c.querySelectorAll('[oninput]').forEach(el => {
-      el.setAttribute('oninput', el.getAttribute('oninput').replace(/\d+/, i));
-    });
-    const btn = c.querySelector('button');
-    if (btn) btn.setAttribute('onclick', `hcRemoveUser(${i})`);
+    const btn = c.querySelector('button[data-action="hcRemoveUser"]');
+    if (btn) btn.dataset.arg = i;
   });
 }
 

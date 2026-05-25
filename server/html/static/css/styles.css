@@ -10,6 +10,13 @@
  */
 @import url('https://fonts.bunny.net/css?family=inter:400,500,600,700|jetbrains-mono:400,500,600&display=swap');
 
+/* CMDB active tab — moved out of inline <style> injection (CSP L1). */
+.cmdb-tab-btn.active {
+  background: rgba(59, 126, 255, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
   :root {
     --bg: #0a0c10;
     --surface: #111520;
