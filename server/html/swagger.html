@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RemotePower — API Documentation</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Swagger UI page for RemotePower v1.10.0.
+
+  This page is intentionally separate from the SPA (index.html). Embedding
+  Swagger UI inline would balloon the main bundle by ~700 KB; loading it
+  on demand from a separate URL keeps the dashboard fast.
+
+  Auth model: the user must be logged into the SPA first. We pull the
+  session token from localStorage / sessionStorage (same logic as the
+  main app) and inject it into Swagger UI's request interceptor so the
+  "Try it out" feature works without re-prompting for credentials.
+
+  The Swagger UI assets are fetched from a pinned CDN version. If the
+  CDN is unreachable (offline server, DNS block) the page falls back to
+  a plain-text dump of the spec — better than a blank screen.
+-->
+<style>
+  body { margin: 0; background: #0f1419; color: #e6edf3; font-family: system-ui, sans-serif; }
+  #rp-bar { padding: 10px 20px; background: #1c2128; border-bottom: 1px solid #30363d; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  #rp-bar a { color: #58a6ff; text-decoration: none; font-size: 14px; }
+  #rp-bar a:hover { text-decoration: underline; }
+  #rp-bar .rp-title { font-weight: 600; font-size: 15px; color: #e6edf3; }
+  #rp-bar .rp-version { color: #8b949e; font-size: 12px; }
+  #rp-bar .rp-spacer { flex: 1; }
+  #rp-bar .rp-status { font-size: 12px; color: #8b949e; }
+  #rp-bar .rp-status.ok  { color: #3fb950; }
+  #rp-bar .rp-status.bad { color: #f85149; }
+  #swagger-ui { background: #fff; min-height: calc(100vh - 50px); }
+  #fallback   { padding: 20px; font-family: monospace; white-space: pre-wrap; display: none; }
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css">
+</head>
+<body>
+
+<div id="rp-bar">
+  <span class="rp-title">RemotePower API</span>
+  <span class="rp-version" id="rp-version">v?.?.?</span>
+  <a href="/">← Back to dashboard</a>
+  <a href="/api/openapi.json" target="_blank">Raw spec (JSON)</a>
+  <span class="rp-spacer"></span>
+  <span class="rp-status" id="rp-status">Loading…</span>
+</div>
+
+<div id="swagger-ui"></div>
+<pre id="fallback"></pre>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js"></script>
+<script>
+(function() {
+  // Pull the session token from wherever the main app stashed it. We support
+  // both 'remember-me' (localStorage) and per-tab (sessionStorage) sessions.
+  // Key name must match the dashboard exactly — see getToken() in index.html.
+  function getToken() {
+    return localStorage.getItem('rp_token')
+        || sessionStorage.getItem('rp_token')
+        || '';
+  }
+
+  var token = getToken();
+  var statusEl = document.getElementById('rp-status');
+
+  if (!token) {
+    statusEl.textContent = 'Not logged in';
+    statusEl.classList.add('bad');
+    document.getElementById('swagger-ui').innerHTML =
+      '<div style="padding:40px;text-align:center;color:#0f1419">'
+      + '<h2>Not logged in</h2>'
+      + '<p>Log in to the <a href="/">main dashboard</a>, then return here.</p>'
+      + '</div>';
+    return;
+  }
+
+  // Fetch the spec ourselves (rather than letting Swagger UI fetch it)
+  // because we need to attach the X-Token header. Swagger UI doesn't send
+  // auth on the *spec* fetch, only on Try-It-Out requests.
+  fetch('/api/openapi.json', { headers: { 'X-Token': token } })
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(spec) {
+      document.getElementById('rp-version').textContent = 'v' + spec.info.version;
+      statusEl.textContent = 'Loaded';
+      statusEl.classList.add('ok');
+      // Build Swagger UI with a request interceptor that auto-attaches the
+      // user's session token to every Try-It-Out request. This keeps the
+      // UX consistent with the dashboard — no Authorize button needed for
+      // the common case.
+      window.ui = SwaggerUIBundle({
+        spec: spec,
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        tryItOutEnabled: true,
+        defaultModelsExpandDepth: 0,
+        docExpansion: 'list',
+        requestInterceptor: function(req) {
+          req.headers['X-Token'] = token;
+          return req;
+        },
+        presets: [ SwaggerUIBundle.presets.apis ],
+        plugins: [ SwaggerUIBundle.plugins.DownloadUrl ],
+      });
+    })
+    .catch(function(err) {
+      statusEl.textContent = 'Failed: ' + err.message;
+      statusEl.classList.add('bad');
+      // Fallback: try to fetch the raw spec and dump it as text. Better
+      // than a blank screen if the CDN is blocked.
+      var fb = document.getElementById('fallback');
+      fb.style.display = 'block';
+      fb.textContent = 'Could not render Swagger UI (' + err.message + ').\n\n'
+        + 'The raw spec is still available at /api/openapi.json.\n'
+        + 'If you are seeing this on an offline server, the CDN-hosted '
+        + 'Swagger UI assets are unreachable from your browser.';
+    });
+})();
+</script>
+</body>
+</html>

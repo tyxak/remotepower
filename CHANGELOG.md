@@ -1,0 +1,9487 @@
+# Changelog
+
+All notable changes to RemotePower. Newest first.
+
+## v3.0.4 — 2026-05-24
+
+A bug-fix release hot on the heels of v3.0.3. Eight real production bugs, all
+landed the same evening they were spotted. **Recommended for every operator
+who runs the AI features, the metric thresholds, the per-device settings
+drawer, or the mobile / PWA UI — i.e. nearly everyone.** No schema changes,
+no migrations needed.
+
+### Fixed
+
+- **AI chat returned 500 on every request.** `_http_post_json` in
+  `ai_provider.py` referenced `cfg.get('insecure_ssl')` from inside a function
+  that never received `cfg` as a parameter. The reference resolved against an
+  unbound name and raised `NameError` before the request ever left the box.
+  The bug was latent in v3.0.2 — the change that "honoured" the insecure_ssl
+  flag never wired it through — and triggered the first time a v3.0.2+ install
+  actually exercised the chat path. Fix: explicit `insecure_ssl: bool = False`
+  parameter; callers forward `cfg.get('insecure_ssl')`. Anthropic and
+  OpenAI-compatible paths both updated. The matching `_http_get_json` got the
+  same parameter for symmetry.
+
+- **Monitor page showed "OK" badge while Needs Attention was screaming about a
+  swap/memory/CPU warning on the same host.** `handle_devices_list()` returned
+  a curated subset of device fields and silently dropped `metric_state`. The
+  client's row aggregator iterated `d.metric_state || {}`, got empty, and
+  defaulted to "OK" — even though `/api/attention` read the same state on the
+  server side directly and was correctly surfacing the alert. Fix: include
+  `metric_state` in the device list response. The dict is small (one entry per
+  active alert) and cheap to serialise.
+
+- **No 🩺 Investigate button on memory/swap/CPU alerts.** The AI prompt keys
+  (`mitigate_memory`, `mitigate_cpu`) have existed in
+  `ai_provider.SYSTEM_PROMPTS` since v3.0.1, but `_MITIGATE_PLAYBOOKS` only
+  carried `patches / disk / drift / service_down / reboot / brute_force`. The
+  alert kind landed in Needs Attention as `'swap'` / `'memory'` / `'cpu'`, no
+  playbook lookup match, no button rendered. Fix: three new playbooks with
+  concrete read-only diagnostics:
+  - **memory**: `free -h`, `/proc/meminfo` top fields, top 20 by `%mem`,
+    recent OOM events from `journalctl` + `dmesg`, `vm.swappiness` /
+    overcommit sysctls, `systemd-cgtop` snapshot.
+  - **swap**: `free -h`, `swapon --show`, per-process `VmSwap` ranking from
+    `/proc/*/status`, `vm.swappiness`, PSI memory pressure, recent swap-related
+    journal entries.
+  - **cpu**: `uptime`, `loadavg`, top 20 by `%cpu`, processes in
+    uninterruptible D-state, `mpstat` / `iostat` / `vmstat` for iowait, PSI
+    CPU pressure.
+  Each is explicitly marked non-destructive (test enforced). The client-side
+  `MITIGATE_KINDS` set and `_MITIGATE_KIND_LABELS` dict were *also* updated
+  in lockstep (they were a duplicate source of truth that previously had to
+  be maintained manually) and a regression test asserts JS/Python parity.
+
+- **"Save settings" button in the device drawer 404'd with "Not found".** The
+  drawer's `_drawerSaveSettings()` posts the full bundle (`group`, `tags`,
+  `icon`, `monitored`, `poll_interval`, `watched_services`, `log_watch`,
+  `watched_files`, `cmd_allowlist`) to `POST /api/devices/<id>` — but no
+  bulk handler ever existed. The route fell through to the dispatcher's
+  catch-all 404. New `handle_device_save_bulk()` accepts the bundle,
+  validates every field with the same rules as the per-field PATCH endpoints,
+  writes once atomically, and audits the save with the field list. The
+  per-field endpoints still work and are unchanged. Two storage-name
+  divergences are handled inside the bulk handler: client's
+  `watched_services` is written as `services_watched` (server-side historical
+  naming), and client's `cmd_allowlist` is written as `allowed_commands`
+  (the canonical field `_check_exec_allowlist()` reads at command-execution
+  time). The dispatcher route uses a slash-count guard so it cannot collide
+  with any future `/api/devices/<id>/<suffix>` POST route.
+
+- **"Re-run AI" on a mitigation playbook returned 200 OK with every field
+  blank.** `_call_ai_with_prompts()` passed arguments to
+  `chat_openai_compatible()` in the wrong order — the `messages` parameter
+  received the system-prompt STRING, then `payload_messages.extend(messages)`
+  iterated it character by character and sent the LLM a messages array like
+  `[{role:'system', content:'Alert:...'}, 'Y', 'o', 'u', ...]`. Ollama
+  rejected the malformed payload, the provider returned `{ok: False, ...}`,
+  and the caller's `ai_result.get('text', '')` happily returned `''`. Fix:
+  build a proper `messages=[{role, content}]` list, pass the system prompt
+  as `system`, unpack the per-prompt overrides into matching kwargs. And —
+  related — the handler now returns 502 with the actual provider error
+  message rather than 200 with an empty body, and logs the traceback to
+  stderr so future failures are diagnosable.
+
+- **Mobile / PWA sidebar drawer wouldn't collapse.** Tap-outside-to-close
+  silently failed because the handler required `e.target === document.body`,
+  but real browsers report the click target as the underlying `<div id="app">`
+  or `.app-content` rather than body itself. Burger-to-close also broken
+  because the burger button (header z-index 100) sits behind the scrim
+  (z-index 800) once the drawer is open, so the burger's own `onclick`
+  never fires. Only the nav-button-click close path worked, which made the
+  drawer feel half-broken. New handler uses explicit `closest('.sidebar')` /
+  `closest('.mobile-burger')` / `closest('.nav-btn')` guards instead — any
+  tap outside those zones closes the drawer on mobile. Regression test
+  forbids the strict `e.target === document.body` pattern from sneaking
+  back in.
+
+- **"✨ AI Prioritise Updates" button felt unresponsive.** Click, no
+  in-place feedback, eventually a small toast that was easy to miss.
+  Operators reported "I clicked it, nothing happened." Two changes: the
+  button visibly disables and switches to ⏳ during the API call, and the
+  negative-case toasts ("no patch history" / "no upgrade listing in
+  history") got rewritten. **Iter 2:** the earlier "use Force re-scan
+  packages" suggestion was misleading — `force_package_scan` only
+  refreshes the upgradable COUNT, not the listing (the agent's
+  `get_patch_info()` discards `out` and only keeps `len()`). The only
+  path that populates `patch_history` with a real listing is an
+  operator-triggered exec command. Rather than make the operator dig
+  for that, ✨ now auto-queues the right per-package-manager listing
+  command via `POST /api/exec` after a confirmation prompt (`apt list
+  --upgradable`, `dnf check-update`, `pacman -Qu`). One click → wait
+  ~60 s for the heartbeat → click ✨ again, AI engages.
+
+- **Mobile burger button didn't close the open drawer.** Tap-outside
+  worked (v3.0.4 iter 1 fix), but tapping where the burger visually
+  was had no effect on mobile Chrome / installed PWA. Root cause: the
+  scrim (z-index 800, `inset: 0`) covers the burger (header z-index
+  100) once the drawer is open, so the burger's `onclick` never fires.
+  The body-level close handler should catch it via the scrim — and
+  does on desktop browsers' touch emulation — but real mobile Chrome
+  and PWA installs were unreliable here. Standard mobile-drawer fix:
+  a dedicated ✕ button inside the sidebar header, visible only at
+  `max-width: 720px`. Always discoverable, always works, no z-order
+  trickery.
+
+- **Silent except → logged exceptions on the heartbeat metric path.**
+  `handle_heartbeat()` wrapped `process_metric_thresholds()` in a bare
+  `except Exception: pass`. Any logic bug there silently broke metric
+  state recompute and the operator got no clue. Now logs `class: message`
+  + traceback to stderr (`journalctl -u fcgiwrap`) while still keeping the
+  heartbeat path resilient.
+
+### Internals
+- Test suite at **1,532 tests** — `test_v304.py` holds the strict version
+  pins now; `test_v303.py`'s pins loosened to `^3\.\d+\.\d+$` regexes.
+  Same convention test_v302.py followed for v3.0.3.
+- This release ships preliminary scaffolding for v3.1.0 (the `mcp` role
+  enum, an empty `MCP_ACTION_ALLOWLIST`, the `require_mcp_action()` gate, a
+  `get_mcp_attribution()` helper that reads `X-MCP-Client` / `X-MCP-Prompt`
+  headers, optional `ai_host` / `ai_prompt` kwargs on `audit_log`, and a
+  per-device `require_confirmation` field with its own PATCH endpoint). All
+  of it is silent — no MCP write tools are yet registered, so even a valid
+  `mcp`-role API key still gets 403 on every action attempt. Tests for the
+  scaffolding live in `test_v310.py`. Stage 4 of v3.1.0 will populate the
+  allowlist.
+
+## v3.0.3 — 2026-05-24
+
+A small, focused security + UX patch on top of v3.0.2. **Recommended for all
+operators**, especially anyone whose Install-as-app button stopped working in
+Chrome or Brave.
+
+### Fixed
+- **PWA install button silently broken.** Chrome and Brave were never showing
+  the "Install RemotePower" button. Three layered causes:
+  1. A stylesheet rule with ID-selector specificity
+     (`#pwa-install-btn { display: none; }`) was overriding the inline reveal —
+     when the browser fired `beforeinstallprompt` and the JS cleared the inline
+     `display:none`, the stylesheet rule took over and the button stayed hidden.
+  2. A timing race: if `beforeinstallprompt` fired before `DOMContentLoaded`
+     (common on warm reload when manifest + service worker are already cached),
+     the button reference was still `null` and the reveal was a no-op. The
+     event only fires once per session, so the button never came back.
+  3. The two icons declared `purpose: "any maskable"` as a combined value.
+     Some Chrome / Brave builds treat that as maskable-only, which doesn't
+     satisfy the installability gate that requires at least one pure-`any`
+     icon. Now split into separate `any` + `maskable` entries.
+
+  The service worker cache name was bumped to `remotepower-shell-v3.0.3` so
+  existing installs evict the stale shell on first reload. If your install
+  button still doesn't appear after upgrading, do one hard reload to pick up
+  the new service worker.
+
+- **Mobile drawer scrim rendered as a half-sized floating rectangle.** Opening
+  the mobile nav drawer dropped a partial translucent black box near the top
+  of the screen instead of dimming the whole page behind the drawer, and
+  tap-outside-to-close did nothing. Root cause: two `body::after` rules
+  collided. The ambient blue-glow effect (a fixed 800×400 box with
+  `translateX(-50%)` and `pointer-events:none`) sets properties that the
+  mobile-nav scrim rule didn't override — `inset: 0` only resets
+  `top/right/bottom/left`, not `width/height/transform/pointer-events`. The
+  scrim now explicitly resets those properties so it fills the viewport and
+  catches taps. Mobile-only — desktop never used the scrim path.
+
+- **Mobile hamburger had a visible square box around it.** The
+  `.mobile-burger` style carried `border: 1px solid var(--border)`,
+  which on the dark theme rendered as a discrete framed button next
+  to the logo — easy to mistake for a separate clickable element.
+  The hamburger glyph reads fine on its own; the border is now `none`.
+
+- **Quick-SSH icon next to hostnames was unreadable blue on dark
+  mode.** The `<a>` carried no explicit `color`, so the browser's
+  default link colour bled through and clashed with the dark
+  sidebar/table. The icon now uses `color:var(--text)` (near-white
+  in dark, near-black in light), so it stays visible in both themes.
+
+### Added
+- **`RP_SMTP_PASSWORD` and `RP_LDAP_BIND_PASSWORD` environment variables.**
+  The two remaining plaintext secrets in `config.json` can now be supplied
+  via the environment — same pattern as `RP_PROXMOX_TOKEN_SECRET` (v2.3.1).
+  When the env var is set it takes precedence over the config file, the
+  secret stays out of `/var/lib/remotepower/`, and it is **not included in
+  the backup export** (so backups can be shared with support safely).
+
+  Set them in your systemd unit or container env:
+  ```ini
+  # /etc/systemd/system/remotepower.service (or your override)
+  Environment=RP_SMTP_PASSWORD=…
+  Environment=RP_LDAP_BIND_PASSWORD=…
+  ```
+  ```yaml
+  # docker-compose.yml
+  environment:
+    RP_SMTP_PASSWORD: "${RP_SMTP_PASSWORD}"
+    RP_LDAP_BIND_PASSWORD: "${RP_LDAP_BIND_PASSWORD}"
+  ```
+  The Settings page detects the env vars and shows a green "✓ Password is
+  currently being read from `RP_SMTP_PASSWORD`" hint above the (now disabled)
+  config field. Existing setups that keep the password in `config.json` are
+  unchanged.
+
+- **Forced password change for default-credential accounts.** A fresh
+  install seeds `admin / remotepower`. Since v2.3.2 the UI has shown a red
+  banner nagging the operator to change it, but the app remained fully
+  usable on the default password — the banner could be ignored. As of
+  v3.0.3, **every API call returns 403 until the password is changed**,
+  with only `POST /api/users/passwd` and `GET /api/public-info` reachable.
+  The dashboard catches the 403, surfaces a clear toast, and routes you
+  straight to the change-password form. As soon as the password is changed,
+  the flag clears and everything unlocks.
+
+  This applies only to accounts that still carry the `must_change_password`
+  flag — once changed, never blocked again. API keys are unaffected (they
+  can only be created from an already-cleared account in the first place).
+
+### Internals
+- Test suite at **1,453 tests** (`test_v303.py` covers the new behaviour;
+  one brittle fixed-offset slice in `test_v227.py` widened to use the
+  whole `@media` block).
+- `test_v302.py` strict version pins loosened to `3.x.x` regexes since
+  `test_v303.py` now holds the strict pin role. Same convention going forward.
+
+### Upgrading from v3.0.2
+
+Drop-in. Pull and redeploy:
+```bash
+cd /path/to/remotepower
+git pull origin main
+sudo bash deploy-server.sh
+```
+- Agents auto-upgrade on next heartbeat. No data migration. `config.json`
+  format unchanged.
+- If you want to move SMTP / LDAP secrets to the environment now, edit your
+  unit / compose file as shown above, restart the server, then **clear the
+  fields** in Settings → Notifications (SMTP) and Settings → Security (LDAP)
+  and save — that drops the plaintext from `config.json`.
+- If your dashboard's Install button has been missing, force a hard reload
+  (Ctrl+Shift+R / Cmd+Shift+R) once after upgrading so the new service
+  worker takes over.
+
+---
+
+## v3.0.2 — 2026-05-24
+
+### Bug fixes (post-ship polish bundle)
+- **Unmonitored devices fired metric/service/log/CVE webhooks anyway.**
+  `device_offline` had its own per-device `monitored` check (line ~2256),
+  but every other per-device event went through `fire_webhook` unguarded.
+  Result: operator marks a device "unmonitored" to silence alerts during
+  a migration, gets a Pushover ping about its swap usage anyway. Added a
+  single guard inside `fire_webhook` that covers every event carrying a
+  `device_id` — metric_warning/_critical, service_down/_up, log_alert,
+  cve_found, drift_detected, custom_script_fail/_recover, container_*,
+  patch_alert, brute_force_detected, ssh_key_added, tls_expiry,
+  reboot_required, new_port_detected, snapshot_old, backup_stale,
+  config_drift. Logged as `suppressed (device "X" is unmonitored)` so
+  operators can see what got dropped.
+- **ACME page rendered one row per device without acme.sh** ("acme.sh not
+  installed on this device"). For fleets where most hosts use other cert
+  managers, this dominated the table. Now hidden; a discreet count
+  surfaces above the table ("N devices without acme.sh hidden").
+- **`_get_disk_thresholds` was called but never defined**, guarded by
+  `callable(globals().get(...))` so the dead branch was silently always
+  taken — per-mount disk threshold overrides in `_compute_attention`
+  were ignored. Replaced with the canonical `_resolve_metric_thresholds`.
+- **Four CSS variables undefined inside styles.css itself**: `--bg2`,
+  `--bg3`, `--border2`, `--font-body`. Used by the device drawer footer,
+  table footers, and a few body-text styles — rendered with default
+  browser colours in dark mode (white backgrounds, default sans-serif).
+  Replaced with the existing equivalents (`--surface2`, `--border`,
+  `--font`). New test `TestCssVarsDefined` sweeps every `var(--xxx)`
+  reference across `.js`, `.html`, and `.css` against the defined set.
+- **URL bar stuck at last settings tab**: `switchSettingsTab` wrote
+  `#settings/<tab>` to `location.hash`, but `showPage` for other pages
+  never updated the hash. Clicking through Home, Devices, Logs etc.
+  left the URL showing `#settings/notifs` (or wherever you were last).
+  Both functions now use `history.replaceState` so the URL bar tracks
+  the current page without polluting back-button history.
+
+### Improvements
+- **Multi-webhook test button** correctly hits `/api/webhook/test` (was
+  posting to `/api/webhook-test` — 404).
+- **Logs page Search button** handles 400 responses (bad regex etc.) with
+  a clear in-UI error instead of a silent UI freeze on TypeError when
+  reading `data.results.length` from `{error: '...'}`.
+- **Settings search bar** rewrite: re-indexes on every keystroke (was
+  cached, so dynamically-rendered sections like the webhook destinations
+  list never made it into the index), adds per-tab match badges, dims
+  tabs with zero matches, auto-switches to the first matching tab when
+  your current tab has nothing, shows a hint line ("23 settings match
+  across 3 tabs"). Hides the "I typed something and the page went blank"
+  failure mode.
+- **Command palette** primes the device cache on open. Previously you had
+  to visit the Devices page first or no devices would appear.
+- **Bulk-actions button** moved from Settings → Advanced to next to the
+  Enroll device button on the Devices page. That's where operators look
+  for fleet-wide operations; Settings was the wrong shelf.
+- **`var(--ok)` (undefined) replaced with `var(--green)`** — 3 pre-existing
+  uses in the Proxmox env hint and custom-script status indicator that
+  rendered with default browser colour.
+
+### Internals
+- Re-ran AST audit for called-but-undefined names: only `_get_disk_thresholds`
+  remained from before (fixed above).
+- Re-ran `respond()`-inside-broad-except audit: zero remaining.
+- HTML `<div>` open/close balance verified: 1396/1396.
+- `var(--xxx)` reference audit: zero undefined across JS, HTML, CSS.
+
+### Tests added this iteration
+`TestUnmonitoredDeviceSuppression` (4), `TestAcmeNoCertsRowsFiltering` (2),
+`TestUrlBarSync` (2), `TestDeadCodeRemoved` (2), `TestCssVarsDefined` (1).
+Total v3.0.2 suite: 1404 tests, all passing.
+
+---
+
+### Initial release content (shipped earlier on 2026-05-24)
+
+### Bug fixes (static-audit catch)
+- **Mitigation feature was completely broken since v3.0.1.** Two NameErrors hidden
+  by lazy code paths:
+  - `_read_body()` called in `handle_mitigate_investigate` and `handle_mitigate_fix`
+    but never defined → fixed to `get_json_body()`.
+  - `chat_anthropic` / `chat_openai_compatible` called bare from `_call_ai_with_prompts`
+    but defined in the `ai_provider` module → prefixed with `ai_provider.`.
+  Found by an AST audit of every called-but-undefined name. Mitigation modal was
+  hitting 500 on every click; nobody noticed because nobody was clicking it under
+  the test load.
+- **JSON load cache aliasing.** v3.0.2 introduced a per-request `load()` cache to
+  collapse the 4×-per-heartbeat parsing of `config.json`. First version returned
+  the cached dict by reference — caller mutations leaked into the cache, and
+  `_LockedUpdate` exception aborts left the cache holding in-flight changes that
+  were never saved. Fixed: deepcopy on cache hit + explicit cache invalidation
+  in `_LockedUpdate.__exit__` when the save is aborted.
+- **`current_username()` defined.** Last release shipped with this called from
+  three audit-log call sites but never defined; the silent NameError meant the
+  Ignore/Cancel buttons on ACME pending actions appeared dead.
+- **Agent `server_url` typo.** The force-agent-upgrade path referenced an undefined
+  `server_url` (the local in `heartbeat()` is `server`); operator clicked ⚡ and
+  got a journal line saying force upgrade failed.
+- **Pacman `--disable-sandbox` probe was checking the wrong help text.** The flag
+  is an `-S` operation flag, so it shows in `pacman -S --help`, not `pacman --help`.
+  CachyOS continued to silent-fail because the probe never matched.
+
+### New — reliability & operations
+- **Self-monitoring page (Server status).** New sidebar entry. Reports server
+  version + memory, DATA_DIR disk usage with the top 20 largest files, fleet-wide
+  device freshness (oldest/freshest heartbeat, current offline count), webhook
+  delivery rate (last 24h and 7d), audit log entry count + archive size, scheduled
+  backup state. `GET /api/self/status` for external monitoring.
+- **Scheduled backup of `/var/lib/remotepower`.** Daily tarball (gzipped), retention
+  configurable (default 14 days), output path configurable (default
+  `/var/lib/remotepower/backups`). Triggered via the heartbeat hook with a 24h
+  sentinel and a stale-lock recovery for crashes mid-backup. Manual "Run backup
+  now" button on the Server status page (`POST /api/self/backup-now`). Backup
+  excludes the backup dir itself, in-flight `.tmp.*` files, and pre-compressed
+  `.gz` archives.
+- **Audit log retention by age.** Default 90 days, configurable. Entries older
+  than retention are moved to `audit_log_archive.jsonl.gz` (append-only, gzip).
+  Old count-only cap retained as a safety net for misconfiguration.
+- **Fleet events archive.** Events evicted from the 200-entry rolling log now go
+  to `fleet_events_archive.jsonl.gz` instead of being dropped. Surfaces in the
+  Server status page as a size readout.
+- **Exponential lockout ladder for failed logins.** 10s → 1m → 5m → 30m → 2h.
+  Resets on successful login. Brute-force attackers face escalating penalties
+  instead of a fixed 10-min wall they can just sit out.
+
+### New — performance
+- **Per-request `load()` cache.** CGI gives us a fresh interpreter per request, so
+  the cache only lives for one handler's duration — but within that handler,
+  `CONFIG_FILE` was being parsed up to 4× per heartbeat and `LONGPOLL_FILE` 3× in
+  `handle_longpoll_exec`. The cache deduplicates redundant reads within a
+  handler. Invalidated on `save()` and `_save_held()` so writes never leak stale
+  data.
+
+### New — features
+- **Multi-webhook destinations.** Fire every event to multiple endpoints
+  simultaneously with per-destination format adapters. Supported formats: Discord
+  (embed with severity colour), Slack (markdown text), Pushover (form-encoded with
+  app token + user key, internal priority maps to Pushover priority), Microsoft
+  Teams (MessageCard schema with theme colour), ntfy.sh (plain text body + headers),
+  and generic JSON. Per-destination filters: limit to specific event names, or set
+  a minimum priority threshold. Use case: Pushover for `priority >= warning` only,
+  Discord for everything. Legacy single `webhook_url` field still honoured for
+  backward compatibility.
+- **Per-destination test button.** Fire a synthetic `test` event to a single
+  destination from the editor, without touching the persisted config of the other
+  destinations.
+- **Pushover credentials redacted.** App token + user key are write-once in the UI
+  (the GET response only signals whether one is set); also redacted from the
+  backup export tarball.
+- **Force ACME rescan button.** One-shot flag per device — agent re-scans
+  `~/.acme.sh` on next heartbeat instead of waiting for the next hourly cadence.
+  Useful when you've issued/renewed via the CLI and don't want to wait for
+  RemotePower to catch up. Same flag-on-heartbeat-lock pattern as force-upgrade.
+- **Bulk actions modal.** Run an operation across a filtered set of devices: all
+  monitored, by group, or by tag. Operations: package upgrade, reboot, shutdown,
+  force package scan, force ACME rescan. Destructive operations require typing
+  `RUN` to confirm. Reachable from Settings → Advanced or via the command palette.
+- **Command palette (`/` or `Ctrl-K`).** Searches pages, devices, and actions.
+  Arrow-key navigation, Enter to activate, Esc to close.
+- **Keyboard shortcuts.** `?` shows the cheat sheet. `g`-prefix shortcuts:
+  `g h/d/l/s/c/m/a/v` for Home/Devices/Logs/Settings/CVE/Monitor/Audit/serVer.
+- **Settings search bar.** Filters visible settings sections live as you type.
+- **Configurable session timeout.** Both `session_ttl_short` (no remember-me;
+  default 24h) and `session_ttl_long` (with remember-me; default 30d) are
+  configurable in Settings → Advanced. Existing sessions keep their original TTL.
+
+### Improvements
+- **Force-upgrade flag** had been silently dropped after iteration 2's fix landed
+  in the wrong scope. Now wired through correctly inside the heartbeat file lock,
+  same as `force_iac_collect` and `force_package_scan`.
+- **`pacman -S --help`** is now the probe location for `--disable-sandbox` (last
+  release checked `pacman --help` which doesn't list operation flags). Falls back
+  to parsing `pacman --version` and assuming v7+ supports the flag.
+- **Larger archive of historical fleet events** for the Server status page; not
+  just the rolling 200-event window.
+
+### Internals — audits run this release
+- AST sweep of every called name; resolved 7 suspects (2 real bugs, 5 false positives
+  caught by `callable(globals().get(...))` guards or module-level imports).
+- AST sweep of every `respond()` call sites wrapped in `try/except Exception`;
+  zero remaining (the debug-log handler from last release was the only one).
+- Field-shape consistency check — `rc` dominates over `exit_code` (19:2) which is
+  acceptable (the 2 are reading legacy data); `unit`/`name`/`hostname` are distinct
+  concepts not aliases.
+
+## v3.0.1 — 2026-05-23
+
+### Fixes (iteration 2)
+- **Force-upgrade flag silently dropped.** Operator clicked ⚡, got the success toast,
+  agent never re-downloaded. Root cause: heartbeat handler copied `force_iac_collect`
+  and `force_package_scan` into `saved_dev` inside the file lock, but missed
+  `force_agent_upgrade`. The outside-lock check then read `saved_dev` (which never
+  had the field) and never set `common_resp['force_agent_upgrade']`. Now handled
+  next to the other one-shots, atomic with the rest of the heartbeat write. Removed
+  the racy outside-lock clear block.
+- **Force-upgrade NameError in agent.** `check_for_update(server_url, force=True)`
+  referenced an undefined name — the local in `heartbeat()` is `server`, not
+  `server_url`. Visible in agent journal as `Force upgrade failed: name 'server_url'
+  is not defined`. One-character fix; both ends now work end-to-end.
+- **ACME `.meta` row pollution + NaN KB + dead View log.** `handle_acme_detail`
+  listed all files in `ACME_LOGS_DIR` matching the device prefix, including the
+  `.meta.json` sidecars. They showed up as bogus actions named `<id>.meta` with
+  NaN size and a View Log that 404'd. Filter listing to `.log` files only; timestamp
+  now sourced from `meta.queued_at` when available.
+- **ACME action "pending forever".** Agent ran the command, reported rc=0 with full
+  output — but the meta never updated, so UI polled indefinitely. The server's tag
+  regex anchored at `^#acme:` but the agent round-trips the full original cmd
+  including the `exec:` prefix (e.g. `exec:#acme:5646fce92976#...`). Changed regex
+  to `^(?:exec:)?#acme:` — accepts both forms. Added regression tests.
+- **CachyOS shows fully patched** when it isn't. pacman 7's download sandbox user
+  (`alpm`) fails on certain hosts; the agent caught the `CalledProcessError` and
+  silently reported `upgradable=0`. Now probes `pacman --help` for `--disable-sandbox`
+  support, uses it when available, and on real failure reports `upgradable=None`
+  ("unknown") instead of lying as "fully patched". Server-side `_UPGRADE_CMD` got
+  the same probe + flag treatment.
+- **yum branch added** to patch detection and the upgrade command — RHEL 7 / older
+  CentOS still ship yum without dnf. Reports as `manager: dnf` so it shares the OSV
+  CVE path.
+- **"Show N more ports" click did nothing.** `JSON.stringify(hidden)` was embedded
+  raw inside a double-quoted `onclick=""` attribute — JSON's double quotes broke
+  HTML parse. Escaped via `&quot;` + `&amp;`. Same fix applied to the custom-scripts
+  output click handler.
+- **Three duplicate `/devices` GETs** on the Monitor page (one per loader: runMonitor,
+  loadDeviceMetrics, loadCustomScripts, loadListeningPorts). Added a 500ms in-flight
+  cache so they share one fetch.
+- **HTML structure error**: dedicated Ignored items pane was being injected outside
+  `<div id="page-settings">`, causing it to render globally including on the
+  Virtualization page. Moved to a proper sibling of other `.settings-pane` divs.
+- **Test that locked in bad behaviour**: `test_v182.test_empty_unit_rejected` matched
+  "unit is required" literally — updated to accept the broader "unit or path is
+  required" message (rule schema now allows file-path source type).
+
+### Features (iteration 2)
+- **ACME / acme.sh integration.** New section on Security → TLS / DNS expiry. Agent
+  scans `~/.acme.sh/` and reports cert metadata; server provides issue wizard
+  (3-step: domain → DNS provider → confirm), force-renew, revoke, cancel, and
+  per-domain log capture. DNS-01 only (Cloudflare prominent, others available).
+  Wildcards supported. No must-staple (OCSP being sunset). No HTTP-01 (would
+  interfere with nginx/apache). Cancelable pending actions distinguish between
+  "still in queue" (cleanly removed) and "already dispatched" (UI stops polling
+  but agent may still complete). Full doc at `docs/acme.md`.
+- **Mitigation runners with AI.** 🩺 button on every Needs Attention card whose alert
+  kind has a server-defined playbook. Three-tab modal: Diagnostic (auto-runs,
+  live-polls every 2s) → AI Analysis (auto-fires when diagnostic completes, AI
+  proposes one fix command between `BEGIN_FIX`/`END_FIX` markers) → Apply Fix
+  (pre-approved playbook fix or AI suggestion, with two-tier safety classifier:
+  hard denylist refuses outright; sensitive patterns require typing `RUN`).
+  Five new prompt keys (`mitigate_cpu`, `_memory`, `_disk`, `_service`,
+  `_patches`) customisable in Settings → AI Assistant. Diagnostic playbooks for
+  `patches`, `disk`, `drift`, `service_down`, `reboot`, `brute_force`. Service
+  unit names go through strict regex validation before template substitution.
+  All actions audit-logged. Full doc at `docs/mitigation.md`.
+- **File-path log watching.** Log rules can now reference an arbitrary file path
+  instead of a systemd unit. Agent tails the file, handles rotation (inode
+  tracking) and truncation, skips existing content on first sight (so a new
+  rule doesn't dump the entire historic file). State persisted at
+  `/var/lib/remotepower/file-log-state.json`. Submitted as synthetic unit
+  `file:<path>`.
+- **Attention coverage audit** — three new state-derived kinds now produce Needs
+  Attention items whenever the underlying condition is active:
+  - `service_down` — any watched systemd unit in `failed` (critical) or
+    `inactive` (warning). Carries the unit name as `target` so the 🩺 button
+    runs `systemctl status` + `journalctl -u <unit>` automatically. Resolves
+    the bug where Jakob stopped palworld.service and saw it only in Recent
+    Activity, not in NA.
+  - `monitor_down` — any monitor target whose latest probe came back `ok: false`.
+  - `custom_script_fail` — any custom monitoring script reporting non-zero `rc`
+    in its latest result.
+  Full doc at `docs/attention.md`.
+- **Dedicated Ignored items settings tab.** Was inside Settings → AI Assistant;
+  now its own top-level Settings tab.
+- **Collapsible sidebar.** Click ◀ at the top to shrink to a 56-px icon strip;
+  click ▶ to expand. Preference saved in `localStorage` and applied before
+  first paint.
+- **IaC categories default to none-selected.** Empty selection on first load —
+  user must opt in to categories before Generate is enabled.
+
+### Earlier in v3.0.1
+- **Logs ingestion**: dedupe by line content + parse embedded timestamps. apt.history,
+  syslog, and nginx access lines now carry their real date — old re-submissions are
+  evicted by the existing TTL instead of perpetually re-stamped as new. Removed the
+  2 MB byte cap that was silently dropping nginx and brute-force lines whenever
+  apt.history bloat filled the buffer (#4, #8).
+- **Runbook**: containers and watched services now appear correctly (containers were
+  read from the wrong storage; watched services fell back to the configured list if
+  state hadn't been reported yet).
+- **Reboot / shutdown**: drawer buttons set rebootTarget/shutdownTarget so the confirm
+  modal actually sends a valid device_id.
+- **IaC Generator**: fixed NameError on `_is_online`; corrected `result['text']` field
+  (was reading `content`); removed bogus `model=None` kwarg.
+
+### Improvements — UI (early v3.0.1)
+- **Per-item ignore lists** (#1, #2, #3): × button on each Needs Attention card and on
+  each stale container row. Restore from Settings → AI Assistant → Ignored items.
+- **Logwatch severity** (#5): each log rule now carries OK / WARN / CRIT. WARN/CRIT
+  fire webhooks; OK rules are silent noise-suppressors that confirm an expected
+  pattern is still present.
+- **IaC Generator**: two buttons — "Generate IaC" (full LLM flow) and "Gather RAW JSON"
+  (collect-only, downloads the masked state without spending tokens) (#6).
+- **Update banner snooze 30d** (#10): hide a specific version's update notification for
+  30 days. Snooze is per-version, so a newer release re-shows the banner.
+- **Force-upgrade agent button** (#11): re-deploy the bundled binary regardless of
+  version match. Useful for corrupt-update recovery or pushing a rebuild.
+- **Settings → Save settings**: button now shows "✓ Settings saved" inline alongside
+  the toast (#7).
+
+### Improvements — AI
+- **Per-feature AI prompt customization**: Settings → AI Assistant → Prompt customization
+  lets you override the system prompt for every AI feature, with a Default button to
+  revert. Tune per-model (DeepSeek vs Claude vs Ollama) without code changes.
+- **Per-feature AI fine-tuning** (#12): each prompt card has a ⚙ Fine-tuning panel
+  for temperature, top_p, max_tokens, and num_ctx (Ollama / LocalAI). Empty fields
+  fall back to provider defaults.
+
+### Internal
+- **Buffer-overflow audit** (#13): added depth guard to `_iac_mask_secrets` recursion
+  (50 levels max); kept existing caps on body bytes (50 MB), journal lines (200×512B),
+  cmd output (100×8 KB).
+- 1307 unit tests passing.
+
+## v3.0.0 — 2026-05-22
+
+### Added
+- **IaC Generator** (new top-level page) — generates Infrastructure-as-Code
+  for any device on demand using the configured AI provider:
+  - 18 categories: OS & identity, packages, systemd, users, groups, SSH keys,
+    network, fstab, containers, repos, firewall, cron, TLS paths, env,
+    snaps, kernel modules, sysctl, RemotePower-specific (tags/scripts/host-config).
+  - 5 output formats: Terraform (HCL), Ansible (YAML), Pulumi (Python),
+    Pulumi (TypeScript), Cloud-init (YAML).
+  - On-demand collection: server flags the device, agent runs collectors on
+    next heartbeat, server calls LLM with raw state, returns code.
+  - Server-side secret masking — env vars whose NAME matches
+    PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE are redacted before
+    the payload leaves the host.
+  - Markdown code-fence safety net — strips ``` wrappers from LLM output.
+  - Categories + format + last device persist in browser localStorage.
+
+### Changed
+- Three new server endpoints: `POST /api/iac/request`, `GET /api/iac/status/<id>`,
+  `POST /api/iac/generate`.
+- Agent gains 17 collector functions and processes `force_iac_collect` on
+  heartbeat to attach `iac_data` to the following heartbeat.
+
+## v2.9.0 — 2026-05-22
+
+### Added
+- **Device Drawer** — clicking any device on Devices or Dashboard opens a
+  full-screen slide-in drawer with two tabs:
+  - **Actions & Settings**: quick action grid (run command, reboot, shutdown,
+    WoL, upgrade packages, scan packages, web terminal, run script, update
+    agent, docker compose, host config, CMDB, runbook, maintenance, adjust
+    poll, delete) plus inline editable device settings (group, tags, icon,
+    monitored, poll interval, watched services, log rules, drift files,
+    command allowlist) all with a single Save button.
+  - **Audit**: 11 collapsible sections, lazy-loaded on first open — system
+    info, listening ports (searchable), packages, logs (filterable by unit),
+    command history (last 5 shown, all collapsed, expand per entry), fleet
+    events, drift state, CVE summary, containers, metrics, host config.
+- **⋮ button** now opens the drawer on the Actions & Settings tab directly.
+
+### Fixed
+- **Listening Ports** — `listening_ports` was never stored in `devices.json`
+  (whitelist gap). Now persisted in `safe_si` on every heartbeat. Monitor
+  page and device drawer now show real data.
+- **Command output** — last 5 shown by default, all collapsed. Click to expand
+  output. "Show N older commands" button for the rest.
+
+## v2.9.0 — 2026-05-22
+
+### Added
+- **Device Drawer** — full-screen slide-in panel (replaces detail modal + ⋮ dropdown).
+  - **Actions & Settings tab**: Run command, Reboot, Shutdown, WoL, Upgrade packages,
+    Scan packages, Web terminal, Run script, Update agent, Docker compose, Host Config,
+    CMDB, Runbook, Maintenance, Adjust poll, Remove device.
+    Settings form: group, tags, monitored toggle, poll interval, watched services,
+    log watch rules, drift watch files, command allowlist — all inline with Save.
+  - **Audit tab**: 11 collapsible sections, all lazy-loaded on first open:
+    System info, Listening ports (searchable), Packages, Logs (filterable by unit),
+    Command history (last 5 collapsed, expand per entry), Fleet events, Drift state,
+    CVE summary, Containers, Metrics, Host config.
+- Clicking a device name (Devices or Dashboard) opens the drawer on the Audit tab.
+- The ⋮ button opens the drawer on the Actions & Settings tab.
+
+### Fixed
+- **Listening ports "No data yet"** — `listening_ports` was not persisted in
+  `sysinfo` in devices.json (whitelist gap). Now stored on every heartbeat and
+  exposed via `/api/devices/:id/sysinfo`. Monitor page refresh button works.
+- **Command output flooding** — detail view now shows last 5 commands collapsed;
+  expand per entry; "Show N older" button for the rest.
+
+## v2.8.1 — 2026-05-21
+
+### Fixed
+- **Brute-force threshold** raised to 20 (was 10). Now configurable in
+  Settings → Dashboard along with the rolling window. Enable/disable toggle.
+- **Recent Activity details** — each event now shows the most informative
+  payload field inline (source IP for brute-force, user+fingerprint for SSH
+  key, port+process for new port, age for backup stale, host+days for TLS).
+- **Packages dedup** — update history now suppresses consecutive runs with
+  identical "0 upgraded" output so the list stays readable.
+
+### Added
+- **Listening Ports on Monitor page** — fleet-wide table grouped by port/proto,
+  showing which process is listening and on which devices.
+- **Backup file age monitoring** — configure paths + max age in Settings →
+  Dashboard. Agent reports mtime each heartbeat; `backup_stale` webhook fires
+  edge-triggered; critical item in Needs Attention.
+- **Settings → Dashboard** — new tab with brute-force config, backup monitors,
+  per-kind Needs Attention toggles, and per-event-type Recent Activity toggles.
+  All stored in `config.json` (applies to all users).
+
+## v2.8.0 — 2026-05-21
+
+### Added
+- **Disk space in Needs Attention** — mounts above the configured warn/crit
+  thresholds now surface as attention items (warning/critical), using the
+  same per-device and per-mount thresholds already used for metric webhooks.
+- **Listening port audit** — new port on a host fires `new_port_detected`
+  webhook (edge-triggered). Baseline stored per device.
+- **SSH key audit** — new authorized_key for any user fires `ssh_key_added`
+  webhook with user and key fingerprint (edge-triggered). Reads from
+  host_config_current, so "Collect all current" must have run at least once.
+- **Brute-force detection** — SSH (`Failed password`, `Invalid user`) and
+  web (`POST /wp-login.php`, `POST /xmlrpc.php`) failure patterns counted
+  per source IP in a 5-minute rolling window. `brute_force_detected` webhook
+  fires at 10+ attempts. Web access logs (`nginx.access`, `apache2.access`)
+  collected incrementally by the agent.
+- **CVE tile shows critical count** — the dashboard tile now displays the
+  critical CVE count as the headline number. High-severity count shown below
+  as the sub-label. Medium/low remain in the detail page only.
+
+## v2.7.0 — 2026-05-21
+
+### Added
+- **Expanded log sources** — agent now auto-detects and watches
+  `remotepower-agent`, `nginx`, `apache2`, and `ssh` if they exist,
+  with no manual configuration. Logs flow through the existing pipeline.
+- **Kernel log collection** — dmesg errors/warnings (emerg→warn levels)
+  collected every 5 polls as virtual unit `kernel`. Incremental after
+  first run; 24h window on startup.
+- **APT history log** — `/var/log/apt/history.log` new-entry tracking
+  submitted as virtual unit `apt.history`. Only sends when the file
+  actually changes (mtime-gated).
+- **Proxmox snapshot age alerts** — Virtualization page load caches
+  snapshot ages server-side. Any snapshot older than `proxmox_snapshot_warn_days`
+  days (default: 7) appears in Needs Attention.
+- **`snapshot_old` webhook event** — edge-triggered once per VM when
+  the oldest snapshot first crosses the age threshold. Resets when the
+  snapshot is deleted.
+
+## v2.6.1 — 2026-05-21
+
+### Fixed
+- **CVE tile always showed 0** — dashboard read `devices[].findings` (doesn't exist);
+  the endpoint returns `devices[].counts` and a pre-aggregated `summary` field.
+  Tile now reads `summary` directly. Critical/high counts shown in the sub-label.
+- **Reboot/shutdown icon flash on mobile refresh** — service worker served stale
+  cached HTML on pull-to-refresh, briefly showing elements from a previous build.
+  Navigation requests now use network-first (cache is fallback when offline only).
+  Cache bumped to `remotepower-shell-v2.6.1` to evict all stale entries.
+- **Dead CSS removed** — `tr.has-hover-actions` / `.row-actions` block (marked
+  REMOVED in v2.2.5, kept as no-ops for three releases) now deleted.
+
+### Added
+- **TLS/DANE expiry in Needs Attention** — cert within 30 days → warning;
+  within 7 days or expired → critical. DANE failures also surface here.
+  Items appear automatically once `tls_targets.json` has entries and
+  `remotepower-tls-check` has run.
+- **`tls_expiry` webhook event** — `remotepower-tls-check` fires once per
+  threshold crossing (30d warning, 7d critical). Edge-triggered — no repeated
+  alerts for the same state.
+- **`reboot_required` webhook event** — fires once when a host's
+  `/run/reboot-required` flag changes from absent → present (edge-triggered
+  in the heartbeat handler).
+- **Pending reboot in Needs Attention** — warning item for any monitored
+  host with `reboot_required: true` in its latest sysinfo.
+- **Stale agent version in Needs Attention** — info item when an agent
+  reports a version older than the server. No webhook (informational only).
+- **Mobile UX** — `touch-action: manipulation` on all interactive elements
+  (eliminates 300ms tap delay); `-webkit-overflow-scrolling: touch` on scroll
+  containers; `prefers-reduced-motion` support; minimum 44×44px touch targets
+  on coarse-pointer devices.
+
+## v2.6.0 - 2026-05-20
+
+### Host Configuration Management
+
+Define the desired state of each Linux host server-side. The agent
+applies it on the next heartbeat (~60 s) and reports current state
+every 15 minutes for drift audit.
+
+**Sections managed per device:**
+
+| Section | What it controls | Applied via |
+|---|---|---|
+| `repos` | Package repositories | `/etc/apt/sources.list` or `/etc/yum.repos.d/remotepower.repo` |
+| `netplan` | Network config | `/etc/netplan/01-remotepower.yaml` + `netplan apply` |
+| `nmcli` | NM connections | `/etc/NetworkManager/system-connections/remotepower-managed.nmconnection` |
+| `resolv_conf` | DNS resolvers | `/etc/resolv.conf` (resolves symlinks) |
+| `hosts` | Static host entries | `/etc/hosts` |
+| `services` | Enabled systemd units | `systemctl enable --now` |
+| `users` | Local users + SSH keys | `useradd`/`usermod` + `authorized_keys` |
+| `groups` | Local groups | `groupadd` |
+| `sudoers` | Sudo rules | `/etc/sudoers.d/remotepower` (validated with `visudo -c`) |
+| `motd` | Login banner | `/etc/motd` |
+
+**Server (`server/cgi-bin/api.py`):**
+- Constants: `HOST_CONFIG_TEXT_SECTIONS`, `HOST_CONFIG_STRUCT_SECTIONS`,
+  `HOST_CONFIG_ALL_SECTIONS`, `MAX_HOST_CONFIG_SECTION_SIZE` (64 KB),
+  `HOST_CONFIG_AUDIT_EVERY` (15 polls).
+- `_validate_host_config_section()` — per-section sanitization with
+  NUL-byte rejection, size limits, type checking.
+- `_audit_host_config_drift()` — compares desired vs current; text
+  sections compared with normalized line endings; services use subset
+  check; users check existence, shell, groups, authorized_keys; groups
+  check existence.
+- `_ingest_host_config_current()` — stores current state from agent,
+  runs drift audit, fires `config_drift` webhook edge-triggered on
+  first drift detection.
+- `handle_device_host_config_get()` — `GET /api/devices/:id/host-config`
+- `handle_device_host_config_put()` — `PUT /api/devices/:id/host-config`
+- `handle_device_host_config_current()` — `GET /api/devices/:id/host-config/current`
+- Heartbeat: includes `host_config_desired` in response; ingests
+  `host_config_current` from payload.
+- New webhook event: `config_drift` (priority 4, amber ⚠ wrench tag).
+
+**Agent (`client/remotepower-agent.py` + binary):**
+- `HOST_CONFIG_COLLECT_EVERY = 15` — collect and report every 15 polls.
+- `collect_host_config()` — reads repos, netplan, nmcli connection file,
+  resolv.conf, /etc/hosts, enabled services, users (UID ≥ 1000,
+  authorized_keys), groups (GID ≥ 1000), sudoers drop-in, motd.
+- `apply_host_config(desired)` — applies each section independently;
+  failures logged but never block other sections; sudoers validated
+  with `visudo -c` before rename; netplan runs `netplan apply`;
+  authorized_keys written with correct ownership and mode 0600.
+- Heartbeat loop: applies immediately when `host_config_desired`
+  changes; collects every `HOST_CONFIG_COLLECT_EVERY` polls; includes
+  `host_config_current` in payload.
+
+**Frontend:**
+- **Host Config** entry added to device dropdown "Configure" menu.
+- `host-config-modal` — wide modal with section tabs (Repos, Netplan,
+  nmcli, resolv.conf, /etc/hosts, Services, Users, Groups, Sudoers,
+  MOTD). Amber drift banner shows which sections have diverged.
+- Text sections: monospace textarea with placeholder, per-section
+  drift indicator, "⬇ Fetch current" button.
+- Services: one-per-line textarea.
+- Users: expandable card per user (username, shell, groups,
+  authorized_keys textarea). Add/remove buttons.
+- Groups: inline row per group (name, optional GID). Add/remove.
+- "Save & push to agent" collects all sections and PUT to server.
+
+
+
+### Custom monitoring scripts
+
+Define arbitrary bash health checks server-side and push them to
+enrolled devices. The agent runs each check every 5 minutes (no agent
+restart or update required), captures stdout+stderr, and reports back
+over the existing heartbeat channel.
+
+**Exit code contract:** 0 = OK, anything else = FAIL. Deliberately
+binary — no MRPE severity levels.
+
+**Server (`server/cgi-bin/api.py`):**
+- `CUSTOM_SCRIPTS_FILE` (`custom_scripts.json`) — new data file for
+  script definitions.
+- Limits: 50 scripts fleet-wide, 10 per device, 32 KB body, 4 KB
+  captured output.
+- `_ingest_custom_script_results()` — validates script ownership,
+  stores results on the device record, fires edge-triggered webhooks
+  on status transitions. First result never fires an alert (avoids
+  initial assignment flood).
+- `_get_custom_scripts_for_device()` — builds the list of assigned
+  scripts to include in each heartbeat response.
+- `custom_scripts` added to the `common_resp` heartbeat payload.
+- Five CRUD endpoints: `GET/POST /api/custom-scripts`,
+  `GET/PUT/DELETE /api/custom-scripts/:id`.
+- `GET /api/custom-scripts/results` — fleet-wide current results,
+  sorted with failing rows first.
+- Two new webhook events: `custom_script_fail` (priority 4, red) and
+  `custom_script_recover` (priority 3, green). Both have Discord
+  titles, ntfy tags, priority, and human-readable message strings.
+
+**Agent (`client/remotepower-agent.py` + binary):**
+- `SCRIPT_CHECK_EVERY = 5` — run every 5 polls (~5 min at default
+  60 s interval).
+- `run_custom_scripts(scripts)` — writes each script to a private
+  temp file (chmod 700), runs it with `/bin/bash` and a 30 s timeout,
+  captures stdout+stderr merged and capped at 4 KB, deletes the temp
+  file. Returns `{script_id: {ok, output, rc, ran_at, duration_ms}}`.
+- `custom_scripts` list and `pending_script_results` dict added to
+  heartbeat loop state. Scripts list updated from every heartbeat
+  response. Results flushed into the next heartbeat payload.
+
+**Frontend:**
+- New **Custom Scripts** sidebar entry (terminal icon) between Monitor
+  and Services.
+- `page-custom-scripts` — stats bar, filter/status toolbar, fleet
+  results table, definitions panel (one card per script).
+- `custom-script-modal` — create/edit: name, description, script body
+  textarea, device picker (checkboxes), Delete button on edit.
+- `cs-output-modal` — full output viewer (click any output snippet).
+- `loadCustomScripts()`, `renderCustomScriptsPage()`,
+  `renderCsDefinitions()`, `openCustomScriptModal()`,
+  `saveCustomScript()`, `deleteCustomScript()`,
+  `csGenerateWithAI()`.
+- **Inline AI generation:** describe the check, click ✨ Generate,
+  review the bash script, edit if needed, save. Uses the existing
+  `generate_script` system prompt with custom instructions for the
+  monitoring context (exit-code contract, output brevity, timeout
+  budget). Markdown code fences are stripped from the AI response
+  before populating the textarea.
+
+**Docs:**
+- `docs/custom-scripts.md` — full reference: how it works, exit code
+  convention, creation flow, execution environment, result viewing,
+  alert semantics, limits, 5 example scripts, security considerations,
+  full API reference.
+- `docs/features.md` — new section in the detailed tables and a new
+  entry in the "Added in" narrative section. Top summary table updated.
+- `README.md` — custom scripts row added to the feature table.
+- In-app documentation (Help → Documentation search) — new `doc-card`
+  covering creation, results, alerts, and execution details.
+
+
+
+### Progressive Web App (PWA) support
+
+RemotePower is now installable as a desktop or mobile app via Chrome
+(and any other Chromium-based browser that supports PWAs).
+
+**What changes:**
+
+- **`server/html/manifest.json`** (new) — Web App Manifest with name,
+  short name, theme colour (`#3b7eff`), background colour, `standalone`
+  display mode, and proper 192×192 and 512×512 icon references.
+- **`server/html/sw.js`** (new) — Service worker with a versioned
+  cache (`remotepower-shell-v2.4.15`). Strategy:
+  - `/api/*` requests are always **network-only** — fleet data is live
+    and must never be served from a stale cache.
+  - Non-GET and cross-origin requests pass through unmodified.
+  - App shell assets (HTML, JS, CSS, icons, manifest) are cached on
+    install and served cache-first; newly fetched responses are added
+    to cache automatically.
+  - Navigation requests that fail offline fall back to the cached
+    `index.html` shell so the login page appears rather than a browser
+    error.
+  - On each SW activate, all caches from previous versions are deleted.
+- **`server/html/static/img/icon-192.png`** and **`icon-512.png`**
+  (new) — PWA icons at the sizes Chrome requires, generated from the
+  existing `logo-square.png`.
+- **`server/html/index.html`** — added `<link rel="manifest">`,
+  `theme-color` meta tag, `apple-mobile-web-app-*` meta tags, SW
+  registration script, and a hidden **Install app** button in the
+  header that becomes visible when Chrome determines install criteria
+  are met (`beforeinstallprompt`). Clicking it triggers the native
+  Chrome install dialog.
+- **`server/conf/remotepower.conf`** — three nginx changes:
+  1. `worker-src 'self'` added to CSP so the service worker is allowed
+     to register.
+  2. `location = /sw.js` with `Cache-Control: no-store` so the
+     browser always fetches the current SW version.
+  3. `location = /manifest.json` with correct `Content-Type:
+     application/manifest+json` before the catch-all `.json` deny
+     rule that would otherwise block it.
+- **`deploy-server.sh`** and **`install-server.sh`** — `sw.js` added
+  to the root-asset deploy loop alongside `manifest.json` and
+  `favicon.*`.
+
+**No agent changes.** PWA is purely a server/frontend feature.
+
+
+
+### Patches page: Pending Reboot indicator
+
+The Patches page now shows a small amber **⟳ Reboot** badge inline
+with the hostname for any host that has `/run/reboot-required` on
+disk (Debian / Ubuntu). Hovering the badge shows a tooltip confirming
+the source. Useful for spotting hosts that were patched but not yet
+restarted without opening each device detail individually.
+
+**No agent change required.** The `reboot_required` flag has been
+in the agent heartbeat since the early v1.x era. The server now
+surfaces it through the patch-report API (`/api/patch-report`) and
+the Patches page UI.
+
+- `server/cgi-bin/api.py` — `handle_patch_report()` includes
+  `reboot_required: bool` in every device entry. Value is always a
+  boolean (`False` for distros that don't set the flag, or agents
+  predating the field).
+- `server/html/static/js/app.js` — `_registerPatchTable()` row
+  renderer checks `d.reboot_required` and injects the badge.
+
+### docs/features.md overhaul
+
+Large sections were missing from `features.md`. Added:
+
+- **AI assistant** — complete feature table covering providers,
+  context-aware ✨ buttons, secret redaction, rate limiting,
+  free-form chat, and local-model support (Ollama / LocalAI).
+  The existing `docs/ai.md` is the full reference; `features.md`
+  now has a proper summary table and cross-link.
+- **MCP server** — feature table covering the 12 read-only tools
+  and the no-write-tools policy.
+- **Pending Reboot indicator** row added to the Fleet visibility
+  table (this release).
+- Top-level summary table extended with AI assistant and MCP rows.
+- Added this release's new section under "Added in 2.2.x – 2.4.x".
+
+
+
+Documentation and housekeeping release. No server or agent
+behaviour changes beyond the version bump.
+
+- `docs/features.md` brought current through v2.4.12 — mailbox
+  threshold alerting, the `/api/status` endpoint and the
+  recent-activity de-duplication were all missing.
+- `CHANGES.md` and `CHANGELOG.md` merged into a single
+  `CHANGELOG.md`. The two files had drifted apart and each held
+  release entries the other was missing; this is the union.
+- `docs/Manual.html` refreshed for current features and bumped
+  to 2.4.13. The duplicate copy at the repo root was removed.
+- Per-release notes under `docs/` pruned to the most recent
+  three (v2.4.11–v2.4.13). `CHANGELOG.md` remains the complete
+  history.
+- Stale and malformed git tags cleaned up; only the last three
+  releases are tagged going forward.
+- `README.md` rewritten, led with the project logo.
+
+## v2.4.12 - 2026-05-18
+
+Dashboard fix: the "Recent activity" feed showed the most recent 8
+events with no de-duplication, so one noisy host (an hourly
+postfix log_alert) filled all 8 rows and buried everything else.
+The feed now collapses repeated event+host+subject entries to
+their most-recent occurrence — display only, the fleet event log
+still records every event. 5 new tests, 1039 total, all passing.
+
+Make-fleet-health-visible release. Mailbox threshold alerting: a
+mailbox monitor can carry a threshold; crossing it fires a webhook
+(edge-triggered). The Home "Needs attention" panel is now a single
+ranked list computed server-side, merging offline devices, CVEs,
+drift, patches and mailbox alerts. New /api/status endpoint — a
+machine-readable fleet summary for external dashboards (Uptime
+Kuma, Homepage, Grafana), behind a dedicated status token. 14 new
+tests, 1035 total, all passing.
+
+Documentation release. Audited docs/features.md against ~20
+releases of changes — it was missing Proxmox, drift, the mailbox
+monitor, the MCP server and more; now current. Added a full
+install & admin guide (docs/admin-guide.md). The update-available
+banner now shows the actual update commands and states that
+RemotePower does not self-update. 11 new tests, 1021 total, all
+passing.
+
+Added "Scan packages now" to the device action menu. The agent
+normally sends its package inventory + patch count only every few
+hundred heartbeats; this one-shot flag makes it send a fresh
+report on the next heartbeat or two — handy right after patching
+a host. 7 new tests, 1010 total, all passing.
+
+## v2.4.5 - 2026-05-17
+
+Small features release.
+
+### Added
+
+- **"Scan packages now"** in the device action menu. The agent
+  normally submits its package inventory + patch count only every
+  few hundred heartbeats; this sets a one-shot flag so the device
+  sends a fresh report within a heartbeat or two. Useful right
+  after patching a host. The flag fires exactly once.
+
+### Tests
+
+- `test_v245.py`: 7 new tests. Total: **1010, all passing.**
+
+### Upgrading from 2.4.4
+
+Drop-in. Deploy the updated agent so hosts can act on the request.
+
+### Caveats
+
+Not instant — the request reaches the agent on one heartbeat and
+is reported on the next (~1-2 min). The agent must be on 2.4.5.
+
+## v2.4.4 - 2026-05-17
+
+Bugfix and polish for the mailbox monitor, plus favicon.ico.
+
+### Fixed
+
+- **Mailbox monitor never received its paths.** The 2.4.3
+  heartbeat handler read the mailbox path list from a `saved_dev`
+  snapshot that the path list was never copied into — so the
+  agent always got an empty list and never counted. `saved_dev`
+  now carries `mailbox_paths`. A new test asserts the heartbeat
+  response includes them.
+- **favicon.ico restored.** Browsers auto-request `/favicon.ico`;
+  the project shipped only `favicon.png`. A real favicon.ico is
+  now included.
+
+### Changed
+
+- **Mailbox config moved to Settings → Mailbox monitor** (was on
+  the device detail modal).
+- **Dashboard view is now a tile** — same style/size as the
+  Devices / Updates / Drift / CVE tiles, instead of a separate
+  full-width card.
+
+### Tests
+
+- `test_v244.py`: 7 new tests. Total: **1003, all passing.**
+
+### Upgrading from 2.4.3
+
+Drop-in. A mailbox path configured under 2.4.3 starts working
+once 2.4.4 is deployed — no reconfigure needed.
+
+## v2.4.3 - 2026-05-17
+
+Lightweight mailbox monitor.
+
+### Added
+
+- **Mailbox-count monitor.** Give a device one or more directory
+  paths; the agent counts the regular files directly inside each
+  (the Maildir `new/` convention — one file per unread message)
+  and reports the numbers in its heartbeat. No IMAP/SMTP, no
+  credentials, no message content — just counts. Configured in
+  the device detail view; a "Show on dashboard" checkbox promotes
+  a device so its counts appear in a Home-dashboard widget.
+  Counting is done with os.scandir (no shell).
+
+### Tests
+
+- `test_v243.py`: 14 new tests. Total: **996, all passing.**
+
+### Upgrading from 2.4.2
+
+Drop-in. Deploy the updated agent to hosts you want to monitor.
+
+### Caveats
+
+The agent change is unit-tested for logic but not verified
+end-to-end against a live server — smoke-test on one host first.
+Counts refresh every ~5 minutes, not live. Counts files, not
+messages (fits Maildir, not mbox). No threshold alerting yet.
+
+## v2.4.2 - 2026-05-17
+
+Small features release.
+
+### Added
+
+- **Default SSH username** — a per-user setting (Settings →
+  Security → SSH preferences), stored in ui_prefs, validated as an
+  SSH-safe username.
+- **Quick SSH link** on the Devices page — an SSH icon next to
+  each hostname builds an `ssh://user@host` link (IP when known,
+  else hostname) and copies `ssh user@host` to the clipboard. The
+  ssh:// hand-off depends on the client machine having an ssh://
+  handler; the clipboard copy is the universal fallback.
+- **Documentation** — four new Documentation-page cards: Proxmox
+  virtualization, LXC containers, snapshots & rollback, quick SSH.
+
+### Tests
+
+- `test_v242.py`: 11 new tests. Total: **982, all passing.**
+
+### Upgrading from 2.4.1
+
+Drop-in, server-side.
+
+## v2.4.1 - 2026-05-17
+
+Bugfix release — CVE severity cache invalidation.
+
+### Fixed
+
+- **Stale CVE cache served wrong severities.** The 2.3.4 / 2.4.0
+  severity fixes were correct but couldn't reach findings already
+  in `cve_details_cache.json`. Entries written by a pre-2.3.4
+  RemotePower carry a severity from the old buggy classifier and
+  no `severity_source` field; the TTL-only refresh gate kept
+  re-serving them (the tell: `severity: critical` +
+  `severity_source: unknown`, an impossible pair from current
+  code). Now an entry lacking `severity_source` is treated as
+  stale regardless of TTL and re-fetched + re-classified. Self-
+  healing — no manual cache wipe. Modern entries still use the
+  normal TTL.
+
+### Tests
+
+- `test_v241.py`: 3 new tests (stubbed OSV). Total: **971, all
+  passing.**
+
+### Upgrading from 2.4.0
+
+Drop-in, server-side. Stale entries refresh automatically; the
+first post-upgrade scan of each device is a little slower.
+
+## v2.4.0 - 2026-05-17
+
+Proxmox snapshots + a CVE severity fix.
+
+### Added
+
+- **Proxmox VM/LXC snapshots.** A Snapshots button on each guest
+  (Virtualization page for QEMU, Containers page for LXC) opens a
+  modal to create / list / rollback / delete snapshots. Rollback
+  is destructive — the UI requires typing the guest name to
+  confirm. Delete is irreversible but doesn't touch the running
+  guest. Disk-only snapshots (no RAM state). New `proxmox_client`
+  methods + `GET /api/proxmox/snapshots`, `POST /api/proxmox/snapshot`.
+  (Optional CPU/RAM adjustment and backup-trigger from the
+  request are deferred — larger, separate work.)
+
+### Fixed
+
+- **CVE severity: Debian urgency shown as HIGH.**
+  DEBIAN-CVE-2018-1000021 was HIGH while OSV rates it 5.0 Medium.
+  When an OSV Debian entry has no CVSS, the chain fell back to the
+  Debian tracker and mapped Debian's `urgency` straight to
+  severity. Debian `urgency` is a patching-priority signal, not
+  CVSS severity. The fallback is now capped at `medium` — it can
+  never return high/critical.
+
+### Tests
+
+- `test_v240.py`: 17 new tests. One `test_v215` modal-ID test
+  updated for the dynamically-created snapshot modal. Total:
+  **968, all passing.**
+
+### Upgrading from 2.3.4
+
+Drop-in, server-side.
+
+### Caveats
+
+Not tested against a live Proxmox node (unit tests cover logic,
+not API request shapes). Snapshot actions are fire-and-forget —
+no task-completion polling. Disk-only snapshots. CVE severity
+recomputes on next scan.
+
+## v2.3.4 - 2026-05-17
+
+Fleet-issues bugfix release.
+
+### Fixed
+
+- **CVE severity misclassification.** The CVSS scorer did
+  substring matching — `'c:h' in vector` matched `AC:H` (Attack
+  Complexity High) as `C:H` (Confidentiality High), so every
+  high-attack-complexity CVE scored 7.5/HIGH regardless of real
+  impact. A CVSS 2.9 LOW vuln came out HIGH. Now the CVSS vector
+  is properly tokenised and the real CVSS v3.1 base-score formula
+  applied; <4.0 can never be HIGH. Findings carry a
+  `severity_source` field.
+- **Unmonitored devices in Recent Activity.** Events for
+  `monitored:false` devices are now filtered out of the fleet
+  activity feed (at read time, reflecting current state).
+- **Drift false positives.** Watched files can now be marked
+  `ignored` per device — ignored files are non-critical (out of
+  the drift/missing counts, no red status) but stay visible.
+- **Services and Logs** moved from the Security nav group to Main.
+
+### Investigated, not changed
+
+- Dashboard time ranges (#3): no regression found — what looks
+  like "only yesterday" is the known no-server-side-uptime-history
+  limitation, a separate feature, not a bug.
+- Mobile rendering: deprioritised per the issue list (resolved by
+  switching browsers — browser-specific, not a code defect).
+
+### Tests
+
+- `test_v234.py`: 11 new tests; 3 pre-existing severity tests
+  updated for the new `(severity, source)` return. Total: **951,
+  all passing.**
+
+### Upgrading from 2.3.3
+
+Drop-in. CVE severities recompute on the next scan.
+
+## v2.3.3 - 2026-05-17
+
+Bugfix release.
+
+### Fixed
+
+- **Virtualization page was undiscoverable.** The Virtualization
+  nav entry shipped hidden (`display:none`) and was only revealed
+  once Proxmox was enabled — but you enable Proxmox under Settings,
+  so the feature couldn't be found in the first place. The nav
+  entry is now always visible; the page already handles the
+  not-configured state with a "configure under Settings -> Proxmox"
+  message.
+
+### Known issue (not fixed)
+
+A reported broken mobile render (page shows almost nothing) is not
+addressed — it needs the browser console error to diagnose
+properly rather than guess.
+
+### Tests
+
+Full regression: **940 tests, all passing.** No new tests — a
+one-line visibility fix.
+
+### Upgrading from 2.3.2
+
+Drop-in.
+
+## v2.3.2 - 2026-05-17
+
+Security release — no new features. Result of a focused security
+review (full writeup: docs/security-review-2.3.2.md).
+
+### Fixed
+
+- **Unsalted SHA-256 password fallback → salted PBKDF2.** When
+  bcrypt wasn't installed, password hashing fell back to bare
+  unsalted `sha256` — rainbow-table-able if `users.json` leaked.
+  Now salted PBKDF2-HMAC-SHA256 (600k iterations, stdlib). Legacy
+  hashes still verify and upgrade automatically on next login.
+- **Default-password warning.** A bare-metal install seeds
+  `admin`/`remotepower`. The seeded hash is now properly salted,
+  and the account carries a `must_change_password` flag that
+  drives a persistent red UI banner until the password is changed.
+
+### Reviewed, unchanged
+
+Login rate-limiting, constant-time compares, TOTP, agent TLS
+verification, SSRF guard, security headers / CSP — all reviewed and
+sound. Accepted limitations (CSP `'unsafe-inline'`, plaintext
+secrets in config.json, CSRF posture) documented in the review.
+
+### Tests
+
+- `test_v232.py`: 11 new tests. Total: **940, all passing.**
+
+### Upgrading from 2.3.1
+
+Drop-in, server-side only. Existing password hashes keep working
+and upgrade silently on next login.
+
+## v2.3.1 - 2026-05-17
+
+Security release — Proxmox token secret hardening.
+
+### Changed
+
+- **Proxmox token secret via environment variable.** The token
+  secret can now be supplied in `RP_PROXMOX_TOKEN_SECRET` (systemd
+  unit / container env); when set it takes precedence over
+  `config.json`. Keeps the secret out of the data directory and
+  out of the backup export. The `config.json` value remains a
+  fallback. Settings → Proxmox detects an env-sourced secret and
+  disables the config field.
+- **Backup export redacts config.json secrets.** The backup ZIP
+  used to include `config.json` verbatim — carrying the live
+  Proxmox token, SMTP password and LDAP bind password. All three
+  are now redacted in the exported copy (keys kept, values
+  replaced with `(redacted)`).
+
+### Tests
+
+- `test_v231.py`: 8 new tests. Total: **929, all passing.**
+
+### Upgrading from 2.3.0
+
+Drop-in. To move the Proxmox secret out of `config.json`: set
+`RP_PROXMOX_TOKEN_SECRET`, then clear the field in Settings and
+save.
+
+## v2.3.0 - 2026-05-17
+
+Proxmox VE integration.
+
+### Added
+
+- **Proxmox VE integration.** RemotePower connects to a single
+  Proxmox node and surfaces its guests:
+  - New **Virtualization page** — QEMU VMs with status, CPU/mem,
+    uptime; start / graceful-shutdown actions.
+  - **LXC containers** appear as a section on the Containers page,
+    same start / shutdown actions.
+  Server-to-API integration — the RemotePower server calls the
+  Proxmox REST API directly, no agent on the Proxmox node. New
+  stdlib-only `proxmox_client.py` module.
+- **Settings → Proxmox** — host, node, API token ID + secret,
+  Verify TLS toggle, Test-connection button. Token secret is
+  masked in the config API and stored in `config.json` (mode
+  0600, not encrypted — use a scoped API token).
+- Action allow-list (`start`/`shutdown`/`stop`/`status`); UI
+  exposes start + graceful shutdown only. `migrate`/`clone`/
+  `delete` cannot be invoked.
+
+### Tests
+
+- `test_v230.py`: 28 new tests. Total: **921, all passing.**
+
+### Upgrading from 2.2.7
+
+Server-side only, no agent change. Configure under Settings →
+Proxmox; until then nothing changes.
+
+### Caveats
+
+Not tested against a live Proxmox node — unit tests cover the
+logic, not the API request shapes. No background polling (every
+page visit calls the API synchronously). Actions are
+fire-and-forget (no task-status confirmation). Single node only.
+
+## v2.2.7 - 2026-05-17
+
+Mobile hotfix.
+
+### Fixed
+
+- **Mobile navigation drawer was unusable** — a wide panel of
+  unlabelled icons. Two media-query blocks (a 768px icon-rail and a
+  720px drawer) both applied below 720px and fought. The icon-rail
+  block is removed; the drawer is now the single mobile layout with
+  labels, alignment and padding restored.
+
+### Tests
+
+- `test_v227.py`: 6 tests. Total: **893, all passing.**
+
+### Upgrading from 2.2.6
+
+Drop-in — one CSS file changed.
+
+## v2.2.6 - 2026-05-16
+
+Correctness + telemetry release.
+
+### Fixed
+
+- **CVE scanner false positives on already-patched packages.** The
+  scanner turned every OSV hit into a finding with no installed-vs-
+  fixed version comparison — flagging e.g. `lua5.1 5.1.5-9build2`
+  as vulnerable when it's newer than the ESM fix. New
+  `_already_patched()` gate: Debian/Ubuntu uses `dpkg
+  --compare-versions`, other ecosystems a tuple comparator;
+  fail-safe keeps the finding on any uncertainty. Scan result
+  carries a `suppressed_patched` count.
+- **Docker random admin password.** Entrypoint generates a strong
+  random password (`secrets.token_urlsafe`) when `RP_ADMIN_PASS`
+  is unset and prints it once in a banner — no more `changeme`
+  plaintext default.
+- **Docker healthcheck** used `curl`, never installed → container
+  always `unhealthy`. Switched to Python urllib.
+- **nginx `duplicate MIME type "text/html"`** warning — removed
+  `text/html` from `gzip_types`.
+- **`remotepower-passwd` empty-default username** — Enter now
+  defaults to the sole user instead of erroring "User '' not found".
+- **Mobile modal stacking** — z-index scale normalised into clean
+  tiers (dropdowns were at 10000, above modals); opening a modal
+  closes the mobile nav + locks body scroll; mobile modals are
+  full-bleed sheets.
+
+### Added
+
+- **Drift: expanded watch list** (8 → 13 files: passwd, group,
+  login.defs, common-auth, apt sources) + **dormant handling** —
+  a watched file absent for 3 consecutive heartbeats goes dormant,
+  fires one event then goes quiet, stops counting as drift, and
+  auto-revives if the file returns.
+- **Agent host-health telemetry** — `get_host_health()` collects
+  reboot-required, failed systemd units, logged-in users,
+  listening ports, last boot. Surfaced in the device detail modal.
+- **Container CPU / memory + health badge** — agent runs
+  `docker stats`, parses `(healthy)`/`(unhealthy)` from status.
+  Shown on the container card.
+
+### Tests
+
+- `test_v226.py`: 22 new tests.
+- `test_v220` missing-file test updated for the dormant behaviour.
+- Total: **887 tests, all passing.**
+
+### Not included
+
+New monitor types ("more monitor options") are deferred — they
+need check logic + UI forms and warrant their own release.
+
+### Upgrading from 2.2.5
+
+Server + agent drop-in. Rebuild the Docker image for the
+healthcheck/entrypoint fixes.
+
+## v2.2.5 - 2026-05-15
+
+Five UX fixes from live driving of the 2.2.4 dashboard.
+
+### Changed
+
+- **Container width 1100 → 1300 px.** Data density grew through
+  the 2.2 cycle; 1300 fits 4 Home tiles + wide tables comfortably
+  on standard 1920 monitors.
+- **Tables / grids gain scroll wrap above 20 rows.** New
+  `.scrollable-table-wrap` (sticky thead) and
+  `.scrollable-grid-wrap` CSS classes. `tableCtl.render()` toggles
+  the wrap on every render based on rendered row count. Devices
+  card-grid view also gains the wrap above the same threshold.
+- **Home → Recent activity items are clickable.** Each event
+  routes to the most relevant page or modal for its class. Switch
+  statement with explicit cases for every canonical fleet event;
+  contract test asserts parity with `WEBHOOK_EVENT_NAMES`.
+- **Favicon stays at document root.** Caught a real deploy bug:
+  `deploy-server.sh` only published `*.html` from the doc root, so
+  `/favicon.png` returned 404. Added an explicit loop for root
+  non-HTML assets (favicon, robots.txt, manifest.json). Removed
+  the duplicate `static/img/favicon.png` to keep a single source
+  of truth.
+- **Detail / Logs / Run hover affordance removed.** The strip was
+  persistently fiddly (2.2.1 clipping, 2.2.2 placement). The row
+  dropdown chevron exposes the same commands and is
+  keyboard-friendly; clicking the device name opens the detail
+  modal. CSS rule kept as a `display: none` no-op for back-compat.
+
+### Tests
+
+- `test_v225.py`: 14 new tests.
+- `test_v222.TestPolishHotfixes`: three hover-affordance assertions
+  inverted to "the strip is gone" — historical evolution preserved
+  in test comments.
+- Total: **865 tests, all passing.**
+
+### Upgrading from 2.2.4
+
+Drop-in. The favicon fix only takes effect on the next run of
+`deploy-server.sh`.
+
+## v2.2.4 - 2026-05-15
+
+Two real-world bugs surfaced by live testing of the Home dashboard.
+
+### Fixed
+
+- **Recent fleet events panel was empty even after devices went
+  offline.** Root cause: the activity panel read from the webhook
+  delivery log, which only records events that had at least one
+  destination (webhook URL or enabled email). Events firing with
+  no destinations configured (typical fresh install with only SMTP)
+  vanished into the void.
+  - New dedicated **fleet event log** at `data/fleet_events.json`
+    records every fired event regardless of destinations. Capped at
+    `MAX_FLEET_EVENTS = 200`. `'test'` events excluded.
+  - `_record_fleet_event(event, payload)` called from the top of
+    `fire_webhook`, before all the existing gates. Payload
+    summarised to discriminator keys (`device_id, device_name,
+    path, unit, metric, cve_id, severity, …`), strings capped at
+    256 chars.
+  - New endpoint `GET /api/fleet/events?limit=N` (default 50, max
+    200, newest first). Auth: any logged-in user (unlike
+    `/webhook/log` which is admin-only).
+  - Home dashboard `loadHome()` now reads `/fleet/events`; renderer
+    adjusted for the `{ts, event, payload}` shape.
+  - Empty-state copy updated to reflect the new behaviour.
+
+- **Unmonitored devices appeared in "Needs attention".** Operators
+  set `monitored: false` to silence a host (decommissioned, dev
+  boxes, hosts being rebuilt) — the dashboard shouldn't bring them
+  back up.
+  - `_renderHomeAttention` filters `monitored !== false` at the
+    top; reuses the filtered list for offline detection, patch
+    backlog, and drift cross-reference. Same predicate the alert
+    pipeline uses.
+  - Drift section gates on the monitored set too (intersected
+    with drift overview devices).
+
+### Tests
+
+- `test_v224.py`: 16 new tests covering fleet event recording,
+  the endpoint, the no-destinations regression, and frontend
+  changes.
+- Total: **851 tests, all passing.**
+
+### Upgrading from 2.2.3
+
+Drop-in. New `data/fleet_events.json` created on first event
+firing — no migration. On a fresh upgrade the activity panel is
+empty until the next event fires; the "Needs attention" panel
+benefits immediately.
+
+## v2.2.3 - 2026-05-15
+
+Hotfix to the Home dashboard activity panel — operator SMTP /
+webhook tests were drowning real fleet events.
+
+### Fixed
+
+- **Activity panel now filters to canonical fleet events.** The
+  JS keeps a `FLEET_EVENTS` allowlist mirroring the server's
+  `WEBHOOK_EVENTS` tuple (`device_offline`, `device_online`,
+  `monitor_*`, `service_*`, `cve_found`, `patch_alert`, `log_alert`,
+  `container_*`, `metric_*`, `command_*`, `drift_detected`). The
+  `test` event used for SMTP test deliveries and webhook test
+  deliveries is **not** in the list, so test rows no longer
+  clutter the dashboard.
+- Tests are still recorded in the underlying webhook log
+  (Settings → Webhook log view, unchanged) — they just don't
+  reach the activity panel.
+- The filter runs **before** `slice(0, 8)`, so real events can't
+  be crowded off the visible window by a burst of test noise.
+
+### Tests
+
+- `test_v223.TestActivityFilter`: 3 tests. The contract test
+  asserts the JS allowlist is exactly equal to the server's
+  `WEBHOOK_EVENT_NAMES` — if a future commit adds a fleet event
+  to the server tuple without updating the JS, the dashboard
+  silently dropping that event surfaces as a test failure.
+- Total: **835 tests, all passing.**
+
+### Upgrading from 2.2.2
+
+Drop-in. No data migrations, no agent changes.
+
+## v2.2.2 - 2026-05-15
+
+Small hotfix for three things found in the first browser run of
+2.2.1. No new features.
+
+### Fixed
+
+- **Hover-action focus ring clipped on right edge.** The 2.2.1
+  hover-revealed `Detail · Logs · Run` strip lived in the narrow
+  last cell; focus rings extended beyond the cell's right edge and
+  got visibly clipped. v2.2.2 moves the strip to the first cell
+  (kept absolutely positioned so visual placement is unchanged),
+  bumps `right: 12px` → `right: 24px`, adds `z-index: 2`, suppresses
+  the system focus outline in favour of a softer accent border.
+- **Home dashboard activity panel hit a 404.** `loadHome()` called
+  `/api/webhook-log` — the path should have been `/api/webhook/log`.
+  Also adjusted the renderer to handle the actual response shape
+  (a flat list, not `{events: [...]}`). Viewers (who don't have
+  permission for this endpoint) now see the friendly empty state
+  rather than a console error.
+- **`handle_webhook_log` 500 on bare-list `webhook_log.json`.**
+  Pre-existing bug surfaced by the same test. Some deployments
+  (older releases or hand-edited files) have the file as a bare
+  list instead of `{entries: [...]}` — handler now accepts both.
+
+### Tests
+
+- `test_v222.py`: 8 new tests covering the three fixes.
+- Total: **832 tests, all passing.**
+
+### Upgrading from 2.2.1
+
+Drop-in. No data migrations, no agent changes.
+
+## v2.2.1 - 2026-05-15
+
+Design polish release. No new feature surfaces — nine focused
+improvements to how the existing ones look and feel, plus one
+sub-feature (drift diff visualisation) that completes the v2.2.0
+drift detection story.
+
+### Added — Design polish (10 pieces)
+
+1. **Distro logos next to device names.** Branded SVGs for Ubuntu,
+   Debian, Arch, CachyOS, Fedora, RHEL family, openSUSE, Alpine,
+   NixOS, Raspbian, FreeBSD, generic Linux. Inline, ~14×14, no
+   external requests. Visible on device cards, the minimal table,
+   the Drift page, and the Home dashboard. `osIcon()` API
+   preserved — existing callers get the upgrade automatically.
+
+2. **Sparkline mini-charts on device cards.** 52×14 SVG line
+   charts next to disk and memory percentages. Auto-coloured by
+   value (green / amber / red). Client-side ring buffer in
+   `window._metricsHistory` builds 24 readings per metric per
+   device as you sit on the page.
+
+3. **Refined status colour palette.** New `--green-soft/edge`,
+   `--amber-soft/edge`, `--red-soft/edge`, `--accent-soft/edge`
+   CSS variables. New `.status-pill` component with five
+   variants. Critical-state pulse animation (warning states are
+   deliberately *not* pulsing — too noisy at fleet scale).
+   `prefers-reduced-motion` honoured.
+
+4. **Skeleton loaders replace centred spinners.** Shimmer-animated
+   placeholder rows / cards on 11 HTML tables + 6 JS-injected
+   loading states. New `renderSkeletonRows()` and
+   `renderSkeletonCards()` helpers.
+
+5. **Home dashboard** — new default landing page. Four big-number
+   tiles (devices online, pending updates, drift events, CVE
+   findings), "Needs attention" panel, "Recent activity" feed,
+   fleet roster with 7-day status stripe per device. The first
+   page you see is now fleet-at-a-glance, not the devices list.
+
+6. **✨ identity extended.** Every ✨ button gets `.ai-btn` +
+   provider-tinted glow (`.available` for cloud, `.local` for
+   Ollama / LocalAI). AI-thinking state shows three sparkles
+   cycling. AI-generated markdown content gets a gradient left
+   edge. MutationObserver auto-applies to newly-rendered content.
+
+7. **Typography upgrade.** Inter (UI) + JetBrains Mono (technical
+   identifiers) via bunny.net — privacy-friendly Google Fonts
+   mirror. Graceful fallback to system font stack for air-gapped
+   deployments. `font-feature-settings cv02 cv03 cv04 cv11 ss01`
+   enabled for the better "1", "a", "g" glyphs.
+
+8. **Per-row hover affordances.** Minimal devices table rows
+   reveal a `Detail · Logs · Run` strip on hover. Saves a click vs
+   opening the row dropdown. Hidden on mobile (no hover on touch).
+
+9. **Mobile dashboard view.** Phone-sized layout (<720 px):
+   sidebar behind a burger button, tile grid stacks, low-priority
+   columns hidden, tap targets ≥36 px, modals nearly full-screen.
+
+10. **Logo → Home.** The header logo now navigates to the Home
+    dashboard (was: Devices page).
+
+### Added — Drift diff visualisation
+
+The diff view that completes the v2.2.0 drift detection story.
+
+- New endpoint `POST /api/devices/<id>/drift/fetch_content` —
+  queues `exec:cat <path>` for each requested path. Denylist
+  enforced (`/etc/shadow`, `/etc/gshadow`, rotated `-` siblings).
+  Refuses non-watched paths to prevent use as an arbitrary
+  file-read primitive.
+- New endpoint `GET /api/devices/<id>/drift/content?path=...` —
+  returns up to 2 stored captures with sha256.
+- New mirror hook `_maybe_mirror_drift_content()` in the heartbeat
+  output-ingest path. Detects `exec:cat <watched_path>` outputs
+  and mirrors them into `drift_contents.json`. Denylist enforced
+  on the mirror side too (defence in depth).
+- New storage `data/drift_contents.json`, last 2 captures per
+  path, ≤256 KB per capture.
+- New UI: "Show diff" button per drifted file. Opens a sub-modal
+  that polls for the cat output (every 5s, up to 90s) and renders
+  a unified diff between the two most recent captures using
+  LCS-based pure-JS `computeDiff()` + `renderDiff()`.
+- New CSS: `.diff-view`, `.diff-line.add/del/hunk` for unified
+  diff with syntax-coloured backgrounds.
+
+### Tests
+
+- `test_v221.py`: 46 new tests covering drift content fetch (7),
+  drift content get (5), drift content mirror (6), and design
+  polish asset presence (28 — verifies CSS / JS / HTML structures
+  are in place).
+- Pre-existing `test_v215.TestHtmlIdReferences`: drift-diff-modal
+  IDs added to `KNOWN_DYNAMIC_IDS`.
+- Total: **824 tests, all passing.**
+
+### Upgrading from 2.2.0
+
+Drop-in for the server. The new `data/drift_contents.json` file
+is created on first content-fetch request — no migration needed.
+No agent changes required: drift content fetch uses the existing
+`exec:cat` mechanism, supported by every agent v1.0+.
+
+## v2.2.0 - 2026-05-15
+
+First minor-version bump since 2.1.0. Two new feature surfaces, both
+tied to current themes in the fleet-management space.
+
+### Added — Configuration drift detection
+
+New **Drift** page under the Security sidebar group. Per-device
+file integrity monitoring for a configurable list of config files
+(default: SSH config, sudoers, fstab, crontab, hosts, resolv.conf,
+nsswitch.conf, PAM sshd).
+
+- Agent computes SHA-256 hashes of watched files every few
+  heartbeats and ships them in the heartbeat payload.
+  **Hash-only by design** — file contents never cross the wire on
+  routine polling. `/etc/sudoers` and `/etc/shadow` can be watched
+  without privacy concerns.
+- Server stores baselines, detects divergence, fires
+  `drift_detected` webhook once per change (debounced — not on
+  every poll that reports the same new hash).
+- New UI: fleet overview table + per-device detail modal with
+  history viewer and "accept as baseline" button. Baseline
+  acceptances are audit-logged with actor + timestamp.
+- New endpoints: `GET /api/drift`, `GET / POST-baseline / DELETE
+  /api/devices/<id>/drift`.
+- New webhook event: `drift_detected` (defaults to enabled).
+- New storage: `data/drift_state.json`, history capped at 20
+  changes per file.
+- **Requires agent v2.2.0+** for the agent-side hash reporting.
+  Older agents work normally, just don't show drift data.
+- Reference: [docs/drift.md](docs/drift.md). Compliance angle:
+  SOC 2 CC6.1/CC6.6, ISO 27001 A.12.4.3/A.14.2.4, HIPAA
+  164.312(c), PCI DSS 11.5, FedRAMP.
+
+### Added — MCP server (natural-language fleet queries)
+
+New `mcp/remotepower-mcp.py` (~470 lines, pure stdlib Python).
+Implements the [Model Context Protocol](https://modelcontextprotocol.io)
+so AI hosts like Claude Desktop, Cursor, or VS Code Copilot can
+query the fleet in natural English.
+
+- Runs on the **operator's laptop**, not on the RemotePower server.
+  Spawned as a stdio subprocess by the AI host.
+- Speaks JSON-RPC 2.0 over stdin/stdout; calls RemotePower's REST
+  API on behalf of the AI using a regular API token.
+- **12 read-only tools**: `list_devices`, `get_device`,
+  `get_journal`, `get_services`, `get_containers`, `get_cves`,
+  `get_drift`, `get_recent_commands`, `get_runbook`,
+  `get_patches`, `get_tls`, `search_devices`.
+- Device-name resolution: exact → prefix → substring →
+  ambiguity error.
+- **No write tools**, by deliberate design. Test suite asserts
+  no write-shaped names slipped in. Write tools land in a future
+  release with the server-side allow-list and per-token role in
+  place — not before.
+- Protocol version pinned to `2024-11-05` (widely-supported
+  version hosts standardised on).
+- Setup, Claude Desktop config snippet, security model,
+  troubleshooting: [docs/mcp.md](docs/mcp.md).
+
+### Changed
+
+- **README "What's new"** trimmed to the latest three releases
+  (2.2.0, 2.1.9, 2.1.8).
+- **In-app Documentation page**: new doc-cards for Drift and MCP.
+
+### Tests
+
+- `test_v220.py` (24 tests): drift ingest behaviour (7), drift
+  endpoints (5), MCP protocol (7), MCP device resolution (5).
+- `test_v184.TestWebhookEventsConstant`: updated for new
+  `drift_detected` event.
+- `test_v215.TestHtmlIdReferences`: added drift-detail-modal IDs
+  to `KNOWN_DYNAMIC_IDS` allow-list.
+- Total: **778 tests, all passing.**
+
+## v2.1.9 - 2026-05-15
+
+Same-day hotfix for runbook hallucination on smaller local models,
+plus a demo URL correction.
+
+### Fixed
+
+- **Runbook generator was inventing services, ports, firewall rules
+  on smaller local models** (reported on Ollama qwen2.5-coder:14b).
+  Three compounding causes, all fixed:
+  1. **Ollama defaults to `num_ctx=2048` on the OpenAI-compat
+     endpoint** — the snapshot was being truncated mid-content and
+     the model invented the rest. `ai_provider.chat_openai_compatible`
+     now passes `options.num_ctx=16384` for Ollama / LocalAI
+     (ignored by real OpenAI / DeepSeek, which accept unknown body
+     keys).
+  2. **The v2.1.7 runbook prompt was too elaborate** — 8 verbose
+     sections, no explicit anti-fabrication instructions. Rewritten
+     to ~1 KB / 6 sections with `CRITICAL RULES` near the top:
+     "Use ONLY information from the snapshot. Do NOT invent…", and
+     each section has an explicit "if empty, write X" fallback.
+  3. **The snapshot itself was too big** — up to 25 KB. Tightened
+     to ~8 KB: 20 journal lines (was 40), 5 commands at 200 chars
+     each (was 15 × 500), 10 CVEs at 100-char summaries (was 20 ×
+     200), 10 containers (was 30), 500-char notes (was 1000),
+     trimmed sysinfo to 9 operator-relevant fields, top 5 disks by
+     usage.
+
+- **Demo URL is `demoremote.tvipper.com`**, not `demo.tvipper.com`.
+  Fixed across all `*.md` and `*.html` in the repo.
+
+### Tests
+
+- `test_v219.py` (8 tests): num_ctx wiring (Ollama/LocalAI yes,
+  OpenAI no), prompt anti-hallucination keyword presence + size
+  cap, snapshot bounded under 10 KB on synthetic heavily-populated
+  device, no bare `demo.tvipper.com` in markdown files.
+- Total: **754 tests, all passing.**
+
+### Upgrade note
+
+Existing stored runbooks in `runbooks.json` were written under the
+bug. Worth regenerating any you care about via the **✨ Regenerate**
+button on each device's detail modal Runbook section.
+
+## v2.1.8 - 2026-05-15
+
+Hotfix for a v2.1.7 bug where the AI fleet context reported every
+device as offline.
+
+### Fixed
+
+- **AI fleet context wrongly reported all devices as offline.** The
+  `ai_context.py` builder was reading `d.get('online')` directly,
+  but `online` is a derived field computed on-the-fly by
+  `handle_devices_list` from `last_seen` + `get_online_ttl()` — it's
+  not persisted in `devices.json`. Every device looked `online=None`
+  → falsy → "offline" in the AI's view. Reported by an operator
+  whose live web server showed as offline in an AI chat response.
+- Fixed: `ai_context._is_online()` now computes status canonically
+  using the same formula as the device-list handler (recent
+  heartbeat → online; agentless → manual_status default True).
+  `build_fleet_context` and `build_combined_system_prompt` accept
+  `now` and `ttl`; callers in `handle_ai_chat` and
+  `handle_runbook_generate` pass `get_online_ttl()` so the AI sees
+  exactly the same status as the dashboard.
+- 5 new regression tests in `test_v217.py`; two pre-existing tests
+  rewritten to use `last_seen` instead of the phantom `online`
+  field that hid the bug.
+
+Total: **746 tests, all passing.**
+
+## v2.1.7 - 2026-05-14
+
+Two new AI features and a few README/docs polish bits.
+
+### Added
+
+- **AI-generated device runbooks** (`✨ Generate runbook` in the
+  device dropdown). Structured Markdown document per device —
+  Purpose / Stack / Services / Exposure / Scheduled work / Recent
+  activity / Health & risks / Operating notes. Built from the
+  device's current state (sysinfo, journal, services, containers,
+  CVEs, patch status, recent commands). Saved per-device in
+  `runbooks.json`, regenerable any time.
+  - New endpoints: `GET / POST-generate / DELETE
+    /api/devices/<id>/runbook`.
+  - New UI: ✨ Generate runbook modal with elapsed-time ticker;
+    Runbook section on the device detail modal with View / Regenerate
+    / Delete buttons.
+  - Rate-limited under the same per-user-per-day cap as `/api/ai/chat`.
+  - No batch "regenerate all" button, deliberately — cost-sensitive.
+
+- **Level-1 RAG context awareness.** Every AI request now prepends
+  a project-context block (what RemotePower is, the storage
+  conventions, the agent/heartbeat model) plus a fleet snapshot
+  (one line per device with name / OS / status / group / tags /
+  notes). Online devices first.
+  - New `ai_context.py` module (~180 lines, pure stdlib): no
+    embeddings, no vector store. For ~5000 lines of docs and ~10
+    devices, hand-curated context is cheaper and just as effective
+    as a real RAG pipeline.
+  - Configurable in Settings → AI assistant → **Context awareness**.
+    Two checkboxes: include project context (non-sensitive, default
+    on), include fleet snapshot (contains hostnames, default on).
+  - Makes the AI stop giving generic Linux advice and start giving
+    advice that references your devices, your groups, your conventions.
+
+### Changed
+
+- **README**: demo URL (`https://demoremote.tvipper.com`, demo/demo) now
+  visible at the top of Quick start; "What's new" trimmed to the
+  latest three releases. Older entries point at CHANGES.md.
+- **Documentation page** (in-app): added four new doc-cards covering
+  Scripts (script library), AI assistant (✨ button inventory),
+  Device runbooks (v2.1.7), and Notification setup (recommended
+  baseline + maintenance windows + ✨ Explain on alerts).
+
+### Tests
+
+- `test_v217.py` (26 tests): context module, chat integration,
+  runbook generate / get / delete
+- `test_v213.py`: updated for the new context-wrapped system prompt
+- Total: **741 tests, all passing**
+
+## v2.1.6 - 2026-05-14
+
+Same-day hotfix for two compounding bugs on the Patches page.
+
+### Fixed
+
+- **Patches → Detail button threw "can't access property textContent
+  of null".** Two issues stacked:
+  1. The 2.1.5 ✨ Prioritise button placed `display:flex` on a
+     `<td>`, which removed the cell from its `display:table-cell`
+     behaviour and made the Detail buttons render outside the
+     table. Fixed: flex container moved to a `<div>` inside the cell.
+  2. The Detail handler `openDevicePatchReport()` referenced
+     `#device-patch-title` / `#device-patch-body` / `#device-patch-modal`
+     — but **those elements were missing from `index.html`
+     entirely**. The function had been broken for several releases;
+     the new ✨ Prioritise button drew attention to it. Restored
+     the missing modal.
+
+### Added — regression test
+
+- `tests/test_v215.py::TestHtmlIdReferences` scans `app.js` for
+  every `getElementById(...)` + `(open|close)Modal(...)` reference
+  and verifies the ID exists in `index.html` (modulo a
+  `KNOWN_DYNAMIC_IDS` allow-list for AI modal + toast). Bugs of
+  this exact shape — JS referencing an HTML element that doesn't
+  exist — will now fail at build time. Verified by temporarily
+  removing the modal: test correctly listed all three missing IDs.
+
+- 715 tests total, all passing.
+
+## v2.1.5 - 2026-05-14
+
+Polish release. Six items queued from real-world use of the 2.1.3/4
+AI work plus the long-pending stderr-spam fix.
+
+### Fixed
+
+- **"No Data Provided" from ✨ Investigate** even when the device had
+  data. Root cause: the JS was hitting `GET /api/devices/<id>` — a
+  route that doesn't exist. Fixed: assemble the snapshot in parallel
+  from `/sysinfo`, `/output`, and the devices list. Bails visibly
+  ("No data available yet — has the agent checked in?") if there's
+  genuinely nothing to send.
+- **AI responses now render Markdown.** Models love their `**bold**`
+  and `## headers` and `` `code` `` — showing them as raw punctuation
+  was jarring. New `renderMarkdown()` helper: HTML-escape *first*,
+  then transform — no script-injection vector. Supports headers,
+  bold/italic, code fences, inline code, bullet/numbered lists, and
+  blockquotes. Used in both the ✨ modal and the AI page chat.
+- **Routine heartbeat / lock_wait logs silenced by default.** The
+  `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is now redundant —
+  all three of its behaviours are the default. Per-request heartbeat,
+  the `202 busy` retry log, and both lock_wait variants now require
+  `RP_LOG_HEARTBEATS=1` / `RP_LOG_LOCK_WAITS=1` in the CGI env to
+  re-enable. **OFFLINE/ONLINE state transitions and real-error
+  stderr writes stay unconditional.**
+
+### Changed
+
+- **AI Assistant moved to Help section** (between Documentation and
+  API Reference). Was under Planning, which never quite fit.
+- **Device-card dropdown is now grouped + collapsible.** Was 22
+  items in one vertical list, taller than most cards. New layout:
+  - **Power** at top (always visible): shutdown / reboot / WoL / upgrade
+  - **Inspect** (open by default): System info / ✨ Investigate / Metrics / Update history
+  - **Operate** (collapsed): Web terminal / Custom command / Run script… / docker compose / Agent update
+  - **Configure** (collapsed): tags, group, notes, intervals, allowlist, icon, monitoring
+  - Remove device in its own danger zone at the bottom
+
+  Native `<details>`/`<summary>` for the collapse — no JS needed.
+  Both render sites (grid + table) share one `deviceDropdownHtml()`
+  helper now instead of duplicating the 1.5 KB markup.
+
+### Added — four new ✨ button surfaces
+
+| Surface | Label | When it shows |
+|---|---|---|
+| Services → service detail | **✨ Diagnose** | non-active services |
+| TLS → table row | **✨ Triage** | warning / critical / error only |
+| Patches → table row | **✨ Prioritise** | devices with pending updates |
+| (Helper exists for container logs but unused — covered by existing ✨ Explain on command output) | | |
+
+Four new system-prompt keys: `diagnose_service`, `explain_tls`,
+`prioritise_patches`, `explain_container_logs`.
+
+### Documentation
+
+- New **docs/ai.md** (~280 lines): provider selection, privacy
+  toggles, rate-limit model, complete ✨ button inventory, AI page
+  walkthrough, endpoint reference, system-prompt registry, storage
+  layer, troubleshooting for every error users have hit.
+- **docs/scripts.md**: added AI integration section covering the
+  Generate / Explain / Audit buttons.
+- **docs/README.md** index updated.
+
+### Tests
+
+- `test_v215.py` (3 tests): new prompt keys exist + env-gating
+  pattern correct + state-transition logs stay unconditional.
+- `test_v213.py`: system-prompt registry test updated.
+- Total: **711 tests, all passing.**
+
+## v2.1.4 - 2026-05-14
+
+Same-day follow-up to 2.1.3 fixing the JSON.parse-on-every-button bug
+against slow local Ollama models, plus a stand-alone AI Assistant page.
+
+### Fixed — `JSON.parse: unexpected character at line 1 column 1`
+
+**Symptom**: 2.1.3 Test Connection succeeded, but every actual ✨
+button against Ollama smallthinker (a thinking model) failed with
+the above SyntaxError.
+
+**Root cause**: ✨ buttons defaulted to `max_tokens=4000` and the
+model needed 60–180 seconds to generate. nginx's default
+`fastcgi_read_timeout` of 60s closed the connection first, returning
+a 504 HTML page. The JS `api()` helper called `r.json()` on the HTML
+body and threw.
+
+**Fix**:
+
+- `HTTP_TIMEOUT_S` in `ai_provider.py` 60 → 300 (5 min)
+- Per-button `max_tokens` tuned to the typical response length
+  (Explain: 1500, Triage: 1000, Generate-script: 4000, etc.)
+- New `aiApi()` JS helper — reads raw text first, surfaces a
+  structured error with the HTTP status, response snippet, and a
+  contextual hint (including the specific nginx config block to set
+  if it looks timeout-shaped)
+- Live "(Xs elapsed)" ticker in the ✨ modal and the AI page
+
+**Operator action required for nginx**: add a `location /api/ai/`
+block with `fastcgi_read_timeout 300s;` (full snippet in
+`docs/v2.1.4.md`). The Python timeout helps but nginx is the
+gatekeeper.
+
+### Added — AI Assistant page
+
+Sidebar entry under Planning. Standalone chat UI alongside the
+inline buttons:
+
+- **Status header** with provider, base URL, reachability, version
+  (Ollama), currently-loaded models with VRAM use + expiry
+- **Per-conversation model picker** populated from `GET /api/tags`
+  (Ollama), `GET /v1/models` (LocalAI / OpenAI / DeepSeek), or the
+  hardcoded fallback list (Anthropic). Overrides the global default
+  for this conversation only — Settings still controls the default.
+- **Multi-turn chat** with localStorage history (last 40 messages),
+  Ctrl/⌘+Enter to send, Clear wipes local history only (audit log
+  untouched). Conversation is local to the browser by design — never
+  synced server-side.
+
+New system prompt key `free_form` (concise, no filler).
+
+### Added — provider introspection endpoints
+
+- `GET /api/ai/models` — list available models with size / family /
+  param-count where the provider exposes it
+- `GET /api/ai/stats`  — provider, base_url, version, loaded_models,
+  reachable
+
+Both require auth, honour the disabled state, never leak the API key.
+
+### Internal
+
+- `ai_provider.py`: `_http_get_json`, `_ollama_root` (strips a
+  trailing `/v1` so operators can paste either URL form),
+  `list_models`, `provider_stats`, `CLOUD_MODELS` fallback
+- `chat()` accepts `model` kwarg for per-request overrides
+- `handle_ai_chat()` accepts `model` and `max_tokens` from body
+  (both validated, max_tokens capped to configured limit)
+- 8 new tests (708 total, all passing)
+
+## v2.1.3 - 2026-05-14
+
+### Fixed
+
+**About page showed "Latest release 2.0.0 ✓ up to date" on a 2.1.2
+box.** Two combining causes: `handle_version_check()` read
+`server_version` out of `config.json` (often stale because installers
+stamped it once and upgrades didn't refresh it), and the displayed
+"latest" was GitHub's most recent tagged release — which is
+legitimately older than the running version on a dev build or
+between cutting and publishing a release. Fixed: read `local` from
+the `SERVER_VERSION` module constant, and clamp `latest = max(github,
+local)` so the UI never tells you to "upgrade" to a version older
+than what you have.
+
+### Added — AI assistant
+
+Optional LLM integration with five providers behind a single
+`/api/ai/chat` endpoint. **Disabled by default**; admin opts in via
+Settings → AI assistant.
+
+Providers covered by the OpenAI-compatible adapter (`/v1/chat/completions`):
+**OpenAI / ChatGPT**, **DeepSeek**, **Ollama**, **LocalAI**. Anthropic
+(Claude) gets its own adapter for `/v1/messages`. Pure stdlib —
+no pip-installed packages added.
+
+Settings → AI assistant:
+
+- Provider, model, optional base URL override
+- API key (masked on read, last-4 visible, `__clear__` to wipe)
+- Privacy toggles for what gets sent: hostnames (off), IPs (off),
+  journal content (off), command output (on). Bearer tokens, AWS
+  keys, and long hex strings are *always* redacted regardless.
+- Per-response token cap, per-user-per-day request cap
+- Test-connection button
+
+Inline ✨ buttons funnel through one reusable modal:
+
+| Surface | Label |
+|---|---|
+| Command output panel | **✨ Explain** |
+| Journal panel | **✨ Find the problem** |
+| Script editor | **✨ Generate from prompt** (inserts into textarea) |
+| Script editor | **✨ Explain** |
+| Script editor | **✨ Audit for risks** |
+| CVE finding row | **✨ Triage** |
+| Device dropdown (⋯ menu) | **✨ Investigate** |
+| Webhook log row | **✨ Explain** |
+
+Generated scripts go through the same dry-run + dangerous-pattern
+detection as human-written ones — no special AI-trusted path.
+
+Endpoints:
+
+- `GET  /api/ai/config` — masked
+- `POST /api/ai/config` — admin, validated, audit-logged
+- `POST /api/ai/chat`   — auth, system-prompt key OR literal,
+  redacted, rate-limited per user/day, audit-logged (token counts
+  + elapsed only — never the prompt/response content)
+- `POST /api/ai/test`   — admin smoke test
+
+### Internal
+
+- `ai_provider.py` module (~360 lines, stdlib only): provider
+  abstraction, redaction, system prompt registry
+- 40 new tests in `tests/test_v213.py`: redaction (always-on + toggle),
+  validators, About-page logic (running-ahead, GitHub-ahead, stale-key),
+  config CRUD, chat endpoint, rate limiter (per-user isolation,
+  zero-means-unlimited). Total suite **700 tests, all passing**.
+
+### Misc
+
+- Favicon link updated to `/favicon.png` (user-added to html root)
+  with a shortcut-icon fallback.
+- All 9 version-string sites bumped 2.1.2 → 2.1.3.
+
+## v2.1.2 - 2026-05-14
+
+### Fixed
+
+**Lost-update race in heartbeat (THE actual offline bug).** v2.1.0's
+`save()` redesign moved the tmp-file write outside the lock so the
+critical section was just the rename. Correct for single-shot saves
+but it broke an unspoken contract with callers that did
+read-modify-write: load → mutate → save was no longer atomic. Two
+concurrent heartbeats from different devices interleaved their
+load/save windows and the second one's rename clobbered the first
+one's `last_seen` update. Devices drifted past TTL and got marked
+offline despite heartbeating fine — looked identical to the
+original 2.0 flock fluctuation, but the cause was completely
+different.
+
+Fix: new `_locked_update(path)` context manager that holds the flock
+across load → mutate → save. `handle_heartbeat()` is rewritten around
+this primitive so concurrent heartbeats now serialise correctly. The
+`compose_projects` update (which previously did a separate save) is
+merged into the same atomic transaction.
+
+`save()` itself still uses the v2.1.0 fast-path (tmp+fsync outside
+lock) — that optimisation is correct for *single-shot saves where
+the caller doesn't read first*. The new primitive is for callers
+that do RMW, who now opt in explicitly.
+
+### Internal
+
+13 new tests in `tests/test_v212.py` including a threaded
+reproducer for the race (20 concurrent updaters, asserts every
+update is preserved) and a deliberate demonstration of the bug
+using the old pattern. Total suite: **660 tests, all passing.**
+
+Other admin-action RMW sites (note/group/tag/poll-interval edits)
+still use the unsafe pattern but are much lower frequency than
+heartbeats. Migrating them to `_locked_update` is queued for a
+follow-up release.
+
+## v2.1.1 - 2026-05-13
+
+### Fixed
+
+**Offline regression from 2.1.0.** The 2.1.0 heartbeat handler used
+the non-blocking save path for *every* save, including `last_seen`.
+Under flock contention that save would 202 silently *before*
+`last_seen` was persisted — the agent treated 202 as success, the
+server still thought the device was last seen however-long-ago, and
+the device drifted past the online TTL → marked offline even though
+heartbeats were arriving fine. Fixed: the `DEVICES_FILE` save is back
+to blocking (which is now microseconds-fast thanks to the 2.1.0
+fsync-outside-lock work). Only the *optional* saves below it
+(cmd_output, containers, config, etc.) keep non-blocking semantics.
+
+**Diagnostics were silent.** Two 2.0-era code smells made the offline
+bug above invisible to operators: `check_offline_webhooks()` only logged
+inside `fire_webhook()`, so an operator without webhooks got a silent
+state flip; and `main()` wrapped every per-request maintenance sweep in
+`try: ... except Exception: pass`, swallowing every error including
+ones an operator most needs to see. Now: state transitions always log
+`[remotepower] OFFLINE dev=… last_seen=… delta=…s ttl=…s` regardless
+of webhook config; heartbeat arrival logs to stderr (visible in nginx
+error log); the bare except-pass blocks are replaced with a `_safe()`
+helper that prints the full traceback before continuing.
+
+**`log_alert` webhook now includes the matched line.** Pre-2.1.1 the
+message read `host/unit: pattern "X" matched N times` — no actual log
+content. The payload already had `sample` (first 3 matching lines);
+`_webhook_message` just wasn't using it. Now the message shows the
+first matched line (truncated to 200 chars for embed compatibility)
+and an `(+ N more matching lines)` footer if there were more.
+
+### Changed
+
+**Default offline TTL bumped from 3 → 5 minutes.** `DEFAULT_ONLINE_TTL`
+is now 300s (= 5 missed polls at the 60s default interval).
+`MIN_ONLINE_TTL` is now 150s (was 90). Field reports of "device went
+offline" turning out to be brief network blips the agent recovered
+from. Operators who want the old tighter behaviour can configure
+`online_ttl: 180` via Settings → Webhooks.
+
+### Added
+
+**Per-container actions on the Containers page.** Start / Stop /
+Restart / Logs buttons on every reported container. New agent
+dispatch `container:<runtime>:<action>:<id>` with argv-only invocation
+(no `shell=True`), tight ID regex (`[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}`),
+runtime allowlist (docker | podman; kubectl excluded), and action
+allowlist (start, stop, restart, pause, unpause, logs). New endpoint
+`POST /api/devices/<id>/containers/action` validates the requested
+`container_id` against the agent's last-reported listing — same
+security boundary as compose. Kubernetes pods don't get action buttons
+since the agent generally doesn't have the kubectl context to act on
+them through this path.
+
+**Demo data reflects v2.1 features.** `seed-demo-data.py` now also
+seeds `scripts.json` (5 example scripts including one deliberately
+flagged dangerous to demo the `⚠ DANGER` badge), `batch_jobs.json`
+(one recently-completed batch run for the status modal), and
+`log_watch.json` (two log-watch rules and one fired alert showing
+the new matched-line format). 6 demo devices report tag-driven
+`compose_projects` so the v2.1.0 compose dropdown is visible in the
+demo.
+
+### Internal
+
+20 new tests in `tests/test_v211.py` (647 total, all passing).
+Bumped all 9 version-string sites from 2.1.0 → 2.1.1.
+
+## v2.1.0 - 2026-05-13
+
+### Fixed
+
+**Flock offline fluctuation.** Heartbeats no longer hold the per-file
+flock across `fsync()`. `save()` now writes the per-process unique tmp
+file *outside* the lock and holds it only for the rolling-backup copy
+and atomic rename — both O(1) metadata ops. Adds an explicit
+`non_blocking=True` mode that retries `LOCK_NB` for ~100 ms and raises
+`LockBusy` on persistent contention. The heartbeat handler catches
+`LockBusy` and returns HTTP 202 (Accepted), which the agent treats as
+"delivered, retry next cycle". Result: a busy save no longer stalls
+the request past the agent's HTTP timeout, and devices stop flipping
+between online and offline. Lock waits >50 ms log to nginx error log
+as `[remotepower] lock_wait path=… waited_ms=… mode=…`. See
+the v2.1.0 release notes for the full rationale.
+
+**Auto-refresh closes browser window / crashes tab.** Two independent
+bugs combined: `escHtml()` didn't escape `'`, so device names like
+`O'Brien` broke out of inline `onclick="fn('${escHtml(d.name)}')"`
+strings on every 60 s refresh; and `setInterval` kept firing under
+open modals and background tabs, re-rendering the device grid out
+from under captured event handlers. Fix: new `escAttr()` that
+hex-escapes (`\x27` etc.) for JS-in-attribute contexts (73 inline
+handler sites converted); refresh pauses when a modal is open or the
+tab is hidden; `toggleDropdown` no longer leaks click handlers to
+detached DOM nodes.
+
+### Added
+
+**Script library** (`docs/scripts.md`). New **Scripts** page in the
+sidebar for multi-line bash scripts, separate from the existing
+one-liner Command Library. CRUD + on-demand dry-run using `bash -n`
+plus an 11-pattern dangerous-command regex sweep
+(rm -rf /, fork bombs, dd to block devices, mkfs against /dev/,
+curl|bash, etc.). Body capped at 64 KB; 500 scripts per server.
+Routes: `GET/POST/PUT/DELETE /api/scripts[/<id>]`,
+`POST /api/scripts/<id>/dry-run`.
+
+**Multi-select script execution.** New "Run script" button on the
+batch action bar. Pick a saved script, fan out across the selection.
+`POST /api/exec/batch` queues `exec:<body>` on each target;
+`GET /api/exec/batch/<id>` returns per-device status with output as
+it arrives. Job records have a 1-hour TTL, pruned on access.
+Refuses dangerous-pattern scripts without `confirm_dangerous: true`;
+refuses syntax-erroring scripts outright.
+
+**docker compose dropdown** (`docs/compose.md`). The Linux agent now
+scans `/opt`, `/home`, `/docker`, `/srv` (`find -L -maxdepth 4`,
+5 s timeout, 50-project cap, prune list for .git / node_modules /
+.cache / venv) for `docker-compose.yml` / `compose.yml` and reports
+the listing alongside containers in the heartbeat. Device cards get
+a **docker compose (N)** entry in the ⋯ menu with Up / Down /
+Restart / Pull / Logs (last 50) buttons. Action endpoint
+`POST /api/devices/<id>/compose/action` validates `dir` is one of
+the paths the agent itself reported — even an admin token can't aim
+`compose:up` at arbitrary paths. Agent enforces the action allowlist
+and path validity independently. Output cap 64 KB, timeout 180 s.
+
+### Internal
+
+**`make dist`** target. Builds `dist/remotepower-2.1.0.tar.gz` +
+sha256 file, with an explicit exclude list (not gitignore-driven, so
+new directories don't accidentally ship). Runs the full test suite
+against the staged tree before producing the tarball; a broken
+release fails fast.
+
+**`make version`** target prints the current version from
+`SERVER_VERSION` in `api.py`. Single source of truth for the tarball
+filename + the README badge.
+
+**Docs split.** Top-level `README.md` cut from 807 → 115 lines.
+Long-form content lives in topical files under `docs/`: install,
+features, architecture, api, security, https, troubleshooting,
+upgrading, agent-commands, windows-client, plus the new
+scripts.md / compose.md / v2.1.0.md.
+
+**Tests.** 60 new tests in `tests/test_v210.py` covering: real
+flock contention triggering LockBusy, every dangerous-pattern regex
+with positive + negative cases, script CRUD + sanitisation + size
+caps, batch dispatch + TTL pruning, compose ingest sanitisation,
+the compose action security boundary, and the no-XSS-on-apostrophes
+invariant. Total suite is now **627 tests**, all passing.
+
+## v2.0.0 - 2026-05-08
+
+A visual + organizational refresh. New branding throughout, sidebar restructured for browsability, in-app documentation, code split into separate CSS/JS files for maintainability. No breaking changes for agents — this is a 2.0 because of UI visibility, not API shape.
+
+### Branding
+
+- **Real logo and favicon.** PNG assets now live in `server/html/static/img/`:
+  - `favicon.png` → browser tab icon (linked via `<link rel="icon">`)
+  - `logo-square.png` → 36×36 in the header bar
+  - `logo-primary.png` → big logo with wordmark + "POWER. MANAGE. ANYWHERE." tagline on the login screen
+- Header logo is now a clickable link that returns to the Devices page (the home view). Hover state for affordance.
+- The placeholder sun-shape SVG that has been there since v1.0 is gone.
+
+### Sidebar reorganized
+
+The flat 18-item list is now grouped:
+
+- **Main** (always visible): Devices, CMDB, Containers, Network, Monitor
+- **Security** (collapsible): TLS / DNS, Patches, CVEs, Services, Logs
+- **Planning** (collapsible): Schedule, Calendar, Tasks, Maintenance, History
+- **Admin** (collapsible, defaults to collapsed): Settings, Users, API Keys, Library, Audit, Links
+- **Help**: Documentation (new!), API Reference (was "API Docs"), About
+
+Group state persists per-browser in `localStorage` (`sidebar.<group>.collapsed`). Active page always expands its containing group, so a fresh load shows you where you are even if the group was collapsed.
+
+The four admin items that were in the flat list (Users, API Keys, Audit, Links) plus Settings, Library are all now under the Admin toggle. Day-to-day use only needs Main + Help expanded; admins expand Admin when they need it.
+
+### Documentation page
+
+New "Documentation" entry under Help in the sidebar. Curated set of in-app help cards covering the most common questions:
+
+- Enrolling devices (PIN + API token flows)
+- Metric alerts (defaults, per-device, per-mount, hysteresis, trends)
+- Web terminal (auth flow, recording, deploy)
+- Commands (per-device dropdown, batch mode, library)
+- Webhooks (auto-format detection, event list, test events)
+- External monitors (probes, schedule)
+- Two-factor authentication (enable/disable)
+- Tables: filter / sort / density
+- Backup & restore
+- Troubleshooting (the actual symptoms users hit)
+- API access (auth methods, common patterns with curl examples)
+
+Each card is a `<details>` element — expand on click, no JS required for the toggle. Top of page has a substring search that auto-expands matching cards. Cards have a `data-keywords` attribute so search hits things like "ssh" → web terminal even though the summary doesn't say "ssh".
+
+The full reference Manual.html is still around and linked from the troubleshooting section.
+
+### Metric trends on the Monitor page
+
+The Devices page has had the metrics chart modal since v1.7. v1.12.0 surfaced live metric values on the Monitor page; v2.0 adds a "Trend" button next to "Thresholds" on each device row. Same chart as the per-device view (last 60 data points, sparkline-style for CPU / memory / disk). One click takes you from "your fleet's current state" to "this device's history" without leaving the Monitor page.
+
+### Code split (HTML / CSS / JS)
+
+`index.html` was 8088 lines with a 1320-line `<style>` block and 4900-line inline `<script>`. Now:
+
+- `server/html/index.html` — 1835 lines (just the markup + the two external refs)
+- `server/html/static/css/styles.css` — 1320 lines (everything from the old `<style>`)
+- `server/html/static/js/app.js` — 4930 lines (everything from the old `<script>`)
+
+The split is strictly mechanical — no code was rewritten or restructured. Same selectors, same functions, same global variables, same load order. The script is still injected at the end of body for the same DOMContentLoaded timing it had inline. This makes the file tree navigable for the first time:
+
+- Want to find a CSS rule? `grep '\.foo' static/css/styles.css`
+- Want to find a function? `grep 'function foo' static/js/app.js`
+- Want to see the page structure? `index.html` is a fifth its old size and now actually readable.
+
+I deliberately did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
+
+`deploy-server.sh` updated to rsync the `server/html/static/` tree to `/var/www/remotepower/static/`. The deploy is otherwise identical.
+
+### What's NOT in this release (intentional)
+
+- **No agent changes.** Agents on v1.11.10+ work unchanged. The 2.0 in the version is about UI visibility (visible reorganization, branding) not protocol breakage.
+- **No new server endpoints.** Documentation page is pure frontend; sidebar reorganization is pure frontend; metric Trend button reuses the existing `/api/devices/{id}/metrics` endpoint.
+- **No SQLite migration.** Considered for v1.12.1, decided flock + atomic write was sufficient for this scale. Same call here. SQLite is the right answer at 1000+ devices, not at 9.
+
+### v2.0 polish (later same day)
+
+After the initial 2.0 build went out, several rounds of polish before declaring done — no version bump.
+
+**Real branding.** Three updated PNGs deployed to `server/html/static/img/`. Login screen no longer adds a dark background frame around the primary logo (the logo asset has its own gradient). Login card widened from 400→480px so the 280px-wide logo has comfortable horizontal margin.
+
+**Multi-doc CMDB.** Assets used to support exactly one Markdown blob in `documentation`. Now they support an arbitrary list of titled docs (`docs: [{id, title, body, created_by, created_at, updated_by, updated_at}]`, capped at 50 per asset). Schema migration is automatic on first read: legacy `documentation` strings synthesise a single doc with `id="legacy"` which gets promoted to a real id on first edit, and the back-compat field is cleared. Three new endpoints: `POST /api/cmdb/{id}/docs`, `PUT /api/cmdb/{id}/docs/{doc_id}`, `DELETE /api/cmdb/{id}/docs/{doc_id}` — all admin-auth, all audit-logged. UI rewritten: docs render as collapsible cards with per-card edit/delete, separate edit modal with Markdown preview tab, "+ Add document" button. The existing single-textarea is gone. 21 tests in `test_v200_docs.py`.
+
+**Demo / read-only mode.** New `RP_READ_ONLY=1` environment variable. When set, `_enforce_read_only()` runs at the top of `main()` before route dispatch and blocks every non-GET request with a 403 + `{"demo": true, "error": "Demo mode...", "detail": "..."}` body, except a small whitelist (login, logout, totp/verify, public-info, openapi.json) needed for visitors to log in and browse. Frontend reads the flag from `/api/public-info` on load, shows a banner if set, surfaces friendly toast on demo-mode 403s instead of generic failure messages. Designed for a public sandbox like `demoremote.tvipper.com`. 17 tests in `test_v200_demo.py`.
+
+**Demo seed script.** `packaging/seed-demo-data.py` populates a target data dir (default `/var/lib/remotepower/`, override with `--data-dir`) with 16 fake homelab devices: hypervisor + NAS + firewall + DNS + reverse proxy + media + git + monitoring + a few agentless network devices. Realistic hostnames using the unallocated `.lab` TLD so they can't collide with anything real. Seeds devices, CMDB metadata, packages, services, containers, CVE findings, monitor history, audit log, etc. Idempotent (deterministic — same input, same output). Re-runnable on a cron if you want `last_seen` to keep looking fresh.
+
+**Demo install script.** `packaging/install-demo.sh <hostname>` sets up a SEPARATE demo vhost alongside your production install — different data dir (`/var/lib/remotepower-demo/` by default), same shared CGI code under `/var/www/remotepower/`. Auto-detects the CGI user, creates the demo data dir owned by it, runs the seed script, generates an nginx server block at `/etc/nginx/sites-available/remotepower-demo` with the per-vhost env vars (`RP_DATA_DIR=/var/lib/remotepower-demo` and `RP_READ_ONLY=1`), enables it, validates with `nginx -t`, reloads. The trick is that fcgiwrap forwards `fastcgi_param` env vars to the CGI process, so two vhosts can share one fcgiwrap pool but operate on different data dirs. TLS is left to the user (certbot reminder printed at the end). Idempotent re-runs re-seed and re-render the nginx config. Production install at `remote.<domain>` is never touched.
+
+**Documentation page expansion.** The original 11 cards covered common workflows. Added 21 more (one per sidebar entry): Devices, CMDB, Containers, Network, Monitor, TLS/DNS, Patches, CVEs, Services, Logs, Schedule, Calendar, Tasks, Maintenance, History, Settings, Users, API Keys, Library, Audit, Links. Each `<details>` card has `data-keywords` so the substring search finds them by alternate terms (e.g. "ssh" → web terminal card, "topology" → Network card). 32 doc cards total now.
+
+**README rewrite.** Front-loaded the Quick Start (server + client + Docker) right after the intro. New "What you can do with it" section grouping headline features in a 2-column visual table. New "Why RemotePower" positioning section (small / lightweight / properly self-hosted / not toy features). Comprehensive feature table reorganised into 6 categories (Fleet visibility, Commands & automation, Alerts & monitoring, CMDB & docs, Auth & access, Operational quality, UX) with version annotations. Architecture diagram updated to reflect the v1.12.1+ persistence (`.bak` rolling backups), the webterm sibling daemon, and the actual current set of state files (~30 JSONs, grouped by purpose). 788 lines total, no duplicate Quick Start sections.
+
+**Tests after polish.** 567 passing (529 from v1.12.1 + 21 multi-doc in `test_v200_docs.py` + 17 demo-mode in `test_v200_demo.py`). No regressions. JS validated with `node --check`. HTML div + `<details>` counts balanced.
+
+**Deploy.**
+
+```bash
+sudo bash deploy-server.sh
+```
+
+Hard-refresh the browser. For the demo-sandbox use case, deploy a SEPARATE vhost alongside your production install:
+
+```bash
+sudo bash packaging/install-demo.sh demoremote.tvipper.com
+sudo certbot --nginx -d demoremote.tvipper.com
+```
+
+Production at `remote.tvipper.com` keeps working with your real data; the demo at `demoremote.tvipper.com` runs the same CGI code against a separate `/var/lib/remotepower-demo/` data dir with `RP_READ_ONLY=1`. Visitors log in as `demo` / `demo` and can browse everything but every mutation returns a friendly 403 toast.
+
+---
+
+## v1.12.1 - 2026-05-08
+
+A targeted hardening release after a real-world incident: a user's `devices.json` got corrupted by a concurrent-write race between two CGI processes, leaving the file with a complete first JSON document followed by trailing garbage. Effects: dashboard showed no devices, all agents got 403 "Credentials rejected" because the heartbeat handler couldn't find them in the empty-on-load file.
+
+This release makes that class of corruption impossible going forward.
+
+### Storage hardening (the main thing)
+
+`save()` now does:
+
+1. **Round-trip integrity check before any disk write.** Serialise with `allow_nan=False`, then parse the result back. If the data won't round-trip, raise `ValueError` immediately instead of writing it. Catches NaN/Infinity (Python's json silently allows them, but most other tools reject them) and any logic bug producing a malformed structure.
+
+2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE, ...)` will queue on the lock instead of racing.
+
+3. **Per-process unique tmp filename.** `<file>.tmp.<pid>.<nonce>` instead of just `<file>.tmp`. Even with the lock, this is belt-and-braces — if two writers ever did manage to be in `save()` simultaneously (lock file deleted, filesystem weirdness), they wouldn't share a tmp file and couldn't trample each other's bytes.
+
+4. **fsync before rename.** Forces the bytes to durable storage before the atomic rename, so a power loss right after the rename doesn't return to a zero-length file. tmpfs and a few other filesystems don't support fsync; we tolerate that gracefully.
+
+5. **Rolling backup.** The current file is copied to `<file>.bak` before every replace. Single rolling backup, not history — if the live file ever ends up corrupted, we have one known-good prior state to fall back to.
+
+`load()` automatically falls back to `.bak` if the canonical file is corrupt:
+
+- Tries `<file>` first
+- On `JSONDecodeError`, tries `<file>.bak`
+- If `.bak` parses, returns its content and logs a warning to stderr (visible in nginx error log via fcgiwrap)
+- If both are corrupt, returns `{}` — same as a missing file — so the rest of the code keeps working in degraded mode rather than crashing the whole CGI
+
+The fallback is the difference between v1.12.0's "one bad write makes the dashboard unusable until manual recovery" and v1.12.1's "one bad write is silently absorbed using the previous heartbeat's state, with a warning logged."
+
+### Why not SQLite?
+
+I considered migrating the hot-path files (`devices.json`, `services.json`, `containers.json`, `metrics.json`, `history.json`) to SQLite. Real analysis:
+
+- ✅ ACID transactions, the corruption you saw is fundamentally impossible
+- ❌ Major refactor — 2-3 sessions of work
+- ❌ Backup/restore changes (`tar czf` stops being a complete backup)
+- ❌ Debugging tools change (no more `jq` over your data)
+- ❌ Schema migrations become a thing forever
+
+At the user's scale (~9 devices, 60-second heartbeats = ~9 writes/min), `flock` handles serialisation trivially. SQLite's wins (queries, indexes, joins, large-scale concurrency) don't apply to a key/value lookup workload where the whole dataset fits in memory anyway. The hardening above gives the same correctness guarantee for this scale without losing the ability to `jq` your way through everything during incidents.
+
+If RemotePower ever grows past 1000 devices or the data shape changes meaningfully, SQLite is the right migration. For now, the boring-architecture philosophy wins.
+
+### Multi-select in minimal devices view
+
+The cards mode had checkbox-driven batch select since v1.10; minimal mode shipped without it in v1.11.7. Now minimal has parity:
+
+- Leading checkbox column on every row
+- Header checkbox with select-all-visible (respects the active filter — if you've filtered to "production" tag, select-all toggles only those rows)
+- Selected rows get a subtle blue background highlight
+- Reuses the same `selectedDevices` Set as cards mode, so switching density mid-selection preserves your selection
+
+### Recovery tool for files corrupted before this upgrade
+
+`packaging/recover-corrupted-json.py` is a one-shot fix for any JSON file already corrupted by the v1.12.0 bug. It:
+
+- Scans `/var/lib/remotepower/*.json` (or specific files passed as args)
+- Uses `json.JSONDecoder.raw_decode()` to find the first valid JSON document and treat anything trailing as garbage
+- Reports what it would do in dry-run mode (the default)
+- With `--apply`, makes a `.broken-<ts>` backup and writes the recovered content over the live file
+
+```bash
+sudo -u www-data python3 packaging/recover-corrupted-json.py            # dry-run scan
+sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
+```
+
+### Tests
+
+**529 passing** (513 from v1.12.0 + 16 new in `test_v1121.py`):
+
+Atomic save (8 tests): basic round-trip, lock sidecar created, .bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
+
+Load with fallback (4 tests): missing returns empty, corrupt falls back to .bak, no .bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
+
+End-to-end recovery (1 test): plant corruption, verify load() falls back, verify next save() re-establishes clean state with both files valid.
+
+Concurrent save (1 test): 8-process `multiprocessing.Pool` (spawn context) all writing the same file with read-modify-write loop. Without v1.12.1 hardening, this reliably reproduces a `JSONDecodeError` by the time it finishes; with the hardening, every load returns valid data and every key has the right value.
+
+`test_save_unique_tmp_per_process` (2 tests) — verifies the tmp filename is parameterised by `(pid, nonce)`. Reaches into the implementation intentionally to validate the hardening property described in the module-level comment.
+
+### Compatibility
+
+Drop-in upgrade from v1.12.0. The on-disk format is unchanged — `.bak` and `.lock` sidecars get created on the next save of each file. Existing JSON files keep working as-is.
+
+If you hit the v1.12.0 corruption bug, run `recover-corrupted-json.py --apply` once after upgrading to clean up any leftover damaged files.
+
+### Performance impact
+
+Each `save()` now does:
+- One additional file open + flock (~50µs)
+- One `shutil.copy2()` for the rolling backup (~1ms for files up to 100KB)
+- One `fsync()` (depends on filesystem; typically 1-10ms on a real disk, free on tmpfs)
+
+Heartbeat handler does ~2-3 saves; total added latency per heartbeat: ~5-30ms. Negligible at scale up to thousands of devices/minute.
+
+---
+
+## v1.12.0 - 2026-05-07
+
+A polish release wrapping up the loose ends from v1.11.11 — proper deploy automation, the per-device metric thresholds UI that v1.11.10 only exposed via API, surfacing live metrics on the Monitor page, and a comprehensive manual rewrite. No new server endpoints.
+
+### New: install-webterm.sh
+
+`packaging/install-webterm.sh` handles the v1.11.11 deploy that didn't go smoothly. The original instructions assumed `rp-www`/`rp-webterm` users that don't exist on Debian/Ubuntu (which uses `www-data`); the script now auto-detects the actual CGI user via process heuristic plus fallback through `www-data` → `nginx` → `http` → `rp-www` → `apache`.
+
+What it handles:
+- Detects the CGI user by looking for processes (`pgrep -u USER -f '(fcgi|nginx|cgi|php-fpm)'`) and falls back to existence-only if no match.
+- Detects the package manager (apt/dnf/pacman/apk/zypper) and installs `python3-websockets` + `python3-asyncssh`.
+- Creates the `rp-webterm` daemon user (idempotent — re-runs are safe).
+- Adds the daemon user to the CGI user's group so it can read the ticket file.
+- Sets up directories with correct ownership: `/var/lib/remotepower/webterm-sessions/` (daemon-owned, mode 750), `/var/lib/remotepower/webterm_tickets.json` (CGI-owned, mode 640).
+- Generates the daemon ↔ CGI shared secret to `/etc/remotepower/webterm-secret` and writes it to `config.json` (using `sudo -u $CGI_USER` so file ownership stays correct).
+- Renders the systemd unit with the right `User=` / `Group=` / `ReadWritePaths=` substituted in.
+- Prints the nginx snippet you need to add (with the right port substituted in) plus the `$connection_upgrade` map docs.
+- `--dry-run` mode shows everything it would do without touching the system.
+
+Run as `sudo bash packaging/install-webterm.sh` (or with `--cgi-user www-data` to override detection). At the end it tells you what to paste into nginx and what to verify.
+
+### New: per-device metric thresholds UI
+
+The endpoint shipped in v1.11.10 (`GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`) but had no UI — you had to use `curl`. v1.12.0 adds a full editor accessible from the device dropdown menu (both cards and minimal modes). The modal:
+
+- Shows the device's current sysinfo readings at the top so you know what thresholds make sense (memory %, swap %, load ratio + cpu count, every mount with current %).
+- Has warn/crit fields for memory, swap, default-disk, and CPU load ratio. Empty means "use default"; placeholder shows the inherited value, so customised vs. inherited is visually distinct.
+- Has a per-mount disk overrides section with add/remove rows. Common case: `/var` at 70/85 (logs grow fast), `/backup` at 95/98 (designed to fill).
+- Reset-to-defaults button DELETEs all overrides.
+- Validation: paths must start with `/`, both warn+crit required for each mount, warn must be < crit (server-side enforced; client also pre-checks).
+
+Saving clears the device's `metric_state` so the next heartbeat re-evaluates under the new thresholds (this was already in v1.11.10 — just calling it out because it matters when you're tuning live).
+
+### New: live metrics on the Monitor page
+
+The Monitor page used to show only external probes (ping/TCP/HTTP). Now it has a "Device metrics" section underneath that shows every enrolled device's current sysinfo state, color-coded by alert level:
+
+- **Device** column with group badge
+- **Alert** column showing aggregate level: critical ⨯ red, warning ⨯ amber, OK ⨯ green, offline (muted gray for non-reporting devices)
+- **Memory / Swap / CPU load** columns, each individually colored by that metric's specific alert state
+- **Disks** column listing every mount with its percent, each colored by its own state. Long paths are truncated; tooltip shows the full path plus used/total GB.
+- **Thresholds** button on each row jumps straight to the per-device threshold editor for that device.
+
+Sortable, filterable (by name, group, tags, or mount path). When sorting by status ascending, critical-state devices come first. Summary line above the table: "N critical • M warning" or "all clear".
+
+The data source is the existing `/api/devices` endpoint — no new server work required. The `metric_state` field already populated by v1.11.10's threshold processor tells us which alerts are live.
+
+### New: comprehensive manual
+
+`Manual.html` rewritten from scratch — was 328 lines of fragmented legacy notes; now a coherent ~470-line document covering everything from the architecture overview through web terminal deployment to troubleshooting. 11 sections with a clickable TOC. Replaces both `Manual.html` and `docs/Manual.html` (kept identical to avoid drift).
+
+New coverage:
+- Section 2 (Install): proper subsections for server, web terminal daemon, agent, with the `install-webterm.sh` recommended path
+- Section 3 (Enrollment): both PIN and API token flows side-by-side, with the three token-resolution methods explained
+- Section 7 (Metrics): all four flows covered — the modal UI, the Monitor-page surfacing, the API, and direct `devices.json` inspection
+- Section 8 (Web terminal): full architecture diagram, auth flow walkthrough, security model summary, session-recording details with replay command, retention cron suggestion
+- Section 11 (Troubleshooting): the actual symptoms users will hit (404, 502, 1006 close codes, missing per-mount data, CSP blocking xterm.js)
+
+### Tests
+
+**513 passing — unchanged.** No new server endpoints, so no new test coverage required. The install script is bash so wasn't unit-tested; manually verified with `--dry-run --cgi-user www-data` that it produces the right output and doesn't crash.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.11. No schema changes. Existing per-device metric overrides set via API in v1.11.10 work without modification — the new UI just makes them visible and editable. The webterm daemon binary is unchanged from v1.11.11; only the install script around it is new.
+
+### Known limitations carried forward
+
+- xterm.js still loads from cdn.jsdelivr.net (CSP issue if blocked; manual instructions for self-hosting in Manual.html)
+- Web terminal session recordings still aren't auto-pruned (cron suggestion in manual)
+- Web terminal SSH host-key checking still off by design
+
+---
+
+## v1.11.11 - 2026-05-07
+
+### New feature: web terminal
+
+Browser-based SSH terminal accessible from the dashboard. Click "Web terminal" in the per-device dropdown menu, type SSH user/password and your RemotePower admin password, and you get a live xterm.js terminal connected to the device.
+
+The architecture is a small companion daemon (`remotepower-webterm`) that handles WebSocket and SSH proxying, because RemotePower's CGI-over-fcgiwrap model can't hold persistent connections. The CGI handles auth and audit logging; the daemon handles the bytes.
+
+#### Files added
+
+- `server/webterm/remotepower-webterm.py` (~470 lines) — the daemon. asyncio + `websockets` + `asyncssh`. Listens on 127.0.0.1:8765 by default; nginx proxies `/api/webterm/connect` to it.
+- `packaging/remotepower-webterm.service` — systemd unit with hardening (NoNewPrivileges, ProtectSystem=strict, RestrictNamespaces, etc.). Runs as a dedicated `rp-webterm` user.
+- `packaging/nginx-webterm.conf` — drop-in nginx snippet for the WebSocket proxy. Requires the `$connection_upgrade` map (standard pattern, documented in the snippet).
+- `tests/test_v11111.py` — 21 tests for the CGI-side endpoints.
+
+#### Files modified
+
+- `server/cgi-bin/api.py` — added `handle_webterm_auth`, `handle_webterm_session_audit`, ticket store helpers, two new constants. Routes wired up.
+- `server/html/index.html` — "Web terminal" item in the device dropdown menu (both cards mode and minimal mode), modal for SSH credentials + admin password, full-screen terminal view, xterm.js loaded on first use from cdn.jsdelivr.net.
+
+#### Auth flow
+
+1. User clicks "Web terminal" on a device. Modal asks for SSH host (pre-filled from device IP), SSH user, SSH password, and RemotePower admin password.
+2. Frontend POSTs to `/api/webterm/auth`. CGI validates the admin password against the user's stored hash. Mismatch → 403 + `webterm_auth_failed` audit entry.
+3. CGI generates a 32-byte URL-safe ticket, stores it in `webterm_tickets.json` with TTL = 60 seconds, returns the ticket to the frontend along with the daemon URL.
+4. Frontend opens a WebSocket to `wss://<host>/api/webterm/connect?ticket=...`. nginx proxies to the daemon.
+5. Daemon reads ticket from URL, validates against `webterm_tickets.json`, deletes it (single-use). Then waits for the first WS message: a JSON blob with `{host, user, port, password, cols, rows}`.
+6. Daemon SSH-connects via `asyncssh.connect()`. Opens a PTY shell. Pumps bytes between WS and SSH.
+7. Session ends → daemon POSTs metadata back to `/api/webterm/audit`, authenticated via shared secret in `/etc/remotepower/webterm-secret` (matches `config.json[webterm_daemon_secret]`).
+
+#### Session recording
+
+Every session is recorded to `/var/lib/remotepower/webterm-sessions/<session_id>.cast` in [asciinema v2](https://docs.asciinema.org/manual/asciicast/v2/) format. Default is **output-only** — keystrokes are not recorded because they could include `sudo SECRET_VALUE` and similar. Set `RECORD_INPUT=1` in the daemon's environment to also record keystrokes if you have compliance reasons; only do this if you've thought through who can read the session-recording directory.
+
+The format is plain-text JSON Lines with a header and `[delta_seconds, "o", "output"]` records. Replayable in any asciinema player (web, CLI, browser via `asciinema-player.js`); also greppable as raw text. Each recording is capped at 10 MiB — at the cap we stop recording but keep proxying bytes.
+
+#### Security model summary
+
+- Tickets are single-use, 60-second TTL, ~256 bits of entropy
+- The daemon binds to 127.0.0.1 only (loopback). nginx terminates TLS for the browser hop
+- SSH credentials never persist; live in memory inside the daemon for one session
+- SSH host-key verification is OFF by design (the user explicitly chose this host through the dashboard, and adding `known_hosts` management would mean a first-connect prompt for every device — more theatre than security here). If you want strict host-key checking, this is the right discussion to have for v1.12
+- Audit POSTs from daemon to CGI authenticated via shared secret, not session token (the daemon is a system service, not a user)
+- systemd hardening: dedicated user, no privilege escalation, read-only root filesystem with explicit ReadWritePaths, restricted namespaces
+
+#### Known limitations / open work
+
+- **Browser dependencies are loaded from cdn.jsdelivr.net.** xterm.js is ~250 KB; loading from your own server is more secure (no CDN tampering risk) but more deployment work. v1.11.11 uses the CDN for simplicity. To self-host: download `@xterm/xterm@5.5.0/css/xterm.min.css`, `@xterm/xterm@5.5.0/lib/xterm.min.js`, and `@xterm/addon-fit@0.10.0/lib/addon-fit.min.js` into `server/html/static/` and edit `_loadXtermOnce()` to point there. SRI hashes can then be added.
+- **No SSH key auth.** Per your spec, only password auth in v1.11.11. Adding key auth means storing the keys somewhere (CMDB Vault would be the natural place); you didn't ask for it so I didn't build it.
+- **Session recordings aren't pruned automatically.** They accumulate in the recordings directory. A cleanup cron / systemd timer is a v1.11.12 task. For now, manage retention with `find /var/lib/remotepower/webterm-sessions -mtime +30 -delete` or similar.
+- **The daemon is a single process.** Concurrent sessions all run in the same asyncio event loop, which is fine up to dozens of sessions; if you ever need hundreds, switch to a process-per-session model.
+- **Session listing UI not in this release.** You can see sessions in the audit log (action `webterm_session`) and in the on-disk recording files. A "browse sessions" page in the dashboard would be a nice v1.11.12 addition.
+
+#### Deploy steps (one-time)
+
+```bash
+# 1. Create the daemon's user
+sudo useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-webterm
+sudo usermod -a -G rp-www rp-webterm   # so it can read the ticket file
+
+# 2. Install Python deps
+sudo apt install python3-websockets python3-asyncssh   # or pip install
+
+# 3. Install the daemon binary
+sudo install -m 755 server/webterm/remotepower-webterm.py /usr/local/bin/remotepower-webterm
+
+# 4. Generate the shared secret (used for daemon → CGI audit POSTs)
+SECRET=$(openssl rand -hex 32)
+sudo install -m 640 -o rp-webterm -g rp-webterm /dev/stdin /etc/remotepower/webterm-secret <<< "$SECRET"
+# Also store it where the CGI can find it:
+sudo -u rp-www python3 -c "
+import json, sys
+from pathlib import Path
+cfg = json.load(open('/var/lib/remotepower/config.json'))
+cfg['webterm_daemon_secret'] = '$SECRET'
+json.dump(cfg, open('/var/lib/remotepower/config.json', 'w'))
+"
+
+# 5. Set up the recordings directory
+sudo install -d -m 750 -o rp-webterm -g rp-webterm /var/lib/remotepower/webterm-sessions
+
+# 6. Make the ticket file readable by the daemon
+sudo touch /var/lib/remotepower/webterm_tickets.json
+sudo chown rp-www:rp-www /var/lib/remotepower/webterm_tickets.json
+sudo chmod 640 /var/lib/remotepower/webterm_tickets.json
+
+# 7. Install + start the systemd unit
+sudo install -m 644 packaging/remotepower-webterm.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now remotepower-webterm
+
+# 8. Add the nginx snippet (paste contents of packaging/nginx-webterm.conf into
+#    your existing server { ... } block, ABOVE any catch-all `location /` rule)
+#    Then test and reload:
+sudo nginx -t && sudo systemctl reload nginx
+
+# 9. Verify
+curl -s http://127.0.0.1:8765 -i  # expect "Connection: Upgrade" expected, won't actually upgrade with curl
+sudo journalctl -u remotepower-webterm -f  # watch the daemon
+```
+
+The next deploy of `deploy-server.sh` will incorporate steps 1–8 automatically (TODO for the next release).
+
+### Tests
+
+**513 passing** (492 from v1.11.10 + 21 new in `test_v11111.py`):
+
+CGI auth endpoint (10 tests): correct password issues a ticket, ticket persists to disk with right shape, wrong password rejected and audit-logged, success audit-logged, unauthenticated rejected, unknown device 404, missing fields 400, GET method 405, each call issues a fresh ticket.
+
+CGI audit endpoint (6 tests): correct daemon secret accepted, wrong secret rejected, missing secret rejected, no-secret-configured rejects all, audit details land in audit_log.json, GET method 405.
+
+Helpers (5 tests): purge function drops expired and used tickets, daemon constants in sane ranges.
+
+The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against the user's `tviweb01.tvipper.com`.
+
+### Compatibility
+
+Drop-in upgrade for the CGI side. The new endpoints are additive; existing flows unchanged.
+
+The daemon is **optional** — if you don't deploy it, the dashboard's "Web terminal" menu item will fail when clicked (the WS connection times out), but everything else keeps working. CGI doesn't depend on the daemon being up.
+
+Existing v1.11.10 agents do NOT need updating for the web terminal feature — the agent isn't involved in this flow at all. SSH goes directly from the RemotePower server to the device, completely outside the agent's pipeline.
+
+### Known issues to test on real hardware
+
+This release was developed without a live SSH server in CI, so some real-world behaviours haven't been exercised:
+
+- **SSH server fingerprint changes.** With `known_hosts=None` we accept any fingerprint. If you reinstall a device, you won't get a "host key changed" warning. Consider this if you have devices that get reimaged.
+- **Slow networks.** The 30-second `recv` timeout for the first credential message might be tight if the user is on cellular. Increase if you see "Timed out waiting for SSH credentials" complaints.
+- **Idle timeout under nginx.** I set `proxy_read_timeout 1d` in the snippet which should handle long-idle terminals, but some load balancers in front of nginx will close anyway. If sessions die after exactly N minutes idle, that's the upstream proxy.
+
+---
+
+## v1.11.10 - 2026-05-07
+
+### New features
+
+**API enrollment via one-time pre-shared tokens.** Companion to the interactive PIN flow for non-interactive enrollment (Ansible, cloud-init, golden-image stamping). Three admin endpoints:
+
+- `POST /api/enrollment-tokens` — generates a 32-char URL-safe token. Optional `expires_in` (seconds, default 24h, capped at 7 days), `default_group`, `default_tags`, `label`. Token is shown once in the response and never returned again.
+- `GET /api/enrollment-tokens` — lists all non-expired tokens, but only returns the first 8 characters of each as a prefix. Designed so listing the page later doesn't leak active credentials.
+- `DELETE /api/enrollment-tokens/{prefix}` — revoke by prefix (8+ chars). Refuses to act if the prefix matches multiple tokens.
+
+Token consumption is atomic: `handle_enroll_register` deletes the token before creating the device. If two agents race with the same token, exactly one wins and the other gets HTTP 403. Default group/tags from the token apply at enrollment unless the agent explicitly provides its own.
+
+Agent gets a new `enroll-token` action with `--server`, `--token`, `--name` flags. Token resolution chain:
+
+1. `--token CLI_VALUE`
+2. `$REMOTEPOWER_ENROLL_TOKEN` environment variable
+3. `/etc/remotepower/enroll-token` file (must be mode 600, deleted after use)
+
+The CLI-arg path leaks into `ps` output for the duration of enrollment. Env var doesn't. File path doesn't and self-cleans on success. Pick whichever fits your secret-distribution model.
+
+Audit logging: token creation and revocation both logged with actor, label, and (for create) the default group/tags.
+
+**Metric alerting (disk, memory, swap, CPU).** Three new webhook events: `metric_warning`, `metric_critical`, `metric_recovered`. Default thresholds:
+
+| Metric | Warning | Critical |
+|---|---|---|
+| Disk usage (per mount) | 80% | 90% |
+| Memory usage | 85% | 95% |
+| Swap usage | 20% | 50% |
+| CPU 1-min loadavg / cpu_count | 1.5× | 3.0× |
+
+Hysteresis: a metric must drop `METRIC_RECOVERY_BUFFER` (5) percentage points below the warn threshold before `metric_recovered` fires. Without this, a metric oscillating around 80% would generate webhook spam.
+
+State stored in `dev['metric_state']` keyed by `kind:target` (e.g. `disk:/var`, `memory:`). Transitions fire webhooks on every up- or down-shift between `ok` / `warning` / `critical`. Orphan mount states (a mount disappears between heartbeats) are cleaned up automatically.
+
+**Per-device + per-mount overrides.** New endpoint `GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`:
+
+- GET returns `{overrides, effective, defaults, recovery_buffer_percent}` so the dashboard can show effective values without resolving them itself.
+- PATCH accepts any subset of `disk_warn_percent`, `disk_crit_percent`, `mem_warn_percent`, `mem_crit_percent`, `swap_warn_percent`, `swap_crit_percent`, `cpu_warn_load_ratio`, `cpu_crit_load_ratio`, plus `disk_per_mount` (a dict keyed by mount path → `{warn, crit}`). Validates `warn < crit` for every kind. Out-of-range values rejected with 400 rather than silently clamped.
+- DELETE clears all overrides, reverting to defaults.
+- PATCH also clears `metric_state` so the next heartbeat re-evaluates under the new thresholds (otherwise a metric currently in `warning` state would silently stay there even if you raised the threshold).
+
+**Agent metric collection extended.** `get_metrics()` now reports per-mount disk usage (skipping tmpfs/squashfs/overlay/snap/etc.), swap percent, 1-minute load average, and CPU count. Backwards-compatible — older agents without these fields still work, and root-disk alerting falls back to legacy `disk_percent` if `mounts` isn't reported. Per-mount alerting needs the agent updated to v1.11.10+.
+
+### Architectural notes
+
+The web terminal feature (#3 in your request) is **not in this release**. RemotePower's CGI architecture can't do persistent WebSocket connections cleanly — fcgiwrap is request-response only. The recommended path is a separate companion daemon (`remotepower-webterm`, ~300 lines, systemd unit, listens on 127.0.0.1:8765, nginx proxies `/api/webterm/`). Same security model you specified — admin password re-prompt, user types SSH user/password fresh each session, direct SSH connection, session recording. Deferred to v1.11.11 to land properly rather than rushing it.
+
+### Tests
+
+**492 passing** (444 from v1.11.9 + 48 new in `test_v11110.py`):
+
+API enrollment (16 tests):
+- Token creation with default and custom expiry, TTL clamping (60s min, 7-day max).
+- List endpoint never returns full token values, only 8-char prefixes.
+- Expired tokens auto-purged from listing.
+- Revoke by prefix (success, 404 on unknown, 400 on too-short prefix).
+- Token consumed atomically — second use returns 403.
+- Default group/tags from token applied at enrollment.
+- PIN path still works (backward compatibility).
+
+Metric alerting (28 tests):
+- Threshold resolution: defaults, per-device overrides, per-mount overrides.
+- Classification: ok / warning / critical at each boundary.
+- Recovery buffer enforced (must drop 5 below warn).
+- No webhook fire when state doesn't change between heartbeats.
+- State transitions fire correct event (warn / crit / recovered).
+- Per-mount disk states isolated per path.
+- Orphan mount cleanup when mount disappears.
+- CPU load ratio uses cpu_count correctly.
+- Endpoint validation: warn < crit, ranges, unknown device 404, admin-only.
+- PATCH clears metric_state for re-evaluation.
+
+Webhook event registry (4 tests): the three new events are registered, message generation works for disk/cpu/recovered, priority ordering correct.
+
+### Compatibility
+
+Drop-in upgrade. Existing devices keep working — metric alerting is additive (defaults apply when no overrides are set). Pre-v1.11.10 agents continue to report only the legacy `cpu_percent` / `mem_percent` / `disk_percent` (root-only) fields; root-disk and memory alerts work, but per-mount disk and swap and CPU loadavg alerts need the agent updated. Push agent self-updates via the toolbar Update button or per-device "Agent update" menu item to get the new metric collection.
+
+### Known limitations
+
+- **No global-default override.** `process_metric_thresholds` resolves: per-mount disk → per-device → built-in defaults. There's no "fleet-wide override" tier between per-device and built-in. If you want all your servers to alert at 70% disk instead of 80%, you currently set the override on each device individually. Could add a `config['metric_thresholds']` global tier in v1.11.11 if it's actually annoying — the underlying resolver is structured to make that a one-line change.
+- **CPU alerting is loadavg-based, not utilisation.** The choice was "what does `uptime` show you" rather than "what does `top` show you." Loadavg captures runqueue depth + I/O wait, which is usually what's actually worth alerting on. If you want %cpu-utilisation thresholds instead, file a request — easy to add as a separate kind without changing the existing one.
+- **Web terminal not in this release.** See above. v1.11.11 target.
+
+---
+
+## v1.11.9 - 2026-05-06
+
+### Bug fixes
+
+**Minimal table extended past the right edge of the page.** Visible as the table being a few pixels wider than the stats row and section headers above it. Reported with screenshot showing the table's right edge sitting outside the column the rest of the page content occupied.
+
+The cause: I set `width: 100%` on the table but didn't set `table-layout: fixed`. CSS tables default to `table-layout: auto`, where the browser sizes columns based on the longest content in each. The `max-width: 200px` I'd put on `<td>` cells was a hint that auto-layout silently ignored — long content like "Debian GNU/Linux 12 (bookworm)" pushed the OS column wider than I'd budgeted for, and the table grew past the container's content width.
+
+Fix: added `table-layout: fixed` to `.devices-minimal-table`, set explicit widths on every column header except OS (which stays auto and gets the remaining space), and dropped the now-redundant `max-width: 200px` on `<td>` cells. With fixed layout, columns are sized strictly by header widths and any overflowing cell content gets clipped with the existing ellipsis rule.
+
+Total of fixed widths comes to ~900px (Status 90 + Name 190 + Hostname 160 + Group 100 + IP 130 + Version 90 + Last seen 100 + Actions 50), which leaves ~152px for OS in a 1052px content area (the standard `max-width: 1100px` container with 24px padding on each side). On narrower viewports the responsive `@media` rules drop low-priority columns before things get cramped.
+
+### Tests
+
+Test suite unchanged at **444 passing** — no Python code changed. The fix is CSS-only.
+
+### Compatibility
+
+Drop-in upgrade. No new dependencies, no schema changes, no agent update needed. Refresh the dashboard after deploying. Affects only the Devices page in minimal density mode; cards, compact, and spacious modes are untouched.
+
+---
+
+## v1.11.8 - 2026-05-06
+
+### Bug fixes
+
+**Monitor checks only ran when the dashboard was open.** Critical bug that's been there since the monitor feature was introduced. The `monitor_interval` config setting (default 300s) was honored by the UI but not by the server — the dashboard refetched `/api/monitor` on a timer, and `/api/monitor` ran the checks synchronously and returned the result. So the actual ping/tcp/http probes only happened when somebody had the page open. Close the tab, walk away for 4 hours, the next page-load showed a 4-hour gap in the history with no checks in between.
+
+The webhook implication is more serious. `monitor_down` and `monitor_up` events fire from inside the same code path. So if a service went down at 14:00 and recovered at 16:00, and nobody had the dashboard open during that window, **neither webhook fired**. The downtime was invisible to anyone relying on alerts.
+
+Symptoms in your case:
+```
+6.5.2026, 14.50.27  ↑ up  200
+6.5.2026, 14.50.13  ↑ up  200
+4.5.2026, 20.53.56  ↑ up  200      ← gap of ~18 hours
+4.5.2026, 18.40.26  ↑ up  200      ← gap of ~2 hours
+```
+
+The gaps are exactly when nobody had the Monitor page loaded.
+
+Fix: extracted the actual check logic into `_execute_monitor_checks(monitors)` and added a periodic runner `run_monitors_if_due()` that's called from `main()` on every CGI request. The periodic runner is gated by `monitor_interval` (clamped to a 60s minimum to prevent CGI-flood disasters). Most CGI hits do nothing — when the gate expires, the same check logic runs and fires the same webhooks as before.
+
+In practice this means monitors run roughly every `monitor_interval` seconds as long as **anything** hits the server. With agents heartbeating every 60s, the trigger frequency is at least once a minute, so monitors will run on schedule. If all agents are offline AND no users are browsing, monitors won't run — but in that scenario you have bigger problems anyway (a `device_offline` webhook will fire from the next-due agent, which will trigger the dispatcher, which will trigger the monitor sweep).
+
+If you've been getting "monitor history shows checks at random times only" — that's why. From v1.11.8 onwards, history fills in regularly.
+
+**Service monitoring was always real-time and is unaffected.** Service state changes ride along in every agent heartbeat (the agent reports unit states every poll), so `service_down` and `service_up` webhooks always fired correctly. No bug here. Mentioning it because the question naturally comes up alongside the monitor bug.
+
+**Dropdown menu in minimal mode was clipped by the table.** v1.11.7 introduced the table-based minimal layout with `overflow: hidden` on the wrap to keep rounded corners working. That overflow rule clipped the ⋯ dropdown menu when it tried to pop out of cells near the bottom or right edge of the table. Reported with screenshot showing the menu cut off mid-item.
+
+Fix: replaced `overflow: hidden` with a per-corner `border-radius` on the first/last `<th>` and `<td>` so the rounded corners survive without an enclosing clip. Then added z-index hoisting on the row `:has()` an open dropdown so the menu sits above all sibling rows. Repositioned the dropdown to anchor right-aligned (it was sometimes pushing off the right edge of the page on narrow viewports).
+
+Tested in Chrome, Safari, Firefox 121+. The `:has()` selector is required for the row-hoist; older browsers fall back to per-cell z-index, which works for everything except possibly the very-bottom row. If you're on Firefox <121 and see the bottom-row menu still clipping, update Firefox.
+
+### Refactor
+
+`handle_monitor_run()` is now a thin wrapper around `_execute_monitor_checks()` + `_persist_monitor_results()`. Both helpers are also called from `run_monitors_if_due()`. No behaviour change for the user-triggered path: pressing Refresh on the Monitor page still runs all checks synchronously and returns them, and side-effect-updates the timestamp so the next periodic sweep doesn't immediately re-check what you just saw.
+
+### Tests
+
+**444 passing** (433 from v1.11.7 + 11 new in `test_v1118.py`):
+- Gate logic: empty config no-op, first-call runs, within-interval skips, past-interval runs, timestamp gets updated, back-to-back calls only run once, sub-60s interval clamped at 60.
+- Webhook firing: first failure fires `monitor_down`, recovery fires `monitor_up`, persistent state doesn't double-fire.
+- User-triggered path still works (regression check).
+
+### Compatibility
+
+Drop-in upgrade. Existing `config.json` keeps working — the new `last_monitor_run` field is created lazily on first run. Existing `monitor_notified` state is preserved. Refresh the dashboard after deploying.
+
+### Known limitations
+
+- **Periodic checks are still gated on CGI requests reaching the server.** A truly idle server (no agents heartbeating, no users browsing) won't run monitors. In practice every install has at least one agent doing 60s heartbeats so this is academic, but if you point this at a server with zero agents and just monitors, you'd want a real cron job. Future v1.12 work could add an out-of-band runner via systemd timer.
+- **The `:has()` CSS selector covers the dropdown z-index hoist.** Chrome 105+, Safari 15.4+, Firefox 121+ all support it. Older browsers fall back to per-cell z-index which works for most rows but might clip the very-bottom menu. Modern browser baseline is fine.
+
+---
+
+## v1.11.7 - 2026-05-04
+
+### Bug fixes
+
+**Update history was always empty.** This was a critical agent bug that shipped in v1.10.0 and went unnoticed until somebody actually tried to use the per-device "Update history" panel after running an upgrade.
+
+The flow was supposed to be:
+1. Dashboard pushes `exec:apt-get -y upgrade ...` to the device.
+2. Server's heartbeat response includes `command: <the script>`.
+3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade && ...`).
+4. Agent puts the result in the next heartbeat → server detects it's a package upgrade → archives to `update_logs.json` → "Update history" shows it.
+
+Step 4 is what was broken. Look at `client/remotepower-agent` line 1037–1040 (v1.11.6):
+
+```python
+if cmd:
+    log.info(f"Received command: {cmd}")
+    result = execute_command(cmd)
+    if result is not None:
+        payload['cmd_output'] = result      # <- bug
+    payload['executed_command'] = cmd       # <- same bug
+```
+
+`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0): ...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
+
+Fix: send a dedicated minimal follow-up heartbeat right after the command finishes. Carries just `device_id`, `token`, `ip`, `os`, `version`, `cmd_output`, `executed_command` — no sysinfo or journal, those are already on the server from the first heartbeat in this iteration. If the follow-up POST itself fails (network blip, server restart at exactly the wrong moment), the cmd_output gets stashed to `/var/lib/remotepower-pending-cmd.json` (or `/tmp/` if `/var/lib` isn't writable) and picked up by the next successful heartbeat.
+
+If you've been pressing "Upgrade packages" since v1.10.0 and seeing nothing in Update history: the upgrades did run, the data just never came back. From v1.11.7 onwards everything is captured correctly.
+
+The `executed_command` webhook (`command_executed` event) had the same bug — same fix.
+
+### New features
+
+**Per-device "Upgrade packages" in the dropdown menu.** Previously you had to either (a) tick the device's checkbox and use the toolbar batch-action button, or (b) click into the device modal. Both worked but were a step out of the way for what's a common single-device action.
+
+Now there's a direct "Upgrade packages" item in the ⋯ menu on every device, sitting between "Agent update" and "Update history". Same flow as the batch path under the hood — calls `POST /api/upgrade-device` with one device ID. Confirmation dialog explains the `~30–120s` typical wait and where to find the output.
+
+**Minimal density rebuilt as a real `<table>`.** v1.11.6's minimal mode laid out each device as a flex row, which couldn't keep columns aligned across rows — different content widths in OS / IP / Version meant "Online" wasn't under "Online" between rows. Reported by users with multi-line metadata.
+
+Replaced with an actual HTML `<table>`. Each device is one `<tr>` with the same column structure. Columns: Status / Name / Hostname / Group / OS / IP / Version / Last seen / Actions. Sortable by clicking any column header (same UX as the Services / CVEs / Containers / etc. tables — first click ascending, second descending, third clears, shift+click for secondary sort). Rows alternate-tinted on hover. Offline rows are dimmed.
+
+Responsive breakpoints drop columns rather than letting them overflow:
+- ≤ 1280px → drops Hostname (Name carries enough)
+- ≤ 1080px → drops Version (covered by the per-row patch badge)
+- ≤ 920px → drops Group
+- ≤ 760px → drops IP
+- ≤ 620px → drops OS — at this point the table is only Status / Name / Last seen / Actions
+
+The dropdown ⋯ menu is identical to the cards path — same handlers, same items, same `dropdown-${id}` element id, so `toggleDropdown()` works without modification. The whole behaviour is preserved; just the layout changed.
+
+### Schema additions
+
+- New stash file `/var/lib/remotepower-pending-cmd.json` (or `/tmp/remotepower-pending-cmd.json` for non-root deploys). Holds one cmd_output payload between agent restarts/network failures. Cleared on successful follow-up POST. Schema: `{cmd_output: {...}, executed_command: str, stashed_at: int}`. Permissions: 600 by default, root-only on standard deploys.
+
+- Server-side: no schema changes. The follow-up heartbeat is a regular heartbeat with a subset of fields populated. `update_logs.json` schema unchanged.
+
+### Tests
+
+**433 passing** (425 from v1.11.6 + 8 new in `test_v1117.py`):
+- Minimal follow-up payload (`device_id` + `token` + `cmd_output` only) is accepted and stored.
+- Heartbeat without cmd_output still works (no regression).
+- apt upgrade command lands in `update_logs.json` correctly.
+- Non-upgrade command (e.g. `ls /tmp`) lands in `cmd_output.json` but NOT `update_logs.json`.
+- `GET /api/devices/{id}/update-logs` returns the archived entry end-to-end.
+- Three sequential upgrades all recorded in chronological order.
+- Overflow at `MAX_UPDATE_LOGS_PER_DEVICE` evicts the oldest, keeps the most recent.
+
+### Compatibility
+
+Drop-in upgrade. The server is unchanged for all existing flows — it doesn't care whether cmd_output arrives in the same heartbeat as a sysinfo dump or in a dedicated follow-up. So:
+
+- v1.11.7 server + v1.10.0–v1.11.6 agents: still broken (the bug is in the agent), update history still empty. Agent must self-update to v1.11.7.
+- v1.11.7 agent + v1.11.0+ server: works correctly. The server happily accepts the follow-up heartbeat.
+- v1.11.7 agent + pre-v1.11.0 server: works for cmd_output in general but won't archive to update_logs.json (that file was added in v1.10.0). Out of scope — anyone running v1.11.7 agents will have a recent server.
+
+Refresh the dashboard after the agent self-updates — the next upgrade you trigger will populate Update history within ~60s.
+
+### Known limitations
+
+- **The agent does NOT retroactively recover lost upgrade history.** If you ran an upgrade on v1.10.0–v1.11.6 and the output was dropped, that data is gone forever. The journal on the device still has it (`journalctl -u remotepower-agent | grep "Command output"`), but there's no way to reconstruct an entry from there into `update_logs.json` retroactively. From v1.11.7 onwards, new upgrades are captured.
+- **The stash file isn't automatically pruned.** If a stash file gets written and the agent never gets the chance to retry (e.g. you decommission the device with a pending stash), `/var/lib/remotepower-pending-cmd.json` will sit there forever. It's small (16 KB max for an upgrade output payload) and root-readable, so this is mostly cosmetic. The next upgrade overwrites it.
+
+---
+
+## v1.11.6 - 2026-05-03
+
+### Bug fixes
+
+**Audit log filter input had a duplicate event listener.** The `<input id="audit-filter-text">` had an inline `oninput="renderAuditLog()"` that fought with the listener `tableCtl.register()` had already attached. The race meant: on every keystroke, the inline handler re-rendered against the *previous* filter value (the one already in `_uiPrefs`), then tableCtl's listener captured the *new* value into prefs but the render had already happened. End result was a one-character lag, and after Clear-then-type-into-filter the data looked like nothing changed.
+
+Fixed by removing the inline handler and adding a `refresh:` callback to `tableCtl.register({...})`. Pages that compose multiple filters (audit log's free-text + action dropdown is the only case today) supply their own re-render function; tableCtl calls it instead of the default `render(name, _lastRows)`. The same hook flows through sort changes, so multi-filter tables behave consistently for both filtering and sorting.
+
+If you saw "clear history is broken" on the audit page or command history page in v1.11.5, this is the fix. The Clear button itself was always working — the visible symptom was that filter state from before the clear stayed sticky, so the table looked unchanged.
+
+### New features
+
+**Patch report got sortable column headers.** Click any column header to sort ascending; click again for descending; click a third time to clear. Patches kept its existing 3-control filter chain (text + group dropdown + device dropdown) — that filter system is bespoke and complex enough that wiring it through tableCtl's substring matcher would lose features. We added the sort wiring on top via tableCtl's `match: () => true` mode and a `refresh: () => renderPatchTable()` callback so the page composes both pipelines cleanly.
+
+**Maintenance windows page got filter + sort.** New `<input id="maint-filter">` above the table (substring match across reason, scope, target, when, events, status). Headers wired up sortable via tableCtl. Same UX as the other tables.
+
+**Filter + sort added to the admin tables: Users, API Keys, Command Library.** All three were inline one-liner functions in v1.11.5; refactored into the now-standard register-helper pattern. Each has a per-column `getColumns` that exposes sortable values (created timestamps, role strings, names) so headers sort correctly. Filter is substring across name/role/user-or-equivalent.
+
+**"Minimal" density mode on the Devices grid — one device per row.** New 4th option in the Devices toolbar density toggle, alongside Compact / Comfortable / Spacious. Each device renders as a single horizontal row (~32px tall) with icon, name, hostname, status badge, and inline meta (OS, IP, Version, Poll/Enrolled). The colored top stripe on standard cards becomes a left border. Built for fleets where you want to scan 50+ devices at a glance without scrolling.
+
+Responsive breakpoints drop the lower-priority meta items as the viewport narrows: Poll/Enrolled goes first (≤1100px), Version next (≤880px), then IP and the hostname (≤700px). The dropdown menu, status badge, and device actions all keep working — no markup change in `renderDevices()`, just CSS overrides on `.devices-grid.dens-minimal`.
+
+### Schema additions
+
+- `UI_DENSITY_VALUES` extends from `('compact', 'comfortable', 'spacious')` to `('minimal', 'compact', 'comfortable', 'spacious')`. `UI_DENSITY_DEFAULT` stays `'comfortable'` — minimal is opt-in.
+- `tableCtl.register({...})` accepts a new optional `refresh` callback. When set, both filter-input changes and column-header clicks call `refresh()` instead of the default `render(name, _lastRows)`. Pages that expose multiple filters (free-text + dropdown) or layered filtering (patches' 3 controls) use this to compose pipelines without dropping into tableCtl's substring-only world.
+
+### Tests
+
+**425 passing** (420 from v1.11.5 + 5 new in `test_v1115.py`'s `TestMinimalDensityMode` class). Coverage: minimal-density round-trip through POST /api/ui-prefs, `'minimal' in UI_DENSITY_VALUES`, default unchanged at `'comfortable'`, regression checks for the existing three modes, and the allowlist still rejects unknown values like `'ultracompact'`.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.5. No new dependencies, no nginx changes, no data migration. Existing user records keep their `'compact'`/`'comfortable'`/`'spacious'` density values intact. The new 4-button toggle renders selecting the user's existing 3-mode value correctly. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Minimal mode is Devices-only for now.** The other tables remain in their existing card/table layouts. The `densityCtl` infrastructure is generic, so any table can opt in by adding the matching CSS — but I didn't proactively add it to every page because most of them are already tabular and have nowhere denser to go.
+- **Patches and Audit retain their dropdown filters separately.** They aren't part of the persisted filter pref, so changing the dropdown selection isn't remembered across reloads. Substring filter and sort are persisted as before. If you want dropdown persistence too, that's a v1.11.7 follow-up.
+- **The "stack" multi-column sort tooltip** isn't shown anywhere obvious. Users have to know about shift+click. Adding a small `?` hint near the column headers is on the v1.11.7 list.
+
+---
+
+## v1.11.5 - 2026-05-03
+
+### New features
+
+**Filter + sort on every fleet table.** Each of the main category pages — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — now has a substring filter input above the table. Click any column header to sort ascending; click again to flip to descending; click a third time to clear. Hold shift and click a second header to sort by it as a secondary key (priority shown as a small superscript). State persists per user — log in on a different browser, your filter and sort survive.
+
+**Density toggle on the Devices grid.** Three modes — Compact, Comfortable (default), Spacious — picked via a small segmented control in the Devices toolbar. Compact halves the card padding, shrinks fonts, and tightens the grid gap; Spacious goes the other way for users on very large displays. Persists per user.
+
+**Per-user UI preferences endpoint.** New `/api/ui-prefs` (GET / POST / DELETE). Stores density, filter strings, and multi-column sort state under the user's record in `users.json`. Schema sanitised on the server side — unknown fields are dropped, lengths capped, total payload bounded at 16 KB. Whole-document replacement (not patch) on POST so two tabs can't merge-conflict each other.
+
+### How this is built
+
+- **Server** — minimal: one new sanitiser function (`_sanitise_ui_prefs`), three thin handlers, three new routes. Stored under `users[username]['ui_prefs']` so password changes / user deletes automatically clean up the prefs.
+- **Frontend** — two new helpers in `index.html`: `tableCtl` and `densityCtl`. Pages register a tbody with a column map and a row builder; the helper handles filter, sort, empty-state, and persistence. Existing inline render code refactored to use the helper. Server-roundtrip on every keystroke would be silly when filtering 50 rows, so filtering and sorting are fully client-side; only the pref values themselves go to the server, debounced 600 ms.
+- **Empty-state messaging** — pages now distinguish "no data at all" from "no rows match the filter" so users don't think their fleet is empty when they typed `xyz` into the filter.
+
+### Caps and limits (server-side)
+
+- `MAX_UI_PREFS_BYTES = 16 * 1024` — total per user
+- `MAX_UI_PREFS_FILTER_LEN = 256` — per-filter string
+- `MAX_UI_PREFS_SORT_KEYS = 5` — multi-column sort depth
+- `MAX_UI_PREFS_TABLES = 50` — distinct tables we'll remember prefs for
+
+### New endpoints
+
+- `GET /api/ui-prefs` — current user's stored prefs (returns `{}` if none).
+- `POST /api/ui-prefs` — replace current user's prefs. Body is the full document; whatever's not in the body is gone after the request. Returns `{ok, prefs}` with the sanitised version.
+- `DELETE /api/ui-prefs` — wipe current user's prefs.
+
+### Modified data files
+
+- `users.json` — entries gain an optional `ui_prefs` field. Old user records without it work fine; the field is created lazily on first POST. Removed automatically when `DELETE /api/users/{name}` runs (no extra cleanup code needed — the field lives inside the user record).
+
+### Tests
+
+**420 passing** (397 from v1.11.4 + 23 new in `test_v1115.py`). Coverage:
+
+- `_sanitise_ui_prefs` — non-dict input returns `{}`; valid density round-trips; invalid density dropped; filter strings truncated to cap; sort lists capped to 5 keys; invalid sort directions default to `asc`; unknown table fields stripped silently; table names with `/` `\` `..` characters sanitised; empty-after-sanitisation table names dropped; >50 tables capped at 50; payloads exceeding 16 KB total return `{}` (no partial save); realistic round-trip preserved.
+- `GET /api/ui-prefs` — returns `{}` for fresh user; returns persisted dict after POST.
+- `POST /api/ui-prefs` — replaces (not merges) on subsequent calls; sanitises input; rejects non-object body with 400; requires auth; rejects wrong HTTP method with 405.
+- `DELETE /api/ui-prefs` — clears stored prefs; subsequent GET returns `{}`; method check.
+- Per-user isolation — User A's prefs invisible to User B and vice versa.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.4. No new dependencies. No nginx changes. No data migration — `users.json` records without a `ui_prefs` field work identically to before. Older clients that don't know about `/api/ui-prefs` simply don't see filter/sort persistence; the fallback in the frontend gracefully proceeds with empty prefs if the endpoint returns nothing.
+
+The frontend is the same `index.html` file — no new build step, no Node, no bundler. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Devices density only — for now.** The other tables (services / CVEs / monitor / etc.) all sort and filter, but they don't yet have the three-mode density toggle. The plumbing is there (`densityCtl` works for any table name) but I haven't added the controls or CSS to those pages. Easy follow-up if you want it.
+- **Filter is substring only.** No regex, no field-scoped filters (`name:foo group:prod`). The dropdown filters that already exist on some pages (status, group, severity) keep working as before; this change is additive.
+- **Sort is in-memory only.** Loading 10,000 audit log entries and sorting them is fine in the browser, but loading 100,000 might lag on weak hardware. Pagination lives in the API for the audit log already; if you really hit that, we'd need server-side sorting. Not for v1.11.5.
+- **Two tabs racing.** Whole-document replacement means if you have two tabs open and change filter in one, the other tab's older state could overwrite it on its next save. Compare-and-swap would fix this but adds complexity for a workflow nobody seems to actually have. Filed under "if it becomes a problem."
+
+---
+
+## v1.11.4 - 2026-05-03
+
+### Bug fixes
+
+**Container data went stale and never refreshed.** The agent's container-listing path silently skipped sending the heartbeat field whenever the list was empty (`if items: payload['containers'] = items`). Hosts that went from "1 container running" to "0 containers running" — daemon restarts, transient `docker ps` failures, or just somebody running `docker stop` on the last container — never overwrote the server's stored list. The Containers page kept rendering whatever last non-empty snapshot the agent had reported, in some cases for days.
+
+Fixed by always sending the (possibly empty) list when a runtime is installed on the host. The server's existing ingest path (`api.py:1643`) already handled empty lists correctly — the bug was purely on the agent side. Hosts with no runtime installed at all still skip the field entirely, so we don't pollute `containers.json` with empty rows for machines that never had Docker.
+
+If your dashboard currently shows ancient container snapshots, the fix takes effect on the first heartbeat after the agent self-updates (≤1 hour, or push from the dashboard ↺ button).
+
+### New features
+
+**Container alerts.** Three new webhook events:
+
+- `container_stopped` — fires when a previously-running container is gone or its status flipped from running to exited/dead/terminated. Detected by diffing each heartbeat against the previous one.
+- `container_restarting` — fires when a container's `restart_count` climbed by 1 or more since the last report. Mainly useful for Kubernetes pods (Docker `ps` doesn't expose restart counts without `inspect`).
+- `containers_stale` — fires when a device hasn't sent fresh container data within `container_stale_ttl` seconds (default 900s = 15 min). Fired once per stale period; auto-resets when fresh data arrives. Skipped for already-offline devices (the existing `device_offline` webhook covers those) and for devices with `monitored=false`.
+
+All three default to enabled, respect the existing per-event toggle in Settings → Notifications, and route through the same `fire_webhook()` machinery — so they work with Ntfy, Gotify, Pushover, Slack, Discord, and generic JSON receivers without further wiring. Discord embeds use red for stopped, amber for restarting / stale.
+
+**Stale-data UI indicators.** The Containers page tags each row with an amber `STALE` pill and dims the row when its last heartbeat is over the TTL. The per-device modal shows a banner explaining what stale means and suggesting `journalctl -u remotepower-agent` as the first place to look.
+
+### New config keys
+
+- `container_stale_ttl` — seconds before a device's container data is considered stale. Default 900 (15 min). Range 300–86400. Floors at 300s at read time even if the stored value is lower (prevents alert-storms from misconfiguration).
+
+### New endpoints / response fields
+
+- `GET /api/containers` — each entry now includes `is_stale: bool`.
+- `GET /api/devices/{id}/containers` — response now includes `is_stale: bool` and `stale_ttl: int`.
+- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've deliberately removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
+- `POST /api/config` — accepts `container_stale_ttl` (300–86400 seconds).
+
+### Modified behaviour
+
+- `DELETE /api/devices/{id}` — also cleans up `containers.json` and the `containers_stale_notified` flag for the deleted device. Pre-v1.11.4 these orphans lingered indefinitely; if you re-enrolled a device with the same id, you'd inherit ghost container data from its previous life. (Cleanup is best-effort: if any of the cleanup steps throws, the device delete still succeeds.)
+
+### Modified data files
+
+- `config.json` — gains `container_stale_ttl` (optional, defaults to 900) and `containers_stale_notified` (internal — tracks which devices already received a stale-alert, cleared on fresh report). Both fields are stripped from `GET /api/config` responses where appropriate.
+
+### Webhook event registry order
+
+The three new events are inserted between `log_alert` and `command_queued` in the `WEBHOOK_EVENTS` tuple. The Settings page renders toggles in tuple order, so the new events appear at the bottom of the alert section above the audit-trail section.
+
+### Tests
+
+**397 passing** (362 from v1.11.3 + 35 new in `test_v1114.py`). Coverage:
+
+- `containers.is_stale` — boundary cases (zero timestamp, just under/over threshold, garbage input, default TTL constant).
+- `process_container_report` — first-report-no-fire, container-vanished, status-flip-to-exited, already-stopped-stays-quiet, restart-count-delta, no-restart-no-fire.
+- The empty-list bugfix end-to-end: a heartbeat with `containers: []` clears previously-stored entries.
+- `check_container_webhooks` — fresh-report-quiet, stale-report-fires-once, offline-device-skipped, unmonitored-device-skipped, notified-flag-deduplication.
+- API responses expose `is_stale` and `stale_ttl` correctly.
+- Heartbeat clears `containers_stale_notified` on fresh report (closes the loop).
+- `get_container_stale_ttl` floors at 300s, clamps garbage to default.
+- `DELETE /api/devices/{id}/containers` — happy path, idempotency, 404 on unknown device, admin-required.
+- `DELETE /api/devices/{id}` cleans up `containers.json` and the stale-notified flag (no orphan leaks on re-enrollment).
+- One contract test (`test_v184.test_expected_event_set`) updated to reflect the three new webhook events.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.3. No new dependencies. No nginx changes. No data migration — the new config key has a default, the new internal `containers_stale_notified` field is created lazily on first stale alert, and devices with no `is_stale` field in older clients will simply not show the badge until they self-update.
+
+The webhook payload schema for `container_stopped` and `container_restarting` is new (no v1.11.3 listener can have been built against it), so no breakage there. Existing webhook receivers will start seeing extra event types, which Ntfy / Gotify / Slack / Discord all handle gracefully (each event has its own title and tags).
+
+### Known limitations
+
+- **Restart-count alerts are essentially Kubernetes-only.** The agent reads `docker ps` output, which doesn't include restart counts. Adding `docker inspect` per container would be one syscall per container per heartbeat — fine for 5 containers, painful for 50. If you really want Docker restart alerts, run `docker events` to a separate log shipper.
+- **`container_stopped` can't distinguish "stopped" from "removed and recreated quickly".** If a container restart happens between heartbeats so the new instance has a different ID but the same name, we see the old one disappear and the new one appear — and we fire `container_stopped` for the disappearance. In practice this is an alert for "something restarted suspiciously" which is usually what you want anyway, but be aware.
+- **No history.** Container state is overwritten on every heartbeat. Webhook log retains the alerts (`webhook_log.json`, last 100 entries), but if you need full timeline, point Prometheus at `/metrics` and let it do its thing.
+
+---
+
+## v1.11.3 - 2026-04-30
+
+### New features
+
+**STARTTLS support in the TLS monitor.** Probe SMTP / IMAP / POP3 / LDAP services that upgrade to TLS via a plaintext negotiation step rather than running TLS from byte zero. Adds an "Auto-detect from port" option (default for new targets — port 25 / 587 / 2525 → SMTP; 143 → IMAP; 110 → POP3; 389 → LDAP; everything else → direct TLS). Each protocol can also be picked explicitly for non-standard ports.
+
+The big one this unblocks: **DANE/TLSA checks against mail servers**. DANE was originally designed for SMTP, and most DANE-published TLSA records out there are for `_25._tcp.mail.example.com`. The v1.11.2 DANE feature couldn't actually probe these because it spoke immediate TLS to port 25. Now it can.
+
+### What works, what doesn't
+
+- ✓ SMTP STARTTLS — EHLO + STARTTLS handshake, full reply parsing
+- ✓ IMAP STARTTLS — A001 STARTTLS command, reply parsed for OK
+- ✓ POP3 STLS — STLS command, reply parsed for +OK
+- ✓ LDAP StartTLS — extended request OID 1.3.6.1.4.1.1466.20037, hand-encoded BER (no `ldap3` dependency)
+- ✓ Auto-detect for the well-known ports listed above
+- ✗ XMPP (`<starttls/>`) — not implemented; rare in homelab use
+- ✗ FTP `AUTH TLS` — not implemented; rare and FTP-over-TLS adoption is low
+- ✗ NNTP STARTTLS — not implemented
+
+If you have a service speaking one of the unsupported protocols and want it added, the handler pattern is small: ~15 lines in `tls_monitor.py` per protocol. PRs welcome.
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts new `starttls` field (`"auto"` / `"none"` / `"smtp"` / `"imap"` / `"pop3"` / `"ldap"`)
+- `GET /api/tls/targets` — response includes the resolved `starttls` value per target
+
+### Modified data files
+
+- `tls_targets.json` — gains optional `starttls` field. Records without it default to `"auto"` on next read, which means **v1.11.2 targets at port 25 / 587 / 143 / 110 / 389 will start working correctly without any manual reconfiguration**.
+
+### UI changes
+
+- New "STARTTLS protocol" dropdown in the Add TLS target modal
+- TLS list table shows a small `SMTP` / `IMAP` / `POP3` / `LDAP` badge in the host column when the protocol isn't `none`
+- Detail modal shows a STARTTLS row when a non-none protocol is in use
+
+### Tests
+
+**362 passing** (347 from v1.11.2 + 15 new). New tests cover: parse_target STARTTLS validation and auto-detection across all six well-known ports, default-to-auto behaviour for missing field (backwards compatibility), invalid-protocol rejection, end-to-end probe against a local SMTP-with-STARTTLS server (full handshake), end-to-end IMAP, end-to-end POP3, server-refusal-of-STARTTLS landing in `tls_error` cleanly, direct-TLS on a STARTTLS port failing without crashing.
+
+The end-to-end tests spin up real socket servers in threads with self-signed certs minted in-memory — so the bytes the prober actually sends through the STARTTLS handshakes are tested for real, not just the field-validation logic.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.2. Existing targets without the `starttls` field default to `auto` on next read — meaning targets at port 25 / 587 / 143 / 110 / 389 that were previously **broken** (immediate TLS on a STARTTLS port) will start **working** automatically. Direct-TLS targets at port 443 / 465 / 993 / etc. continue to work exactly as before.
+
+No new dependencies. No new request headers. No nginx changes.
+
+### Known limitations
+
+- The SMTP STARTTLS handler sends the SNI hostname in EHLO. Some pedantic servers reject EHLO from an IP-shaped argument. This shouldn't matter for normal use (you'd rarely set `host` to a bare IP for an SMTP target — that breaks the cert hostname match anyway), but worth knowing.
+- LDAP StartTLS uses a hand-encoded BER message rather than `ldap3`. The encoded bytes are correct for LDAPv3 ExtendedRequest with the standard StartTLS OID, but unusual LDAP servers that require additional pre-StartTLS setup (binding, sending a different MessageID, etc.) won't work. PRs welcome.
+- The connection timeout is shared across the STARTTLS handshake and the TLS handshake (5+5 seconds, same as v1.11.2). A slow SMTP server doing greylist delays could blow this budget. Bump `CONNECT_TIMEOUT_S` and `HANDSHAKE_TIMEOUT_S` in `tls_monitor.py` if needed.
+
+---
+
+## v1.11.2 - 2026-04-30
+
+### New features
+
+**Shared link dashboard.** New "Links" page in the sidebar — a simple bookmark dashboard, shared across admins. Card grid grouped by category. Each link has title, URL, optional description, optional category (defaults to "Uncategorised"), and an internal/external scope flag. Internal links (LAN-only, behind VPN) get an amber dashed border; external links get an accent solid border — same colour language as the network map. Click any card to open in a new tab; "Edit mode" toggle reveals edit/delete buttons. Free-text search and scope filter at the top.
+
+**TLS monitor: connect address override.** New optional `connect_address` field on TLS targets. Connect to a specific IP while sending the configured hostname as SNI. Useful for probing internal certs by IP when DNS doesn't resolve from the server's network position. Empty = "use hostname for DNS lookup" (the v1.11.0 behaviour). The detail modal shows a "via &lt;address&gt;" line when overridden, and the row gets a small subtitle in the host column.
+
+**TLS monitor: DANE/TLSA checks.** New optional `dane_check` flag per target. When enabled, looks up `_PORT._tcp.HOSTNAME` for TLSA records via DNSSEC, validates the AD flag on the response, and compares the cert against the published records. Status reported as one of `ok` / `missing` / `insecure` / `mismatch` / `error`. Without DNSSEC, records are explicitly NOT trusted (status = `insecure`) — DANE without DNSSEC is theatre. Detail modal shows the published TLSA records (usage / selector / matching_type / data) for debugging.
+
+**TLS monitor: hostname-vs-cert match.** Now reported separately from full-chain verification. Lets you distinguish "wrong cert" from "right cert, wrong IP" when probing by `connect_address`. Wildcard handling per RFC 6125; falls back to the cert CN when SANs are absent (legacy certs).
+
+### New endpoints
+
+- `GET /api/links` — list + distinct-category summary
+- `POST /api/links` — admin creates a link
+- `PUT /api/links/{id}` — admin updates
+- `DELETE /api/links/{id}` — admin deletes
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts `connect_address` and `dane_check`
+- `GET /api/tls/targets` — response now includes the new fields plus DANE result, hostname match, connect_address echo
+
+### New / modified data files
+
+- `links.json` — new file, keyed by `lnk_<hex>` IDs
+- `tls_targets.json` — gains `connect_address` (string) and `dane_check` (bool) on records that opt in
+- `tls_results.json` — gains `connect_address`, `hostname_match`, `dane_status`, `dane_records`, `dane_error`
+
+### New dependency
+
+- `dnspython` — only required for DANE checks. The TLS expiry monitor and everything else still work without it. `install-server.sh` adds it via pip with a distro-package fallback (`python3-dnspython` / `python3-dns` / `python-dnspython`); Dockerfile pulls it via pip.
+
+### Tests
+
+**347 passing** (319 from v1.11.1 + 28 new). New tests cover: link CRUD with URL/scope validation (rejects javascript:/ftp://, oversize, quote-injected URLs), parse_target backwards compatibility plus connect_address and dane_check, hostname matching (exact SAN, wildcard, CN fallback, case-insensitive, empty inputs), TLSA cert matching across selector × matching_type combinations using a real in-memory generated cert, and DANE check shape consistency.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.1. Existing TLS targets without `connect_address`/`dane_check` continue to work unchanged. Records without DANE simply don't get checked — status field reads `not_checked`. No new request headers; no nginx changes.
+
+### Known limitations
+
+- DANE checks query the system resolver. If your `/etc/resolv.conf` points at a non-DNSSEC-validating resolver, all checks return `insecure` regardless of the upstream DNS. For Fedora server use systemd-resolved with DNSSEC=allow-downgrade or yes; for Debian/Ubuntu unbound is the easy choice.
+- The DANE checker only compares against the leaf cert, not the chain. So `usage=2` (DANE-TA, trust-anchor) records that point at a CA cert will report `mismatch` even when valid. Most homelab DANE setups use `usage=3` (DANE-EE, end-entity) which is what we handle correctly.
+- The connect-address feature only changes where we connect — it does NOT change SNI. The hostname is always sent as SNI in the handshake, and the cert is parsed from whatever the server presents. Probing `192.168.1.1` with `host=router.lan` gets you the cert your router serves for `router.lan`.
+
+---
+
+## v1.11.1 - 2026-04-30
+
+### New features
+
+**Network map: drag to reposition + persist.** Click and drag any node to move it. Positions are saved to the server (per-device `pos_x`/`pos_y` fields) and survive refresh. Debounced save (400ms) batches multi-node drags into a single API call. New "Reset positions" button reverts everything to the auto-layout.
+
+**Network map: tunnels.** A second kind of edge — peer links between two devices, drawn as dashed amber lines. Use them for VPN tunnels, site-to-site links, or anything else that isn't physical wiring. New "Tunnels" button on the Network page opens a modal to add/remove. No protocol/type/label complexity in this release — just "these two devices have a tunnel."
+
+### New endpoints
+
+- `PUT /api/network-map/positions` — batch save, accepts `null` to clear
+- `GET /api/network-map/tunnels` — list (filters dangling endpoints)
+- `POST /api/network-map/tunnels` — add (normalises endpoint order, rejects duplicates)
+- `DELETE /api/network-map/tunnels/{id}` — remove
+
+### Modified endpoints
+
+- `GET /api/network-map` — response now includes `pos_x`/`pos_y` per node and a top-level `tunnels` array
+
+### New / modified data files
+
+- `tunnels.json` — new file, keyed by `tun_<hex>` IDs
+- `devices.json` — gains `pos_x`/`pos_y` (optional ints) on records the user has dragged
+
+### Tests
+
+**319 passing** (303 from v1.11.0 + 16 new). New tests cover position batch save / clear / validation, position out-of-range rejection, unknown-device skipping, network-map surfacing of positions, tunnel add / canonical ordering / duplicate detection in either direction, self-tunnel rejection, unknown-endpoint rejection, wrong-shape rejection, delete + 404, and dangling-endpoint filtering.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.0. Existing devices without `pos_x`/`pos_y` fall back to the auto-layout exactly as before. No new request headers, no nginx changes.
+
+---
+
+## v1.11.0 - 2026-04-29
+
+### Added
+
+**Container awareness.** Every enrolled agent now detects Docker,
+Podman, and Kubernetes pods independently — three try/except blocks
+around three runtime probes, none of which can break the heartbeat
+if a runtime is missing or stuck. Each runtime gets at most a
+five-second timeout on its listing command. The agent normalises
+output across all three (Docker's `--format '{{json .}}'` lines,
+Podman's similar output, kubectl's `-o json` document) into a single
+schema and posts a list of up to 100 entries every five polls,
+roughly five minutes at the default cadence.
+
+The server stores last-seen state, not history. Container state
+changes too often for a rolling buffer to be useful, and "when did
+this restart" is answered cheaply by the `restart_count` field
+itself. A new "Containers" page in the sidebar shows fleet-wide
+overview — device, OS, total/running/stopped counts, restart-flagged
+counts (≥5 restarts is highlighted), and the runtimes present.
+Click through to a per-device modal with image, tag, status,
+namespace (for k8s), ports, and per-container restart count.
+
+This is read-only by design. Start, stop, exec, logs — Portainer
+exists, k9s exists, kubectl exists. RemotePower's job is "what's
+running and is it healthy"; managing containers is a different
+product entirely.
+
+**Network map.** A new `connected_to: <device_id>` field on every
+device, plus a "Network" page that renders the resulting graph as a
+node-and-edge diagram. Manual topology only — no auto-discovery.
+The user fills in "this switch is connected to that router" once,
+and the graph reflects it. Nodes coloured by online status,
+outlined by whether they're agent-driven or agentless. An "Edit
+links" modal exposes a single table where every device's upstream
+can be set in one place; changes save in batch.
+
+The graph rendering is a small force-style layout that ships in
+the SPA — no D3 dependency. It's not pretty for hundred-node
+fleets, but the homelab/small-business audience tops out around 20
+to 30 nodes where it works fine.
+
+**Agentless devices.** Switches, APs, printers, IPMI cards,
+cameras, smart plugs — all the infrastructure that can't run a
+Python agent. A new `POST /api/devices/agentless` creates a device
+record with `agentless: True`, no token, no heartbeat. Status is
+whatever the user sets it to (`manual_status` field). Same CMDB
+metadata, same vault credentials, same SSH link feature, same
+documentation, same audit trail as agented devices — they're just
+records the user maintains by hand. Fifteen device types are
+validated server-side (switch, router, firewall, AP, printer,
+camera, IPMI, UPS, PDU, NAS, IoT, smart plug, phone, plus "other"
+as the safety valve). A "+ Agentless device" button on the Devices
+page toolbar opens the create modal.
+
+This is the first time RemotePower can model an entire homelab
+rack rather than only the boxes that run Linux. It also makes the
+network map useful — until you can model a switch, the topology
+view has nowhere to root.
+
+**TLS / DNS expiry monitor.** Server-side, cron-driven probes
+against a configurable watchlist. Each probe does a TCP connect
+(5s timeout) plus TLS handshake (5s timeout), parses the cert,
+runs a separate verification pass against the system trust store,
+and records DNS A/AAAA addresses. Errors at any layer become a
+recorded result with the appropriate `dns_error`, `tls_error`, or
+`verify_error` field rather than an exception — the next refresh
+will retry.
+
+Watchlist and results live in two flat files. Default thresholds
+are 14-day warn / 3-day critical, overridable per target. A new
+"TLS / DNS" page lists targets with status colour, days remaining,
+issuer, and last-check timestamp; clicking a row opens a detail
+modal with the full cert info (subject, SAN list, A/AAAA records).
+"Scan now" runs the probe synchronously from the CGI; the
+`remotepower-tls-check` helper script in `cgi-bin/` runs the same
+code from cron or a systemd timer for the scheduled case.
+
+The probe uses the Python stdlib's `ssl` module — no extra
+dependency. The `cryptography` package was already pulled in for
+the CMDB vault and would have been overkill here.
+
+### Fixed
+
+`Dockerfile` had a long-standing bug: it only copied `api.py` to
+the container, missing every sibling module. This silently broke
+the CMDB feature in Docker deployments since v1.9.0 (the import of
+`cmdb_vault` would fail) and the OpenAPI page since v1.10.0 (same
+for `openapi_spec`). v1.11.0 fixes the COPY directive to grab the
+entire `server/cgi-bin/` directory.
+
+`install-server.sh` had the same bug — only `api.py` was installed
+on a fresh machine, sibling modules silently missing. Both v1.9.0
+and v1.10.0 worked because users were typically using
+`deploy-server.sh` (which already auto-discovered the modules) for
+upgrades, but a fresh install via `install-server.sh` would have
+been broken. v1.11.0 auto-discovers all `*.py` files in
+`server/cgi-bin/` plus the new helper scripts.
+
+These fixes ship with v1.11.0 but apply equally to anyone running
+v1.9.0 or v1.10.0 in Docker — upgrading to v1.11.0 fixes the
+silently-broken CMDB feature.
+
+### New endpoints
+
+```
+GET    /api/containers                          fleet overview
+GET    /api/devices/{id}/containers             per-device list
+GET    /api/network-map                         nodes + edges for the map
+PUT    /api/devices/{id}/connected-to           set upstream link
+POST   /api/devices/agentless                   create manual device
+GET    /api/tls/targets                         watchlist + last results
+POST   /api/tls/targets                         add target
+DELETE /api/tls/targets/{id}                    remove target
+POST   /api/tls/scan                            probe all targets now
+```
+
+### New files
+
+- `server/cgi-bin/containers.py` — container normalisation
+- `server/cgi-bin/tls_monitor.py` — TLS/DNS probe logic
+- `server/cgi-bin/remotepower-tls-check` — cron runner
+- `tests/test_v1110.py` — 33 new tests
+- `docs/containers.md`, `docs/network-map.md`, `docs/tls-monitor.md`,
+  `docs/agentless-devices.md`
+
+### New data files
+
+- `containers.json` — `{device_id → {ts, items: [...]}}` last-seen state
+- `tls_targets.json` — `{tls_<hex> → {host, port, label, warn_days, crit_days}}`
+- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer, ...}}`
+
+### Modified data files
+
+`devices.json` records gain four optional fields:
+`agentless` (bool), `connected_to` (device_id), `device_type` (string),
+`manual_status` (bool). Missing fields default to empty/False at
+read time — fully backwards-compatible with v1.9.x and v1.10.x data.
+
+### Tests
+
+**301 passing.** The new test file covers containers module
+(normalisation, runtime aliases, port caps, listing caps, garbage
+input handling, summarisation), TLS module (target validation,
+threshold logic, days-until-expiry math), heartbeat acceptance
+(containers field, overwrite behaviour), container endpoints
+(empty state, summary correctness, per-device retrieval, 404 on
+unknown device), network map (graph shape, dangling-edge dropping,
+self-link rejection, nonexistent-target rejection, clearing),
+agentless creation (minimal, type validation, connected-to
+validation, devices-list surfacing), and TLS endpoints (add,
+delete, list with status, 404 on unknown).
+
+### Compatibility
+
+Forwards- and backwards-compatible in both directions between
+v1.10.0 and v1.11.0. Servers running either version accept agents
+running either version. Older agents don't populate the
+`containers` field; older servers ignore it if posted. The new
+fields on `devices.json` default to empty when missing, so
+existing data files continue to work unmodified.
+
+No new request headers — the existing nginx config works
+unchanged. No new outbound connections from the agent (containers
+listing is local-only). The TLS probe is server-initiated, so any
+firewall rules controlling outbound from the RemotePower server
+itself need to allow connections to the targets being probed.
+
+### Suggested cron
+
+A systemd timer or cron entry for the TLS probe, every six hours:
+
+```
+0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check
+```
+
+The probe is idempotent — running it more often is safe but
+mostly wastes outbound connections. Less often is fine too;
+"warn at 14 days" gives plenty of headroom for a daily probe
+schedule if you prefer.
+
+---
+
+## v1.10.0 - 2026-04-29
+
+### Added
+
+**Swagger / OpenAPI documentation.** The full public API surface is now
+documented in an OpenAPI 3.1 specification served at
+`/api/openapi.json`. A new "API Docs" link in the sidebar opens
+`/swagger.html`, a Swagger UI page that renders the spec and lets you
+make real authenticated requests against your live server with a
+single click — the page injects your existing session token into every
+"Try it out" request, so there's no Authorize button to fiddle with.
+The spec covers 22 endpoints across seven tags: Auth, Devices,
+Commands, CMDB, Vault, Credentials, and Reporting. It's hand-written
+rather than auto-generated from the CGI dispatch table, on the theory
+that hand-written specs stay accurate where auto-generated ones drift
+silently when handler internals change.
+
+**SSH link from credentials.** Every credential row in the CMDB
+Credentials tab gets two new buttons: a clickable `ssh://user@host:port`
+link that opens in your default SSH-URI handler (PuTTY on Windows,
+iTerm or Terminal.app on macOS, whatever you've configured on Linux),
+and a Copy button that puts a plain `ssh user@host -p port` command
+on your clipboard. The host comes from the asset's hostname (or IP if
+hostname is empty), the port from a new per-asset `ssh_port` field
+(default 22, validated 1-65535), and the username from the credential.
+The password is **deliberately not** included in the URI — `ssh://`
+URIs technically can carry one but that ends up in browser history
+and process tables, so the password stays in the reveal modal where
+it belongs.
+
+**OS icons.** Both the Devices page and the CMDB asset table now show
+a small inline-SVG icon next to each device's OS string. Two icons,
+total: Tux for anything Linux-shaped (Ubuntu, Debian, Fedora,
+RHEL/Rocky/CentOS, Arch, Alpine, openSUSE, Mint, NixOS, plus
+anything containing "linux" or "gnu"), and a tile for Windows. Other
+operating systems — macOS, BSD, exotic things — get a question-mark
+glyph so detection failures are visible rather than silently shown
+as a generic icon. The glyphs use `currentColor` so they inherit
+the surrounding text colour.
+
+**Update history.** The Patches feature has been a one-way street
+since v1.7 — push an upgrade and hope. v1.10.0 captures the output.
+The agent's exec output cap is bumped from 4 KB to 256 KB for
+upgrade commands (`apt -y upgrade`, `dnf -y upgrade`, `pacman -Syu`)
+so the output isn't truncated mid-package; the heartbeat handler
+dual-routes that output into a new `update_logs.json` file with a
+rolling buffer of the last 10 runs per device. The device dropdown
+menu has a new "Update history" link that opens a modal showing each
+run with timestamp, package manager, exit code, duration, and full
+output (collapsed by default; the most recent expanded). New endpoint
+`GET /api/devices/{id}/update-logs` for scripting access.
+
+**Audit log filtering.** The audit log page gained two filter inputs:
+a free-text search box that matches across actor, action, and detail,
+and an action-type dropdown auto-populated from whatever actions
+appear in the data. Both filters are client-side — the data is small
+enough that server-side filtering would be over-engineering — and
+combine: pick `cmdb_credential_reveal` from the dropdown to see
+nothing but reveals, then type a username in the search box to narrow
+to that admin's reveals.
+
+### Code quality
+
+This release introduces the project's first formal lint pipeline.
+A new `pyproject.toml` configures `black` (100-char lines), `isort`
+(black profile), and `mypy` (strict on the new modules
+`cmdb_vault.py` and `openapi_spec.py`, permissive on the legacy
+`api.py`). A new `Makefile` adds `make test`, `make lint`, `make
+format`, `make typecheck`, `make check`, and `make install-dev`. The
+`make lint` target is intentionally scoped to the v1.10.0 baseline
+files — running black across the entire 5800-line `api.py` would
+produce an unreviewable diff in this release; broadening the scope
+is its own deliberate effort.
+
+A small but meaningful cleanup: the long-standing `respond(); sys.exit(0)`
+pattern is replaced by a proper `HTTPError(status, body)` exception
+that bubbles up to a single handler at the top of `main()`. The
+public behaviour is identical — same HTTP envelope, same status
+codes, same JSON bodies — but handlers are now testable as plain
+function calls without monkey-patching `sys.exit`. The legacy test
+helpers continue to work because they monkey-patch `respond` at
+import time and never see the exception. Tests added: 24 new in
+`tests/test_v1100.py`, taking the suite from 244 to 268 passing.
+
+The v1.9.0 CMDB handlers received type hints and Google-style
+docstrings as the start of a wider documentation pass. Strict mypy
+catches both flagged issues in `cmdb_vault.py` (a missing return
+annotation on `_crypto`, an `Optional[str]` mis-typed as `str`).
+
+### Bonus
+
+`GET /api/cmdb/{device_id}` now trims the embedded `sysinfo` dict
+from the heartbeat (50+ KB on rich systems) to nine whitelisted
+fields totalling under 1 KB. The CMDB modal only displays
+CPU/RAM/disk/uptime headlines anyway; trimming makes the modal pop
+open instantly even on assets with elaborate sysinfo.
+
+### New endpoints
+
+```
+GET  /api/openapi.json                         OpenAPI 3.1 spec
+GET  /api/devices/{device_id}/update-logs      rolling buffer of upgrade output
+```
+
+### Modified endpoints
+
+```
+PUT  /api/cmdb/{device_id}                     accepts new ssh_port field
+GET  /api/cmdb                                 response includes ssh_port
+GET  /api/cmdb/{device_id}                     response includes ssh_port; sysinfo trimmed
+```
+
+### New files
+
+`server/cgi-bin/openapi_spec.py`, `server/html/swagger.html`,
+`pyproject.toml`, `Makefile`, `tests/test_v1100.py`,
+`docs/swagger.md`, `docs/update-history.md`.
+
+### Tests
+
+**268 passing** (244 from v1.9.0 + 24 new). The new suite covers:
+`HTTPError` exception + rendering, the full ssh_port lifecycle
+(default, set, reset-to-default via 0, range validation, list
+surfacing), sysinfo trim (whitelist behaviour, non-dict input,
+end-to-end through the GET handler), update logs (empty state,
+ordered runs, 404 on unknown device, capacity-cap enforcement),
+and OpenAPI spec generation (structure, security schemes, critical
+endpoints documented, fresh-object-per-call, handler returns 200
+with the spec, handler requires auth).
+
+### Compatibility
+
+v1.9.0 and v1.10.0 are mutually compatible. The agent binary is
+unchanged in shape — older agents work with the new server, just
+truncating upgrade output at the 4 KB the older code allowed.
+CMDB records created before v1.10.0 are missing the `ssh_port`
+field; the server backfills it with the default 22 on read, so
+nothing migrates and nothing breaks.
+
+### Known limitations
+
+- Update logs are populated on the next heartbeat (~60s) after a run
+  completes. There's no live streaming. A streaming implementation
+  via long-polling or SSE was discussed and deferred — the simpler
+  heartbeat approach reuses what already works and the latency is
+  acceptable for the actual use case (post-hoc review of what
+  happened).
+- Swagger UI loads its assets from a pinned CDN version. Fully-air-
+  gapped servers will fall back to a plain-text "raw spec at
+  /api/openapi.json" message rather than rendering. Bundling Swagger
+  UI inline would add ~700 KB to every dashboard page load, which is
+  a worse trade-off than the offline degradation.
+- `make lint` is scoped to the v1.10.0 baseline files. Expanding to
+  the full codebase is its own effort and shouldn't share a release
+  with feature work.
+
+---
+
+## v1.9.0 - 2026-04-27
+
+### Added
+
+**CMDB — Configuration Management Database.** A new "CMDB" page in the
+sidebar (between Devices and Monitor) gives every enrolled device an
+optional metadata layer: a free-text **asset_id** for inventory tags, a
+**server_function** field (web, db, dc, logging, …) with autocomplete
+populated from the existing fleet, an optional **hypervisor_url**
+rendered as a click-through link, and **Markdown documentation** up to
+64 KB per asset with side-by-side edit and rendered-preview tabs. The
+page joins `devices.json` with the new `cmdb.json` so every enrolled
+device is implicitly an asset — no separate enrollment step. A search
+box filters across name, asset_id, IP, function, and documentation; a
+function dropdown narrows the table to a single role.
+
+**Encrypted credential vault.** Each asset can store up to 25
+credentials — root, service accounts, IPMI, web admin panels, whatever
+— with per-credential label, username, optional note, and an encrypted
+password. The crypto stack is **AES-GCM 256-bit** with **PBKDF2-SHA256
+key derivation** at 600 000 iterations (OWASP 2023 minimum), a 32-byte
+random salt, and a fresh 12-byte nonce on every encryption. The model
+is a **shared admin passphrase** rather than per-user keys: the team
+sets one passphrase at vault setup, all admins use it, and rotation
+re-encrypts every credential atomically.
+
+The passphrase is **never persisted server-side**. An admin enters it
+in the unlock modal, the server derives the key and returns it as hex,
+the browser holds it in a single closure variable in JS memory, and
+clears it on logout, page reload, or an explicit "Lock" button.
+Subsequent credential operations send the key in an `X-RP-Vault-Key`
+request header. The server checks every key against an encrypted
+canary blob stored in `cmdb_vault.json` so a wrong key never touches
+real credentials.
+
+Reveal (the API call that actually returns plaintext) is **admin-only
+and audit-logged** with the actor, source IP, asset, and credential
+label. Per-credential metadata stays plaintext for searchability — only
+the password ciphertext is encrypted. List endpoints redact the
+ciphertext entirely; only `/reveal` ever decrypts.
+
+The crypto module (`cmdb_vault.py`) is a sibling of `cve_scanner.py`
+and `prometheus_export.py`. It imports the `cryptography` library
+lazily, so the rest of the API stays fully alive on servers that don't
+have it installed yet — vault operations return a clear error in that
+case, but everything else (asset metadata, documentation, search) keeps
+working.
+
+**Passphrase rotation.** `POST /api/cmdb/vault/change` takes the old
+passphrase, verifies it against the canary, derives the new key, walks
+every credential in `cmdb.json`, decrypts with the old key, and
+re-encrypts with the new key in memory before persisting. If a
+credential fails to decrypt during rotation (corrupt entry), it's
+dropped and the event is recorded as `cmdb_vault_change_drop` in the
+audit log so the admin can investigate. The new vault metadata is
+written first; the new credential file second; a crash mid-rotation
+leaves the vault recoverable with the old passphrase.
+
+### Endpoints
+
+```
+GET    /api/cmdb                                          list assets + metadata
+GET    /api/cmdb/{device_id}                              full asset detail (creds redacted)
+PUT    /api/cmdb/{device_id}                              patch metadata + documentation
+GET    /api/cmdb/server-functions                         distinct functions for autocomplete
+GET    /api/cmdb/vault/status                             configured? KDF? created_at?
+POST   /api/cmdb/vault/setup                              admin; one-shot
+POST   /api/cmdb/vault/unlock                             returns derived key
+POST   /api/cmdb/vault/change                             admin; rotates + re-encrypts
+GET    /api/cmdb/{device_id}/credentials                  metadata only
+POST   /api/cmdb/{device_id}/credentials                  admin + X-RP-Vault-Key
+PUT    /api/cmdb/{device_id}/credentials/{cred_id}        admin (key required only if pw changes)
+DELETE /api/cmdb/{device_id}/credentials/{cred_id}        admin
+POST   /api/cmdb/{device_id}/credentials/{cred_id}/reveal admin + key, audit-logged
+```
+
+### New data files
+
+- `cmdb.json` — `{device_id → record}`, where each record has
+  `asset_id`, `server_function`, `hypervisor_url`, `documentation`,
+  and a `credentials` list. Each credential is
+  `{id, label, username, note, nonce, ct, created_by/at, updated_by/at}`.
+- `cmdb_vault.json` — vault metadata only:
+  `{kdf, iterations, salt, canary_nonce, canary_ct, created_by/at, rotated_by/at}`.
+  Contains zero plaintext, zero key material — safe to back up to the
+  same place as the rest of `/var/lib/remotepower`.
+
+### New audit-log actions
+
+`cmdb_update`, `cmdb_vault_setup`, `cmdb_vault_unlock`,
+`cmdb_vault_unlock_failed`, `cmdb_vault_change`, `cmdb_vault_change_failed`,
+`cmdb_vault_change_drop`, `cmdb_credential_add`, `cmdb_credential_update`,
+`cmdb_credential_delete`, `cmdb_credential_reveal`,
+`cmdb_credential_reveal_failed`.
+
+### New dependency
+
+`cryptography` (Python). `install-server.sh` installs it via pip with a
+distro-package fallback (`python3-cryptography` on Debian/Ubuntu/Fedora,
+`python-cryptography` on Arch). It's the only feature that needs it; if
+the install fails the rest of the server still runs and CMDB metadata
+remains usable — only credential ops report a clean
+"vault not installed" error.
+
+### Limits
+
+- 64 KB Markdown documentation per asset
+- 25 credentials per asset
+- 1 KB max password length
+- 64-char labels, 128-char usernames, 512-char notes
+- `server_function`: 64 chars, charset `[A-Za-z0-9 _\-/]`
+- Vault passphrase: 12-256 chars, must contain at least 2 of
+  {lowercase, uppercase, digit, symbol}
+
+### Tests
+
+**244 passing, 0 failing** (1 pre-existing skip). The new suite
+`tests/test_v190.py` adds 32 tests across five classes:
+`TestVaultCrypto` (KDF derivation, canary verification, fresh nonces,
+key-header parsing strictness), `TestVaultEndpoints` (status, setup,
+unlock with audit on bad passphrase), `TestAssetCrud` (404 paths,
+asset_id charset, hypervisor URL scheme rejection, oversized doc,
+search filtering), `TestCredentials` (add/list/delete/reveal,
+ciphertext redaction in list, vault-locked vs auth-locked 401
+distinction, max-credential cap, full passphrase rotation
+re-encrypting two credentials and verifying reveal under the new key),
+and `TestServerFunctions` (autocomplete distinct-value sorting).
+
+### Compatibility
+
+v1.8.x clients are fully compatible with v1.9.0 servers — CMDB is a
+server-side feature, the agent binary is unchanged. A v1.9.0 server
+started against an existing v1.8.x data directory creates `cmdb.json`
+and `cmdb_vault.json` lazily on first write. The vault is opt-in: the
+CMDB page works in read-only metadata mode until an admin calls
+`/api/cmdb/vault/setup`.
+
+---
+
+## v1.8.6 - 2026-04-26
+
+### Added
+
+**SMTP / email notifications.** Email is now a sibling channel to webhooks
+— same events, same maintenance-window suppression, same per-event toggles.
+The Notifications tab gains an SMTP section: host, port, TLS mode
+(STARTTLS / implicit TLS / plain), From address, optional auth, optional
+HELO override, recipients list, and a "Send test email" button with
+optional override recipient.
+
+The per-event toggle table now has two columns: **Webhook** (existing,
+opt-out) and **Email** (new, opt-in per event). Email is opt-in because
+nobody wants every device-online event to land in their inbox.
+
+Three TLS modes:
+- `starttls` (port 587) — modern default, STARTTLS upgrade after EHLO
+- `tls` (port 465) — implicit TLS, the older "SMTPS" port
+- `plain` (port 25) — no TLS; only safe to localhost or trusted relays
+
+Auth is optional. Empty username = no AUTH attempted (useful for localhost
+relays that allow anonymous submission). Passwords are stored in
+`config.json` and masked in `GET /api/config` responses (the UI just sees
+a `smtp_password_set: true` flag).
+
+**LDAP / LDAPS authentication.** External auth source for login. Local
+users in `users.json` are tried first — emergency local admin always works
+even if LDAP is down. Users authenticated via LDAP are auto-provisioned
+into `users.json` with the role determined by group membership.
+
+Configuration in the Security tab:
+- LDAP URL (`ldaps://` or `ldap://`)
+- TLS verification toggle (set to off only for self-signed CAs in dev)
+- Service account DN + password (used for the search step; the user's
+  own credentials verify the password in a second bind)
+- User search base + filter — `(uid={u})` for OpenLDAP/FreeIPA,
+  `(sAMAccountName={u})` for AD
+- **Required group DN** — empty allows any user with valid creds; set
+  this to lock login to a specific group
+- **Admin group DN** — members get the `admin` role on login; everyone
+  else gets `viewer`. Auto-promotes existing local users on next LDAP
+  login but never auto-demotes.
+- Two test buttons: "Test connection" (verifies the service account
+  bind) and "Test user login" (full auth path with a real username/password
+  pair, doesn't create a session)
+
+Library: **ldap3** (pure Python). The module imports lazily, so servers
+that don't enable LDAP don't need the library installed at all. To
+install: `pip3 install ldap3` (Fedora: `dnf install python3-ldap3`).
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/smtp/test` | Send a test email; optional `{"recipient": "..."}` override |
+| POST | `/api/ldap/test` | Verify service-account bind (URL/TLS/creds). Body fields override config for "test before save" UX. |
+| POST | `/api/ldap/test-user` | Run the full auth path for one user. Returns DN, role, full name, email. |
+
+### New config keys
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `smtp_enabled` | bool | Master toggle for email channel |
+| `smtp_host` / `smtp_port` / `smtp_tls` | string / int / enum | Server config |
+| `smtp_from` | string | From address (must contain `@`) |
+| `smtp_username` / `smtp_password` | string | Optional AUTH; password masked on GET |
+| `smtp_helo_name` | string | Override HELO/EHLO hostname |
+| `smtp_recipients` | string | Comma/semicolon/whitespace-separated list |
+| `email_events` | dict | `{event_name: bool}` per-event opt-in |
+| `ldap_enabled` | bool | Master toggle |
+| `ldap_url` | string | `ldaps://...` or `ldap://...` |
+| `ldap_bind_dn` / `ldap_bind_password` | string | Service account creds |
+| `ldap_user_base` | string | Search base |
+| `ldap_user_filter` | string | Must contain `{u}` |
+| `ldap_required_group` / `ldap_admin_group` | string | Group DNs |
+| `ldap_tls_verify` | bool | Default true |
+| `ldap_timeout` | int | Seconds, 1–60, default 5 |
+
+### Changed
+
+- All version strings bumped to 1.8.6
+- `fire_webhook()` is now a single dispatch point — runs the shared gates
+  once, then fans out to webhook AND email channels in turn. The hard
+  rename was avoided because of dozens of call sites; the function still
+  has the historical name.
+- `handle_login` gains an LDAP fallback path. Tried only when local auth
+  fails; LdapTransientError logs to audit but presents as plain
+  invalid-credentials to the client (no info leak about whether LDAP is
+  reachable).
+- Auto-provisioned LDAP users get a placeholder `password_hash` that
+  never matches anything. Subsequent local-auth attempts fail and fall
+  through to LDAP again — there's no way to "downgrade" an LDAP user
+  to local-only by accident.
+- `users.json` entries gain optional `ldap_dn`, `ldap_full_name`,
+  `ldap_email` fields when created via LDAP.
+
+### Tests
+
+30 new tests in `tests/test_v186.py`:
+- SMTP: recipients parser (5 cases), per-event email toggle (5 cases),
+  input validation (5 cases), email render (2 cases)
+- LDAP: filter escaping (2 cases), authenticate() success/failure paths
+  (5 cases) using a fake `ldap3` module installed in `sys.modules`,
+  required-group enforcement, role mapping
+- Wiring + version checks (3 cases)
+
+**Full suite: 212 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- LDAP requires the `ldap3` library on the server. Empty config + disabled
+  toggle is the default, so no library needed unless you turn it on.
+  Server emits `LdapTransientError: ldap3 library not installed` if
+  enabled without the library — surfaces in the audit log.
+- SMTP works with any RFC 5321 server. Tested mentally against Postfix,
+  AWS SES, Gmail, Mailgun, Sendgrid, ProtonMail Bridge.
+- Email recipients are a flat fleet-wide list (everyone gets every
+  enabled event). Per-user opt-in is not a v1.8.6 feature; could happen
+  in 1.9.0 if anyone asks.
+- The "Test user login" button in the LDAP section is admin-only and
+  doesn't create a session — it just runs `authenticate()` against the
+  current config and shows what would happen. Useful for verifying the
+  filter/group config without making the user log out.
+- Enabling LDAP doesn't disable local auth. There's no "LDAP-only" mode
+  by design — if LDAP breaks, you can still log in as a local emergency
+  admin and fix it.
+
+### Compatibility
+
+- v1.8.5 servers work with v1.8.6 clients (everything's additive).
+- v1.8.5 → v1.8.6 needs no migration. SMTP and LDAP are off by default;
+  saving Settings once writes the new keys with their defaults.
+- Agent binary unchanged from v1.8.5 except for the version string.
+
+---
+
+## v1.8.5 - 2026-04-26
+
+### Fixed
+
+**"Remember me" actually remembers now.** v1.8.4 introduced the checkbox and
+the per-token TTL on the server side, but the client always saved the token
+to `sessionStorage` — which by definition is wiped when the browser closes.
+The 30-day server-side TTL was correct; the browser was just throwing away
+the token at the end of every tab session. Particularly visible if you have
+2FA enabled because every reload meant another full login dance.
+
+The fix:
+
+- When "remember me" is checked, the token + username are saved to
+  **`localStorage`** (persists across browser restarts).
+- When unchecked, they go to **`sessionStorage`** as before (cleared with
+  the tab — explicit "this is a kiosk / public computer" semantics).
+- `getToken()` now reads from both stores, preferring localStorage.
+- `getMe()` (new helper) does the same for the username display.
+- `checkAuth()` (called on page load) uses `getToken()` instead of reading
+  sessionStorage directly — which was the actual bug that made remember-me
+  a no-op for users with 2FA.
+- `doLogout()` clears both stores so toggling between modes doesn't leave
+  stale credentials behind.
+- Login flow clears both stores before writing the new token, preventing
+  any cross-mode contamination if the user toggles the checkbox.
+
+### Changed
+
+- All version strings bumped to 1.8.5
+- No server-side or agent changes — this is a pure client-side bug fix
+- No data file changes; existing tokens keep working
+
+### Tests
+
+182 passing, 0 failing (1 pre-existing skip). No new tests; this is a
+DOM-only behavior fix that's easier to verify by hand than to mock in
+unittest. To verify after deploy:
+
+1. Tick "Remember me", log in, complete 2FA
+2. Close the browser entirely (not just the tab)
+3. Reopen, navigate to the dashboard URL → should land on the app, not
+   the login page
+
+If you uncheck "Remember me" and repeat, the second visit should bounce
+you to login as expected (sessionStorage was cleared with the browser).
+
+### Notes
+
+- This is purely a client bug. v1.8.4 servers work fine with v1.8.5
+  clients and vice versa. The agent binary is byte-identical apart from
+  its version string.
+- If you've been logging in with 2FA repeatedly because remember-me
+  seemed broken — sorry, that's on me. Should work now.
+
+---
+
+## v1.8.4 - 2026-04-25
+
+### Added
+
+**Settings page reorganized into 4 tabs.** The flat scrolling list was getting
+out of hand. New tabs: **General**, **Notifications**, **Security**, **Advanced**.
+URL hash drives tab selection so you can bookmark `#settings/security` etc.
+
+**Server identity** (`server_name`). Display name shown in:
+- Browser title (`<title>`)
+- Login page header
+- Webhook payloads (as `_server_name`)
+- Push notifications (consumers can render it however they like)
+
+**Default poll interval** for new agent enrollments. Was hardcoded to 60s; now
+configurable in 10–3600s range from the General tab. Existing devices keep
+their per-device poll interval — change individual devices from their detail
+page.
+
+**Online TTL** (when a device is considered offline). Was hardcoded `ONLINE_TTL = 180`;
+now a config value with a 90-second floor (`MIN_ONLINE_TTL`) to prevent
+configurations where devices would flap between polls.
+
+**CVE details cache TTL** (`cve_cache_days`, default 7). Was hardcoded in
+`cve_scanner.py`; now passed from the server config to `scan_device()`.
+
+**Per-event webhook toggles.** Replaces the four legacy boolean flags
+(`offline_webhook_enabled`, `monitor_webhook_enabled`, `cve_webhook_enabled`,
+`service_webhook_enabled`) with a single `webhook_events` dict listing all
+11 event types individually:
+
+- `device_offline`, `device_online`
+- `monitor_down`, `monitor_up`
+- `patch_alert` (with embedded threshold input on the same row)
+- `cve_found` (with severity-filter checkboxes for which severities fire)
+- `service_down`, `service_up`
+- `log_alert`
+- `command_queued`, `command_executed`
+
+Disabled events get logged to the webhook log as `"disabled"` so you can see
+what was suppressed.
+
+**CVE severity filter.** `cve_found` webhooks previously fired on critical/high
+hardcoded; now you choose which severities fire from
+`{critical, high, medium, low, unknown}`. Default unchanged.
+
+**Remember-me on the login page.** Tickbox below password field. Two session
+TTLs: short (default 24h, used when unchecked) and long (default 30 days,
+used when checked). Both configurable from Security tab. Server-side
+admin can pre-tick the box via `remember_me_default`.
+
+Tokens now carry their own TTL in `tokens.json`, so a long session created
+with "remember me" doesn't get pruned by the cleanup of short tokens.
+Legacy tokens without a TTL field fall back to the old global `TOKEN_TTL`.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/public-info` | Unauthenticated. Returns `server_name`, `server_version`, `remember_me_default` for the login page |
+
+### New config keys
+
+| Key | Type | Default | Where |
+|-----|------|---------|-------|
+| `server_name` | string | `""` (renders as "RemotePower") | General |
+| `default_poll_interval` | int (seconds) | 60 | General |
+| `online_ttl` | int (seconds) | 180 (min 90) | General |
+| `cve_cache_days` | int | 7 (1–90) | General |
+| `webhook_events` | dict[str, bool] | all true | Notifications |
+| `cve_severity_filter` | list[string] | `["critical", "high"]` | Notifications |
+| `session_ttl_short` | int (seconds) | 86400 | Security |
+| `session_ttl_long` | int (seconds) | 86400 × 30 | Security |
+| `remember_me_default` | bool | false | Security |
+
+### Backward compatibility
+
+All four legacy webhook toggle keys (`offline_webhook_enabled`,
+`monitor_webhook_enabled`, `cve_webhook_enabled`, `service_webhook_enabled`)
+still work as fallbacks when `webhook_events` is not set. When `webhook_events`
+is present, it takes precedence. UI saves to the new key from now on, so
+upgrades from 1.8.3 are seamless on first save.
+
+The `cve_found` webhook used a hardcoded `('critical', 'high')` allowlist
+inside `_detect_new_cve_and_fire_webhook`; this is now driven by
+`get_cve_severity_filter()`. Existing servers without the config key get
+the same behavior they had before.
+
+### Changed
+
+- All version strings bumped to 1.8.4
+- `ONLINE_TTL` (module constant) → `get_online_ttl()` helper. The constant
+  `DEFAULT_ONLINE_TTL` still exists for tests.
+- `_detect_new_cve_and_fire_webhook()` now respects `webhook_events.cve_found`
+  and uses `get_cve_severity_filter()` for severity.
+- `fire_webhook()` runs every event through `is_webhook_event_enabled()` and
+  applies severity filtering for `cve_found`. Suppressed events are logged
+  as `"disabled"` or `"filtered"` for observability.
+- `handle_login` reads `remember_me` from the body and stores per-token TTL.
+- `verify_token` and `cleanup_tokens` honor `entry['ttl']` per token,
+  falling back to `TOKEN_TTL` for legacy tokens.
+
+### Tests
+
+34 new tests in `tests/test_v184.py` covering:
+- All 8 config helpers (defaults, explicit values, clamping)
+- Legacy → new webhook key migration
+- CVE severity filter validation
+- Per-token TTL semantics + legacy token fallback
+- WEBHOOK_EVENTS contract (event set + entry shape)
+
+`tests/test_api.py` updated to use `DEFAULT_ONLINE_TTL` instead of removed
+`ONLINE_TTL` constant. New regression test for the helper clamping behavior.
+
+**Full suite: 182 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- Going from 1.8.3 → 1.8.4 needs no data migration. Settings open with
+  defaults; saving once writes the new keys.
+- The Settings tabs preserve URL hash so `https://server/#settings/security`
+  jumps straight to the right tab.
+- "Remember me" extends the session lifetime on the server side; it does
+  *not* persist credentials anywhere on the client. Logging out still
+  invalidates the token immediately.
+
+---
+
+## v1.8.3 - 2026-04-25
+
+### Fixed
+
+**SSH/sshd alias resolution.** On Debian/Ubuntu, the SSH unit is named
+`ssh.service` and `sshd.service` is just an alias. `journalctl` does NOT
+follow systemd unit aliases, so users who typed the RHEL-style
+`sshd.service` in their watched-services list got zero log lines forever
+even though state checks worked fine.
+
+- Agent: new `_resolve_unit_alias()` helper queries `systemctl show
+  <unit> --property=Id` to get the canonical name, then runs
+  `journalctl -u <canonical>` instead. Falls through silently to the
+  original name on any error.
+- `get_services()` now also returns the canonical name in the heartbeat
+  payload (under `canonical` key), so the UI can show "sshd.service →
+  ssh.service" if you ever want to surface the resolution.
+- No data-format breakage; no config changes needed. Existing installs
+  with `sshd.service` watched on Debian will start receiving logs after
+  the agent self-update.
+
+### Added
+
+**Calendar — shared events page.** Standalone shared calendar at
+`/api/calendar`. Fully shared across all users; any authenticated user
+can create/edit/delete events. Designed to live next to the existing
+Schedule page (which is for cron-driven device commands), not replace it.
+
+- Month-grid view, click a day to create an event, click an event pill
+  to edit. Events span across days; days with more than 3 events show
+  a "+N more" indicator.
+- 7-color palette (blue/green/amber/red/purple/teal/slate). Server
+  validates against an explicit allowlist — passing an unknown color
+  silently falls back to blue.
+- Events have title, optional description, ISO-8601 start (required) and
+  end (defaults to start), all-day flag, and color.
+- New endpoints:
+  - `GET /api/calendar?from=<iso>&to=<iso>` — list events overlapping the range
+  - `POST /api/calendar` — create
+  - `PUT /api/calendar/{id}` — update
+  - `DELETE /api/calendar/{id}` — remove
+- Capped at 1000 events per server (`MAX_CALENDAR_EVENTS`).
+
+**Tasks — shared kanban board.** Four states (upcoming / ongoing /
+pending / closed). Fully shared with no per-user assignment.
+
+- Drag-and-drop between columns to change state. Optimistic update;
+  resyncs from server on failure.
+- Optional device linking: every task can be tied to one device or none.
+  Device chip shown on the card; filter dropdown on the page narrows
+  the board to one device's tasks (or "no device linked").
+- Click a task to expand/edit; "+ New task" button.
+- New endpoints:
+  - `GET /api/tasks?state=<s>&device=<id>` — list with optional filters
+  - `POST /api/tasks` — create
+  - `PUT /api/tasks/{id}` — update (partial; can be just `{state: 'closed'}`)
+  - `DELETE /api/tasks/{id}` — remove
+- Capped at 500 tasks per server (`MAX_TASKS`).
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `calendar.json` | Shared calendar events |
+| `tasks.json` | Shared task board |
+
+### Changed
+
+- All version strings bumped to 1.8.3
+- Agent `get_services()` payload may include a `canonical` key per service
+  if the user-supplied unit name was an alias
+- Sidebar navigation: new "Calendar" and "Tasks" entries between
+  Schedule and the Tools section divider
+
+### Tests
+
+24 new tests in `tests/test_v183.py`:
+- Calendar: 8 cases for event validation (color clamping, end-after-start,
+  required fields, full palette acceptance)
+- Tasks: 9 cases for task validation (state allowlist, partial updates,
+  device-id resolution, unlink semantics)
+- Agent: 3 cases for `_resolve_unit_alias` with mocked systemctl
+- Constants and handlers: 4 wiring checks
+
+Loosened the version assertion in `test_v182.py` from exact-match to
+`>= 1.8.2` (same pattern as `test_v181.py`) so the test doesn't break
+on every patch bump.
+
+**Full suite: 147 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- The calendar is intentionally separate from Maintenance and Schedule.
+  Maintenance windows suppress webhooks; Schedule drives device commands;
+  Calendar is just a shared notepad for "what's happening when". Mixing
+  them would be a different design.
+- Tasks have no due dates by design — if you need a due date, create a
+  calendar event with the same title. The two compose naturally.
+- Device linking on tasks is one-to-one (a task has one device or none).
+  If you need a task that touches multiple devices, link it to none and
+  mention them in the description.
+- Both features use the standard X-Token auth (no special role required
+  for create/edit/delete). If you want admin-only mutations, add
+  `require_admin_auth()` to the handlers — small change.
+
+---
+
+## v1.8.2 - 2026-04-24
+
+### Fixed
+
+**Log tail bug: quiet devices invisible on the Logs page.** In v1.8.0/1.8.1,
+the agent silently skipped a unit if `journalctl` returned no recent lines,
+and the whole submission was skipped if every watched unit was quiet. Result:
+a device with watched services but a calm workload (e.g. sshd on an idle
+box, nginx with no traffic) never created an entry in `log_watch.json` and
+was indistinguishable from a device not running the agent at all.
+
+- Agent now always includes every watched unit in the submission, with an
+  empty list if the unit was quiet
+- Agent now always POSTs when it has watched units, even if all are empty
+- Server preserves the unit key with an empty array, so the device appears
+  on the Logs page as "watched, quiet in this window" rather than absent
+- Live tail empty-state now diagnoses the three distinct cases:
+  "no devices submitting", "devices reporting but quiet", and "current
+  filter matches nothing"
+
+### Added
+
+**Fleet-wide log alert rules** — rules that apply across the whole fleet,
+complementing the existing per-device rules from v1.8.0.
+
+- New `log_rules_global.json` storage; new endpoints
+  `GET/POST /api/logs/rules/global` and `DELETE /api/logs/rules/global/{id}`
+- Wildcard unit: setting `unit="*"` matches any unit on any device (useful
+  for catch-all patterns like `OOMkilled`). Specific unit name matches all
+  devices running that unit.
+- `handle_log_submit` now evaluates both per-device and fleet-wide rules
+  against incoming lines. Each `(scope, unit, pattern)` fires at most once
+  per submission — so a line matching both scopes produces one alert per
+  scope, never two from the same rule.
+- Webhook payload includes `scope: "device"` or `scope: "global"` so you
+  can tell them apart downstream.
+
+**Alert rules UI: per-device / fleet-wide tabs.** The Logs page now has
+a tab switcher above the rules table. "+ Add rule" opens a modal that
+adapts to the active tab — fleet-wide mode hides the device picker and
+shows a hint about the `*` wildcard.
+
+### Changed
+
+- Live tail polling interval: 10s → **30s**. Always-on now — the
+  pause-on-scroll-up behaviour and PAUSED badge are removed. If you want to
+  read older lines, uncheck "auto-scroll to newest".
+- `handle_log_submit` dedupes alerts within a submission by
+  `(scope, unit, pattern)` — previously the same rule could fire multiple
+  times if matched lines came in across multiple units.
+- All version strings bumped to 1.8.2.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/logs/rules/global` | List fleet-wide rules |
+| POST   | `/api/logs/rules/global` | Create fleet-wide rule |
+| DELETE | `/api/logs/rules/global/{id}` | Remove fleet-wide rule |
+
+### Tests
+
+15 new tests in `tests/test_v182.py` — validation (7 cases covering wildcard,
+specific units, bad regex, bad units, threshold bounds, empty fields),
+empty-array preservation (quiet vs chatty units, mixed submissions),
+wildcard matching, and dedupe-key semantics. Full suite:
+**123 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- **All v1.8.1 agents should update** to pick up the empty-submission fix.
+  A v1.8.1 agent with a quiet watched unit will still not appear on the
+  Logs page even after upgrading the server.
+- Fleet-wide rules are capped at 50 per server (`MAX_GLOBAL_LOG_RULES`).
+  That's a safety fence, not a target — most deployments need 2-5.
+- No changes to data files; `log_rules_global.json` is created on first
+  write. Existing `log_watch` rules on device records continue to work
+  unchanged.
+
+---
+
+## v1.8.1 - 2026-04-24
+
+### Added
+
+**Dedicated "Logs" page in the sidebar.** The v1.8.0 log-tail feature was
+only surfaced inside the per-service drill-down, which was too buried and
+had no UI for configuring alert rules (you had to curl the API). This
+release makes logs a first-class page.
+
+The new page has three stacked widgets:
+
+- **Search bar** — hits `/api/logs/search` with case-insensitive regex.
+  Results grouped by device (collapsible), timestamped, and color-coded
+  by severity pattern (FATAL/ERROR/WARN detected automatically).
+- **Live tail** — the default view when no search is active. Polls
+  `/api/logs/tail` every 10 seconds using a monotonically-advancing
+  `since=` cursor; pauses auto-scroll when the user scrolls up
+  (shows a "PAUSED" badge), resumes when they scroll back to the bottom.
+  Device and unit filter dropdowns narrow the stream.
+- **Alert rules table** — cross-fleet view of all `log_watch` rules,
+  with an "+ Add rule" button that opens a proper form (device picker,
+  unit, regex pattern, threshold). Adding a rule automatically ensures
+  the target unit is in `services_watched` so the agent actually
+  submits its logs.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/logs/tail?since=<ts>&device=<id>&unit=<n>` | Incremental fetch for the live-tail page |
+| GET    | `/api/logs/rules` | Cross-fleet aggregate of all log_watch rules |
+
+### Fixed
+
+- Service drill-down now **always shows** "State history" and "Recent logs"
+  sections even when empty, with explanatory text. Previously the sections
+  were silently omitted if the device hadn't submitted logs yet, making it
+  look like the feature was broken. ([reported after v1.8.0 ship])
+- Empty-state messaging includes the diagnostic hints: agent needs v1.8.0+
+  and journalctl access, and logs are submitted every ~5 min so a freshly
+  configured unit takes a poll or two before anything shows up.
+
+### Changed
+
+- All version strings bumped to 1.8.1
+- "Recent logs" section now auto-expands by default when it has content
+  (same for State history) — one fewer click to get to what you opened
+  the modal for
+
+### Tests
+
+- Added `tests/test_v181.py` — 7 new tests covering log rules aggregation,
+  log tail filtering (since/device), device config round-trip, and version
+  bump. Full suite: **108 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- No agent changes in 1.8.1 — everything is server-side plus UI. v1.8.0
+  agents work unchanged with a v1.8.1 server.
+- The live tail uses client-side polling, not WebSockets or SSE. A
+  genuine push channel would need persistent connection state in the CGI
+  model, which doesn't fit. 10-second polling is cheap and survives server
+  restarts invisibly.
+- Alert rules editor is per-device. A fleet-wide "apply to all devices
+  matching this unit" mode is on the roadmap for v1.9.
+
+---
+
+## v1.8.0 - 2026-04-23
+
+### Added
+
+**Service monitoring** — agent reports watched systemd units on each heartbeat.
+Per-device `services_watched` list (e.g. `nginx.service`, `postgresql.service`).
+Server tracks state, records transitions, fires webhooks.
+
+- Agent calls `systemctl show` per watched unit; reports `ActiveState`,
+  `SubState`, and `ActiveEnterTimestamp` on every poll
+- Server records state transitions in `service_history.json` (last 100 per
+  unit). New webhook events `service_down` (priority 4) and `service_up`
+  (priority 3) fire on transitions, with `red_circle,gear` / `green_circle,gear`
+  tags
+- New "Services" page in the dashboard — fleet matrix with up/down counts,
+  per-device drill-down showing state history, recent logs per unit, and
+  inline configuration
+- New Prometheus metrics: `remotepower_service_active{device,name,group,unit,sub}`
+  (1/0 per unit) and `remotepower_services_down_total{device,name,group}`
+- Config is pushed from server to agent via heartbeat response — no agent
+  restart required to change watched units
+- New config key `service_webhook_enabled` (default `true`)
+
+**Log tail + pattern alerts** — agent submits recent journal lines per watched
+unit; server keeps a rolling buffer and can fire webhooks on regex matches.
+
+- Agent calls `journalctl -u <unit> --since` every 5 polls (~5 min) and
+  submits via new `/api/logs` endpoint
+- Server stores per-device, per-unit rolling buffer — bounded at 6 hours,
+  2 MB per device
+- Per-device `log_watch` rules `[{unit, pattern, threshold}]` — regex matches
+  trigger `log_alert` webhooks (priority 4, `warning,scroll` tags)
+- New `/api/logs/search?q=<regex>&device=<id>` endpoint — cross-device grep
+  over the rolling buffer. No indexing, just regex scan; deliberately not a
+  full log analytics stack
+- Captured logs appear inline in the per-device service drill-down so you
+  can see *why* a service went red without SSH-ing in
+
+**Maintenance windows** — suppress webhook alerts during scheduled windows,
+with audit trail.
+
+- Per-device, per-group, or fleet-global scope
+- One-shot (`start` + `end` ISO-8601) or recurring (`cron` + `duration` seconds)
+- Optional per-window event allowlist — e.g. suppress only `patch_alert`,
+  leave `device_offline` still firing
+- `in_maintenance(event, payload)` helper wraps every `fire_webhook()` call
+  — suppresses transparently, records audit entry in `maint_suppressed.json`
+- Built-in lightweight cron evaluator supports `*`, `*/N`, `a,b,c`, and
+  single integers across all 5 fields
+- New Prometheus metric: `remotepower_maintenance_windows_active`
+- New "Maintenance" page with full lifecycle UI — create/list/delete
+  windows, view suppression audit trail
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/services` | Fleet-wide service state |
+| GET    | `/api/devices/{id}/services` | Per-device with state history + log tails |
+| GET    | `/api/devices/{id}/services/config` | Read watched units + log rules |
+| POST   | `/api/devices/{id}/services/config` | Set watched units + log rules |
+| POST   | `/api/logs` | Agent submits per-unit journal lines |
+| GET    | `/api/logs/search?q=<regex>` | Cross-device log search |
+| GET    | `/api/devices/{id}/logs` | Full captured buffer for one device |
+| GET    | `/api/maintenance` | List all windows + active flag |
+| POST   | `/api/maintenance` | Create a window |
+| DELETE | `/api/maintenance/{id}` | Remove a window |
+| GET    | `/api/maintenance/suppressions` | Audit trail of suppressed webhooks |
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `services.json` | Current service state per device |
+| `service_history.json` | State transition log per (device, unit) |
+| `log_watch.json` | Rolling log buffer per device + unit |
+| `maintenance.json` | Defined windows |
+| `maint_suppressed.json` | Audit trail of suppressed webhook events |
+
+### Agent changes (Linux)
+
+- `VERSION = '1.8.0'`
+- New functions: `get_services()`, `_parse_systemd_timestamp()`,
+  `get_unit_logs()`, `submit_unit_logs()`
+- New constants: `SERVICE_CHECK_EVERY = 1` (every poll — cheap),
+  `LOG_SUBMIT_EVERY = 5` (every 5 min), `LOG_LOOKBACK_SECONDS = 360`,
+  `MAX_LOG_LINES_PER_UNIT = 100`
+- Heartbeat loop now reads `services_watched` and `log_watch` from server
+  responses — server-driven configuration means no agent restart when you
+  change what a device is monitoring
+
+### Webhook events extended
+
+- New events: `service_down`, `service_up`, `log_alert`
+- All existing webhook types (Discord / Slack / ntfy / gotify / generic)
+  now render these with appropriate titles, priorities, and tags
+
+### Cleanup
+
+- Fixed 4 pre-existing test failures in `tests/test_api.py` for
+  `verify_token()` — tests were written for an older `str`-returning
+  signature; function has returned `(username, role)` since v1.6.x
+- Cleaned up residual comment fragment on `MAX_BODY_BYTES` from v1.7.0
+  buffer bump
+- Removed a small duplicate in `_cron_match()` introduced during v1.8.0
+  authoring
+
+### Notes
+
+- Service monitoring requires `systemctl` — agent silently skips reporting
+  on non-systemd hosts
+- The log tail deliberately does not do indexing, retention policies, or
+  structured parsing. It's a rolling buffer with regex search. If you need
+  Loki or Graylog, run those
+- Maintenance windows only suppress *webhooks* — the events themselves are
+  still recorded in uptime history, monitor history, etc. You're not losing
+  visibility, just quiet on the push channel
+- Cron evaluator supports the common subset (`*`, `*/N`, lists, literals).
+  Ranges like `1-5` and named days like `MON` are not supported — use
+  explicit lists instead (e.g. `1,2,3,4,5`)
+
+---
+
+## v1.7.0 - 2026-04-23
+
+### Added
+
+**CVE Scanner** — automatic vulnerability scanning against installed packages
+using the free [OSV.dev](https://osv.dev) database. No API key required.
+
+- New agent function `get_package_list()` enumerates installed packages via
+  `dpkg-query` / `rpm` / `pacman` / `apk`. Submitted to the server every 6
+  hours (or whenever the package set changes) via a new `/api/packages`
+  endpoint. Hash-gated — resubmits only when the list actually changes.
+- New server module `cve_scanner.py` queries OSV's `/v1/querybatch` (up to
+  500 packages per request) and hydrates vulnerability details on first
+  encounter. Details cached for 7 days in `cve_details_cache.json`.
+- Severity normalized to `critical` / `high` / `medium` / `low` / `unknown`
+  from ecosystem-specific labels (Debian/RedHat style) with CVSS base-score
+  fallback.
+- New "CVEs" page in the dashboard: aggregate severity counts across the
+  fleet, per-device breakdown, per-vulnerability drill-down with links to
+  upstream advisories and fixed-version information when available.
+- Ignore list: mark a CVE as accepted risk either globally or for a specific
+  device. Ignored entries are excluded from counts and webhook alerts but
+  remain visible (dimmed) in the per-device view.
+- New webhook event `cve_found` fires when new critical/high vulnerabilities
+  appear in a scan that weren't present in the previous scan (respects the
+  ignore list). Priority 5 (urgent) with `rotating_light,shield` tags.
+- Supported ecosystems: Debian, Ubuntu, Rocky Linux, AlmaLinux, Red Hat,
+  Alpine, Arch Linux. Fedora is not reliably covered by OSV and is flagged
+  as `unsupported`.
+- New config key `cve_webhook_enabled` (default `true`).
+
+**Prometheus `/metrics` endpoint** — standard text exposition at
+`GET /api/metrics`, authenticated via session token or API key. Prometheus's
+native `bearer_token` scrape config works unchanged.
+
+Metric families exposed:
+- `remotepower_info{version}` — server version
+- `remotepower_devices_total` / `remotepower_devices_online`
+- `remotepower_device_online{device,name,group,os}` — 1/0 per device
+- `remotepower_device_last_seen_timestamp_seconds{...}`
+- `remotepower_device_cpu_percent{...}` / `_mem_percent{...}` / `_disk_percent{...}`
+- `remotepower_device_upgradable_packages{...,manager}`
+- `remotepower_device_cve_findings{...,severity}`
+- `remotepower_monitor_up{label,type,target}`
+- `remotepower_monitor_last_check_timestamp_seconds{...}`
+- `remotepower_commands_pending_total`
+- `remotepower_scheduled_jobs_total`
+- `remotepower_webhook_deliveries_total{status}`
+- `remotepower_webhook_log_size`
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST   | `/api/packages` | Agent submits installed package list (device-auth) |
+| POST   | `/api/cve/scan` | Admin triggers CVE scan for one or all devices |
+| GET    | `/api/cve/findings` | Aggregate CVE report across all devices |
+| GET    | `/api/devices/{id}/cve` | Per-device CVE findings |
+| GET    | `/api/cve/ignore` | List all active ignore entries |
+| POST   | `/api/cve/ignore` | Mark a CVE as accepted risk |
+| DELETE | `/api/cve/ignore/{vuln_id}` | Remove an ignore |
+| GET    | `/api/metrics` | Prometheus scrape endpoint |
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `packages.json` | Per-device installed package list + hash + collected timestamp |
+| `cve_findings.json` | Per-device scan results |
+| `cve_ignore.json` | Global/per-device CVE ignore list |
+| `cve_details_cache.json` | OSV vulnerability detail cache (7-day TTL) |
+
+### Agent changes
+
+- Bumped agent version to 1.7.0 (Linux + Windows)
+- New constants: `PACKAGE_LIST_EVERY = 360`, `MAX_PACKAGES_SEND = 10000`
+- New functions (Linux): `get_os_release()`, `get_package_list()`,
+  `send_package_list()` + three hash-cache helpers
+- New sidecar file `/etc/remotepower/pkg_hash` stores the hash of the last
+  submitted package list so subsequent polls can skip resubmission when
+  nothing changed
+- Windows agent gets the version bump but no package enumeration (OSV
+  doesn't cover Windows app ecosystems well; Windows devices show as
+  `unsupported` in the CVE UI)
+
+### Changed
+
+- All version strings bumped to 1.7.0
+- `_webhook_message()`, `_webhook_priority()`, `_webhook_tags()` extended
+  for the new `cve_found` event
+- `GET /api/config` now returns `cve_webhook_enabled`
+- `POST /api/config` accepts `cve_webhook_enabled` (bool)
+- DELETE guard on `/api/devices/<id>` updated to exclude the new `/cve`
+  subresource path
+
+---
+
+## v1.6.3 - 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" rejected freshly-restarted devices with
+  `Unknown or unreported package manager: none`. Root cause: the server
+  looked up `sysinfo.packages.manager` on the device record, but `packages`
+  is only populated after a patch-info poll — which runs every `PATCH_EVERY`
+  (180) polls, i.e. roughly 3 hours after agent restart. On any device that
+  had been restarted recently (every Debian box the 1.6.1 service-file fix
+  was deployed to) the upgrade button was effectively broken.
+
+  The dispatcher no longer relies on server-side sysinfo at all. It now
+  queues a single self-detecting shell snippet that runs `command -v
+  apt-get` / `dnf` / `pacman` on the device at execution time and picks
+  the right one. This also simplifies the server code — one command, no
+  per-device dispatch, no stale-cache failure modes.
+
+### Changed
+- `POST /api/upgrade-device` response no longer includes the `manager`
+  field (the server doesn't know in advance anymore). The queued exec
+  output — visible on the next heartbeat — still shows which manager ran.
+- All version strings bumped to 1.6.3.
+
+### Note on custom `apt` commands
+The Custom Command dialog runs whatever string you type verbatim. If you
+manually type `apt update && apt upgrade -y …` on a box that still has
+`NoNewPrivileges=yes` in its agent service file, you'll still see the
+`seteuid 105 failed` error — that's expected, and the fix is to deploy
+the 1.6.1 service file and do `systemctl daemon-reload && systemctl
+restart remotepower-agent` on that host. The bulk "Upgrade packages"
+button works around this automatically via the APT_CONFIG override;
+custom commands don't, by design.
+---
+
+## v1.6.2 - 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" still failed on Debian/Ubuntu with
+  `E: seteuid 105 failed - seteuid (1: Operation not permitted)` because the
+  `-o APT::Sandbox::User=root` flag was only applied to `apt-get upgrade`.
+  But `apt-get update` is the call that actually opens network sockets and
+  drops to the `_apt` user — so under systemd hardening (`NoNewPrivileges=yes`,
+  restricted cgroups, user namespaces), `apt-get update` returned rc=100 and
+  short-circuited the `&&` chain before upgrade ever ran.
+
+  The fix writes a one-line apt config to a tempfile, points `APT_CONFIG` at
+  it, and exports that env var for the whole chain. Every `apt-get` call in
+  the chain (`update`, `upgrade`, `autoremove`, `clean`) now inherits
+  `APT::Sandbox::User "root"` plus the `Dpkg::Options` conffile handling, and
+  a `trap` cleans up the tempfile even if any step fails.
+
+  **Server-only fix** — agents don't need to be restarted to pick this up,
+  since the command is constructed server-side and dispatched via the
+  existing `exec:` channel. Just redeploy the server.
+
+### Changed
+- All version strings bumped to 1.6.2.
+---
+
+## v1.6.1 - 2026-04-22
+
+### Fixed
+- Bulk-action icons in the selection bar rendered as oversized default-styled
+  buttons — `.btn-shutdown` and `.btn-reboot` had no CSS defined, so SVGs were
+  unconstrained. Added matching red/amber/purple button styles with proper 14px
+  SVG sizing so the batch bar visually matches the rest of the UI.
+- Device "…" dropdown menu was pierced by sibling cards' menu buttons due to
+  each `.device-card` sharing a stacking context with `z-index: 20`. The open
+  dropdown's parent card is now lifted via `:has(.device-dropdown.active)` plus
+  an explicit `z-index: 9999` on the active dropdown wrapper as a fallback.
+- Agent `exec:` commands running apt failed with
+  `seteuid 105 failed - seteuid (1: Operation not permitted)` because
+  `NoNewPrivileges=yes` in `remotepower-agent.service` blocked apt's drop to
+  the `_apt` user. Removed the directive — the agent runs as root by design,
+  so this hardening was cosmetic. Defence-in-depth added in the new upgrade
+  path via `-o APT::Sandbox::User=root`.
+
+### New features
+- Bulk "Upgrade packages" action — select multiple devices and run apt/dnf/
+  pacman upgrade across all of them in one click. Server dispatches the right
+  command per device based on the package manager reported in sysinfo:
+  - apt:    `apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get clean`
+            (with `APT::Sandbox::User=root` and non-interactive dpkg conffile handling)
+  - dnf:    `dnf -y upgrade`
+  - pacman: `pacman -Syu --noconfirm`
+  Output arrives on the next heartbeat (~60s) via the existing `exec:` pipe.
+- "Update all" button renamed to "Update agent" with a clarifying tooltip so
+  it isn't confused with package upgrades.
+
+### New API
+- `POST /api/upgrade-device` — body `{device_ids: [...]}` or `{device_id: "..."}`.
+  Returns per-device results including the detected package manager, or an
+  error if the manager is unknown/unreported.
+
+### Changed
+- All version strings bumped to 1.6.1.
+---
+
+## v1.6.0 - 2026-04-21
+
+### New features
+
+**Webhook overhaul**
+- Webhook URL is now visible and editable in the Settings UI (previously hidden after save)
+- Webhook payloads now include `title`, `message`, and `priority` fields for human-readable push notifications
+- Push-compatible headers added: `X-Title`, `X-Priority`, `X-Tags` — works out of the box with Ntfy, Gotify, Pushover, Slack, and Discord
+- Per-event emoji tags for Ntfy (`X-Tags` header) — e.g. `red_circle,computer` for offline, `warning,package` for patch alerts
+- Per-event priority levels (3=normal, 4=high) for push services
+- `User-Agent` header now includes server version (`RemotePower/1.6.0`)
+
+**Monitor webhook alerts**
+- New `monitor_down` event fires when a monitor target goes from up to down
+- New `monitor_up` event fires when a monitor target recovers
+- State-change tracking prevents duplicate alerts (only fires on transitions)
+- Toggle on/off via Settings checkbox ("Monitor alerts")
+
+**Offline webhook toggle**
+- New toggle in Settings to enable/disable device offline/online webhook alerts
+- Allows keeping the webhook URL configured for other events (patch alerts, commands, monitors) while disabling offline noise
+
+**Patch alert improvements**
+- Threshold can now be cleared (set to 0 or empty) to disable patch alerts via the UI
+- Clearing the threshold also resets tracked alert state
+
+### Changed
+
+- `GET /api/config` now returns `webhook_url`, `offline_webhook_enabled`, and `monitor_webhook_enabled` (webhook URL was previously hidden from the API response)
+- `POST /api/config` accepts `offline_webhook_enabled` (bool) and `monitor_webhook_enabled` (bool)
+- `POST /api/config` accepts `patch_alert_threshold: 0` or `null` to clear the threshold
+- Settings UI reorganised: "Webhooks" section replaces "Offline Webhook", with toggles and visible URL
+- All version strings bumped to 1.6.0 (server, Linux agent, Windows agent, Dockerfile, docker-compose, README badge)
+- Webhook `fire_webhook()` rewritten with richer payloads and push headers
+
+### Config keys added
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `offline_webhook_enabled` | bool | `true` | Enable/disable device offline/online webhook alerts |
+| `monitor_webhook_enabled` | bool | `true` | Enable/disable monitor up/down webhook alerts |
+| `monitor_notified` | object | `{}` | Internal state tracking for monitor alert deduplication |
+
+### Webhook events
+
+| Event | Priority | When |
+|-------|----------|------|
+| `device_offline` | 4 (high) | Device misses heartbeats beyond ONLINE_TTL |
+| `device_online` | 3 | Device comes back online |
+| `monitor_down` | 4 (high) | Monitor target transitions from up to down |
+| `monitor_up` | 3 | Monitor target recovers |
+| `patch_alert` | 4 (high) | Device exceeds pending update threshold |
+| `command_queued` | 3 | Command queued for a device |
+| `command_executed` | 3 | Device reports command execution |
+
+---
+
+## v1.5.1 - 2026-04-20
+
+### New features
+
+**Windows agent**
+- New `client/remotepower-agent.py` - full-featured Windows client agent
+- Same heartbeat protocol and API as the Linux agent - enrolls the same way
+- Power control via `shutdown.exe /s` and `/r` with 30-second grace period
+- Patch info via Windows Update COM API (PowerShell)
+- System journal via `wevtutil` (Windows System event log)
+- CPU/RAM/disk metrics via psutil (optional, same as Linux)
+- Boot reason tracking via `%ProgramData%\RemotePower\last_cmd.txt`
+- Adjustable poll interval via config file (same mechanism as Linux)
+- Runs as a Windows Service via NSSM, or interactively for testing
+- `install-client.ps1` PowerShell installer: checks Python, installs psutil, enrolls, downloads NSSM, registers service
+- Supports `enroll`, `re-enroll`, `status`, `integrity` subcommands
+- Agent self-update is logged but not applied automatically on Windows (manual update recommended)
+
+**Docker support**
+- `Dockerfile` and `docker-compose.yml` for containerized server deployment
+- Based on `python:3.12-slim` with nginx + fcgiwrap + bcrypt + reportlab
+- Admin user created automatically via `RP_ADMIN_USER` / `RP_ADMIN_PASS` environment variables
+- Data persisted in `/var/lib/remotepower` volume
+- Healthcheck built in (HTTP probe every 60s)
+- Docker-specific nginx config on port 8080 (put a reverse proxy in front for HTTPS)
+- `docker/entrypoint.sh` handles fcgiwrap startup, user creation, and version config
+- `.dockerignore` to keep image lean
+
+### Changed
+
+- Agent version bumped to 1.5.1
+- Server version bumped to 1.5.1
+- README updated with Windows client docs, Docker quick start, updated architecture diagram
+- Platform badge updated to `Linux | Windows`
+- File layout updated with new files
+
+### New files
+
+| File | Description |
+|------|-------------|
+| `client/remotepower-agent.py` | Windows agent (Python 3) |
+| `install-client.ps1` | Windows client installer (PowerShell) |
+| `Dockerfile` | Server container image |
+| `docker-compose.yml` | Compose file for quick deployment |
+| `.dockerignore` | Docker build exclusions |
+| `docker/nginx-docker.conf` | Nginx config for Docker |
+| `docker/entrypoint.sh` | Container entrypoint script |
+
+---
+
+## v1.5.0 - 2026-04-19
+
+### New features
+
+**Patch Report page**
+- New Patches nav tab with dedicated patch overview across all devices
+- Summary cards: total devices, fully patched, patches pending, total pending count, patch rate %
+- Device table with per-device patch status, pkg manager, recent patch commands
+- Export as CSV (`GET /api/patch-report/csv`)
+- Export as XML (`GET /api/patch-report/xml`)
+- Export as PDF (`GET /api/patch-report/pdf`) - formatted with ReportLab, color-coded status
+
+**Audit log with IP tracking**
+- New Audit Log nav tab showing security-relevant events
+- Tracks: logins (success + failed), exec commands, session revocations, user-agent + source IP
+- `GET /api/audit-log` endpoint (admin only)
+- Stored in `audit_log.json` (last 500 entries)
+
+**API key expiration**
+- `POST /api/apikeys` now accepts optional `expires_at` (unix timestamp)
+- Expired keys are silently rejected during authentication
+- Keys without `expires_at` remain non-expiring (backward compatible)
+
+**Bulk exec**
+- `POST /api/exec` now accepts `device_ids`, `tag`, or `group` targets (same as shutdown/reboot)
+- Run arbitrary commands across multiple devices in one API call
+- Allowlist is checked per-device; partial failures return per-device results
+
+**Increased exec timeout**
+- Agent exec timeout raised from 30s to 300s (5 min) for long-running commands like `apt upgrade`
+
+**Boot reason tracking**
+- Agent records the last command before shutdown/reboot in `/tmp/remotepower-last-cmd`
+- First heartbeat after restart includes `boot_reason` field
+- Helps distinguish scheduled reboots from unexpected restarts
+
+**Device search and filtering**
+- Search bar on Devices page - filter by name, hostname, IP, OS, group, or tags
+- Status filter dropdown (All / Online / Offline)
+- Group filter dropdown (auto-populated from device groups)
+- All filters combine with existing tag filter
+
+**Browser notifications**
+- Web Notifications API integration for device online/offline state changes
+- Permission requested on first login; notifications fire on status transitions
+- No server-side changes needed - purely client-side
+
+**Session token revocation**
+- `POST /api/sessions/revoke` - revoke all sessions or sessions for a specific user
+- "Revoke all sessions" button on Audit Log page
+- Admin-only; preserves the requester's current session when revoking all
+
+**Two-Factor Authentication (TOTP)**
+- TOTP-based 2FA compatible with Google Authenticator, Authy, etc.
+- Setup flow: `POST /api/totp/setup` → scan secret → `POST /api/totp/confirm` with code
+- Login prompts for authenticator code when 2FA is enabled
+- Disable with password confirmation via `POST /api/totp/disable`
+- Status check: `GET /api/totp/status`
+- 2FA section added to Settings page with enable/disable UI
+
+**Per-device patch report**
+- `GET /api/patch-report/device/:id` - detailed patch info for a single device
+- Includes patch command history, OS, uptime, agent version, metrics
+- "Detail" button on each row in the Patches table opens a modal
+
+**Clear history**
+- Clear button on Command History page (`DELETE /api/history`)
+- Clear button on Audit Log page (`DELETE /api/audit-log`)
+- Both require admin role and are themselves audit-logged
+
+**Filtered patch export**
+- Group and device filter dropdowns on Patches page
+- CSV/XML/PDF exports respect the active filter via `?group=X` and `?device_id=Y` query params
+- Summary cards update live based on filtered set
+
+### Changed
+- `POST /api/exec` now supports batch targets (device_ids, tag, group) in addition to single device_id
+- Agent exec timeout increased from 30s to 300s
+- Agent sends `boot_reason` on first heartbeat after restart
+- Audit events logged for logins, failed logins, exec commands, session revocations
+- Patch percentage now excludes offline/no-data devices (only counts online with known state)
+- Nav bar wraps on smaller screens, reduced padding for 11 tabs
+- CSV/XML/PDF exports flush stdout properly for CGI binary output
+- XML export produces valid well-formed XML
+
+### New data files
+- `audit_log.json` - security audit trail (last 500 entries)
+- `sessions_meta.json` - session metadata for revocation tracking
+
+### New API endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/patch-report` | ✓ | Full patch report (JSON) |
+| `GET` | `/api/patch-report/csv` | ✓ | Patch report as CSV download |
+| `GET` | `/api/patch-report/xml` | ✓ | Patch report as XML download |
+| `GET` | `/api/patch-report/pdf` | ✓ | Patch report as PDF download |
+| `GET` | `/api/audit-log` | admin | Security audit log |
+| `POST` | `/api/sessions/revoke` | admin | Revoke user sessions |
+| `GET` | `/api/patch-report/device/:id` | ✓ | Per-device patch detail |
+| `POST` | `/api/totp/setup` | ✓ | Generate TOTP secret |
+| `POST` | `/api/totp/confirm` | ✓ | Confirm & enable 2FA |
+| `POST` | `/api/totp/disable` | ✓ | Disable 2FA (requires password) |
+| `GET` | `/api/totp/status` | ✓ | Check if 2FA is enabled |
+| `DELETE` | `/api/history` | admin | Clear command history |
+| `DELETE` | `/api/audit-log` | admin | Clear audit log |
+
+---
+
+## v1.4.0 - 2026-04-17
+
+### New features
+
+**Recurring scheduled commands**
+- Schedule tab now accepts a cron expression (5-field: `min hour dom mon dow`) in addition to a one-shot datetime
+- Recurring jobs stay in the queue and fire every time the cron expression matches (checked on every API request, minute precision)
+- Dashboard shows `↻ <cron>` for recurring jobs vs a timestamp for one-shot jobs
+
+**Batch commands (multi-device)**
+- Click the device icon on any card to select it (turns into a checkmark)
+- A batch action bar appears with Shut down all / Reboot all / Update all buttons
+- API also accepts `device_ids: [...]`, `tag: "servers"`, or `group: "homelab"` on all command endpoints
+
+**Device groups / namespaces**
+- New `group` field per device (`PATCH /api/devices/:id/group`)
+- Device grid sorts by group then name; group badge shown on the hostname line
+- Batch commands can target an entire group
+
+**Per-device notes**
+- Free-text `notes` field per device (`PATCH /api/devices/:id/notes`, max 1024 chars)
+- 📝 indicator on device name when notes are set; tooltip shows the text
+- Dedicated Notes modal accessible from the device card
+
+**Adjustable heartbeat interval per device**
+- `PATCH /api/devices/:id/poll_interval` (10–3600 s)
+- Server queues a `poll_interval:<n>` command; agent picks it up on next heartbeat and adjusts its sleep interval dynamically (no restart needed)
+- Current interval shown in device meta row
+
+**Agent health / offline reason**
+- `offline_reason` field in device list: `missed_polls` (offline <5 min) vs `offline`
+- `missed_polls` counter exposed in API and shown as an amber badge on offline cards
+- Agent now reports `executed_command` field in heartbeat so the server can fire command-executed webhooks
+
+**Re-enrollment without wipe**
+- `sudo remotepower-agent re-enroll` sends the existing `device_id` in the registration payload
+- Server detects a matching ID, updates the record in-place, and returns `reregistered: true`
+- History, tags, group, and notes are all preserved on re-enroll
+
+**Saved command library**
+- New Command Library page (nav: Library) for named shell snippets
+- `GET/POST /api/cmd-library`, `DELETE /api/cmd-library/:id`
+- Exec modal now has a "pick from library" dropdown that pastes the command into the input
+- Snippets shared across all admin users
+
+**Command allowlist per device**
+- `GET/POST /api/devices/:id/allowlist` - set an explicit list of allowed shell commands
+- When non-empty, only listed commands can be run via exec on that device (403 otherwise)
+- Empty list = unrestricted (backward-compatible with existing behaviour)
+- Allowlist modal accessible from the device card (🔒 button)
+
+**Basic metrics history (CPU / RAM / Disk)**
+- Agent optionally collects `cpu_percent`, `mem_percent`, `disk_percent` via `psutil` (gracefully skipped if not installed)
+- Server stores up to 1440 snapshots per device in `metrics.json` (roughly 24 h at 60 s intervals)
+- Metrics modal per device with sparkline bars for CPU, RAM, and Disk
+- New endpoint: `GET /api/devices/:id/metrics`
+
+**Named API keys**
+- New API Keys page (nav: API Keys)
+- `GET/POST /api/apikeys`, `DELETE /api/apikeys/:id`
+- Non-expiring keys authenticated via `X-Token` header (same as session tokens)
+- Each key has a `role` (admin or viewer) - viewer keys are read-only
+- Key value shown once at creation; not stored in any response thereafter
+
+**Role-based access (viewer accounts)**
+- Users now have a `role` field: `admin` (default) or `viewer`
+- Viewer role: can see the dashboard, devices, sysinfo, history, monitor - but cannot queue commands, change config, manage users, or create API keys
+- Role shown in Users table; role selector in Add User modal
+- Login response now returns `role` and `username`
+
+**Dashboard export / backup**
+- `GET /api/export` streams a ZIP of all `*.json` data files (excluding `tokens.json`)
+- "Export backup" button added to Settings page; uses fetch + blob for in-browser download
+
+**Webhook on command execution**
+- `command_queued` and `command_executed` webhook events added alongside the existing `device_offline`, `device_online`, and `patch_alert` events
+- `command_executed` fires when the agent reports back that it ran a command (via the `executed_command` field in the heartbeat)
+
+**Long-poll exec (terminal-in-browser foundation)**
+- `POST /api/exec/wait` - queues an exec command and holds the HTTP connection open (default 90 s, max 120 s) polling for output
+- When the agent's next heartbeat delivers the output, the response is flushed immediately
+- Falls back with `timeout: true` if output doesn't arrive; client can then poll `/output` as before
+- `longpoll.json` tracks pending waiters per device
+
+**Digest endpoint**
+- `GET /api/digest` - JSON summary: total/online/offline devices, total pending patches, last 10 commands
+- Designed for cron-driven email digests or dashboard status boards; no polling infrastructure needed
+
+**Agent integrity check**
+- `sudo remotepower-agent integrity` - hashes the running binary, compares to server's known-good SHA-256
+- Exits 0 if match, 1 if mismatch (suitable for cron alerting)
+
+### Changed
+- `GET /api/devices` response now includes `group`, `notes`, `offline_reason`, `missed_polls`, `poll_interval`
+- `GET /api/users` response now includes `role` per user
+- `POST /api/users` now accepts optional `role` field (default: `admin`)
+- Login response now returns `role` and `username`
+- Heartbeat response now includes `poll_interval` hint for the agent
+- `_queue_command` now fires a `command_queued` webhook on every queued action
+- `check_offline_webhooks` now fires `device_online` webhook when a device comes back
+- Devices sorted by group then name (was: name only)
+- Schedule table shows `↻ <cron>` for recurring jobs
+
+### New data files
+- `metrics.json` - per-device CPU/RAM/disk time-series (last 1440 points)
+- `cmd_library.json` - saved command snippets
+- `longpoll.json` - pending long-poll output slots
+- `apikeys.json` - named API keys (key values stored here; never returned after creation)
+
+### New API endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `PATCH` | `/api/devices/:id/notes` | admin | Set device notes |
+| `PATCH` | `/api/devices/:id/group` | admin | Set device group |
+| `PATCH` | `/api/devices/:id/poll_interval` | admin | Set poll interval hint |
+| `GET` | `/api/devices/:id/metrics` | ✓ | CPU/RAM/disk time-series |
+| `GET/POST` | `/api/devices/:id/allowlist` | admin | Get/set command allowlist |
+| `GET` | `/api/cmd-library` | ✓ | List command snippets |
+| `POST` | `/api/cmd-library` | admin | Add command snippet |
+| `DELETE` | `/api/cmd-library/:id` | admin | Delete command snippet |
+| `GET` | `/api/apikeys` | admin | List API keys (no values) |
+| `POST` | `/api/apikeys` | admin | Create API key (value shown once) |
+| `DELETE` | `/api/apikeys/:id` | admin | Delete API key |
+| `GET` | `/api/export` | admin | Download ZIP backup |
+| `GET` | `/api/digest` | ✓ | Summary for cron/email |
+| `POST` | `/api/exec/wait` | admin | Long-poll exec (up to 120 s) |
+
+---
+
+## v1.3.1 - 2026-04-17
+
+- Version bump; minor packaging fixes
+
+---
+
+## v1.3.0 - 2026-04-16
+
+### New features
+- Tag editor — set and edit device tags directly from the dashboard
+- Tag group filtering — filter device grid by tag with one click
+- Scheduled commands — queue shutdown or reboot at a specific date and time
+- Custom shell commands — run arbitrary commands on devices, output returned via next heartbeat (~60s)
+- Monitor history — uptime percentage, sparkline, last 50 check results per target
+- Patch alert webhook — fires when a device exceeds a configurable pending update threshold
+- Uptime tracking — online/offline state changes stored per device in uptime.json
+- Command history page — every action logged with actor, device, and timestamp
+- About page — server version, agent version, latest GitHub release check
+- Dark/light mode toggle — persisted per browser in localStorage
+- Force agent update from dashboard — queue update command like shutdown/reboot
+- Network info — agent reports all interfaces, not just primary IP
+### Fixed
+- Nginx blocking PATCH method — tag API would return 405
+- QUERY_STRING not forwarded to CGI — monitor history label lookup always returned empty
+- Poller cadence was broken — sysinfo/journal now every 10 polls (~10min), patches every 180 polls (~3hr)
+- First-poll sysinfo — agent now sends data immediately on startup instead of waiting
+- Exec button shown on offline devices — now dimmed with tooltip
+- Tag API existed but no UI to set tags
+- Custom command output stored on server but never displayed
+### New data files
+- `history.json` — command log (last 200 entries)
+- `schedule.json` — scheduled jobs
+- `uptime.json` — online/offline state changes per device
+- `monitor_history.json` — check results per monitor target (last 50)
+- `cmd_output.json` — custom command output per device (last 100)
+---
+
+## v1.2.0 - 2026-04-16
+
+### New features
+- Agent self-update — SHA-256 verified, atomic replace, systemctl restart, no SSH needed
+- Force update from dashboard — queue update command alongside shutdown/reboot
+- Dark/light mode toggle
+- Server version check against GitHub releases — amber banner when update available
+- WoL unicast fix — sends to device's last known IP for routed/VPN networks, broadcast fallback
+### Fixed
+- Agent log file permission error when running as non-root
+- Poller frequency — patches split from sysinfo (patches every 3hr, sysinfo every 10min)
+- Agent version bump to 1.2.0
+---
+
+## v1.1.2 - 2026-04-15
+
+- Fixed agent self-update download URL (static file instead of CGI)
+- Fixed agent log file permission for non-root users
+- Reduced sysinfo/patch poll frequency to reduce load
+
+## v1.1.1 - 2026-04-15
+
+- Fixed agent log file permission for non-root users
+- Fixed agent self-update download URL (static file instead of CGI)
+
+## v1.1.0 - 2026-04-15
+
+- bcrypt password hashing with silent SHA-256 auto-upgrade
+- Wake-on-LAN support, MAC reported at enroll time
+- Reboot command alongside shutdown
+- Multiple admin users with full CRUD in dashboard
+- Offline webhook (Ntfy/Gotify/Slack/Discord)
+- Patch info via apt/dnf/pacman (dry-run only)
+- Uptime + journalctl per device with noise filtering
+- Ping/TCP/HTTP service monitoring from server
+- Agent self-update - SHA-256 verified, atomic replace
+- Multi-distro install scripts (apt/dnf/pacman)
+- deploy-server.sh for fast redeploys
+
+## v1.0.0 - 2026-04-14
+
+- Initial release
+- Remote shutdown over HTTPS
+- PIN enrollment
+- No inbound firewall rules on clients
+- Flat JSON storage, Nginx + Python CGI
+
+## v2.5.0 - 2026-05-19
+
+### Custom monitoring scripts
+
+Define arbitrary bash health checks server-side and push them to
+enrolled devices. The agent runs each check every 5 minutes (no agent
+restart or update required), captures stdout+stderr, and reports back
+over the existing heartbeat channel.
+
+**Exit code contract:** 0 = OK, anything else = FAIL. Deliberately
+binary — no MRPE severity levels.
+
+**Server (`server/cgi-bin/api.py`):**
+- `CUSTOM_SCRIPTS_FILE` (`custom_scripts.json`) — new data file for
+  script definitions.
+- Limits: 50 scripts fleet-wide, 10 per device, 32 KB body, 4 KB
+  captured output.
+- `_ingest_custom_script_results()` — validates script ownership,
+  stores results on the device record, fires edge-triggered webhooks
+  on status transitions. First result never fires an alert (avoids
+  initial assignment flood).
+- `_get_custom_scripts_for_device()` — builds the list of assigned
+  scripts to include in each heartbeat response.
+- `custom_scripts` added to the `common_resp` heartbeat payload.
+- Five CRUD endpoints: `GET/POST /api/custom-scripts`,
+  `GET/PUT/DELETE /api/custom-scripts/:id`.
+- `GET /api/custom-scripts/results` — fleet-wide current results,
+  sorted with failing rows first.
+- Two new webhook events: `custom_script_fail` (priority 4, red) and
+  `custom_script_recover` (priority 3, green). Both have Discord
+  titles, ntfy tags, priority, and human-readable message strings.
+
+**Agent (`client/remotepower-agent.py` + binary):**
+- `SCRIPT_CHECK_EVERY = 5` — run every 5 polls (~5 min at default
+  60 s interval).
+- `run_custom_scripts(scripts)` — writes each script to a private
+  temp file (chmod 700), runs it with `/bin/bash` and a 30 s timeout,
+  captures stdout+stderr merged and capped at 4 KB, deletes the temp
+  file. Returns `{script_id: {ok, output, rc, ran_at, duration_ms}}`.
+- `custom_scripts` list and `pending_script_results` dict added to
+  heartbeat loop state. Scripts list updated from every heartbeat
+  response. Results flushed into the next heartbeat payload.
+
+**Frontend:**
+- New **Custom Scripts** sidebar entry (terminal icon) between Monitor
+  and Services.
+- `page-custom-scripts` — stats bar, filter/status toolbar, fleet
+  results table, definitions panel (one card per script).
+- `custom-script-modal` — create/edit: name, description, script body
+  textarea, device picker (checkboxes), Delete button on edit.
+- `cs-output-modal` — full output viewer (click any output snippet).
+- `loadCustomScripts()`, `renderCustomScriptsPage()`,
+  `renderCsDefinitions()`, `openCustomScriptModal()`,
+  `saveCustomScript()`, `deleteCustomScript()`,
+  `csGenerateWithAI()`.
+- **Inline AI generation:** describe the check, click ✨ Generate,
+  review the bash script, edit if needed, save. Uses the existing
+  `generate_script` system prompt with custom instructions for the
+  monitoring context (exit-code contract, output brevity, timeout
+  budget). Markdown code fences are stripped from the AI response
+  before populating the textarea.
+
+**Docs:**
+- `docs/custom-scripts.md` — full reference: how it works, exit code
+  convention, creation flow, execution environment, result viewing,
+  alert semantics, limits, 5 example scripts, security considerations,
+  full API reference.
+- `docs/features.md` — new section in the detailed tables and a new
+  entry in the "Added in" narrative section. Top summary table updated.
+- `README.md` — custom scripts row added to the feature table.
+- In-app documentation (Help → Documentation search) — new `doc-card`
+  covering creation, results, alerts, and execution details.
+
+
+
+### Progressive Web App (PWA) support
+
+RemotePower is now installable as a desktop or mobile app via Chrome
+(and any other Chromium-based browser that supports PWAs).
+
+**What changes:**
+
+- **`server/html/manifest.json`** (new) — Web App Manifest with name,
+  short name, theme colour (`#3b7eff`), background colour, `standalone`
+  display mode, and proper 192×192 and 512×512 icon references.
+- **`server/html/sw.js`** (new) — Service worker with a versioned
+  cache (`remotepower-shell-v2.4.15`). Strategy:
+  - `/api/*` requests are always **network-only** — fleet data is live
+    and must never be served from a stale cache.
+  - Non-GET and cross-origin requests pass through unmodified.
+  - App shell assets (HTML, JS, CSS, icons, manifest) are cached on
+    install and served cache-first; newly fetched responses are added
+    to cache automatically.
+  - Navigation requests that fail offline fall back to the cached
+    `index.html` shell so the login page appears rather than a browser
+    error.
+  - On each SW activate, all caches from previous versions are deleted.
+- **`server/html/static/img/icon-192.png`** and **`icon-512.png`**
+  (new) — PWA icons at the sizes Chrome requires, generated from the
+  existing `logo-square.png`.
+- **`server/html/index.html`** — added `<link rel="manifest">`,
+  `theme-color` meta tag, `apple-mobile-web-app-*` meta tags, SW
+  registration script, and a hidden **Install app** button in the
+  header that becomes visible when Chrome determines install criteria
+  are met (`beforeinstallprompt`). Clicking it triggers the native
+  Chrome install dialog.
+- **`server/conf/remotepower.conf`** — three nginx changes:
+  1. `worker-src 'self'` added to CSP so the service worker is allowed
+     to register.
+  2. `location = /sw.js` with `Cache-Control: no-store` so the
+     browser always fetches the current SW version.
+  3. `location = /manifest.json` with correct `Content-Type:
+     application/manifest+json` before the catch-all `.json` deny
+     rule that would otherwise block it.
+- **`deploy-server.sh`** and **`install-server.sh`** — `sw.js` added
+  to the root-asset deploy loop alongside `manifest.json` and
+  `favicon.*`.
+
+**No agent changes.** PWA is purely a server/frontend feature.
+
+
+
+### Patches page: Pending Reboot indicator
+
+The Patches page now shows a small amber **⟳ Reboot** badge inline
+with the hostname for any host that has `/run/reboot-required` on
+disk (Debian / Ubuntu). Hovering the badge shows a tooltip confirming
+the source. Useful for spotting hosts that were patched but not yet
+restarted without opening each device detail individually.
+
+**No agent change required.** The `reboot_required` flag has been
+in the agent heartbeat since the early v1.x era. The server now
+surfaces it through the patch-report API (`/api/patch-report`) and
+the Patches page UI.
+
+- `server/cgi-bin/api.py` — `handle_patch_report()` includes
+  `reboot_required: bool` in every device entry. Value is always a
+  boolean (`False` for distros that don't set the flag, or agents
+  predating the field).
+- `server/html/static/js/app.js` — `_registerPatchTable()` row
+  renderer checks `d.reboot_required` and injects the badge.
+
+### docs/features.md overhaul
+
+Large sections were missing from `features.md`. Added:
+
+- **AI assistant** — complete feature table covering providers,
+  context-aware ✨ buttons, secret redaction, rate limiting,
+  free-form chat, and local-model support (Ollama / LocalAI).
+  The existing `docs/ai.md` is the full reference; `features.md`
+  now has a proper summary table and cross-link.
+- **MCP server** — feature table covering the 12 read-only tools
+  and the no-write-tools policy.
+- **Pending Reboot indicator** row added to the Fleet visibility
+  table (this release).
+- Top-level summary table extended with AI assistant and MCP rows.
+- Added this release's new section under "Added in 2.2.x – 2.4.x".
+
+
+
+Documentation and housekeeping release. No server or agent
+behaviour changes beyond the version bump.
+
+- `docs/features.md` brought current through v2.4.12 — mailbox
+  threshold alerting, the `/api/status` endpoint and the
+  recent-activity de-duplication were all missing.
+- `CHANGES.md` and `CHANGELOG.md` merged into a single
+  `CHANGELOG.md`. The two files had drifted apart and each held
+  release entries the other was missing; this is the union.
+- `docs/Manual.html` refreshed for current features and bumped
+  to 2.4.13. The duplicate copy at the repo root was removed.
+- Per-release notes under `docs/` pruned to the most recent
+  three (v2.4.11–v2.4.13). `CHANGELOG.md` remains the complete
+  history.
+- Stale and malformed git tags cleaned up; only the last three
+  releases are tagged going forward.
+- `README.md` rewritten, led with the project logo.
+
+## v2.4.12 - 2026-05-18
+
+Dashboard fix: the "Recent activity" feed showed the most recent 8
+events with no de-duplication, so one noisy host (an hourly
+postfix log_alert) filled all 8 rows and buried everything else.
+The feed now collapses repeated event+host+subject entries to
+their most-recent occurrence — display only, the fleet event log
+still records every event. 5 new tests, 1039 total, all passing.
+
+Make-fleet-health-visible release. Mailbox threshold alerting: a
+mailbox monitor can carry a threshold; crossing it fires a webhook
+(edge-triggered). The Home "Needs attention" panel is now a single
+ranked list computed server-side, merging offline devices, CVEs,
+drift, patches and mailbox alerts. New /api/status endpoint — a
+machine-readable fleet summary for external dashboards (Uptime
+Kuma, Homepage, Grafana), behind a dedicated status token. 14 new
+tests, 1035 total, all passing.
+
+Documentation release. Audited docs/features.md against ~20
+releases of changes — it was missing Proxmox, drift, the mailbox
+monitor, the MCP server and more; now current. Added a full
+install & admin guide (docs/admin-guide.md). The update-available
+banner now shows the actual update commands and states that
+RemotePower does not self-update. 11 new tests, 1021 total, all
+passing.
+
+Added "Scan packages now" to the device action menu. The agent
+normally sends its package inventory + patch count only every few
+hundred heartbeats; this one-shot flag makes it send a fresh
+report on the next heartbeat or two — handy right after patching
+a host. 7 new tests, 1010 total, all passing.
+
+## v2.4.5 - 2026-05-17
+
+Small features release.
+
+### Added
+
+- **"Scan packages now"** in the device action menu. The agent
+  normally submits its package inventory + patch count only every
+  few hundred heartbeats; this sets a one-shot flag so the device
+  sends a fresh report within a heartbeat or two. Useful right
+  after patching a host. The flag fires exactly once.
+
+### Tests
+
+- `test_v245.py`: 7 new tests. Total: **1010, all passing.**
+
+### Upgrading from 2.4.4
+
+Drop-in. Deploy the updated agent so hosts can act on the request.
+
+### Caveats
+
+Not instant — the request reaches the agent on one heartbeat and
+is reported on the next (~1-2 min). The agent must be on 2.4.5.
+
+## v2.4.4 - 2026-05-17
+
+Bugfix and polish for the mailbox monitor, plus favicon.ico.
+
+### Fixed
+
+- **Mailbox monitor never received its paths.** The 2.4.3
+  heartbeat handler read the mailbox path list from a `saved_dev`
+  snapshot that the path list was never copied into — so the
+  agent always got an empty list and never counted. `saved_dev`
+  now carries `mailbox_paths`. A new test asserts the heartbeat
+  response includes them.
+- **favicon.ico restored.** Browsers auto-request `/favicon.ico`;
+  the project shipped only `favicon.png`. A real favicon.ico is
+  now included.
+
+### Changed
+
+- **Mailbox config moved to Settings → Mailbox monitor** (was on
+  the device detail modal).
+- **Dashboard view is now a tile** — same style/size as the
+  Devices / Updates / Drift / CVE tiles, instead of a separate
+  full-width card.
+
+### Tests
+
+- `test_v244.py`: 7 new tests. Total: **1003, all passing.**
+
+### Upgrading from 2.4.3
+
+Drop-in. A mailbox path configured under 2.4.3 starts working
+once 2.4.4 is deployed — no reconfigure needed.
+
+## v2.4.3 - 2026-05-17
+
+Lightweight mailbox monitor.
+
+### Added
+
+- **Mailbox-count monitor.** Give a device one or more directory
+  paths; the agent counts the regular files directly inside each
+  (the Maildir `new/` convention — one file per unread message)
+  and reports the numbers in its heartbeat. No IMAP/SMTP, no
+  credentials, no message content — just counts. Configured in
+  the device detail view; a "Show on dashboard" checkbox promotes
+  a device so its counts appear in a Home-dashboard widget.
+  Counting is done with os.scandir (no shell).
+
+### Tests
+
+- `test_v243.py`: 14 new tests. Total: **996, all passing.**
+
+### Upgrading from 2.4.2
+
+Drop-in. Deploy the updated agent to hosts you want to monitor.
+
+### Caveats
+
+The agent change is unit-tested for logic but not verified
+end-to-end against a live server — smoke-test on one host first.
+Counts refresh every ~5 minutes, not live. Counts files, not
+messages (fits Maildir, not mbox). No threshold alerting yet.
+
+## v2.4.2 - 2026-05-17
+
+Small features release.
+
+### Added
+
+- **Default SSH username** — a per-user setting (Settings →
+  Security → SSH preferences), stored in ui_prefs, validated as an
+  SSH-safe username.
+- **Quick SSH link** on the Devices page — an SSH icon next to
+  each hostname builds an `ssh://user@host` link (IP when known,
+  else hostname) and copies `ssh user@host` to the clipboard. The
+  ssh:// hand-off depends on the client machine having an ssh://
+  handler; the clipboard copy is the universal fallback.
+- **Documentation** — four new Documentation-page cards: Proxmox
+  virtualization, LXC containers, snapshots & rollback, quick SSH.
+
+### Tests
+
+- `test_v242.py`: 11 new tests. Total: **982, all passing.**
+
+### Upgrading from 2.4.1
+
+Drop-in, server-side.
+
+## v2.4.1 - 2026-05-17
+
+Bugfix release — CVE severity cache invalidation.
+
+### Fixed
+
+- **Stale CVE cache served wrong severities.** The 2.3.4 / 2.4.0
+  severity fixes were correct but couldn't reach findings already
+  in `cve_details_cache.json`. Entries written by a pre-2.3.4
+  RemotePower carry a severity from the old buggy classifier and
+  no `severity_source` field; the TTL-only refresh gate kept
+  re-serving them (the tell: `severity: critical` +
+  `severity_source: unknown`, an impossible pair from current
+  code). Now an entry lacking `severity_source` is treated as
+  stale regardless of TTL and re-fetched + re-classified. Self-
+  healing — no manual cache wipe. Modern entries still use the
+  normal TTL.
+
+### Tests
+
+- `test_v241.py`: 3 new tests (stubbed OSV). Total: **971, all
+  passing.**
+
+### Upgrading from 2.4.0
+
+Drop-in, server-side. Stale entries refresh automatically; the
+first post-upgrade scan of each device is a little slower.
+
+## v2.4.0 - 2026-05-17
+
+Proxmox snapshots + a CVE severity fix.
+
+### Added
+
+- **Proxmox VM/LXC snapshots.** A Snapshots button on each guest
+  (Virtualization page for QEMU, Containers page for LXC) opens a
+  modal to create / list / rollback / delete snapshots. Rollback
+  is destructive — the UI requires typing the guest name to
+  confirm. Delete is irreversible but doesn't touch the running
+  guest. Disk-only snapshots (no RAM state). New `proxmox_client`
+  methods + `GET /api/proxmox/snapshots`, `POST /api/proxmox/snapshot`.
+  (Optional CPU/RAM adjustment and backup-trigger from the
+  request are deferred — larger, separate work.)
+
+### Fixed
+
+- **CVE severity: Debian urgency shown as HIGH.**
+  DEBIAN-CVE-2018-1000021 was HIGH while OSV rates it 5.0 Medium.
+  When an OSV Debian entry has no CVSS, the chain fell back to the
+  Debian tracker and mapped Debian's `urgency` straight to
+  severity. Debian `urgency` is a patching-priority signal, not
+  CVSS severity. The fallback is now capped at `medium` — it can
+  never return high/critical.
+
+### Tests
+
+- `test_v240.py`: 17 new tests. One `test_v215` modal-ID test
+  updated for the dynamically-created snapshot modal. Total:
+  **968, all passing.**
+
+### Upgrading from 2.3.4
+
+Drop-in, server-side.
+
+### Caveats
+
+Not tested against a live Proxmox node (unit tests cover logic,
+not API request shapes). Snapshot actions are fire-and-forget —
+no task-completion polling. Disk-only snapshots. CVE severity
+recomputes on next scan.
+
+## v2.3.4 - 2026-05-17
+
+Fleet-issues bugfix release.
+
+### Fixed
+
+- **CVE severity misclassification.** The CVSS scorer did
+  substring matching — `'c:h' in vector` matched `AC:H` (Attack
+  Complexity High) as `C:H` (Confidentiality High), so every
+  high-attack-complexity CVE scored 7.5/HIGH regardless of real
+  impact. A CVSS 2.9 LOW vuln came out HIGH. Now the CVSS vector
+  is properly tokenised and the real CVSS v3.1 base-score formula
+  applied; <4.0 can never be HIGH. Findings carry a
+  `severity_source` field.
+- **Unmonitored devices in Recent Activity.** Events for
+  `monitored:false` devices are now filtered out of the fleet
+  activity feed (at read time, reflecting current state).
+- **Drift false positives.** Watched files can now be marked
+  `ignored` per device — ignored files are non-critical (out of
+  the drift/missing counts, no red status) but stay visible.
+- **Services and Logs** moved from the Security nav group to Main.
+
+### Investigated, not changed
+
+- Dashboard time ranges (#3): no regression found — what looks
+  like "only yesterday" is the known no-server-side-uptime-history
+  limitation, a separate feature, not a bug.
+- Mobile rendering: deprioritised per the issue list (resolved by
+  switching browsers — browser-specific, not a code defect).
+
+### Tests
+
+- `test_v234.py`: 11 new tests; 3 pre-existing severity tests
+  updated for the new `(severity, source)` return. Total: **951,
+  all passing.**
+
+### Upgrading from 2.3.3
+
+Drop-in. CVE severities recompute on the next scan.
+
+## v2.3.3 - 2026-05-17
+
+Bugfix release.
+
+### Fixed
+
+- **Virtualization page was undiscoverable.** The Virtualization
+  nav entry shipped hidden (`display:none`) and was only revealed
+  once Proxmox was enabled — but you enable Proxmox under Settings,
+  so the feature couldn't be found in the first place. The nav
+  entry is now always visible; the page already handles the
+  not-configured state with a "configure under Settings -> Proxmox"
+  message.
+
+### Known issue (not fixed)
+
+A reported broken mobile render (page shows almost nothing) is not
+addressed — it needs the browser console error to diagnose
+properly rather than guess.
+
+### Tests
+
+Full regression: **940 tests, all passing.** No new tests — a
+one-line visibility fix.
+
+### Upgrading from 2.3.2
+
+Drop-in.
+
+## v2.3.2 - 2026-05-17
+
+Security release — no new features. Result of a focused security
+review (full writeup: docs/security-review-2.3.2.md).
+
+### Fixed
+
+- **Unsalted SHA-256 password fallback → salted PBKDF2.** When
+  bcrypt wasn't installed, password hashing fell back to bare
+  unsalted `sha256` — rainbow-table-able if `users.json` leaked.
+  Now salted PBKDF2-HMAC-SHA256 (600k iterations, stdlib). Legacy
+  hashes still verify and upgrade automatically on next login.
+- **Default-password warning.** A bare-metal install seeds
+  `admin`/`remotepower`. The seeded hash is now properly salted,
+  and the account carries a `must_change_password` flag that
+  drives a persistent red UI banner until the password is changed.
+
+### Reviewed, unchanged
+
+Login rate-limiting, constant-time compares, TOTP, agent TLS
+verification, SSRF guard, security headers / CSP — all reviewed and
+sound. Accepted limitations (CSP `'unsafe-inline'`, plaintext
+secrets in config.json, CSRF posture) documented in the review.
+
+### Tests
+
+- `test_v232.py`: 11 new tests. Total: **940, all passing.**
+
+### Upgrading from 2.3.1
+
+Drop-in, server-side only. Existing password hashes keep working
+and upgrade silently on next login.
+
+## v2.3.1 - 2026-05-17
+
+Security release — Proxmox token secret hardening.
+
+### Changed
+
+- **Proxmox token secret via environment variable.** The token
+  secret can now be supplied in `RP_PROXMOX_TOKEN_SECRET` (systemd
+  unit / container env); when set it takes precedence over
+  `config.json`. Keeps the secret out of the data directory and
+  out of the backup export. The `config.json` value remains a
+  fallback. Settings → Proxmox detects an env-sourced secret and
+  disables the config field.
+- **Backup export redacts config.json secrets.** The backup ZIP
+  used to include `config.json` verbatim — carrying the live
+  Proxmox token, SMTP password and LDAP bind password. All three
+  are now redacted in the exported copy (keys kept, values
+  replaced with `(redacted)`).
+
+### Tests
+
+- `test_v231.py`: 8 new tests. Total: **929, all passing.**
+
+### Upgrading from 2.3.0
+
+Drop-in. To move the Proxmox secret out of `config.json`: set
+`RP_PROXMOX_TOKEN_SECRET`, then clear the field in Settings and
+save.
+
+## v2.3.0 - 2026-05-17
+
+Proxmox VE integration.
+
+### Added
+
+- **Proxmox VE integration.** RemotePower connects to a single
+  Proxmox node and surfaces its guests:
+  - New **Virtualization page** — QEMU VMs with status, CPU/mem,
+    uptime; start / graceful-shutdown actions.
+  - **LXC containers** appear as a section on the Containers page,
+    same start / shutdown actions.
+  Server-to-API integration — the RemotePower server calls the
+  Proxmox REST API directly, no agent on the Proxmox node. New
+  stdlib-only `proxmox_client.py` module.
+- **Settings → Proxmox** — host, node, API token ID + secret,
+  Verify TLS toggle, Test-connection button. Token secret is
+  masked in the config API and stored in `config.json` (mode
+  0600, not encrypted — use a scoped API token).
+- Action allow-list (`start`/`shutdown`/`stop`/`status`); UI
+  exposes start + graceful shutdown only. `migrate`/`clone`/
+  `delete` cannot be invoked.
+
+### Tests
+
+- `test_v230.py`: 28 new tests. Total: **921, all passing.**
+
+### Upgrading from 2.2.7
+
+Server-side only, no agent change. Configure under Settings →
+Proxmox; until then nothing changes.
+
+### Caveats
+
+Not tested against a live Proxmox node — unit tests cover the
+logic, not the API request shapes. No background polling (every
+page visit calls the API synchronously). Actions are
+fire-and-forget (no task-status confirmation). Single node only.
+
+## v2.2.7 - 2026-05-17
+
+Mobile hotfix.
+
+### Fixed
+
+- **Mobile navigation drawer was unusable** — a wide panel of
+  unlabelled icons. Two media-query blocks (a 768px icon-rail and a
+  720px drawer) both applied below 720px and fought. The icon-rail
+  block is removed; the drawer is now the single mobile layout with
+  labels, alignment and padding restored.
+
+### Tests
+
+- `test_v227.py`: 6 tests. Total: **893, all passing.**
+
+### Upgrading from 2.2.6
+
+Drop-in — one CSS file changed.
+
+## v2.2.6 - 2026-05-16
+
+Correctness + telemetry release.
+
+### Fixed
+
+- **CVE scanner false positives on already-patched packages.** The
+  scanner turned every OSV hit into a finding with no installed-vs-
+  fixed version comparison — flagging e.g. `lua5.1 5.1.5-9build2`
+  as vulnerable when it's newer than the ESM fix. New
+  `_already_patched()` gate: Debian/Ubuntu uses `dpkg
+  --compare-versions`, other ecosystems a tuple comparator;
+  fail-safe keeps the finding on any uncertainty. Scan result
+  carries a `suppressed_patched` count.
+- **Docker random admin password.** Entrypoint generates a strong
+  random password (`secrets.token_urlsafe`) when `RP_ADMIN_PASS`
+  is unset and prints it once in a banner — no more `changeme`
+  plaintext default.
+- **Docker healthcheck** used `curl`, never installed → container
+  always `unhealthy`. Switched to Python urllib.
+- **nginx `duplicate MIME type "text/html"`** warning — removed
+  `text/html` from `gzip_types`.
+- **`remotepower-passwd` empty-default username** — Enter now
+  defaults to the sole user instead of erroring "User '' not found".
+- **Mobile modal stacking** — z-index scale normalised into clean
+  tiers (dropdowns were at 10000, above modals); opening a modal
+  closes the mobile nav + locks body scroll; mobile modals are
+  full-bleed sheets.
+
+### Added
+
+- **Drift: expanded watch list** (8 → 13 files: passwd, group,
+  login.defs, common-auth, apt sources) + **dormant handling** —
+  a watched file absent for 3 consecutive heartbeats goes dormant,
+  fires one event then goes quiet, stops counting as drift, and
+  auto-revives if the file returns.
+- **Agent host-health telemetry** — `get_host_health()` collects
+  reboot-required, failed systemd units, logged-in users,
+  listening ports, last boot. Surfaced in the device detail modal.
+- **Container CPU / memory + health badge** — agent runs
+  `docker stats`, parses `(healthy)`/`(unhealthy)` from status.
+  Shown on the container card.
+
+### Tests
+
+- `test_v226.py`: 22 new tests.
+- `test_v220` missing-file test updated for the dormant behaviour.
+- Total: **887 tests, all passing.**
+
+### Not included
+
+New monitor types ("more monitor options") are deferred — they
+need check logic + UI forms and warrant their own release.
+
+### Upgrading from 2.2.5
+
+Server + agent drop-in. Rebuild the Docker image for the
+healthcheck/entrypoint fixes.
+
+## v2.2.5 - 2026-05-15
+
+Five UX fixes from live driving of the 2.2.4 dashboard.
+
+### Changed
+
+- **Container width 1100 → 1300 px.** Data density grew through
+  the 2.2 cycle; 1300 fits 4 Home tiles + wide tables comfortably
+  on standard 1920 monitors.
+- **Tables / grids gain scroll wrap above 20 rows.** New
+  `.scrollable-table-wrap` (sticky thead) and
+  `.scrollable-grid-wrap` CSS classes. `tableCtl.render()` toggles
+  the wrap on every render based on rendered row count. Devices
+  card-grid view also gains the wrap above the same threshold.
+- **Home → Recent activity items are clickable.** Each event
+  routes to the most relevant page or modal for its class. Switch
+  statement with explicit cases for every canonical fleet event;
+  contract test asserts parity with `WEBHOOK_EVENT_NAMES`.
+- **Favicon stays at document root.** Caught a real deploy bug:
+  `deploy-server.sh` only published `*.html` from the doc root, so
+  `/favicon.png` returned 404. Added an explicit loop for root
+  non-HTML assets (favicon, robots.txt, manifest.json). Removed
+  the duplicate `static/img/favicon.png` to keep a single source
+  of truth.
+- **Detail / Logs / Run hover affordance removed.** The strip was
+  persistently fiddly (2.2.1 clipping, 2.2.2 placement). The row
+  dropdown chevron exposes the same commands and is
+  keyboard-friendly; clicking the device name opens the detail
+  modal. CSS rule kept as a `display: none` no-op for back-compat.
+
+### Tests
+
+- `test_v225.py`: 14 new tests.
+- `test_v222.TestPolishHotfixes`: three hover-affordance assertions
+  inverted to "the strip is gone" — historical evolution preserved
+  in test comments.
+- Total: **865 tests, all passing.**
+
+### Upgrading from 2.2.4
+
+Drop-in. The favicon fix only takes effect on the next run of
+`deploy-server.sh`.
+
+## v2.2.4 - 2026-05-15
+
+Two real-world bugs surfaced by live testing of the Home dashboard.
+
+### Fixed
+
+- **Recent fleet events panel was empty even after devices went
+  offline.** Root cause: the activity panel read from the webhook
+  delivery log, which only records events that had at least one
+  destination (webhook URL or enabled email). Events firing with
+  no destinations configured (typical fresh install with only SMTP)
+  vanished into the void.
+  - New dedicated **fleet event log** at `data/fleet_events.json`
+    records every fired event regardless of destinations. Capped at
+    `MAX_FLEET_EVENTS = 200`. `'test'` events excluded.
+  - `_record_fleet_event(event, payload)` called from the top of
+    `fire_webhook`, before all the existing gates. Payload
+    summarised to discriminator keys (`device_id, device_name,
+    path, unit, metric, cve_id, severity, …`), strings capped at
+    256 chars.
+  - New endpoint `GET /api/fleet/events?limit=N` (default 50, max
+    200, newest first). Auth: any logged-in user (unlike
+    `/webhook/log` which is admin-only).
+  - Home dashboard `loadHome()` now reads `/fleet/events`; renderer
+    adjusted for the `{ts, event, payload}` shape.
+  - Empty-state copy updated to reflect the new behaviour.
+
+- **Unmonitored devices appeared in "Needs attention".** Operators
+  set `monitored: false` to silence a host (decommissioned, dev
+  boxes, hosts being rebuilt) — the dashboard shouldn't bring them
+  back up.
+  - `_renderHomeAttention` filters `monitored !== false` at the
+    top; reuses the filtered list for offline detection, patch
+    backlog, and drift cross-reference. Same predicate the alert
+    pipeline uses.
+  - Drift section gates on the monitored set too (intersected
+    with drift overview devices).
+
+### Tests
+
+- `test_v224.py`: 16 new tests covering fleet event recording,
+  the endpoint, the no-destinations regression, and frontend
+  changes.
+- Total: **851 tests, all passing.**
+
+### Upgrading from 2.2.3
+
+Drop-in. New `data/fleet_events.json` created on first event
+firing — no migration. On a fresh upgrade the activity panel is
+empty until the next event fires; the "Needs attention" panel
+benefits immediately.
+
+## v2.2.3 - 2026-05-15
+
+Hotfix to the Home dashboard activity panel — operator SMTP /
+webhook tests were drowning real fleet events.
+
+### Fixed
+
+- **Activity panel now filters to canonical fleet events.** The
+  JS keeps a `FLEET_EVENTS` allowlist mirroring the server's
+  `WEBHOOK_EVENTS` tuple (`device_offline`, `device_online`,
+  `monitor_*`, `service_*`, `cve_found`, `patch_alert`, `log_alert`,
+  `container_*`, `metric_*`, `command_*`, `drift_detected`). The
+  `test` event used for SMTP test deliveries and webhook test
+  deliveries is **not** in the list, so test rows no longer
+  clutter the dashboard.
+- Tests are still recorded in the underlying webhook log
+  (Settings → Webhook log view, unchanged) — they just don't
+  reach the activity panel.
+- The filter runs **before** `slice(0, 8)`, so real events can't
+  be crowded off the visible window by a burst of test noise.
+
+### Tests
+
+- `test_v223.TestActivityFilter`: 3 tests. The contract test
+  asserts the JS allowlist is exactly equal to the server's
+  `WEBHOOK_EVENT_NAMES` — if a future commit adds a fleet event
+  to the server tuple without updating the JS, the dashboard
+  silently dropping that event surfaces as a test failure.
+- Total: **835 tests, all passing.**
+
+### Upgrading from 2.2.2
+
+Drop-in. No data migrations, no agent changes.
+
+## v2.2.2 - 2026-05-15
+
+Small hotfix for three things found in the first browser run of
+2.2.1. No new features.
+
+### Fixed
+
+- **Hover-action focus ring clipped on right edge.** The 2.2.1
+  hover-revealed `Detail · Logs · Run` strip lived in the narrow
+  last cell; focus rings extended beyond the cell's right edge and
+  got visibly clipped. v2.2.2 moves the strip to the first cell
+  (kept absolutely positioned so visual placement is unchanged),
+  bumps `right: 12px` → `right: 24px`, adds `z-index: 2`, suppresses
+  the system focus outline in favour of a softer accent border.
+- **Home dashboard activity panel hit a 404.** `loadHome()` called
+  `/api/webhook-log` — the path should have been `/api/webhook/log`.
+  Also adjusted the renderer to handle the actual response shape
+  (a flat list, not `{events: [...]}`). Viewers (who don't have
+  permission for this endpoint) now see the friendly empty state
+  rather than a console error.
+- **`handle_webhook_log` 500 on bare-list `webhook_log.json`.**
+  Pre-existing bug surfaced by the same test. Some deployments
+  (older releases or hand-edited files) have the file as a bare
+  list instead of `{entries: [...]}` — handler now accepts both.
+
+### Tests
+
+- `test_v222.py`: 8 new tests covering the three fixes.
+- Total: **832 tests, all passing.**
+
+### Upgrading from 2.2.1
+
+Drop-in. No data migrations, no agent changes.
+
+## v2.2.1 - 2026-05-15
+
+Design polish release. No new feature surfaces — nine focused
+improvements to how the existing ones look and feel, plus one
+sub-feature (drift diff visualisation) that completes the v2.2.0
+drift detection story.
+
+### Added — Design polish (10 pieces)
+
+1. **Distro logos next to device names.** Branded SVGs for Ubuntu,
+   Debian, Arch, CachyOS, Fedora, RHEL family, openSUSE, Alpine,
+   NixOS, Raspbian, FreeBSD, generic Linux. Inline, ~14×14, no
+   external requests. Visible on device cards, the minimal table,
+   the Drift page, and the Home dashboard. `osIcon()` API
+   preserved — existing callers get the upgrade automatically.
+
+2. **Sparkline mini-charts on device cards.** 52×14 SVG line
+   charts next to disk and memory percentages. Auto-coloured by
+   value (green / amber / red). Client-side ring buffer in
+   `window._metricsHistory` builds 24 readings per metric per
+   device as you sit on the page.
+
+3. **Refined status colour palette.** New `--green-soft/edge`,
+   `--amber-soft/edge`, `--red-soft/edge`, `--accent-soft/edge`
+   CSS variables. New `.status-pill` component with five
+   variants. Critical-state pulse animation (warning states are
+   deliberately *not* pulsing — too noisy at fleet scale).
+   `prefers-reduced-motion` honoured.
+
+4. **Skeleton loaders replace centred spinners.** Shimmer-animated
+   placeholder rows / cards on 11 HTML tables + 6 JS-injected
+   loading states. New `renderSkeletonRows()` and
+   `renderSkeletonCards()` helpers.
+
+5. **Home dashboard** — new default landing page. Four big-number
+   tiles (devices online, pending updates, drift events, CVE
+   findings), "Needs attention" panel, "Recent activity" feed,
+   fleet roster with 7-day status stripe per device. The first
+   page you see is now fleet-at-a-glance, not the devices list.
+
+6. **✨ identity extended.** Every ✨ button gets `.ai-btn` +
+   provider-tinted glow (`.available` for cloud, `.local` for
+   Ollama / LocalAI). AI-thinking state shows three sparkles
+   cycling. AI-generated markdown content gets a gradient left
+   edge. MutationObserver auto-applies to newly-rendered content.
+
+7. **Typography upgrade.** Inter (UI) + JetBrains Mono (technical
+   identifiers) via bunny.net — privacy-friendly Google Fonts
+   mirror. Graceful fallback to system font stack for air-gapped
+   deployments. `font-feature-settings cv02 cv03 cv04 cv11 ss01`
+   enabled for the better "1", "a", "g" glyphs.
+
+8. **Per-row hover affordances.** Minimal devices table rows
+   reveal a `Detail · Logs · Run` strip on hover. Saves a click vs
+   opening the row dropdown. Hidden on mobile (no hover on touch).
+
+9. **Mobile dashboard view.** Phone-sized layout (<720 px):
+   sidebar behind a burger button, tile grid stacks, low-priority
+   columns hidden, tap targets ≥36 px, modals nearly full-screen.
+
+10. **Logo → Home.** The header logo now navigates to the Home
+    dashboard (was: Devices page).
+
+### Added — Drift diff visualisation
+
+The diff view that completes the v2.2.0 drift detection story.
+
+- New endpoint `POST /api/devices/<id>/drift/fetch_content` —
+  queues `exec:cat <path>` for each requested path. Denylist
+  enforced (`/etc/shadow`, `/etc/gshadow`, rotated `-` siblings).
+  Refuses non-watched paths to prevent use as an arbitrary
+  file-read primitive.
+- New endpoint `GET /api/devices/<id>/drift/content?path=...` —
+  returns up to 2 stored captures with sha256.
+- New mirror hook `_maybe_mirror_drift_content()` in the heartbeat
+  output-ingest path. Detects `exec:cat <watched_path>` outputs
+  and mirrors them into `drift_contents.json`. Denylist enforced
+  on the mirror side too (defence in depth).
+- New storage `data/drift_contents.json`, last 2 captures per
+  path, ≤256 KB per capture.
+- New UI: "Show diff" button per drifted file. Opens a sub-modal
+  that polls for the cat output (every 5s, up to 90s) and renders
+  a unified diff between the two most recent captures using
+  LCS-based pure-JS `computeDiff()` + `renderDiff()`.
+- New CSS: `.diff-view`, `.diff-line.add/del/hunk` for unified
+  diff with syntax-coloured backgrounds.
+
+### Tests
+
+- `test_v221.py`: 46 new tests covering drift content fetch (7),
+  drift content get (5), drift content mirror (6), and design
+  polish asset presence (28 — verifies CSS / JS / HTML structures
+  are in place).
+- Pre-existing `test_v215.TestHtmlIdReferences`: drift-diff-modal
+  IDs added to `KNOWN_DYNAMIC_IDS`.
+- Total: **824 tests, all passing.**
+
+### Upgrading from 2.2.0
+
+Drop-in for the server. The new `data/drift_contents.json` file
+is created on first content-fetch request — no migration needed.
+No agent changes required: drift content fetch uses the existing
+`exec:cat` mechanism, supported by every agent v1.0+.
+
+## v2.2.0 - 2026-05-15
+
+First minor-version bump since 2.1.0. Two new feature surfaces, both
+tied to current themes in the fleet-management space.
+
+### Added — Configuration drift detection
+
+New **Drift** page under the Security sidebar group. Per-device
+file integrity monitoring for a configurable list of config files
+(default: SSH config, sudoers, fstab, crontab, hosts, resolv.conf,
+nsswitch.conf, PAM sshd).
+
+- Agent computes SHA-256 hashes of watched files every few
+  heartbeats and ships them in the heartbeat payload.
+  **Hash-only by design** — file contents never cross the wire on
+  routine polling. `/etc/sudoers` and `/etc/shadow` can be watched
+  without privacy concerns.
+- Server stores baselines, detects divergence, fires
+  `drift_detected` webhook once per change (debounced — not on
+  every poll that reports the same new hash).
+- New UI: fleet overview table + per-device detail modal with
+  history viewer and "accept as baseline" button. Baseline
+  acceptances are audit-logged with actor + timestamp.
+- New endpoints: `GET /api/drift`, `GET / POST-baseline / DELETE
+  /api/devices/<id>/drift`.
+- New webhook event: `drift_detected` (defaults to enabled).
+- New storage: `data/drift_state.json`, history capped at 20
+  changes per file.
+- **Requires agent v2.2.0+** for the agent-side hash reporting.
+  Older agents work normally, just don't show drift data.
+- Reference: [docs/drift.md](docs/drift.md). Compliance angle:
+  SOC 2 CC6.1/CC6.6, ISO 27001 A.12.4.3/A.14.2.4, HIPAA
+  164.312(c), PCI DSS 11.5, FedRAMP.
+
+### Added — MCP server (natural-language fleet queries)
+
+New `mcp/remotepower-mcp.py` (~470 lines, pure stdlib Python).
+Implements the [Model Context Protocol](https://modelcontextprotocol.io)
+so AI hosts like Claude Desktop, Cursor, or VS Code Copilot can
+query the fleet in natural English.
+
+- Runs on the **operator's laptop**, not on the RemotePower server.
+  Spawned as a stdio subprocess by the AI host.
+- Speaks JSON-RPC 2.0 over stdin/stdout; calls RemotePower's REST
+  API on behalf of the AI using a regular API token.
+- **12 read-only tools**: `list_devices`, `get_device`,
+  `get_journal`, `get_services`, `get_containers`, `get_cves`,
+  `get_drift`, `get_recent_commands`, `get_runbook`,
+  `get_patches`, `get_tls`, `search_devices`.
+- Device-name resolution: exact → prefix → substring →
+  ambiguity error.
+- **No write tools**, by deliberate design. Test suite asserts
+  no write-shaped names slipped in. Write tools land in a future
+  release with the server-side allow-list and per-token role in
+  place — not before.
+- Protocol version pinned to `2024-11-05` (widely-supported
+  version hosts standardised on).
+- Setup, Claude Desktop config snippet, security model,
+  troubleshooting: [docs/mcp.md](docs/mcp.md).
+
+### Changed
+
+- **README "What's new"** trimmed to the latest three releases
+  (2.2.0, 2.1.9, 2.1.8).
+- **In-app Documentation page**: new doc-cards for Drift and MCP.
+
+### Tests
+
+- `test_v220.py` (24 tests): drift ingest behaviour (7), drift
+  endpoints (5), MCP protocol (7), MCP device resolution (5).
+- `test_v184.TestWebhookEventsConstant`: updated for new
+  `drift_detected` event.
+- `test_v215.TestHtmlIdReferences`: added drift-detail-modal IDs
+  to `KNOWN_DYNAMIC_IDS` allow-list.
+- Total: **778 tests, all passing.**
+
+## v2.1.9 - 2026-05-15
+
+Same-day hotfix for runbook hallucination on smaller local models,
+plus a demo URL correction.
+
+### Fixed
+
+- **Runbook generator was inventing services, ports, firewall rules
+  on smaller local models** (reported on Ollama qwen2.5-coder:14b).
+  Three compounding causes, all fixed:
+  1. **Ollama defaults to `num_ctx=2048` on the OpenAI-compat
+     endpoint** — the snapshot was being truncated mid-content and
+     the model invented the rest. `ai_provider.chat_openai_compatible`
+     now passes `options.num_ctx=16384` for Ollama / LocalAI
+     (ignored by real OpenAI / DeepSeek, which accept unknown body
+     keys).
+  2. **The v2.1.7 runbook prompt was too elaborate** — 8 verbose
+     sections, no explicit anti-fabrication instructions. Rewritten
+     to ~1 KB / 6 sections with `CRITICAL RULES` near the top:
+     "Use ONLY information from the snapshot. Do NOT invent…", and
+     each section has an explicit "if empty, write X" fallback.
+  3. **The snapshot itself was too big** — up to 25 KB. Tightened
+     to ~8 KB: 20 journal lines (was 40), 5 commands at 200 chars
+     each (was 15 × 500), 10 CVEs at 100-char summaries (was 20 ×
+     200), 10 containers (was 30), 500-char notes (was 1000),
+     trimmed sysinfo to 9 operator-relevant fields, top 5 disks by
+     usage.
+
+- **Demo URL is `demoremote.tvipper.com`**, not `demo.tvipper.com`.
+  Fixed across all `*.md` and `*.html` in the repo.
+
+### Tests
+
+- `test_v219.py` (8 tests): num_ctx wiring (Ollama/LocalAI yes,
+  OpenAI no), prompt anti-hallucination keyword presence + size
+  cap, snapshot bounded under 10 KB on synthetic heavily-populated
+  device, no bare `demo.tvipper.com` in markdown files.
+- Total: **754 tests, all passing.**
+
+### Upgrade note
+
+Existing stored runbooks in `runbooks.json` were written under the
+bug. Worth regenerating any you care about via the **✨ Regenerate**
+button on each device's detail modal Runbook section.
+
+## v2.1.8 - 2026-05-15
+
+Hotfix for a v2.1.7 bug where the AI fleet context reported every
+device as offline.
+
+### Fixed
+
+- **AI fleet context wrongly reported all devices as offline.** The
+  `ai_context.py` builder was reading `d.get('online')` directly,
+  but `online` is a derived field computed on-the-fly by
+  `handle_devices_list` from `last_seen` + `get_online_ttl()` — it's
+  not persisted in `devices.json`. Every device looked `online=None`
+  → falsy → "offline" in the AI's view. Reported by an operator
+  whose live web server showed as offline in an AI chat response.
+- Fixed: `ai_context._is_online()` now computes status canonically
+  using the same formula as the device-list handler (recent
+  heartbeat → online; agentless → manual_status default True).
+  `build_fleet_context` and `build_combined_system_prompt` accept
+  `now` and `ttl`; callers in `handle_ai_chat` and
+  `handle_runbook_generate` pass `get_online_ttl()` so the AI sees
+  exactly the same status as the dashboard.
+- 5 new regression tests in `test_v217.py`; two pre-existing tests
+  rewritten to use `last_seen` instead of the phantom `online`
+  field that hid the bug.
+
+Total: **746 tests, all passing.**
+
+## v2.1.7 - 2026-05-14
+
+Two new AI features and a few README/docs polish bits.
+
+### Added
+
+- **AI-generated device runbooks** (`✨ Generate runbook` in the
+  device dropdown). Structured Markdown document per device —
+  Purpose / Stack / Services / Exposure / Scheduled work / Recent
+  activity / Health & risks / Operating notes. Built from the
+  device's current state (sysinfo, journal, services, containers,
+  CVEs, patch status, recent commands). Saved per-device in
+  `runbooks.json`, regenerable any time.
+  - New endpoints: `GET / POST-generate / DELETE
+    /api/devices/<id>/runbook`.
+  - New UI: ✨ Generate runbook modal with elapsed-time ticker;
+    Runbook section on the device detail modal with View / Regenerate
+    / Delete buttons.
+  - Rate-limited under the same per-user-per-day cap as `/api/ai/chat`.
+  - No batch "regenerate all" button, deliberately — cost-sensitive.
+
+- **Level-1 RAG context awareness.** Every AI request now prepends
+  a project-context block (what RemotePower is, the storage
+  conventions, the agent/heartbeat model) plus a fleet snapshot
+  (one line per device with name / OS / status / group / tags /
+  notes). Online devices first.
+  - New `ai_context.py` module (~180 lines, pure stdlib): no
+    embeddings, no vector store. For ~5000 lines of docs and ~10
+    devices, hand-curated context is cheaper and just as effective
+    as a real RAG pipeline.
+  - Configurable in Settings → AI assistant → **Context awareness**.
+    Two checkboxes: include project context (non-sensitive, default
+    on), include fleet snapshot (contains hostnames, default on).
+  - Makes the AI stop giving generic Linux advice and start giving
+    advice that references your devices, your groups, your conventions.
+
+### Changed
+
+- **README**: demo URL (`https://demoremote.tvipper.com`, demo/demo) now
+  visible at the top of Quick start; "What's new" trimmed to the
+  latest three releases. Older entries point at CHANGES.md.
+- **Documentation page** (in-app): added four new doc-cards covering
+  Scripts (script library), AI assistant (✨ button inventory),
+  Device runbooks (v2.1.7), and Notification setup (recommended
+  baseline + maintenance windows + ✨ Explain on alerts).
+
+### Tests
+
+- `test_v217.py` (26 tests): context module, chat integration,
+  runbook generate / get / delete
+- `test_v213.py`: updated for the new context-wrapped system prompt
+- Total: **741 tests, all passing**
+
+## v2.1.6 - 2026-05-14
+
+Same-day hotfix for two compounding bugs on the Patches page.
+
+### Fixed
+
+- **Patches → Detail button threw "can't access property textContent
+  of null".** Two issues stacked:
+  1. The 2.1.5 ✨ Prioritise button placed `display:flex` on a
+     `<td>`, which removed the cell from its `display:table-cell`
+     behaviour and made the Detail buttons render outside the
+     table. Fixed: flex container moved to a `<div>` inside the cell.
+  2. The Detail handler `openDevicePatchReport()` referenced
+     `#device-patch-title` / `#device-patch-body` / `#device-patch-modal`
+     — but **those elements were missing from `index.html`
+     entirely**. The function had been broken for several releases;
+     the new ✨ Prioritise button drew attention to it. Restored
+     the missing modal.
+
+### Added — regression test
+
+- `tests/test_v215.py::TestHtmlIdReferences` scans `app.js` for
+  every `getElementById(...)` + `(open|close)Modal(...)` reference
+  and verifies the ID exists in `index.html` (modulo a
+  `KNOWN_DYNAMIC_IDS` allow-list for AI modal + toast). Bugs of
+  this exact shape — JS referencing an HTML element that doesn't
+  exist — will now fail at build time. Verified by temporarily
+  removing the modal: test correctly listed all three missing IDs.
+
+- 715 tests total, all passing.
+
+## v2.1.5 - 2026-05-14
+
+Polish release. Six items queued from real-world use of the 2.1.3/4
+AI work plus the long-pending stderr-spam fix.
+
+### Fixed
+
+- **"No Data Provided" from ✨ Investigate** even when the device had
+  data. Root cause: the JS was hitting `GET /api/devices/<id>` — a
+  route that doesn't exist. Fixed: assemble the snapshot in parallel
+  from `/sysinfo`, `/output`, and the devices list. Bails visibly
+  ("No data available yet — has the agent checked in?") if there's
+  genuinely nothing to send.
+- **AI responses now render Markdown.** Models love their `**bold**`
+  and `## headers` and `` `code` `` — showing them as raw punctuation
+  was jarring. New `renderMarkdown()` helper: HTML-escape *first*,
+  then transform — no script-injection vector. Supports headers,
+  bold/italic, code fences, inline code, bullet/numbered lists, and
+  blockquotes. Used in both the ✨ modal and the AI page chat.
+- **Routine heartbeat / lock_wait logs silenced by default.** The
+  `rp-silence-heartbeat-logs.sh` patch from 2.1.2 is now redundant —
+  all three of its behaviours are the default. Per-request heartbeat,
+  the `202 busy` retry log, and both lock_wait variants now require
+  `RP_LOG_HEARTBEATS=1` / `RP_LOG_LOCK_WAITS=1` in the CGI env to
+  re-enable. **OFFLINE/ONLINE state transitions and real-error
+  stderr writes stay unconditional.**
+
+### Changed
+
+- **AI Assistant moved to Help section** (between Documentation and
+  API Reference). Was under Planning, which never quite fit.
+- **Device-card dropdown is now grouped + collapsible.** Was 22
+  items in one vertical list, taller than most cards. New layout:
+  - **Power** at top (always visible): shutdown / reboot / WoL / upgrade
+  - **Inspect** (open by default): System info / ✨ Investigate / Metrics / Update history
+  - **Operate** (collapsed): Web terminal / Custom command / Run script… / docker compose / Agent update
+  - **Configure** (collapsed): tags, group, notes, intervals, allowlist, icon, monitoring
+  - Remove device in its own danger zone at the bottom
+
+  Native `<details>`/`<summary>` for the collapse — no JS needed.
+  Both render sites (grid + table) share one `deviceDropdownHtml()`
+  helper now instead of duplicating the 1.5 KB markup.
+
+### Added — four new ✨ button surfaces
+
+| Surface | Label | When it shows |
+|---|---|---|
+| Services → service detail | **✨ Diagnose** | non-active services |
+| TLS → table row | **✨ Triage** | warning / critical / error only |
+| Patches → table row | **✨ Prioritise** | devices with pending updates |
+| (Helper exists for container logs but unused — covered by existing ✨ Explain on command output) | | |
+
+Four new system-prompt keys: `diagnose_service`, `explain_tls`,
+`prioritise_patches`, `explain_container_logs`.
+
+### Documentation
+
+- New **docs/ai.md** (~280 lines): provider selection, privacy
+  toggles, rate-limit model, complete ✨ button inventory, AI page
+  walkthrough, endpoint reference, system-prompt registry, storage
+  layer, troubleshooting for every error users have hit.
+- **docs/scripts.md**: added AI integration section covering the
+  Generate / Explain / Audit buttons.
+- **docs/README.md** index updated.
+
+### Tests
+
+- `test_v215.py` (3 tests): new prompt keys exist + env-gating
+  pattern correct + state-transition logs stay unconditional.
+- `test_v213.py`: system-prompt registry test updated.
+- Total: **711 tests, all passing.**
+
+## v2.1.4 - 2026-05-14
+
+Same-day follow-up to 2.1.3 fixing the JSON.parse-on-every-button bug
+against slow local Ollama models, plus a stand-alone AI Assistant page.
+
+### Fixed — `JSON.parse: unexpected character at line 1 column 1`
+
+**Symptom**: 2.1.3 Test Connection succeeded, but every actual ✨
+button against Ollama smallthinker (a thinking model) failed with
+the above SyntaxError.
+
+**Root cause**: ✨ buttons defaulted to `max_tokens=4000` and the
+model needed 60–180 seconds to generate. nginx's default
+`fastcgi_read_timeout` of 60s closed the connection first, returning
+a 504 HTML page. The JS `api()` helper called `r.json()` on the HTML
+body and threw.
+
+**Fix**:
+
+- `HTTP_TIMEOUT_S` in `ai_provider.py` 60 → 300 (5 min)
+- Per-button `max_tokens` tuned to the typical response length
+  (Explain: 1500, Triage: 1000, Generate-script: 4000, etc.)
+- New `aiApi()` JS helper — reads raw text first, surfaces a
+  structured error with the HTTP status, response snippet, and a
+  contextual hint (including the specific nginx config block to set
+  if it looks timeout-shaped)
+- Live "(Xs elapsed)" ticker in the ✨ modal and the AI page
+
+**Operator action required for nginx**: add a `location /api/ai/`
+block with `fastcgi_read_timeout 300s;` (full snippet in
+`docs/v2.1.4.md`). The Python timeout helps but nginx is the
+gatekeeper.
+
+### Added — AI Assistant page
+
+Sidebar entry under Planning. Standalone chat UI alongside the
+inline buttons:
+
+- **Status header** with provider, base URL, reachability, version
+  (Ollama), currently-loaded models with VRAM use + expiry
+- **Per-conversation model picker** populated from `GET /api/tags`
+  (Ollama), `GET /v1/models` (LocalAI / OpenAI / DeepSeek), or the
+  hardcoded fallback list (Anthropic). Overrides the global default
+  for this conversation only — Settings still controls the default.
+- **Multi-turn chat** with localStorage history (last 40 messages),
+  Ctrl/⌘+Enter to send, Clear wipes local history only (audit log
+  untouched). Conversation is local to the browser by design — never
+  synced server-side.
+
+New system prompt key `free_form` (concise, no filler).
+
+### Added — provider introspection endpoints
+
+- `GET /api/ai/models` — list available models with size / family /
+  param-count where the provider exposes it
+- `GET /api/ai/stats`  — provider, base_url, version, loaded_models,
+  reachable
+
+Both require auth, honour the disabled state, never leak the API key.
+
+### Internal
+
+- `ai_provider.py`: `_http_get_json`, `_ollama_root` (strips a
+  trailing `/v1` so operators can paste either URL form),
+  `list_models`, `provider_stats`, `CLOUD_MODELS` fallback
+- `chat()` accepts `model` kwarg for per-request overrides
+- `handle_ai_chat()` accepts `model` and `max_tokens` from body
+  (both validated, max_tokens capped to configured limit)
+- 8 new tests (708 total, all passing)
+
+## v2.1.3 - 2026-05-14
+
+### Fixed
+
+**About page showed "Latest release 2.0.0 ✓ up to date" on a 2.1.2
+box.** Two combining causes: `handle_version_check()` read
+`server_version` out of `config.json` (often stale because installers
+stamped it once and upgrades didn't refresh it), and the displayed
+"latest" was GitHub's most recent tagged release — which is
+legitimately older than the running version on a dev build or
+between cutting and publishing a release. Fixed: read `local` from
+the `SERVER_VERSION` module constant, and clamp `latest = max(github,
+local)` so the UI never tells you to "upgrade" to a version older
+than what you have.
+
+### Added — AI assistant
+
+Optional LLM integration with five providers behind a single
+`/api/ai/chat` endpoint. **Disabled by default**; admin opts in via
+Settings → AI assistant.
+
+Providers covered by the OpenAI-compatible adapter (`/v1/chat/completions`):
+**OpenAI / ChatGPT**, **DeepSeek**, **Ollama**, **LocalAI**. Anthropic
+(Claude) gets its own adapter for `/v1/messages`. Pure stdlib —
+no pip-installed packages added.
+
+Settings → AI assistant:
+
+- Provider, model, optional base URL override
+- API key (masked on read, last-4 visible, `__clear__` to wipe)
+- Privacy toggles for what gets sent: hostnames (off), IPs (off),
+  journal content (off), command output (on). Bearer tokens, AWS
+  keys, and long hex strings are *always* redacted regardless.
+- Per-response token cap, per-user-per-day request cap
+- Test-connection button
+
+Inline ✨ buttons funnel through one reusable modal:
+
+| Surface | Label |
+|---|---|
+| Command output panel | **✨ Explain** |
+| Journal panel | **✨ Find the problem** |
+| Script editor | **✨ Generate from prompt** (inserts into textarea) |
+| Script editor | **✨ Explain** |
+| Script editor | **✨ Audit for risks** |
+| CVE finding row | **✨ Triage** |
+| Device dropdown (⋯ menu) | **✨ Investigate** |
+| Webhook log row | **✨ Explain** |
+
+Generated scripts go through the same dry-run + dangerous-pattern
+detection as human-written ones — no special AI-trusted path.
+
+Endpoints:
+
+- `GET  /api/ai/config` — masked
+- `POST /api/ai/config` — admin, validated, audit-logged
+- `POST /api/ai/chat`   — auth, system-prompt key OR literal,
+  redacted, rate-limited per user/day, audit-logged (token counts
+  + elapsed only — never the prompt/response content)
+- `POST /api/ai/test`   — admin smoke test
+
+### Internal
+
+- `ai_provider.py` module (~360 lines, stdlib only): provider
+  abstraction, redaction, system prompt registry
+- 40 new tests in `tests/test_v213.py`: redaction (always-on + toggle),
+  validators, About-page logic (running-ahead, GitHub-ahead, stale-key),
+  config CRUD, chat endpoint, rate limiter (per-user isolation,
+  zero-means-unlimited). Total suite **700 tests, all passing**.
+
+### Misc
+
+- Favicon link updated to `/favicon.png` (user-added to html root)
+  with a shortcut-icon fallback.
+- All 9 version-string sites bumped 2.1.2 → 2.1.3.
+
+## v2.1.2 - 2026-05-14
+
+### Fixed
+
+**Lost-update race in heartbeat (THE actual offline bug).** v2.1.0's
+`save()` redesign moved the tmp-file write outside the lock so the
+critical section was just the rename. Correct for single-shot saves
+but it broke an unspoken contract with callers that did
+read-modify-write: load → mutate → save was no longer atomic. Two
+concurrent heartbeats from different devices interleaved their
+load/save windows and the second one's rename clobbered the first
+one's `last_seen` update. Devices drifted past TTL and got marked
+offline despite heartbeating fine — looked identical to the
+original 2.0 flock fluctuation, but the cause was completely
+different.
+
+Fix: new `_locked_update(path)` context manager that holds the flock
+across load → mutate → save. `handle_heartbeat()` is rewritten around
+this primitive so concurrent heartbeats now serialise correctly. The
+`compose_projects` update (which previously did a separate save) is
+merged into the same atomic transaction.
+
+`save()` itself still uses the v2.1.0 fast-path (tmp+fsync outside
+lock) — that optimisation is correct for *single-shot saves where
+the caller doesn't read first*. The new primitive is for callers
+that do RMW, who now opt in explicitly.
+
+### Internal
+
+13 new tests in `tests/test_v212.py` including a threaded
+reproducer for the race (20 concurrent updaters, asserts every
+update is preserved) and a deliberate demonstration of the bug
+using the old pattern. Total suite: **660 tests, all passing.**
+
+Other admin-action RMW sites (note/group/tag/poll-interval edits)
+still use the unsafe pattern but are much lower frequency than
+heartbeats. Migrating them to `_locked_update` is queued for a
+follow-up release.
+
+## v2.1.1 - 2026-05-13
+
+### Fixed
+
+**Offline regression from 2.1.0.** The 2.1.0 heartbeat handler used
+the non-blocking save path for *every* save, including `last_seen`.
+Under flock contention that save would 202 silently *before*
+`last_seen` was persisted — the agent treated 202 as success, the
+server still thought the device was last seen however-long-ago, and
+the device drifted past the online TTL → marked offline even though
+heartbeats were arriving fine. Fixed: the `DEVICES_FILE` save is back
+to blocking (which is now microseconds-fast thanks to the 2.1.0
+fsync-outside-lock work). Only the *optional* saves below it
+(cmd_output, containers, config, etc.) keep non-blocking semantics.
+
+**Diagnostics were silent.** Two 2.0-era code smells made the offline
+bug above invisible to operators: `check_offline_webhooks()` only logged
+inside `fire_webhook()`, so an operator without webhooks got a silent
+state flip; and `main()` wrapped every per-request maintenance sweep in
+`try: ... except Exception: pass`, swallowing every error including
+ones an operator most needs to see. Now: state transitions always log
+`[remotepower] OFFLINE dev=… last_seen=… delta=…s ttl=…s` regardless
+of webhook config; heartbeat arrival logs to stderr (visible in nginx
+error log); the bare except-pass blocks are replaced with a `_safe()`
+helper that prints the full traceback before continuing.
+
+**`log_alert` webhook now includes the matched line.** Pre-2.1.1 the
+message read `host/unit: pattern "X" matched N times` — no actual log
+content. The payload already had `sample` (first 3 matching lines);
+`_webhook_message` just wasn't using it. Now the message shows the
+first matched line (truncated to 200 chars for embed compatibility)
+and an `(+ N more matching lines)` footer if there were more.
+
+### Changed
+
+**Default offline TTL bumped from 3 → 5 minutes.** `DEFAULT_ONLINE_TTL`
+is now 300s (= 5 missed polls at the 60s default interval).
+`MIN_ONLINE_TTL` is now 150s (was 90). Field reports of "device went
+offline" turning out to be brief network blips the agent recovered
+from. Operators who want the old tighter behaviour can configure
+`online_ttl: 180` via Settings → Webhooks.
+
+### Added
+
+**Per-container actions on the Containers page.** Start / Stop /
+Restart / Logs buttons on every reported container. New agent
+dispatch `container:<runtime>:<action>:<id>` with argv-only invocation
+(no `shell=True`), tight ID regex (`[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}`),
+runtime allowlist (docker | podman; kubectl excluded), and action
+allowlist (start, stop, restart, pause, unpause, logs). New endpoint
+`POST /api/devices/<id>/containers/action` validates the requested
+`container_id` against the agent's last-reported listing — same
+security boundary as compose. Kubernetes pods don't get action buttons
+since the agent generally doesn't have the kubectl context to act on
+them through this path.
+
+**Demo data reflects v2.1 features.** `seed-demo-data.py` now also
+seeds `scripts.json` (5 example scripts including one deliberately
+flagged dangerous to demo the `⚠ DANGER` badge), `batch_jobs.json`
+(one recently-completed batch run for the status modal), and
+`log_watch.json` (two log-watch rules and one fired alert showing
+the new matched-line format). 6 demo devices report tag-driven
+`compose_projects` so the v2.1.0 compose dropdown is visible in the
+demo.
+
+### Internal
+
+20 new tests in `tests/test_v211.py` (647 total, all passing).
+Bumped all 9 version-string sites from 2.1.0 → 2.1.1.
+
+## v2.1.0 - 2026-05-13
+
+### Fixed
+
+**Flock offline fluctuation.** Heartbeats no longer hold the per-file
+flock across `fsync()`. `save()` now writes the per-process unique tmp
+file *outside* the lock and holds it only for the rolling-backup copy
+and atomic rename — both O(1) metadata ops. Adds an explicit
+`non_blocking=True` mode that retries `LOCK_NB` for ~100 ms and raises
+`LockBusy` on persistent contention. The heartbeat handler catches
+`LockBusy` and returns HTTP 202 (Accepted), which the agent treats as
+"delivered, retry next cycle". Result: a busy save no longer stalls
+the request past the agent's HTTP timeout, and devices stop flipping
+between online and offline. Lock waits >50 ms log to nginx error log
+as `[remotepower] lock_wait path=… waited_ms=… mode=…`. See
+the v2.1.0 release notes for the full rationale.
+
+**Auto-refresh closes browser window / crashes tab.** Two independent
+bugs combined: `escHtml()` didn't escape `'`, so device names like
+`O'Brien` broke out of inline `onclick="fn('${escHtml(d.name)}')"`
+strings on every 60 s refresh; and `setInterval` kept firing under
+open modals and background tabs, re-rendering the device grid out
+from under captured event handlers. Fix: new `escAttr()` that
+hex-escapes (`\x27` etc.) for JS-in-attribute contexts (73 inline
+handler sites converted); refresh pauses when a modal is open or the
+tab is hidden; `toggleDropdown` no longer leaks click handlers to
+detached DOM nodes.
+
+### Added
+
+**Script library** (`docs/scripts.md`). New **Scripts** page in the
+sidebar for multi-line bash scripts, separate from the existing
+one-liner Command Library. CRUD + on-demand dry-run using `bash -n`
+plus an 11-pattern dangerous-command regex sweep
+(rm -rf /, fork bombs, dd to block devices, mkfs against /dev/,
+curl|bash, etc.). Body capped at 64 KB; 500 scripts per server.
+Routes: `GET/POST/PUT/DELETE /api/scripts[/<id>]`,
+`POST /api/scripts/<id>/dry-run`.
+
+**Multi-select script execution.** New "Run script" button on the
+batch action bar. Pick a saved script, fan out across the selection.
+`POST /api/exec/batch` queues `exec:<body>` on each target;
+`GET /api/exec/batch/<id>` returns per-device status with output as
+it arrives. Job records have a 1-hour TTL, pruned on access.
+Refuses dangerous-pattern scripts without `confirm_dangerous: true`;
+refuses syntax-erroring scripts outright.
+
+**docker compose dropdown** (`docs/compose.md`). The Linux agent now
+scans `/opt`, `/home`, `/docker`, `/srv` (`find -L -maxdepth 4`,
+5 s timeout, 50-project cap, prune list for .git / node_modules /
+.cache / venv) for `docker-compose.yml` / `compose.yml` and reports
+the listing alongside containers in the heartbeat. Device cards get
+a **docker compose (N)** entry in the ⋯ menu with Up / Down /
+Restart / Pull / Logs (last 50) buttons. Action endpoint
+`POST /api/devices/<id>/compose/action` validates `dir` is one of
+the paths the agent itself reported — even an admin token can't aim
+`compose:up` at arbitrary paths. Agent enforces the action allowlist
+and path validity independently. Output cap 64 KB, timeout 180 s.
+
+### Internal
+
+**`make dist`** target. Builds `dist/remotepower-2.1.0.tar.gz` +
+sha256 file, with an explicit exclude list (not gitignore-driven, so
+new directories don't accidentally ship). Runs the full test suite
+against the staged tree before producing the tarball; a broken
+release fails fast.
+
+**`make version`** target prints the current version from
+`SERVER_VERSION` in `api.py`. Single source of truth for the tarball
+filename + the README badge.
+
+**Docs split.** Top-level `README.md` cut from 807 → 115 lines.
+Long-form content lives in topical files under `docs/`: install,
+features, architecture, api, security, https, troubleshooting,
+upgrading, agent-commands, windows-client, plus the new
+scripts.md / compose.md / v2.1.0.md.
+
+**Tests.** 60 new tests in `tests/test_v210.py` covering: real
+flock contention triggering LockBusy, every dangerous-pattern regex
+with positive + negative cases, script CRUD + sanitisation + size
+caps, batch dispatch + TTL pruning, compose ingest sanitisation,
+the compose action security boundary, and the no-XSS-on-apostrophes
+invariant. Total suite is now **627 tests**, all passing.
+
+## v2.0.0 - 2026-05-08
+
+A visual + organizational refresh. New branding throughout, sidebar restructured for browsability, in-app documentation, code split into separate CSS/JS files for maintainability. No breaking changes for agents — this is a 2.0 because of UI visibility, not API shape.
+
+### Branding
+
+- **Real logo and favicon.** PNG assets now live in `server/html/static/img/`:
+  - `favicon.png` → browser tab icon (linked via `<link rel="icon">`)
+  - `logo-square.png` → 36×36 in the header bar
+  - `logo-primary.png` → big logo with wordmark + "POWER. MANAGE. ANYWHERE." tagline on the login screen
+- Header logo is now a clickable link that returns to the Devices page (the home view). Hover state for affordance.
+- The placeholder sun-shape SVG that has been there since v1.0 is gone.
+
+### Sidebar reorganized
+
+The flat 18-item list is now grouped:
+
+- **Main** (always visible): Devices, CMDB, Containers, Network, Monitor
+- **Security** (collapsible): TLS / DNS, Patches, CVEs, Services, Logs
+- **Planning** (collapsible): Schedule, Calendar, Tasks, Maintenance, History
+- **Admin** (collapsible, defaults to collapsed): Settings, Users, API Keys, Library, Audit, Links
+- **Help**: Documentation (new!), API Reference (was "API Docs"), About
+
+Group state persists per-browser in `localStorage` (`sidebar.<group>.collapsed`). Active page always expands its containing group, so a fresh load shows you where you are even if the group was collapsed.
+
+The four admin items that were in the flat list (Users, API Keys, Audit, Links) plus Settings, Library are all now under the Admin toggle. Day-to-day use only needs Main + Help expanded; admins expand Admin when they need it.
+
+### Documentation page
+
+New "Documentation" entry under Help in the sidebar. Curated set of in-app help cards covering the most common questions:
+
+- Enrolling devices (PIN + API token flows)
+- Metric alerts (defaults, per-device, per-mount, hysteresis, trends)
+- Web terminal (auth flow, recording, deploy)
+- Commands (per-device dropdown, batch mode, library)
+- Webhooks (auto-format detection, event list, test events)
+- External monitors (probes, schedule)
+- Two-factor authentication (enable/disable)
+- Tables: filter / sort / density
+- Backup & restore
+- Troubleshooting (the actual symptoms users hit)
+- API access (auth methods, common patterns with curl examples)
+
+Each card is a `<details>` element — expand on click, no JS required for the toggle. Top of page has a substring search that auto-expands matching cards. Cards have a `data-keywords` attribute so search hits things like "ssh" → web terminal even though the summary doesn't say "ssh".
+
+The full reference Manual.html is still around and linked from the troubleshooting section.
+
+### Metric trends on the Monitor page
+
+The Devices page has had the metrics chart modal since v1.7. v1.12.0 surfaced live metric values on the Monitor page; v2.0 adds a "Trend" button next to "Thresholds" on each device row. Same chart as the per-device view (last 60 data points, sparkline-style for CPU / memory / disk). One click takes you from "your fleet's current state" to "this device's history" without leaving the Monitor page.
+
+### Code split (HTML / CSS / JS)
+
+`index.html` was 8088 lines with a 1320-line `<style>` block and 4900-line inline `<script>`. Now:
+
+- `server/html/index.html` — 1835 lines (just the markup + the two external refs)
+- `server/html/static/css/styles.css` — 1320 lines (everything from the old `<style>`)
+- `server/html/static/js/app.js` — 4930 lines (everything from the old `<script>`)
+
+The split is strictly mechanical — no code was rewritten or restructured. Same selectors, same functions, same global variables, same load order. The script is still injected at the end of body for the same DOMContentLoaded timing it had inline. This makes the file tree navigable for the first time:
+
+- Want to find a CSS rule? `grep '\.foo' static/css/styles.css`
+- Want to find a function? `grep 'function foo' static/js/app.js`
+- Want to see the page structure? `index.html` is a fifth its old size and now actually readable.
+
+I deliberately did NOT do a deeper refactor (ES modules, build step, component framework). That's a multi-week project and you said "please don't break the code." The mechanical split gets us 80% of the maintainability benefit at ~0% breakage risk. If you want a real architectural rewrite, plan it as a v2.1 in its own session and we'll do it properly.
+
+`deploy-server.sh` updated to rsync the `server/html/static/` tree to `/var/www/remotepower/static/`. The deploy is otherwise identical.
+
+### What's NOT in this release (intentional)
+
+- **No agent changes.** Agents on v1.11.10+ work unchanged. The 2.0 in the version is about UI visibility (visible reorganization, branding) not protocol breakage.
+- **No new server endpoints.** Documentation page is pure frontend; sidebar reorganization is pure frontend; metric Trend button reuses the existing `/api/devices/{id}/metrics` endpoint.
+- **No SQLite migration.** Considered for v1.12.1, decided flock + atomic write was sufficient for this scale. Same call here. SQLite is the right answer at 1000+ devices, not at 9.
+
+### v2.0 polish (later same day)
+
+After the initial 2.0 build went out, several rounds of polish before declaring done — no version bump.
+
+**Real branding.** Three updated PNGs deployed to `server/html/static/img/`. Login screen no longer adds a dark background frame around the primary logo (the logo asset has its own gradient). Login card widened from 400→480px so the 280px-wide logo has comfortable horizontal margin.
+
+**Multi-doc CMDB.** Assets used to support exactly one Markdown blob in `documentation`. Now they support an arbitrary list of titled docs (`docs: [{id, title, body, created_by, created_at, updated_by, updated_at}]`, capped at 50 per asset). Schema migration is automatic on first read: legacy `documentation` strings synthesise a single doc with `id="legacy"` which gets promoted to a real id on first edit, and the back-compat field is cleared. Three new endpoints: `POST /api/cmdb/{id}/docs`, `PUT /api/cmdb/{id}/docs/{doc_id}`, `DELETE /api/cmdb/{id}/docs/{doc_id}` — all admin-auth, all audit-logged. UI rewritten: docs render as collapsible cards with per-card edit/delete, separate edit modal with Markdown preview tab, "+ Add document" button. The existing single-textarea is gone. 21 tests in `test_v200_docs.py`.
+
+**Demo / read-only mode.** New `RP_READ_ONLY=1` environment variable. When set, `_enforce_read_only()` runs at the top of `main()` before route dispatch and blocks every non-GET request with a 403 + `{"demo": true, "error": "Demo mode...", "detail": "..."}` body, except a small whitelist (login, logout, totp/verify, public-info, openapi.json) needed for visitors to log in and browse. Frontend reads the flag from `/api/public-info` on load, shows a banner if set, surfaces friendly toast on demo-mode 403s instead of generic failure messages. Designed for a public sandbox like `demoremote.tvipper.com`. 17 tests in `test_v200_demo.py`.
+
+**Demo seed script.** `packaging/seed-demo-data.py` populates a target data dir (default `/var/lib/remotepower/`, override with `--data-dir`) with 16 fake homelab devices: hypervisor + NAS + firewall + DNS + reverse proxy + media + git + monitoring + a few agentless network devices. Realistic hostnames using the unallocated `.lab` TLD so they can't collide with anything real. Seeds devices, CMDB metadata, packages, services, containers, CVE findings, monitor history, audit log, etc. Idempotent (deterministic — same input, same output). Re-runnable on a cron if you want `last_seen` to keep looking fresh.
+
+**Demo install script.** `packaging/install-demo.sh <hostname>` sets up a SEPARATE demo vhost alongside your production install — different data dir (`/var/lib/remotepower-demo/` by default), same shared CGI code under `/var/www/remotepower/`. Auto-detects the CGI user, creates the demo data dir owned by it, runs the seed script, generates an nginx server block at `/etc/nginx/sites-available/remotepower-demo` with the per-vhost env vars (`RP_DATA_DIR=/var/lib/remotepower-demo` and `RP_READ_ONLY=1`), enables it, validates with `nginx -t`, reloads. The trick is that fcgiwrap forwards `fastcgi_param` env vars to the CGI process, so two vhosts can share one fcgiwrap pool but operate on different data dirs. TLS is left to the user (certbot reminder printed at the end). Idempotent re-runs re-seed and re-render the nginx config. Production install at `remote.<domain>` is never touched.
+
+**Documentation page expansion.** The original 11 cards covered common workflows. Added 21 more (one per sidebar entry): Devices, CMDB, Containers, Network, Monitor, TLS/DNS, Patches, CVEs, Services, Logs, Schedule, Calendar, Tasks, Maintenance, History, Settings, Users, API Keys, Library, Audit, Links. Each `<details>` card has `data-keywords` so the substring search finds them by alternate terms (e.g. "ssh" → web terminal card, "topology" → Network card). 32 doc cards total now.
+
+**README rewrite.** Front-loaded the Quick Start (server + client + Docker) right after the intro. New "What you can do with it" section grouping headline features in a 2-column visual table. New "Why RemotePower" positioning section (small / lightweight / properly self-hosted / not toy features). Comprehensive feature table reorganised into 6 categories (Fleet visibility, Commands & automation, Alerts & monitoring, CMDB & docs, Auth & access, Operational quality, UX) with version annotations. Architecture diagram updated to reflect the v1.12.1+ persistence (`.bak` rolling backups), the webterm sibling daemon, and the actual current set of state files (~30 JSONs, grouped by purpose). 788 lines total, no duplicate Quick Start sections.
+
+**Tests after polish.** 567 passing (529 from v1.12.1 + 21 multi-doc in `test_v200_docs.py` + 17 demo-mode in `test_v200_demo.py`). No regressions. JS validated with `node --check`. HTML div + `<details>` counts balanced.
+
+**Deploy.**
+
+```bash
+sudo bash deploy-server.sh
+```
+
+Hard-refresh the browser. For the demo-sandbox use case, deploy a SEPARATE vhost alongside your production install:
+
+```bash
+sudo bash packaging/install-demo.sh demoremote.tvipper.com
+sudo certbot --nginx -d demoremote.tvipper.com
+```
+
+Production at `remote.tvipper.com` keeps working with your real data; the demo at `demoremote.tvipper.com` runs the same CGI code against a separate `/var/lib/remotepower-demo/` data dir with `RP_READ_ONLY=1`. Visitors log in as `demo` / `demo` and can browse everything but every mutation returns a friendly 403 toast.
+
+---
+
+## v1.12.1 - 2026-05-08
+
+A targeted hardening release after a real-world incident: a user's `devices.json` got corrupted by a concurrent-write race between two CGI processes, leaving the file with a complete first JSON document followed by trailing garbage. Effects: dashboard showed no devices, all agents got 403 "Credentials rejected" because the heartbeat handler couldn't find them in the empty-on-load file.
+
+This release makes that class of corruption impossible going forward.
+
+### Storage hardening (the main thing)
+
+`save()` now does:
+
+1. **Round-trip integrity check before any disk write.** Serialise with `allow_nan=False`, then parse the result back. If the data won't round-trip, raise `ValueError` immediately instead of writing it. Catches NaN/Infinity (Python's json silently allows them, but most other tools reject them) and any logic bug producing a malformed structure.
+
+2. **Exclusive flock on a sidecar lock file.** A `<file>.lock` zero-byte sidecar lives alongside each data file, used as a coordination point. `fcntl.flock(LOCK_EX)` serialises writers — two CGI processes both calling `save(DEVICES_FILE, ...)` will queue on the lock instead of racing.
+
+3. **Per-process unique tmp filename.** `<file>.tmp.<pid>.<nonce>` instead of just `<file>.tmp`. Even with the lock, this is belt-and-braces — if two writers ever did manage to be in `save()` simultaneously (lock file deleted, filesystem weirdness), they wouldn't share a tmp file and couldn't trample each other's bytes.
+
+4. **fsync before rename.** Forces the bytes to durable storage before the atomic rename, so a power loss right after the rename doesn't return to a zero-length file. tmpfs and a few other filesystems don't support fsync; we tolerate that gracefully.
+
+5. **Rolling backup.** The current file is copied to `<file>.bak` before every replace. Single rolling backup, not history — if the live file ever ends up corrupted, we have one known-good prior state to fall back to.
+
+`load()` automatically falls back to `.bak` if the canonical file is corrupt:
+
+- Tries `<file>` first
+- On `JSONDecodeError`, tries `<file>.bak`
+- If `.bak` parses, returns its content and logs a warning to stderr (visible in nginx error log via fcgiwrap)
+- If both are corrupt, returns `{}` — same as a missing file — so the rest of the code keeps working in degraded mode rather than crashing the whole CGI
+
+The fallback is the difference between v1.12.0's "one bad write makes the dashboard unusable until manual recovery" and v1.12.1's "one bad write is silently absorbed using the previous heartbeat's state, with a warning logged."
+
+### Why not SQLite?
+
+I considered migrating the hot-path files (`devices.json`, `services.json`, `containers.json`, `metrics.json`, `history.json`) to SQLite. Real analysis:
+
+- ✅ ACID transactions, the corruption you saw is fundamentally impossible
+- ❌ Major refactor — 2-3 sessions of work
+- ❌ Backup/restore changes (`tar czf` stops being a complete backup)
+- ❌ Debugging tools change (no more `jq` over your data)
+- ❌ Schema migrations become a thing forever
+
+At the user's scale (~9 devices, 60-second heartbeats = ~9 writes/min), `flock` handles serialisation trivially. SQLite's wins (queries, indexes, joins, large-scale concurrency) don't apply to a key/value lookup workload where the whole dataset fits in memory anyway. The hardening above gives the same correctness guarantee for this scale without losing the ability to `jq` your way through everything during incidents.
+
+If RemotePower ever grows past 1000 devices or the data shape changes meaningfully, SQLite is the right migration. For now, the boring-architecture philosophy wins.
+
+### Multi-select in minimal devices view
+
+The cards mode had checkbox-driven batch select since v1.10; minimal mode shipped without it in v1.11.7. Now minimal has parity:
+
+- Leading checkbox column on every row
+- Header checkbox with select-all-visible (respects the active filter — if you've filtered to "production" tag, select-all toggles only those rows)
+- Selected rows get a subtle blue background highlight
+- Reuses the same `selectedDevices` Set as cards mode, so switching density mid-selection preserves your selection
+
+### Recovery tool for files corrupted before this upgrade
+
+`packaging/recover-corrupted-json.py` is a one-shot fix for any JSON file already corrupted by the v1.12.0 bug. It:
+
+- Scans `/var/lib/remotepower/*.json` (or specific files passed as args)
+- Uses `json.JSONDecoder.raw_decode()` to find the first valid JSON document and treat anything trailing as garbage
+- Reports what it would do in dry-run mode (the default)
+- With `--apply`, makes a `.broken-<ts>` backup and writes the recovered content over the live file
+
+```bash
+sudo -u www-data python3 packaging/recover-corrupted-json.py            # dry-run scan
+sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
+```
+
+### Tests
+
+**529 passing** (513 from v1.12.0 + 16 new in `test_v1121.py`):
+
+Atomic save (8 tests): basic round-trip, lock sidecar created, .bak created on second save (not first), tmp files cleaned up on success, unique tmp per process, NaN/Inf rejected, no file created on invalid data, mode 600 preserved.
+
+Load with fallback (4 tests): missing returns empty, corrupt falls back to .bak, no .bak returns empty cleanly, both corrupt returns empty without crashing, load() never modifies disk.
+
+End-to-end recovery (1 test): plant corruption, verify load() falls back, verify next save() re-establishes clean state with both files valid.
+
+Concurrent save (1 test): 8-process `multiprocessing.Pool` (spawn context) all writing the same file with read-modify-write loop. Without v1.12.1 hardening, this reliably reproduces a `JSONDecodeError` by the time it finishes; with the hardening, every load returns valid data and every key has the right value.
+
+`test_save_unique_tmp_per_process` (2 tests) — verifies the tmp filename is parameterised by `(pid, nonce)`. Reaches into the implementation intentionally to validate the hardening property described in the module-level comment.
+
+### Compatibility
+
+Drop-in upgrade from v1.12.0. The on-disk format is unchanged — `.bak` and `.lock` sidecars get created on the next save of each file. Existing JSON files keep working as-is.
+
+If you hit the v1.12.0 corruption bug, run `recover-corrupted-json.py --apply` once after upgrading to clean up any leftover damaged files.
+
+### Performance impact
+
+Each `save()` now does:
+- One additional file open + flock (~50µs)
+- One `shutil.copy2()` for the rolling backup (~1ms for files up to 100KB)
+- One `fsync()` (depends on filesystem; typically 1-10ms on a real disk, free on tmpfs)
+
+Heartbeat handler does ~2-3 saves; total added latency per heartbeat: ~5-30ms. Negligible at scale up to thousands of devices/minute.
+
+---
+
+## v1.12.0 - 2026-05-07
+
+A polish release wrapping up the loose ends from v1.11.11 — proper deploy automation, the per-device metric thresholds UI that v1.11.10 only exposed via API, surfacing live metrics on the Monitor page, and a comprehensive manual rewrite. No new server endpoints.
+
+### New: install-webterm.sh
+
+`packaging/install-webterm.sh` handles the v1.11.11 deploy that didn't go smoothly. The original instructions assumed `rp-www`/`rp-webterm` users that don't exist on Debian/Ubuntu (which uses `www-data`); the script now auto-detects the actual CGI user via process heuristic plus fallback through `www-data` → `nginx` → `http` → `rp-www` → `apache`.
+
+What it handles:
+- Detects the CGI user by looking for processes (`pgrep -u USER -f '(fcgi|nginx|cgi|php-fpm)'`) and falls back to existence-only if no match.
+- Detects the package manager (apt/dnf/pacman/apk/zypper) and installs `python3-websockets` + `python3-asyncssh`.
+- Creates the `rp-webterm` daemon user (idempotent — re-runs are safe).
+- Adds the daemon user to the CGI user's group so it can read the ticket file.
+- Sets up directories with correct ownership: `/var/lib/remotepower/webterm-sessions/` (daemon-owned, mode 750), `/var/lib/remotepower/webterm_tickets.json` (CGI-owned, mode 640).
+- Generates the daemon ↔ CGI shared secret to `/etc/remotepower/webterm-secret` and writes it to `config.json` (using `sudo -u $CGI_USER` so file ownership stays correct).
+- Renders the systemd unit with the right `User=` / `Group=` / `ReadWritePaths=` substituted in.
+- Prints the nginx snippet you need to add (with the right port substituted in) plus the `$connection_upgrade` map docs.
+- `--dry-run` mode shows everything it would do without touching the system.
+
+Run as `sudo bash packaging/install-webterm.sh` (or with `--cgi-user www-data` to override detection). At the end it tells you what to paste into nginx and what to verify.
+
+### New: per-device metric thresholds UI
+
+The endpoint shipped in v1.11.10 (`GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`) but had no UI — you had to use `curl`. v1.12.0 adds a full editor accessible from the device dropdown menu (both cards and minimal modes). The modal:
+
+- Shows the device's current sysinfo readings at the top so you know what thresholds make sense (memory %, swap %, load ratio + cpu count, every mount with current %).
+- Has warn/crit fields for memory, swap, default-disk, and CPU load ratio. Empty means "use default"; placeholder shows the inherited value, so customised vs. inherited is visually distinct.
+- Has a per-mount disk overrides section with add/remove rows. Common case: `/var` at 70/85 (logs grow fast), `/backup` at 95/98 (designed to fill).
+- Reset-to-defaults button DELETEs all overrides.
+- Validation: paths must start with `/`, both warn+crit required for each mount, warn must be < crit (server-side enforced; client also pre-checks).
+
+Saving clears the device's `metric_state` so the next heartbeat re-evaluates under the new thresholds (this was already in v1.11.10 — just calling it out because it matters when you're tuning live).
+
+### New: live metrics on the Monitor page
+
+The Monitor page used to show only external probes (ping/TCP/HTTP). Now it has a "Device metrics" section underneath that shows every enrolled device's current sysinfo state, color-coded by alert level:
+
+- **Device** column with group badge
+- **Alert** column showing aggregate level: critical ⨯ red, warning ⨯ amber, OK ⨯ green, offline (muted gray for non-reporting devices)
+- **Memory / Swap / CPU load** columns, each individually colored by that metric's specific alert state
+- **Disks** column listing every mount with its percent, each colored by its own state. Long paths are truncated; tooltip shows the full path plus used/total GB.
+- **Thresholds** button on each row jumps straight to the per-device threshold editor for that device.
+
+Sortable, filterable (by name, group, tags, or mount path). When sorting by status ascending, critical-state devices come first. Summary line above the table: "N critical • M warning" or "all clear".
+
+The data source is the existing `/api/devices` endpoint — no new server work required. The `metric_state` field already populated by v1.11.10's threshold processor tells us which alerts are live.
+
+### New: comprehensive manual
+
+`Manual.html` rewritten from scratch — was 328 lines of fragmented legacy notes; now a coherent ~470-line document covering everything from the architecture overview through web terminal deployment to troubleshooting. 11 sections with a clickable TOC. Replaces both `Manual.html` and `docs/Manual.html` (kept identical to avoid drift).
+
+New coverage:
+- Section 2 (Install): proper subsections for server, web terminal daemon, agent, with the `install-webterm.sh` recommended path
+- Section 3 (Enrollment): both PIN and API token flows side-by-side, with the three token-resolution methods explained
+- Section 7 (Metrics): all four flows covered — the modal UI, the Monitor-page surfacing, the API, and direct `devices.json` inspection
+- Section 8 (Web terminal): full architecture diagram, auth flow walkthrough, security model summary, session-recording details with replay command, retention cron suggestion
+- Section 11 (Troubleshooting): the actual symptoms users will hit (404, 502, 1006 close codes, missing per-mount data, CSP blocking xterm.js)
+
+### Tests
+
+**513 passing — unchanged.** No new server endpoints, so no new test coverage required. The install script is bash so wasn't unit-tested; manually verified with `--dry-run --cgi-user www-data` that it produces the right output and doesn't crash.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.11. No schema changes. Existing per-device metric overrides set via API in v1.11.10 work without modification — the new UI just makes them visible and editable. The webterm daemon binary is unchanged from v1.11.11; only the install script around it is new.
+
+### Known limitations carried forward
+
+- xterm.js still loads from cdn.jsdelivr.net (CSP issue if blocked; manual instructions for self-hosting in Manual.html)
+- Web terminal session recordings still aren't auto-pruned (cron suggestion in manual)
+- Web terminal SSH host-key checking still off by design
+
+---
+
+## v1.11.11 - 2026-05-07
+
+### New feature: web terminal
+
+Browser-based SSH terminal accessible from the dashboard. Click "Web terminal" in the per-device dropdown menu, type SSH user/password and your RemotePower admin password, and you get a live xterm.js terminal connected to the device.
+
+The architecture is a small companion daemon (`remotepower-webterm`) that handles WebSocket and SSH proxying, because RemotePower's CGI-over-fcgiwrap model can't hold persistent connections. The CGI handles auth and audit logging; the daemon handles the bytes.
+
+#### Files added
+
+- `server/webterm/remotepower-webterm.py` (~470 lines) — the daemon. asyncio + `websockets` + `asyncssh`. Listens on 127.0.0.1:8765 by default; nginx proxies `/api/webterm/connect` to it.
+- `packaging/remotepower-webterm.service` — systemd unit with hardening (NoNewPrivileges, ProtectSystem=strict, RestrictNamespaces, etc.). Runs as a dedicated `rp-webterm` user.
+- `packaging/nginx-webterm.conf` — drop-in nginx snippet for the WebSocket proxy. Requires the `$connection_upgrade` map (standard pattern, documented in the snippet).
+- `tests/test_v11111.py` — 21 tests for the CGI-side endpoints.
+
+#### Files modified
+
+- `server/cgi-bin/api.py` — added `handle_webterm_auth`, `handle_webterm_session_audit`, ticket store helpers, two new constants. Routes wired up.
+- `server/html/index.html` — "Web terminal" item in the device dropdown menu (both cards mode and minimal mode), modal for SSH credentials + admin password, full-screen terminal view, xterm.js loaded on first use from cdn.jsdelivr.net.
+
+#### Auth flow
+
+1. User clicks "Web terminal" on a device. Modal asks for SSH host (pre-filled from device IP), SSH user, SSH password, and RemotePower admin password.
+2. Frontend POSTs to `/api/webterm/auth`. CGI validates the admin password against the user's stored hash. Mismatch → 403 + `webterm_auth_failed` audit entry.
+3. CGI generates a 32-byte URL-safe ticket, stores it in `webterm_tickets.json` with TTL = 60 seconds, returns the ticket to the frontend along with the daemon URL.
+4. Frontend opens a WebSocket to `wss://<host>/api/webterm/connect?ticket=...`. nginx proxies to the daemon.
+5. Daemon reads ticket from URL, validates against `webterm_tickets.json`, deletes it (single-use). Then waits for the first WS message: a JSON blob with `{host, user, port, password, cols, rows}`.
+6. Daemon SSH-connects via `asyncssh.connect()`. Opens a PTY shell. Pumps bytes between WS and SSH.
+7. Session ends → daemon POSTs metadata back to `/api/webterm/audit`, authenticated via shared secret in `/etc/remotepower/webterm-secret` (matches `config.json[webterm_daemon_secret]`).
+
+#### Session recording
+
+Every session is recorded to `/var/lib/remotepower/webterm-sessions/<session_id>.cast` in [asciinema v2](https://docs.asciinema.org/manual/asciicast/v2/) format. Default is **output-only** — keystrokes are not recorded because they could include `sudo SECRET_VALUE` and similar. Set `RECORD_INPUT=1` in the daemon's environment to also record keystrokes if you have compliance reasons; only do this if you've thought through who can read the session-recording directory.
+
+The format is plain-text JSON Lines with a header and `[delta_seconds, "o", "output"]` records. Replayable in any asciinema player (web, CLI, browser via `asciinema-player.js`); also greppable as raw text. Each recording is capped at 10 MiB — at the cap we stop recording but keep proxying bytes.
+
+#### Security model summary
+
+- Tickets are single-use, 60-second TTL, ~256 bits of entropy
+- The daemon binds to 127.0.0.1 only (loopback). nginx terminates TLS for the browser hop
+- SSH credentials never persist; live in memory inside the daemon for one session
+- SSH host-key verification is OFF by design (the user explicitly chose this host through the dashboard, and adding `known_hosts` management would mean a first-connect prompt for every device — more theatre than security here). If you want strict host-key checking, this is the right discussion to have for v1.12
+- Audit POSTs from daemon to CGI authenticated via shared secret, not session token (the daemon is a system service, not a user)
+- systemd hardening: dedicated user, no privilege escalation, read-only root filesystem with explicit ReadWritePaths, restricted namespaces
+
+#### Known limitations / open work
+
+- **Browser dependencies are loaded from cdn.jsdelivr.net.** xterm.js is ~250 KB; loading from your own server is more secure (no CDN tampering risk) but more deployment work. v1.11.11 uses the CDN for simplicity. To self-host: download `@xterm/xterm@5.5.0/css/xterm.min.css`, `@xterm/xterm@5.5.0/lib/xterm.min.js`, and `@xterm/addon-fit@0.10.0/lib/addon-fit.min.js` into `server/html/static/` and edit `_loadXtermOnce()` to point there. SRI hashes can then be added.
+- **No SSH key auth.** Per your spec, only password auth in v1.11.11. Adding key auth means storing the keys somewhere (CMDB Vault would be the natural place); you didn't ask for it so I didn't build it.
+- **Session recordings aren't pruned automatically.** They accumulate in the recordings directory. A cleanup cron / systemd timer is a v1.11.12 task. For now, manage retention with `find /var/lib/remotepower/webterm-sessions -mtime +30 -delete` or similar.
+- **The daemon is a single process.** Concurrent sessions all run in the same asyncio event loop, which is fine up to dozens of sessions; if you ever need hundreds, switch to a process-per-session model.
+- **Session listing UI not in this release.** You can see sessions in the audit log (action `webterm_session`) and in the on-disk recording files. A "browse sessions" page in the dashboard would be a nice v1.11.12 addition.
+
+#### Deploy steps (one-time)
+
+```bash
+# 1. Create the daemon's user
+sudo useradd -r -s /usr/sbin/nologin -d /var/lib/remotepower rp-webterm
+sudo usermod -a -G rp-www rp-webterm   # so it can read the ticket file
+
+# 2. Install Python deps
+sudo apt install python3-websockets python3-asyncssh   # or pip install
+
+# 3. Install the daemon binary
+sudo install -m 755 server/webterm/remotepower-webterm.py /usr/local/bin/remotepower-webterm
+
+# 4. Generate the shared secret (used for daemon → CGI audit POSTs)
+SECRET=$(openssl rand -hex 32)
+sudo install -m 640 -o rp-webterm -g rp-webterm /dev/stdin /etc/remotepower/webterm-secret <<< "$SECRET"
+# Also store it where the CGI can find it:
+sudo -u rp-www python3 -c "
+import json, sys
+from pathlib import Path
+cfg = json.load(open('/var/lib/remotepower/config.json'))
+cfg['webterm_daemon_secret'] = '$SECRET'
+json.dump(cfg, open('/var/lib/remotepower/config.json', 'w'))
+"
+
+# 5. Set up the recordings directory
+sudo install -d -m 750 -o rp-webterm -g rp-webterm /var/lib/remotepower/webterm-sessions
+
+# 6. Make the ticket file readable by the daemon
+sudo touch /var/lib/remotepower/webterm_tickets.json
+sudo chown rp-www:rp-www /var/lib/remotepower/webterm_tickets.json
+sudo chmod 640 /var/lib/remotepower/webterm_tickets.json
+
+# 7. Install + start the systemd unit
+sudo install -m 644 packaging/remotepower-webterm.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now remotepower-webterm
+
+# 8. Add the nginx snippet (paste contents of packaging/nginx-webterm.conf into
+#    your existing server { ... } block, ABOVE any catch-all `location /` rule)
+#    Then test and reload:
+sudo nginx -t && sudo systemctl reload nginx
+
+# 9. Verify
+curl -s http://127.0.0.1:8765 -i  # expect "Connection: Upgrade" expected, won't actually upgrade with curl
+sudo journalctl -u remotepower-webterm -f  # watch the daemon
+```
+
+The next deploy of `deploy-server.sh` will incorporate steps 1–8 automatically (TODO for the next release).
+
+### Tests
+
+**513 passing** (492 from v1.11.10 + 21 new in `test_v11111.py`):
+
+CGI auth endpoint (10 tests): correct password issues a ticket, ticket persists to disk with right shape, wrong password rejected and audit-logged, success audit-logged, unauthenticated rejected, unknown device 404, missing fields 400, GET method 405, each call issues a fresh ticket.
+
+CGI audit endpoint (6 tests): correct daemon secret accepted, wrong secret rejected, missing secret rejected, no-secret-configured rejects all, audit details land in audit_log.json, GET method 405.
+
+Helpers (5 tests): purge function drops expired and used tickets, daemon constants in sane ranges.
+
+The daemon itself (websocket + SSH proxy) is not unit-tested — it would need a real SSH server in CI. It's tested manually against the user's `tviweb01.tvipper.com`.
+
+### Compatibility
+
+Drop-in upgrade for the CGI side. The new endpoints are additive; existing flows unchanged.
+
+The daemon is **optional** — if you don't deploy it, the dashboard's "Web terminal" menu item will fail when clicked (the WS connection times out), but everything else keeps working. CGI doesn't depend on the daemon being up.
+
+Existing v1.11.10 agents do NOT need updating for the web terminal feature — the agent isn't involved in this flow at all. SSH goes directly from the RemotePower server to the device, completely outside the agent's pipeline.
+
+### Known issues to test on real hardware
+
+This release was developed without a live SSH server in CI, so some real-world behaviours haven't been exercised:
+
+- **SSH server fingerprint changes.** With `known_hosts=None` we accept any fingerprint. If you reinstall a device, you won't get a "host key changed" warning. Consider this if you have devices that get reimaged.
+- **Slow networks.** The 30-second `recv` timeout for the first credential message might be tight if the user is on cellular. Increase if you see "Timed out waiting for SSH credentials" complaints.
+- **Idle timeout under nginx.** I set `proxy_read_timeout 1d` in the snippet which should handle long-idle terminals, but some load balancers in front of nginx will close anyway. If sessions die after exactly N minutes idle, that's the upstream proxy.
+
+---
+
+## v1.11.10 - 2026-05-07
+
+### New features
+
+**API enrollment via one-time pre-shared tokens.** Companion to the interactive PIN flow for non-interactive enrollment (Ansible, cloud-init, golden-image stamping). Three admin endpoints:
+
+- `POST /api/enrollment-tokens` — generates a 32-char URL-safe token. Optional `expires_in` (seconds, default 24h, capped at 7 days), `default_group`, `default_tags`, `label`. Token is shown once in the response and never returned again.
+- `GET /api/enrollment-tokens` — lists all non-expired tokens, but only returns the first 8 characters of each as a prefix. Designed so listing the page later doesn't leak active credentials.
+- `DELETE /api/enrollment-tokens/{prefix}` — revoke by prefix (8+ chars). Refuses to act if the prefix matches multiple tokens.
+
+Token consumption is atomic: `handle_enroll_register` deletes the token before creating the device. If two agents race with the same token, exactly one wins and the other gets HTTP 403. Default group/tags from the token apply at enrollment unless the agent explicitly provides its own.
+
+Agent gets a new `enroll-token` action with `--server`, `--token`, `--name` flags. Token resolution chain:
+
+1. `--token CLI_VALUE`
+2. `$REMOTEPOWER_ENROLL_TOKEN` environment variable
+3. `/etc/remotepower/enroll-token` file (must be mode 600, deleted after use)
+
+The CLI-arg path leaks into `ps` output for the duration of enrollment. Env var doesn't. File path doesn't and self-cleans on success. Pick whichever fits your secret-distribution model.
+
+Audit logging: token creation and revocation both logged with actor, label, and (for create) the default group/tags.
+
+**Metric alerting (disk, memory, swap, CPU).** Three new webhook events: `metric_warning`, `metric_critical`, `metric_recovered`. Default thresholds:
+
+| Metric | Warning | Critical |
+|---|---|---|
+| Disk usage (per mount) | 80% | 90% |
+| Memory usage | 85% | 95% |
+| Swap usage | 20% | 50% |
+| CPU 1-min loadavg / cpu_count | 1.5× | 3.0× |
+
+Hysteresis: a metric must drop `METRIC_RECOVERY_BUFFER` (5) percentage points below the warn threshold before `metric_recovered` fires. Without this, a metric oscillating around 80% would generate webhook spam.
+
+State stored in `dev['metric_state']` keyed by `kind:target` (e.g. `disk:/var`, `memory:`). Transitions fire webhooks on every up- or down-shift between `ok` / `warning` / `critical`. Orphan mount states (a mount disappears between heartbeats) are cleaned up automatically.
+
+**Per-device + per-mount overrides.** New endpoint `GET|PATCH|DELETE /api/devices/{id}/metric-thresholds`:
+
+- GET returns `{overrides, effective, defaults, recovery_buffer_percent}` so the dashboard can show effective values without resolving them itself.
+- PATCH accepts any subset of `disk_warn_percent`, `disk_crit_percent`, `mem_warn_percent`, `mem_crit_percent`, `swap_warn_percent`, `swap_crit_percent`, `cpu_warn_load_ratio`, `cpu_crit_load_ratio`, plus `disk_per_mount` (a dict keyed by mount path → `{warn, crit}`). Validates `warn < crit` for every kind. Out-of-range values rejected with 400 rather than silently clamped.
+- DELETE clears all overrides, reverting to defaults.
+- PATCH also clears `metric_state` so the next heartbeat re-evaluates under the new thresholds (otherwise a metric currently in `warning` state would silently stay there even if you raised the threshold).
+
+**Agent metric collection extended.** `get_metrics()` now reports per-mount disk usage (skipping tmpfs/squashfs/overlay/snap/etc.), swap percent, 1-minute load average, and CPU count. Backwards-compatible — older agents without these fields still work, and root-disk alerting falls back to legacy `disk_percent` if `mounts` isn't reported. Per-mount alerting needs the agent updated to v1.11.10+.
+
+### Architectural notes
+
+The web terminal feature (#3 in your request) is **not in this release**. RemotePower's CGI architecture can't do persistent WebSocket connections cleanly — fcgiwrap is request-response only. The recommended path is a separate companion daemon (`remotepower-webterm`, ~300 lines, systemd unit, listens on 127.0.0.1:8765, nginx proxies `/api/webterm/`). Same security model you specified — admin password re-prompt, user types SSH user/password fresh each session, direct SSH connection, session recording. Deferred to v1.11.11 to land properly rather than rushing it.
+
+### Tests
+
+**492 passing** (444 from v1.11.9 + 48 new in `test_v11110.py`):
+
+API enrollment (16 tests):
+- Token creation with default and custom expiry, TTL clamping (60s min, 7-day max).
+- List endpoint never returns full token values, only 8-char prefixes.
+- Expired tokens auto-purged from listing.
+- Revoke by prefix (success, 404 on unknown, 400 on too-short prefix).
+- Token consumed atomically — second use returns 403.
+- Default group/tags from token applied at enrollment.
+- PIN path still works (backward compatibility).
+
+Metric alerting (28 tests):
+- Threshold resolution: defaults, per-device overrides, per-mount overrides.
+- Classification: ok / warning / critical at each boundary.
+- Recovery buffer enforced (must drop 5 below warn).
+- No webhook fire when state doesn't change between heartbeats.
+- State transitions fire correct event (warn / crit / recovered).
+- Per-mount disk states isolated per path.
+- Orphan mount cleanup when mount disappears.
+- CPU load ratio uses cpu_count correctly.
+- Endpoint validation: warn < crit, ranges, unknown device 404, admin-only.
+- PATCH clears metric_state for re-evaluation.
+
+Webhook event registry (4 tests): the three new events are registered, message generation works for disk/cpu/recovered, priority ordering correct.
+
+### Compatibility
+
+Drop-in upgrade. Existing devices keep working — metric alerting is additive (defaults apply when no overrides are set). Pre-v1.11.10 agents continue to report only the legacy `cpu_percent` / `mem_percent` / `disk_percent` (root-only) fields; root-disk and memory alerts work, but per-mount disk and swap and CPU loadavg alerts need the agent updated. Push agent self-updates via the toolbar Update button or per-device "Agent update" menu item to get the new metric collection.
+
+### Known limitations
+
+- **No global-default override.** `process_metric_thresholds` resolves: per-mount disk → per-device → built-in defaults. There's no "fleet-wide override" tier between per-device and built-in. If you want all your servers to alert at 70% disk instead of 80%, you currently set the override on each device individually. Could add a `config['metric_thresholds']` global tier in v1.11.11 if it's actually annoying — the underlying resolver is structured to make that a one-line change.
+- **CPU alerting is loadavg-based, not utilisation.** The choice was "what does `uptime` show you" rather than "what does `top` show you." Loadavg captures runqueue depth + I/O wait, which is usually what's actually worth alerting on. If you want %cpu-utilisation thresholds instead, file a request — easy to add as a separate kind without changing the existing one.
+- **Web terminal not in this release.** See above. v1.11.11 target.
+
+---
+
+## v1.11.9 - 2026-05-06
+
+### Bug fixes
+
+**Minimal table extended past the right edge of the page.** Visible as the table being a few pixels wider than the stats row and section headers above it. Reported with screenshot showing the table's right edge sitting outside the column the rest of the page content occupied.
+
+The cause: I set `width: 100%` on the table but didn't set `table-layout: fixed`. CSS tables default to `table-layout: auto`, where the browser sizes columns based on the longest content in each. The `max-width: 200px` I'd put on `<td>` cells was a hint that auto-layout silently ignored — long content like "Debian GNU/Linux 12 (bookworm)" pushed the OS column wider than I'd budgeted for, and the table grew past the container's content width.
+
+Fix: added `table-layout: fixed` to `.devices-minimal-table`, set explicit widths on every column header except OS (which stays auto and gets the remaining space), and dropped the now-redundant `max-width: 200px` on `<td>` cells. With fixed layout, columns are sized strictly by header widths and any overflowing cell content gets clipped with the existing ellipsis rule.
+
+Total of fixed widths comes to ~900px (Status 90 + Name 190 + Hostname 160 + Group 100 + IP 130 + Version 90 + Last seen 100 + Actions 50), which leaves ~152px for OS in a 1052px content area (the standard `max-width: 1100px` container with 24px padding on each side). On narrower viewports the responsive `@media` rules drop low-priority columns before things get cramped.
+
+### Tests
+
+Test suite unchanged at **444 passing** — no Python code changed. The fix is CSS-only.
+
+### Compatibility
+
+Drop-in upgrade. No new dependencies, no schema changes, no agent update needed. Refresh the dashboard after deploying. Affects only the Devices page in minimal density mode; cards, compact, and spacious modes are untouched.
+
+---
+
+## v1.11.8 - 2026-05-06
+
+### Bug fixes
+
+**Monitor checks only ran when the dashboard was open.** Critical bug that's been there since the monitor feature was introduced. The `monitor_interval` config setting (default 300s) was honored by the UI but not by the server — the dashboard refetched `/api/monitor` on a timer, and `/api/monitor` ran the checks synchronously and returned the result. So the actual ping/tcp/http probes only happened when somebody had the page open. Close the tab, walk away for 4 hours, the next page-load showed a 4-hour gap in the history with no checks in between.
+
+The webhook implication is more serious. `monitor_down` and `monitor_up` events fire from inside the same code path. So if a service went down at 14:00 and recovered at 16:00, and nobody had the dashboard open during that window, **neither webhook fired**. The downtime was invisible to anyone relying on alerts.
+
+Symptoms in your case:
+```
+6.5.2026, 14.50.27  ↑ up  200
+6.5.2026, 14.50.13  ↑ up  200
+4.5.2026, 20.53.56  ↑ up  200      ← gap of ~18 hours
+4.5.2026, 18.40.26  ↑ up  200      ← gap of ~2 hours
+```
+
+The gaps are exactly when nobody had the Monitor page loaded.
+
+Fix: extracted the actual check logic into `_execute_monitor_checks(monitors)` and added a periodic runner `run_monitors_if_due()` that's called from `main()` on every CGI request. The periodic runner is gated by `monitor_interval` (clamped to a 60s minimum to prevent CGI-flood disasters). Most CGI hits do nothing — when the gate expires, the same check logic runs and fires the same webhooks as before.
+
+In practice this means monitors run roughly every `monitor_interval` seconds as long as **anything** hits the server. With agents heartbeating every 60s, the trigger frequency is at least once a minute, so monitors will run on schedule. If all agents are offline AND no users are browsing, monitors won't run — but in that scenario you have bigger problems anyway (a `device_offline` webhook will fire from the next-due agent, which will trigger the dispatcher, which will trigger the monitor sweep).
+
+If you've been getting "monitor history shows checks at random times only" — that's why. From v1.11.8 onwards, history fills in regularly.
+
+**Service monitoring was always real-time and is unaffected.** Service state changes ride along in every agent heartbeat (the agent reports unit states every poll), so `service_down` and `service_up` webhooks always fired correctly. No bug here. Mentioning it because the question naturally comes up alongside the monitor bug.
+
+**Dropdown menu in minimal mode was clipped by the table.** v1.11.7 introduced the table-based minimal layout with `overflow: hidden` on the wrap to keep rounded corners working. That overflow rule clipped the ⋯ dropdown menu when it tried to pop out of cells near the bottom or right edge of the table. Reported with screenshot showing the menu cut off mid-item.
+
+Fix: replaced `overflow: hidden` with a per-corner `border-radius` on the first/last `<th>` and `<td>` so the rounded corners survive without an enclosing clip. Then added z-index hoisting on the row `:has()` an open dropdown so the menu sits above all sibling rows. Repositioned the dropdown to anchor right-aligned (it was sometimes pushing off the right edge of the page on narrow viewports).
+
+Tested in Chrome, Safari, Firefox 121+. The `:has()` selector is required for the row-hoist; older browsers fall back to per-cell z-index, which works for everything except possibly the very-bottom row. If you're on Firefox <121 and see the bottom-row menu still clipping, update Firefox.
+
+### Refactor
+
+`handle_monitor_run()` is now a thin wrapper around `_execute_monitor_checks()` + `_persist_monitor_results()`. Both helpers are also called from `run_monitors_if_due()`. No behaviour change for the user-triggered path: pressing Refresh on the Monitor page still runs all checks synchronously and returns them, and side-effect-updates the timestamp so the next periodic sweep doesn't immediately re-check what you just saw.
+
+### Tests
+
+**444 passing** (433 from v1.11.7 + 11 new in `test_v1118.py`):
+- Gate logic: empty config no-op, first-call runs, within-interval skips, past-interval runs, timestamp gets updated, back-to-back calls only run once, sub-60s interval clamped at 60.
+- Webhook firing: first failure fires `monitor_down`, recovery fires `monitor_up`, persistent state doesn't double-fire.
+- User-triggered path still works (regression check).
+
+### Compatibility
+
+Drop-in upgrade. Existing `config.json` keeps working — the new `last_monitor_run` field is created lazily on first run. Existing `monitor_notified` state is preserved. Refresh the dashboard after deploying.
+
+### Known limitations
+
+- **Periodic checks are still gated on CGI requests reaching the server.** A truly idle server (no agents heartbeating, no users browsing) won't run monitors. In practice every install has at least one agent doing 60s heartbeats so this is academic, but if you point this at a server with zero agents and just monitors, you'd want a real cron job. Future v1.12 work could add an out-of-band runner via systemd timer.
+- **The `:has()` CSS selector covers the dropdown z-index hoist.** Chrome 105+, Safari 15.4+, Firefox 121+ all support it. Older browsers fall back to per-cell z-index which works for most rows but might clip the very-bottom menu. Modern browser baseline is fine.
+
+---
+
+## v1.11.7 - 2026-05-04
+
+### Bug fixes
+
+**Update history was always empty.** This was a critical agent bug that shipped in v1.10.0 and went unnoticed until somebody actually tried to use the per-device "Update history" panel after running an upgrade.
+
+The flow was supposed to be:
+1. Dashboard pushes `exec:apt-get -y upgrade ...` to the device.
+2. Server's heartbeat response includes `command: <the script>`.
+3. Agent receives the response, runs the script (~30s for `apt-get update && apt-get -y upgrade && ...`).
+4. Agent puts the result in the next heartbeat → server detects it's a package upgrade → archives to `update_logs.json` → "Update history" shows it.
+
+Step 4 is what was broken. Look at `client/remotepower-agent` line 1037–1040 (v1.11.6):
+
+```python
+if cmd:
+    log.info(f"Received command: {cmd}")
+    result = execute_command(cmd)
+    if result is not None:
+        payload['cmd_output'] = result      # <- bug
+    payload['executed_command'] = cmd       # <- same bug
+```
+
+`payload` had already been POSTed at line 1020. Assigning to it after the POST is a no-op — the next loop iteration resets `payload` at line 959 and the result is lost. The agent journal showed `Command output (rc=0): ...` because `execute_command()` logs locally; `update_logs.json` got nothing because the data never crossed the network.
+
+Fix: send a dedicated minimal follow-up heartbeat right after the command finishes. Carries just `device_id`, `token`, `ip`, `os`, `version`, `cmd_output`, `executed_command` — no sysinfo or journal, those are already on the server from the first heartbeat in this iteration. If the follow-up POST itself fails (network blip, server restart at exactly the wrong moment), the cmd_output gets stashed to `/var/lib/remotepower-pending-cmd.json` (or `/tmp/` if `/var/lib` isn't writable) and picked up by the next successful heartbeat.
+
+If you've been pressing "Upgrade packages" since v1.10.0 and seeing nothing in Update history: the upgrades did run, the data just never came back. From v1.11.7 onwards everything is captured correctly.
+
+The `executed_command` webhook (`command_executed` event) had the same bug — same fix.
+
+### New features
+
+**Per-device "Upgrade packages" in the dropdown menu.** Previously you had to either (a) tick the device's checkbox and use the toolbar batch-action button, or (b) click into the device modal. Both worked but were a step out of the way for what's a common single-device action.
+
+Now there's a direct "Upgrade packages" item in the ⋯ menu on every device, sitting between "Agent update" and "Update history". Same flow as the batch path under the hood — calls `POST /api/upgrade-device` with one device ID. Confirmation dialog explains the `~30–120s` typical wait and where to find the output.
+
+**Minimal density rebuilt as a real `<table>`.** v1.11.6's minimal mode laid out each device as a flex row, which couldn't keep columns aligned across rows — different content widths in OS / IP / Version meant "Online" wasn't under "Online" between rows. Reported by users with multi-line metadata.
+
+Replaced with an actual HTML `<table>`. Each device is one `<tr>` with the same column structure. Columns: Status / Name / Hostname / Group / OS / IP / Version / Last seen / Actions. Sortable by clicking any column header (same UX as the Services / CVEs / Containers / etc. tables — first click ascending, second descending, third clears, shift+click for secondary sort). Rows alternate-tinted on hover. Offline rows are dimmed.
+
+Responsive breakpoints drop columns rather than letting them overflow:
+- ≤ 1280px → drops Hostname (Name carries enough)
+- ≤ 1080px → drops Version (covered by the per-row patch badge)
+- ≤ 920px → drops Group
+- ≤ 760px → drops IP
+- ≤ 620px → drops OS — at this point the table is only Status / Name / Last seen / Actions
+
+The dropdown ⋯ menu is identical to the cards path — same handlers, same items, same `dropdown-${id}` element id, so `toggleDropdown()` works without modification. The whole behaviour is preserved; just the layout changed.
+
+### Schema additions
+
+- New stash file `/var/lib/remotepower-pending-cmd.json` (or `/tmp/remotepower-pending-cmd.json` for non-root deploys). Holds one cmd_output payload between agent restarts/network failures. Cleared on successful follow-up POST. Schema: `{cmd_output: {...}, executed_command: str, stashed_at: int}`. Permissions: 600 by default, root-only on standard deploys.
+
+- Server-side: no schema changes. The follow-up heartbeat is a regular heartbeat with a subset of fields populated. `update_logs.json` schema unchanged.
+
+### Tests
+
+**433 passing** (425 from v1.11.6 + 8 new in `test_v1117.py`):
+- Minimal follow-up payload (`device_id` + `token` + `cmd_output` only) is accepted and stored.
+- Heartbeat without cmd_output still works (no regression).
+- apt upgrade command lands in `update_logs.json` correctly.
+- Non-upgrade command (e.g. `ls /tmp`) lands in `cmd_output.json` but NOT `update_logs.json`.
+- `GET /api/devices/{id}/update-logs` returns the archived entry end-to-end.
+- Three sequential upgrades all recorded in chronological order.
+- Overflow at `MAX_UPDATE_LOGS_PER_DEVICE` evicts the oldest, keeps the most recent.
+
+### Compatibility
+
+Drop-in upgrade. The server is unchanged for all existing flows — it doesn't care whether cmd_output arrives in the same heartbeat as a sysinfo dump or in a dedicated follow-up. So:
+
+- v1.11.7 server + v1.10.0–v1.11.6 agents: still broken (the bug is in the agent), update history still empty. Agent must self-update to v1.11.7.
+- v1.11.7 agent + v1.11.0+ server: works correctly. The server happily accepts the follow-up heartbeat.
+- v1.11.7 agent + pre-v1.11.0 server: works for cmd_output in general but won't archive to update_logs.json (that file was added in v1.10.0). Out of scope — anyone running v1.11.7 agents will have a recent server.
+
+Refresh the dashboard after the agent self-updates — the next upgrade you trigger will populate Update history within ~60s.
+
+### Known limitations
+
+- **The agent does NOT retroactively recover lost upgrade history.** If you ran an upgrade on v1.10.0–v1.11.6 and the output was dropped, that data is gone forever. The journal on the device still has it (`journalctl -u remotepower-agent | grep "Command output"`), but there's no way to reconstruct an entry from there into `update_logs.json` retroactively. From v1.11.7 onwards, new upgrades are captured.
+- **The stash file isn't automatically pruned.** If a stash file gets written and the agent never gets the chance to retry (e.g. you decommission the device with a pending stash), `/var/lib/remotepower-pending-cmd.json` will sit there forever. It's small (16 KB max for an upgrade output payload) and root-readable, so this is mostly cosmetic. The next upgrade overwrites it.
+
+---
+
+## v1.11.6 - 2026-05-03
+
+### Bug fixes
+
+**Audit log filter input had a duplicate event listener.** The `<input id="audit-filter-text">` had an inline `oninput="renderAuditLog()"` that fought with the listener `tableCtl.register()` had already attached. The race meant: on every keystroke, the inline handler re-rendered against the *previous* filter value (the one already in `_uiPrefs`), then tableCtl's listener captured the *new* value into prefs but the render had already happened. End result was a one-character lag, and after Clear-then-type-into-filter the data looked like nothing changed.
+
+Fixed by removing the inline handler and adding a `refresh:` callback to `tableCtl.register({...})`. Pages that compose multiple filters (audit log's free-text + action dropdown is the only case today) supply their own re-render function; tableCtl calls it instead of the default `render(name, _lastRows)`. The same hook flows through sort changes, so multi-filter tables behave consistently for both filtering and sorting.
+
+If you saw "clear history is broken" on the audit page or command history page in v1.11.5, this is the fix. The Clear button itself was always working — the visible symptom was that filter state from before the clear stayed sticky, so the table looked unchanged.
+
+### New features
+
+**Patch report got sortable column headers.** Click any column header to sort ascending; click again for descending; click a third time to clear. Patches kept its existing 3-control filter chain (text + group dropdown + device dropdown) — that filter system is bespoke and complex enough that wiring it through tableCtl's substring matcher would lose features. We added the sort wiring on top via tableCtl's `match: () => true` mode and a `refresh: () => renderPatchTable()` callback so the page composes both pipelines cleanly.
+
+**Maintenance windows page got filter + sort.** New `<input id="maint-filter">` above the table (substring match across reason, scope, target, when, events, status). Headers wired up sortable via tableCtl. Same UX as the other tables.
+
+**Filter + sort added to the admin tables: Users, API Keys, Command Library.** All three were inline one-liner functions in v1.11.5; refactored into the now-standard register-helper pattern. Each has a per-column `getColumns` that exposes sortable values (created timestamps, role strings, names) so headers sort correctly. Filter is substring across name/role/user-or-equivalent.
+
+**"Minimal" density mode on the Devices grid — one device per row.** New 4th option in the Devices toolbar density toggle, alongside Compact / Comfortable / Spacious. Each device renders as a single horizontal row (~32px tall) with icon, name, hostname, status badge, and inline meta (OS, IP, Version, Poll/Enrolled). The colored top stripe on standard cards becomes a left border. Built for fleets where you want to scan 50+ devices at a glance without scrolling.
+
+Responsive breakpoints drop the lower-priority meta items as the viewport narrows: Poll/Enrolled goes first (≤1100px), Version next (≤880px), then IP and the hostname (≤700px). The dropdown menu, status badge, and device actions all keep working — no markup change in `renderDevices()`, just CSS overrides on `.devices-grid.dens-minimal`.
+
+### Schema additions
+
+- `UI_DENSITY_VALUES` extends from `('compact', 'comfortable', 'spacious')` to `('minimal', 'compact', 'comfortable', 'spacious')`. `UI_DENSITY_DEFAULT` stays `'comfortable'` — minimal is opt-in.
+- `tableCtl.register({...})` accepts a new optional `refresh` callback. When set, both filter-input changes and column-header clicks call `refresh()` instead of the default `render(name, _lastRows)`. Pages that expose multiple filters (free-text + dropdown) or layered filtering (patches' 3 controls) use this to compose pipelines without dropping into tableCtl's substring-only world.
+
+### Tests
+
+**425 passing** (420 from v1.11.5 + 5 new in `test_v1115.py`'s `TestMinimalDensityMode` class). Coverage: minimal-density round-trip through POST /api/ui-prefs, `'minimal' in UI_DENSITY_VALUES`, default unchanged at `'comfortable'`, regression checks for the existing three modes, and the allowlist still rejects unknown values like `'ultracompact'`.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.5. No new dependencies, no nginx changes, no data migration. Existing user records keep their `'compact'`/`'comfortable'`/`'spacious'` density values intact. The new 4-button toggle renders selecting the user's existing 3-mode value correctly. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Minimal mode is Devices-only for now.** The other tables remain in their existing card/table layouts. The `densityCtl` infrastructure is generic, so any table can opt in by adding the matching CSS — but I didn't proactively add it to every page because most of them are already tabular and have nowhere denser to go.
+- **Patches and Audit retain their dropdown filters separately.** They aren't part of the persisted filter pref, so changing the dropdown selection isn't remembered across reloads. Substring filter and sort are persisted as before. If you want dropdown persistence too, that's a v1.11.7 follow-up.
+- **The "stack" multi-column sort tooltip** isn't shown anywhere obvious. Users have to know about shift+click. Adding a small `?` hint near the column headers is on the v1.11.7 list.
+
+---
+
+## v1.11.5 - 2026-05-03
+
+### New features
+
+**Filter + sort on every fleet table.** Each of the main category pages — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance — now has a substring filter input above the table. Click any column header to sort ascending; click again to flip to descending; click a third time to clear. Hold shift and click a second header to sort by it as a secondary key (priority shown as a small superscript). State persists per user — log in on a different browser, your filter and sort survive.
+
+**Density toggle on the Devices grid.** Three modes — Compact, Comfortable (default), Spacious — picked via a small segmented control in the Devices toolbar. Compact halves the card padding, shrinks fonts, and tightens the grid gap; Spacious goes the other way for users on very large displays. Persists per user.
+
+**Per-user UI preferences endpoint.** New `/api/ui-prefs` (GET / POST / DELETE). Stores density, filter strings, and multi-column sort state under the user's record in `users.json`. Schema sanitised on the server side — unknown fields are dropped, lengths capped, total payload bounded at 16 KB. Whole-document replacement (not patch) on POST so two tabs can't merge-conflict each other.
+
+### How this is built
+
+- **Server** — minimal: one new sanitiser function (`_sanitise_ui_prefs`), three thin handlers, three new routes. Stored under `users[username]['ui_prefs']` so password changes / user deletes automatically clean up the prefs.
+- **Frontend** — two new helpers in `index.html`: `tableCtl` and `densityCtl`. Pages register a tbody with a column map and a row builder; the helper handles filter, sort, empty-state, and persistence. Existing inline render code refactored to use the helper. Server-roundtrip on every keystroke would be silly when filtering 50 rows, so filtering and sorting are fully client-side; only the pref values themselves go to the server, debounced 600 ms.
+- **Empty-state messaging** — pages now distinguish "no data at all" from "no rows match the filter" so users don't think their fleet is empty when they typed `xyz` into the filter.
+
+### Caps and limits (server-side)
+
+- `MAX_UI_PREFS_BYTES = 16 * 1024` — total per user
+- `MAX_UI_PREFS_FILTER_LEN = 256` — per-filter string
+- `MAX_UI_PREFS_SORT_KEYS = 5` — multi-column sort depth
+- `MAX_UI_PREFS_TABLES = 50` — distinct tables we'll remember prefs for
+
+### New endpoints
+
+- `GET /api/ui-prefs` — current user's stored prefs (returns `{}` if none).
+- `POST /api/ui-prefs` — replace current user's prefs. Body is the full document; whatever's not in the body is gone after the request. Returns `{ok, prefs}` with the sanitised version.
+- `DELETE /api/ui-prefs` — wipe current user's prefs.
+
+### Modified data files
+
+- `users.json` — entries gain an optional `ui_prefs` field. Old user records without it work fine; the field is created lazily on first POST. Removed automatically when `DELETE /api/users/{name}` runs (no extra cleanup code needed — the field lives inside the user record).
+
+### Tests
+
+**420 passing** (397 from v1.11.4 + 23 new in `test_v1115.py`). Coverage:
+
+- `_sanitise_ui_prefs` — non-dict input returns `{}`; valid density round-trips; invalid density dropped; filter strings truncated to cap; sort lists capped to 5 keys; invalid sort directions default to `asc`; unknown table fields stripped silently; table names with `/` `\` `..` characters sanitised; empty-after-sanitisation table names dropped; >50 tables capped at 50; payloads exceeding 16 KB total return `{}` (no partial save); realistic round-trip preserved.
+- `GET /api/ui-prefs` — returns `{}` for fresh user; returns persisted dict after POST.
+- `POST /api/ui-prefs` — replaces (not merges) on subsequent calls; sanitises input; rejects non-object body with 400; requires auth; rejects wrong HTTP method with 405.
+- `DELETE /api/ui-prefs` — clears stored prefs; subsequent GET returns `{}`; method check.
+- Per-user isolation — User A's prefs invisible to User B and vice versa.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.4. No new dependencies. No nginx changes. No data migration — `users.json` records without a `ui_prefs` field work identically to before. Older clients that don't know about `/api/ui-prefs` simply don't see filter/sort persistence; the fallback in the frontend gracefully proceeds with empty prefs if the endpoint returns nothing.
+
+The frontend is the same `index.html` file — no new build step, no Node, no bundler. Refresh the browser after deploying.
+
+### Known limitations
+
+- **Devices density only — for now.** The other tables (services / CVEs / monitor / etc.) all sort and filter, but they don't yet have the three-mode density toggle. The plumbing is there (`densityCtl` works for any table name) but I haven't added the controls or CSS to those pages. Easy follow-up if you want it.
+- **Filter is substring only.** No regex, no field-scoped filters (`name:foo group:prod`). The dropdown filters that already exist on some pages (status, group, severity) keep working as before; this change is additive.
+- **Sort is in-memory only.** Loading 10,000 audit log entries and sorting them is fine in the browser, but loading 100,000 might lag on weak hardware. Pagination lives in the API for the audit log already; if you really hit that, we'd need server-side sorting. Not for v1.11.5.
+- **Two tabs racing.** Whole-document replacement means if you have two tabs open and change filter in one, the other tab's older state could overwrite it on its next save. Compare-and-swap would fix this but adds complexity for a workflow nobody seems to actually have. Filed under "if it becomes a problem."
+
+---
+
+## v1.11.4 - 2026-05-03
+
+### Bug fixes
+
+**Container data went stale and never refreshed.** The agent's container-listing path silently skipped sending the heartbeat field whenever the list was empty (`if items: payload['containers'] = items`). Hosts that went from "1 container running" to "0 containers running" — daemon restarts, transient `docker ps` failures, or just somebody running `docker stop` on the last container — never overwrote the server's stored list. The Containers page kept rendering whatever last non-empty snapshot the agent had reported, in some cases for days.
+
+Fixed by always sending the (possibly empty) list when a runtime is installed on the host. The server's existing ingest path (`api.py:1643`) already handled empty lists correctly — the bug was purely on the agent side. Hosts with no runtime installed at all still skip the field entirely, so we don't pollute `containers.json` with empty rows for machines that never had Docker.
+
+If your dashboard currently shows ancient container snapshots, the fix takes effect on the first heartbeat after the agent self-updates (≤1 hour, or push from the dashboard ↺ button).
+
+### New features
+
+**Container alerts.** Three new webhook events:
+
+- `container_stopped` — fires when a previously-running container is gone or its status flipped from running to exited/dead/terminated. Detected by diffing each heartbeat against the previous one.
+- `container_restarting` — fires when a container's `restart_count` climbed by 1 or more since the last report. Mainly useful for Kubernetes pods (Docker `ps` doesn't expose restart counts without `inspect`).
+- `containers_stale` — fires when a device hasn't sent fresh container data within `container_stale_ttl` seconds (default 900s = 15 min). Fired once per stale period; auto-resets when fresh data arrives. Skipped for already-offline devices (the existing `device_offline` webhook covers those) and for devices with `monitored=false`.
+
+All three default to enabled, respect the existing per-event toggle in Settings → Notifications, and route through the same `fire_webhook()` machinery — so they work with Ntfy, Gotify, Pushover, Slack, Discord, and generic JSON receivers without further wiring. Discord embeds use red for stopped, amber for restarting / stale.
+
+**Stale-data UI indicators.** The Containers page tags each row with an amber `STALE` pill and dims the row when its last heartbeat is over the TTL. The per-device modal shows a banner explaining what stale means and suggesting `journalctl -u remotepower-agent` as the first place to look.
+
+### New config keys
+
+- `container_stale_ttl` — seconds before a device's container data is considered stale. Default 900 (15 min). Range 300–86400. Floors at 300s at read time even if the stored value is lower (prevents alert-storms from misconfiguration).
+
+### New endpoints / response fields
+
+- `GET /api/containers` — each entry now includes `is_stale: bool`.
+- `GET /api/devices/{id}/containers` — response now includes `is_stale: bool` and `stale_ttl: int`.
+- `DELETE /api/devices/{id}/containers` — admin-only. Clears the stored container snapshot for one device. The agent will repopulate on its next heartbeat (~5 min). Useful when (a) decommissioning a device but keeping the device record, (b) you've deliberately removed containers via `docker rm` and don't want to wait for the next heartbeat to refresh, or (c) you want to re-arm the `containers_stale` webhook after acknowledging an old stale alert (the notified flag is also cleared). Returns `{ok, cleared}` where `cleared` is true if there was actually an entry to remove.
+- `POST /api/config` — accepts `container_stale_ttl` (300–86400 seconds).
+
+### Modified behaviour
+
+- `DELETE /api/devices/{id}` — also cleans up `containers.json` and the `containers_stale_notified` flag for the deleted device. Pre-v1.11.4 these orphans lingered indefinitely; if you re-enrolled a device with the same id, you'd inherit ghost container data from its previous life. (Cleanup is best-effort: if any of the cleanup steps throws, the device delete still succeeds.)
+
+### Modified data files
+
+- `config.json` — gains `container_stale_ttl` (optional, defaults to 900) and `containers_stale_notified` (internal — tracks which devices already received a stale-alert, cleared on fresh report). Both fields are stripped from `GET /api/config` responses where appropriate.
+
+### Webhook event registry order
+
+The three new events are inserted between `log_alert` and `command_queued` in the `WEBHOOK_EVENTS` tuple. The Settings page renders toggles in tuple order, so the new events appear at the bottom of the alert section above the audit-trail section.
+
+### Tests
+
+**397 passing** (362 from v1.11.3 + 35 new in `test_v1114.py`). Coverage:
+
+- `containers.is_stale` — boundary cases (zero timestamp, just under/over threshold, garbage input, default TTL constant).
+- `process_container_report` — first-report-no-fire, container-vanished, status-flip-to-exited, already-stopped-stays-quiet, restart-count-delta, no-restart-no-fire.
+- The empty-list bugfix end-to-end: a heartbeat with `containers: []` clears previously-stored entries.
+- `check_container_webhooks` — fresh-report-quiet, stale-report-fires-once, offline-device-skipped, unmonitored-device-skipped, notified-flag-deduplication.
+- API responses expose `is_stale` and `stale_ttl` correctly.
+- Heartbeat clears `containers_stale_notified` on fresh report (closes the loop).
+- `get_container_stale_ttl` floors at 300s, clamps garbage to default.
+- `DELETE /api/devices/{id}/containers` — happy path, idempotency, 404 on unknown device, admin-required.
+- `DELETE /api/devices/{id}` cleans up `containers.json` and the stale-notified flag (no orphan leaks on re-enrollment).
+- One contract test (`test_v184.test_expected_event_set`) updated to reflect the three new webhook events.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.3. No new dependencies. No nginx changes. No data migration — the new config key has a default, the new internal `containers_stale_notified` field is created lazily on first stale alert, and devices with no `is_stale` field in older clients will simply not show the badge until they self-update.
+
+The webhook payload schema for `container_stopped` and `container_restarting` is new (no v1.11.3 listener can have been built against it), so no breakage there. Existing webhook receivers will start seeing extra event types, which Ntfy / Gotify / Slack / Discord all handle gracefully (each event has its own title and tags).
+
+### Known limitations
+
+- **Restart-count alerts are essentially Kubernetes-only.** The agent reads `docker ps` output, which doesn't include restart counts. Adding `docker inspect` per container would be one syscall per container per heartbeat — fine for 5 containers, painful for 50. If you really want Docker restart alerts, run `docker events` to a separate log shipper.
+- **`container_stopped` can't distinguish "stopped" from "removed and recreated quickly".** If a container restart happens between heartbeats so the new instance has a different ID but the same name, we see the old one disappear and the new one appear — and we fire `container_stopped` for the disappearance. In practice this is an alert for "something restarted suspiciously" which is usually what you want anyway, but be aware.
+- **No history.** Container state is overwritten on every heartbeat. Webhook log retains the alerts (`webhook_log.json`, last 100 entries), but if you need full timeline, point Prometheus at `/metrics` and let it do its thing.
+
+---
+
+## v1.11.3 - 2026-04-30
+
+### New features
+
+**STARTTLS support in the TLS monitor.** Probe SMTP / IMAP / POP3 / LDAP services that upgrade to TLS via a plaintext negotiation step rather than running TLS from byte zero. Adds an "Auto-detect from port" option (default for new targets — port 25 / 587 / 2525 → SMTP; 143 → IMAP; 110 → POP3; 389 → LDAP; everything else → direct TLS). Each protocol can also be picked explicitly for non-standard ports.
+
+The big one this unblocks: **DANE/TLSA checks against mail servers**. DANE was originally designed for SMTP, and most DANE-published TLSA records out there are for `_25._tcp.mail.example.com`. The v1.11.2 DANE feature couldn't actually probe these because it spoke immediate TLS to port 25. Now it can.
+
+### What works, what doesn't
+
+- ✓ SMTP STARTTLS — EHLO + STARTTLS handshake, full reply parsing
+- ✓ IMAP STARTTLS — A001 STARTTLS command, reply parsed for OK
+- ✓ POP3 STLS — STLS command, reply parsed for +OK
+- ✓ LDAP StartTLS — extended request OID 1.3.6.1.4.1.1466.20037, hand-encoded BER (no `ldap3` dependency)
+- ✓ Auto-detect for the well-known ports listed above
+- ✗ XMPP (`<starttls/>`) — not implemented; rare in homelab use
+- ✗ FTP `AUTH TLS` — not implemented; rare and FTP-over-TLS adoption is low
+- ✗ NNTP STARTTLS — not implemented
+
+If you have a service speaking one of the unsupported protocols and want it added, the handler pattern is small: ~15 lines in `tls_monitor.py` per protocol. PRs welcome.
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts new `starttls` field (`"auto"` / `"none"` / `"smtp"` / `"imap"` / `"pop3"` / `"ldap"`)
+- `GET /api/tls/targets` — response includes the resolved `starttls` value per target
+
+### Modified data files
+
+- `tls_targets.json` — gains optional `starttls` field. Records without it default to `"auto"` on next read, which means **v1.11.2 targets at port 25 / 587 / 143 / 110 / 389 will start working correctly without any manual reconfiguration**.
+
+### UI changes
+
+- New "STARTTLS protocol" dropdown in the Add TLS target modal
+- TLS list table shows a small `SMTP` / `IMAP` / `POP3` / `LDAP` badge in the host column when the protocol isn't `none`
+- Detail modal shows a STARTTLS row when a non-none protocol is in use
+
+### Tests
+
+**362 passing** (347 from v1.11.2 + 15 new). New tests cover: parse_target STARTTLS validation and auto-detection across all six well-known ports, default-to-auto behaviour for missing field (backwards compatibility), invalid-protocol rejection, end-to-end probe against a local SMTP-with-STARTTLS server (full handshake), end-to-end IMAP, end-to-end POP3, server-refusal-of-STARTTLS landing in `tls_error` cleanly, direct-TLS on a STARTTLS port failing without crashing.
+
+The end-to-end tests spin up real socket servers in threads with self-signed certs minted in-memory — so the bytes the prober actually sends through the STARTTLS handshakes are tested for real, not just the field-validation logic.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.2. Existing targets without the `starttls` field default to `auto` on next read — meaning targets at port 25 / 587 / 143 / 110 / 389 that were previously **broken** (immediate TLS on a STARTTLS port) will start **working** automatically. Direct-TLS targets at port 443 / 465 / 993 / etc. continue to work exactly as before.
+
+No new dependencies. No new request headers. No nginx changes.
+
+### Known limitations
+
+- The SMTP STARTTLS handler sends the SNI hostname in EHLO. Some pedantic servers reject EHLO from an IP-shaped argument. This shouldn't matter for normal use (you'd rarely set `host` to a bare IP for an SMTP target — that breaks the cert hostname match anyway), but worth knowing.
+- LDAP StartTLS uses a hand-encoded BER message rather than `ldap3`. The encoded bytes are correct for LDAPv3 ExtendedRequest with the standard StartTLS OID, but unusual LDAP servers that require additional pre-StartTLS setup (binding, sending a different MessageID, etc.) won't work. PRs welcome.
+- The connection timeout is shared across the STARTTLS handshake and the TLS handshake (5+5 seconds, same as v1.11.2). A slow SMTP server doing greylist delays could blow this budget. Bump `CONNECT_TIMEOUT_S` and `HANDSHAKE_TIMEOUT_S` in `tls_monitor.py` if needed.
+
+---
+
+## v1.11.2 - 2026-04-30
+
+### New features
+
+**Shared link dashboard.** New "Links" page in the sidebar — a simple bookmark dashboard, shared across admins. Card grid grouped by category. Each link has title, URL, optional description, optional category (defaults to "Uncategorised"), and an internal/external scope flag. Internal links (LAN-only, behind VPN) get an amber dashed border; external links get an accent solid border — same colour language as the network map. Click any card to open in a new tab; "Edit mode" toggle reveals edit/delete buttons. Free-text search and scope filter at the top.
+
+**TLS monitor: connect address override.** New optional `connect_address` field on TLS targets. Connect to a specific IP while sending the configured hostname as SNI. Useful for probing internal certs by IP when DNS doesn't resolve from the server's network position. Empty = "use hostname for DNS lookup" (the v1.11.0 behaviour). The detail modal shows a "via &lt;address&gt;" line when overridden, and the row gets a small subtitle in the host column.
+
+**TLS monitor: DANE/TLSA checks.** New optional `dane_check` flag per target. When enabled, looks up `_PORT._tcp.HOSTNAME` for TLSA records via DNSSEC, validates the AD flag on the response, and compares the cert against the published records. Status reported as one of `ok` / `missing` / `insecure` / `mismatch` / `error`. Without DNSSEC, records are explicitly NOT trusted (status = `insecure`) — DANE without DNSSEC is theatre. Detail modal shows the published TLSA records (usage / selector / matching_type / data) for debugging.
+
+**TLS monitor: hostname-vs-cert match.** Now reported separately from full-chain verification. Lets you distinguish "wrong cert" from "right cert, wrong IP" when probing by `connect_address`. Wildcard handling per RFC 6125; falls back to the cert CN when SANs are absent (legacy certs).
+
+### New endpoints
+
+- `GET /api/links` — list + distinct-category summary
+- `POST /api/links` — admin creates a link
+- `PUT /api/links/{id}` — admin updates
+- `DELETE /api/links/{id}` — admin deletes
+
+### Modified endpoints
+
+- `POST /api/tls/targets` — accepts `connect_address` and `dane_check`
+- `GET /api/tls/targets` — response now includes the new fields plus DANE result, hostname match, connect_address echo
+
+### New / modified data files
+
+- `links.json` — new file, keyed by `lnk_<hex>` IDs
+- `tls_targets.json` — gains `connect_address` (string) and `dane_check` (bool) on records that opt in
+- `tls_results.json` — gains `connect_address`, `hostname_match`, `dane_status`, `dane_records`, `dane_error`
+
+### New dependency
+
+- `dnspython` — only required for DANE checks. The TLS expiry monitor and everything else still work without it. `install-server.sh` adds it via pip with a distro-package fallback (`python3-dnspython` / `python3-dns` / `python-dnspython`); Dockerfile pulls it via pip.
+
+### Tests
+
+**347 passing** (319 from v1.11.1 + 28 new). New tests cover: link CRUD with URL/scope validation (rejects javascript:/ftp://, oversize, quote-injected URLs), parse_target backwards compatibility plus connect_address and dane_check, hostname matching (exact SAN, wildcard, CN fallback, case-insensitive, empty inputs), TLSA cert matching across selector × matching_type combinations using a real in-memory generated cert, and DANE check shape consistency.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.1. Existing TLS targets without `connect_address`/`dane_check` continue to work unchanged. Records without DANE simply don't get checked — status field reads `not_checked`. No new request headers; no nginx changes.
+
+### Known limitations
+
+- DANE checks query the system resolver. If your `/etc/resolv.conf` points at a non-DNSSEC-validating resolver, all checks return `insecure` regardless of the upstream DNS. For Fedora server use systemd-resolved with DNSSEC=allow-downgrade or yes; for Debian/Ubuntu unbound is the easy choice.
+- The DANE checker only compares against the leaf cert, not the chain. So `usage=2` (DANE-TA, trust-anchor) records that point at a CA cert will report `mismatch` even when valid. Most homelab DANE setups use `usage=3` (DANE-EE, end-entity) which is what we handle correctly.
+- The connect-address feature only changes where we connect — it does NOT change SNI. The hostname is always sent as SNI in the handshake, and the cert is parsed from whatever the server presents. Probing `192.168.1.1` with `host=router.lan` gets you the cert your router serves for `router.lan`.
+
+---
+
+## v1.11.1 - 2026-04-30
+
+### New features
+
+**Network map: drag to reposition + persist.** Click and drag any node to move it. Positions are saved to the server (per-device `pos_x`/`pos_y` fields) and survive refresh. Debounced save (400ms) batches multi-node drags into a single API call. New "Reset positions" button reverts everything to the auto-layout.
+
+**Network map: tunnels.** A second kind of edge — peer links between two devices, drawn as dashed amber lines. Use them for VPN tunnels, site-to-site links, or anything else that isn't physical wiring. New "Tunnels" button on the Network page opens a modal to add/remove. No protocol/type/label complexity in this release — just "these two devices have a tunnel."
+
+### New endpoints
+
+- `PUT /api/network-map/positions` — batch save, accepts `null` to clear
+- `GET /api/network-map/tunnels` — list (filters dangling endpoints)
+- `POST /api/network-map/tunnels` — add (normalises endpoint order, rejects duplicates)
+- `DELETE /api/network-map/tunnels/{id}` — remove
+
+### Modified endpoints
+
+- `GET /api/network-map` — response now includes `pos_x`/`pos_y` per node and a top-level `tunnels` array
+
+### New / modified data files
+
+- `tunnels.json` — new file, keyed by `tun_<hex>` IDs
+- `devices.json` — gains `pos_x`/`pos_y` (optional ints) on records the user has dragged
+
+### Tests
+
+**319 passing** (303 from v1.11.0 + 16 new). New tests cover position batch save / clear / validation, position out-of-range rejection, unknown-device skipping, network-map surfacing of positions, tunnel add / canonical ordering / duplicate detection in either direction, self-tunnel rejection, unknown-endpoint rejection, wrong-shape rejection, delete + 404, and dangling-endpoint filtering.
+
+### Compatibility
+
+Drop-in upgrade from v1.11.0. Existing devices without `pos_x`/`pos_y` fall back to the auto-layout exactly as before. No new request headers, no nginx changes.
+
+---
+
+## v1.11.0 - 2026-04-29
+
+### Added
+
+**Container awareness.** Every enrolled agent now detects Docker,
+Podman, and Kubernetes pods independently — three try/except blocks
+around three runtime probes, none of which can break the heartbeat
+if a runtime is missing or stuck. Each runtime gets at most a
+five-second timeout on its listing command. The agent normalises
+output across all three (Docker's `--format '{{json .}}'` lines,
+Podman's similar output, kubectl's `-o json` document) into a single
+schema and posts a list of up to 100 entries every five polls,
+roughly five minutes at the default cadence.
+
+The server stores last-seen state, not history. Container state
+changes too often for a rolling buffer to be useful, and "when did
+this restart" is answered cheaply by the `restart_count` field
+itself. A new "Containers" page in the sidebar shows fleet-wide
+overview — device, OS, total/running/stopped counts, restart-flagged
+counts (≥5 restarts is highlighted), and the runtimes present.
+Click through to a per-device modal with image, tag, status,
+namespace (for k8s), ports, and per-container restart count.
+
+This is read-only by design. Start, stop, exec, logs — Portainer
+exists, k9s exists, kubectl exists. RemotePower's job is "what's
+running and is it healthy"; managing containers is a different
+product entirely.
+
+**Network map.** A new `connected_to: <device_id>` field on every
+device, plus a "Network" page that renders the resulting graph as a
+node-and-edge diagram. Manual topology only — no auto-discovery.
+The user fills in "this switch is connected to that router" once,
+and the graph reflects it. Nodes coloured by online status,
+outlined by whether they're agent-driven or agentless. An "Edit
+links" modal exposes a single table where every device's upstream
+can be set in one place; changes save in batch.
+
+The graph rendering is a small force-style layout that ships in
+the SPA — no D3 dependency. It's not pretty for hundred-node
+fleets, but the homelab/small-business audience tops out around 20
+to 30 nodes where it works fine.
+
+**Agentless devices.** Switches, APs, printers, IPMI cards,
+cameras, smart plugs — all the infrastructure that can't run a
+Python agent. A new `POST /api/devices/agentless` creates a device
+record with `agentless: True`, no token, no heartbeat. Status is
+whatever the user sets it to (`manual_status` field). Same CMDB
+metadata, same vault credentials, same SSH link feature, same
+documentation, same audit trail as agented devices — they're just
+records the user maintains by hand. Fifteen device types are
+validated server-side (switch, router, firewall, AP, printer,
+camera, IPMI, UPS, PDU, NAS, IoT, smart plug, phone, plus "other"
+as the safety valve). A "+ Agentless device" button on the Devices
+page toolbar opens the create modal.
+
+This is the first time RemotePower can model an entire homelab
+rack rather than only the boxes that run Linux. It also makes the
+network map useful — until you can model a switch, the topology
+view has nowhere to root.
+
+**TLS / DNS expiry monitor.** Server-side, cron-driven probes
+against a configurable watchlist. Each probe does a TCP connect
+(5s timeout) plus TLS handshake (5s timeout), parses the cert,
+runs a separate verification pass against the system trust store,
+and records DNS A/AAAA addresses. Errors at any layer become a
+recorded result with the appropriate `dns_error`, `tls_error`, or
+`verify_error` field rather than an exception — the next refresh
+will retry.
+
+Watchlist and results live in two flat files. Default thresholds
+are 14-day warn / 3-day critical, overridable per target. A new
+"TLS / DNS" page lists targets with status colour, days remaining,
+issuer, and last-check timestamp; clicking a row opens a detail
+modal with the full cert info (subject, SAN list, A/AAAA records).
+"Scan now" runs the probe synchronously from the CGI; the
+`remotepower-tls-check` helper script in `cgi-bin/` runs the same
+code from cron or a systemd timer for the scheduled case.
+
+The probe uses the Python stdlib's `ssl` module — no extra
+dependency. The `cryptography` package was already pulled in for
+the CMDB vault and would have been overkill here.
+
+### Fixed
+
+`Dockerfile` had a long-standing bug: it only copied `api.py` to
+the container, missing every sibling module. This silently broke
+the CMDB feature in Docker deployments since v1.9.0 (the import of
+`cmdb_vault` would fail) and the OpenAPI page since v1.10.0 (same
+for `openapi_spec`). v1.11.0 fixes the COPY directive to grab the
+entire `server/cgi-bin/` directory.
+
+`install-server.sh` had the same bug — only `api.py` was installed
+on a fresh machine, sibling modules silently missing. Both v1.9.0
+and v1.10.0 worked because users were typically using
+`deploy-server.sh` (which already auto-discovered the modules) for
+upgrades, but a fresh install via `install-server.sh` would have
+been broken. v1.11.0 auto-discovers all `*.py` files in
+`server/cgi-bin/` plus the new helper scripts.
+
+These fixes ship with v1.11.0 but apply equally to anyone running
+v1.9.0 or v1.10.0 in Docker — upgrading to v1.11.0 fixes the
+silently-broken CMDB feature.
+
+### New endpoints
+
+```
+GET    /api/containers                          fleet overview
+GET    /api/devices/{id}/containers             per-device list
+GET    /api/network-map                         nodes + edges for the map
+PUT    /api/devices/{id}/connected-to           set upstream link
+POST   /api/devices/agentless                   create manual device
+GET    /api/tls/targets                         watchlist + last results
+POST   /api/tls/targets                         add target
+DELETE /api/tls/targets/{id}                    remove target
+POST   /api/tls/scan                            probe all targets now
+```
+
+### New files
+
+- `server/cgi-bin/containers.py` — container normalisation
+- `server/cgi-bin/tls_monitor.py` — TLS/DNS probe logic
+- `server/cgi-bin/remotepower-tls-check` — cron runner
+- `tests/test_v1110.py` — 33 new tests
+- `docs/containers.md`, `docs/network-map.md`, `docs/tls-monitor.md`,
+  `docs/agentless-devices.md`
+
+### New data files
+
+- `containers.json` — `{device_id → {ts, items: [...]}}` last-seen state
+- `tls_targets.json` — `{tls_<hex> → {host, port, label, warn_days, crit_days}}`
+- `tls_results.json` — `{tls_<hex> → {checked_at, expires_at, issuer, ...}}`
+
+### Modified data files
+
+`devices.json` records gain four optional fields:
+`agentless` (bool), `connected_to` (device_id), `device_type` (string),
+`manual_status` (bool). Missing fields default to empty/False at
+read time — fully backwards-compatible with v1.9.x and v1.10.x data.
+
+### Tests
+
+**301 passing.** The new test file covers containers module
+(normalisation, runtime aliases, port caps, listing caps, garbage
+input handling, summarisation), TLS module (target validation,
+threshold logic, days-until-expiry math), heartbeat acceptance
+(containers field, overwrite behaviour), container endpoints
+(empty state, summary correctness, per-device retrieval, 404 on
+unknown device), network map (graph shape, dangling-edge dropping,
+self-link rejection, nonexistent-target rejection, clearing),
+agentless creation (minimal, type validation, connected-to
+validation, devices-list surfacing), and TLS endpoints (add,
+delete, list with status, 404 on unknown).
+
+### Compatibility
+
+Forwards- and backwards-compatible in both directions between
+v1.10.0 and v1.11.0. Servers running either version accept agents
+running either version. Older agents don't populate the
+`containers` field; older servers ignore it if posted. The new
+fields on `devices.json` default to empty when missing, so
+existing data files continue to work unmodified.
+
+No new request headers — the existing nginx config works
+unchanged. No new outbound connections from the agent (containers
+listing is local-only). The TLS probe is server-initiated, so any
+firewall rules controlling outbound from the RemotePower server
+itself need to allow connections to the targets being probed.
+
+### Suggested cron
+
+A systemd timer or cron entry for the TLS probe, every six hours:
+
+```
+0 */6 * * * www-data /var/www/remotepower/cgi-bin/remotepower-tls-check
+```
+
+The probe is idempotent — running it more often is safe but
+mostly wastes outbound connections. Less often is fine too;
+"warn at 14 days" gives plenty of headroom for a daily probe
+schedule if you prefer.
+
+---
+
+## v1.10.0 - 2026-04-29
+
+### Added
+
+**Swagger / OpenAPI documentation.** The full public API surface is now
+documented in an OpenAPI 3.1 specification served at
+`/api/openapi.json`. A new "API Docs" link in the sidebar opens
+`/swagger.html`, a Swagger UI page that renders the spec and lets you
+make real authenticated requests against your live server with a
+single click — the page injects your existing session token into every
+"Try it out" request, so there's no Authorize button to fiddle with.
+The spec covers 22 endpoints across seven tags: Auth, Devices,
+Commands, CMDB, Vault, Credentials, and Reporting. It's hand-written
+rather than auto-generated from the CGI dispatch table, on the theory
+that hand-written specs stay accurate where auto-generated ones drift
+silently when handler internals change.
+
+**SSH link from credentials.** Every credential row in the CMDB
+Credentials tab gets two new buttons: a clickable `ssh://user@host:port`
+link that opens in your default SSH-URI handler (PuTTY on Windows,
+iTerm or Terminal.app on macOS, whatever you've configured on Linux),
+and a Copy button that puts a plain `ssh user@host -p port` command
+on your clipboard. The host comes from the asset's hostname (or IP if
+hostname is empty), the port from a new per-asset `ssh_port` field
+(default 22, validated 1-65535), and the username from the credential.
+The password is **deliberately not** included in the URI — `ssh://`
+URIs technically can carry one but that ends up in browser history
+and process tables, so the password stays in the reveal modal where
+it belongs.
+
+**OS icons.** Both the Devices page and the CMDB asset table now show
+a small inline-SVG icon next to each device's OS string. Two icons,
+total: Tux for anything Linux-shaped (Ubuntu, Debian, Fedora,
+RHEL/Rocky/CentOS, Arch, Alpine, openSUSE, Mint, NixOS, plus
+anything containing "linux" or "gnu"), and a tile for Windows. Other
+operating systems — macOS, BSD, exotic things — get a question-mark
+glyph so detection failures are visible rather than silently shown
+as a generic icon. The glyphs use `currentColor` so they inherit
+the surrounding text colour.
+
+**Update history.** The Patches feature has been a one-way street
+since v1.7 — push an upgrade and hope. v1.10.0 captures the output.
+The agent's exec output cap is bumped from 4 KB to 256 KB for
+upgrade commands (`apt -y upgrade`, `dnf -y upgrade`, `pacman -Syu`)
+so the output isn't truncated mid-package; the heartbeat handler
+dual-routes that output into a new `update_logs.json` file with a
+rolling buffer of the last 10 runs per device. The device dropdown
+menu has a new "Update history" link that opens a modal showing each
+run with timestamp, package manager, exit code, duration, and full
+output (collapsed by default; the most recent expanded). New endpoint
+`GET /api/devices/{id}/update-logs` for scripting access.
+
+**Audit log filtering.** The audit log page gained two filter inputs:
+a free-text search box that matches across actor, action, and detail,
+and an action-type dropdown auto-populated from whatever actions
+appear in the data. Both filters are client-side — the data is small
+enough that server-side filtering would be over-engineering — and
+combine: pick `cmdb_credential_reveal` from the dropdown to see
+nothing but reveals, then type a username in the search box to narrow
+to that admin's reveals.
+
+### Code quality
+
+This release introduces the project's first formal lint pipeline.
+A new `pyproject.toml` configures `black` (100-char lines), `isort`
+(black profile), and `mypy` (strict on the new modules
+`cmdb_vault.py` and `openapi_spec.py`, permissive on the legacy
+`api.py`). A new `Makefile` adds `make test`, `make lint`, `make
+format`, `make typecheck`, `make check`, and `make install-dev`. The
+`make lint` target is intentionally scoped to the v1.10.0 baseline
+files — running black across the entire 5800-line `api.py` would
+produce an unreviewable diff in this release; broadening the scope
+is its own deliberate effort.
+
+A small but meaningful cleanup: the long-standing `respond(); sys.exit(0)`
+pattern is replaced by a proper `HTTPError(status, body)` exception
+that bubbles up to a single handler at the top of `main()`. The
+public behaviour is identical — same HTTP envelope, same status
+codes, same JSON bodies — but handlers are now testable as plain
+function calls without monkey-patching `sys.exit`. The legacy test
+helpers continue to work because they monkey-patch `respond` at
+import time and never see the exception. Tests added: 24 new in
+`tests/test_v1100.py`, taking the suite from 244 to 268 passing.
+
+The v1.9.0 CMDB handlers received type hints and Google-style
+docstrings as the start of a wider documentation pass. Strict mypy
+catches both flagged issues in `cmdb_vault.py` (a missing return
+annotation on `_crypto`, an `Optional[str]` mis-typed as `str`).
+
+### Bonus
+
+`GET /api/cmdb/{device_id}` now trims the embedded `sysinfo` dict
+from the heartbeat (50+ KB on rich systems) to nine whitelisted
+fields totalling under 1 KB. The CMDB modal only displays
+CPU/RAM/disk/uptime headlines anyway; trimming makes the modal pop
+open instantly even on assets with elaborate sysinfo.
+
+### New endpoints
+
+```
+GET  /api/openapi.json                         OpenAPI 3.1 spec
+GET  /api/devices/{device_id}/update-logs      rolling buffer of upgrade output
+```
+
+### Modified endpoints
+
+```
+PUT  /api/cmdb/{device_id}                     accepts new ssh_port field
+GET  /api/cmdb                                 response includes ssh_port
+GET  /api/cmdb/{device_id}                     response includes ssh_port; sysinfo trimmed
+```
+
+### New files
+
+`server/cgi-bin/openapi_spec.py`, `server/html/swagger.html`,
+`pyproject.toml`, `Makefile`, `tests/test_v1100.py`,
+`docs/swagger.md`, `docs/update-history.md`.
+
+### Tests
+
+**268 passing** (244 from v1.9.0 + 24 new). The new suite covers:
+`HTTPError` exception + rendering, the full ssh_port lifecycle
+(default, set, reset-to-default via 0, range validation, list
+surfacing), sysinfo trim (whitelist behaviour, non-dict input,
+end-to-end through the GET handler), update logs (empty state,
+ordered runs, 404 on unknown device, capacity-cap enforcement),
+and OpenAPI spec generation (structure, security schemes, critical
+endpoints documented, fresh-object-per-call, handler returns 200
+with the spec, handler requires auth).
+
+### Compatibility
+
+v1.9.0 and v1.10.0 are mutually compatible. The agent binary is
+unchanged in shape — older agents work with the new server, just
+truncating upgrade output at the 4 KB the older code allowed.
+CMDB records created before v1.10.0 are missing the `ssh_port`
+field; the server backfills it with the default 22 on read, so
+nothing migrates and nothing breaks.
+
+### Known limitations
+
+- Update logs are populated on the next heartbeat (~60s) after a run
+  completes. There's no live streaming. A streaming implementation
+  via long-polling or SSE was discussed and deferred — the simpler
+  heartbeat approach reuses what already works and the latency is
+  acceptable for the actual use case (post-hoc review of what
+  happened).
+- Swagger UI loads its assets from a pinned CDN version. Fully-air-
+  gapped servers will fall back to a plain-text "raw spec at
+  /api/openapi.json" message rather than rendering. Bundling Swagger
+  UI inline would add ~700 KB to every dashboard page load, which is
+  a worse trade-off than the offline degradation.
+- `make lint` is scoped to the v1.10.0 baseline files. Expanding to
+  the full codebase is its own effort and shouldn't share a release
+  with feature work.
+
+---
+
+## v1.9.0 - 2026-04-27
+
+### Added
+
+**CMDB — Configuration Management Database.** A new "CMDB" page in the
+sidebar (between Devices and Monitor) gives every enrolled device an
+optional metadata layer: a free-text **asset_id** for inventory tags, a
+**server_function** field (web, db, dc, logging, …) with autocomplete
+populated from the existing fleet, an optional **hypervisor_url**
+rendered as a click-through link, and **Markdown documentation** up to
+64 KB per asset with side-by-side edit and rendered-preview tabs. The
+page joins `devices.json` with the new `cmdb.json` so every enrolled
+device is implicitly an asset — no separate enrollment step. A search
+box filters across name, asset_id, IP, function, and documentation; a
+function dropdown narrows the table to a single role.
+
+**Encrypted credential vault.** Each asset can store up to 25
+credentials — root, service accounts, IPMI, web admin panels, whatever
+— with per-credential label, username, optional note, and an encrypted
+password. The crypto stack is **AES-GCM 256-bit** with **PBKDF2-SHA256
+key derivation** at 600 000 iterations (OWASP 2023 minimum), a 32-byte
+random salt, and a fresh 12-byte nonce on every encryption. The model
+is a **shared admin passphrase** rather than per-user keys: the team
+sets one passphrase at vault setup, all admins use it, and rotation
+re-encrypts every credential atomically.
+
+The passphrase is **never persisted server-side**. An admin enters it
+in the unlock modal, the server derives the key and returns it as hex,
+the browser holds it in a single closure variable in JS memory, and
+clears it on logout, page reload, or an explicit "Lock" button.
+Subsequent credential operations send the key in an `X-RP-Vault-Key`
+request header. The server checks every key against an encrypted
+canary blob stored in `cmdb_vault.json` so a wrong key never touches
+real credentials.
+
+Reveal (the API call that actually returns plaintext) is **admin-only
+and audit-logged** with the actor, source IP, asset, and credential
+label. Per-credential metadata stays plaintext for searchability — only
+the password ciphertext is encrypted. List endpoints redact the
+ciphertext entirely; only `/reveal` ever decrypts.
+
+The crypto module (`cmdb_vault.py`) is a sibling of `cve_scanner.py`
+and `prometheus_export.py`. It imports the `cryptography` library
+lazily, so the rest of the API stays fully alive on servers that don't
+have it installed yet — vault operations return a clear error in that
+case, but everything else (asset metadata, documentation, search) keeps
+working.
+
+**Passphrase rotation.** `POST /api/cmdb/vault/change` takes the old
+passphrase, verifies it against the canary, derives the new key, walks
+every credential in `cmdb.json`, decrypts with the old key, and
+re-encrypts with the new key in memory before persisting. If a
+credential fails to decrypt during rotation (corrupt entry), it's
+dropped and the event is recorded as `cmdb_vault_change_drop` in the
+audit log so the admin can investigate. The new vault metadata is
+written first; the new credential file second; a crash mid-rotation
+leaves the vault recoverable with the old passphrase.
+
+### Endpoints
+
+```
+GET    /api/cmdb                                          list assets + metadata
+GET    /api/cmdb/{device_id}                              full asset detail (creds redacted)
+PUT    /api/cmdb/{device_id}                              patch metadata + documentation
+GET    /api/cmdb/server-functions                         distinct functions for autocomplete
+GET    /api/cmdb/vault/status                             configured? KDF? created_at?
+POST   /api/cmdb/vault/setup                              admin; one-shot
+POST   /api/cmdb/vault/unlock                             returns derived key
+POST   /api/cmdb/vault/change                             admin; rotates + re-encrypts
+GET    /api/cmdb/{device_id}/credentials                  metadata only
+POST   /api/cmdb/{device_id}/credentials                  admin + X-RP-Vault-Key
+PUT    /api/cmdb/{device_id}/credentials/{cred_id}        admin (key required only if pw changes)
+DELETE /api/cmdb/{device_id}/credentials/{cred_id}        admin
+POST   /api/cmdb/{device_id}/credentials/{cred_id}/reveal admin + key, audit-logged
+```
+
+### New data files
+
+- `cmdb.json` — `{device_id → record}`, where each record has
+  `asset_id`, `server_function`, `hypervisor_url`, `documentation`,
+  and a `credentials` list. Each credential is
+  `{id, label, username, note, nonce, ct, created_by/at, updated_by/at}`.
+- `cmdb_vault.json` — vault metadata only:
+  `{kdf, iterations, salt, canary_nonce, canary_ct, created_by/at, rotated_by/at}`.
+  Contains zero plaintext, zero key material — safe to back up to the
+  same place as the rest of `/var/lib/remotepower`.
+
+### New audit-log actions
+
+`cmdb_update`, `cmdb_vault_setup`, `cmdb_vault_unlock`,
+`cmdb_vault_unlock_failed`, `cmdb_vault_change`, `cmdb_vault_change_failed`,
+`cmdb_vault_change_drop`, `cmdb_credential_add`, `cmdb_credential_update`,
+`cmdb_credential_delete`, `cmdb_credential_reveal`,
+`cmdb_credential_reveal_failed`.
+
+### New dependency
+
+`cryptography` (Python). `install-server.sh` installs it via pip with a
+distro-package fallback (`python3-cryptography` on Debian/Ubuntu/Fedora,
+`python-cryptography` on Arch). It's the only feature that needs it; if
+the install fails the rest of the server still runs and CMDB metadata
+remains usable — only credential ops report a clean
+"vault not installed" error.
+
+### Limits
+
+- 64 KB Markdown documentation per asset
+- 25 credentials per asset
+- 1 KB max password length
+- 64-char labels, 128-char usernames, 512-char notes
+- `server_function`: 64 chars, charset `[A-Za-z0-9 _\-/]`
+- Vault passphrase: 12-256 chars, must contain at least 2 of
+  {lowercase, uppercase, digit, symbol}
+
+### Tests
+
+**244 passing, 0 failing** (1 pre-existing skip). The new suite
+`tests/test_v190.py` adds 32 tests across five classes:
+`TestVaultCrypto` (KDF derivation, canary verification, fresh nonces,
+key-header parsing strictness), `TestVaultEndpoints` (status, setup,
+unlock with audit on bad passphrase), `TestAssetCrud` (404 paths,
+asset_id charset, hypervisor URL scheme rejection, oversized doc,
+search filtering), `TestCredentials` (add/list/delete/reveal,
+ciphertext redaction in list, vault-locked vs auth-locked 401
+distinction, max-credential cap, full passphrase rotation
+re-encrypting two credentials and verifying reveal under the new key),
+and `TestServerFunctions` (autocomplete distinct-value sorting).
+
+### Compatibility
+
+v1.8.x clients are fully compatible with v1.9.0 servers — CMDB is a
+server-side feature, the agent binary is unchanged. A v1.9.0 server
+started against an existing v1.8.x data directory creates `cmdb.json`
+and `cmdb_vault.json` lazily on first write. The vault is opt-in: the
+CMDB page works in read-only metadata mode until an admin calls
+`/api/cmdb/vault/setup`.
+
+---
+
+## v1.8.6 - 2026-04-26
+
+### Added
+
+**SMTP / email notifications.** Email is now a sibling channel to webhooks
+— same events, same maintenance-window suppression, same per-event toggles.
+The Notifications tab gains an SMTP section: host, port, TLS mode
+(STARTTLS / implicit TLS / plain), From address, optional auth, optional
+HELO override, recipients list, and a "Send test email" button with
+optional override recipient.
+
+The per-event toggle table now has two columns: **Webhook** (existing,
+opt-out) and **Email** (new, opt-in per event). Email is opt-in because
+nobody wants every device-online event to land in their inbox.
+
+Three TLS modes:
+- `starttls` (port 587) — modern default, STARTTLS upgrade after EHLO
+- `tls` (port 465) — implicit TLS, the older "SMTPS" port
+- `plain` (port 25) — no TLS; only safe to localhost or trusted relays
+
+Auth is optional. Empty username = no AUTH attempted (useful for localhost
+relays that allow anonymous submission). Passwords are stored in
+`config.json` and masked in `GET /api/config` responses (the UI just sees
+a `smtp_password_set: true` flag).
+
+**LDAP / LDAPS authentication.** External auth source for login. Local
+users in `users.json` are tried first — emergency local admin always works
+even if LDAP is down. Users authenticated via LDAP are auto-provisioned
+into `users.json` with the role determined by group membership.
+
+Configuration in the Security tab:
+- LDAP URL (`ldaps://` or `ldap://`)
+- TLS verification toggle (set to off only for self-signed CAs in dev)
+- Service account DN + password (used for the search step; the user's
+  own credentials verify the password in a second bind)
+- User search base + filter — `(uid={u})` for OpenLDAP/FreeIPA,
+  `(sAMAccountName={u})` for AD
+- **Required group DN** — empty allows any user with valid creds; set
+  this to lock login to a specific group
+- **Admin group DN** — members get the `admin` role on login; everyone
+  else gets `viewer`. Auto-promotes existing local users on next LDAP
+  login but never auto-demotes.
+- Two test buttons: "Test connection" (verifies the service account
+  bind) and "Test user login" (full auth path with a real username/password
+  pair, doesn't create a session)
+
+Library: **ldap3** (pure Python). The module imports lazily, so servers
+that don't enable LDAP don't need the library installed at all. To
+install: `pip3 install ldap3` (Fedora: `dnf install python3-ldap3`).
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/smtp/test` | Send a test email; optional `{"recipient": "..."}` override |
+| POST | `/api/ldap/test` | Verify service-account bind (URL/TLS/creds). Body fields override config for "test before save" UX. |
+| POST | `/api/ldap/test-user` | Run the full auth path for one user. Returns DN, role, full name, email. |
+
+### New config keys
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `smtp_enabled` | bool | Master toggle for email channel |
+| `smtp_host` / `smtp_port` / `smtp_tls` | string / int / enum | Server config |
+| `smtp_from` | string | From address (must contain `@`) |
+| `smtp_username` / `smtp_password` | string | Optional AUTH; password masked on GET |
+| `smtp_helo_name` | string | Override HELO/EHLO hostname |
+| `smtp_recipients` | string | Comma/semicolon/whitespace-separated list |
+| `email_events` | dict | `{event_name: bool}` per-event opt-in |
+| `ldap_enabled` | bool | Master toggle |
+| `ldap_url` | string | `ldaps://...` or `ldap://...` |
+| `ldap_bind_dn` / `ldap_bind_password` | string | Service account creds |
+| `ldap_user_base` | string | Search base |
+| `ldap_user_filter` | string | Must contain `{u}` |
+| `ldap_required_group` / `ldap_admin_group` | string | Group DNs |
+| `ldap_tls_verify` | bool | Default true |
+| `ldap_timeout` | int | Seconds, 1–60, default 5 |
+
+### Changed
+
+- All version strings bumped to 1.8.6
+- `fire_webhook()` is now a single dispatch point — runs the shared gates
+  once, then fans out to webhook AND email channels in turn. The hard
+  rename was avoided because of dozens of call sites; the function still
+  has the historical name.
+- `handle_login` gains an LDAP fallback path. Tried only when local auth
+  fails; LdapTransientError logs to audit but presents as plain
+  invalid-credentials to the client (no info leak about whether LDAP is
+  reachable).
+- Auto-provisioned LDAP users get a placeholder `password_hash` that
+  never matches anything. Subsequent local-auth attempts fail and fall
+  through to LDAP again — there's no way to "downgrade" an LDAP user
+  to local-only by accident.
+- `users.json` entries gain optional `ldap_dn`, `ldap_full_name`,
+  `ldap_email` fields when created via LDAP.
+
+### Tests
+
+30 new tests in `tests/test_v186.py`:
+- SMTP: recipients parser (5 cases), per-event email toggle (5 cases),
+  input validation (5 cases), email render (2 cases)
+- LDAP: filter escaping (2 cases), authenticate() success/failure paths
+  (5 cases) using a fake `ldap3` module installed in `sys.modules`,
+  required-group enforcement, role mapping
+- Wiring + version checks (3 cases)
+
+**Full suite: 212 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- LDAP requires the `ldap3` library on the server. Empty config + disabled
+  toggle is the default, so no library needed unless you turn it on.
+  Server emits `LdapTransientError: ldap3 library not installed` if
+  enabled without the library — surfaces in the audit log.
+- SMTP works with any RFC 5321 server. Tested mentally against Postfix,
+  AWS SES, Gmail, Mailgun, Sendgrid, ProtonMail Bridge.
+- Email recipients are a flat fleet-wide list (everyone gets every
+  enabled event). Per-user opt-in is not a v1.8.6 feature; could happen
+  in 1.9.0 if anyone asks.
+- The "Test user login" button in the LDAP section is admin-only and
+  doesn't create a session — it just runs `authenticate()` against the
+  current config and shows what would happen. Useful for verifying the
+  filter/group config without making the user log out.
+- Enabling LDAP doesn't disable local auth. There's no "LDAP-only" mode
+  by design — if LDAP breaks, you can still log in as a local emergency
+  admin and fix it.
+
+### Compatibility
+
+- v1.8.5 servers work with v1.8.6 clients (everything's additive).
+- v1.8.5 → v1.8.6 needs no migration. SMTP and LDAP are off by default;
+  saving Settings once writes the new keys with their defaults.
+- Agent binary unchanged from v1.8.5 except for the version string.
+
+---
+
+## v1.8.5 - 2026-04-26
+
+### Fixed
+
+**"Remember me" actually remembers now.** v1.8.4 introduced the checkbox and
+the per-token TTL on the server side, but the client always saved the token
+to `sessionStorage` — which by definition is wiped when the browser closes.
+The 30-day server-side TTL was correct; the browser was just throwing away
+the token at the end of every tab session. Particularly visible if you have
+2FA enabled because every reload meant another full login dance.
+
+The fix:
+
+- When "remember me" is checked, the token + username are saved to
+  **`localStorage`** (persists across browser restarts).
+- When unchecked, they go to **`sessionStorage`** as before (cleared with
+  the tab — explicit "this is a kiosk / public computer" semantics).
+- `getToken()` now reads from both stores, preferring localStorage.
+- `getMe()` (new helper) does the same for the username display.
+- `checkAuth()` (called on page load) uses `getToken()` instead of reading
+  sessionStorage directly — which was the actual bug that made remember-me
+  a no-op for users with 2FA.
+- `doLogout()` clears both stores so toggling between modes doesn't leave
+  stale credentials behind.
+- Login flow clears both stores before writing the new token, preventing
+  any cross-mode contamination if the user toggles the checkbox.
+
+### Changed
+
+- All version strings bumped to 1.8.5
+- No server-side or agent changes — this is a pure client-side bug fix
+- No data file changes; existing tokens keep working
+
+### Tests
+
+182 passing, 0 failing (1 pre-existing skip). No new tests; this is a
+DOM-only behavior fix that's easier to verify by hand than to mock in
+unittest. To verify after deploy:
+
+1. Tick "Remember me", log in, complete 2FA
+2. Close the browser entirely (not just the tab)
+3. Reopen, navigate to the dashboard URL → should land on the app, not
+   the login page
+
+If you uncheck "Remember me" and repeat, the second visit should bounce
+you to login as expected (sessionStorage was cleared with the browser).
+
+### Notes
+
+- This is purely a client bug. v1.8.4 servers work fine with v1.8.5
+  clients and vice versa. The agent binary is byte-identical apart from
+  its version string.
+- If you've been logging in with 2FA repeatedly because remember-me
+  seemed broken — sorry, that's on me. Should work now.
+
+---
+
+## v1.8.4 - 2026-04-25
+
+### Added
+
+**Settings page reorganized into 4 tabs.** The flat scrolling list was getting
+out of hand. New tabs: **General**, **Notifications**, **Security**, **Advanced**.
+URL hash drives tab selection so you can bookmark `#settings/security` etc.
+
+**Server identity** (`server_name`). Display name shown in:
+- Browser title (`<title>`)
+- Login page header
+- Webhook payloads (as `_server_name`)
+- Push notifications (consumers can render it however they like)
+
+**Default poll interval** for new agent enrollments. Was hardcoded to 60s; now
+configurable in 10–3600s range from the General tab. Existing devices keep
+their per-device poll interval — change individual devices from their detail
+page.
+
+**Online TTL** (when a device is considered offline). Was hardcoded `ONLINE_TTL = 180`;
+now a config value with a 90-second floor (`MIN_ONLINE_TTL`) to prevent
+configurations where devices would flap between polls.
+
+**CVE details cache TTL** (`cve_cache_days`, default 7). Was hardcoded in
+`cve_scanner.py`; now passed from the server config to `scan_device()`.
+
+**Per-event webhook toggles.** Replaces the four legacy boolean flags
+(`offline_webhook_enabled`, `monitor_webhook_enabled`, `cve_webhook_enabled`,
+`service_webhook_enabled`) with a single `webhook_events` dict listing all
+11 event types individually:
+
+- `device_offline`, `device_online`
+- `monitor_down`, `monitor_up`
+- `patch_alert` (with embedded threshold input on the same row)
+- `cve_found` (with severity-filter checkboxes for which severities fire)
+- `service_down`, `service_up`
+- `log_alert`
+- `command_queued`, `command_executed`
+
+Disabled events get logged to the webhook log as `"disabled"` so you can see
+what was suppressed.
+
+**CVE severity filter.** `cve_found` webhooks previously fired on critical/high
+hardcoded; now you choose which severities fire from
+`{critical, high, medium, low, unknown}`. Default unchanged.
+
+**Remember-me on the login page.** Tickbox below password field. Two session
+TTLs: short (default 24h, used when unchecked) and long (default 30 days,
+used when checked). Both configurable from Security tab. Server-side
+admin can pre-tick the box via `remember_me_default`.
+
+Tokens now carry their own TTL in `tokens.json`, so a long session created
+with "remember me" doesn't get pruned by the cleanup of short tokens.
+Legacy tokens without a TTL field fall back to the old global `TOKEN_TTL`.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/public-info` | Unauthenticated. Returns `server_name`, `server_version`, `remember_me_default` for the login page |
+
+### New config keys
+
+| Key | Type | Default | Where |
+|-----|------|---------|-------|
+| `server_name` | string | `""` (renders as "RemotePower") | General |
+| `default_poll_interval` | int (seconds) | 60 | General |
+| `online_ttl` | int (seconds) | 180 (min 90) | General |
+| `cve_cache_days` | int | 7 (1–90) | General |
+| `webhook_events` | dict[str, bool] | all true | Notifications |
+| `cve_severity_filter` | list[string] | `["critical", "high"]` | Notifications |
+| `session_ttl_short` | int (seconds) | 86400 | Security |
+| `session_ttl_long` | int (seconds) | 86400 × 30 | Security |
+| `remember_me_default` | bool | false | Security |
+
+### Backward compatibility
+
+All four legacy webhook toggle keys (`offline_webhook_enabled`,
+`monitor_webhook_enabled`, `cve_webhook_enabled`, `service_webhook_enabled`)
+still work as fallbacks when `webhook_events` is not set. When `webhook_events`
+is present, it takes precedence. UI saves to the new key from now on, so
+upgrades from 1.8.3 are seamless on first save.
+
+The `cve_found` webhook used a hardcoded `('critical', 'high')` allowlist
+inside `_detect_new_cve_and_fire_webhook`; this is now driven by
+`get_cve_severity_filter()`. Existing servers without the config key get
+the same behavior they had before.
+
+### Changed
+
+- All version strings bumped to 1.8.4
+- `ONLINE_TTL` (module constant) → `get_online_ttl()` helper. The constant
+  `DEFAULT_ONLINE_TTL` still exists for tests.
+- `_detect_new_cve_and_fire_webhook()` now respects `webhook_events.cve_found`
+  and uses `get_cve_severity_filter()` for severity.
+- `fire_webhook()` runs every event through `is_webhook_event_enabled()` and
+  applies severity filtering for `cve_found`. Suppressed events are logged
+  as `"disabled"` or `"filtered"` for observability.
+- `handle_login` reads `remember_me` from the body and stores per-token TTL.
+- `verify_token` and `cleanup_tokens` honor `entry['ttl']` per token,
+  falling back to `TOKEN_TTL` for legacy tokens.
+
+### Tests
+
+34 new tests in `tests/test_v184.py` covering:
+- All 8 config helpers (defaults, explicit values, clamping)
+- Legacy → new webhook key migration
+- CVE severity filter validation
+- Per-token TTL semantics + legacy token fallback
+- WEBHOOK_EVENTS contract (event set + entry shape)
+
+`tests/test_api.py` updated to use `DEFAULT_ONLINE_TTL` instead of removed
+`ONLINE_TTL` constant. New regression test for the helper clamping behavior.
+
+**Full suite: 182 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- Going from 1.8.3 → 1.8.4 needs no data migration. Settings open with
+  defaults; saving once writes the new keys.
+- The Settings tabs preserve URL hash so `https://server/#settings/security`
+  jumps straight to the right tab.
+- "Remember me" extends the session lifetime on the server side; it does
+  *not* persist credentials anywhere on the client. Logging out still
+  invalidates the token immediately.
+
+---
+
+## v1.8.3 - 2026-04-25
+
+### Fixed
+
+**SSH/sshd alias resolution.** On Debian/Ubuntu, the SSH unit is named
+`ssh.service` and `sshd.service` is just an alias. `journalctl` does NOT
+follow systemd unit aliases, so users who typed the RHEL-style
+`sshd.service` in their watched-services list got zero log lines forever
+even though state checks worked fine.
+
+- Agent: new `_resolve_unit_alias()` helper queries `systemctl show
+  <unit> --property=Id` to get the canonical name, then runs
+  `journalctl -u <canonical>` instead. Falls through silently to the
+  original name on any error.
+- `get_services()` now also returns the canonical name in the heartbeat
+  payload (under `canonical` key), so the UI can show "sshd.service →
+  ssh.service" if you ever want to surface the resolution.
+- No data-format breakage; no config changes needed. Existing installs
+  with `sshd.service` watched on Debian will start receiving logs after
+  the agent self-update.
+
+### Added
+
+**Calendar — shared events page.** Standalone shared calendar at
+`/api/calendar`. Fully shared across all users; any authenticated user
+can create/edit/delete events. Designed to live next to the existing
+Schedule page (which is for cron-driven device commands), not replace it.
+
+- Month-grid view, click a day to create an event, click an event pill
+  to edit. Events span across days; days with more than 3 events show
+  a "+N more" indicator.
+- 7-color palette (blue/green/amber/red/purple/teal/slate). Server
+  validates against an explicit allowlist — passing an unknown color
+  silently falls back to blue.
+- Events have title, optional description, ISO-8601 start (required) and
+  end (defaults to start), all-day flag, and color.
+- New endpoints:
+  - `GET /api/calendar?from=<iso>&to=<iso>` — list events overlapping the range
+  - `POST /api/calendar` — create
+  - `PUT /api/calendar/{id}` — update
+  - `DELETE /api/calendar/{id}` — remove
+- Capped at 1000 events per server (`MAX_CALENDAR_EVENTS`).
+
+**Tasks — shared kanban board.** Four states (upcoming / ongoing /
+pending / closed). Fully shared with no per-user assignment.
+
+- Drag-and-drop between columns to change state. Optimistic update;
+  resyncs from server on failure.
+- Optional device linking: every task can be tied to one device or none.
+  Device chip shown on the card; filter dropdown on the page narrows
+  the board to one device's tasks (or "no device linked").
+- Click a task to expand/edit; "+ New task" button.
+- New endpoints:
+  - `GET /api/tasks?state=<s>&device=<id>` — list with optional filters
+  - `POST /api/tasks` — create
+  - `PUT /api/tasks/{id}` — update (partial; can be just `{state: 'closed'}`)
+  - `DELETE /api/tasks/{id}` — remove
+- Capped at 500 tasks per server (`MAX_TASKS`).
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `calendar.json` | Shared calendar events |
+| `tasks.json` | Shared task board |
+
+### Changed
+
+- All version strings bumped to 1.8.3
+- Agent `get_services()` payload may include a `canonical` key per service
+  if the user-supplied unit name was an alias
+- Sidebar navigation: new "Calendar" and "Tasks" entries between
+  Schedule and the Tools section divider
+
+### Tests
+
+24 new tests in `tests/test_v183.py`:
+- Calendar: 8 cases for event validation (color clamping, end-after-start,
+  required fields, full palette acceptance)
+- Tasks: 9 cases for task validation (state allowlist, partial updates,
+  device-id resolution, unlink semantics)
+- Agent: 3 cases for `_resolve_unit_alias` with mocked systemctl
+- Constants and handlers: 4 wiring checks
+
+Loosened the version assertion in `test_v182.py` from exact-match to
+`>= 1.8.2` (same pattern as `test_v181.py`) so the test doesn't break
+on every patch bump.
+
+**Full suite: 147 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- The calendar is intentionally separate from Maintenance and Schedule.
+  Maintenance windows suppress webhooks; Schedule drives device commands;
+  Calendar is just a shared notepad for "what's happening when". Mixing
+  them would be a different design.
+- Tasks have no due dates by design — if you need a due date, create a
+  calendar event with the same title. The two compose naturally.
+- Device linking on tasks is one-to-one (a task has one device or none).
+  If you need a task that touches multiple devices, link it to none and
+  mention them in the description.
+- Both features use the standard X-Token auth (no special role required
+  for create/edit/delete). If you want admin-only mutations, add
+  `require_admin_auth()` to the handlers — small change.
+
+---
+
+## v1.8.2 - 2026-04-24
+
+### Fixed
+
+**Log tail bug: quiet devices invisible on the Logs page.** In v1.8.0/1.8.1,
+the agent silently skipped a unit if `journalctl` returned no recent lines,
+and the whole submission was skipped if every watched unit was quiet. Result:
+a device with watched services but a calm workload (e.g. sshd on an idle
+box, nginx with no traffic) never created an entry in `log_watch.json` and
+was indistinguishable from a device not running the agent at all.
+
+- Agent now always includes every watched unit in the submission, with an
+  empty list if the unit was quiet
+- Agent now always POSTs when it has watched units, even if all are empty
+- Server preserves the unit key with an empty array, so the device appears
+  on the Logs page as "watched, quiet in this window" rather than absent
+- Live tail empty-state now diagnoses the three distinct cases:
+  "no devices submitting", "devices reporting but quiet", and "current
+  filter matches nothing"
+
+### Added
+
+**Fleet-wide log alert rules** — rules that apply across the whole fleet,
+complementing the existing per-device rules from v1.8.0.
+
+- New `log_rules_global.json` storage; new endpoints
+  `GET/POST /api/logs/rules/global` and `DELETE /api/logs/rules/global/{id}`
+- Wildcard unit: setting `unit="*"` matches any unit on any device (useful
+  for catch-all patterns like `OOMkilled`). Specific unit name matches all
+  devices running that unit.
+- `handle_log_submit` now evaluates both per-device and fleet-wide rules
+  against incoming lines. Each `(scope, unit, pattern)` fires at most once
+  per submission — so a line matching both scopes produces one alert per
+  scope, never two from the same rule.
+- Webhook payload includes `scope: "device"` or `scope: "global"` so you
+  can tell them apart downstream.
+
+**Alert rules UI: per-device / fleet-wide tabs.** The Logs page now has
+a tab switcher above the rules table. "+ Add rule" opens a modal that
+adapts to the active tab — fleet-wide mode hides the device picker and
+shows a hint about the `*` wildcard.
+
+### Changed
+
+- Live tail polling interval: 10s → **30s**. Always-on now — the
+  pause-on-scroll-up behaviour and PAUSED badge are removed. If you want to
+  read older lines, uncheck "auto-scroll to newest".
+- `handle_log_submit` dedupes alerts within a submission by
+  `(scope, unit, pattern)` — previously the same rule could fire multiple
+  times if matched lines came in across multiple units.
+- All version strings bumped to 1.8.2.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/logs/rules/global` | List fleet-wide rules |
+| POST   | `/api/logs/rules/global` | Create fleet-wide rule |
+| DELETE | `/api/logs/rules/global/{id}` | Remove fleet-wide rule |
+
+### Tests
+
+15 new tests in `tests/test_v182.py` — validation (7 cases covering wildcard,
+specific units, bad regex, bad units, threshold bounds, empty fields),
+empty-array preservation (quiet vs chatty units, mixed submissions),
+wildcard matching, and dedupe-key semantics. Full suite:
+**123 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- **All v1.8.1 agents should update** to pick up the empty-submission fix.
+  A v1.8.1 agent with a quiet watched unit will still not appear on the
+  Logs page even after upgrading the server.
+- Fleet-wide rules are capped at 50 per server (`MAX_GLOBAL_LOG_RULES`).
+  That's a safety fence, not a target — most deployments need 2-5.
+- No changes to data files; `log_rules_global.json` is created on first
+  write. Existing `log_watch` rules on device records continue to work
+  unchanged.
+
+---
+
+## v1.8.1 - 2026-04-24
+
+### Added
+
+**Dedicated "Logs" page in the sidebar.** The v1.8.0 log-tail feature was
+only surfaced inside the per-service drill-down, which was too buried and
+had no UI for configuring alert rules (you had to curl the API). This
+release makes logs a first-class page.
+
+The new page has three stacked widgets:
+
+- **Search bar** — hits `/api/logs/search` with case-insensitive regex.
+  Results grouped by device (collapsible), timestamped, and color-coded
+  by severity pattern (FATAL/ERROR/WARN detected automatically).
+- **Live tail** — the default view when no search is active. Polls
+  `/api/logs/tail` every 10 seconds using a monotonically-advancing
+  `since=` cursor; pauses auto-scroll when the user scrolls up
+  (shows a "PAUSED" badge), resumes when they scroll back to the bottom.
+  Device and unit filter dropdowns narrow the stream.
+- **Alert rules table** — cross-fleet view of all `log_watch` rules,
+  with an "+ Add rule" button that opens a proper form (device picker,
+  unit, regex pattern, threshold). Adding a rule automatically ensures
+  the target unit is in `services_watched` so the agent actually
+  submits its logs.
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/logs/tail?since=<ts>&device=<id>&unit=<n>` | Incremental fetch for the live-tail page |
+| GET    | `/api/logs/rules` | Cross-fleet aggregate of all log_watch rules |
+
+### Fixed
+
+- Service drill-down now **always shows** "State history" and "Recent logs"
+  sections even when empty, with explanatory text. Previously the sections
+  were silently omitted if the device hadn't submitted logs yet, making it
+  look like the feature was broken. ([reported after v1.8.0 ship])
+- Empty-state messaging includes the diagnostic hints: agent needs v1.8.0+
+  and journalctl access, and logs are submitted every ~5 min so a freshly
+  configured unit takes a poll or two before anything shows up.
+
+### Changed
+
+- All version strings bumped to 1.8.1
+- "Recent logs" section now auto-expands by default when it has content
+  (same for State history) — one fewer click to get to what you opened
+  the modal for
+
+### Tests
+
+- Added `tests/test_v181.py` — 7 new tests covering log rules aggregation,
+  log tail filtering (since/device), device config round-trip, and version
+  bump. Full suite: **108 passing, 0 failing** (1 pre-existing skip).
+
+### Notes
+
+- No agent changes in 1.8.1 — everything is server-side plus UI. v1.8.0
+  agents work unchanged with a v1.8.1 server.
+- The live tail uses client-side polling, not WebSockets or SSE. A
+  genuine push channel would need persistent connection state in the CGI
+  model, which doesn't fit. 10-second polling is cheap and survives server
+  restarts invisibly.
+- Alert rules editor is per-device. A fleet-wide "apply to all devices
+  matching this unit" mode is on the roadmap for v1.9.
+
+---
+
+## v1.8.0 - 2026-04-23
+
+### Added
+
+**Service monitoring** — agent reports watched systemd units on each heartbeat.
+Per-device `services_watched` list (e.g. `nginx.service`, `postgresql.service`).
+Server tracks state, records transitions, fires webhooks.
+
+- Agent calls `systemctl show` per watched unit; reports `ActiveState`,
+  `SubState`, and `ActiveEnterTimestamp` on every poll
+- Server records state transitions in `service_history.json` (last 100 per
+  unit). New webhook events `service_down` (priority 4) and `service_up`
+  (priority 3) fire on transitions, with `red_circle,gear` / `green_circle,gear`
+  tags
+- New "Services" page in the dashboard — fleet matrix with up/down counts,
+  per-device drill-down showing state history, recent logs per unit, and
+  inline configuration
+- New Prometheus metrics: `remotepower_service_active{device,name,group,unit,sub}`
+  (1/0 per unit) and `remotepower_services_down_total{device,name,group}`
+- Config is pushed from server to agent via heartbeat response — no agent
+  restart required to change watched units
+- New config key `service_webhook_enabled` (default `true`)
+
+**Log tail + pattern alerts** — agent submits recent journal lines per watched
+unit; server keeps a rolling buffer and can fire webhooks on regex matches.
+
+- Agent calls `journalctl -u <unit> --since` every 5 polls (~5 min) and
+  submits via new `/api/logs` endpoint
+- Server stores per-device, per-unit rolling buffer — bounded at 6 hours,
+  2 MB per device
+- Per-device `log_watch` rules `[{unit, pattern, threshold}]` — regex matches
+  trigger `log_alert` webhooks (priority 4, `warning,scroll` tags)
+- New `/api/logs/search?q=<regex>&device=<id>` endpoint — cross-device grep
+  over the rolling buffer. No indexing, just regex scan; deliberately not a
+  full log analytics stack
+- Captured logs appear inline in the per-device service drill-down so you
+  can see *why* a service went red without SSH-ing in
+
+**Maintenance windows** — suppress webhook alerts during scheduled windows,
+with audit trail.
+
+- Per-device, per-group, or fleet-global scope
+- One-shot (`start` + `end` ISO-8601) or recurring (`cron` + `duration` seconds)
+- Optional per-window event allowlist — e.g. suppress only `patch_alert`,
+  leave `device_offline` still firing
+- `in_maintenance(event, payload)` helper wraps every `fire_webhook()` call
+  — suppresses transparently, records audit entry in `maint_suppressed.json`
+- Built-in lightweight cron evaluator supports `*`, `*/N`, `a,b,c`, and
+  single integers across all 5 fields
+- New Prometheus metric: `remotepower_maintenance_windows_active`
+- New "Maintenance" page with full lifecycle UI — create/list/delete
+  windows, view suppression audit trail
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/services` | Fleet-wide service state |
+| GET    | `/api/devices/{id}/services` | Per-device with state history + log tails |
+| GET    | `/api/devices/{id}/services/config` | Read watched units + log rules |
+| POST   | `/api/devices/{id}/services/config` | Set watched units + log rules |
+| POST   | `/api/logs` | Agent submits per-unit journal lines |
+| GET    | `/api/logs/search?q=<regex>` | Cross-device log search |
+| GET    | `/api/devices/{id}/logs` | Full captured buffer for one device |
+| GET    | `/api/maintenance` | List all windows + active flag |
+| POST   | `/api/maintenance` | Create a window |
+| DELETE | `/api/maintenance/{id}` | Remove a window |
+| GET    | `/api/maintenance/suppressions` | Audit trail of suppressed webhooks |
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `services.json` | Current service state per device |
+| `service_history.json` | State transition log per (device, unit) |
+| `log_watch.json` | Rolling log buffer per device + unit |
+| `maintenance.json` | Defined windows |
+| `maint_suppressed.json` | Audit trail of suppressed webhook events |
+
+### Agent changes (Linux)
+
+- `VERSION = '1.8.0'`
+- New functions: `get_services()`, `_parse_systemd_timestamp()`,
+  `get_unit_logs()`, `submit_unit_logs()`
+- New constants: `SERVICE_CHECK_EVERY = 1` (every poll — cheap),
+  `LOG_SUBMIT_EVERY = 5` (every 5 min), `LOG_LOOKBACK_SECONDS = 360`,
+  `MAX_LOG_LINES_PER_UNIT = 100`
+- Heartbeat loop now reads `services_watched` and `log_watch` from server
+  responses — server-driven configuration means no agent restart when you
+  change what a device is monitoring
+
+### Webhook events extended
+
+- New events: `service_down`, `service_up`, `log_alert`
+- All existing webhook types (Discord / Slack / ntfy / gotify / generic)
+  now render these with appropriate titles, priorities, and tags
+
+### Cleanup
+
+- Fixed 4 pre-existing test failures in `tests/test_api.py` for
+  `verify_token()` — tests were written for an older `str`-returning
+  signature; function has returned `(username, role)` since v1.6.x
+- Cleaned up residual comment fragment on `MAX_BODY_BYTES` from v1.7.0
+  buffer bump
+- Removed a small duplicate in `_cron_match()` introduced during v1.8.0
+  authoring
+
+### Notes
+
+- Service monitoring requires `systemctl` — agent silently skips reporting
+  on non-systemd hosts
+- The log tail deliberately does not do indexing, retention policies, or
+  structured parsing. It's a rolling buffer with regex search. If you need
+  Loki or Graylog, run those
+- Maintenance windows only suppress *webhooks* — the events themselves are
+  still recorded in uptime history, monitor history, etc. You're not losing
+  visibility, just quiet on the push channel
+- Cron evaluator supports the common subset (`*`, `*/N`, lists, literals).
+  Ranges like `1-5` and named days like `MON` are not supported — use
+  explicit lists instead (e.g. `1,2,3,4,5`)
+
+---
+
+## v1.7.0 - 2026-04-23
+
+### Added
+
+**CVE Scanner** — automatic vulnerability scanning against installed packages
+using the free [OSV.dev](https://osv.dev) database. No API key required.
+
+- New agent function `get_package_list()` enumerates installed packages via
+  `dpkg-query` / `rpm` / `pacman` / `apk`. Submitted to the server every 6
+  hours (or whenever the package set changes) via a new `/api/packages`
+  endpoint. Hash-gated — resubmits only when the list actually changes.
+- New server module `cve_scanner.py` queries OSV's `/v1/querybatch` (up to
+  500 packages per request) and hydrates vulnerability details on first
+  encounter. Details cached for 7 days in `cve_details_cache.json`.
+- Severity normalized to `critical` / `high` / `medium` / `low` / `unknown`
+  from ecosystem-specific labels (Debian/RedHat style) with CVSS base-score
+  fallback.
+- New "CVEs" page in the dashboard: aggregate severity counts across the
+  fleet, per-device breakdown, per-vulnerability drill-down with links to
+  upstream advisories and fixed-version information when available.
+- Ignore list: mark a CVE as accepted risk either globally or for a specific
+  device. Ignored entries are excluded from counts and webhook alerts but
+  remain visible (dimmed) in the per-device view.
+- New webhook event `cve_found` fires when new critical/high vulnerabilities
+  appear in a scan that weren't present in the previous scan (respects the
+  ignore list). Priority 5 (urgent) with `rotating_light,shield` tags.
+- Supported ecosystems: Debian, Ubuntu, Rocky Linux, AlmaLinux, Red Hat,
+  Alpine, Arch Linux. Fedora is not reliably covered by OSV and is flagged
+  as `unsupported`.
+- New config key `cve_webhook_enabled` (default `true`).
+
+**Prometheus `/metrics` endpoint** — standard text exposition at
+`GET /api/metrics`, authenticated via session token or API key. Prometheus's
+native `bearer_token` scrape config works unchanged.
+
+Metric families exposed:
+- `remotepower_info{version}` — server version
+- `remotepower_devices_total` / `remotepower_devices_online`
+- `remotepower_device_online{device,name,group,os}` — 1/0 per device
+- `remotepower_device_last_seen_timestamp_seconds{...}`
+- `remotepower_device_cpu_percent{...}` / `_mem_percent{...}` / `_disk_percent{...}`
+- `remotepower_device_upgradable_packages{...,manager}`
+- `remotepower_device_cve_findings{...,severity}`
+- `remotepower_monitor_up{label,type,target}`
+- `remotepower_monitor_last_check_timestamp_seconds{...}`
+- `remotepower_commands_pending_total`
+- `remotepower_scheduled_jobs_total`
+- `remotepower_webhook_deliveries_total{status}`
+- `remotepower_webhook_log_size`
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST   | `/api/packages` | Agent submits installed package list (device-auth) |
+| POST   | `/api/cve/scan` | Admin triggers CVE scan for one or all devices |
+| GET    | `/api/cve/findings` | Aggregate CVE report across all devices |
+| GET    | `/api/devices/{id}/cve` | Per-device CVE findings |
+| GET    | `/api/cve/ignore` | List all active ignore entries |
+| POST   | `/api/cve/ignore` | Mark a CVE as accepted risk |
+| DELETE | `/api/cve/ignore/{vuln_id}` | Remove an ignore |
+| GET    | `/api/metrics` | Prometheus scrape endpoint |
+
+### New data files
+
+| File | Purpose |
+|------|---------|
+| `packages.json` | Per-device installed package list + hash + collected timestamp |
+| `cve_findings.json` | Per-device scan results |
+| `cve_ignore.json` | Global/per-device CVE ignore list |
+| `cve_details_cache.json` | OSV vulnerability detail cache (7-day TTL) |
+
+### Agent changes
+
+- Bumped agent version to 1.7.0 (Linux + Windows)
+- New constants: `PACKAGE_LIST_EVERY = 360`, `MAX_PACKAGES_SEND = 10000`
+- New functions (Linux): `get_os_release()`, `get_package_list()`,
+  `send_package_list()` + three hash-cache helpers
+- New sidecar file `/etc/remotepower/pkg_hash` stores the hash of the last
+  submitted package list so subsequent polls can skip resubmission when
+  nothing changed
+- Windows agent gets the version bump but no package enumeration (OSV
+  doesn't cover Windows app ecosystems well; Windows devices show as
+  `unsupported` in the CVE UI)
+
+### Changed
+
+- All version strings bumped to 1.7.0
+- `_webhook_message()`, `_webhook_priority()`, `_webhook_tags()` extended
+  for the new `cve_found` event
+- `GET /api/config` now returns `cve_webhook_enabled`
+- `POST /api/config` accepts `cve_webhook_enabled` (bool)
+- DELETE guard on `/api/devices/<id>` updated to exclude the new `/cve`
+  subresource path
+
+---
+
+## v1.6.3 - 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" rejected freshly-restarted devices with
+  `Unknown or unreported package manager: none`. Root cause: the server
+  looked up `sysinfo.packages.manager` on the device record, but `packages`
+  is only populated after a patch-info poll — which runs every `PATCH_EVERY`
+  (180) polls, i.e. roughly 3 hours after agent restart. On any device that
+  had been restarted recently (every Debian box the 1.6.1 service-file fix
+  was deployed to) the upgrade button was effectively broken.
+
+  The dispatcher no longer relies on server-side sysinfo at all. It now
+  queues a single self-detecting shell snippet that runs `command -v
+  apt-get` / `dnf` / `pacman` on the device at execution time and picks
+  the right one. This also simplifies the server code — one command, no
+  per-device dispatch, no stale-cache failure modes.
+
+### Changed
+- `POST /api/upgrade-device` response no longer includes the `manager`
+  field (the server doesn't know in advance anymore). The queued exec
+  output — visible on the next heartbeat — still shows which manager ran.
+- All version strings bumped to 1.6.3.
+
+### Note on custom `apt` commands
+The Custom Command dialog runs whatever string you type verbatim. If you
+manually type `apt update && apt upgrade -y …` on a box that still has
+`NoNewPrivileges=yes` in its agent service file, you'll still see the
+`seteuid 105 failed` error — that's expected, and the fix is to deploy
+the 1.6.1 service file and do `systemctl daemon-reload && systemctl
+restart remotepower-agent` on that host. The bulk "Upgrade packages"
+button works around this automatically via the APT_CONFIG override;
+custom commands don't, by design.
+---
+
+## v1.6.2 - 2026-04-22
+
+### Fixed
+- Bulk "Upgrade packages" still failed on Debian/Ubuntu with
+  `E: seteuid 105 failed - seteuid (1: Operation not permitted)` because the
+  `-o APT::Sandbox::User=root` flag was only applied to `apt-get upgrade`.
+  But `apt-get update` is the call that actually opens network sockets and
+  drops to the `_apt` user — so under systemd hardening (`NoNewPrivileges=yes`,
+  restricted cgroups, user namespaces), `apt-get update` returned rc=100 and
+  short-circuited the `&&` chain before upgrade ever ran.
+
+  The fix writes a one-line apt config to a tempfile, points `APT_CONFIG` at
+  it, and exports that env var for the whole chain. Every `apt-get` call in
+  the chain (`update`, `upgrade`, `autoremove`, `clean`) now inherits
+  `APT::Sandbox::User "root"` plus the `Dpkg::Options` conffile handling, and
+  a `trap` cleans up the tempfile even if any step fails.
+
+  **Server-only fix** — agents don't need to be restarted to pick this up,
+  since the command is constructed server-side and dispatched via the
+  existing `exec:` channel. Just redeploy the server.
+
+### Changed
+- All version strings bumped to 1.6.2.
+---
+
+## v1.6.1 - 2026-04-22
+
+### Fixed
+- Bulk-action icons in the selection bar rendered as oversized default-styled
+  buttons — `.btn-shutdown` and `.btn-reboot` had no CSS defined, so SVGs were
+  unconstrained. Added matching red/amber/purple button styles with proper 14px
+  SVG sizing so the batch bar visually matches the rest of the UI.
+- Device "…" dropdown menu was pierced by sibling cards' menu buttons due to
+  each `.device-card` sharing a stacking context with `z-index: 20`. The open
+  dropdown's parent card is now lifted via `:has(.device-dropdown.active)` plus
+  an explicit `z-index: 9999` on the active dropdown wrapper as a fallback.
+- Agent `exec:` commands running apt failed with
+  `seteuid 105 failed - seteuid (1: Operation not permitted)` because
+  `NoNewPrivileges=yes` in `remotepower-agent.service` blocked apt's drop to
+  the `_apt` user. Removed the directive — the agent runs as root by design,
+  so this hardening was cosmetic. Defence-in-depth added in the new upgrade
+  path via `-o APT::Sandbox::User=root`.
+
+### New features
+- Bulk "Upgrade packages" action — select multiple devices and run apt/dnf/
+  pacman upgrade across all of them in one click. Server dispatches the right
+  command per device based on the package manager reported in sysinfo:
+  - apt:    `apt-get update && apt-get upgrade -y && apt-get autoremove -y && apt-get clean`
+            (with `APT::Sandbox::User=root` and non-interactive dpkg conffile handling)
+  - dnf:    `dnf -y upgrade`
+  - pacman: `pacman -Syu --noconfirm`
+  Output arrives on the next heartbeat (~60s) via the existing `exec:` pipe.
+- "Update all" button renamed to "Update agent" with a clarifying tooltip so
+  it isn't confused with package upgrades.
+
+### New API
+- `POST /api/upgrade-device` — body `{device_ids: [...]}` or `{device_id: "..."}`.
+  Returns per-device results including the detected package manager, or an
+  error if the manager is unknown/unreported.
+
+### Changed
+- All version strings bumped to 1.6.1.
+---
+
+## v1.6.0 - 2026-04-21
+
+### New features
+
+**Webhook overhaul**
+- Webhook URL is now visible and editable in the Settings UI (previously hidden after save)
+- Webhook payloads now include `title`, `message`, and `priority` fields for human-readable push notifications
+- Push-compatible headers added: `X-Title`, `X-Priority`, `X-Tags` — works out of the box with Ntfy, Gotify, Pushover, Slack, and Discord
+- Per-event emoji tags for Ntfy (`X-Tags` header) — e.g. `red_circle,computer` for offline, `warning,package` for patch alerts
+- Per-event priority levels (3=normal, 4=high) for push services
+- `User-Agent` header now includes server version (`RemotePower/1.6.0`)
+
+**Monitor webhook alerts**
+- New `monitor_down` event fires when a monitor target goes from up to down
+- New `monitor_up` event fires when a monitor target recovers
+- State-change tracking prevents duplicate alerts (only fires on transitions)
+- Toggle on/off via Settings checkbox ("Monitor alerts")
+
+**Offline webhook toggle**
+- New toggle in Settings to enable/disable device offline/online webhook alerts
+- Allows keeping the webhook URL configured for other events (patch alerts, commands, monitors) while disabling offline noise
+
+**Patch alert improvements**
+- Threshold can now be cleared (set to 0 or empty) to disable patch alerts via the UI
+- Clearing the threshold also resets tracked alert state
+
+### Changed
+
+- `GET /api/config` now returns `webhook_url`, `offline_webhook_enabled`, and `monitor_webhook_enabled` (webhook URL was previously hidden from the API response)
+- `POST /api/config` accepts `offline_webhook_enabled` (bool) and `monitor_webhook_enabled` (bool)
+- `POST /api/config` accepts `patch_alert_threshold: 0` or `null` to clear the threshold
+- Settings UI reorganised: "Webhooks" section replaces "Offline Webhook", with toggles and visible URL
+- All version strings bumped to 1.6.0 (server, Linux agent, Windows agent, Dockerfile, docker-compose, README badge)
+- Webhook `fire_webhook()` rewritten with richer payloads and push headers
+
+### Config keys added
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `offline_webhook_enabled` | bool | `true` | Enable/disable device offline/online webhook alerts |
+| `monitor_webhook_enabled` | bool | `true` | Enable/disable monitor up/down webhook alerts |
+| `monitor_notified` | object | `{}` | Internal state tracking for monitor alert deduplication |
+
+### Webhook events
+
+| Event | Priority | When |
+|-------|----------|------|
+| `device_offline` | 4 (high) | Device misses heartbeats beyond ONLINE_TTL |
+| `device_online` | 3 | Device comes back online |
+| `monitor_down` | 4 (high) | Monitor target transitions from up to down |
+| `monitor_up` | 3 | Monitor target recovers |
+| `patch_alert` | 4 (high) | Device exceeds pending update threshold |
+| `command_queued` | 3 | Command queued for a device |
+| `command_executed` | 3 | Device reports command execution |
+
+---
+
+## v1.5.1 - 2026-04-20
+
+### New features
+
+**Windows agent**
+- New `client/remotepower-agent.py` - full-featured Windows client agent
+- Same heartbeat protocol and API as the Linux agent - enrolls the same way
+- Power control via `shutdown.exe /s` and `/r` with 30-second grace period
+- Patch info via Windows Update COM API (PowerShell)
+- System journal via `wevtutil` (Windows System event log)
+- CPU/RAM/disk metrics via psutil (optional, same as Linux)
+- Boot reason tracking via `%ProgramData%\RemotePower\last_cmd.txt`
+- Adjustable poll interval via config file (same mechanism as Linux)
+- Runs as a Windows Service via NSSM, or interactively for testing
+- `install-client.ps1` PowerShell installer: checks Python, installs psutil, enrolls, downloads NSSM, registers service
+- Supports `enroll`, `re-enroll`, `status`, `integrity` subcommands
+- Agent self-update is logged but not applied automatically on Windows (manual update recommended)
+
+**Docker support**
+- `Dockerfile` and `docker-compose.yml` for containerized server deployment
+- Based on `python:3.12-slim` with nginx + fcgiwrap + bcrypt + reportlab
+- Admin user created automatically via `RP_ADMIN_USER` / `RP_ADMIN_PASS` environment variables
+- Data persisted in `/var/lib/remotepower` volume
+- Healthcheck built in (HTTP probe every 60s)
+- Docker-specific nginx config on port 8080 (put a reverse proxy in front for HTTPS)
+- `docker/entrypoint.sh` handles fcgiwrap startup, user creation, and version config
+- `.dockerignore` to keep image lean
+
+### Changed
+
+- Agent version bumped to 1.5.1
+- Server version bumped to 1.5.1
+- README updated with Windows client docs, Docker quick start, updated architecture diagram
+- Platform badge updated to `Linux | Windows`
+- File layout updated with new files
+
+### New files
+
+| File | Description |
+|------|-------------|
+| `client/remotepower-agent.py` | Windows agent (Python 3) |
+| `install-client.ps1` | Windows client installer (PowerShell) |
+| `Dockerfile` | Server container image |
+| `docker-compose.yml` | Compose file for quick deployment |
+| `.dockerignore` | Docker build exclusions |
+| `docker/nginx-docker.conf` | Nginx config for Docker |
+| `docker/entrypoint.sh` | Container entrypoint script |
+
+---
+
+## v1.5.0 - 2026-04-19
+
+### New features
+
+**Patch Report page**
+- New Patches nav tab with dedicated patch overview across all devices
+- Summary cards: total devices, fully patched, patches pending, total pending count, patch rate %
+- Device table with per-device patch status, pkg manager, recent patch commands
+- Export as CSV (`GET /api/patch-report/csv`)
+- Export as XML (`GET /api/patch-report/xml`)
+- Export as PDF (`GET /api/patch-report/pdf`) - formatted with ReportLab, color-coded status
+
+**Audit log with IP tracking**
+- New Audit Log nav tab showing security-relevant events
+- Tracks: logins (success + failed), exec commands, session revocations, user-agent + source IP
+- `GET /api/audit-log` endpoint (admin only)
+- Stored in `audit_log.json` (last 500 entries)
+
+**API key expiration**
+- `POST /api/apikeys` now accepts optional `expires_at` (unix timestamp)
+- Expired keys are silently rejected during authentication
+- Keys without `expires_at` remain non-expiring (backward compatible)
+
+**Bulk exec**
+- `POST /api/exec` now accepts `device_ids`, `tag`, or `group` targets (same as shutdown/reboot)
+- Run arbitrary commands across multiple devices in one API call
+- Allowlist is checked per-device; partial failures return per-device results
+
+**Increased exec timeout**
+- Agent exec timeout raised from 30s to 300s (5 min) for long-running commands like `apt upgrade`
+
+**Boot reason tracking**
+- Agent records the last command before shutdown/reboot in `/tmp/remotepower-last-cmd`
+- First heartbeat after restart includes `boot_reason` field
+- Helps distinguish scheduled reboots from unexpected restarts
+
+**Device search and filtering**
+- Search bar on Devices page - filter by name, hostname, IP, OS, group, or tags
+- Status filter dropdown (All / Online / Offline)
+- Group filter dropdown (auto-populated from device groups)
+- All filters combine with existing tag filter
+
+**Browser notifications**
+- Web Notifications API integration for device online/offline state changes
+- Permission requested on first login; notifications fire on status transitions
+- No server-side changes needed - purely client-side
+
+**Session token revocation**
+- `POST /api/sessions/revoke` - revoke all sessions or sessions for a specific user
+- "Revoke all sessions" button on Audit Log page
+- Admin-only; preserves the requester's current session when revoking all
+
+**Two-Factor Authentication (TOTP)**
+- TOTP-based 2FA compatible with Google Authenticator, Authy, etc.
+- Setup flow: `POST /api/totp/setup` → scan secret → `POST /api/totp/confirm` with code
+- Login prompts for authenticator code when 2FA is enabled
+- Disable with password confirmation via `POST /api/totp/disable`
+- Status check: `GET /api/totp/status`
+- 2FA section added to Settings page with enable/disable UI
+
+**Per-device patch report**
+- `GET /api/patch-report/device/:id` - detailed patch info for a single device
+- Includes patch command history, OS, uptime, agent version, metrics
+- "Detail" button on each row in the Patches table opens a modal
+
+**Clear history**
+- Clear button on Command History page (`DELETE /api/history`)
+- Clear button on Audit Log page (`DELETE /api/audit-log`)
+- Both require admin role and are themselves audit-logged
+
+**Filtered patch export**
+- Group and device filter dropdowns on Patches page
+- CSV/XML/PDF exports respect the active filter via `?group=X` and `?device_id=Y` query params
+- Summary cards update live based on filtered set
+
+### Changed
+- `POST /api/exec` now supports batch targets (device_ids, tag, group) in addition to single device_id
+- Agent exec timeout increased from 30s to 300s
+- Agent sends `boot_reason` on first heartbeat after restart
+- Audit events logged for logins, failed logins, exec commands, session revocations
+- Patch percentage now excludes offline/no-data devices (only counts online with known state)
+- Nav bar wraps on smaller screens, reduced padding for 11 tabs
+- CSV/XML/PDF exports flush stdout properly for CGI binary output
+- XML export produces valid well-formed XML
+
+### New data files
+- `audit_log.json` - security audit trail (last 500 entries)
+- `sessions_meta.json` - session metadata for revocation tracking
+
+### New API endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/patch-report` | ✓ | Full patch report (JSON) |
+| `GET` | `/api/patch-report/csv` | ✓ | Patch report as CSV download |
+| `GET` | `/api/patch-report/xml` | ✓ | Patch report as XML download |
+| `GET` | `/api/patch-report/pdf` | ✓ | Patch report as PDF download |
+| `GET` | `/api/audit-log` | admin | Security audit log |
+| `POST` | `/api/sessions/revoke` | admin | Revoke user sessions |
+| `GET` | `/api/patch-report/device/:id` | ✓ | Per-device patch detail |
+| `POST` | `/api/totp/setup` | ✓ | Generate TOTP secret |
+| `POST` | `/api/totp/confirm` | ✓ | Confirm & enable 2FA |
+| `POST` | `/api/totp/disable` | ✓ | Disable 2FA (requires password) |
+| `GET` | `/api/totp/status` | ✓ | Check if 2FA is enabled |
+| `DELETE` | `/api/history` | admin | Clear command history |
+| `DELETE` | `/api/audit-log` | admin | Clear audit log |
+
+---
+
+## v1.4.0 - 2026-04-17
+
+### New features
+
+**Recurring scheduled commands**
+- Schedule tab now accepts a cron expression (5-field: `min hour dom mon dow`) in addition to a one-shot datetime
+- Recurring jobs stay in the queue and fire every time the cron expression matches (checked on every API request, minute precision)
+- Dashboard shows `↻ <cron>` for recurring jobs vs a timestamp for one-shot jobs
+
+**Batch commands (multi-device)**
+- Click the device icon on any card to select it (turns into a checkmark)
+- A batch action bar appears with Shut down all / Reboot all / Update all buttons
+- API also accepts `device_ids: [...]`, `tag: "servers"`, or `group: "homelab"` on all command endpoints
+
+**Device groups / namespaces**
+- New `group` field per device (`PATCH /api/devices/:id/group`)
+- Device grid sorts by group then name; group badge shown on the hostname line
+- Batch commands can target an entire group
+
+**Per-device notes**
+- Free-text `notes` field per device (`PATCH /api/devices/:id/notes`, max 1024 chars)
+- 📝 indicator on device name when notes are set; tooltip shows the text
+- Dedicated Notes modal accessible from the device card
+
+**Adjustable heartbeat interval per device**
+- `PATCH /api/devices/:id/poll_interval` (10–3600 s)
+- Server queues a `poll_interval:<n>` command; agent picks it up on next heartbeat and adjusts its sleep interval dynamically (no restart needed)
+- Current interval shown in device meta row
+
+**Agent health / offline reason**
+- `offline_reason` field in device list: `missed_polls` (offline <5 min) vs `offline`
+- `missed_polls` counter exposed in API and shown as an amber badge on offline cards
+- Agent now reports `executed_command` field in heartbeat so the server can fire command-executed webhooks
+
+**Re-enrollment without wipe**
+- `sudo remotepower-agent re-enroll` sends the existing `device_id` in the registration payload
+- Server detects a matching ID, updates the record in-place, and returns `reregistered: true`
+- History, tags, group, and notes are all preserved on re-enroll
+
+**Saved command library**
+- New Command Library page (nav: Library) for named shell snippets
+- `GET/POST /api/cmd-library`, `DELETE /api/cmd-library/:id`
+- Exec modal now has a "pick from library" dropdown that pastes the command into the input
+- Snippets shared across all admin users
+
+**Command allowlist per device**
+- `GET/POST /api/devices/:id/allowlist` - set an explicit list of allowed shell commands
+- When non-empty, only listed commands can be run via exec on that device (403 otherwise)
+- Empty list = unrestricted (backward-compatible with existing behaviour)
+- Allowlist modal accessible from the device card (🔒 button)
+
+**Basic metrics history (CPU / RAM / Disk)**
+- Agent optionally collects `cpu_percent`, `mem_percent`, `disk_percent` via `psutil` (gracefully skipped if not installed)
+- Server stores up to 1440 snapshots per device in `metrics.json` (roughly 24 h at 60 s intervals)
+- Metrics modal per device with sparkline bars for CPU, RAM, and Disk
+- New endpoint: `GET /api/devices/:id/metrics`
+
+**Named API keys**
+- New API Keys page (nav: API Keys)
+- `GET/POST /api/apikeys`, `DELETE /api/apikeys/:id`
+- Non-expiring keys authenticated via `X-Token` header (same as session tokens)
+- Each key has a `role` (admin or viewer) - viewer keys are read-only
+- Key value shown once at creation; not stored in any response thereafter
+
+**Role-based access (viewer accounts)**
+- Users now have a `role` field: `admin` (default) or `viewer`
+- Viewer role: can see the dashboard, devices, sysinfo, history, monitor - but cannot queue commands, change config, manage users, or create API keys
+- Role shown in Users table; role selector in Add User modal
+- Login response now returns `role` and `username`
+
+**Dashboard export / backup**
+- `GET /api/export` streams a ZIP of all `*.json` data files (excluding `tokens.json`)
+- "Export backup" button added to Settings page; uses fetch + blob for in-browser download
+
+**Webhook on command execution**
+- `command_queued` and `command_executed` webhook events added alongside the existing `device_offline`, `device_online`, and `patch_alert` events
+- `command_executed` fires when the agent reports back that it ran a command (via the `executed_command` field in the heartbeat)
+
+**Long-poll exec (terminal-in-browser foundation)**
+- `POST /api/exec/wait` - queues an exec command and holds the HTTP connection open (default 90 s, max 120 s) polling for output
+- When the agent's next heartbeat delivers the output, the response is flushed immediately
+- Falls back with `timeout: true` if output doesn't arrive; client can then poll `/output` as before
+- `longpoll.json` tracks pending waiters per device
+
+**Digest endpoint**
+- `GET /api/digest` - JSON summary: total/online/offline devices, total pending patches, last 10 commands
+- Designed for cron-driven email digests or dashboard status boards; no polling infrastructure needed
+
+**Agent integrity check**
+- `sudo remotepower-agent integrity` - hashes the running binary, compares to server's known-good SHA-256
+- Exits 0 if match, 1 if mismatch (suitable for cron alerting)
+
+### Changed
+- `GET /api/devices` response now includes `group`, `notes`, `offline_reason`, `missed_polls`, `poll_interval`
+- `GET /api/users` response now includes `role` per user
+- `POST /api/users` now accepts optional `role` field (default: `admin`)
+- Login response now returns `role` and `username`
+- Heartbeat response now includes `poll_interval` hint for the agent
+- `_queue_command` now fires a `command_queued` webhook on every queued action
+- `check_offline_webhooks` now fires `device_online` webhook when a device comes back
+- Devices sorted by group then name (was: name only)
+- Schedule table shows `↻ <cron>` for recurring jobs
+
+### New data files
+- `metrics.json` - per-device CPU/RAM/disk time-series (last 1440 points)
+- `cmd_library.json` - saved command snippets
+- `longpoll.json` - pending long-poll output slots
+- `apikeys.json` - named API keys (key values stored here; never returned after creation)
+
+### New API endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `PATCH` | `/api/devices/:id/notes` | admin | Set device notes |
+| `PATCH` | `/api/devices/:id/group` | admin | Set device group |
+| `PATCH` | `/api/devices/:id/poll_interval` | admin | Set poll interval hint |
+| `GET` | `/api/devices/:id/metrics` | ✓ | CPU/RAM/disk time-series |
+| `GET/POST` | `/api/devices/:id/allowlist` | admin | Get/set command allowlist |
+| `GET` | `/api/cmd-library` | ✓ | List command snippets |
+| `POST` | `/api/cmd-library` | admin | Add command snippet |
+| `DELETE` | `/api/cmd-library/:id` | admin | Delete command snippet |
+| `GET` | `/api/apikeys` | admin | List API keys (no values) |
+| `POST` | `/api/apikeys` | admin | Create API key (value shown once) |
+| `DELETE` | `/api/apikeys/:id` | admin | Delete API key |
+| `GET` | `/api/export` | admin | Download ZIP backup |
+| `GET` | `/api/digest` | ✓ | Summary for cron/email |
+| `POST` | `/api/exec/wait` | admin | Long-poll exec (up to 120 s) |
+
+---
+
+## v1.3.1 - 2026-04-17
+
+- Version bump; minor packaging fixes
+
+---
+
+## v1.3.0 - 2026-04-16
+
+### New features
+- Tag editor — set and edit device tags directly from the dashboard
+- Tag group filtering — filter device grid by tag with one click
+- Scheduled commands — queue shutdown or reboot at a specific date and time
+- Custom shell commands — run arbitrary commands on devices, output returned via next heartbeat (~60s)
+- Monitor history — uptime percentage, sparkline, last 50 check results per target
+- Patch alert webhook — fires when a device exceeds a configurable pending update threshold
+- Uptime tracking — online/offline state changes stored per device in uptime.json
+- Command history page — every action logged with actor, device, and timestamp
+- About page — server version, agent version, latest GitHub release check
+- Dark/light mode toggle — persisted per browser in localStorage
+- Force agent update from dashboard — queue update command like shutdown/reboot
+- Network info — agent reports all interfaces, not just primary IP
+### Fixed
+- Nginx blocking PATCH method — tag API would return 405
+- QUERY_STRING not forwarded to CGI — monitor history label lookup always returned empty
+- Poller cadence was broken — sysinfo/journal now every 10 polls (~10min), patches every 180 polls (~3hr)
+- First-poll sysinfo — agent now sends data immediately on startup instead of waiting
+- Exec button shown on offline devices — now dimmed with tooltip
+- Tag API existed but no UI to set tags
+- Custom command output stored on server but never displayed
+### New data files
+- `history.json` — command log (last 200 entries)
+- `schedule.json` — scheduled jobs
+- `uptime.json` — online/offline state changes per device
+- `monitor_history.json` — check results per monitor target (last 50)
+- `cmd_output.json` — custom command output per device (last 100)
+---
+
+## v1.2.0 - 2026-04-16
+
+### New features
+- Agent self-update — SHA-256 verified, atomic replace, systemctl restart, no SSH needed
+- Force update from dashboard — queue update command alongside shutdown/reboot
+- Dark/light mode toggle
+- Server version check against GitHub releases — amber banner when update available
+- WoL unicast fix — sends to device's last known IP for routed/VPN networks, broadcast fallback
+### Fixed
+- Agent log file permission error when running as non-root
+- Poller frequency — patches split from sysinfo (patches every 3hr, sysinfo every 10min)
+- Agent version bump to 1.2.0
+---
+
+## v1.1.2 - 2026-04-15
+
+- Fixed agent self-update download URL (static file instead of CGI)
+- Fixed agent log file permission for non-root users
+- Reduced sysinfo/patch poll frequency to reduce load
+
+## v1.1.1 - 2026-04-15
+
+- Fixed agent log file permission for non-root users
+- Fixed agent self-update download URL (static file instead of CGI)
+
+## v1.1.0 - 2026-04-15
+
+- bcrypt password hashing with silent SHA-256 auto-upgrade
+- Wake-on-LAN support, MAC reported at enroll time
+- Reboot command alongside shutdown
+- Multiple admin users with full CRUD in dashboard
+- Offline webhook (Ntfy/Gotify/Slack/Discord)
+- Patch info via apt/dnf/pacman (dry-run only)
+- Uptime + journalctl per device with noise filtering
+- Ping/TCP/HTTP service monitoring from server
+- Agent self-update - SHA-256 verified, atomic replace
+- Multi-distro install scripts (apt/dnf/pacman)
+- deploy-server.sh for fast redeploys
+
+## v1.0.0 - 2026-04-14
+
+- Initial release
+- Remote shutdown over HTTPS
+- PIN enrollment
+- No inbound firewall rules on clients
+- Flat JSON storage, Nginx + Python CGI
+

@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RemotePower Manual — v3.0.4</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 920px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.55; background: #fafafa; }
+  h1 { font-size: 2em; border-bottom: 2px solid #444; padding-bottom: 6px; }
+  h2 { margin-top: 2em; padding-top: 6px; border-top: 1px solid #ddd; color: #2a3f5f; }
+  h3 { color: #2a3f5f; margin-top: 1.6em; }
+  code { background: #eee; padding: 2px 6px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #2a2a2a; color: #e8e8e8; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.88em; line-height: 1.4; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { border-collapse: collapse; margin: 1em 0; }
+  th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: left; }
+  th { background: #eaeaea; }
+  .toc { background: #f0f4f8; padding: 14px 24px; border-radius: 6px; }
+  .toc ul { margin: 4px 0; }
+  .note { background: #fff8dc; border-left: 4px solid #d4a017; padding: 8px 14px; margin: 12px 0; }
+  .warn { background: #fde8e8; border-left: 4px solid #b03030; padding: 8px 14px; margin: 12px 0; }
+  kbd { background: #eee; border: 1px solid #aaa; border-radius: 3px; padding: 1px 5px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>RemotePower Manual</h1>
+<p><em>Version 3.0.4 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
+
+<div class="note"><strong>How this doc fits together.</strong> The in-app Documentation page (sidebar → Help → Documentation) covers common tasks with substring search across topics; this Manual.html is the long-form reference; the dedicated <code>docs/&lt;feature&gt;.md</code> files are the source of truth for each subsystem. Where a section here is intentionally brief, follow the link to the matching <code>docs/*.md</code>.</div>
+
+<div class="note"><strong>What's new in v3.0.x:</strong>
+<ul style="margin:8px 0 0 20px">
+  <li><strong>v3.0.4:</strong> bug-fix release. Fixed: AI chat 500 (latent <code>cfg</code> NameError in <code>_http_post_json</code>); Monitor row "OK" badge while Needs Attention showed warnings (<code>metric_state</code> missing from <code>/api/devices</code>); no 🩺 Investigate button on memory/swap/CPU alerts (playbooks added); device-drawer Save settings 404 (new bulk handler); empty AI summary on "Re-run AI" for mitigation playbooks (argument-shape bug); mobile/PWA sidebar drawer wouldn't collapse (strict <code>e.target === document.body</code> check + scrim-over-burger z-order — also added a dedicated ✕ button inside the sidebar on mobile); "✨ AI Prioritise Updates" button felt unresponsive (now shows ⏳ during the API call) and auto-queues the right per-package-manager listing command (<code>apt list --upgradable</code> / <code>dnf check-update</code> / <code>pacman -Qu</code>) when <code>patch_history</code> doesn't yet contain one. Heartbeat path's <code>process_metric_thresholds</code> now logs exceptions to stderr instead of silently swallowing them. Service worker cache bumped to <code>remotepower-shell-v3.0.4</code>.</li>
+  <li><strong>v3.0.3:</strong> env-var overrides for SMTP / LDAP secrets (<code>RP_SMTP_PASSWORD</code>, <code>RP_LDAP_BIND_PASSWORD</code>); forced password change for default-credential accounts; PWA install-button fix.</li>
+  <li><strong>v3.0.2:</strong> multi-webhook destinations with per-destination formats and filters; server self-monitoring page; scheduled backup of the data directory; audit log retention; exponential login lockout; bulk operations; command palette and keyboard shortcuts; configurable session timeout.</li>
+  <li><strong>v3.0.1:</strong> ACME / acme.sh integration; AI-driven mitigation runners; file-path log watching.</li>
+  <li><strong>v3.0.0:</strong> IaC Generator (Terraform / Ansible / Pulumi / cloud-init / Salt) from live host inventory.</li>
+  <li><strong>v2.9.0:</strong> Device Drawer — full-screen slide-in panel with Actions, Settings, and Audit tabs.</li>
+  <li><strong>v2.8.0–v2.8.1:</strong> brute-force detection (SSH + web), SSH-key-added audit, new-listening-port audit, backup-file-age monitoring.</li>
+  <li><strong>v2.0:</strong> demo / read-only mode (<code>RP_READ_ONLY=1</code>), multi-doc CMDB.</li>
+</ul>
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ul>
+  <li><a href="#overview">1. What it is, what it isn't</a></li>
+  <li><a href="#install">2. Install &amp; deploy</a></li>
+  <li><a href="#enrollment">3. Device enrollment (PIN + API tokens)</a></li>
+  <li><a href="#agent">4. The agent &amp; heartbeat</a></li>
+  <li><a href="#commands">5. Commands &amp; the queue</a></li>
+  <li><a href="#monitor">6. External monitors (ping/TCP/HTTP)</a></li>
+  <li><a href="#metrics">7. Device metrics &amp; alert thresholds</a></li>
+  <li><a href="#webterm">8. Web terminal (browser SSH)</a></li>
+  <li><a href="#webhooks">9. Webhooks &amp; notification destinations</a></li>
+  <li><a href="#cve">10. CVE scanning</a></li>
+  <li><a href="#drift">11. Configuration drift detection</a></li>
+  <li><a href="#proxmox">12. Proxmox virtualization</a></li>
+  <li><a href="#mcp">13. MCP server</a></li>
+  <li><a href="#fleet-health">14. Fleet health: Needs Attention &amp; status endpoint</a></li>
+  <li><a href="#acme">15. ACME / TLS / DNS expiry</a></li>
+  <li><a href="#audit">16. Audits: brute-force, SSH keys, listening ports, backup age</a></li>
+  <li><a href="#mitigate">17. Mitigation runners</a></li>
+  <li><a href="#iac">18. IaC Generator</a></li>
+  <li><a href="#selfmon">19. Server self-monitoring &amp; scheduled backup</a></li>
+  <li><a href="#security">20. Security &amp; authentication</a></li>
+  <li><a href="#ui">21. Dashboard UI: drawer, palette, shortcuts, density</a></li>
+  <li><a href="#troubleshooting">22. Troubleshooting</a></li>
+</ul>
+</div>
+
+
+<h2 id="overview">1. What it is, what it isn't</h2>
+
+<p>RemotePower is a self-hosted fleet manager for Linux (and Windows, with limits). Each managed host runs an agent that polls the central server every 60 s — outbound HTTPS only, no inbound ports. The dashboard runs commands, monitors patches and services and CVEs and containers, alerts on metric thresholds, opens browser-based SSH terminals, and (from v3.0.0 onward) generates Terraform / Ansible / Pulumi / cloud-init from live host inventory.</p>
+
+<p>What it isn't: a configuration-management system. It runs ad-hoc commands and reports back; it doesn't enforce desired state. Pair with Ansible / Puppet / Salt for that. The IaC Generator (§18) bridges the two — it produces IaC <em>from</em> what RemotePower sees, so you can hand off to a CM tool with a real starting point.</p>
+
+<p>The architecture is deliberately boring:</p>
+<ul>
+  <li><strong>Server:</strong> Python CGI scripts behind nginx + fcgiwrap. State in flat JSON files under <code>/var/lib/remotepower/</code>. No database, no Node.js, no Redis. Scales to 50–500 devices comfortably; beyond that look at SQLite.</li>
+  <li><strong>Agent:</strong> Single Python script polled via HTTPS. Heartbeats every 60 s with sysinfo, services, containers, and any pending command output.</li>
+  <li><strong>Web terminal daemon:</strong> Separate systemd unit for the WebSocket+SSH bits, because CGI can't hold persistent connections. Optional — skip the install and the rest still works.</li>
+</ul>
+
+
+<h2 id="install">2. Install &amp; deploy</h2>
+
+<h3>2.1 Server</h3>
+<pre><code>tar xzf remotepower-3.0.3.tar.gz
+cd remotepower-3.0.3
+sudo bash deploy-server.sh
+</code></pre>
+
+<p>The script writes:</p>
+<ul>
+  <li><code>/var/www/remotepower/</code> — CGI scripts and the dashboard HTML</li>
+  <li><code>/var/lib/remotepower/</code> — state files (JSON), owned by your nginx user (<code>www-data</code> on Debian/Ubuntu, <code>nginx</code> on Fedora/RHEL, <code>http</code> on Arch)</li>
+  <li><code>/etc/nginx/sites-available/remotepower</code> — server block</li>
+</ul>
+
+<p>After deploy, browse to <code>https://your-host/</code> and log in with the default admin password (printed on first run). Change it immediately under Settings.</p>
+
+<h3>2.2 Web terminal daemon (optional, v1.11.11+)</h3>
+<pre><code>sudo bash packaging/install-webterm.sh
+</code></pre>
+
+<p>The script auto-detects your CGI user, installs Python dependencies via apt/dnf/pacman/apk/zypper, creates the <code>rp-webterm</code> daemon user, generates the daemon ↔ CGI shared secret, installs the systemd unit, and prints the nginx snippet you need to add. Run with <code>--dry-run</code> first if you want to see what it'll do.</p>
+
+<p>Then add the printed snippet to your nginx server block <strong>above</strong> any catch-all <code>location ^~ /api/</code> rule:</p>
+
+<pre><code>location = /api/webterm/connect {
+    proxy_pass http://127.0.0.1:8765;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    # … (full snippet shown by install-webterm.sh)
+}
+</code></pre>
+
+<p>And ensure your <code>http { … }</code> block has the upgrade map (only needed once globally):</p>
+
+<pre><code>map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+</code></pre>
+
+<p>Then <code>sudo nginx -t &amp;&amp; sudo systemctl reload nginx</code>.</p>
+
+<h3>2.3 Agent</h3>
+<p>On each managed machine:</p>
+<pre><code>sudo install -m 755 client/remotepower-agent /usr/local/bin/
+sudo cp packaging/remotepower-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo remotepower-agent enroll        # interactive PIN-based
+sudo systemctl enable --now remotepower-agent
+</code></pre>
+
+
+<h2 id="enrollment">3. Device enrollment</h2>
+
+<p>Two flows: interactive PIN for hand-installs, API tokens for automation.</p>
+
+<h3>3.1 Interactive PIN</h3>
+<p>Click <strong>Enroll device</strong> in the dashboard. You get a 6-digit PIN, valid for 10 minutes. Run <code>sudo remotepower-agent enroll</code> on the target machine, paste the PIN. Done.</p>
+
+<h3>3.2 API tokens (v1.11.10+)</h3>
+<p>For Ansible / cloud-init / golden-image stamping. Create a token via API:</p>
+
+<pre><code>curl -X POST https://remote.example.com/api/enrollment-tokens \
+  -H "X-Token: $YOUR_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "label":         "ansible-batch-2026-05-07",
+    "default_group": "prod",
+    "default_tags":  ["linux"],
+    "expires_in":    3600
+  }'
+# Returns: {"token": "...", "expires": ..., ...}
+</code></pre>
+
+<p>Tokens are <strong>one-time use</strong> and expire after the specified duration (default 24h, max 7 days). The full token is shown ONCE in the create response; the list endpoint only returns 8-character prefixes.</p>
+
+<p>On the target machine, the agent reads the token from one of three sources, in order:</p>
+<ol>
+  <li><code>--token</code> CLI arg — <strong>visible in <code>ps</code></strong>, only use for testing</li>
+  <li><code>$REMOTEPOWER_ENROLL_TOKEN</code> environment variable — good for systemd <code>EnvironmentFile=</code></li>
+  <li><code>/etc/remotepower/enroll-token</code> file (must be mode 600) — auto-deleted after success, best for golden images</li>
+</ol>
+
+<pre><code>sudo remotepower-agent enroll-token --server https://remote.example.com
+# (with token in /etc/remotepower/enroll-token, auto-deleted on success)
+</code></pre>
+
+<p>If the token has <code>default_group</code> or <code>default_tags</code> set, those are applied to the device at enrollment.</p>
+
+<p>To revoke a token before it's used:</p>
+<pre><code>curl -X DELETE https://remote.example.com/api/enrollment-tokens/PREFIX \
+  -H "X-Token: $YOUR_ADMIN_TOKEN"
+# PREFIX is the first 8+ chars shown in the GET listing
+</code></pre>
+
+
+<h2 id="agent">4. The agent &amp; heartbeat</h2>
+
+<p>The agent polls the server every <code>poll_interval</code> seconds (default 60). On each heartbeat it sends:</p>
+<ul>
+  <li>Identity: <code>device_id</code>, <code>token</code>, OS version, IP, MAC</li>
+  <li>System info: cpu/memory/swap percentages, 1-min load average, cpu count, per-mount disk usage (v1.11.10+)</li>
+  <li>Watched services and log-pattern matches (configured server-side, pushed to agent in heartbeat response)</li>
+  <li>Container list (Docker/Podman/Kubernetes pods, if available on the host)</li>
+  <li>Any pending command output from the previous run (v1.11.7+ uses a dedicated follow-up heartbeat for this)</li>
+</ul>
+
+<p>The server responds with:</p>
+<ul>
+  <li>Optional <code>command</code> the agent should execute next (shutdown/reboot/exec/upgrade)</li>
+  <li>Updated services-watch list and log-watch rules</li>
+  <li>Optional <code>poll_interval</code> override (the server can ask the agent to poll faster or slower)</li>
+</ul>
+
+<p>For long-running commands (apt upgrade can take minutes), the agent runs the command synchronously, then sends a separate follow-up heartbeat with just the output. Output appears under the device's "Update history" panel.</p>
+
+
+<h2 id="commands">5. Commands &amp; the queue</h2>
+
+<p>From the dashboard you can:</p>
+<ul>
+  <li><strong>Shutdown</strong>, <strong>Reboot</strong> — reported success on next heartbeat</li>
+  <li><strong>Wake-on-LAN</strong> — server sends a magic packet to the device's MAC. Device must support WoL and be on the same broadcast domain as your RemotePower server.</li>
+  <li><strong>Custom command</strong> — runs as root on the agent; output limited to 64 KB</li>
+  <li><strong>Upgrade packages</strong> (per-device or batch) — runs <code>apt-get -y upgrade</code> / <code>dnf -y upgrade</code> / <code>pacman -Syu --noconfirm</code> depending on what the host has</li>
+  <li><strong>Agent update</strong> — the agent fetches a new copy of itself from the server and restarts</li>
+</ul>
+
+<p>Commands are queued in <code>/var/lib/remotepower/cmds.json</code> per device. Only one command per device is in flight at a time; the agent acknowledges by sending the output back, which clears the queue slot.</p>
+
+
+<h2 id="monitor">6. External monitors (ping/TCP/HTTP)</h2>
+
+<p>The Monitor page lets you configure ICMP / TCP / HTTP probes that the <em>server</em> runs against external targets — not the same as the agent-side metrics or service watches. Useful for:</p>
+<ul>
+  <li>Checking your ISP's gateway is up (ping)</li>
+  <li>Verifying a web service still responds (HTTP HEAD)</li>
+  <li>Confirming an SSH port is open before alerting humans (TCP)</li>
+</ul>
+
+<p>From v1.11.8 monitors run on a periodic schedule (<code>monitor_interval</code>, default 300s, minimum 60s) — not just when the page is open. The schedule is piggy-backed on incoming CGI requests, so as long as <em>any</em> agent is heartbeating or anyone's browsing the dashboard, monitors run on time. A truly idle server (no agents, no users) won't run them, but in practice that doesn't happen.</p>
+
+<p>State transitions fire the <code>monitor_down</code> and <code>monitor_up</code> webhook events.</p>
+
+
+<h2 id="metrics">7. Device metrics &amp; alert thresholds</h2>
+
+<h3>7.1 What's measured</h3>
+<p>Each agent reports the following via sysinfo on every heartbeat (v1.11.10+):</p>
+<table>
+  <tr><th>Metric</th><th>What it is</th></tr>
+  <tr><td>Memory %</td><td>Virtual memory in use</td></tr>
+  <tr><td>Swap %</td><td>Swap in use (0 if no swap)</td></tr>
+  <tr><td>Disk % per mount</td><td>Each non-pseudo mount (skipping tmpfs/squashfs/overlay)</td></tr>
+  <tr><td>CPU load ratio</td><td>1-minute load average ÷ logical CPU count</td></tr>
+</table>
+
+<h3>7.2 Default thresholds</h3>
+<table>
+  <tr><th>Metric</th><th>Warning</th><th>Critical</th></tr>
+  <tr><td>Disk usage (per mount)</td><td>80%</td><td>90%</td></tr>
+  <tr><td>Memory usage</td><td>85%</td><td>95%</td></tr>
+  <tr><td>Swap usage</td><td>20%</td><td>50%</td></tr>
+  <tr><td>CPU load ratio</td><td>1.5×</td><td>3.0×</td></tr>
+</table>
+
+<p><strong>Hysteresis:</strong> a metric must drop 5 points below its warn threshold before <code>metric_recovered</code> fires. Without this, a metric oscillating around 80% would generate a webhook every ~60s.</p>
+
+<h3>7.3 Per-device + per-mount overrides (v1.12.0 UI)</h3>
+<p>From the device dropdown menu, click <strong>Metric thresholds</strong>. The modal shows:</p>
+<ul>
+  <li>Current sysinfo values (memory %, swap %, load ratio, disk per mount) so you can see what thresholds make sense</li>
+  <li>Per-metric warn/crit fields. Empty means "use default", so you only need to fill in the ones you want to override.</li>
+  <li>A "per-mount disk overrides" section. Add a row for each mount where you want different thresholds. Common case: <code>/var</code> at 70/85% (logs grow fast), <code>/backup</code> at 95/98% (designed to fill).</li>
+  <li><strong>Reset to defaults</strong> — wipes all overrides for the device.</li>
+</ul>
+
+<p>Validation: warn must be less than crit for every kind. Percentages are 1–99 (0 and 100 don't make sense as alerts). Load ratios are 0.1–100. Out-of-range values are rejected rather than silently clamped.</p>
+
+<p>Setting thresholds clears the device's <code>metric_state</code>, so the next heartbeat re-evaluates under the new values. Otherwise a metric currently at "warning" would silently stay there even after you raised the threshold.</p>
+
+<h3>7.4 Live metrics on the Monitor page (v1.12.0)</h3>
+<p>The Monitor page now has a <strong>Device metrics</strong> section below the external probes. It shows every device's current memory/swap/CPU/disk numbers, color-coded by alert level (green/amber/red), with clickable thresholds buttons that jump straight to the editor.</p>
+
+<p>Filter by name, group, tag, or mount path. Sort by any column. Critical-state devices sort to the top when sorting by status ascending.</p>
+
+<h3>7.5 Direct API access</h3>
+<pre><code># Get current overrides + effective values for a device
+curl -H "X-Token: $TOKEN" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds
+
+# Set overrides (any subset of fields; empty fields stay at default)
+curl -X PATCH -H "X-Token: $TOKEN" -H "Content-Type: application/json" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds \
+  -d '{
+    "mem_warn_percent": 70,
+    "mem_crit_percent": 85,
+    "disk_per_mount": {
+      "/var": {"warn": 70, "crit": 85}
+    }
+  }'
+
+# Reset all overrides
+curl -X DELETE -H "X-Token: $TOKEN" \
+  https://remote.example.com/api/devices/$ID/metric-thresholds
+</code></pre>
+
+
+<h2 id="webterm">8. Web terminal (v1.11.11+)</h2>
+
+<h3>8.1 Architecture</h3>
+
+<p>RemotePower's CGI model can't hold persistent WebSocket connections — fcgiwrap is request-response. So the web terminal is a separate <code>remotepower-webterm</code> daemon listening on <code>127.0.0.1:8765</code>, with nginx proxying <code>/api/webterm/connect</code> to it. The CGI handles auth and audit logging via <code>/api/webterm/auth</code> and <code>/api/webterm/audit</code>; the daemon handles the actual SSH proxy.</p>
+
+<pre><code>Browser ──wss──&gt; nginx :443 ──ws──&gt; remotepower-webterm :8765 ──ssh──&gt; device
+                       │
+                       └─http──&gt; remotepower CGI (existing) for auth + audit
+</code></pre>
+
+<h3>8.2 Auth flow</h3>
+<ol>
+  <li>Click <strong>Web terminal</strong> on a device. Modal asks for SSH host (pre-filled from device IP), user, port, password, plus your admin password.</li>
+  <li>Frontend POSTs to <code>/api/webterm/auth</code>. CGI re-validates your admin password (every time — by design). On success, issues a 32-byte URL-safe ticket with 60-second TTL and stores it in <code>webterm_tickets.json</code>. On failure: 403 + <code>webterm_auth_failed</code> audit entry.</li>
+  <li>Frontend opens a WebSocket to <code>wss://host/api/webterm/connect?ticket=…</code>. nginx proxies to the daemon.</li>
+  <li>Daemon validates the ticket against the file, deletes it (single-use), and waits for the first WS message: a JSON blob with <code>{host, user, port, password, cols, rows}</code>.</li>
+  <li>Daemon SSH-connects via <code>asyncssh</code>. Bytes pump until either side disconnects.</li>
+  <li>On session end, daemon POSTs metadata back to <code>/api/webterm/audit</code>. Authenticated via shared secret in <code>/etc/remotepower/webterm-secret</code> (matches <code>config.json[webterm_daemon_secret]</code>).</li>
+</ol>
+
+<h3>8.3 Security model</h3>
+<ul>
+  <li>SSH credentials never persist. Live in browser memory while you type, then in WS frame for one second, then in daemon memory for the session, then garbage-collected.</li>
+  <li>Tickets are single-use, 60-second TTL, ~256 bits of entropy.</li>
+  <li>Daemon binds to 127.0.0.1 only — only nginx can reach it. nginx terminates TLS so the browser-to-nginx hop is wss; nginx-to-daemon is plaintext over loopback (acceptable threat model).</li>
+  <li>Daemon ↔ CGI authenticated via shared secret, not session tokens (the daemon is a system service).</li>
+  <li>systemd hardening on the daemon: <code>NoNewPrivileges</code>, <code>ProtectSystem=strict</code>, <code>RestrictNamespaces</code>, dedicated user, <code>ReadWritePaths</code> limited to the recordings dir + ticket file.</li>
+</ul>
+
+<div class="warn"><strong>Heads up:</strong> SSH host-key verification is OFF by design — the user explicitly chose the device through the dashboard, and adding strict <code>known_hosts</code> management would mean a first-connect prompt for every device. If you reinstall a device, you won't get a "host key changed" warning. If that's a concern for your environment, this is the right discussion to have.</div>
+
+<h3>8.4 Session recording</h3>
+<p>Every session is recorded to <code>/var/lib/remotepower/webterm-sessions/&lt;session_id&gt;.cast</code> in <a href="https://docs.asciinema.org/manual/asciicast/v2/">asciinema v2</a> format. Replayable in any asciinema player; also greppable as plain text JSON Lines.</p>
+
+<p><strong>Output-only by default.</strong> Keystrokes are excluded because they could include <code>sudo SECRET_VALUE</code> and similar. Set <code>RECORD_INPUT=1</code> in the daemon's environment if you have compliance reasons that require keystroke capture; only do this if you've thought through who can read the recordings directory.</p>
+
+<p>10 MiB cap per recording — at the cap we stop recording but keep proxying bytes. To replay:</p>
+<pre><code>asciinema play /var/lib/remotepower/webterm-sessions/&lt;id&gt;.cast
+</code></pre>
+
+<p>Recordings aren't auto-pruned. Manage retention with cron:</p>
+<pre><code>0 3 * * * find /var/lib/remotepower/webterm-sessions -mtime +30 -delete
+</code></pre>
+
+
+<h2 id="webhooks">9. Webhooks &amp; notification destinations</h2>
+
+<p>RemotePower fires webhooks for fleet events. As of v3.0.2 you can configure <strong>multiple destinations</strong>, each with its own format and filter, in <strong>Settings → Notifications</strong>. The legacy single <code>webhook_url</code> field is still honoured for backward compatibility but the multi-destination array is the recommended shape.</p>
+
+<h3>9.1 Destinations and formats</h3>
+<p>Each destination is self-contained: URL, format adapter, optional event allowlist, optional minimum priority. Supported formats:</p>
+<ul>
+  <li><strong>Discord</strong> — embed with severity-coloured stripe</li>
+  <li><strong>Slack</strong> — markdown text</li>
+  <li><strong>Pushover</strong> — form-encoded with app token + user key (credentials are write-once in the UI and redacted from backup exports)</li>
+  <li><strong>Microsoft Teams</strong> — MessageCard schema with theme colour</li>
+  <li><strong>ntfy.sh</strong> — plain body + Title/Priority/Tags headers</li>
+  <li><strong>Generic JSON</strong> — auto-detected fallback</li>
+</ul>
+<p>Per-destination filters let you do things like "Pushover only for critical-and-above" while another destination gets everything. Format is auto-detected from the URL when not explicitly set.</p>
+
+<p>Full reference and the wire formats: <a href="webhooks.md">webhooks.md</a>.</p>
+
+<h3>9.2 Events</h3>
+<table>
+  <tr><th>Event</th><th>Default</th><th>Trigger</th></tr>
+  <tr><td><code>device_offline</code></td><td>on</td><td>No heartbeat in 2× poll_interval</td></tr>
+  <tr><td><code>device_online</code></td><td>on</td><td>Heartbeat resumed after offline</td></tr>
+  <tr><td><code>monitor_down</code></td><td>on</td><td>External monitor target down</td></tr>
+  <tr><td><code>monitor_up</code></td><td>on</td><td>External monitor target recovered</td></tr>
+  <tr><td><code>service_down</code></td><td>on</td><td>Watched systemd unit went inactive</td></tr>
+  <tr><td><code>service_up</code></td><td>on</td><td>Watched systemd unit recovered</td></tr>
+  <tr><td><code>patch_alert</code></td><td>on</td><td>Pending updates exceed configured threshold</td></tr>
+  <tr><td><code>cve_found</code></td><td>on</td><td>OSV scan turned up new CVEs</td></tr>
+  <tr><td><code>log_alert</code></td><td>on</td><td>Watched log pattern matched (systemd unit or file path)</td></tr>
+  <tr><td><code>container_stopped</code></td><td>on</td><td>Container/pod disappeared or stopped</td></tr>
+  <tr><td><code>container_restarting</code></td><td>on</td><td>Container restart count climbed</td></tr>
+  <tr><td><code>containers_stale</code></td><td>on</td><td>No container report for &gt;TTL</td></tr>
+  <tr><td><code>metric_warning</code></td><td>on</td><td>Resource crossed warning threshold</td></tr>
+  <tr><td><code>metric_critical</code></td><td>on</td><td>Resource crossed critical threshold</td></tr>
+  <tr><td><code>metric_recovered</code></td><td>on</td><td>Resource dropped below warn − buffer</td></tr>
+  <tr><td><code>drift_detected</code></td><td>on</td><td>Watched config file changed against its baseline</td></tr>
+  <tr><td><code>mailbox_threshold</code></td><td>on</td><td>Mailbox file count crossed its alert threshold</td></tr>
+  <tr><td><code>proxmox_action</code></td><td>on</td><td>VM/LXC start, shutdown or snapshot via the Virtualization page</td></tr>
+  <tr><td><code>snapshot_old</code> (v2.7.0)</td><td>on</td><td>Proxmox snapshot first crosses age threshold</td></tr>
+  <tr><td><code>tls_expiry</code> (v2.6.1)</td><td>on</td><td>Cert within 30d (warning) or 7d / expired (critical)</td></tr>
+  <tr><td><code>reboot_required</code> (v2.6.1)</td><td>on</td><td><code>/run/reboot-required</code> appears on a host</td></tr>
+  <tr><td><code>ssh_key_added</code> (v2.8.0)</td><td>on</td><td>New <code>authorized_keys</code> entry on a host (edge-triggered)</td></tr>
+  <tr><td><code>new_port_detected</code> (v2.8.0)</td><td>on</td><td>New listening port on a host</td></tr>
+  <tr><td><code>brute_force_detected</code> (v2.8.0)</td><td>on</td><td>10+ SSH or web login failures from one IP in 5 minutes</td></tr>
+  <tr><td><code>backup_stale</code> (v2.8.1)</td><td>on</td><td>Configured backup path exceeded its max age</td></tr>
+  <tr><td><code>custom_script_fail</code></td><td>on</td><td>Custom monitoring script returned non-zero</td></tr>
+  <tr><td><code>custom_script_recover</code></td><td>on</td><td>Custom monitoring script returned 0 after a failure</td></tr>
+  <tr><td><code>command_queued</code></td><td>off</td><td>Command sent to a device</td></tr>
+  <tr><td><code>command_executed</code></td><td>off</td><td>Command completed on a device</td></tr>
+</table>
+
+<h3>9.3 Per-destination test, secrets, and unmonitored-device suppression</h3>
+<p>Each destination has a <strong>Test</strong> button that fires a synthetic event using that destination's config only, without touching others. Pushover credentials are stored write-once and never echoed back from <code>/api/config</code>; they are also excluded from the backup export. Any event carrying a <code>device_id</code> is suppressed for devices marked unmonitored — operators silencing a host during a migration won't get pinged about its disk usage anyway.</p>
+
+
+<h2 id="cve">10. CVE scanning</h2>
+
+<p>Every agent reports its installed-package inventory (<code>dpkg-query</code> / <code>rpm</code> / <code>pacman</code> / <code>apk</code>). The server cross-checks that inventory against the <a href="https://osv.dev">OSV.dev</a> vulnerability database on a schedule and records the findings per device.</p>
+
+<p>The <strong>CVEs</strong> page lists findings fleet-wide, ranked by severity. Severity is computed with the real CVSS v3.1 formula, and each finding records where its score came from. Debian Security Tracker <code>urgency</code> — a patching-priority hint, not a CVSS severity — is capped at <code>medium</code> and never promoted to high/critical.</p>
+
+<p>Findings drill down per device with fixed-version hints. A per-CVE <strong>ignore list</strong> covers accepted risk: ignore on one device or fleet-wide, with a reason. Ignored findings drop out of the Needs Attention digest. New findings fire the <code>cve_found</code> webhook.</p>
+
+<p>Use <strong>Scan packages now</strong> in a device's action menu to force a fresh inventory upload on the next heartbeat — handy right after patching a host, rather than waiting for the periodic scan.</p>
+
+
+<h2 id="drift">11. Configuration drift detection</h2>
+
+<p>RemotePower hashes a watch-list of critical config files on every host — <code>sshd_config</code>, <code>sudoers</code>, and similar — on each heartbeat, and flags any change against an accepted baseline.</p>
+
+<p>For a drifted file you can view a diff, accept the new content as the baseline, or mark the difference as ignored (per file) so it stops raising a red status. Watched-file lists are pushed to the agent in the heartbeat. Drift surfaces on the dashboard and in the fleet event log, and fires the <code>drift_detected</code> webhook.</p>
+
+<p>Full reference — the watched-file list, customising it, re-baselining, the compliance angle: <a href="drift.md">drift.md</a>.</p>
+
+
+<h2 id="proxmox">12. Proxmox virtualization</h2>
+
+<p>Connect one Proxmox VE node under <strong>Settings → Proxmox</strong> using a scoped API token (use a scoped token, not a full-access one). This is a server-to-API integration — no agent runs on the Proxmox node itself.</p>
+
+<p>The <strong>Virtualization</strong> page lists the node's QEMU virtual machines with start / shutdown actions and a search box that filters by name or VMID. LXC containers appear on the <strong>Containers</strong> page with the same actions.</p>
+
+<p>Every Proxmox guest — QEMU and LXC — has a <strong>Snapshots</strong> panel: create, list, roll back and delete. Snapshots are disk-only (no RAM state). Rollback is destructive and requires typing the guest name to confirm. Guest actions fire the <code>proxmox_action</code> webhook.</p>
+
+
+<h2 id="mcp">13. MCP server</h2>
+
+<p>RemotePower ships an MCP (Model Context Protocol) server that lets an MCP-capable AI client — Claude Desktop, for example — query fleet state through a set of defined read-only tools: device lists, status, patches, CVEs, drift and more.</p>
+
+<p>It is read-oriented by design: the MCP tools report state, they do not queue commands or change configuration. Setup, the Claude Desktop config block, the full tool list and the security model are in <a href="mcp.md">mcp.md</a>.</p>
+
+
+<h2 id="fleet-health">14. Fleet health: Needs Attention &amp; status endpoint</h2>
+
+<p>The Home dashboard's <strong>Needs Attention</strong> panel is a single ranked list, computed server-side, that merges every fleet-wide signal — offline devices, critical/high CVEs, configuration drift, pending-patch pile-ups and mailbox threshold breaches — into one prioritised view. Unmonitored devices are excluded, the same gate the alert pipeline uses.</p>
+
+<p>The <strong>mailbox monitor</strong> is a lightweight count-only check with no IMAP/SMTP: configure a device with one or more directory paths and the agent counts the regular files in each (for a Maildir <code>new/</code> folder that is the unread-message count). A monitor can carry an alert threshold; crossing it fires the <code>mailbox_threshold</code> webhook, edge-triggered — it fires once on the crossing and re-arms when the count drops back below.</p>
+
+<p><code>/api/status</code> is a machine-readable fleet summary for external dashboards — Uptime Kuma, Homepage, Grafana. It is authenticated by a dedicated status token (generated in Settings), not a login session, so a monitoring tool can poll it without the endpoint being public. It returns a rolled-up health word, device online/offline counts and attention counts by severity.</p>
+
+
+<h2 id="acme">15. ACME / TLS / DNS expiry</h2>
+
+<p>RemotePower watches certificate and DNS expiry from two complementary angles:</p>
+<ul>
+  <li><strong>External probing</strong> (since v2.6.1): the server walks a watchlist of <code>host:port</code> targets in <code>tls_targets.json</code>, fetches the leaf cert, records the expiry. 30 d → warning, 7 d / expired → critical. Both thresholds fire <code>tls_expiry</code> once on the crossing (edge-triggered). Details in <a href="tls-monitor.md">tls-monitor.md</a>.</li>
+  <li><strong>Agent-side ACME inventory</strong> (since v3.0.1): the agent walks <code>~/.acme.sh</code> on each host once per hour and reports every certificate it manages — domain, challenge type, provider, dates, status. Surfaces in <strong>Security → TLS / DNS expiry</strong>. The dashboard can issue / renew / remove certs by sending one-shot flags back through the heartbeat. v3.0.2 adds a <strong>Force ACME rescan</strong> button per device so you don't have to wait for the hourly cadence after issuing on the CLI. Devices without <code>acme.sh</code> installed are hidden from the table; a discreet count is surfaced above. Full reference: <a href="acme.md">acme.md</a>.</li>
+</ul>
+
+
+<h2 id="audit">16. Audits: brute-force, SSH keys, listening ports, backup age</h2>
+
+<p>The agent does four edge-triggered audits per heartbeat. All four fire only on the <em>change</em>; baseline state is silent.</p>
+
+<ul>
+  <li><strong>Brute-force detection</strong> (v2.8.0). SSH (<code>Failed password</code>, <code>Invalid user</code>) and web (<code>POST /wp-login.php</code>, <code>POST /xmlrpc.php</code>) failure patterns are counted per source IP in a 5-minute rolling window. The threshold (default 20, configurable in <strong>Settings → Dashboard</strong> with an enable toggle) fires <code>brute_force_detected</code> once per source. Web access logs <code>nginx.access</code> / <code>apache2.access</code> are collected incrementally by the agent.</li>
+  <li><strong>SSH key audit</strong> (v2.8.0). A new entry in any user's <code>authorized_keys</code> fires <code>ssh_key_added</code> with the user and key fingerprint. Requires "Collect all current" to have run at least once for the baseline.</li>
+  <li><strong>Listening port audit</strong> (v2.8.0). A new <code>LISTEN</code> entry not in the per-device baseline fires <code>new_port_detected</code> with port + protocol + process. The Monitor page shows a fleet-wide grouped view.</li>
+  <li><strong>Backup file age</strong> (v2.8.1). Configure paths and a max age in <strong>Settings → Dashboard</strong>; the agent reports mtime on each heartbeat and fires <code>backup_stale</code> once on the threshold crossing. Also a critical item in <strong>Needs Attention</strong>.</li>
+</ul>
+
+
+<h2 id="mitigate">17. Mitigation runners</h2>
+
+<p>Every <strong>Needs Attention</strong> card whose alert has a deterministic remediation gets a <em>Mitigate</em> button (v3.0.1+). Clicking it asks the configured AI provider to generate a playbook for the specific finding, with operator sign-off required before any step runs. Each run is logged to <code>mitigate_logs/&lt;run_id&gt;.json</code> for audit. This is opt-in and disabled unless AI assistant is configured. See <a href="mitigation.md">mitigation.md</a>.</p>
+
+
+<h2 id="iac">18. IaC Generator</h2>
+
+<p>The IaC page (v3.0.0+) generates Infrastructure-as-Code for any device on demand. Pick the device, pick categories (18 total: OS &amp; identity, packages, systemd, users, groups, SSH keys, networking, fstab, containers, repos, firewall, cron, TLS paths, env, snaps, kernel modules, sysctl, RemotePower-specific) and the output format (Terraform HCL, Ansible YAML, Pulumi Python, Pulumi TypeScript, cloud-init YAML). The server flags the device, the agent runs the relevant collectors on the next heartbeat, and the configured AI provider renders the result.</p>
+
+<p><strong>Server-side secret masking:</strong> any env var whose <em>name</em> matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> is redacted before the payload leaves the host. The LLM never sees those values.</p>
+
+
+<h2 id="selfmon">19. Server self-monitoring &amp; scheduled backup</h2>
+
+<p>The <strong>Server status</strong> sidebar entry (v3.0.2+) reports the things you want to know about RemotePower itself — server version and memory, <code>DATA_DIR</code> disk usage with the top 20 largest files, fleet-wide device freshness, webhook delivery rate (24 h and 7 d), audit log entry count plus archive size, and scheduled backup state. <code>GET /api/self/status</code> is the machine-readable form for external monitoring.</p>
+
+<p>A daily gzipped tarball of <code>/var/lib/remotepower/</code> runs from the heartbeat hook on a 24-hour sentinel with stale-lock recovery. Retention defaults to 14 days; output path defaults to <code>/var/lib/remotepower/backups/</code>. The backup <strong>excludes the backups directory itself</strong>, in-flight <code>.tmp.*</code> files, and existing <code>.gz</code> archives. Owner / group are stripped so restoring on a different host doesn't fight over UIDs. A manual <strong>Run backup now</strong> button on the Server status page hits <code>POST /api/self/backup-now</code>.</p>
+
+<p>The audit log itself has age-based retention (default 90 days, configurable). Entries older than retention are moved to <code>audit_log_archive.jsonl.gz</code> rather than dropped, and the rolling 200-event fleet log evicts to <code>fleet_events_archive.jsonl.gz</code> on the same principle.</p>
+
+
+<h2 id="security">20. Security &amp; authentication</h2>
+
+<p>The full posture, threat model and operator hardening checklist live in <a href="security.md">security.md</a>. This section covers what an operator needs to act on or set.</p>
+
+<h3>20.1 Authentication</h3>
+<ul>
+  <li><strong>Local users:</strong> PBKDF2-HMAC-SHA256 at 600 000 iterations (OWASP 2023 minimum) with per-account 16-byte salts. Legacy SHA-256 hashes are auto-upgraded on next login.</li>
+  <li><strong>TOTP 2FA:</strong> 160-bit secrets, ±1 step window, failures count against the login rate limit.</li>
+  <li><strong>LDAP / LDAPS:</strong> server-side service-account bind, then re-bind as the user. <code>CERT_REQUIRED</code> TLS by default; opt out only for known self-signed internal CAs.</li>
+  <li><strong>API keys:</strong> 320-bit, <code>hmac.compare_digest</code> match, shown to the operator only at creation, per-key expiry, capped at 50 per server.</li>
+</ul>
+
+<h3>20.2 Login lockout ladder (v3.0.2)</h3>
+<p>Failed logins escalate per consecutive episode: 10 s → 1 min → 5 min → 30 min → 2 h. Resets on the next successful login. A missing-user verify path runs a dummy hash so the timing doesn't enumerate accounts.</p>
+
+<h3>20.3 Forced password change (v3.0.3)</h3>
+<p>Fresh installs seed <code>admin / remotepower</code> with the <code>must_change_password</code> flag set. <strong>Every API call returns 403 until that password is changed</strong>; only <code>POST /api/users/passwd</code> and <code>GET /api/public-info</code> are reachable through the gate. The dashboard catches the 403, surfaces a clear toast and routes the user to <strong>Settings → Account</strong>; the flag clears the moment the new password is saved.</p>
+<p>The gate is per-account — once cleared, never enforced again. API keys are unaffected (a default-password admin can't create them anyway, since the create-key endpoint is in the blocked set).</p>
+
+<h3>20.4 Env-var secrets (v3.0.3)</h3>
+<p>Three secret fields can now live in the environment instead of <code>config.json</code> — env wins over config, the secret stays out of the data directory, and it is excluded from the backup export:</p>
+<ul>
+  <li><code>RP_PROXMOX_TOKEN_SECRET</code> (since v2.3.1)</li>
+  <li><code>RP_SMTP_PASSWORD</code> (v3.0.3)</li>
+  <li><code>RP_LDAP_BIND_PASSWORD</code> (v3.0.3)</li>
+</ul>
+<pre><code># /etc/systemd/system/remotepower.service.d/secrets.conf
+[Service]
+Environment=RP_PROXMOX_TOKEN_SECRET=…
+Environment=RP_SMTP_PASSWORD=…
+Environment=RP_LDAP_BIND_PASSWORD=…
+</code></pre>
+<p>When set, the relevant input under Settings is disabled and a green hint reads "✓ Password is currently being read from <code>RP_…</code>". To finish migrating, clear the field once and Save — the plaintext drops from <code>config.json</code> and from the backup export.</p>
+
+<h3>20.5 CSRF / X-Token / same-origin</h3>
+<p>Session tokens travel in the custom <code>X-Token</code> header rather than a cookie. Browsers require a CORS preflight for any cross-origin request that carries a custom header, and RemotePower serves no permissive <code>Access-Control-Allow-Origin</code>, so classic CSRF cannot apply. Defence-in-depth: every <code>POST</code>/<code>PUT</code>/<code>PATCH</code>/<code>DELETE</code> additionally passes an Origin / Referer same-origin check before route dispatch (v3.0.2). CLI / agent / API-key clients send no Origin and are unaffected.</p>
+
+<h3>20.6 Agent hardening</h3>
+<p>Agent state files in <code>/var/lib/remotepower/</code> (mode <code>0700</code>) use <code>O_NOFOLLOW</code> on every read and write to defeat symlink attacks from local non-root users; the enrolment credentials file is written with <code>O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW</code> at <code>0600</code> atomically. Server-pushed log-watch paths pass through a deny list (<code>/etc/shadow</code>, <code>/root/.ssh/</code>, <code>/proc/</code>, <code>/sys/</code>, <code>/dev/</code>, …) with <code>realpath()</code> resolution so symlinks cannot bypass.</p>
+
+
+<h2 id="ui">21. Dashboard UI</h2>
+
+<h3>21.1 Device Drawer (v2.9.0)</h3>
+<p>Clicking a device name or the ⋮ button on Devices / Dashboard opens a full-screen slide-in drawer with two tabs. <strong>Actions &amp; Settings</strong> has the quick-action grid (run command, reboot, shutdown, WoL, upgrade packages, scan, web terminal, run script, update agent, docker compose, host config, CMDB, runbook, maintenance, adjust poll, delete) plus inline-editable device settings (group, tags, icon, monitored, poll interval, watched services, log rules, drift files, command allowlist) — all behind a single Save button. <strong>Audit</strong> has 11 collapsible sections, lazy-loaded on first open: system info, listening ports, packages, logs (filterable by unit), command history, fleet events, drift state, CVE summary, containers, metrics, host config.</p>
+
+<h3>21.2 Command palette (v3.0.2)</h3>
+<p><kbd>/</kbd> or <kbd>Ctrl-K</kbd> opens the global palette. Indexes pages, devices and quick actions. Arrow keys to navigate, Enter to activate, Esc to close. <kbd>?</kbd> opens the keyboard shortcut cheat sheet. <code>g</code>-prefix navigation: <kbd>g h</kbd> / <kbd>d</kbd> / <kbd>l</kbd> / <kbd>s</kbd> / <kbd>c</kbd> / <kbd>m</kbd> / <kbd>a</kbd> / <kbd>v</kbd> for Home / Devices / Logs / Settings / CVE / Monitor / Audit / serVer.</p>
+
+<h3>21.3 Filter, sort, density</h3>
+<p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables — has a substring filter input and clickable column headers.</p>
+<ul>
+  <li>First click sorts ascending</li>
+  <li>Second click descending</li>
+  <li>Third click clears</li>
+  <li>Hold <kbd>Shift</kbd> while clicking a second header to add a secondary sort key (small superscript shows the priority)</li>
+</ul>
+
+<h3>21.4 Density</h3>
+<p>The Devices grid has four density modes: Minimal (table layout, one device per row, sortable), Compact, Comfortable (default), Spacious. Selection persists per user.</p>
+
+<p>Filter / sort / density preferences are stored under <code>users[username].ui_prefs</code> server-side, so they follow you across browsers and devices. Sanitised: 256-char filter cap, 5-key sort cap, 16 KB total per user.</p>
+
+
+<h2 id="troubleshooting">22. Troubleshooting</h2>
+
+<h3>"Install RemotePower" button missing in Chrome / Brave</h3>
+<p>Fixed in v3.0.3. The fix lands as soon as the new service worker takes over — force one hard reload (<kbd>Ctrl-Shift-R</kbd> / <kbd>Cmd-Shift-R</kbd>) after upgrading. If it's still missing, the browser has cached the manifest; clear site data for the host and reload. If it's still missing after that, the install criteria aren't met (most often: not served over HTTPS, or the service worker registration failed — check the browser console).</p>
+
+<h3>"Password change required" 403 on every endpoint</h3>
+<p>Expected (v3.0.3). The account still has the <code>must_change_password</code> flag set — usually because nobody changed the default <code>admin / remotepower</code> password yet. Go to <strong>Settings → Account</strong> and set a new one; the flag clears and the rest of the app unlocks immediately.</p>
+
+<h3>SMTP / LDAP password field is disabled and shows "set via RP_..." placeholder</h3>
+<p>Expected (v3.0.3). The corresponding env var (<code>RP_SMTP_PASSWORD</code> or <code>RP_LDAP_BIND_PASSWORD</code>) is set in the systemd unit / container env and is taking precedence over <code>config.json</code>. To revert to config-file storage, unset the env var, restart the server, and re-enter the password in the field.</p>
+
+<h3>WebSocket fails with 404</h3>
+<p>The <code>^~ /api/</code> location is winning over the exact-match <code>= /api/webterm/connect</code>. Make sure the exact-match location appears in the file <em>before</em> the prefix-match.</p>
+
+<h3>WebSocket fails with 502 Bad Gateway</h3>
+<p>nginx is correctly trying to reach the daemon but the daemon isn't running. Check:</p>
+<pre><code>sudo systemctl status remotepower-webterm
+sudo journalctl -u remotepower-webterm -n 50
+ss -tlnp | grep 8765
+</code></pre>
+
+<h3>WebSocket closes immediately with 1006</h3>
+<p>Daemon process crashed mid-session. <code>journalctl -u remotepower-webterm</code> will show the traceback. Common causes: SSH server unreachable, password wrong, idle longer than the daemon's keepalive.</p>
+
+<h3>Update history is empty</h3>
+<p>Pre-v1.11.7 agents have a bug where command output never reached the server. Push agent self-updates: <strong>Update</strong> button in the toolbar, or per-device <strong>Agent update</strong> menu item. Once on v1.11.7+, the next upgrade you trigger will populate Update history within ~60s of completion.</p>
+
+<h3>Monitor history has gaps</h3>
+<p>Pre-v1.11.8 monitors only ran when the page was open. Upgrade to v1.11.8+. From there onwards, monitors run on schedule as long as any CGI request hits the server.</p>
+
+<h3>Per-mount disk thresholds aren't taking effect</h3>
+<p>The <em>agent</em> needs to be v1.11.10+ to report per-mount data. Older agents only report a single root-disk percentage. Push an agent self-update.</p>
+
+<h3>Devices vanished from the dashboard, agents getting "Credentials rejected"</h3>
+<p>Symptom of the v1.12.0 concurrent-write corruption (fixed in v1.12.1). One of your JSON files in <code>/var/lib/remotepower/</code> got corrupted, <code>load()</code> returns <code>{}</code> on parse failure, the dashboard shows nothing and heartbeats can't validate device tokens.</p>
+<p>v1.12.1+ adds automatic <code>.bak</code> fallback to <code>load()</code>, so this can't happen silently anymore. To clean up files damaged before the upgrade:</p>
+<pre><code>sudo -u www-data python3 packaging/recover-corrupted-json.py            # dry-run scan
+sudo -u www-data python3 packaging/recover-corrupted-json.py --apply    # fix
+</code></pre>
+<p>The tool uses <code>json.JSONDecoder.raw_decode()</code> to find the first valid JSON document and discards trailing garbage, making a <code>.broken-&lt;timestamp&gt;</code> backup before overwriting.</p>
+
+<h3>Web terminal modal says "Could not load xterm.js"</h3>
+<p>Your CSP blocks <code>cdn.jsdelivr.net</code>. Either relax CSP for that origin, or self-host xterm.js — download <code>@xterm/xterm@5.5.0/css/xterm.min.css</code>, <code>@xterm/xterm@5.5.0/lib/xterm.min.js</code>, and <code>@xterm/addon-fit@0.10.0/lib/addon-fit.min.js</code> into <code>/var/www/remotepower/static/</code>, then edit the <code>_loadXtermOnce()</code> function in <code>index.html</code> to point there.</p>
+
+</body>
+</html>

@@ -1,0 +1,2741 @@
+/* v2.2.1: privacy-friendly font load via bunny.net (a Google Fonts mirror
+ * with no tracking, no cookies, GDPR-friendly). Falls back gracefully if
+ * the host can't reach bunny.net — system font stack picks up the slack.
+ *
+ * Inter: UI font, modern sans designed for screens. Stylistic alternates
+ *        cv02/cv03/cv04/cv11 already enabled in body for the better "1",
+ *        "a", "g" glyphs.
+ * JetBrains Mono: monospaced font for technical identifiers (device IDs,
+ *        hashes, paths, command output, code).
+ */
+@import url('https://fonts.bunny.net/css?family=inter:400,500,600,700|jetbrains-mono:400,500,600&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --surface: #111520;
+    --surface2: #161b28;
+    --border: #1e2535;
+    --accent: #3b7eff;
+    --accent2: #5c9fff;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #22c55e;
+    --green-dim: #166534;
+    --red: #ef4444;
+    --red-dim: #7f1d1d;
+    --amber: #f59e0b;
+    --purple: #7c3aed;
+    --font: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  body.light {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface2: #f8fafc;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+  }
+  body.light body::before { background-image: linear-gradient(rgba(59,126,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.04) 1px, transparent 1px); }
+  body.light header { background: rgba(241,245,249,0.9); }
+  body.light .journal-wrap { background: #f8fafc; color: #334155; }
+  .theme-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    line-height: 1;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .update-banner {
+    background: rgba(245,158,11,0.08);
+    border-bottom: 1px solid rgba(245,158,11,0.25);
+    padding: 10px 24px;
+    font-size: 13px;
+    color: var(--amber);
+    text-align: center;
+    position: relative;
+    z-index: 99;
+  }
+  .update-banner a { color: var(--amber); font-weight: 600; text-decoration: underline; }
+  .update-banner .update-steps-btn {
+    background: transparent;
+    border: 1px solid rgba(245,158,11,0.4);
+    color: var(--amber);
+    font: inherit; font-size: 12px;
+    padding: 2px 10px; margin-left: 10px;
+    cursor: pointer; border-radius: 4px;
+  }
+  .update-banner .update-steps-btn:hover { background: rgba(245,158,11,0.12); }
+  .update-banner #update-steps {
+    max-width: 560px; margin: 8px auto 0; text-align: left;
+  }
+  .update-banner #update-steps code {
+    display: block; background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(245,158,11,0.2);
+    padding: 8px 12px; border-radius: 4px;
+    font-family: var(--font-mono, monospace); font-size: 12.5px;
+    color: var(--text); white-space: pre-wrap; word-break: break-all;
+  }
+  .tag-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(59,126,255,0.1);
+    color: var(--accent);
+    border: 1px solid rgba(59,126,255,0.2);
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+  .btn-update {
+    background: rgba(34,197,94,0.1);
+    border: 1px solid rgba(34,197,94,0.3);
+    color: var(--green);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-update:hover { background: rgba(34,197,94,0.2); border-color: var(--green); }
+  .btn-update svg { width: 14px; height: 14px; }
+  .btn-upgrade {
+    background: rgba(124,58,237,0.1);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-upgrade:hover { background: rgba(124,58,237,0.2); border-color: var(--purple); }
+  .btn-upgrade svg { width: 14px; height: 14px; }
+  .btn-shutdown {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    color: var(--red);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-shutdown:hover { background: rgba(239,68,68,0.2); border-color: var(--red); }
+  .btn-shutdown svg { width: 14px; height: 14px; }
+  .btn-reboot {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font);
+  }
+  .btn-reboot:hover { background: rgba(245,158,11,0.2); border-color: var(--amber); }
+  .btn-reboot svg { width: 14px; height: 14px; }
+  .cmd-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600; font-family: monospace;
+  }
+  .cmd-badge.shutdown { background: rgba(239,68,68,0.1); color: var(--red); }
+  .cmd-badge.reboot   { background: rgba(245,158,11,0.1); color: var(--amber); }
+  .cmd-badge.update   { background: rgba(34,197,94,0.1); color: var(--green); }
+  .cmd-badge.wol      { background: rgba(124,58,237,0.1); color: #a78bfa; }
+  .group-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px;
+    font-weight: 500; background: rgba(124,58,237,0.1); color: #a78bfa;
+    border: 1px solid rgba(124,58,237,0.2); margin-right: 4px; margin-top: 4px;
+  }
+  .notes-tip {
+    display: inline-block;
+    font-size: 12px;
+    margin-left: 6px;
+    cursor: pointer;
+    opacity: 0.6;
+    vertical-align: middle;
+    transition: opacity 0.15s, transform 0.15s;
+    position: relative;
+  }
+  .notes-tip:hover { opacity: 1; transform: scale(1.2); }
+  .notes-tip::after {
+    content: attr(title);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text);
+    white-space: pre-wrap;
+    max-width: 260px;
+    width: max-content;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 50;
+    word-break: break-word;
+  }
+  .notes-tip:hover::after { opacity: 1; }
+  .form-textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; font-size: 14px; color: var(--text); outline: none;
+    transition: border-color 0.2s; font-family: var(--font); resize: vertical; min-height: 80px;
+  }
+  .form-textarea:focus { border-color: var(--accent); }
+  .apikey-value {
+    font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 12px; word-break: break-all; color: var(--green);
+  }
+  .batch-bar {
+    display: none; background: rgba(59,126,255,0.08); border: 1px solid rgba(59,126,255,0.2);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .batch-bar.visible { display: flex; }
+  .missed-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; font-weight: 600;
+    background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.2);
+    margin-left: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: linear-gradient(rgba(59,126,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(59,126,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 800px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(59,126,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .container {
+    /* v2.2.5: 1100 → 1300. The dashboard's data-density grew with the
+     * minimal devices table + Home tile grid + drift fleet table; 1100
+     * forced too much horizontal cramping on standard 1920-wide
+     * monitors. 1300 fits 4 dashboard tiles comfortably and still
+     * leaves margin on FHD. */
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+    position: sticky;
+    top: 0;
+    background: rgba(10,12,16,0.85);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    max-width: 100%;
+    padding: 0 24px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  /* v2.0: header logo as a clickable <a>. Reset link styles so it
+     doesn't pick up underline/blue from the global anchor rules. */
+  .logo-link { text-decoration: none; color: inherit; cursor: pointer; }
+  .logo-link:hover { opacity: 0.85; }
+  .logo-img {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: block;
+    /* The PNG is square 1:1 — fit it cleanly into the 36px slot. */
+    object-fit: contain;
+  }
+  .logo-icon {
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .logo-icon svg { width: 20px; height: 20px; }
+  .logo-text { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo-text span { color: var(--accent); }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .status-bar {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-green 2s infinite;
+  }
+  @keyframes pulse-green {
+    0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
+  }
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 200px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 72px 12px 16px;
+    z-index: 90;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    padding: 12px 10px 4px;
+  }
+  .nav-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font);
+    white-space: nowrap;
+    text-align: left;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .nav-btn:hover { color: var(--text); background: var(--surface2); }
+  .nav-btn.active { color: var(--text); background: var(--surface2); font-weight: 600; }
+  .nav-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* v2.0: collapsible sidebar groups. Trades a flat 18-item list for
+     a more browsable 5–6 item top level + grouped sub-items. The toggle
+     button styles like the section labels (small caps, muted) when
+     collapsed and like a regular nav-btn when active so it's clear it
+     does something. Chevron rotates to indicate state. State persists
+     in localStorage (sidebar.<group>.expanded). */
+  .sidebar-group { display: flex; flex-direction: column; gap: 2px; }
+  .sidebar-group-toggle {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+    border-radius: 0;
+  }
+  .sidebar-group-toggle:hover { color: var(--text); }
+  .sidebar-group-toggle svg { width: 12px; height: 12px; flex-shrink: 0; }
+  .sidebar-group-toggle .chevron {
+    margin-left: auto;
+    transition: transform 0.15s;
+    width: 14px; height: 14px;
+  }
+  .sidebar-group.collapsed .chevron { transform: rotate(-90deg); }
+  .sidebar-group-items {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    max-height: 1000px;
+    transition: max-height 0.18s ease-out;
+  }
+  .sidebar-group.collapsed .sidebar-group-items {
+    max-height: 0;
+  }
+  /* Indent the group's items slightly so the hierarchy is visible */
+  .sidebar-group .nav-btn { padding-left: 18px; }
+
+  /* v2.0: documentation page card styling. <details> elements give us
+     free expand/collapse without any JS, and they're right-click /
+     Find-in-page friendly. The summary uses a custom marker (chevron)
+     to match the sidebar group toggles for visual consistency. */
+  .doc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .doc-card[open] { border-color: var(--accent); }
+  .doc-card summary {
+    padding: 14px 18px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 14px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+  }
+  .doc-card summary::-webkit-details-marker { display: none; }
+  .doc-card summary::before {
+    content: '▸';
+    color: var(--muted);
+    font-size: 12px;
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+  .doc-card[open] summary::before { transform: rotate(90deg); }
+  .doc-card summary:hover { background: var(--surface2); }
+  .doc-card .doc-body {
+    padding: 4px 18px 18px 32px;
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 14px;
+  }
+  .doc-card .doc-body p { margin: 8px 0; }
+  .doc-card .doc-body code {
+    background: var(--surface2);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12.5px;
+  }
+  .doc-card .doc-body pre {
+    background: var(--surface2);
+    padding: 10px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 10px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .doc-card .doc-body pre code { background: none; padding: 0; }
+  .doc-card .doc-body table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+  }
+  .doc-card .doc-body th,
+  .doc-card .doc-body td {
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    text-align: left;
+  }
+  .doc-card .doc-body th {
+    background: var(--surface2);
+    font-weight: 600;
+  }
+  .doc-card.hidden { display: none; }
+  .doc-card kbd {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    font-family: var(--font);
+  }
+  .app-layout {
+    display: flex;
+    min-height: calc(100vh - 60px);
+  }
+  .app-content {
+    margin-left: 200px;
+    flex: 1;
+    min-width: 0;
+  }
+  .header-nav { display: none; }
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .page { display: none; }
+  .page.active { display: block; }
+  main { padding: 48px 0; }
+  .page-title {
+    margin-bottom: 8px;
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .page-subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 40px;
+  }
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 40px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .stat-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .stat-icon.blue  { background: rgba(59,126,255,0.15); color: var(--accent); }
+  .stat-icon.green { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .stat-icon.red   { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .stat-icon svg { width: 20px; height: 20px; }
+  .stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .section-title { font-size: 16px; font-weight: 600; }
+  .btn-primary {
+    flex: 1;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-family: var(--font);
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--font);
+  }
+  .btn-icon:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-icon svg { width: 14px; height: 14px; }
+  .enroll-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font);
+  }
+  .enroll-btn:hover { background: var(--accent2); transform: translateY(-1px); }
+  .enroll-btn svg { width: 14px; height: 14px; }
+  .devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .device-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+    overflow: visible;
+  }
+  /* v1.11.5: density modes for the devices grid. The container gets a
+     `dens-<mode>` class; descendants restyle accordingly. Compact halves
+     padding and shrinks fonts; spacious goes the other way. The dropdown
+     menu and modals are unaffected — only the card chrome itself. */
+  .devices-grid.dens-compact { gap: 8px; }
+  .devices-grid.dens-compact .device-card { padding: 12px 14px; border-radius: 10px; }
+  .devices-grid.dens-compact .device-header { margin-bottom: 8px; }
+  .devices-grid.dens-compact .device-icon { width: 32px; height: 32px; border-radius: 7px; }
+  .devices-grid.dens-compact .device-name { font-size: 14px; }
+  .devices-grid.dens-compact .device-hostname { font-size: 11px; }
+  .devices-grid.dens-compact .device-meta { gap: 6px; }
+  .devices-grid.dens-compact .device-meta .meta-label { font-size: 10px; }
+  .devices-grid.dens-compact .device-meta .meta-value { font-size: 12px; }
+  .devices-grid.dens-compact .status-badge { padding: 2px 6px; font-size: 10px; }
+
+  .devices-grid.dens-spacious { gap: 24px; }
+  .devices-grid.dens-spacious .device-card { padding: 32px; }
+  .devices-grid.dens-spacious .device-name { font-size: 18px; }
+  .devices-grid.dens-spacious .device-icon { width: 52px; height: 52px; }
+
+  /* v1.11.7: Minimal density on the Devices grid renders as a real
+     <table> instead of a flex-row override on each card. The v1.11.6
+     attempt couldn't keep columns aligned because each card was its
+     own flex container — variable cell widths made "Online" not appear
+     under "Online" across rows. Tables are the correct primitive here:
+     each <tr> shares the same <td> structure, and the browser handles
+     column alignment for us. The table also gets sortable headers via
+     tableCtl, matching the other category pages. */
+  .devices-grid.dens-minimal {
+    display: block;
+    padding: 0;
+    margin: 0;
+  }
+  .devices-minimal-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    /* v1.11.8: was `overflow: hidden`, which clipped the dropdown menu
+       on rows near the right edge or bottom of the table. The rounded
+       corners worked because of `border-radius` alone — overflow:hidden
+       was extra insurance that turned out to be too aggressive. The
+       dropdown must escape the wrap when it pops, so we accept that the
+       very corners might briefly show a non-rounded artifact for that
+       rare case where the menu opens and the row backgound colour
+       extends to the wrap edge. The thead has its own background so
+       there's no visible artifact at the top corners; the bottom corners
+       only matter when the menu is open and its z-index puts it
+       above the wrap edge anyway. */
+    overflow: visible;
+  }
+  /* v1.11.8: keep the rounded corners by clipping the table's own edges.
+     Browsers don't honour border-radius on <table> directly without
+     border-collapse:separate, so we apply it to the outer <thead> and
+     last <tr> instead. */
+  .devices-minimal-table thead tr:first-child th:first-child { border-top-left-radius: 10px; }
+  .devices-minimal-table thead tr:first-child th:last-child  { border-top-right-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:first-child  { border-bottom-left-radius: 10px; }
+  .devices-minimal-table tbody tr:last-child td:last-child   { border-bottom-right-radius: 10px; }
+  .devices-minimal-table {
+    width: 100%;
+    /* v1.11.9: table-layout:fixed forces the browser to honour the
+       column widths we set on <th> rather than auto-stretching cells
+       to fit the longest content. Without this, long OS strings like
+       "Debian GNU/Linux 12 (bookworm)" pushed the table past the
+       container's right edge — visible as the table being 5–15px
+       wider than the stats row above it. With fixed layout, our
+       max-widths and ellipsis on <td> finally take effect. */
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .devices-minimal-table thead th {
+    background: var(--surface2);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .devices-minimal-table tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+  }
+  .devices-minimal-table tbody tr:last-child { border-bottom: none; }
+  .devices-minimal-table tbody tr:hover {
+    background: rgba(59,126,255,0.04);
+  }
+  .devices-minimal-table tbody tr.offline {
+    opacity: 0.7;
+  }
+  .devices-minimal-table tbody td {
+    padding: 8px 12px;
+    vertical-align: middle;
+    /* v1.11.9: with table-layout:fixed on the table, each <td> is sized
+       to its column header's width. We only need overflow:hidden +
+       text-overflow:ellipsis on the cell to clip overflowing content
+       — no max-width needed (it was a no-op under auto-layout anyway,
+       and now would conflict with the column-width-driven layout). */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* v1.12.1: highlight selected rows in minimal mode. Matches the
+     batch-select visual treatment in cards mode (subtle blue glow on
+     the selected card). Subdued so a 100-device selection isn't
+     visually overwhelming. */
+  .devices-minimal-table tbody tr.selected {
+    background: rgba(99, 179, 237, 0.08);
+  }
+  .devices-minimal-table tbody tr.selected td {
+    border-top: 1px solid rgba(99, 179, 237, 0.3);
+    border-bottom: 1px solid rgba(99, 179, 237, 0.3);
+  }
+  /* slightly tighter row height for the dropdown column (no padding) */
+  .devices-minimal-table .dev-actions-cell {
+    padding: 4px 8px;
+    overflow: visible;          /* the ⋯ menu pops out of the cell */
+    position: relative;          /* z-index anchor for the dropdown */
+  }
+  .devices-minimal-table .dev-actions-cell .device-dropdown {
+    position: relative;
+  }
+  /* v1.11.8: when the dropdown is OPEN, hoist the entire row above the
+     surrounding table chrome so the menu can't get clipped by other
+     rows or the wrap edge. The .device-dropdown.active class gets
+     toggled by toggleDropdown() in JS; tr:has() finds the row that
+     contains it. Falls back gracefully on browsers without :has()
+     support — the menu would still render via z-index on the cell
+     itself, just possibly clipped on the bottom row. Safari, Chrome,
+     Firefox 121+ all support :has() now. */
+  .devices-minimal-table tbody tr:has(.device-dropdown.active) {
+    position: relative;
+    z-index: 100;
+  }
+  .devices-minimal-table .dev-actions-cell .device-dropdown.active {
+    z-index: 101;               /* above the row's z-index */
+  }
+  .devices-minimal-table .dev-actions-cell .dropdown-content {
+    /* Anchor to the right edge of the cell so the menu drops down-and-
+       to-the-left rather than pushing off the right side of the page.
+       The default rule from the cards-mode CSS positions it differently;
+       override here for the table layout. */
+    right: 0;
+    left: auto;
+    z-index: 102;
+  }
+  /* responsive — drop low-priority columns on narrow viewports.
+     Order of importance, kept-most → dropped-first:
+       Status, Name, [Hostname], [Group], OS, [IP], [Version], [Last seen], Actions
+     We start dropping the bracketed ones at 1100px and below. */
+  @media (max-width: 1280px) {
+    .devices-minimal-table .dev-host-cell,
+    .devices-minimal-table th[data-col="hostname"] { display: none; }
+  }
+  @media (max-width: 1080px) {
+    .devices-minimal-table .dev-version-cell,
+    .devices-minimal-table th[data-col="version"] { display: none; }
+  }
+  @media (max-width: 920px) {
+    .devices-minimal-table .dev-group-cell,
+    .devices-minimal-table th[data-col="group"] { display: none; }
+  }
+  @media (max-width: 760px) {
+    .devices-minimal-table .dev-ip-cell,
+    .devices-minimal-table th[data-col="ip"] { display: none; }
+  }
+  @media (max-width: 620px) {
+    .devices-minimal-table .dev-os-cell,
+    .devices-minimal-table th[data-col="os"] { display: none; }
+  }
+  .device-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 14px 14px 0 0;
+  }
+  .device-card.online::before  { background: var(--green); }
+  .device-card.offline::before { background: var(--red); }
+  .device-card:hover { border-color: rgba(59,126,255,0.3); }
+  .device-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .device-info { display: flex; align-items: center; gap: 14px; }
+  .device-icon {
+    width: 44px; height: 44px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .device-icon svg { width: 22px; height: 22px; color: var(--muted); }
+  .device-name     { font-size: 15px; font-weight: 600; }
+  .device-hostname { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: monospace; }
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .status-badge.online  { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .status-badge.offline { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .status-badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .online  .status-badge-dot { background: var(--green); animation: pulse-green 2s infinite; }
+  .offline .status-badge-dot { background: var(--red); }
+  .device-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta-value { font-size: 13px; font-weight: 500; margin-top: 3px; font-family: monospace; }
+  .patch-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font);
+  }
+  .patch-badge.warn { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .patch-badge.ok   { background: rgba(34,197,94,0.1);   color: var(--green); }
+  .last-seen { font-size: 11px; color: var(--muted); margin-top: 12px; }
+
+  /* Dropdown menu styles - clean, no icons, properly positioned */
+  .device-dropdown {
+    position: relative;
+    display: inline-block;
+    z-index: 20;
+  }
+  .dropdown-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    transition: all 0.2s;
+  }
+  .dropdown-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    min-width: 180px;
+    max-width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 10000;
+    margin-top: 4px;
+    overflow: visible;
+  }
+  /* If the dropdown would go off-screen on the right, flip it to the left */
+  @media (max-width: 600px) {
+    .dropdown-content {
+      right: auto;
+      left: 0;
+    }
+  }
+  .dropdown-content a, .dropdown-content button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  /* On very small screens, allow text to wrap */
+  @media (max-width: 480px) {
+    .dropdown-content a, .dropdown-content button {
+      white-space: normal;
+      word-break: break-word;
+    }
+    .dropdown-content {
+      min-width: 160px;
+      max-width: 220px;
+    }
+  }
+  .dropdown-content a:hover, .dropdown-content button:hover {
+    background: var(--surface2);
+    color: var(--accent);
+  }
+  .dropdown-content hr {
+    margin: 4px 0;
+    border-color: var(--border);
+  }
+  /* v2.1.5: compact grouped dropdown — <details>/<summary> for the
+     three secondary sections (Inspect / Operate / Configure). Keeps
+     the dropdown short by default; click to expand a section. */
+  .dropdown-content.compact {
+    min-width: 220px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .dropdown-content.compact .dropdown-group {
+    border-radius: 4px;
+  }
+  .dropdown-content.compact .dropdown-group > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 6px 14px 6px 22px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    position: relative;
+    user-select: none;
+  }
+  .dropdown-content.compact .dropdown-group > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* Disclosure caret in a fixed position so the label doesn't shift
+     when the section opens. */
+  .dropdown-content.compact .dropdown-group > summary::before {
+    content: '▸';
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    font-size: 10px;
+    transition: transform 0.15s ease;
+    color: var(--muted);
+  }
+  .dropdown-content.compact .dropdown-group[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .dropdown-content.compact .dropdown-group > summary:hover {
+    background: var(--surface2);
+    color: var(--text);
+  }
+  .dropdown-content.compact .dropdown-group a {
+    padding-left: 22px;   /* indent group children */
+    font-size: 13px;
+  }
+  .device-dropdown.active .dropdown-content {
+    display: block;
+  }
+  /* When a dropdown is active, lift its parent device card above sibling cards
+     so the open menu isn't pierced by other cards' ... buttons */
+  .device-dropdown.active {
+    z-index: 9999;
+  }
+  .device-card:has(.device-dropdown.active) {
+    z-index: 9999;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--muted);
+    grid-column: 1 / -1;
+  }
+  .empty-icon {
+    width: 64px; height: 64px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .empty-icon svg { width: 28px; height: 28px; color: var(--muted); }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .empty-text  { font-size: 14px; line-height: 1.6; }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: none;          /* structurally hidden — no FOUC on mobile refresh */
+    align-items: center;
+    justify-content: center;
+  }
+  /* v2.8.1: fade-in on open instead of relying on opacity transition from
+     display:flex so the modal is truly invisible before JS runs */
+  .modal-overlay.active {
+    display: flex;
+    animation: _modal-fade-in 0.18s ease both;
+  }
+  @keyframes _modal-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 480px;
+    transform: translateY(20px);
+    transition: transform 0.2s;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-overlay.active .modal { transform: translateY(0); }
+  .modal-wide { max-width: 680px; }
+  .modal-title    { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
+  .pin-display {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .pin-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .pin-code  { font-family: monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: var(--accent); }
+  .pin-timer { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pin-countdown { color: var(--amber); font-weight: 600; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 24px; }
+  .confirm-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .confirm-icon.red    { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: var(--red); }
+  .confirm-icon.amber  { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: var(--amber); }
+  .confirm-icon svg { width: 24px; height: 24px; }
+  .form-group { margin-bottom: 16px; }
+  .form-label {
+    font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px; display: block;
+  }
+  .form-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+    font-family: var(--font);
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--muted); }
+  select.form-input { cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 12px;
+    font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .mon-status {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .mon-status.up   { background: rgba(34,197,94,0.1);  color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .mon-status.down { background: rgba(239,68,68,0.1);  color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
+  .mon-status.unk  { background: rgba(100,116,139,0.1); color: var(--muted); border: 1px solid var(--border); }
+  .journal-wrap {
+    background: #070910;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    max-height: 360px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .journal-wrap:empty::after { content: '(no journal data yet)'; color: var(--muted); }
+  .sysinfo-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+  }
+  .sysinfo-pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  .sysinfo-pill .label { color: var(--muted); margin-bottom: 3px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .sysinfo-pill .value { font-weight: 600; font-family: monospace; }
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .settings-section .hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+  .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
+  .user-row td:last-child { text-align: right; }
+  .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    display: flex; align-items: center; gap: 10px;
+    min-width: 260px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show    { transform: translateX(0); }
+  .toast.success { border-left: 3px solid var(--green); }
+  .toast.error   { border-left: 3px solid var(--red); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+  .toast-icon    { font-size: 16px; }
+  .refresh-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 2px; background: var(--border); z-index: 50; }
+  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
+  .login-container {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+    gap: 8px;
+  }
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    width: 100%;
+    /* v2.0: widened from 400px to 480px so the 280px-wide logo fits with
+       comfortable horizontal margin. The logo asset has rounded corners
+       and a dark gradient baked in; the surrounding card uses --surface
+       which sits right on top of --bg, so the logo's dark fill blends
+       into the page rather than looking like a "black box on dark grey
+       on darker grey" sandwich. If you ever supply a fully-transparent
+       PNG, the card's --surface fill will show through cleanly. */
+    max-width: 480px;
+  }
+  .login-logo  { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+  /* v2.0 polish: the logo wrap sits ABOVE the .login-card as a sibling,
+     not inside it. No background, no padding, no frame — the logo PNG
+     has its own visual treatment baked in (rounded corners, dark
+     gradient) and stands on its own against the page --bg. */
+  .login-logo-wrap {
+    display: flex;
+    justify-content: center;
+    background: transparent;
+    margin: 0;
+  }
+  .login-logo-img {
+    max-width: 320px;
+    width: 100%;
+    height: auto;
+    display: block;
+    background: transparent;
+  }
+  .login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .login-sub   { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+  .login-btn {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    padding: 12px; border-radius: 8px; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: background 0.2s; margin-top: 8px;
+    font-family: var(--font);
+  }
+  .login-btn:hover { background: var(--accent2); }
+  .login-error { color: var(--red); font-size: 13px; margin-top: 12px; display: none; }
+  .login-error.show { display: block; }
+  /* v2.2.7: the 768px sidebar icon-rail block was removed here.
+   * It collided with the 720px mobile drawer block below — both
+   * applied under 720px, producing a wide drawer full of unlabelled
+   * mystery icons. The drawer (≤720px) is now the single mobile
+   * layout; 720–768px simply uses the normal desktop layout, which
+   * is fine at that width. */
+  @media (max-width: 600px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .devices-grid { grid-template-columns: 1fr; }
+    .modal { margin: 16px; padding: 24px; }
+  }
+  /* ── v1.8.4: Settings tabs + per-event toggle table ────────────────────── */
+  .settings-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .settings-tab {
+    padding: 10px 18px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .settings-tab:hover { color: var(--text); }
+  .settings-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+
+  .event-toggle-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .event-toggle-table tr {
+    border-bottom: 1px solid var(--border);
+  }
+  .event-toggle-table tr:last-child { border-bottom: none; }
+  .event-toggle-table td {
+    padding: 12px 8px;
+    vertical-align: middle;
+  }
+  .event-toggle-table td:first-child {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--accent);
+    width: 180px;
+  }
+  .event-toggle-table td:nth-child(2) {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .event-toggle-table td:last-child {
+    width: 60px;
+    text-align: right;
+  }
+  .event-toggle-table .toggle-switch {
+    width: 18px; height: 18px; accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .event-toggle-table .event-extra {
+    margin-top: 6px;
+  }
+
+  /* ── v1.8.3: Calendar + Tasks ─────────────────────────────────────────── */
+  .cal-day {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-height: 92px;
+    padding: 6px 6px 4px;
+    cursor: pointer;
+    transition: background 0.1s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .cal-day:hover { background: var(--surface2); }
+  .cal-day-num { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .cal-day.today .cal-day-num {
+    color: var(--accent); font-weight: 600;
+    background: var(--accent); color: white;
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .cal-day.other-month { opacity: 0.35; }
+  .cal-event {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: white; font-weight: 500;
+    cursor: pointer;
+  }
+  .cal-event:hover { filter: brightness(1.15); }
+  .cal-event.color-blue   { background: #3b82f6; }
+  .cal-event.color-green  { background: #22c55e; }
+  .cal-event.color-amber  { background: #f59e0b; color: #1a1a1a; }
+  .cal-event.color-red    { background: #ef4444; }
+  .cal-event.color-purple { background: #a855f7; }
+  .cal-event.color-teal   { background: #14b8a6; }
+  .cal-event.color-slate  { background: #64748b; }
+
+  .kanban-column {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+  }
+  .kanban-column.drag-over {
+    background: var(--surface2);
+    border-color: var(--accent);
+  }
+  .kanban-header {
+    font-size: 13px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 0 0 10px; display: flex;
+    align-items: center; gap: 8px;
+  }
+  .kanban-count {
+    background: var(--surface2); color: var(--muted);
+    font-size: 11px; padding: 1px 7px; border-radius: 10px;
+    font-weight: 500; letter-spacing: 0;
+  }
+  .kanban-list {
+    display: flex; flex-direction: column; gap: 8px; flex: 1;
+  }
+  .kanban-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: grab;
+    user-select: none;
+  }
+  .kanban-card:hover { border-color: var(--accent); }
+  .kanban-card.dragging { opacity: 0.4; cursor: grabbing; }
+  .kanban-card-title {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    margin-bottom: 4px; line-height: 1.35;
+  }
+  .kanban-card-meta {
+    font-size: 11px; color: var(--muted);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .kanban-card-device {
+    background: var(--accent); color: white;
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-family: monospace;
+  }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.1 — Design polish release
+ *
+ * Adds:
+ *   - Refined status colour palette + critical-state pulse
+ *   - Skeleton loaders (replaces centered spinners on initial load)
+ *   - Sparkline mini-chart styling
+ *   - Distro logo styling
+ *   - Per-row hover action strip
+ *   - ✨ identity extensions (AI button glow, thinking sparkles)
+ *   - Typography: improved system font stack with font-feature-settings
+ *   - Index dashboard tile styling
+ *   - Drift diff renderer
+ *
+ * All additions respect prefers-reduced-motion. All colours fall back to
+ * existing --green/--red/--amber when refined variants aren't used yet.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Refined status palette — softer shades for backgrounds, sharper for
+   * indicator dots. Existing --green/--amber/--red are kept verbatim so
+   * unchanged code keeps working. */
+  --green-soft:  rgba(34, 197, 94, 0.12);
+  --green-edge:  rgba(34, 197, 94, 0.35);
+  --amber-soft:  rgba(245, 158, 11, 0.12);
+  --amber-edge:  rgba(245, 158, 11, 0.35);
+  --red-soft:    rgba(239, 68, 68, 0.13);
+  --red-edge:    rgba(239, 68, 68, 0.40);
+  --accent-soft: rgba(59, 126, 255, 0.10);
+  --accent-edge: rgba(59, 126, 255, 0.30);
+
+  /* Mono font for technical identifiers (device IDs, hashes, paths, code).
+   * Uses a thoughtful system-mono stack; first match wins. JetBrains Mono
+   * and Fira Code are common installs on dev laptops; ui-monospace is
+   * Apple's modern system mono. */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace,
+               'Cascadia Code', Menlo, Consolas, monospace;
+}
+
+body.light {
+  --green-soft:  rgba(34, 197, 94, 0.10);
+  --green-edge:  rgba(34, 197, 94, 0.30);
+  --amber-soft:  rgba(245, 158, 11, 0.10);
+  --amber-edge:  rgba(245, 158, 11, 0.30);
+  --red-soft:    rgba(239, 68, 68, 0.10);
+  --red-edge:    rgba(239, 68, 68, 0.30);
+  --accent-soft: rgba(59, 126, 255, 0.08);
+  --accent-edge: rgba(59, 126, 255, 0.25);
+}
+
+/* Better typography on the existing stack. Inter ships with stylistic
+ * alternates that fix the awkward default "1", straight-sided "a", etc.
+ * cv02/cv03/cv04/cv11 enable those; harmless on systems without Inter. */
+body {
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Apply mono font to anywhere code/hash/path-like content lives.
+ * Existing inline style="font-family:monospace" still works; this is
+ * an enhancement for consistency. */
+code, pre, .mono, [data-mono], kbd,
+.audit-log td:nth-child(4),
+.cmd-output, .journal-wrap,
+input.form-input[type="text"][data-token],
+.device-id, .cve-id, .file-path, .hash-display {
+  font-family: var(--font-mono);
+  font-feature-settings: 'liga' 0, 'calt' 0;  /* turn off mono ligatures */
+}
+
+/* ─── Status pulse: critical-only ──────────────────────────────────────
+ * Subtle pulsing dot for critical states. Deliberately NOT applied to
+ * warning states — at 9 devices + 17 monitors + 30 services, a single
+ * page can have dozens of yellow dots and pulsing them all would be
+ * a visual disaster. */
+@keyframes rp-pulse-critical {
+  0%, 100% { box-shadow: 0 0 0 0 var(--red-edge); }
+  50%      { box-shadow: 0 0 0 6px transparent; }
+}
+.status-critical, .status-dot.critical {
+  animation: rp-pulse-critical 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-critical, .status-dot.critical { animation: none; }
+}
+
+/* Pill-shaped status badges. Use the soft+edge palette. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.status-pill.ok       { background: var(--green-soft); color: var(--green);  border: 1px solid var(--green-edge); }
+.status-pill.warn     { background: var(--amber-soft); color: var(--amber);  border: 1px solid var(--amber-edge); }
+.status-pill.critical { background: var(--red-soft);   color: var(--red);    border: 1px solid var(--red-edge); }
+.status-pill.neutral  { background: var(--surface2);   color: var(--muted);  border: 1px solid var(--border); }
+.status-pill.info     { background: var(--accent-soft);color: var(--accent); border: 1px solid var(--accent-edge); }
+.status-pill::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ─── Skeleton loaders ─────────────────────────────────────────────────
+ * Show the shape of incoming content rather than a centred spinner. The
+ * shimmer is the visual cue that data is loading. */
+@keyframes rp-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--surface2)  25%,
+    var(--border)    50%,
+    var(--surface2)  75%);
+  background-size: 800px 100%;
+  animation: rp-shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+  display: inline-block;
+}
+.skeleton-line   { height: 12px; width: 100%; margin: 4px 0; }
+.skeleton-line.short { width: 40%; }
+.skeleton-line.med   { width: 65%; }
+.skeleton-line.long  { width: 90%; }
+.skeleton-circle { width: 14px; height: 14px; border-radius: 50%; vertical-align: middle; }
+.skeleton-row td  { padding: 12px 10px; }
+.skeleton-card   { padding: 18px; border: 1px solid var(--border);
+                   border-radius: 8px; background: var(--surface); }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--surface2); }
+}
+
+/* ─── Sparkline mini-charts ────────────────────────────────────────────
+ * 60×16 inline SVG; the path/dot colours are set per-element via
+ * stroke/fill so the same sparkline component can show green/amber/red
+ * trends. */
+.sparkline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+.sparkline:hover { opacity: 1; }
+.sparkline path { fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.sparkline .area { stroke: none; opacity: 0.18; }
+.sparkline .dot  { stroke: none; }
+
+/* ─── Distro logos ─────────────────────────────────────────────────────
+ * 14×14 inline SVG next to device names. The fill colours are picked
+ * to match each distro's brand mark — Ubuntu orange, Debian red,
+ * Arch blue, etc. */
+.distro-icon {
+  display: inline-block;
+  width: 14px; height: 14px;
+  vertical-align: -2px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+/* ─── ✨ identity extension ─────────────────────────────────────────────
+ * The sparkle button gets a subtle animated glow when AI is reachable.
+ * The .ai-thinking state replaces the spinner with three sparkles cycling
+ * in opacity. AI-generated content gets a thin gradient accent on its
+ * left edge so the operator can see at a glance what came from the model
+ * vs what came from their data. */
+.ai-btn {
+  position: relative;
+  transition: all 0.15s ease;
+}
+.ai-btn.available::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: radial-gradient(circle at center,
+    rgba(59, 126, 255, 0.18) 0%,
+    transparent 65%);
+  opacity: 0;
+  animation: rp-ai-glow 3.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+.ai-btn.local::after {
+  /* Local Ollama-style glow — amber tint instead of accent blue */
+  background: radial-gradient(circle at center,
+    rgba(245, 158, 11, 0.16) 0%,
+    transparent 65%);
+}
+@keyframes rp-ai-glow {
+  0%, 100% { opacity: 0;   transform: scale(0.95); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-btn::after { animation: none; opacity: 0.4; }
+}
+
+/* Three-sparkle thinking indicator */
+.ai-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  font-size: 14px;
+}
+.ai-thinking .sparkle {
+  display: inline-block;
+  animation: rp-sparkle-cycle 1.6s ease-in-out infinite;
+}
+.ai-thinking .sparkle:nth-child(2) { animation-delay: 0.4s; }
+.ai-thinking .sparkle:nth-child(3) { animation-delay: 0.8s; }
+@keyframes rp-sparkle-cycle {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-thinking .sparkle { animation: none; opacity: 0.85; }
+}
+
+/* AI-generated content marker: thin gradient on left edge */
+.ai-content {
+  position: relative;
+  padding-left: 14px;
+}
+.ai-content::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), transparent);
+}
+
+/* ─── Index dashboard tiles ────────────────────────────────────────────
+ * Big-number summary tiles for the home page. Hover lifts subtly. */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  position: relative;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  overflow: hidden;
+}
+.tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-edge);
+}
+.tile-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.tile-value {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+  font-feature-settings: 'tnum' 1;   /* tabular numerals: aligned digits */
+}
+.tile-subtle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.tile.alert {
+  border-color: var(--red-edge);
+  background: linear-gradient(135deg, var(--surface), var(--red-soft));
+}
+.tile.alert .tile-value { color: var(--red); }
+.tile.warn {
+  border-color: var(--amber-edge);
+  background: linear-gradient(135deg, var(--surface), var(--amber-soft));
+}
+.tile.warn .tile-value { color: var(--amber); }
+.tile.ok {
+  border-color: var(--green-edge);
+}
+.tile.ok .tile-value { color: var(--green); }
+
+/* Two-column dashboard layout for activity + attention */
+.dash-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+@media (max-width: 900px) {
+  .dash-cols { grid-template-columns: 1fr; }
+}
+.dash-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.dash-card h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 12px 0;
+  font-weight: 500;
+}
+.dash-feed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.dash-feed-item:last-child { border-bottom: none; }
+.dash-feed-item .ts {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+/* ─── Status stripe (7-day uptime visualisation per device) ────────────
+ * Compact horizontal cells coloured by historical online state. Hover
+ * shows the timestamp for that cell. */
+.status-stripe {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+.status-stripe .cell {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--border);
+  cursor: help;
+  transition: transform 0.1s ease;
+}
+.status-stripe .cell:hover { transform: scaleY(1.15); }
+.status-stripe .cell.up      { background: var(--green); }
+.status-stripe .cell.partial { background: var(--amber); }
+.status-stripe .cell.down    { background: var(--red); }
+.status-stripe .cell.unknown { background: var(--border); }
+
+/* ─── Drift diff renderer ──────────────────────────────────────────────
+ * Unified diff view with syntax-style colouring. Used in the drift
+ * detail modal when the operator clicks "Show diff" on a drifted file. */
+.diff-view {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0;
+  overflow-x: auto;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.diff-view .diff-line {
+  display: flex;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-view .diff-line.add {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.diff-view .diff-line.del {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.diff-view .diff-line.hunk {
+  background: var(--surface2);
+  color: var(--muted);
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0;
+}
+.diff-view .ln {
+  display: inline-block;
+  width: 40px;
+  text-align: right;
+  padding-right: 12px;
+  color: var(--muted);
+  user-select: none;
+  flex-shrink: 0;
+}
+.diff-view .marker {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Compact empty-state styling with a primary action */
+.empty-state {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state-icon {
+  font-size: 28px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+.empty-state-title {
+  font-size: 15px;
+  color: var(--text);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.empty-state-body {
+  font-size: 13px;
+  margin-bottom: 16px;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.55;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.1 — Mobile / narrow-viewport polish
+ *
+ * Tightens the dashboard for phone-sized screens (carrying the fleet in
+ * your pocket during on-call). The desktop layout uses a fixed sidebar +
+ * data-dense tables — both fail badly on mobile. This block:
+ *
+ *   - Collapses the sidebar to a top bar with a hamburger toggle
+ *   - Stacks dashboard tiles vertically
+ *   - Hides density-y columns (Hostname, Version, Group) on phones
+ *   - Bumps tap targets to ≥36px
+ *   - Disables the hover-action strip (no hover on touch; uses tap-on-row
+ *     instead)
+ *   - Keeps the status pulse + sparklines + distro logos working
+ *
+ * Breakpoint: 720px. Below that we go full mobile; tablet sizes are
+ * mostly fine on the desktop layout with the existing responsive bits.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 720px) {
+  /* Hide sidebar by default; reveal via the burger button.
+   *
+   * v2.2.7: this block is the mobile DRAWER. The separate 768px block
+   * above is the tablet ICON-RAIL (56px, labels hidden). Below 720px
+   * BOTH used to apply — the drawer became 240px wide but the 768px
+   * rules kept the nav labels hidden and the buttons centred, and the
+   * 72px top padding shoved every icon halfway down an empty panel.
+   * That was the "wide useless drawer of mystery icons" bug.
+   *
+   * Fix: this block now explicitly restores everything the 768px
+   * rail block strips — labels visible, buttons left-aligned, sane
+   * padding. These overrides come later in the file so they win. */
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    bottom: 0;
+    width: 240px;
+    z-index: 810;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    /* Override the 768px rail's `72px 6px 16px` — the drawer already
+     * starts below the header at top:56px, so a big top padding just
+     * pushes the nav items down into dead space. */
+    padding: 12px 10px 16px;
+  }
+  /* Restore the nav labels + section headers the icon-rail hid. */
+  .sidebar .nav-btn span,
+  .sidebar .sidebar-group-toggle span { display: inline; }
+  .sidebar .sidebar-label { display: block; }
+  /* Left-align nav buttons again (the rail centred them as icons). */
+  .sidebar .nav-btn {
+    justify-content: flex-start;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  body.mobile-nav-open .sidebar { transform: translateX(0); }
+  body.mobile-nav-open::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    /* v3.0.3: explicit resets for the properties that bleed in from the
+       ambient-glow body::after rule (line ~250). That rule sets a fixed
+       800×400 box with translateX(-50%) and pointer-events:none. Without
+       these resets the scrim inherits the box and shows as a partial
+       rectangle near the top of the screen instead of a full-viewport
+       overlay, and tap-outside-to-close stops working because the ghost
+       overlay can't receive pointer events. */
+    width: auto;
+    height: auto;
+    transform: none;
+    pointer-events: auto;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 800;
+  }
+
+  /* Show the burger button — hidden on desktop */
+  .mobile-burger {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin-right: 8px;
+    background: transparent;
+    /* v3.0.3: no border. The previous 1px var(--border) drew a small
+     * square around the icon that looked like a separate clickable
+     * element next to the logo on mobile. The hamburger glyph is
+     * visually distinct enough without a frame. */
+    border: none;
+    border-radius: 6px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  /* Main content takes the full width — the drawer is an overlay, so
+   * content must NOT keep a 56px left margin (the icon-rail's margin).
+   * Without this override the content sat 56px in from the edge with
+   * nothing in that strip. */
+  main { padding: 12px !important; }
+  .app-content { margin-left: 0 !important; }
+  .container { padding: 0 !important; }
+
+  /* Header gets compact */
+  header { padding: 0 10px !important; }
+  .header-inner { gap: 6px !important; }
+  .logo-text { display: none; }  /* keep just the square logo */
+  .status-bar { display: none; } /* "Live" indicator hidden on mobile */
+
+  /* Dashboard tile grid: stack to one column */
+  .tile-grid { grid-template-columns: 1fr !important; gap: 10px; }
+  .tile { padding: 14px 16px; }
+  .tile-value { font-size: 26px; }
+
+  /* Two-col dashboard layout → stack */
+  .dash-cols { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Hide hover affordances entirely — no hover on touch */
+  tr.has-hover-actions .row-actions { display: none; }
+
+  /* Devices minimal table: hide low-priority columns */
+  .devices-minimal-table .dev-host-cell,
+  .devices-minimal-table .dev-group-cell,
+  .devices-minimal-table .dev-version-cell {
+    display: none;
+  }
+  .devices-minimal-table th[data-col="hostname"],
+  .devices-minimal-table th[data-col="group"],
+  .devices-minimal-table th[data-col="version"] {
+    display: none;
+  }
+  .devices-minimal-table .dev-name-cell { width: auto !important; }
+
+  /* Drift / TLS / CVE tables: reduce padding, allow horizontal scroll */
+  .data-table { font-size: 12px; }
+  .data-table th, .data-table td { padding: 6px 4px !important; }
+  .table-card { overflow-x: auto; }
+
+  /* Device cards in non-minimal density: 1 per row */
+  .device-card { width: 100% !important; margin-bottom: 10px; }
+  .device-meta { grid-template-columns: 1fr 1fr; }
+
+  /* Modal: nearly full-screen on mobile */
+  .modal { width: 96vw !important; max-width: none !important; }
+  .modal-overlay { padding: 6px !important; }
+
+  /* Bigger tap targets */
+  .btn-icon, .nav-btn, button {
+    min-height: 36px;
+  }
+  .row-actions button { min-height: 0; }  /* hidden anyway */
+
+  /* Sidebar group items: more vertical space */
+  .nav-btn { padding: 10px 12px; }
+}
+
+/* Hide burger on desktop */
+.mobile-burger { display: none; }
+
+/* Small additional polish for in-between sizes */
+@media (min-width: 721px) and (max-width: 980px) {
+  .tile-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─── v2.2.5: capped-height tables with internal scroll ─────────────────
+ *
+ * When a table has >20 rows, switch to a fixed-height container with
+ * internal scrolling rather than letting the page grow to several
+ * thousand pixels. The thead becomes sticky so column headers stay
+ * pinned while you scroll. ~20 rows at the existing 32px row height
+ * works out to roughly 720px including the header.
+ *
+ * Applied to the `.scrollable-table-wrap` class on the wrapper div.
+ * JS adds this class only when the table row count exceeds the
+ * threshold — so small tables still render full-height as before.
+ */
+.scrollable-table-wrap {
+  max-height: 720px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* The thead inside this wrap gets sticky top:0 — backgrounds need
+   * to be opaque so rows scrolling underneath don't show through. */
+}
+.scrollable-table-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+  /* The default thead-row border-bottom now needs to also be a
+   * box-shadow because position:sticky removes it from layout flow. */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* Custom scrollbar tuned to the dark theme — chunkier than the OS
+ * default so it's findable on a long table without being intrusive. */
+
+/* ── Global page scrollbar (critical for PWA/installed app mode) ──────── */
+:root {
+  scrollbar-color: var(--border) transparent;  /* Firefox */
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border2, rgba(255,255,255,0.12));
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted, #8892aa);
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+
+.scrollable-table-wrap::-webkit-scrollbar { width: 10px; }
+.scrollable-table-wrap::-webkit-scrollbar-track {
+  background: var(--surface);
+  border-radius: 0 6px 6px 0;
+}
+.scrollable-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--surface);
+}
+.scrollable-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* v2.2.5: card-grid scroll wrap (companion to .scrollable-table-wrap).
+ * Same threshold logic in JS — only applied when device count > 20. */
+.scrollable-grid-wrap {
+  max-height: 76vh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.scrollable-grid-wrap::-webkit-scrollbar { width: 10px; }
+.scrollable-grid-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollable-grid-wrap::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+.scrollable-grid-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * v2.2.6 — z-index normalisation + mobile modal fixes
+ *
+ * The stacking order had grown organically and collided on mobile —
+ * "windows over each other". Notably the device dropdown menu sat at
+ * z-index 10000, ABOVE modal overlays at 200, so an open dropdown bled
+ * through any modal. And there was no body-scroll lock, so the page
+ * scrolled behind open modals on touch.
+ *
+ * Clean tier scale (low → high):
+ *   base content      1
+ *   sidebar (desktop) 90
+ *   header            100
+ *   dropdowns         200   ← was 10000, now firmly BELOW modals
+ *   mobile nav        800 / 810
+ *   modal (base)      1000
+ *   modal (nested)    1100  ← drift diff over drift detail
+ *   toast             2000
+ *
+ * These rules come last in the file so they win over the earlier
+ * declarations without needing !important everywhere.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+/* Dropdowns must sit below modals — an open device-row menu bleeding
+ * through a modal was the most visible desktop+mobile stacking bug. */
+.device-dropdown.active            { z-index: 200; }
+.device-card:has(.device-dropdown.active) { z-index: 200; }
+.dropdown-content                  { z-index: 201; }
+.devices-minimal-table .dev-actions-cell .dropdown-content { z-index: 201; }
+.devices-minimal-table tbody tr:has(.device-dropdown.active) { z-index: 200; }
+.devices-minimal-table .dev-actions-cell .device-dropdown.active { z-index: 201; }
+
+/* Modal overlays — base tier. */
+.modal-overlay { z-index: 1000; }
+
+/* Mobile nav drawer + its dim overlay — above header, below modals. */
+@media (max-width: 720px) {
+  .sidebar                      { z-index: 810; }
+  body.mobile-nav-open::after   { z-index: 800; }
+}
+
+/* Toasts always on top — they're transient and must never be hidden. */
+.toast-container { z-index: 2000; }
+
+/* v3.0.4: mobile-only ✕ close button inside the sidebar drawer.
+ * Hidden by default; the @media (max-width: 720px) rule below shows it.
+ * Has its own z-index above the sidebar so taps reliably land on it
+ * even if a nav-btn renders close to the top edge. */
+.sidebar-mobile-close {
+  display: none;
+}
+@media (max-width: 720px) {
+  .sidebar-mobile-close {
+    display: flex;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 5;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .sidebar-mobile-close:hover,
+  .sidebar-mobile-close:focus {
+    color: var(--text);
+    border-color: var(--text);
+    background: var(--surface2);
+  }
+  /* v3.0.4 (iter 3): hide the desktop "Collapse" button on mobile.
+   * The collapse-to-icon-rail UX doesn't apply to the mobile drawer
+   * (drawer is already an overlay, not docked) and operators reported
+   * the inert button was confusing. The ✕ is the sole mobile escape;
+   * tap-outside on the scrim is still the secondary path. */
+  .sidebar-collapse-btn { display: none; }
+}
+
+/* v2.2.6: body scroll lock while a modal is open. Without this the
+ * page behind the modal scrolls on touch, which on mobile reads as
+ * two windows moving independently — part of the reported bug. */
+body.modal-open {
+  overflow: hidden;
+  /* iOS Safari also needs position fixing to truly stop rubber-band
+   * scroll, but that loses scroll position; overflow:hidden is the
+   * pragmatic 90% fix without the scroll-jump side effect. */
+  touch-action: none;
+}
+/* The modal itself must still scroll internally. */
+body.modal-open .modal-overlay.active { touch-action: auto; }
+body.modal-open .modal { touch-action: auto; }
+
+/* Mobile: make modals true full-bleed sheets so a shorter modal can't
+ * leave an older modal peeking out behind it. Fully opaque background. */
+@media (max-width: 720px) {
+  .modal-overlay {
+    padding: 0 !important;
+    align-items: stretch;
+  }
+  .modal {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    min-height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+    /* Opaque — no bleed-through from whatever is stacked below. */
+    background: var(--surface);
+  }
+  /* Nested modal (drift diff) sits above the base modal. */
+  #drift-diff-modal { z-index: 1100; }
+}
+
+/* ── v2.6.0: Host Config modal tabs ─────────────────────────────────────── */
+.hc-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 5px 12px;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.hc-tab:hover  { background: var(--surface2); color: var(--text); }
+.hc-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── v2.6.0: Mobile performance & UX optimisations ─────────────────────────
+ *
+ * 1. Prevent double-tap zoom on interactive elements — removes the 300ms
+ *    tap delay on touch devices without disabling pinch-zoom on content.
+ * 2. Momentum scrolling on overflowing containers.
+ * 3. Reduce paint complexity by promoting scroll containers to their own
+ *    compositor layer.
+ * 4. Respect the OS-level "reduce motion" preference.
+ * 5. Ensure all tap targets meet the 44×44 px minimum (WCAG 2.5.5).
+ */
+
+/* 1. Kill the 300ms tap delay */
+button, a, [role="button"],
+.nav-btn, .btn-icon, .btn-primary, .btn-secondary,
+.hc-tab, .cs-device-cb + label {
+  touch-action: manipulation;
+}
+
+/* 2+3. Smooth momentum scroll on overflow containers */
+.table-card,
+.modal,
+.sidebar,
+.cmd-output,
+.log-output,
+.hc-panel textarea {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* 4. Honour "prefers-reduced-motion" — turn off decorative animations */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .ai-btn.available::after { animation: none; }
+  .refresh-bar-fill        { transition: none; }
+}
+
+/* 5. Minimum touch target size — apply only on touch screens */
+@media (hover: none) and (pointer: coarse) {
+  .btn-icon, .btn-secondary, .nav-btn, .hc-tab {
+    min-height: 44px;
+  }
+  /* Batch-bar buttons get extra breathing room */
+  .batch-bar button {
+    padding: 10px 14px;
+  }
+  /* Table action buttons: expand hit area without changing layout */
+  td button.btn-icon {
+    padding: 10px 12px;
+  }
+  /* Checkboxes: larger hit area */
+  input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+
+/* v2.8.1: restore elements hidden by the anti-FOUC <style> in <head>.
+   Once this stylesheet loads, these override the temporary hide rules. */
+.refresh-bar       { display: block; }
+.toast-container   { display: flex; z-index: 9999; } /* must top all modals + drawer */
+#pwa-install-btn   { display: flex; }   /* JS re-hides if PWA not installable */
+
+
+/* ══ v2.9.0: Device Drawer ═══════════════════════════════════════════════════
+ * Full-screen overlay drawer — replaces detail-modal + ⋮ dropdown.
+ * Two tabs: Actions/Settings and Audit.
+ ═══════════════════════════════════════════════════════════════════════════════ */
+
+.device-drawer {
+  position: fixed; inset: 0; z-index: 500;
+  display: none;
+}
+.device-drawer.open { display: flex; }
+
+/* Backdrop */
+.device-drawer .drawer-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  /* No backdrop-filter — it creates a stacking context that can intercept
+     clicks on the panel in Safari/WebKit mobile, making buttons unreachable */
+  z-index: 1;
+}
+
+/* Panel — slides in from right, explicitly above backdrop */
+.device-drawer .drawer-panel {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(640px, 100vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+  z-index: 2;
+}
+.device-drawer.open .drawer-panel { transform: translateX(0); }
+
+/* Header */
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.drawer-device-name { font-weight: 700; font-size: 16px; }
+.drawer-device-sub  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Tabs */
+.drawer-tabs {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.drawer-tab-btn {
+  flex: 1; padding: 10px 12px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted); background: none;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+.drawer-tab-btn.active {
+  color: var(--accent2); border-bottom-color: var(--accent);
+}
+
+/* Content area */
+.drawer-content {
+  flex: 1; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.drawer-tab-panel { padding: 0 0 24px; }
+
+/* Section */
+.drawer-section {
+  padding: 14px 16px 0;
+}
+.drawer-section-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+  margin-bottom: 10px;
+}
+
+/* Actions grid */
+.drawer-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.drawer-action-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer; font-size: 12px;
+  color: var(--text); font-family: var(--font);
+  transition: background .12s, border-color .12s;
+  text-align: left; white-space: nowrap;
+}
+.drawer-action-btn:hover { background: var(--surface2); border-color: var(--border); }
+.drawer-action-btn.danger { color: var(--red); }
+.drawer-action-btn.danger:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
+.drawer-action-btn svg { flex-shrink: 0; }
+
+/* Settings form */
+.drawer-setting-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.drawer-setting-row:last-child { border-bottom: none; }
+.drawer-setting-label {
+  font-size: 12px; color: var(--muted); flex-shrink: 0;
+  min-width: 110px;
+}
+
+/* Audit accordion */
+.audit-section {
+  border-bottom: 1px solid var(--border);
+}
+.audit-section summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer; font-size: 13px; font-weight: 500;
+  user-select: none; list-style: none;
+}
+.audit-section summary::-webkit-details-marker { display: none; }
+.audit-section summary::after {
+  content: '›'; font-size: 16px; color: var(--muted);
+  transition: transform .15s;
+}
+.audit-section[open] summary::after { transform: rotate(90deg); }
+.audit-section-body {
+  padding: 0 16px 14px;
+  font-size: 12.5px; line-height: 1.6;
+}
+.audit-section-badge {
+  font-size: 10px; color: var(--muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 10px; margin-left: 6px;
+}
+.audit-filter {
+  width: 100%; padding: 6px 10px; margin-bottom: 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 12px; color: var(--text);
+  font-family: var(--font-mono);
+}
+.audit-filter:focus { outline: none; border-color: var(--accent); }
+
+/* Command history in audit */
+.audit-cmd-entry {
+  border: 1px solid var(--border); border-radius: 6px;
+  margin-bottom: 6px; overflow: hidden;
+}
+.audit-cmd-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; cursor: pointer;
+  background: var(--surface2);
+}
+.audit-cmd-output {
+  padding: 8px 10px; display: none;
+  background: var(--surface2); border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11.5px;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+  word-break: break-all;
+}
+.audit-cmd-entry.expanded .audit-cmd-output { display: block; }
+
+/* Port table */
+.ports-table th, .ports-table td {
+  padding: 5px 8px; font-size: 12px;
+}
+
+/* Mobile: full screen */
+@media (max-width: 720px) {
+  .device-drawer .drawer-panel {
+    width: 100vw; border-left: none;
+  }
+  .drawer-actions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+}
+
+
+/* ══ v3.0.0: IaC Generator page ═══════════════════════════════════════════════ */
+
+.iac-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .iac-layout { grid-template-columns: 1fr; }
+}
+
+.iac-controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.iac-section { margin-bottom: 16px; }
+.iac-section:last-of-type { margin-bottom: 12px; }
+.iac-label {
+  display: block;
+  font-size: 12px; font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.iac-cat-list {
+  max-height: 380px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--surface2);
+}
+.iac-cat-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.iac-cat-row input[type="checkbox"] { cursor: pointer; }
+.iac-cat-row:hover { color: var(--accent2); }
+.iac-cat-row .hint { color: var(--muted); font-size: 11px; margin-left: auto; }
+
+.iac-status {
+  padding: 8px 12px; border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+}
+.iac-status.error  { color: var(--red);   border-color: rgba(239,68,68,0.3); }
+.iac-status.done   { color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+.iac-output {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex; flex-direction: column;
+  min-height: 480px;
+}
+.iac-output-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.iac-code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12.5px; line-height: 1.55;
+  padding: 14px 16px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+  background: var(--surface2);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  max-height: 70vh;
+}
+
+
+/* v3.0.0: IaC tabs and conversation view */
+.iac-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border-top-left-radius: 10px; border-top-right-radius: 10px;
+}
+.iac-tab {
+  flex: 0 0 auto; padding: 10px 16px;
+  font-size: 13px; font-weight: 500;
+  color: var(--muted); background: none;
+  border: none; border-bottom: 2px solid transparent;
+  cursor: pointer; transition: color .15s, border-color .15s;
+  font-family: var(--font);
+}
+.iac-tab.active {
+  color: var(--accent2); border-bottom-color: var(--accent);
+}
+.iac-convo {
+  flex: 1; overflow-y: auto;
+  padding: 14px 16px;
+  font-size: 12px;
+  background: var(--surface2);
+  border-bottom-left-radius: 10px; border-bottom-right-radius: 10px;
+  max-height: 70vh;
+}
+.iac-convo-block {
+  margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden;
+}
+.iac-convo-role {
+  padding: 6px 12px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  background: var(--surface2); color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.iac-convo-role.system    { color: var(--accent2); }
+.iac-convo-role.user      { color: var(--green); }
+.iac-convo-role.assistant { color: var(--amber); }
+.iac-convo-content {
+  padding: 10px 12px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 400px; overflow-y: auto;
+  color: var(--text);
+}
+
+
+/* v3.0.1: collapsible desktop sidebar */
+@media (min-width: 769px) {
+  body.sidebar-collapsed .sidebar {
+    width: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed .sidebar-label,
+  body.sidebar-collapsed .nav-btn span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-items {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-btn,
+  body.sidebar-collapsed .sidebar-group-toggle {
+    justify-content: center;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
+}
+.sidebar-collapse-btn {
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  transition: background .15s, color .15s;
+}
+.sidebar-collapse-btn:hover { background: var(--surface2); color: var(--text); }
+
+
+/* ── v3.0.1: ACME UI ──────────────────────────────────────────────────── */
+.acme-step-pill {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  letter-spacing: .5px;
+}
+.acme-step-pill.active {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent);
+}
+.acme-step-pill.done {
+  border-color: var(--green);
+  color: var(--green);
+}
+.acme-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.acme-pill-ok   { background: rgba(0,200,120,0.12); color: var(--green); border: 1px solid rgba(0,200,120,0.30); }
+.acme-pill-warn { background: rgba(255,170,40,0.12); color: var(--amber); border: 1px solid rgba(255,170,40,0.30); }
+.acme-pill-crit { background: rgba(220,60,60,0.12);  color: var(--red);   border: 1px solid rgba(220,60,60,0.30); }
+.acme-pill-info { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+.acme-wildcard-glyph {
+  display: inline-block;
+  width: 18px; height: 18px;
+  text-align: center;
+  line-height: 18px;
+  border-radius: 4px;
+  background: rgba(120, 100, 220, 0.16);
+  color: #9a8dff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.acme-timeline-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.acme-timeline-item:last-child { border-bottom: none; }
+.acme-timeline-dot {
+  flex: 0 0 10px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-top: 6px;
+}
+.acme-timeline-dot.ok    { background: var(--green); }
+.acme-timeline-dot.fail  { background: var(--red); }
+.acme-timeline-dot.pending { background: var(--amber); }
+.acme-row { transition: background .12s; }
+.acme-row:hover { background: var(--surface2); cursor: pointer; }
+
+/* v3.0.1: Mitigation runner modal */
+.mitigate-pane { font-size: 13px; }
+.mitigate-pane pre { font-family: var(--font-mono); }
