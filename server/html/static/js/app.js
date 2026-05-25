@@ -12552,6 +12552,48 @@ document.addEventListener('DOMContentLoaded', () => {
   if (el) el.addEventListener('input', _mitigateUpdateSafety);
 });
 
+// CSP L1 fix: wire up all static HTML event handlers removed from index.html
+document.addEventListener('DOMContentLoaded', () => {
+  // Login button
+  document.querySelector('.login-btn')?.addEventListener('click', doLogin);
+
+  // Header buttons
+  document.querySelector('.theme-btn')?.addEventListener('click', toggleTheme);
+  document.querySelector('.logout-btn')?.addEventListener('click', doLogout);
+  document.getElementById('pwa-install-btn')?.addEventListener('click', () => window.pwaInstall?.());
+
+  // Logo — navigate to Home
+  document.querySelector('.logo-link')?.addEventListener('click', e => {
+    e.preventDefault();
+    showPage('home', document.querySelector('.nav-btn[data-page="home"]'));
+  });
+
+  // Mobile sidebar open/close
+  document.querySelector('.mobile-burger')?.addEventListener('click', toggleMobileNav);
+  document.querySelector('.sidebar-mobile-close')?.addEventListener('click', toggleMobileNav);
+
+  // Sidebar collapse
+  document.querySelector('.sidebar-collapse-btn')?.addEventListener('click', toggleSidebarCollapse);
+
+  // Delegated listener on the sidebar nav for nav-btn and group-toggle clicks
+  const sidebarNav = document.querySelector('nav.sidebar');
+  if (sidebarNav) {
+    sidebarNav.addEventListener('click', e => {
+      const navBtn = e.target.closest('.nav-btn[data-page]');
+      if (navBtn) { showPage(navBtn.dataset.page, navBtn); return; }
+
+      const extBtn = e.target.closest('.nav-btn[data-open-href]');
+      if (extBtn) { window.open(extBtn.dataset.openHref, '_blank'); return; }
+
+      const groupToggle = e.target.closest('.sidebar-group-toggle');
+      if (groupToggle) {
+        const group = groupToggle.closest('.sidebar-group').dataset.group;
+        toggleSidebarGroup(group);
+      }
+    });
+  }
+});
+
 async function mitigateRunFix() {
   const cmd = document.getElementById('mitigate-fix-cmd').value.trim();
   if (!cmd) { toast('Enter a command first', 'error'); return; }

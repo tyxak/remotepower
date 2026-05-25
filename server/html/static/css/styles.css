@@ -2739,3 +2739,10 @@ button, a, [role="button"],
 /* v3.0.1: Mitigation runner modal */
 .mitigate-pane { font-size: 13px; }
 .mitigate-pane pre { font-family: var(--font-mono); }
+
+/* CSP migration (L1): rules moved from inline <style> in index.html */
+@media (max-width: 720px) {
+  .sidebar { transform: translateX(-100%); }
+}
+.toast-container { display: none; }
+.refresh-bar { display: none; }

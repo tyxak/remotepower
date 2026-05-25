@@ -19,26 +19,6 @@
 <title>RemotePower — Device Control</title>
 <link rel="stylesheet" href="static/css/styles.css?v=3.0.4">
 
-  <!-- v2.8.1: anti-FOUC styles — applied before external CSS loads.
-       Keeps fixed/transformed elements invisible during the brief
-       window between HTML parse and stylesheet load. -->
-  <style>
-    /* Sidebar: off-screen on narrow viewports (matches 720px media query) */
-    @media (max-width: 720px) {
-      .sidebar { transform: translateX(-100%); }
-    }
-    /* Toast container: empty on load, but prevent layout shift */
-    .toast-container { display: none; }
-    /* Refresh bar: hidden until progress starts */
-    .refresh-bar { display: none; }
-    /* v3.0.3: the PWA install button rule that used to live here was the
-       reason the Install button never appeared. The button has its own
-       inline style="display:none" — when the beforeinstallprompt handler
-       set element.style.display='' to reveal it, removing the inline rule,
-       this ID-selector rule (specificity 0,1,0,0) silently took over and
-       kept the button hidden. The inline style alone is enough for the
-       initial hidden state. Do NOT re-add an !important rule here. */
-  </style>
 </head>
 <body>
 
@@ -72,7 +52,7 @@
       <input type="checkbox" id="login-remember" style="width:16px;height:16px;accent-color:var(--accent)">
       Remember me on this device
     </label>
-    <button class="login-btn" onclick="doLogin()">Sign in</button>
+    <button class="login-btn" >Sign in</button>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </div>
 </div>
@@ -92,12 +72,12 @@
     <div class="header-inner">
       <!-- v2.2.1: mobile burger menu — only visible <720px; toggles
            the slide-in sidebar. Desktop hides it via CSS. -->
-      <button class="mobile-burger" onclick="toggleMobileNav()" title="Open navigation menu" aria-label="Open navigation menu">
+      <button class="mobile-burger" title="Open navigation menu" aria-label="Open navigation menu">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <!-- v2.2.1: clickable logo navigates to Home dashboard (was Devices
            pre-2.2.1). The Home page is the new fleet-at-a-glance landing. -->
-      <a href="#" class="logo logo-link" onclick="showPage('home', document.querySelector('.nav-btn[onclick*=home]')); return false;" title="Home dashboard">
+      <a href="#" class="logo logo-link" title="Home dashboard">
         <img src="static/img/logo-square.png" alt="RemotePower" class="logo-img">
         <span class="logo-text">Remote<span>Power</span></span>
       </a>
@@ -110,12 +90,12 @@
              beforeinstallprompt, then shown for one session. Clicking it
              triggers the native Chrome install dialog. Hidden again after
              install or dismissal. -->
-        <button id="pwa-install-btn" class="btn-icon" style="display:none;padding:4px 10px;font-size:12px;gap:5px" onclick="pwaInstall()" title="Install RemotePower as a desktop app">
+        <button id="pwa-install-btn" class="btn-icon" style="display:none;padding:4px 10px;font-size:12px;gap:5px" title="Install RemotePower as a desktop app">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;flex-shrink:0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Install app
         </button>
-        <button class="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
-        <button class="logout-btn" onclick="doLogout()">Sign out</button>
+        <button class="theme-btn" title="Toggle dark/light mode">🌙</button>
+        <button class="logout-btn" >Sign out</button>
       </div>
     </div>
   </header>
@@ -129,40 +109,40 @@
          An explicit ✕ inside the sidebar is the standard drawer
          pattern: always discoverable, always works, no z-order trickery.
          Hidden on desktop via CSS (.sidebar-mobile-close). -->
-    <button class="sidebar-mobile-close" onclick="toggleMobileNav()" title="Close menu" aria-label="Close menu">✕</button>
+    <button class="sidebar-mobile-close" title="Close menu" aria-label="Close menu">✕</button>
     <!-- v3.0.1: collapsible sidebar — preference persisted in localStorage -->
-    <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse/expand sidebar">
+    <button class="sidebar-collapse-btn" title="Collapse/expand sidebar">
       <span id="sidebar-collapse-icon">◀</span>
       <span class="sidebar-collapse-btn-text">Collapse</span>
     </button>
     <div class="sidebar-label"><span>Main</span></div>
     <!-- v2.2.1: Home dashboard — fleet-at-a-glance summary. New default
          landing page; Devices still reachable just below. -->
-    <button class="nav-btn active" onclick="showPage('home',this)">
+    <button class="nav-btn active" data-page="home" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Home</span>
     </button>
-    <button class="nav-btn" onclick="showPage('devices',this)">
+    <button class="nav-btn" data-page="devices" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       <span>Devices</span>
     </button>
-    <button class="nav-btn" onclick="showPage('cmdb',this)">
+    <button class="nav-btn" data-page="cmdb" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
       <span>CMDB</span>
     </button>
-    <button class="nav-btn" onclick="showPage('containers',this)">
+    <button class="nav-btn" data-page="containers" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
       <span>Containers</span>
     </button>
-    <button class="nav-btn" id="nav-virtualization" onclick="showPage('virtualization',this)">
+    <button class="nav-btn" id="nav-virtualization" data-page="virtualization" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       <span>Virtualization</span>
     </button>
-    <button class="nav-btn" onclick="showPage('netmap',this)">
+    <button class="nav-btn" data-page="netmap" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
       <span>Network</span>
     </button>
-    <button class="nav-btn" onclick="showPage('monitor',this)">
+    <button class="nav-btn" data-page="monitor" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       <span>Monitor</span>
     </button>
@@ -170,15 +150,15 @@
          Main. They're routine operational views (is the service up,
          what's in the logs) rather than security-specific tooling, so
          Main is the more natural home. -->
-    <button class="nav-btn" onclick="showPage('services',this)">
+    <button class="nav-btn" data-page="services" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       <span>Services</span>
     </button>
-    <button class="nav-btn" onclick="showPage('logs',this)">
+    <button class="nav-btn" data-page="logs" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
       <span>Logs</span>
     </button>
-    <button class="nav-btn" onclick="showPage('iac',this)" title="Generate Infrastructure-as-Code">
+    <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
       <span>IaC Generator</span>
     </button>
@@ -189,26 +169,26 @@
          ui_prefs mechanism the table sort/filter prefs use.
          v2.3.4: Services and Logs moved out to Main. -->
     <div class="sidebar-group" data-group="security">
-      <button class="sidebar-group-toggle" onclick="toggleSidebarGroup('security')">
+      <button class="sidebar-group-toggle" >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg>
         <span>Security</span>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sidebar-group-items">
-        <button class="nav-btn" onclick="showPage('tls',this)">
+        <button class="nav-btn" data-page="tls" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
           <span>TLS / DNS</span>
         </button>
-        <button class="nav-btn" onclick="showPage('patches',this)">
+        <button class="nav-btn" data-page="patches" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           <span>Patches</span>
         </button>
-        <button class="nav-btn" onclick="showPage('cve',this)">
+        <button class="nav-btn" data-page="cve" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           <span>CVEs</span>
         </button>
         <!-- v2.2.0: configuration drift detection -->
-        <button class="nav-btn" onclick="showPage('drift',this)">
+        <button class="nav-btn" data-page="drift" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
           <span>Drift</span>
         </button>
@@ -217,29 +197,29 @@
 
     <!-- Planning group: schedule, calendar, tasks, maintenance -->
     <div class="sidebar-group" data-group="planning">
-      <button class="sidebar-group-toggle" onclick="toggleSidebarGroup('planning')">
+      <button class="sidebar-group-toggle" >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span>Planning</span>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sidebar-group-items">
-        <button class="nav-btn" onclick="showPage('schedule',this)">
+        <button class="nav-btn" data-page="schedule" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           <span>Schedule</span>
         </button>
-        <button class="nav-btn" onclick="showPage('calendar',this)">
+        <button class="nav-btn" data-page="calendar" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           <span>Calendar</span>
         </button>
-        <button class="nav-btn" onclick="showPage('tasks',this)">
+        <button class="nav-btn" data-page="tasks" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Tasks</span>
         </button>
-        <button class="nav-btn" onclick="showPage('maintenance',this)">
+        <button class="nav-btn" data-page="maintenance" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
           <span>Maintenance</span>
         </button>
-        <button class="nav-btn" onclick="showPage('history',this)">
+        <button class="nav-btn" data-page="history" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
           <span>History</span>
         </button>
@@ -248,41 +228,41 @@
 
     <!-- Admin group: per-user thing, gets its own collapsible section -->
     <div class="sidebar-group" data-group="admin">
-      <button class="sidebar-group-toggle" onclick="toggleSidebarGroup('admin')">
+      <button class="sidebar-group-toggle" >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Admin</span>
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sidebar-group-items">
-        <button class="nav-btn" onclick="showPage('settings',this)">
+        <button class="nav-btn" data-page="settings" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Settings</span>
         </button>
-        <button class="nav-btn" onclick="showPage('users',this)">
+        <button class="nav-btn" data-page="users" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Users</span>
         </button>
-        <button class="nav-btn" onclick="showPage('apikeys',this)">
+        <button class="nav-btn" data-page="apikeys" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
         </button>
-        <button class="nav-btn" onclick="showPage('cmdlib',this)">
+        <button class="nav-btn" data-page="cmdlib" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span>Library</span>
         </button>
-        <button class="nav-btn" onclick="showPage('scripts',this)">
+        <button class="nav-btn" data-page="scripts" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Scripts</span>
         </button>
-        <button class="nav-btn" onclick="showPage('audit',this)">
+        <button class="nav-btn" data-page="audit" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
         </button>
-        <button class="nav-btn" onclick="showPage('self',this)" title="RemotePower watching itself: disk, webhooks, audit, backups">
+        <button class="nav-btn" data-page="self" title="RemotePower watching itself: disk, webhooks, audit, backups">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
           <span>Server status</span>
         </button>
-        <button class="nav-btn" onclick="showPage('links',this)">
+        <button class="nav-btn" data-page="links" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           <span>Links</span>
         </button>
@@ -291,19 +271,19 @@
 
     <!-- Help group at bottom — Docs, API Docs, AI Assistant, About -->
     <div class="sidebar-label"><span>Help</span></div>
-    <button class="nav-btn" onclick="showPage('docs',this)">
+    <button class="nav-btn" data-page="docs" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       <span>Documentation</span>
     </button>
-    <button class="nav-btn" onclick="showPage('ai',this)">
+    <button class="nav-btn" data-page="ai" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
       <span>AI Assistant</span>
     </button>
-    <button class="nav-btn" onclick="window.open('/swagger.html', '_blank')" title="Open the OpenAPI / Swagger UI documentation in a new tab">
+    <button class="nav-btn" data-open-href="/swagger.html" title="Open the OpenAPI / Swagger UI documentation in a new tab">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
       <span>API Reference</span>
     </button>
-    <button class="nav-btn" onclick="showPage('about',this)">
+    <button class="nav-btn" data-page="about" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       <span>About</span>
     </button>
@@ -4062,140 +4042,6 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
 <script src="static/js/app.js?v=3.0.4"></script>
 
-<!-- v2.4.15: Service Worker registration + PWA install prompt handling.
-     Kept separate from app.js so the SW registers even if app.js fails.
-     The install button (#pwa-install-btn) is hidden by default and revealed
-     only when the browser determines the PWA criteria are met. -->
-<script>
-(function () {
-  'use strict';
-
-  // ── Service Worker registration ───────────────────────────────────────────
-  //
-  // v3.0.4 (iter 2): hardened against `InvalidStateError: The document is in
-  // an invalid state`. Chrome throws this when register() runs during a
-  // transient document state — BFCache restore, navigation in progress,
-  // partitioned-storage hiccup. The previous code waited for the `load`
-  // event then registered once; on slow networks or back/forward navigation,
-  // `load` could fire after the document state was already wrong, the
-  // registration would throw, the old (v3.0.3) SW kept running, and the
-  // browser kept serving stale cached assets. Operators reported "page
-  // looks broken after deploy" — the giant unstyled icon symptom.
-  //
-  // Three changes: register on DOMContentLoaded instead of load (fires
-  // earlier, less timing-sensitive); retry once on InvalidStateError;
-  // and check existing registrations to nudge a stuck SW.
-  if ('serviceWorker' in navigator) {
-    var _swAttempts = 0;
-    var _registerSW = function () {
-      _swAttempts += 1;
-      navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then(function (reg) {
-          // Force a check for an updated SW on every page load — without
-          // this, the browser may serve the cached SW indefinitely.
-          reg.update();
-        })
-        .catch(function (err) {
-          // InvalidStateError is transient; one retry usually clears it.
-          // Anything else is a real failure and we just warn — the app
-          // still works without offline / installability.
-          if (err && err.name === 'InvalidStateError' && _swAttempts < 2) {
-            setTimeout(_registerSW, 750);
-            return;
-          }
-          console.warn('[RemotePower] SW registration failed:', err);
-          // If a previous SW is still controlling the page and we can't
-          // register the new one, surface a hint to the operator so they
-          // can clear it. Once. Console-only — no user-visible toast since
-          // most installs work fine.
-          if (navigator.serviceWorker.controller) {
-            console.warn('[RemotePower] An older Service Worker is still ' +
-              'controlling this page. To clear: DevTools → Application → ' +
-              'Service Workers → Unregister, then hard-reload.');
-          }
-        });
-    };
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', _registerSW);
-    } else {
-      // DOM is already ready (script lives at the end of <body>, so this
-      // is the typical path). Register synchronously.
-      _registerSW();
-    }
-  }
-
-  // ── PWA install prompt ────────────────────────────────────────────────────
-  //
-  // v3.0.3 — two bugs fixed:
-  //
-  //   1. The CSS rule `#pwa-install-btn { display: none; }` in the <head>
-  //      (specificity 0,1,0,0) was overriding the JS reveal. Setting
-  //      element.style.display = '' just removes the *inline* property,
-  //      after which the stylesheet rule took effect and kept the button
-  //      hidden. Removed the stylesheet rule; the inline style="display:none"
-  //      handles the initial hidden state, and we now set the display to
-  //      an explicit 'inline-flex' value when revealing.
-  //
-  //   2. beforeinstallprompt can fire BEFORE DOMContentLoaded in Chrome
-  //      (especially on a warm reload where the manifest+SW are already
-  //      cached). The old code grabbed the button reference in a
-  //      DOMContentLoaded handler and just bailed if the reference was
-  //      null when the event fired — silently never showing the button
-  //      again because beforeinstallprompt only fires once per session.
-  //      Now we look the button up lazily inside the event handler and
-  //      stash a pending-show flag if the DOM isn't ready yet.
-  //
-  var _installPrompt = null;
-  var _installBtn    = null;
-  var _installPending = false;
-
-  function _revealInstallBtn() {
-    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
-    if (!_installBtn) { _installPending = true; return; }
-    // Explicit value beats any future stylesheet rule with ID specificity.
-    _installBtn.style.display = 'inline-flex';
-    _installPending = false;
-  }
-
-  function _hideInstallBtn() {
-    if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
-    if (_installBtn) _installBtn.style.display = 'none';
-    _installPending = false;
-  }
-
-  window.addEventListener('DOMContentLoaded', function () {
-    _installBtn = document.getElementById('pwa-install-btn');
-    if (_installPending && _installPrompt) _revealInstallBtn();
-  });
-
-  // Chrome / Brave / Edge fire this when the PWA install criteria are met.
-  // We intercept and stash the event so we can trigger it on demand from
-  // the header button rather than letting the browser show its own UI.
-  window.addEventListener('beforeinstallprompt', function (e) {
-    e.preventDefault();
-    _installPrompt = e;
-    _revealInstallBtn();
-  });
-
-  // Called when the user clicks the Install button in the header.
-  window.pwaInstall = function () {
-    if (!_installPrompt) return;
-    _hideInstallBtn();
-    _installPrompt.prompt();
-    _installPrompt.userChoice.then(function (result) {
-      if (result.outcome === 'accepted') {
-        console.info('[RemotePower] PWA installed');
-      }
-      _installPrompt = null;
-    });
-  };
-
-  // Hide the button if the user installs via the browser's own UI.
-  window.addEventListener('appinstalled', function () {
-    _installPrompt = null;
-    _hideInstallBtn();
-  });
-}());
-</script>
+<script src="static/js/sw-register.js?v=3.0.4"></script>
 </body>
 </html>
