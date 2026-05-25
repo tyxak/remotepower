@@ -8281,7 +8281,7 @@ async function _renderHomeFleet(devs) {
     return `<div class="isl-557">
       <div class="isl-558">
         ${getDistroIcon(d.os)}
-        <a href="#" data-action="openDeviceDrawer" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-arg3="audit" class="isl-559">${escHtml(d.name)}</a>
+        <a href="#" data-action="openDeviceDrawer" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-prevent-default class="isl-559">${escHtml(d.name)}</a>
         ${d.group ? `<span class="meta-sm-nm">${escHtml(d.group)}</span>` : ''}
       </div>
       <div>${renderStatusStripe(history)}</div>

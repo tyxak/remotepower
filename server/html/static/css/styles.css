@@ -3634,8 +3634,12 @@ button, a, [role="button"],
 .isl-718 { overflow-y: auto; padding: 6px; flex: 1 }
 .isl-719 { font-size: 11px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 14px }
 .isl-720 { background: var(--bg); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border) }
-.isl-721 { padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; 
-                ${idx === _palCursor ? 'background: var(--surface2); ' : ''} }
+.isl-721 { padding: 10px 12px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+/* v3.0.5+: highlight the row at the keyboard cursor in the command palette.
+   The JS template already adds `.cmd-palette-active` for that row; the
+   auto-class generator left a `${idx === _palCursor ? …}` interpolation
+   in the .isl-721 rule that the browser silently dropped. */
+.isl-721.cmd-palette-active { background: var(--surface2); }
 .isl-722 { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px }
 .isl-723 { padding: 20px; text-align: center; color: var(--muted); font-size: 13px }
 .isl-724 { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; max-width: 460px; width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,.4) }
