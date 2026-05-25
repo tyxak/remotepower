@@ -154,6 +154,37 @@ class TestSecurityAssets(unittest.TestCase):
         self.assertEqual(handlers, [],
                          f'Inline event handlers found in index.html: {handlers}')
 
+    def test_vendor_libs_are_self_hosted(self):
+        # CSP 'self' only allows /static/* origins, so the vendor libs the
+        # app loads at runtime must live on disk under static/vendor/.
+        vendor_dir = _ROOT / 'server' / 'html' / 'static' / 'vendor'
+        self.assertTrue(vendor_dir.is_dir(), 'static/vendor/ is missing')
+        expected = [
+            'xterm/xterm.min.js',
+            'xterm/xterm.min.css',
+            'xterm-addon-fit/addon-fit.min.js',
+            'qrcode-generator/qrcode.min.js',
+            'fonts/inter-jetbrains.css',
+        ]
+        for rel in expected:
+            self.assertTrue((vendor_dir / rel).is_file(),
+                            f'vendor file missing: {rel}')
+
+    def test_no_external_cdn_in_shipped_assets(self):
+        # No code path should auto-load https:// resources — would be blocked
+        # by `script-src 'self'` / `style-src 'self'`.
+        import re
+        css = (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+        # @import / url() in CSS to external origins
+        ext = re.findall(r'(?:@import\s+url\(|url\(|src=)\s*[\'"]?(https?://[^\'")\s]+)', css)
+        self.assertEqual(ext, [], f'styles.css loads external resources: {ext}')
+
+        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        # script.src = 'https://...' or link.href = 'https://...' assignments
+        ext = re.findall(r'\.(?:src|href)\s*=\s*[\'"`](https?://[^\'"`]+)', js)
+        self.assertEqual(ext, [],
+                         f'app.js auto-loads external scripts/stylesheets: {ext}')
+
     def test_no_inline_event_handlers_in_appjs(self):
         appjs_path = _ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
         appjs = appjs_path.read_text()

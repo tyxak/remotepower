@@ -2095,30 +2095,28 @@ let _webtermActiveSession = null;   // {ws, term, fitAddon}
 
 function _loadXtermOnce() {
   if (_webtermXtermLoaded) return Promise.resolve();
-  // xterm.js + the fit addon. Versions pinned via SRI hash to detect
-  // CDN tampering. Both files are tiny.
+  // xterm.js@5.5.0 + addon-fit@0.10.0, self-hosted under /static/vendor/
+  // so the strict CSP (`script-src 'self'; style-src 'self'`) doesn't
+  // block them. Bumping versions: replace the files in static/vendor/.
   return Promise.all([
     new Promise((resolve, reject) => {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
-      link.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css';
-      link.crossOrigin = 'anonymous';
+      link.href = '/static/vendor/xterm/xterm.min.css';
       link.onload = resolve;
       link.onerror = reject;
       document.head.appendChild(link);
     }),
     new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js';
-      s.crossOrigin = 'anonymous';
+      s.src = '/static/vendor/xterm/xterm.min.js';
       s.onload = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
     }),
   ]).then(() => new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js';
-    s.crossOrigin = 'anonymous';
+    s.src = '/static/vendor/xterm-addon-fit/addon-fit.min.js';
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
@@ -2419,32 +2417,20 @@ async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-lib
 function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; closeModal('cmdlib-add-modal'); toast('Command pasted into exec modal', 'info'); }
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
+  // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the
+  // strict CSP (`script-src 'self'`) doesn't block it.
   const script = document.createElement('script');
-  // Note: this CDN load is also blocked under CSP `script-src 'self'`.
-  // To make TOTP setup work fully, self-host qrcode-generator in
-  // /static/vendor/ or add 'https://cdnjs.cloudflare.com' to script-src.
-  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+  script.src = '/static/vendor/qrcode-generator/qrcode.min.js';
   script.onload  = () => _renderQR(containerId, text);
-  script.onerror = () => _qrFallbackImage(containerId, text);
-  document.head.appendChild(script);
-}
-function _qrFallbackImage(containerId, text) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  // Build the fallback DOM without inline on*/style attributes (CSP L1).
-  // img-src is also 'self' data:, so api.qrserver.com may still be blocked —
-  // operator can either self-host the QR lib or relax img-src to fix fully.
-  el.replaceChildren();
-  const img = document.createElement('img');
-  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`;
-  img.width = 160; img.height = 160;
-  img.addEventListener('error', () => {
+  script.onerror = () => {
+    const el = document.getElementById(containerId);
+    if (!el) return;
     const fallback = document.createElement('div');
     fallback.className = 'isl-359';
     fallback.textContent = 'QR unavailable. Enter secret manually.';
     el.replaceChildren(fallback);
-  });
-  el.appendChild(img);
+  };
+  document.head.appendChild(script);
 }
 function _renderQR(containerId, text) { const el = document.getElementById(containerId); if (!el || !window.qrcode) return; try { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); el.innerHTML = qr.createSvgTag(4, 0); const svg = el.querySelector('svg'); if (svg) { svg.style.display = 'block'; svg.style.width = '160px'; svg.style.height = '160px'; } } catch(e) { el.innerHTML = '<div class="isl-359">QR generation failed.<br>Enter secret manually.</div>'; } }
 async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span class="c-green-bold">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
