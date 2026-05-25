@@ -2178,63 +2178,35 @@ input.form-input[type="text"][data-token],
   display: none;
 }
 @media (max-width: 720px) {
-  .sidebar-mobile-close {
-    display: flex;
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 32px;
-    height: 32px;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--muted);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    z-index: 5;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-  }
-  .sidebar-mobile-close:hover,
-  .sidebar-mobile-close:focus {
-    color: var(--text);
-    border-color: var(--text);
-    background: var(--surface2);
-  }
-  /* v3.0.4 (iter 3): hide the desktop "Collapse" button on mobile.
-   * The collapse-to-icon-rail UX doesn't apply to the mobile drawer
-   * (drawer is already an overlay, not docked) and operators reported
-   * the inert button was confusing. The ✕ is the sole mobile escape;
-   * tap-outside on the scrim is still the secondary path. */
-  .sidebar-collapse-btn { display: none; }
+  /* v3.0.4 (iter 6): on mobile, the sidebar is an overlay drawer that
+   * closes via tap-outside (handled by the document-level click handler
+   * in app.js). Both the ✕ close button AND the Collapse button are
+   * hidden — neither makes sense in the drawer UX. ✕ was redundant
+   * with the scrim-tap, Collapse never worked here (the sidebar is
+   * out of flow, not docked). */
+  .sidebar-mobile-close { display: none !important; }
+  .sidebar-collapse-btn { display: none !important; }
 }
 
-/* v3.0.4 (iter 5): PWA / installed-app standalone mode.
+/* v3.0.4 (iter 5+6): PWA / installed-app standalone mode at >720px.
  *
- * When the dashboard is launched as an installed PWA (Chrome's "Install
- * app", iOS "Add to Home Screen", etc.) the browser chrome is gone but
- * the window can be any size, including <720px. The mobile drawer UX
- * (overlay + ✕ button) feels wrong in that context — the user picked a
- * window size, so we treat the sidebar as docked-and-collapsible
- * regardless of width.
+ * When the dashboard is launched as an installed PWA at a width above
+ * the mobile breakpoint, the sidebar should be docked (not an overlay
+ * drawer) and the Collapse button should work at any of those widths —
+ * including the 721–768px gap where the default desktop rules
+ * (min-width: 769px) don't apply. The ✕ close button is suppressed:
+ * collapse is the docked-sidebar's equivalent.
  *
- *   - Hide the ✕ close button: the user can collapse the sidebar
- *     instead, just like on desktop.
- *   - Force the docked sidebar layout (no overlay/drawer mode).
- *   - Apply the sidebar-collapsed rules at any width.
+ * At ≤720px (mobile-shaped PWA window, e.g. a phone home-screen app)
+ * the mobile rules above still apply — drawer UX, no buttons,
+ * scrim-tap to dismiss.
  */
-@media (display-mode: standalone) {
-  /* No mobile X button — the collapse button is the sole control. */
+@media (display-mode: standalone) and (min-width: 721px) {
   .sidebar-mobile-close { display: none !important; }
-  /* The collapse button stays visible in standalone, regardless of
-     width. Overrides the @media (max-width: 720px) hide above. */
   .sidebar-collapse-btn { display: block; }
 
-  /* Apply collapse-rail width + label hiding at all widths in
-     standalone (the @media (min-width: 769px) rule above misses
-     narrow PWA windows). */
+  /* Apply collapse-rail width + label hiding at 721–768px in standalone
+     (the default @media (min-width: 769px) rule misses that gap). */
   body.sidebar-collapsed .sidebar {
     width: 56px;
     padding-left: 6px;

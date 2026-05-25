@@ -1062,28 +1062,27 @@ class TestMobileSidebarCloseButton(unittest.TestCase):
             '(only the burger-equivalent is needed on mobile)')
 
     def test_close_button_shown_on_mobile(self):
-        """Inside @media (max-width: 720px) there must be a rule that
-        sets display: flex (or similar visible value) on the button."""
+        """v3.0.4 (iter 6): the design changed. On the mobile drawer,
+        BOTH the ✕ close button and the Collapse button are hidden —
+        the sidebar dismisses via tap-outside (document-level click
+        handler in app.js). The ✕ button HTML stays in place for the
+        case where someone resizes to a tablet PWA width, but it's
+        suppressed at ≤720px."""
         css = self.STYLES_CSS.read_text()
-        # Find the mobile @media block that contains our selector
         import re
-        # Match @media (max-width: 720px) { ... } blocks (non-nested ok
-        # since our CSS isn't nested)
         for m in re.finditer(
                 r'@media\s*\(\s*max-width:\s*720px\s*\)\s*\{(.+?)\n\}',
                 css, re.DOTALL):
             block = m.group(1)
-            if '.sidebar-mobile-close' in block and 'display' in block:
-                # Confirm it's a visible display value, not 'none'
-                rule = re.search(
-                    r'\.sidebar-mobile-close\s*\{[^}]*display:\s*(\w+)',
-                    block)
-                if rule:
-                    self.assertNotEqual(
-                        rule.group(1), 'none',
-                        'On mobile the close button must be visible')
-                    return
-        self.fail('No mobile rule showing .sidebar-mobile-close found')
+            rule = re.search(
+                r'\.sidebar-mobile-close\s*\{[^}]*display:\s*none',
+                block)
+            if rule:
+                return
+        self.fail(
+            'No mobile rule hiding .sidebar-mobile-close found. '
+            'On mobile the ✕ close button must be hidden — the '
+            'scrim-tap handler is the sole close path.')
 
     def test_collapse_button_hidden_on_mobile(self):
         """v3.0.4 (iter 3): the desktop Collapse button is meaningless
