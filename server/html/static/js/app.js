@@ -10958,25 +10958,11 @@ async function _wolWithMacCheck(id, name, btn) {
   }
 }
 
-// Add AI "Find the problem" + "✨ Investigate" buttons to the sysinfo audit section
-// Called after sysinfo body is populated
-function _addAiButtonsToSysinfo(devId, devName, journal) {
-  const el = document.getElementById('audit-sysinfo-body');
-  if (!el) return;
-  const journalText = Array.isArray(journal) ? journal : [];
-  const btn = document.createElement('div');
-  btn.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
-  btn.innerHTML = `
-    <button class="btn-secondary fs-12"
-      data-action-btn="_aiFindProblemBtn" data-dev-id="${escAttr(devName)}" data-journal-sel="#audit-sysinfo-body .journal-wrap">
-      ✨ Find the problem
-    </button>
-    <button class="btn-secondary fs-12"
-      data-action="aiInvestigateDevice" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" >
-      ✨ Full investigation
-    </button>`;
-  el.appendChild(btn);
-}
+// v3.0.5: _addAiButtonsToSysinfo removed. It targeted the old hardcoded
+// `#audit-sysinfo-body` element that lived in the duplicate device-drawer
+// block in index.html (also removed in v3.0.5). The dynamic audit
+// renderer builds the AI buttons inline inside _loadAuditSection's
+// `sysinfo` case.
 
 // ── v2.9.1: Log ignore patterns ───────────────────────────────────────────────
 
@@ -12712,23 +12698,10 @@ function _restoreIgnoredFromStore(btn) {
 }
 function closeBulkModal()  { document.getElementById('bulk-modal-overlay')?.remove(); }
 function closeKbdCheat()   { document.getElementById('kbd-cheat-overlay')?.remove(); }
-function _filterAuditPorts() {
-  const inp = document.getElementById('audit-ports-filter');
-  if (!inp) return;
-  const q = inp.value.toLowerCase();
-  document.querySelectorAll('#audit-ports-content tr').forEach(row => {
-    row.style.display = row.dataset.q?.toLowerCase().includes(q) ? '' : 'none';
-  });
-}
-function _loadAuditLogs() {
-  const sel = document.getElementById('audit-logs-unit');
-  const content = document.getElementById('audit-logs-content');
-  if (!sel || !content) return;
-  const unit = sel.value;
-  content.querySelectorAll('.log-line').forEach(row => {
-    row.style.display = (!unit || (row.dataset.unit || '') === unit) ? '' : 'none';
-  });
-}
+// v3.0.5: _filterAuditPorts / _loadAuditLogs removed alongside the
+// duplicate device-drawer block in index.html (the old hardcoded audit
+// markup that they targeted is gone). The new dynamic audit renderer
+// has its own per-section filter logic.
 function _setTagFilterClear()    { setTagFilter(null); }
 function _aiExplainAlertWh(btn)  { aiExplainAlert(btn.dataset.arg, btn.dataset.arg2 || '', btn.dataset.arg3 || '', null); }
 function _aiDiagnoseServiceFromStore(btn) {
