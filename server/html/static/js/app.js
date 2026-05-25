@@ -12640,6 +12640,25 @@ function _restoreIgnoredFromStore(btn) {
   const args = _evtData.get(btn.dataset.storeKey);
   if (args) restoreIgnored(...args);
 }
+function closeBulkModal()  { document.getElementById('bulk-modal-overlay')?.remove(); }
+function closeKbdCheat()   { document.getElementById('kbd-cheat-overlay')?.remove(); }
+function _filterAuditPorts() {
+  const inp = document.getElementById('audit-ports-filter');
+  if (!inp) return;
+  const q = inp.value.toLowerCase();
+  document.querySelectorAll('#audit-ports-content tr').forEach(row => {
+    row.style.display = row.dataset.q?.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+function _loadAuditLogs() {
+  const sel = document.getElementById('audit-logs-unit');
+  const content = document.getElementById('audit-logs-content');
+  if (!sel || !content) return;
+  const unit = sel.value;
+  content.querySelectorAll('.log-line').forEach(row => {
+    row.style.display = (!unit || (row.dataset.unit || '') === unit) ? '' : 'none';
+  });
+}
 function _setTagFilterClear()    { setTagFilter(null); }
 function _aiExplainAlertWh(btn)  { aiExplainAlert(btn.dataset.arg, btn.dataset.arg2 || '', btn.dataset.arg3 || '', null); }
 function _aiDiagnoseServiceFromStore(btn) {
