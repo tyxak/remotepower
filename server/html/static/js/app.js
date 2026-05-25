@@ -2877,7 +2877,7 @@ async function loadMaintenance() {
 
 async function loadMaintSuppressions() {
   const section = document.getElementById('maint-suppressions');
-  section.style.display = '';
+  section.style.display = 'block';
   const tbody = document.getElementById('maint-supp-tbody');
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/maintenance/suppressions');
@@ -2936,9 +2936,9 @@ function onMaintScopeChange() {
   const selDev = document.getElementById('maint-target-device');
   const txtGrp = document.getElementById('maint-target-group');
   if (scope === 'global') { row.style.display = 'none'; return; }
-  row.style.display = '';
-  if (scope === 'device') { selDev.style.display = ''; txtGrp.style.display = 'none'; }
-  else                    { selDev.style.display = 'none'; txtGrp.style.display = ''; }
+  row.style.display = 'block';
+  if (scope === 'device') { selDev.style.display = 'block'; txtGrp.style.display = 'none'; }
+  else                    { selDev.style.display = 'none'; txtGrp.style.display = 'block'; }
 }
 
 function onMaintTypeChange() {
@@ -3809,7 +3809,7 @@ async function openTaskModal(taskId) {
     document.getElementById('task-device').value = t.device_id || '';
     const created = t.created_at ? new Date(t.created_at*1000).toLocaleString() : '?';
     const updated = t.updated_at ? new Date(t.updated_at*1000).toLocaleString() : created;
-    meta.style.display = '';
+    meta.style.display = 'block';
     meta.innerHTML = `Created ${escHtml(created)} by ${escHtml(t.created_by||'?')} · Updated ${escHtml(updated)}`;
   } else {
     document.getElementById('task-title').value = '';
@@ -6303,7 +6303,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
     (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
 
   if (onResult && actionLabel) {
-    actionBtn.style.display = '';
+    actionBtn.style.display = 'block';
     actionBtn.textContent = actionLabel;
     actionBtn.onclick = () => { onResult(resp.text || ''); closeAIModal(); };
   }
@@ -7155,7 +7155,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
   body.dataset.rawText = resp.content || '';
   document.getElementById('runbook-modal-copy').disabled = false;
-  document.getElementById('runbook-modal-regen').style.display = '';
+  document.getElementById('runbook-modal-regen').style.display = 'flex';
   const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
   document.getElementById('runbook-modal-meta').textContent =
     `${resp.model || '?'} · ${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s · generated ${when}`;
@@ -7177,7 +7177,7 @@ async function aiViewRunbook(devId, deviceName) {
   const body = document.getElementById('runbook-modal-body');
   body.innerHTML = '<div class="c-muted">Loading…</div>';
   document.getElementById('runbook-modal-copy').disabled = true;
-  document.getElementById('runbook-modal-regen').style.display = '';
+  document.getElementById('runbook-modal-regen').style.display = 'flex';
 
   const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
   if (!resp.ok) {
@@ -7375,7 +7375,7 @@ async function openDriftDetail(devId, devName) {
     const anyDrifted = fileKeys.some(p =>
       files[p].current_hash !== files[p].baseline_hash);
     if (anyDrifted) {
-      document.getElementById('drift-accept-all').style.display = '';
+      document.getElementById('drift-accept-all').style.display = 'flex';
     }
 
     let html = `<div class="isl-539">
@@ -8894,7 +8894,7 @@ async function loadProxmoxLXC() {
     section.style.display = 'none';
     return;
   }
-  section.style.display = '';
+  section.style.display = 'block';
   const guests = data.guests || [];
   if (!guests.length) {
     body.innerHTML = '<div class="table-card isl-580">No LXC containers on the Proxmox node.</div>';
@@ -9237,7 +9237,7 @@ function loadMailwatchForDevice() {
   if (!sel || !cfg) return;
   const devId = sel.value;
   if (!devId) { cfg.style.display = 'none'; return; }
-  cfg.style.display = '';
+  cfg.style.display = 'block';
   const state = _mailwatchOverview.find(d => d.device_id === devId);
   const paths = (state && state.paths) || [];
   document.getElementById('mailwatch-paths').value = paths.join('\n');
@@ -9726,7 +9726,7 @@ async function openHostConfigModal(devId, devName) {
       : 'unknown time';
     const infoBanner = document.getElementById('hc-info-banner');
     if (infoBanner) {
-      infoBanner.style.display = '';
+      infoBanner.style.display = 'block';
       document.getElementById('hc-info-ts').textContent = ts;
     }
   }
@@ -9768,7 +9768,7 @@ function _hcShowDrift(drift) {
   const sections = drift.sections || [];
   const banner   = document.getElementById('hc-drift-banner');
   if (sections.length) {
-    banner.style.display = '';
+    banner.style.display = 'block';
     document.getElementById('hc-drift-sections').textContent = sections.join(', ');
     sections.forEach(s => {
       const el = document.getElementById(`hc-drift-${s}`);
@@ -9786,7 +9786,11 @@ function hcShowTab(section, btn) {
   document.querySelectorAll('.hc-panel').forEach(p => p.style.display = 'none');
   if (btn) btn.classList.add('active');
   const panel = document.getElementById(`hc-panel-${section}`);
-  if (panel) panel.style.display = '';
+  // CSP L1 fallout: hc-panel-* (except the default) have `d-none`
+  // in markup so they're hidden on initial paint. `style.display = ''`
+  // would only clear the inline attribute; the d-none class would
+  // keep the panel hidden. Use explicit 'block' to beat the class.
+  if (panel) panel.style.display = 'block';
 }
 
 // ── Fetch current from agent ───────────────────────────────────────────────
@@ -10879,7 +10883,7 @@ function toggleAuditCmd(id, idx) {
 
 function _showOlderCmds(id) {
   const el = document.getElementById(`older-cmds-${id}`);
-  if (el) { el.style.display = ''; el.nextElementSibling?.remove(); }
+  if (el) { el.style.display = 'block'; el.nextElementSibling?.remove(); }
 }
 
 function _filterPorts(input, id) {
@@ -11867,7 +11871,7 @@ function _acmeRenderTable() {
   if (hint) {
     if (suppressed_unavailable > 0) {
       hint.textContent = `${suppressed_unavailable} device${suppressed_unavailable === 1 ? '' : 's'} without acme.sh hidden`;
-      hint.style.display = '';
+      hint.style.display = 'block';
     } else {
       hint.style.display = 'none';
     }
@@ -11878,7 +11882,7 @@ function _acmeRenderTable() {
     if (empty) empty.style.display = 'block';
     return;
   }
-  if (card)  card.style.display = '';
+  if (card)  card.style.display = 'block';
   if (empty) empty.style.display = 'none';
 
   const now = Math.floor(Date.now() / 1000);
@@ -12524,7 +12528,7 @@ function _mitigateUpdateSafety() {
     safetyEl.innerHTML = `<div class="isl-704">
       <strong>⚠ Sensitive command.</strong> Type RUN in the confirmation field below.
     </div>`;
-    confirmRow.style.display = '';
+    confirmRow.style.display = 'block';
     document.getElementById('mitigate-fix-go').disabled = false;
   } else {
     safetyEl.innerHTML = `<div class="isl-705">
