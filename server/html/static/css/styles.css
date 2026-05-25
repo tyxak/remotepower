@@ -2211,6 +2211,51 @@ input.form-input[type="text"][data-token],
   .sidebar-collapse-btn { display: none; }
 }
 
+/* v3.0.4 (iter 5): PWA / installed-app standalone mode.
+ *
+ * When the dashboard is launched as an installed PWA (Chrome's "Install
+ * app", iOS "Add to Home Screen", etc.) the browser chrome is gone but
+ * the window can be any size, including <720px. The mobile drawer UX
+ * (overlay + ✕ button) feels wrong in that context — the user picked a
+ * window size, so we treat the sidebar as docked-and-collapsible
+ * regardless of width.
+ *
+ *   - Hide the ✕ close button: the user can collapse the sidebar
+ *     instead, just like on desktop.
+ *   - Force the docked sidebar layout (no overlay/drawer mode).
+ *   - Apply the sidebar-collapsed rules at any width.
+ */
+@media (display-mode: standalone) {
+  /* No mobile X button — the collapse button is the sole control. */
+  .sidebar-mobile-close { display: none !important; }
+  /* The collapse button stays visible in standalone, regardless of
+     width. Overrides the @media (max-width: 720px) hide above. */
+  .sidebar-collapse-btn { display: block; }
+
+  /* Apply collapse-rail width + label hiding at all widths in
+     standalone (the @media (min-width: 769px) rule above misses
+     narrow PWA windows). */
+  body.sidebar-collapsed .sidebar {
+    width: 56px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .app-content { margin-left: 56px; }
+  body.sidebar-collapsed .sidebar-label,
+  body.sidebar-collapsed .nav-btn span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-toggle span:not(.nav-icon),
+  body.sidebar-collapsed .sidebar-group-items {
+    display: none;
+  }
+  body.sidebar-collapsed .nav-btn,
+  body.sidebar-collapsed .sidebar-group-toggle {
+    justify-content: center;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
+}
+
 /* v2.2.6: body scroll lock while a modal is open. Without this the
  * page behind the modal scrolls on touch, which on mobile reads as
  * two windows moving independently — part of the reported bug. */
@@ -2322,11 +2367,17 @@ button, a, [role="button"],
 }
 
 
-/* v2.8.1: restore elements hidden by the anti-FOUC <style> in <head>.
-   Once this stylesheet loads, these override the temporary hide rules. */
+/* v2.8.1: utility display values for elements that need a non-default
+   display. Used to be paired with an anti-FOUC inline <style> in <head>
+   that hid them initially — that <style> was removed during the CSP L1
+   migration (v3.0.4), but these rules still serve as the canonical
+   "this is how the element should render" declarations.
+   #pwa-install-btn removed from this list: it MUST start hidden
+   (.isl-6 carries display:none) and only be revealed by JS when
+   beforeinstallprompt fires. An ID rule with display:flex here
+   would override the class and the button would always show. */
 .refresh-bar       { display: block; }
 .toast-container   { display: flex; z-index: 9999; } /* must top all modals + drawer */
-#pwa-install-btn   { display: flex; }   /* JS re-hides if PWA not installable */
 
 
 /* ══ v2.9.0: Device Drawer ═══════════════════════════════════════════════════

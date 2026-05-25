@@ -126,7 +126,19 @@
   var _installBtn    = null;
   var _installPending = false;
 
+  // When the page is loaded as an installed PWA (standalone display
+  // mode), the install button must not show — there's nothing left to
+  // install. Some browsers still fire beforeinstallprompt in that
+  // context for the manifest update flow; we suppress it here.
+  function _isInstalledPwa() {
+    try {
+      return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+          || window.navigator.standalone === true;
+    } catch (_) { return false; }
+  }
+
   function _revealInstallBtn() {
+    if (_isInstalledPwa()) { _installPending = false; return; }
     if (!_installBtn) _installBtn = document.getElementById('pwa-install-btn');
     if (!_installBtn) { _installPending = true; return; }
     // Explicit value beats any future stylesheet rule with ID specificity.
