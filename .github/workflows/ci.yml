@@ -1,0 +1,66 @@
+# CI for RemotePower.
+#
+# Runs the full test suite on every push and pull request to main.
+# The suite includes the v3.0.5 strict-CSP fidelity tests in
+# tests/test_v232.py::TestCSPMigrationFidelity — any future change
+# that reintroduces an inline event handler, an unresolved CSS
+# template, a javascript: URI, etc. will fail here before it can
+# reach production.
+#
+# Kept deliberately small: one Python version, stdlib + pip deps the
+# tests actually need, no separate lint job (the project's lint
+# scope is currently two files and would add noise without value).
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # bcrypt + cryptography + dnspython are the runtime deps the
+      # server imports unconditionally; without them the test files
+      # fail at import (they exec api.py to get at internal helpers).
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bcrypt cryptography dnspython
+
+      - name: Run test suite
+        env:
+          # Tests respect this; otherwise api.py tries to mkdir
+          # /var/lib/remotepower at import time and fails on CI.
+          RP_DATA_DIR: /tmp/rp-test-data
+        run: |
+          mkdir -p "$RP_DATA_DIR"
+          python -m unittest discover -s tests -v 2>&1 | tail -40
+
+      - name: Verify tarball builds (no actual tests rerun — make dist
+              runs them itself)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          RP_DATA_DIR: /tmp/rp-dist-data
+        run: |
+          mkdir -p "$RP_DATA_DIR"
+          # The Makefile expects a clean tree; ensure no leftover state.
+          make clean
+          # SHA256 + tarball — these surface any "ships fine on dev but
+          # breaks on a fresh checkout" issues that aren't visible
+          # from `python -m unittest` alone.
+          make dist
+          ls -lh dist/

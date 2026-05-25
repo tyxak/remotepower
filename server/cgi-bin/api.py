@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.0.5'
+SERVER_VERSION = '3.0.6'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2542,6 +2542,82 @@ def handle_public_info():
         # lets the UI pre-emptively hide pointless buttons.
         'read_only':           _is_demo_read_only(),
     })
+
+
+def handle_health():
+    """
+    GET /api/health — no auth, cheap liveness check. Used by:
+      - Docker HEALTHCHECK (replaces the previous `/` probe that loaded
+        the whole SPA on every poll).
+      - External orchestrators / load balancers.
+      - CSP violation reporter (see handle_csp_report below) — confirms
+        the server is up before it tries to log a report.
+
+    Returns 200 with a small JSON body. The body is intentionally minimal
+    so probes can be cheap and so we don't surface any deployment detail
+    to unauthenticated clients beyond the version we already publish
+    via /api/public-info.
+    """
+    respond(200, {
+        'status':  'ok',
+        'version': SERVER_VERSION,
+    })
+
+
+# v3.0.6: CSP violation reports. The strict CSP shipped in v3.0.5
+# (`script-src 'self'; style-src 'self'` — no 'unsafe-inline') blocks
+# any future inline script/style. Adding `report-uri /api/csp-report`
+# to the policy directs the browser to POST a JSON report here
+# whenever it blocks something — so a regression that reintroduces
+# inline code surfaces as a logged event in the audit log instead of
+# a silent visual bug an operator stumbles on weeks later.
+_CSP_REPORT_MAX_BYTES = 16 * 1024     # browser reports are tiny; cap defensively
+
+
+def handle_csp_report():
+    """
+    POST /api/csp-report — no auth, no CSRF check. The browser sends
+    these as fire-and-forget; we always ack 204 even if parsing fails
+    so we don't pollute the user's console with secondary failures.
+
+    Body format is the W3C CSP report — `{"csp-report": {...}}` for
+    `report-uri`, or a flat object for `report-to`. We log either shape
+    via audit_log so it shows up alongside other security events. Body
+    is size-capped to defend against an abusive client trying to flood
+    the audit log.
+    """
+    try:
+        length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
+        if length > _CSP_REPORT_MAX_BYTES:
+            respond(204, '')
+            return
+        raw = sys.stdin.buffer.read(length) if length else b''
+        try:
+            report = json.loads(raw.decode('utf-8', errors='replace'))
+        except Exception:
+            report = {'raw': raw.decode('utf-8', errors='replace')[:512]}
+        # Normalise both report-uri and report-to shapes.
+        if isinstance(report, dict) and 'csp-report' in report:
+            r = report['csp-report']
+        else:
+            r = report
+        # Pull the most useful fields without choking on a missing key.
+        violated   = (r or {}).get('violated-directive') or (r or {}).get('effective-directive') or '?'
+        blocked    = (r or {}).get('blocked-uri')        or '?'
+        source_file= (r or {}).get('source-file')        or ''
+        line_no    = (r or {}).get('line-number')        or ''
+        sample     = (r or {}).get('script-sample')      or ''
+        log_command(
+            actor='browser',
+            dev_id='',
+            dev_name='',
+            cmd=f'csp:{violated} blocked={blocked} src={source_file}:{line_no} sample={sample[:120]}',
+        )
+    except Exception:
+        # Reporter is best-effort. Never let a malformed report break
+        # the request pipeline.
+        pass
+    respond(204, '')
 
 
 def handle_openapi_spec() -> None:
@@ -14534,8 +14610,16 @@ def _enforce_same_origin():
     Heartbeat (`POST /api/heartbeat`) is the one exception: agents are
     server-to-server clients that don't set Origin headers. The check's
     "no Origin = allow" default covers them.
+
+    v3.0.6 exception: CSP violation reports (`POST /api/csp-report`)
+    come from the browser's CSP machinery, which in some configurations
+    (e.g. Chromium sandboxed iframes) sends `Origin: null`. The endpoint
+    is otherwise harmless — it appends one audit-log line — so we let
+    those reports through unconditionally.
     """
     if method() not in _STATE_CHANGING_METHODS:
+        return
+    if path_info() == '/api/csp-report':
         return
     origin = os.environ.get('HTTP_ORIGIN', '').strip()
     referer = os.environ.get('HTTP_REFERER', '').strip()
@@ -14585,6 +14669,8 @@ def _enforce_same_origin():
 _PWCHG_ALLOWED_PATHS = frozenset({
     '/api/users/passwd',
     '/api/public-info',
+    '/api/health',
+    '/api/csp-report',
 })
 
 
@@ -14699,6 +14785,8 @@ def main():
 
     if pi == '/api/login': handle_login()
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
+    elif pi == '/api/health' and m == 'GET': handle_health()
+    elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()
     elif pi == '/api/openapi.json' and m == 'GET': handle_openapi_spec()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     # v1.11.0: agentless device creation. Must precede the prefix-DELETE

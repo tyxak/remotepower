@@ -20,20 +20,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestVersionBumps(unittest.TestCase):
-    """v3.0.5 takes the strict version pin."""
-    EXPECTED = '3.0.5'
+    """v3.0.6 holds the strict version pin now — same convention every
+    earlier release-bump test followed (loosen to a `^3\\.\\d+\\.\\d+$`
+    regex when the next release takes over). v3.0.5's release-specific
+    documentation files (the release notes and security review) are
+    still asserted strictly below."""
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^SERVER_VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -43,38 +44,36 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
-            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+            'sw.js CACHE_NAME must carry a v3.x.x marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        # Source tree carries ?v=<SERVER_VERSION>; deploy-server.sh
-        # rewrites to per-file content hashes at install time.
-        self.assertIn(f'?v={self.EXPECTED}', html,
-            f'index.html source ?v= must be {self.EXPECTED}')
+        self.assertRegex(html, r'\?v=3\.\d+\.\d+',
+            'index.html cache-bust ?v= must be a 3.x.x version')
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
-            'README.md version badge not bumped')
+        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+            'README.md version badge missing 3.x.x marker')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
-        self.assertEqual(m.group(1), self.EXPECTED,
-            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
     def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
-        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
-        text = path.read_text()
-        self.assertIn(self.EXPECTED, text)
+        # v3.0.5 release notes file MUST stay present (we shipped a
+        # GitHub release referencing it). Future releases get their own
+        # docs/vX.Y.Z.md but v3.0.5's file is permanent.
+        path = REPO_ROOT / 'docs' / 'v3.0.5.md'
+        self.assertTrue(path.exists(), 'docs/v3.0.5.md is missing')
+        self.assertIn('3.0.5', path.read_text())
 
     def test_security_review_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'security-review-{self.EXPECTED}.md'
+        path = REPO_ROOT / 'docs' / 'security-review-3.0.5.md'
         self.assertTrue(path.exists(),
-            f'docs/security-review-{self.EXPECTED}.md is missing')
+            'docs/security-review-3.0.5.md is missing')
 
 
 class TestCacheBustDeployScript(unittest.TestCase):

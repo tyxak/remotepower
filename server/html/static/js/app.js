@@ -2097,12 +2097,18 @@ function _loadXtermOnce() {
   if (_webtermXtermLoaded) return Promise.resolve();
   // xterm.js@5.5.0 + addon-fit@0.10.0, self-hosted under /static/vendor/
   // so the strict CSP (`script-src 'self'; style-src 'self'`) doesn't
-  // block them. Bumping versions: replace the files in static/vendor/.
+  // block them. SRI hashes (v3.0.6): the browser refuses to execute /
+  // apply the file if its SHA-384 differs from the pinned value.
+  // Update procedure when bumping versions: replace the file in
+  // static/vendor/, then update the integrity attribute below — the
+  // CSP migration sweep test reads `_VENDOR_SRI` and the actual file
+  // hashes to keep them in sync.
   return Promise.all([
     new Promise((resolve, reject) => {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = '/static/vendor/xterm/xterm.min.css';
+      link.integrity = 'sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co';
       link.onload = resolve;
       link.onerror = reject;
       document.head.appendChild(link);
@@ -2110,6 +2116,7 @@ function _loadXtermOnce() {
     new Promise((resolve, reject) => {
       const s = document.createElement('script');
       s.src = '/static/vendor/xterm/xterm.min.js';
+      s.integrity = 'sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9';
       s.onload = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
@@ -2117,6 +2124,7 @@ function _loadXtermOnce() {
   ]).then(() => new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = '/static/vendor/xterm-addon-fit/addon-fit.min.js';
+    s.integrity = 'sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk';
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
@@ -2418,9 +2426,13 @@ function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; c
 function generateQRCode(containerId, text) {
   if (window.qrcode) { _renderQR(containerId, text); return; }
   // qrcode-generator@1.4.4, self-hosted under /static/vendor/ so the
-  // strict CSP (`script-src 'self'`) doesn't block it.
+  // strict CSP (`script-src 'self'`) doesn't block it. SRI hash
+  // pins the on-disk file to its v1.4.4 SHA-384 — if the file is
+  // ever overwritten with something else, the browser refuses to
+  // execute it.
   const script = document.createElement('script');
   script.src = '/static/vendor/qrcode-generator/qrcode.min.js';
+  script.integrity = 'sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1';
   script.onload  = () => _renderQR(containerId, text);
   script.onerror = () => {
     const el = document.getElementById(containerId);

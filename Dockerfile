@@ -53,7 +53,9 @@ VOLUME ["/var/lib/remotepower"]
 # of curl, which was never installed — the old healthcheck could never
 # succeed and the container always went "unhealthy" even when nginx was
 # serving fine.
+# v3.0.6: probe /api/health instead of `/`. The new endpoint is a few
+# bytes of JSON and doesn't load the whole SPA on every poll.
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
-    CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/',timeout=4).status==200 else 1)" || exit 1
+    CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health',timeout=4).status==200 else 1)" || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
