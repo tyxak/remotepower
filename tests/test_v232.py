@@ -124,6 +124,47 @@ class TestSecurityAssets(unittest.TestCase):
             self.assertIn('Content-Security-Policy', conf, f'{name} missing CSP')
             self.assertIn('X-Content-Type-Options', conf, f'{name} missing nosniff')
 
+    def test_csp_no_unsafe_inline(self):
+        # L1 security fix: 'unsafe-inline' must not appear in the CSP directive.
+        import re
+        for name, conf in (('docker', self.docker_nginx),
+                           ('bare-metal', self.bare_nginx)):
+            csp_line = next(
+                (l for l in conf.splitlines() if 'add_header Content-Security-Policy' in l),
+                ''
+            )
+            self.assertTrue(csp_line,
+                            f"{name} has no add_header Content-Security-Policy line")
+            self.assertNotIn("'unsafe-inline'", csp_line,
+                             f"{name} CSP directive still contains 'unsafe-inline' (L1 finding)")
+
+    def test_no_inline_scripts_in_html(self):
+        html_path = _ROOT / 'server' / 'html' / 'index.html'
+        html = html_path.read_text()
+        import re
+        inline_scripts = re.findall(r'<script(?![^>]*src=)[^>]*>', html, re.IGNORECASE)
+        self.assertEqual(inline_scripts, [],
+                         f'Inline <script> blocks found in index.html: {inline_scripts}')
+
+    def test_no_inline_event_handlers_in_html(self):
+        html_path = _ROOT / 'server' / 'html' / 'index.html'
+        html = html_path.read_text()
+        import re
+        handlers = re.findall(r'\s(on(?:click|change|input|keydown|drop|dragover|dragleave)=)', html)
+        self.assertEqual(handlers, [],
+                         f'Inline event handlers found in index.html: {handlers}')
+
+    def test_no_inline_event_handlers_in_appjs(self):
+        appjs_path = _ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
+        appjs = appjs_path.read_text()
+        import re
+        # Only flag occurrences not on comment lines
+        code_lines = [l for l in appjs.splitlines() if not l.strip().startswith('//')]
+        code = '\n'.join(code_lines)
+        for attr in ('onclick=', 'onchange=', 'oninput='):
+            self.assertNotIn(attr, code,
+                             f"Inline {attr} found in app.js template strings")
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

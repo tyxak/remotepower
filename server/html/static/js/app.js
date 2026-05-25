@@ -203,12 +203,12 @@ const tableCtl = (() => {
       const baseLabel = th.getAttribute('data-label') || th.textContent.replace(/[▲▼²³⁴⁵\s]+$/g,'').trim();
       th.setAttribute('data-label', baseLabel);
       if (idx === -1) {
-        th.innerHTML = baseLabel + ' <span style="color:var(--muted);opacity:.3;font-size:10px">↕</span>';
+        th.innerHTML = baseLabel + ' <span class="isl-304">↕</span>';
       } else {
         const arrow = sort[idx].dir === 'asc' ? '▲' : '▼';
         // Multi-column: show the priority order as a small superscript
-        const prio = sort.length > 1 ? `<sup style="font-size:9px;opacity:.7">${idx+1}</sup>` : '';
-        th.innerHTML = baseLabel + ` <span style="color:var(--accent);font-size:10px">${arrow}${prio}</span>`;
+        const prio = sort.length > 1 ? `<sup class="isl-305">${idx+1}</sup>` : '';
+        th.innerHTML = baseLabel + ` <span class="isl-306">${arrow}${prio}</span>`;
       }
     });
   }
@@ -282,7 +282,7 @@ const tableCtl = (() => {
       const msg = filter
         ? (opts.emptyMsgFiltered || `No matches for "${escHtml(filter)}".`)
         : (opts.emptyMsg || 'No data.');
-      tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:var(--muted);padding:40px">${msg}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">${msg}</td></tr>`;
       _applyScrollWrap(tbody, 0);
       return;
     }
@@ -337,12 +337,12 @@ const densityCtl = (() => {
     const cur = getDensity(name);
     const btn = (val, label, title) => {
       const sel = cur === val;
-      return `<button onclick="densityCtl.set('${escAttr(name)}','${val}', window.__densityCb_${escAttr(name)})" title="${escHtml(title)}" style="padding:6px 10px;font-size:11px;font-weight:500;background:${sel ? 'var(--accent)' : 'var(--surface)'};color:${sel ? '#fff' : 'var(--muted)'};border:1px solid var(--border);cursor:pointer">${escHtml(label)}</button>`;
+      return `<button data-action-btn="_densityCtlBtn" data-dname="${escAttr(name)}" data-val="${val}" title="${escHtml(title)}" class="isl-307">${escHtml(label)}</button>`;
     };
     // Stash the callback under a deterministic global so the inline onclick
     // can find it. Slightly hacky, but avoids needing a UUID per control.
     window['__densityCb_' + name] = onChange;
-    return `<div style="display:inline-flex;border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+    return `<div class="isl-308">
       ${btn('minimal', '☰', 'Minimal — one device per line')}
       ${btn('compact', '▤', 'Compact — denser cards')}
       ${btn('comfortable', '⊞', 'Comfortable — default')}
@@ -406,8 +406,8 @@ function osIcon(osStr, sizePx) {
   // Inject width/height onto the <svg> tag, dropping the class size
   const sized = branded.replace(
     /<svg /,
-    `<svg width="${px}" height="${px}" style="vertical-align:middle" `);
-  return `<span class="os-icon" title="${(osStr || 'Unknown OS').replace(/"/g,'&quot;')}" style="display:inline-flex;vertical-align:middle;line-height:0">${sized}</span>`;
+    `<svg width="${px}" height="${px}" `);
+  return `<span class="os-icon va-middle icon-inline-flex" title="${(osStr || 'Unknown OS').replace(/"/g,'&quot;')}">${sized}</span>`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -530,7 +530,7 @@ async function showApp() {
       banner.id = 'default-pw-banner';
       banner.style.cssText = 'background:var(--red-soft,#3a1f1f);border-bottom:1px solid var(--red-edge,#7f1d1d);color:var(--red,#f87171);padding:10px 16px;font-size:13px;text-align:center;cursor:pointer';
       banner.innerHTML = '\u26a0 This account is using the default password. <strong>Change it now</strong> \u2014 click here.';
-      banner.onclick = () => showPage('settings', document.querySelector('.nav-btn[onclick*=settings]'));
+      banner.onclick = () => showPage('settings', document.querySelector('.nav-btn[data-page=\"settings\"]'));
       document.body.insertBefore(banner, document.body.firstChild);
     }
     banner.style.display = 'block';
@@ -556,13 +556,13 @@ async function checkServerVersion() {
       <span>⚡ RemotePower <strong>v${data.latest}</strong> is available
       (you have v${data.current}).</span>
       <a href="${data.release_url}" target="_blank" rel="noopener">Release notes →</a>
-      <button type="button" class="update-steps-btn" onclick="toggleUpdateSteps()">How to update</button>
-      <button type="button" class="update-steps-btn" onclick="snoozeUpdateBanner('${escAttr(data.latest)}')" title="Hide for 30 days">Snooze 30d</button>
-      <div id="update-steps" style="display:none">
-        <div style="font-size:12px;opacity:0.85;margin:6px 0 4px">
+      <button type="button" class="update-steps-btn" data-action="toggleUpdateSteps" >How to update</button>
+      <button type="button" class="update-steps-btn" data-action="snoozeUpdateBanner" data-arg="${escAttr(data.latest)}" title="Hide for 30 days">Snooze 30d</button>
+      <div id="update-steps" class="d-none">
+        <div class="isl-309">
           Back up your data directory first, then on the server:</div>
         <code>git pull &amp;&amp; sudo bash install-server.sh</code>
-        <div style="font-size:12px;opacity:0.7;margin-top:6px">
+        <div class="isl-310">
           RemotePower does not update itself — this is a deliberate manual step.</div>
       </div>`;
     document.querySelector('header').insertAdjacentElement('afterend', banner);
@@ -627,7 +627,7 @@ async function api(method, path, body) {
           toast('Change your password first — every other action is blocked.', 'error');
         }
         // Route to Settings → Account so the change form is one click away.
-        try { showPage('settings', document.querySelector('.nav-btn[onclick*=settings]')); } catch (_) {}
+        try { showPage('settings', document.querySelector('.nav-btn[data-page=\"settings\"]')); } catch (_) {}
         return parsed;
       }
     } catch (_) { /* fall through to generic handler */ }
@@ -815,8 +815,8 @@ function renderDevices() {
   const allTags = [...new Set(devices.flatMap(d => d.tags || []))].sort();
   const filterBar = document.getElementById('tag-filter-bar');
   if (filterBar) {
-    filterBar.innerHTML = allTags.map(t => `<button onclick="setTagFilter('${escAttr(t)}')" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid;background:${activeTagFilter===t ? 'rgba(59,126,255,0.2)' : 'transparent'};color:${activeTagFilter===t ? 'var(--accent)' : 'var(--muted)'};border-color:${activeTagFilter===t ? 'var(--accent)' : 'var(--border)'};font-family:var(--font)">${escHtml(t)}</button>`).join('');
-    if (activeTagFilter) filterBar.innerHTML += `<button onclick="setTagFilter(null)" style="padding:3px 10px;border-radius:20px;font-size:11px;cursor:pointer;border:1px solid var(--border);color:var(--muted);background:transparent;font-family:var(--font)">✕ clear</button>`;
+    filterBar.innerHTML = allTags.map(t => `<button data-action="setTagFilter" data-arg="${escAttr(t)}" class="isl-311">${escHtml(t)}</button>`).join('');
+    if (activeTagFilter) filterBar.innerHTML += `<button data-action="_setTagFilterClear" class="isl-312">✕ clear</button>`;
   }
   let filtered = activeTagFilter ? devices.filter(d => (d.tags || []).includes(activeTagFilter)) : devices;
   const deviceSearchTerm = (document.getElementById('device-search-input')?.value || '').toLowerCase();
@@ -863,7 +863,7 @@ function renderDevices() {
       patchHtml = `<span class="patch-badge ${cls}">${pkg.upgradable} update${pkg.upgradable !== 1 ? 's' : ''}</span>`;
     }
     const missedHtml = (!isOnline && d.missed_polls && d.offline_reason === 'missed_polls') ? `<span class="missed-badge">~${d.missed_polls} missed</span>` : '';
-    const iconContent = d.icon ? `<span style="font-size:22px;line-height:1">${escHtml(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
+    const iconContent = d.icon ? `<span class="isl-313">${escHtml(d.icon)}</span>` : (isSel ? `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>` : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`);
     // v2.2.1: sparkline for the dominant disk/memory metric (whichever
     // is more "interesting" — closer to capacity). The metrics history
     // lives in the device's stored sysinfo trail. If we don't have ≥2
@@ -884,17 +884,17 @@ function renderDevices() {
     const memSpark = memPct != null && memHist.length >= 2
       ? renderSparkline(memHist, {width: 52, height: 14, color: memPct > 85 ? 'var(--red)' : memPct > 70 ? 'var(--amber)' : 'var(--accent)'})
       : '';
-    return `<div class="device-card ${isOnline ? 'online' : 'offline'}" style="${isSel ? 'border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,126,255,0.2)' : ''}">
+    return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314">
       <div class="device-header">
         <div class="device-info">
-          <div class="device-icon" style="cursor:pointer" onclick="toggleSelect('${d.id}')" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" onclick="openNotesModal('${d.id}','${escAttr(d.notes)}')">📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px">unmonitored</span>'}</div></div>
+          <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
       <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}</div>
       ${deviceDropdownHtml(d, isMonitored)}
-      ${(d.tags||[]).length ? `<div style="margin-top:8px">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
+      ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
     </div>`;
   }).join('');
@@ -960,9 +960,9 @@ function _registerDevicesMinimalTable() {
       let patchHtml = '';
       if (pkg && pkg.upgradable !== null && pkg.upgradable !== undefined) {
         const cls = pkg.upgradable > 0 ? 'warn' : 'ok';
-        patchHtml = ` <span class="patch-badge ${cls}" style="font-size:10px;padding:1px 5px">${pkg.upgradable}</span>`;
+        patchHtml = ` <span class="patch-badge ${cls} isl-316">${pkg.upgradable}</span>`;
       }
-      const groupHtml = d.group ? `<span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : '<span style="color:var(--muted)">—</span>';
+      const groupHtml = d.group ? `<span class="group-badge fs-10">${escHtml(d.group)}</span>` : '<span class="c-muted">—</span>';
       // v1.11.7: dropdown HTML is identical to the cards path — exact same
       // menu items, same handlers, same `dropdown-${d.id}` id so
       // toggleDropdown() works without changes. Just wrapped in a <td>.
@@ -978,16 +978,16 @@ function _registerDevicesMinimalTable() {
       // click → openDetail covers the most common action. Less
       // visual noise, fewer fiddly edge cases.
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
-        <td style="text-align:center;padding:0 6px"><input type="checkbox" ${isSel ? 'checked' : ''} onclick="toggleSelect('${d.id}')" style="margin:0"></td>
-        <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'}" style="padding:1px 8px;font-size:10px"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
-        <td class="dev-name-cell"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none;font-weight:500">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span style="font-size:9px;color:var(--muted);background:var(--surface2);padding:1px 4px;border-radius:3px">unmon</span>'}</td>
-        <td class="dev-host-cell" style="font-size:12px;color:var(--muted)">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
+        <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
+        <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'} isl-318"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
+        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}</td>
+        <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
-        <td class="dev-os-cell" style="font-size:12px">${escHtml(d.os || '—')}</td>
-        <td class="dev-ip-cell" style="font-family:monospace;font-size:12px">${escHtml(d.ip || '—')}</td>
-        <td class="dev-version-cell" style="font-size:12px">${escHtml(d.version || '—')}${patchHtml}</td>
-        <td class="dev-lastseen-cell" style="font-size:12px;color:var(--muted)">${lastSeen}</td>
-        <td class="dev-actions-cell" style="text-align:right">${dropdownHtml}</td>
+        <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
+        <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
+        <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${patchHtml}</td>
+        <td class="dev-lastseen-cell hint">${lastSeen}</td>
+        <td class="dev-actions-cell ta-right">${dropdownHtml}</td>
       </tr>`;
     },
     // We don't use tableCtl's empty-state because parent renderDevices
@@ -1022,16 +1022,16 @@ function _renderDevicesMinimal(filtered) {
     <table class="devices-minimal-table">
       <thead id="devices-minimal-thead">
         <tr>
-          <th style="width:36px;text-align:center"><input type="checkbox" id="dev-min-select-all" onclick="toggleSelectAllMinimal(this)" title="Select all visible" style="margin:0"></th>
-          <th data-col="status" style="width:90px">Status</th>
-          <th data-col="name" style="width:190px">Name</th>
-          <th data-col="hostname" style="width:160px">Hostname</th>
-          <th data-col="group" style="width:100px">Group</th>
+          <th class="isl-321"><input type="checkbox" id="dev-min-select-all" data-action-btn="toggleSelectAllMinimal" title="Select all visible" class="isl-42"></th>
+          <th data-col="status" class="isl-188">Status</th>
+          <th data-col="name" class="isl-322">Name</th>
+          <th data-col="hostname" class="isl-323">Hostname</th>
+          <th data-col="group" class="isl-80">Group</th>
           <th data-col="os">OS</th>
-          <th data-col="ip" style="width:130px">IP</th>
-          <th data-col="version" style="width:90px">Version</th>
-          <th data-col="last_seen" style="width:100px">Last seen</th>
-          <th style="width:50px"></th>
+          <th data-col="ip" class="isl-324">IP</th>
+          <th data-col="version" class="isl-188">Version</th>
+          <th data-col="last_seen" class="isl-80">Last seen</th>
+          <th class="isl-325"></th>
         </tr>
       </thead>
       <tbody id="devices-minimal-tbody"></tbody>
@@ -1086,7 +1086,7 @@ async function confirmReboot() { closeModal('reboot-modal'); const data = await 
 async function sendWol(id, name) { const data = await api('POST', '/wol', {device_id: id}); if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success'); else toast(data?.error || 'WoL failed', 'error'); }
 async function removeDevice(id) { if (!confirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
 const deviceIcons = ['🖥️','💻','🖲️','📱','🖨️','📡','🌐','🗄️','🔌','💾','📟','🎮','📺','🏠','🏢','🏭','☁️','🐳','🐧','🪟','🍎','🔴','🟢','🔵','🟡','⚡','🛡️','🔒','📦','🧪'];
-function openIconModal(id, current) { document.getElementById('icon-device-id').value = id; document.getElementById('icon-custom').value = current || ''; const picker = document.getElementById('icon-picker'); picker.innerHTML = deviceIcons.map(e => `<button onclick="document.getElementById('icon-custom').value='${e}'" style="font-size:24px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);cursor:pointer;transition:all 0.15s;min-width:44px;text-align:center" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">${e}</button>`).join(''); openModal('icon-modal'); }
+function openIconModal(id, current) { document.getElementById('icon-device-id').value = id; document.getElementById('icon-custom').value = current || ''; const picker = document.getElementById('icon-picker'); picker.innerHTML = deviceIcons.map(e => `<button data-set-icon-val="${e}" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'" class="isl-326">${e}</button>`).join(''); openModal('icon-modal'); }
 async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -1124,7 +1124,7 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td style="font-weight:500">${escHtml(m.label)}</td><td><span style="font-family:monospace;font-size:11px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(m.type)}</span></td><td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(m.detail || '—')}</td><td style="font-size:12px;color:var(--muted)">${m.checked ? timeAgo(m.checked) : '—'}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="openMonitorHistory('${escAttr(m.label)}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon" style="padding:4px 8px" onclick="removeMonitor(${i})"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" data-action="removeMonitor" data-arg="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -1133,7 +1133,7 @@ function _registerMonitorTable() {
 async function runMonitor() {
   _registerMonitorTable();
   const tbody = document.getElementById('monitor-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Checking…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" class="empty-state-sm">Checking…</td></tr>';
   const data = await api('GET', '/monitor');
   if (!data) return;
   const results = data.monitors || [];
@@ -1146,7 +1146,7 @@ async function runMonitor() {
 function openMonitorAdd() { document.getElementById('mon-label').value = ''; document.getElementById('mon-type').value = 'ping'; document.getElementById('mon-target').value = ''; openModal('monitor-add-modal'); }
 async function addMonitor() { const label = document.getElementById('mon-label').value.trim(); const type = document.getElementById('mon-type').value; const target = document.getElementById('mon-target').value.trim(); if (!target) { toast('Target is required', 'error'); return; } const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = [...(cfg.monitors || []), {label: label || target, type, target}]; const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Monitor added', 'success'); closeModal('monitor-add-modal'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
-async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin:2px;background:${h.ok ? 'var(--green)' : 'var(--red)'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value" style="color:${pct>=90?'var(--green)':pct>=70?'var(--amber)':'var(--red)'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value" style="color:${lastCheck.ok?'var(--green)':'var(--red)'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div style="font-size:12px;color:var(--muted);margin-bottom:8px">Last ${recent.length} checks (newest right)</div><div style="padding:8px 0">${dots}</div><div class="table-card" style="margin-top:16px;max-height:240px;overflow-y:auto"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td style="font-size:12px;color:var(--muted)">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td style="font-size:12px;color:var(--muted)">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
+async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" class="isl-329"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // v1.11.6: users page gets filter+sort
 let _usersRegistered = false;
 function _registerUsersTable() {
@@ -1166,7 +1166,7 @@ function _registerUsersTable() {
     }),
     row: (u) => {
       const me = getMe();
-      return `<tr class="user-row"><td style="font-weight:600">${escHtml(u.username)}${u.username === me ? ' <span style="font-size:11px;color:var(--muted)">(you)</span>' : ''}</td><td style="color:var(--muted);font-size:12px">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'}" style="font-size:11px">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" onclick="openPasswd('${escAttr(u.username)}')">Change pw</button><button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteUser('${escAttr(u.username)}')">Delete</button></div></td></tr>`;
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -1212,10 +1212,10 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
   if (!thead) {
     thead = document.createElement('thead');
     thead.innerHTML = `<tr>
-      <th style="text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500">Event</th>
-      <th style="text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500">Description</th>
-      <th style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500;width:70px">Webhook</th>
-      <th style="text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:500;width:70px">Email</th>
+      <th class="isl-334">Event</th>
+      <th class="isl-334">Description</th>
+      <th class="isl-335">Webhook</th>
+      <th class="isl-335">Email</th>
     </tr>`;
     table.insertBefore(thead, tbody);
   }
@@ -1226,15 +1226,15 @@ function renderEventToggleTable(events, descriptions, emailEvents) {
     const desc = descriptions[ev] || '';
     let extra = '';
     if (ev === 'patch_alert') {
-      extra = `<div class="event-extra" style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--muted)">Threshold:</span><input type="number" id="cfg-patch-threshold" min="0" placeholder="e.g. 10" style="width:100px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"><span style="font-size:11px;color:var(--muted)">pending updates</span></div>`;
+      extra = `<div class="event-extra isl-156"><span class="hint">Threshold:</span><input type="number" id="cfg-patch-threshold" min="0" placeholder="e.g. 10" class="isl-336"><span class="meta-sm-nm">pending updates</span></div>`;
     } else if (ev === 'cve_found') {
-      extra = `<div class="event-extra"><div style="font-size:12px;color:var(--muted);margin-bottom:4px">Severities to alert on:</div><div id="cfg-cve-severity-row" style="display:flex;gap:10px;flex-wrap:wrap"></div></div>`;
+      extra = `<div class="event-extra"><div class="isl-337">Severities to alert on:</div><div id="cfg-cve-severity-row" class="isl-338"></div></div>`;
     }
     return `<tr>
       <td><code>${escHtml(ev)}</code></td>
       <td>${escHtml(desc)}${extra}</td>
-      <td style="text-align:center"><input type="checkbox" class="toggle-switch toggle-webhook" data-event="${escHtml(ev)}" ${wh}></td>
-      <td style="text-align:center"><input type="checkbox" class="toggle-switch toggle-email"   data-event="${escHtml(ev)}" ${email}></td>
+      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-webhook" data-event="${escHtml(ev)}" ${wh}></td>
+      <td class="ta-center"><input type="checkbox" class="toggle-switch toggle-email"   data-event="${escHtml(ev)}" ${email}></td>
     </tr>`;
   }).join('');
 }
@@ -1244,7 +1244,7 @@ function renderCveSeverityRow(severities, current) {
   if (!row) return;
   row.innerHTML = severities.map(s => {
     const checked = current.includes(s) ? 'checked' : '';
-    return `<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px"><input type="checkbox" class="cfg-cve-sev" value="${escHtml(s)}" ${checked} style="accent-color:var(--accent)">${escHtml(s)}</label>`;
+    return `<label class="isl-339"><input type="checkbox" class="cfg-cve-sev isl-340" value="${escHtml(s)}" ${checked}>${escHtml(s)}</label>`;
   }).join('');
 }
 
@@ -1585,7 +1585,7 @@ async function runLdapTestUser() {
     resultEl.style.background = 'rgba(34,197,94,0.1)';
     resultEl.style.color = 'var(--green)';
     resultEl.innerHTML = `✓ Authenticated successfully<br>` +
-      `<span style="font-family:monospace;font-size:11px">DN: ${escHtml(data.dn)}<br>` +
+      `<span class="isl-341">DN: ${escHtml(data.dn)}<br>` +
       `Role: ${escHtml(data.role)}<br>` +
       (data.full_name ? `Name: ${escHtml(data.full_name)}<br>` : '') +
       (data.email ? `Email: ${escHtml(data.email)}` : '') +
@@ -1597,13 +1597,13 @@ async function runLdapTestUser() {
   }
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
-async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge" style="background:rgba(59,126,255,0.1);color:var(--accent)">${escHtml(e.event)}</span></td><td style="font-weight:600;color:${statusColor}">${escHtml(e.status)}</td><td style="font-size:12px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(e.detail)}">${escHtml(e.detail)}</td><td style="white-space:nowrap"><button class="btn-icon" style="font-size:11px;padding:2px 8px" onclick="aiExplainAlert('${escAttr(e.event)}','','${escAttr(e.detail||'')}',null)">✨ Explain</button></td></tr>`; }).join(''); }
+async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`; }).join(''); }
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
 // the background. The "auto-refresh closes browser window" bug had two
 // independent triggers in 2.0.0:
 //
 //   1. escHtml didn't escape ' — see escAttr() above. A device name like
-//      `O'Brien` injected literal apostrophes into onclick="fn('${name}')"
+//      `O'Brien` injected literal apostrophes into data-action="fn" data-arg="${name}" 
 //      attributes. When the periodic loadDevices() re-rendered the device
 //      grid (innerHTML = ...), the parser hit `fn('O'Brien')`, threw a
 //      SyntaxError on parse, and (depending on the surrounding content)
@@ -1722,7 +1722,7 @@ function _registerScheduleTable() {
       run_at:      j.run_at || 0,
       actor:       j.actor || '',
     }),
-    row: (j) => `<tr><td style="font-weight:500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td style="font-family:monospace;font-size:12px">${j.recurring ? `<span style="color:var(--accent)">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td style="color:var(--muted);font-size:12px">${escHtml(j.actor)}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteJob('${escAttr(j.id)}')">✕</button></td></tr>`,
+    row: (j) => `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`,
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -1750,7 +1750,7 @@ function _registerHistoryTable() {
       device_name: e.device_name || '',
       command:     e.command || '',
     }),
-    row: (e) => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td style="font-family:monospace;font-size:12px">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`,
+    row: (e) => `<tr><td class="isl-345">${new Date(e.ts*1000).toLocaleString()}</td><td class="fw-500">${escHtml(e.actor)}</td><td class="mono-12">${escHtml(e.device_name)}</td><td><span class="cmd-badge ${escHtml(e.command)}">${escHtml(e.command)}</span></td></tr>`,
     emptyMsg: 'No commands logged yet.',
     emptyMsgFiltered: 'No commands match the filter.',
   });
@@ -1758,7 +1758,7 @@ function _registerHistoryTable() {
 async function loadHistory() {
   _registerHistoryTable();
   const tbody = document.getElementById('history-tbody');
-  tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  tbody.innerHTML = '<tr><td colspan="4" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/history');
   tableCtl.render('history', data || []);
 }
@@ -1861,10 +1861,10 @@ function addMountThresholdRow(path = '', warn = '', crit = '') {
   row.className = 'mount-row';
   row.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center';
   row.innerHTML = `
-    <input type="text" class="form-input mount-path" placeholder="/var" value="${escHtml(path)}" style="font-family:monospace;font-size:12px">
+    <input type="text" class="form-input mount-path mono-12" placeholder="/var" value="${escHtml(path)}">
     <input type="number" class="form-input mount-warn" placeholder="warn %" min="1" max="99" value="${warn === '' ? '' : warn}">
     <input type="number" class="form-input mount-crit" placeholder="crit %" min="1" max="99" value="${crit === '' ? '' : crit}">
-    <button class="btn-icon" type="button" onclick="this.parentElement.remove()" style="color:var(--red);border-color:rgba(239,68,68,0.3);font-size:14px;padding:4px 8px">×</button>
+    <button class="btn-icon isl-346" type="button" data-remove-parent="1">×</button>
   `;
   container.appendChild(row);
 }
@@ -1994,53 +1994,53 @@ function _registerDeviceMetricsTable() {
         if (v === 'warning')  level = 'warning';
       }
       const levelBadge =
-        level === 'critical' ? '<span class="patch-badge" style="background:rgba(239,68,68,0.18);color:var(--red);font-size:10px">CRIT</span>' :
-        level === 'warning'  ? '<span class="patch-badge warn" style="font-size:10px">WARN</span>' :
-        d.online ? '<span class="patch-badge ok" style="font-size:10px">OK</span>' : '<span style="color:var(--muted);font-size:11px">offline</span>';
+        level === 'critical' ? '<span class="patch-badge isl-347">CRIT</span>' :
+        level === 'warning'  ? '<span class="patch-badge warn fs-10">WARN</span>' :
+        d.online ? '<span class="patch-badge ok fs-10">OK</span>' : '<span class="meta-sm-nm">offline</span>';
 
       const fmtPct = (v, key) => {
-        if (v === undefined || v === null) return '<span style="color:var(--muted)">—</span>';
+        if (v === undefined || v === null) return '<span class="c-muted">—</span>';
         const lv = state[key] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        return `<span style="color:${color};font-family:monospace">${Number(v).toFixed(1)}%</span>`;
+        return `<span class="isl-348">${Number(v).toFixed(1)}%</span>`;
       };
 
       const memCell  = fmtPct(si.mem_percent,  'memory:');
       const swapCell = fmtPct(si.swap_percent, 'swap:');
 
-      let cpuCell = '<span style="color:var(--muted)">—</span>';
+      let cpuCell = '<span class="c-muted">—</span>';
       if (si.loadavg_1m !== undefined && si.cpu_count) {
         const ratio = si.loadavg_1m / si.cpu_count;
         const lv = state['cpu:'] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        cpuCell = `<span style="color:${color};font-family:monospace">${si.loadavg_1m.toFixed(2)} / ${si.cpu_count} (${ratio.toFixed(2)}×)</span>`;
+        cpuCell = `<span class="isl-348">${si.loadavg_1m.toFixed(2)} / ${si.cpu_count} (${ratio.toFixed(2)}×)</span>`;
       }
 
       // Disks: list each mount with its percent + alert state
-      let diskCell = '<span style="color:var(--muted)">—</span>';
+      let diskCell = '<span class="c-muted">—</span>';
       const mounts = Array.isArray(si.mounts) ? si.mounts : [];
       if (mounts.length > 0) {
         const items = mounts.map(m => {
           const lv = state[`disk:${m.path}`] || 'ok';
           const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
-          return `<span style="color:${color};font-family:monospace;font-size:11px;margin-right:10px" title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
+          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB" class="isl-349">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
         });
         diskCell = items.join('');
       } else if (si.disk_percent !== undefined) {
         // Pre-v1.11.10 agent: only legacy root disk
         const lv = state['disk:/'] || 'ok';
         const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
-        diskCell = `<span style="color:${color};font-family:monospace">/ ${si.disk_percent.toFixed(1)}%</span>`;
+        diskCell = `<span class="isl-348">/ ${si.disk_percent.toFixed(1)}%</span>`;
       }
 
       return `<tr>
-        <td style="font-weight:500"><a href="#" onclick="openDetail('${d.id}','${escAttr(d.name)}'); return false;" style="color:var(--text);text-decoration:none">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}</td>
+        <td class="fw-500"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-350">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}</td>
         <td>${levelBadge}</td>
-        <td style="text-align:right">${memCell}</td>
-        <td style="text-align:right">${swapCell}</td>
-        <td style="text-align:right">${cpuCell}</td>
+        <td class="ta-right">${memCell}</td>
+        <td class="ta-right">${swapCell}</td>
+        <td class="ta-right">${cpuCell}</td>
         <td>${diskCell}</td>
-        <td style="white-space:nowrap"><button class="btn-icon" style="font-size:11px;padding:4px 8px;margin-right:4px" onclick="openMetrics('${d.id}','${escAttr(d.name)}')" title="Show metric trend over time">Trend</button><button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openMetricThresholds('${d.id}','${escAttr(d.name)}')">Thresholds</button></td>
+        <td class="nowrap"><button class="btn-icon isl-351" data-action="openMetrics" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" title="Show metric trend over time">Trend</button><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" >Thresholds</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices to show metrics for.',
@@ -2070,9 +2070,9 @@ async function loadDeviceMetrics() {
   const summary = document.getElementById('device-metrics-summary');
   if (summary) {
     const parts = [];
-    if (crit) parts.push(`<span style="color:var(--red);font-weight:600">${crit} critical</span>`);
-    if (warn) parts.push(`<span style="color:var(--amber);font-weight:600">${warn} warning</span>`);
-    if (!parts.length) parts.push(`<span style="color:var(--green)">all clear</span>`);
+    if (crit) parts.push(`<span class="c-red-bold">${crit} critical</span>`);
+    if (warn) parts.push(`<span class="c-amber-bold">${warn} warning</span>`);
+    if (!parts.length) parts.push(`<span class="c-green">all clear</span>`);
     summary.innerHTML = parts.join('  •  ');
   }
   tableCtl.render('device_metrics', data);
@@ -2351,7 +2351,7 @@ function openPollModal(id, current) { document.getElementById('poll-device-id').
 async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 async function openAllowlistModal(id) { document.getElementById('allowlist-device-id').value = id; document.getElementById('allowlist-input').value = ''; openModal('allowlist-modal'); const r = await api('GET', '/devices/' + id + '/allowlist'); if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n'); }
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
-async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span style="color:var(--muted);font-size:12px">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" style="vertical-align:middle">${bars}</svg> <span style="font-weight:600;color:${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row" style="margin-bottom:20px"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value" style="font-size:11px">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div style="display:grid;gap:16px"><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">CPU</div>${spark('cpu','var(--accent)')}</div><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Memory</div>${spark('mem','var(--green)')}</div><div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Disk</div>${spark('disk','var(--amber)')}</div></div><p style="font-size:12px;color:var(--muted);margin-top:12px">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
+async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
 // v1.11.6: API keys page gets filter+sort
 let _apikeysRegistered = false;
@@ -2371,7 +2371,7 @@ function _registerApiKeysTable() {
       user:    k.user || '',
       created: k.created || 0,
     }),
-    row: (k) => `<tr><td style="font-weight:600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td style="color:var(--muted);font-size:12px">${escHtml(k.user)}</td><td style="color:var(--muted);font-size:12px">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteApiKey('${escAttr(k.id)}')">Delete</button></td></tr>`,
+    row: (k) => `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`,
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
   });
@@ -2402,7 +2402,7 @@ function _registerCmdLibTable() {
       cmd:         s.cmd || '',
       description: s.description || '',
     }),
-    row: (s) => `<tr><td style="font-weight:600">${escHtml(s.name)}</td><td style="font-family:monospace;font-size:12px;color:var(--accent)">${escHtml(s.cmd)}</td><td style="color:var(--muted);font-size:12px">${escHtml(s.description||'—')}</td><td style="display:flex;gap:6px"><button class="btn-icon" style="padding:4px 8px" onclick="useCmdSnippet('${escAttr(s.cmd)}')">Use</button><button class="btn-icon" style="padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteCmdSnippet('${escAttr(s.id)}')">✕</button></tr>`,
+    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-45" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >✕</button></tr>`,
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
   });
@@ -2417,10 +2417,10 @@ function openCmdLibAdd() { document.getElementById('cmdlib-name').value = ''; do
 async function addCmdSnippet() { const name = document.getElementById('cmdlib-name').value.trim(); const cmd = document.getElementById('cmdlib-cmd').value.trim(); const desc = document.getElementById('cmdlib-desc').value.trim(); if (!name || !cmd) { toast('Name and command required', 'error'); return; } const data = await api('POST', '/cmd-library', {name, cmd, description: desc}); if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; closeModal('cmdlib-add-modal'); toast('Command pasted into exec modal', 'info'); }
-function generateQRCode(containerId, text) { if (window.qrcode) { _renderQR(containerId, text); return; } const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; script.onload = () => _renderQR(containerId, text); script.onerror = () => { const el = document.getElementById(containerId); if (el) { const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`; el.innerHTML = `<img src="${fallbackUrl}" width="160" height="160" style="display:block" onerror="this.parentElement.innerHTML='<div style=\\'padding:16px;color:#666;font-size:12px;text-align:center\\'>QR unavailable.<br>Enter secret manually.</div>'">`; } }; document.head.appendChild(script); }
-function _renderQR(containerId, text) { const el = document.getElementById(containerId); if (!el || !window.qrcode) return; try { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); el.innerHTML = qr.createSvgTag(4, 0); const svg = el.querySelector('svg'); if (svg) { svg.style.display = 'block'; svg.style.width = '160px'; svg.style.height = '160px'; } } catch(e) { el.innerHTML = '<div style="padding:16px;color:#666;font-size:12px;text-align:center">QR generation failed.<br>Enter secret manually.</div>'; } }
-async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span style="color:var(--green);font-weight:600">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary" onclick="disableTotp()" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Disable 2FA</button>`; } else { statusEl.innerHTML = '<span style="color:var(--muted)">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary" onclick="setupTotp()" style="max-width:200px">Enable 2FA</button>`; } }
-async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px"><div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap"><div id="${qrContainerId}" style="background:#fff;padding:8px;border-radius:8px;flex-shrink:0;min-width:168px;min-height:168px;display:flex;align-items:center;justify-content:center"><span style="color:#999;font-size:12px">Generating…</span></div><div style="flex:1;min-width:200px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Scan with your authenticator app</div><div style="font-size:12px;color:var(--muted);margin-bottom:12px">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Or enter manually:</div><div style="font-family:monospace;font-size:14px;letter-spacing:2px;color:var(--accent);word-break:break-all;background:var(--surface2);padding:10px;border-radius:6px;cursor:pointer" onclick="navigator.clipboard?.writeText('${data.secret}');toast('Secret copied','success')" title="Click to copy">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input" placeholder="123456" maxlength="6" inputmode="numeric" style="max-width:200px;text-align:center;font-size:18px;letter-spacing:4px"></div><button class="btn-primary" onclick="confirmTotp()" style="max-width:200px">Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
+function generateQRCode(containerId, text) { if (window.qrcode) { _renderQR(containerId, text); return; } const script = document.createElement('script'); script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; script.onload = () => _renderQR(containerId, text); script.onerror = () => { const el = document.getElementById(containerId); if (el) { const fallbackUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(text)}`; el.innerHTML = `<img src="${fallbackUrl}" width="160" height="160" onerror="this.parentElement.innerHTML='<div style=\\'padding:16px;color:#666;font-size:12px;text-align:center\\' class="audit-cmd-output">QR unavailable.<br>Enter secret manually.</div>'">`; } }; document.head.appendChild(script); }
+function _renderQR(containerId, text) { const el = document.getElementById(containerId); if (!el || !window.qrcode) return; try { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); el.innerHTML = qr.createSvgTag(4, 0); const svg = el.querySelector('svg'); if (svg) { svg.style.display = 'block'; svg.style.width = '160px'; svg.style.height = '160px'; } } catch(e) { el.innerHTML = '<div class="isl-359">QR generation failed.<br>Enter secret manually.</div>'; } }
+async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span class="c-green-bold">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
+async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${data.secret}" title="Click to copy" class="isl-368">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); loadTotpStatus(); } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = prompt('Enter your password to disable 2FA:'); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
 function filterDevices() {
@@ -2464,7 +2464,7 @@ function _registerPatchTable() {
     row: (d) => {
       const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
-      const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div style="font-size:11px;font-family:monospace;color:var(--muted);margin-top:2px" title="${escHtml(c.output||'')}">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
+      const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div title="${escHtml(c.output||'')}" class="isl-370">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
       // v2.1.5: ✨ Prioritise only on devices with pending updates
       // v3.0.4: pass the event so the handler can disable the button +
       // show a spinner during the API call (previously the button just
@@ -2472,19 +2472,19 @@ function _registerPatchTable() {
       // happened" because the toast was easy to miss and there was no
       // in-place feedback).
       const aiBtn = d.upgradable > 0
-        ? `<button class="btn-icon" style="padding:4px 6px;font-size:11px" onclick="aiPrioritisePatchesForDevice('${d.device_id}','${escAttr(d.name)}', this)" title="AI: prioritise these updates">✨</button>`
+        ? `<button class="btn-icon isl-371" data-action-btn="_aiPrioritisePatchesBtn" data-dev-id="${d.device_id}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise these updates">✨</button>`
         : '';
       const rebootBadge = d.reboot_required
-        ? `<span title="Pending reboot — /run/reboot-required exists on this host" style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;color:var(--amber);background:var(--amber-soft);border:1px solid var(--amber-edge);white-space:nowrap;vertical-align:middle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px;margin-right:2px;flex-shrink:0"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
+        ? `<span title="Pending reboot — /run/reboot-required exists on this host" class="isl-372"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="isl-373"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
         : '';
-      return `<tr><td style="font-weight:500">${escHtml(d.name)}${rebootBadge}</td><td style="font-size:12px;color:var(--muted)">${escHtml(d.group||'—')}</td><td style="font-size:12px">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td style="font-family:monospace;font-size:12px">${escHtml(d.pkg_manager)}</td><td style="font-weight:600;color:${d.upgradable>0?'var(--amber)':d.upgradable===0?'var(--green)':'var(--muted)'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span style="color:var(--muted);font-size:11px">—</span>'}</td><td><div style="display:flex;gap:4px;align-items:center">${aiBtn}<button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDevicePatchReport('${d.device_id}','${escAttr(d.name)}')">Detail</button></div></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
   });
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }
 function renderPatchTable() {
   if (!patchReportData) return;
@@ -2508,7 +2508,7 @@ function renderPatchTable() {
   tableCtl.render('patches', filtered);
 }
 function exportPatchFiltered(format) { const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; if (df !== 'all' && format !== 'csv' && format !== 'xml') { openDevicePatchReport(df, ''); return; } let url = `/api/patch-report/${format}`; const params = []; if (gf !== 'all') params.push(`group=${encodeURIComponent(gf)}`); if (df !== 'all') params.push(`device_id=${encodeURIComponent(df)}`); if (params.length) url += '?' + params.join('&'); fetch(url, {headers: {'X-Token': getToken()}}).then(r => { if (!r.ok) throw new Error('Export failed'); return r.blob(); }).then(blob => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; const suffix = gf !== 'all' ? `-${gf}` : df !== 'all' ? `-device` : ''; a.download = `patch-report${suffix}-${new Date().toISOString().slice(0,10)}.${format}`; a.click(); URL.revokeObjectURL(u); toast(`${format.toUpperCase()} downloaded`, 'success'); }).catch(() => toast('Export failed', 'error')); }
-async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Status</div><div class="value" style="color:${statusColor}">${statusLabel}</div></div><div class="sysinfo-pill"><div class="label">OS</div><div class="value" style="font-size:11px">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value" style="color:${data.online?'var(--green)':'var(--red)'}">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div style="font-size:13px;font-weight:600;margin:16px 0 8px;color:var(--muted)">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:6px"><code style="font-size:12px;color:var(--accent)">${escHtml(o.cmd)}</code><span style="font-size:11px;color:var(--muted)">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap" style="max-height:120px">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div style="color:var(--muted);font-size:13px;padding:12px">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
+async function openDevicePatchReport(devId, devName) { document.getElementById('device-patch-title').textContent = `Patch Report: ${devName}`; document.getElementById('device-patch-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('device-patch-modal'); const data = await api('GET', `/patch-report/device/${devId}`); if (!data) return; const statusColor = data.patch_status === 'fully_patched' ? 'var(--green)' : data.patch_status === 'patches_available' ? 'var(--amber)' : 'var(--muted)'; const statusLabel = data.patch_status === 'fully_patched' ? 'Fully Patched' : data.patch_status === 'patches_available' ? `${data.upgradable} patches pending` : 'No data'; let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Status</div><div class="value isl-376">${statusLabel}</div></div><div class="sysinfo-pill"><div class="label">OS</div><div class="value fs-11">${escHtml(data.os||'—')}</div></div><div class="sysinfo-pill"><div class="label">Pkg Manager</div><div class="value">${escHtml(data.pkg_manager)}</div></div><div class="sysinfo-pill"><div class="label">Agent</div><div class="value">${escHtml(data.version||'—')}</div></div><div class="sysinfo-pill"><div class="label">Online</div><div class="value isl-377">${data.online?'Yes':'No'}</div></div></div>`; if (data.uptime) html += `<div class="isl-366">Uptime: ${escHtml(data.uptime)}</div>`; if (data.group) html += `<div class="isl-366">Group: <span class="group-badge">${escHtml(data.group)}</span></div>`; html += '<div class="isl-378">Patch Command History</div>'; if (data.patch_history && data.patch_history.length) { html += data.patch_history.slice().reverse().map(o => `<div class="isl-379"><div class="isl-380"><code class="isl-381">${escHtml(o.cmd)}</code><span class="meta-sm-nm">${new Date(o.ts*1000).toLocaleString()} · rc=${o.rc}</span></div><div class="journal-wrap isl-382">${escHtml(o.output||'(no output)')}</div></div>`).join(''); } else html += '<div class="isl-383">No patch commands recorded yet.</div>'; document.getElementById('device-patch-body').innerHTML = html; }
 
 // ─── v1.7.0: CVE Scanner ──────────────────────────────────────────────────────
 let cveReportData = null;
@@ -2536,14 +2536,14 @@ function _registerCveTable() {
     }),
     row: (d) => {
       const statusBadge = {
-        'scanned':     '<span style="color:var(--green)">●</span>',
-        'not_scanned': '<span style="color:var(--muted)">●</span> not scanned',
-        'no_packages': '<span style="color:var(--muted)">●</span> no package list',
-        'unsupported': '<span style="color:var(--amber)">●</span> unsupported',
+        'scanned':     '<span class="c-green">●</span>',
+        'not_scanned': '<span class="c-muted">●</span> not scanned',
+        'no_packages': '<span class="c-muted">●</span> no package list',
+        'unsupported': '<span class="c-amber">●</span> unsupported',
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
-      const cell = (n, color) => n > 0 ? `<td style="text-align:center;color:${color};font-weight:600">${n}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openDeviceCVE('${escAttr(d.device_id)}','${escAttr(d.name)}')"><td style="font-weight:500">${escHtml(d.name)}</td><td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td style="font-size:12px;color:var(--muted);font-family:monospace">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td style="font-size:11px;color:var(--muted)">${scanText}</td><td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="_cveBtn(event,()=>forcePackageScan('${escAttr(d.device_id)}','${escAttr(d.name)}',this))" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon" style="padding:4px 8px;font-size:11px;margin-left:4px" onclick="_cveBtn(event,()=>triggerCVEScan('${escAttr(d.device_id)}',this))">Scan</button></td></tr>`;
+      const cell = (n, color) => n > 0 ? `<td class="isl-384">${n}</td>` : '<td class="isl-385">0</td>';
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon isl-386" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -2585,21 +2585,21 @@ async function triggerCVEScan(devId, btn) {
 }
 async function openDeviceCVE(devId, devName) {
   document.getElementById('cve-detail-title').textContent = `CVE Findings: ${devName}`;
-  document.getElementById('cve-detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  document.getElementById('cve-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
   openModal('cve-detail-modal');
   const data = await api('GET', `/devices/${devId}/cve`);
   if (!data) return;
   const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
-  let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value" style="font-size:12px">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value" style="font-size:11px">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
-  html += `<div style="margin-bottom:14px"><button class="btn-icon" style="font-size:12px;padding:6px 12px" onclick="forcePackageScan('${escAttr(devId)}','${escAttr(devName)}',this)" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
-  if (data.error) html += `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px;color:var(--red)">${escHtml(data.error)}</div>`;
-  if (!data.findings.length) { html += '<div style="color:var(--muted);text-align:center;padding:40px">No vulnerabilities found. 🎉</div>'; }
+  let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
+  html += `<div class="mb-14"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
+  if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
+  if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found. 🎉</div>'; }
   else {
     html += data.findings.map(f => {
       const color = sevColor[f.severity] || 'var(--muted)';
-      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" style="color:var(--accent)">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
-      const aliasesHtml = (f.aliases||[]).map(a => `<code style="background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(a)}</code>`).join('');
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;${f.ignored?'opacity:0.5':''}"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:8px"><div><span style="background:${color};color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase">${f.severity}</span><code style="margin-left:8px;font-size:13px;color:var(--accent)">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span style="margin-left:8px;font-size:11px;color:var(--muted)">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div style="font-size:11px;color:var(--muted);white-space:nowrap">${escHtml(f.published || '')}</div></div><div style="font-size:13px;margin-bottom:6px"><strong>${escHtml(f.package)}</strong> <span style="color:var(--muted)">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span style="color:var(--green)">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${escHtml(f.summary)}</div>` : ''}<div style="display:flex;gap:8px;font-size:11px;flex-wrap:wrap;align-items:center">${aliasesHtml}${refsHtml}<button class="btn-icon" style="padding:2px 6px;font-size:11px;margin-left:auto" onclick="aiTriageCve('${escAttr(f.vuln_id)}','${escAttr(f.package)}','${escAttr(f.version)}','${escAttr(devName)}','${escAttr(f.summary||'')}')">✨ Triage</button>${!f.ignored ? `<button class="btn-icon" style="padding:2px 6px;font-size:11px" onclick="ignoreCVE('${escAttr(f.vuln_id)}','${escAttr(devId)}','${escAttr(devName)}')">Ignore</button>` : ''}</div></div>`;
+      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" class="c-accent">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
+      const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
+      return `<div class="isl-390"><div class="isl-391"><div><span class="isl-392">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">✨ Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -2683,21 +2683,21 @@ function _registerServicesTable() {
       return false;
     },
     row: (d) => {
-      const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span style="color:var(--muted);font-size:11px">never</span>';
+      const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span class="meta-sm-nm">never</span>';
       const unitList = (d.services || []).map(s => {
         const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-        return `<span style="display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;margin:1px;font-family:monospace"><span style="color:${color}">●</span> ${escHtml(s.unit)}</span>`;
+        return `<span class="isl-400"><span class="isl-401">●</span> ${escHtml(s.unit)}</span>`;
       }).join('');
-      const watchedCell = d.total > 0 ? unitList : '<span style="color:var(--muted);font-size:11px">(none configured)</span>';
-      const upCell   = d.up > 0 ? `<td style="text-align:center;color:var(--green);font-weight:600">${d.up}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      const downCell = d.down > 0 ? `<td style="text-align:center;color:var(--red);font-weight:600">${d.down}</td>` : '<td style="text-align:center;color:var(--muted)">0</td>';
-      return `<tr style="cursor:pointer" onclick="openServiceDetail('${escAttr(d.device_id)}','${escAttr(d.name)}')">
-        <td style="font-weight:500">${escHtml(d.name)}</td>
-        <td style="font-size:12px;color:var(--muted)">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
+      const watchedCell = d.total > 0 ? unitList : '<span class="meta-sm-nm">(none configured)</span>';
+      const upCell   = d.up > 0 ? `<td class="isl-402">${d.up}</td>` : '<td class="isl-385">0</td>';
+      const downCell = d.down > 0 ? `<td class="isl-403">${d.down}</td>` : '<td class="isl-385">0</td>';
+      return `<tr data-action="openServiceDetail" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer">
+        <td class="fw-500">${escHtml(d.name)}</td>
+        <td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td>
         <td>${watchedCell}</td>
         ${upCell}${downCell}
-        <td style="font-size:11px;color:var(--muted)">${reportText}</td>
-        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();editServicesConfig('${escAttr(d.device_id)}','${escAttr(d.name)}')">Configure</button></td>
+        <td class="meta-sm-nm">${reportText}</td>
+        <td><button class="btn-icon cell-sm" data-stop-prop="1" data-action="editServicesConfig" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" >Configure</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices enrolled.',
@@ -2737,15 +2737,15 @@ async function loadServicesReport() {
 async function openServiceDetail(devId, devName) {
   servicesCurrentDeviceId = devId;
   document.getElementById('service-detail-title').textContent = `Services: ${devName}`;
-  document.getElementById('service-detail-body').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  document.getElementById('service-detail-body').innerHTML = '<div class="empty-state">Loading…</div>';
   document.getElementById('service-edit-btn').onclick = () => { closeModal('service-detail-modal'); editServicesConfig(devId, devName); };
   openModal('service-detail-modal');
   const data = await api('GET', `/devices/${devId}/services`);
   if (!data) return;
   const updated = data.updated_at ? new Date(data.updated_at*1000).toLocaleString() : 'never';
-  let html = `<div class="sysinfo-row" style="margin-bottom:16px"><div class="sysinfo-pill"><div class="label">Units watched</div><div class="value">${data.services.length}</div></div><div class="sysinfo-pill"><div class="label">Last report</div><div class="value" style="font-size:11px">${updated}</div></div></div>`;
+  let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Units watched</div><div class="value">${data.services.length}</div></div><div class="sysinfo-pill"><div class="label">Last report</div><div class="value fs-11">${updated}</div></div></div>`;
   if (!data.services.length) {
-    html += '<div style="color:var(--muted);text-align:center;padding:40px">No services configured. Click "Edit watched units" below.</div>';
+    html += '<div class="empty-state">No services configured. Click "Edit watched units" below.</div>';
   } else {
     html += data.services.map(s => {
       const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
@@ -2754,12 +2754,12 @@ async function openServiceDetail(devId, devName) {
       const logItems  = (s.log_tail || []).slice(-20);
 
       const histBody = histItems.length
-        ? histItems.map(h => `<div style="font-size:11px;color:var(--muted);font-family:monospace">${new Date(h.ts*1000).toLocaleString()}: ${escHtml(h.from||'?')} → ${escHtml(h.to||'?')}</div>`).join('')
-        : '<div style="font-size:11px;color:var(--muted);font-style:italic;padding:4px 0">No transitions recorded since enrollment.</div>';
+        ? histItems.map(h => `<div class="isl-404">${new Date(h.ts*1000).toLocaleString()}: ${escHtml(h.from||'?')} → ${escHtml(h.to||'?')}</div>`).join('')
+        : '<div class="isl-405">No transitions recorded since enrollment.</div>';
 
       const logBody = logItems.length
         ? logItems.map(l => `<div class="journal-line">${escHtml(l.line || '')}</div>`).join('')
-        : '<div style="font-size:11px;color:var(--muted);font-style:italic;padding:4px 0">No logs captured yet. Agent submits every ~5 min; needs v1.8.0+ and journalctl access (run as root).</div>';
+        : '<div class="isl-405">No logs captured yet. Agent submits every ~5 min; needs v1.8.0+ and journalctl access (run as root).</div>';
 
       const histLabel = `State history (${histItems.length})`;
       const logLabel  = `Recent logs (${logItems.length})`;
@@ -2769,16 +2769,16 @@ async function openServiceDetail(devId, devName) {
       // next" — the operator still does the actual work.
       const isUnhealthy = s.active !== 'active' && s.active !== 'activating';
       const aiBtn = isUnhealthy
-        ? `<button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-left:8px" onclick='aiDiagnoseService(${JSON.stringify(s.unit)}, ${JSON.stringify(devName)}, ${JSON.stringify(s.active||"")}, ${JSON.stringify(s.sub||"")}, ${JSON.stringify((s.log_tail || []).slice(-30).map(l => l.line || ""))})' title="AI: diagnose this service">✨ Diagnose</button>`
+        ? `<button class="btn-icon isl-406" data-action-btn="_aiDiagnoseServiceFromStore" data-store-key="${_storeEvtData([s.unit, devName, s.active||'', s.sub||'', (s.log_tail || []).slice(-30).map(l => l.line || '')])}" title="AI: diagnose this service">✨ Diagnose</button>`
         : '';
 
-      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-          <div style="display:flex;align-items:center;flex-wrap:wrap"><span style="color:${color};font-weight:600">●</span> <code style="font-size:13px;color:var(--accent);margin-left:6px">${escHtml(s.unit)}</code> <span style="margin-left:8px;font-size:12px;color:var(--muted)">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
-          <div style="font-size:11px;color:var(--muted)">since: ${sinceText}</div>
+      return `<div class="isl-379">
+        <div class="isl-407">
+          <div class="isl-408"><span class="isl-409">●</span> <code class="isl-410">${escHtml(s.unit)}</code> <span class="isl-411">${escHtml(s.active)}${s.sub?' / '+escHtml(s.sub):''}</span>${aiBtn}</div>
+          <div class="meta-sm-nm">since: ${sinceText}</div>
         </div>
-        <details style="margin-bottom:6px"${histItems.length ? ' open' : ''}><summary style="font-size:12px;color:var(--muted);cursor:pointer">${histLabel}</summary><div style="padding-top:6px">${histBody}</div></details>
-        <details${logItems.length ? ' open' : ''}><summary style="font-size:12px;color:var(--muted);cursor:pointer">${logLabel}</summary><div class="journal-wrap" style="max-height:200px;margin-top:6px">${logBody}</div></details>
+        <details${histItems.length ? ' open' : ''} class="mb-6"><summary class="isl-412">${histLabel}</summary><div class="isl-413">${histBody}</div></details>
+        <details${logItems.length ? ' open' : ''}><summary class="isl-412">${logLabel}</summary><div class="journal-wrap isl-414">${logBody}</div></details>
       </div>`;
     }).join('');
   }
@@ -2828,21 +2828,21 @@ function _registerMaintTable() {
       status: w.active ? 'active' : 'scheduled',
     }),
     row: (w) => {
-      const when = w.cron ? `<code style="font-size:11px">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
+      const when = w.cron ? `<code class="fs-11">${escHtml(w.cron)}</code> for ${Math.round((w.duration||0)/60)}min`
                           : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
-      const events = (w.events && w.events.length) ? w.events.join(', ') : '<em style="color:var(--muted)">all</em>';
+      const events = (w.events && w.events.length) ? w.events.join(', ') : '<em class="c-muted">all</em>';
       const status = w.active
-        ? '<span style="color:var(--amber);font-weight:600">🔧 ACTIVE</span>'
-        : '<span style="color:var(--muted)">scheduled</span>';
+        ? '<span class="c-amber-bold">🔧 ACTIVE</span>'
+        : '<span class="c-muted">scheduled</span>';
       const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
       return `<tr>
-        <td style="font-weight:500">${escHtml(w.reason || '(no reason)')}</td>
+        <td class="fw-500">${escHtml(w.reason || '(no reason)')}</td>
         <td><span class="group-badge">${escHtml(w.scope)}</span></td>
-        <td style="font-size:12px;font-family:monospace;color:var(--muted)">${target}</td>
-        <td style="font-size:12px">${when}</td>
-        <td style="font-size:11px;color:var(--muted)">${events}</td>
-        <td style="text-align:center">${status}</td>
-        <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteMaintenance('${escAttr(w.id)}')">Delete</button></td>
+        <td class="isl-415">${target}</td>
+        <td class="fs-12">${when}</td>
+        <td class="meta-sm-nm">${events}</td>
+        <td class="ta-center">${status}</td>
+        <td><button class="btn-icon isl-416" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >Delete</button></td>
       </tr>`;
     },
     emptyMsg: 'No maintenance windows defined.',
@@ -2866,13 +2866,13 @@ async function loadMaintSuppressions() {
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/maintenance/suppressions');
   if (!data) return;
-  if (!data.entries.length) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No suppressions recorded.</td></tr>'; return; }
+  if (!data.entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No suppressions recorded.</td></tr>'; return; }
   tbody.innerHTML = data.entries.map(e => `<tr>
-    <td style="font-size:12px;color:var(--muted);white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
-    <td><code style="font-size:12px">${escHtml(e.event)}</code></td>
-    <td style="font-family:monospace;font-size:11px">${escHtml(e.device_id || '—')}</td>
-    <td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.window_id || '—')}</td>
-    <td style="font-size:12px">${escHtml(e.reason || '')}</td>
+    <td class="hint-nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
+    <td><code class="fs-12">${escHtml(e.event)}</code></td>
+    <td class="isl-341">${escHtml(e.device_id || '—')}</td>
+    <td class="isl-417">${escHtml(e.window_id || '—')}</td>
+    <td class="fs-12">${escHtml(e.reason || '')}</td>
   </tr>`).join('');
 }
 
@@ -3006,7 +3006,7 @@ function startLogsTail() {
   logsState.newestTs = 0;
   logsState.lines = [];
   document.getElementById('logs-viewer-title').textContent = 'Live tail — auto-refreshing every 30s';
-  document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">Fetching recent lines…</div>';
+  document.getElementById('logs-viewer').innerHTML = '<div class="isl-418">Fetching recent lines…</div>';
   // Initial pull: everything from last 10 min
   logsState.newestTs = Math.floor(Date.now()/1000) - 600;
   pollLogsTail(true);
@@ -3042,18 +3042,18 @@ async function pollLogsTail(initial) {
     // v1.8.2: three distinct empty states for clearer diagnosis
     let msg;
     if (data.stats.devices_reporting === 0) {
-      msg = '<div style="text-align:center;color:var(--muted);padding:40px">'
+      msg = '<div class="empty-state">'
           + 'No devices are submitting logs yet.<br>'
-          + '<span style="font-size:11px">1) Configure watched services on the <a href="#" onclick="showPage(\'services\',document.querySelector(\'.nav-btn[onclick*=services]\')); return false" style="color:var(--accent)">Services page</a>. '
+          + '<span class="fs-11">1) Configure watched services on the <a href="#" data-action-btn="_homeNavAction" data-home-act="services" data-prevent-default class="c-accent">Services page</a>. '
           + '2) Agents submit every ~5 min. 3) Agent must be v1.8.0+ and have journalctl access.</span></div>';
     } else if (data.stats.total_lines === 0) {
-      msg = `<div style="text-align:center;color:var(--muted);padding:40px">`
+      msg = `<div class="empty-state">`
           + `${data.stats.devices_reporting} device(s) are reporting, but watched units have been quiet.<br>`
-          + `<span style="font-size:11px">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
+          + `<span class="fs-11">This is normal for stable services. Logs appear here when agents capture something.</span></div>`;
     } else {
-      msg = `<div style="text-align:center;color:var(--muted);padding:40px">`
+      msg = `<div class="empty-state">`
           + `${data.stats.total_lines} line(s) in the buffer, but none match the current filter.<br>`
-          + `<span style="font-size:11px">Try clearing the device/unit filters above.</span></div>`;
+          + `<span class="fs-11">Try clearing the device/unit filters above.</span></div>`;
     }
     document.getElementById('logs-viewer').innerHTML = msg;
   }
@@ -3079,10 +3079,10 @@ function renderLogsViewer() {
   viewer.innerHTML = logsState.lines.map(l => {
     const color = lineSeverityColor(l.line);
     const ts = new Date(l.ts*1000).toLocaleTimeString();
-    return `<div style="font-family:monospace;font-size:12px;line-height:1.5;padding:1px 4px;${color?'color:'+color+';':''}">`
-      + `<span style="color:var(--muted)">${ts}</span> `
-      + `<span style="color:var(--accent)">${escHtml(l.name)}</span> `
-      + `<span style="color:var(--muted)">${escHtml(l.unit)}</span>  `
+    return `<div class="isl-419">`
+      + `<span class="c-muted">${ts}</span> `
+      + `<span class="c-accent">${escHtml(l.name)}</span> `
+      + `<span class="c-muted">${escHtml(l.unit)}</span>  `
       + escHtml(l.line)
       + `</div>`;
   }).join('');
@@ -3127,26 +3127,26 @@ async function runLogSearch() {
   const qs = new URLSearchParams({q, limit: '500'});
   if (dev) qs.set('device', dev);
   document.getElementById('logs-viewer-title').textContent = `Search results for: ${q}`;
-  document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--muted);padding:20px">Searching…</div>';
+  document.getElementById('logs-viewer').innerHTML = '<div class="isl-418">Searching…</div>';
   const data = await api('GET', `/logs/search?${qs.toString()}`);
   if (!data) {
-    document.getElementById('logs-viewer').innerHTML = '<div style="text-align:center;color:var(--red);padding:40px">Request failed — check the console.</div>';
+    document.getElementById('logs-viewer').innerHTML = '<div class="isl-420">Request failed — check the console.</div>';
     return;
   }
   // v3.0.2: 400 returns {error: '...'} with no results key — was throwing
   // TypeError on data.results.length and silently breaking the UI.
   if (data.error) {
     document.getElementById('logs-viewer').innerHTML =
-      `<div style="text-align:center;color:var(--red);padding:40px">
-        <div style="font-weight:600;margin-bottom:6px">Search failed</div>
-        <div style="font-size:13px;color:var(--muted)">${escHtml(data.error)}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:10px">Common cause: bad regex. Try escaping special chars or use a plain substring.</div>
+      `<div class="isl-420">
+        <div class="isl-421">Search failed</div>
+        <div class="c-muted-13">${escHtml(data.error)}</div>
+        <div class="isl-422">Common cause: bad regex. Try escaping special chars or use a plain substring.</div>
       </div>`;
     toast('Search error: ' + data.error, 'error');
     return;
   }
   if (!Array.isArray(data.results) || !data.results.length) {
-    document.getElementById('logs-viewer').innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px">No matches for <code>${escHtml(q)}</code> in the current buffer.</div>`;
+    document.getElementById('logs-viewer').innerHTML = `<div class="empty-state">No matches for <code>${escHtml(q)}</code> in the current buffer.</div>`;
     return;
   }
   // Group by device (per user preference from planning)
@@ -3155,12 +3155,12 @@ async function runLogSearch() {
     if (!byDev[r.device_id]) byDev[r.device_id] = {name: r.name, lines: []};
     byDev[r.device_id].lines.push(r);
   }
-  let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} device${Object.keys(byDev).length===1?'':'s'}</div>`;
+  let html = `<div class="hint-mb">${data.count} match${data.count===1?'':'es'} across ${Object.keys(byDev).length} device${Object.keys(byDev).length===1?'':'s'}</div>`;
   for (const [dev_id, g] of Object.entries(byDev)) {
-    html += `<details open style="margin-bottom:8px"><summary style="font-size:13px;color:var(--accent);cursor:pointer;padding:4px 0">${escHtml(g.name)} <span style="color:var(--muted);font-size:11px">(${g.lines.length})</span></summary>`;
+    html += `<details open class="mb-8"><summary class="isl-423">${escHtml(g.name)} <span class="meta-sm-nm">(${g.lines.length})</span></summary>`;
     html += g.lines.map(l => {
       const color = lineSeverityColor(l.line);
-      return `<div style="font-family:monospace;font-size:12px;padding:1px 4px 1px 20px;${color?'color:'+color+';':''}"><span style="color:var(--muted)">${new Date(l.ts*1000).toLocaleString()}</span> <span style="color:var(--muted)">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
+      return `<div class="isl-424"><span class="c-muted">${new Date(l.ts*1000).toLocaleString()}</span> <span class="c-muted">${escHtml(l.unit)}</span>  ${escHtml(l.line)}</div>`;
     }).join('');
     html += `</details>`;
   }
@@ -3202,16 +3202,16 @@ async function loadPerDeviceLogRules() {
   document.getElementById('logs-stat-rules').textContent = data.rules.length + globalCount;
   document.getElementById('logs-stat-rules').dataset.deviceCount = data.rules.length;
   if (!data.rules.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No per-device rules configured.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr>';
     return;
   }
   tbody.innerHTML = data.rules.map(r => `<tr>
-    <td style="font-weight:500">${escHtml(r.device_name)}</td>
-    <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
-    <td><code style="font-size:12px">${escHtml(r.unit)}</code></td>
-    <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
-    <td style="text-align:center">≥ ${r.threshold}</td>
-    <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteLogRule('${escAttr(r.device_id)}','${escAttr(r.unit)}','${escAttr(r.pattern)}')">Delete</button></td>
+    <td class="fw-500">${escHtml(r.device_name)}</td>
+    <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span class="c-muted">—</span>'}</td>
+    <td><code class="fs-12">${escHtml(r.unit)}</code></td>
+    <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
+    <td class="ta-center">≥ ${r.threshold}</td>
+    <td><button class="btn-icon isl-416" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >Delete</button></td>
   </tr>`).join('');
 }
 
@@ -3223,20 +3223,20 @@ async function loadGlobalLogRules() {
   document.getElementById('logs-stat-rules').textContent = deviceCount + data.rules.length;
   document.getElementById('logs-stat-rules').dataset.globalCount = data.rules.length;
   if (!data.rules.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
     return;
   }
   tbody.innerHTML = data.rules.map(r => {
     const created = r.created_at ? new Date(r.created_at*1000).toLocaleDateString() : '—';
     const unitDisplay = r.unit === '*'
-      ? '<code style="font-size:12px;color:var(--amber)">* (any unit)</code>'
-      : `<code style="font-size:12px">${escHtml(r.unit)}</code>`;
+      ? '<code class="isl-426">* (any unit)</code>'
+      : `<code class="fs-12">${escHtml(r.unit)}</code>`;
     return `<tr>
       <td>${unitDisplay}</td>
-      <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${escHtml(r.pattern)}</code></td>
-      <td style="text-align:center">≥ ${r.threshold}</td>
-      <td style="font-size:11px;color:var(--muted)">${created} <span style="opacity:0.6">by ${escHtml(r.created_by || '?')}</span></td>
-      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteGlobalLogRule('${escAttr(r.id)}')">Delete</button></td>
+      <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
+      <td class="ta-center">≥ ${r.threshold}</td>
+      <td class="meta-sm-nm">${created} <span class="opacity-60">by ${escHtml(r.created_by || '?')}</span></td>
+      <td><button class="btn-icon isl-416" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >Delete</button></td>
     </tr>`;
   }).join('');
 }
@@ -3386,7 +3386,7 @@ function _registerAuditTable() {
       const hay = `${e.actor || ''} ${e.action || ''} ${e.detail || ''}`.toLowerCase();
       return hay.includes(q);
     },
-    row: (e) => `<tr><td style="color:var(--muted);font-size:12px;white-space:nowrap">${new Date(e.ts*1000).toLocaleString()}</td><td style="font-weight:500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td style="font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.detail||'—')}</td><td style="font-family:monospace;font-size:11px;color:var(--muted)">${escHtml(e.source_ip||'—')}</td></tr>`,
+    row: (e) => `<tr><td class="isl-345">${new Date(e.ts*1000).toLocaleString()}</td><td class="fw-500">${escHtml(e.actor)}</td><td><span class="cmd-badge ${e.action.includes('fail')?'shutdown':e.action.includes('login')?'update':'reboot'}">${escHtml(e.action)}</span></td><td class="isl-427">${escHtml(e.detail||'—')}</td><td class="isl-417">${escHtml(e.source_ip||'—')}</td></tr>`,
     emptyMsg: 'No audit entries yet.',
     emptyMsgFiltered: 'No entries match the current filter.',
   });
@@ -3395,7 +3395,7 @@ function _registerAuditTable() {
 async function loadAuditLog() {
   _registerAuditTable();
   const tbody = document.getElementById('audit-tbody');
-  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/audit-log');
   _auditLogCache = Array.isArray(data) ? data : [];
   // Repopulate the action-filter dropdown with whatever actions appear in
@@ -3515,11 +3515,11 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" onclick="event.stopPropagation();openEventModal('${escAttr(ev.id)}')" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
     ).join('');
-    const more = events.length > 3 ? `<div style="font-size:10px;color:var(--muted);padding:0 4px">+${events.length - 3} more</div>` : '';
+    const more = events.length > 3 ? `<div class="isl-428">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    html += `<div class="cal-day${isOtherMonth ? ' other-month' : ''}${isToday ? ' today' : ''}" onclick="openEventModalForDay('${dayDate}')">
+    html += `<div class="cal-day${isOtherMonth ? ' other-month' : ''}${isToday ? ' today' : ''}" data-action="openEventModalForDay" data-arg="${dayDate}" >
       <div class="cal-day-num">${d.getDate()}</div>
       ${eventsHtml}${more}
     </div>`;
@@ -3693,7 +3693,7 @@ function renderKanban(tasks) {
     const filtered = tasks.filter(t => (t.state || 'upcoming') === s);
     document.getElementById(`tasks-count-${s}`).textContent = filtered.length;
     if (!filtered.length) {
-      col.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:12px 4px;text-align:center;font-style:italic">No tasks</div>`;
+      col.innerHTML = `<div class="isl-429">No tasks</div>`;
       continue;
     }
     col.innerHTML = filtered.map(t => renderTaskCard(t)).join('');
@@ -3713,11 +3713,11 @@ function renderTaskCard(t) {
   return `<div class="kanban-card" draggable="true"
               ondragstart="onTaskDragStart(event,'${escHtml(t.id)}')"
               ondragend="onTaskDragEnd(event)"
-              onclick="openTaskModal('${escAttr(t.id)}')">
+              data-action="openTaskModal" data-arg="${escAttr(t.id)}" >
     <div class="kanban-card-title">${escHtml(t.title)}</div>
     <div class="kanban-card-meta">
       ${devBadge}
-      <span style="opacity:0.7">${meta.join(' · ')}</span>
+      <span class="offline">${meta.join(' · ')}</span>
     </div>
   </div>`;
 }
@@ -4041,26 +4041,26 @@ async function cmdbReloadList() {
 function cmdbRenderTable(rows) {
   const tbody = document.getElementById('cmdb-tbody');
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:40px">No matching assets.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No matching assets.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
     const hyp = r.hypervisor_url
-      ? `<a href="${_cmdbEsc(r.hypervisor_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">open ↗</a>`
-      : '<span style="color:var(--muted);font-size:12px">—</span>';
+      ? `<a href="${_cmdbEsc(r.hypervisor_url)}" target="_blank" rel="noopener" class="c-accent-12">open ↗</a>`
+      : '<span class="hint">—</span>';
     const fn = r.server_function
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
-      : '<span style="color:var(--muted);font-size:12px">—</span>';
+      : '<span class="hint">—</span>';
     return `<tr>
-      <td style="font-weight:500">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
-      <td style="font-family:monospace;font-size:12px">${_cmdbEsc(r.asset_id) || '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="fw-500">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
+      <td class="mono-12">${_cmdbEsc(r.asset_id) || '<span class="c-muted">—</span>'}</td>
       <td>${fn}</td>
-      <td style="font-size:12px;color:var(--muted)">${_cmdbEsc(r.os) || '—'}</td>
-      <td style="font-family:monospace;font-size:12px">${_cmdbEsc(r.ip) || '—'}</td>
+      <td class="hint">${_cmdbEsc(r.os) || '—'}</td>
+      <td class="mono-12">${_cmdbEsc(r.ip) || '—'}</td>
       <td>${hyp}</td>
-      <td style="text-align:center">${r.has_documentation ? '<span style="color:var(--green)">●</span>' : '<span style="color:var(--muted)">○</span>'}</td>
-      <td style="text-align:center;font-size:12px;color:var(--muted)">${r.credential_count}</td>
-      <td><button class="btn-icon" onclick="cmdbOpenAsset('${_cmdbEsc(r.device_id)}')">Open</button></td>
+      <td class="ta-center">${r.has_documentation ? '<span class="c-green">●</span>' : '<span class="c-muted">○</span>'}</td>
+      <td class="isl-430">${r.credential_count}</td>
+      <td><button class="btn-icon" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}" >Open</button></td>
     </tr>`;
   }).join('');
 }
@@ -4139,15 +4139,15 @@ function cmdbRenderDocs(docs) {
     const meta = (created === updated || !created)
       ? (updated ? `updated ${updated}` : '')
       : `created ${created}, updated ${updated}`;
-    return `<details class="cmdb-doc-card" ${idx === 0 ? 'open' : ''} style="background:var(--surface2);border:1px solid var(--border);border-radius:8px">
-      <summary style="padding:10px 14px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;user-select:none">
-        <span style="color:var(--muted);font-size:11px">▸</span>
-        <span style="font-weight:600;font-size:13px">${cmdbEscHtml(doc.title || '(untitled)')}</span>
-        <span style="color:var(--muted);font-size:11px;margin-left:auto">${meta}</span>
-        <button class="btn-icon" style="padding:3px 8px;font-size:11px" onclick="event.preventDefault();event.stopPropagation();cmdbDocEditOpen('${doc.id}');return false;">Edit</button>
-        <button class="btn-icon" style="padding:3px 8px;font-size:11px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="event.preventDefault();event.stopPropagation();cmdbDocDelete('${doc.id}');return false;">Delete</button>
+    return `<details class="cmdb-doc-card isl-431" ${idx === 0 ? 'open' : ''}>
+      <summary class="isl-432">
+        <span class="meta-sm-nm">▸</span>
+        <span class="isl-433">${cmdbEscHtml(doc.title || '(untitled)')}</span>
+        <span class="hint">${meta}</span>
+        <button class="btn-icon isl-434" data-stop-prop="1" data-prevent-default="1" data-action="cmdbDocEditOpen" data-arg="${doc.id}" >Edit</button>
+        <button class="btn-icon isl-435" data-stop-prop="1" data-prevent-default="1" data-action="cmdbDocDelete" data-arg="${doc.id}" >Delete</button>
       </summary>
-      <div style="padding:0 14px 14px;border-top:1px solid var(--border);font-size:13px;line-height:1.55">
+      <div class="isl-436">
         ${cmdbRenderMarkdown(doc.body || '')}
       </div>
     </details>`;
@@ -4263,7 +4263,7 @@ async function cmdbDocDelete(docId) {
 // Tiny Markdown renderer — headings, bold, italic, code, links, lists.
 // Deliberately conservative: anything not matched stays as escaped text.
 function cmdbRenderMarkdown(src) {
-  if (!src) return '<div style="color:var(--muted)">No content.</div>';
+  if (!src) return '<div class="c-muted">No content.</div>';
   const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const lines = src.split('\n');
   const out = [];
@@ -4271,19 +4271,19 @@ function cmdbRenderMarkdown(src) {
   for (let raw of lines) {
     if (raw.startsWith('```')) {
       if (inCode) { out.push('</code></pre>'); inCode = false; }
-      else        { out.push('<pre style="background:var(--surface);padding:10px;border-radius:6px;overflow-x:auto"><code>'); inCode = true; }
+      else        { out.push('<pre class="isl-437"><code>'); inCode = true; }
       continue;
     }
     if (inCode) { out.push(esc(raw)); continue; }
     if (/^- /.test(raw)) {
-      if (!inList) { out.push('<ul style="margin:6px 0 6px 22px">'); inList = true; }
+      if (!inList) { out.push('<ul class="isl-438">'); inList = true; }
       out.push('<li>' + cmdbInlineMd(esc(raw.slice(2))) + '</li>');
       continue;
     } else if (inList) { out.push('</ul>'); inList = false; }
 
-    if (/^### /.test(raw))      out.push('<h4 style="margin:12px 0 6px">' + cmdbInlineMd(esc(raw.slice(4))) + '</h4>');
-    else if (/^## /.test(raw))  out.push('<h3 style="margin:14px 0 6px">' + cmdbInlineMd(esc(raw.slice(3))) + '</h3>');
-    else if (/^# /.test(raw))   out.push('<h2 style="margin:16px 0 8px">' + cmdbInlineMd(esc(raw.slice(2))) + '</h2>');
+    if (/^### /.test(raw))      out.push('<h4 class="isl-439">' + cmdbInlineMd(esc(raw.slice(4))) + '</h4>');
+    else if (/^## /.test(raw))  out.push('<h3 class="isl-440">' + cmdbInlineMd(esc(raw.slice(3))) + '</h3>');
+    else if (/^# /.test(raw))   out.push('<h2 class="isl-441">' + cmdbInlineMd(esc(raw.slice(2))) + '</h2>');
     else if (raw.trim() === '') out.push('<br>');
     else out.push('<div>' + cmdbInlineMd(esc(raw)) + '</div>');
   }
@@ -4294,11 +4294,11 @@ function cmdbRenderMarkdown(src) {
 
 function cmdbInlineMd(s) {
   return s
-    .replace(/`([^`]+)`/g, '<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:0.92em">$1</code>')
+    .replace(/`([^`]+)`/g, '<code class="isl-442">$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-             '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent)">$1</a>');
+             '<a href="$2" target="_blank" rel="noopener" class="c-accent">$1</a>');
 }
 
 async function cmdbAssetSave() {
@@ -4339,11 +4339,11 @@ async function cmdbLoadCreds(deviceId) {
   const creds = (res.data && res.data.credentials) || [];
   const list = document.getElementById('cmdb-creds-list');
   if (creds.length === 0) {
-    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px;font-size:13px">No credentials yet.</div>';
+    list.innerHTML = '<div class="isl-232">No credentials yet.</div>';
     return;
   }
   list.innerHTML = creds.map(c => {
-    const note = c.note ? `<div style="font-size:12px;color:var(--muted);margin-top:4px">${_cmdbEsc(c.note)}</div>` : '';
+    const note = c.note ? `<div class="isl-69">${_cmdbEsc(c.note)}</div>` : '';
     // v1.10.0: per-credential SSH link. Builds ssh://user@host:port for the
     // anchor + plain `ssh user@host -p port` for the copy button. Host comes
     // from the current asset's hostname (preferred) falling back to its IP.
@@ -4360,20 +4360,20 @@ async function cmdbLoadCreds(deviceId) {
         ? `ssh ${sshUser}@${sshHost} -p ${sshPort}`
         : `ssh ${sshUser}@${sshHost}`;
       sshButtons =
-        `<a class="btn-icon" href="${_cmdbEsc(sshUri)}" title="Open ssh:// link in your default handler" style="text-decoration:none">SSH</a>
-         <button class="btn-icon" title="Copy: ${_cmdbEsc(sshCmd)}" onclick="cmdbSshCopy('${_cmdbEsc(sshCmd)}')">Copy</button>`;
+        `<a class="btn-icon isl-443" href="${_cmdbEsc(sshUri)}" title="Open ssh:// link in your default handler">SSH</a>
+         <button class="btn-icon" title="Copy: ${_cmdbEsc(sshCmd)}" data-action="cmdbSshCopy" data-arg="${_cmdbEsc(sshCmd)}" >Copy</button>`;
     }
-    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600">${_cmdbEsc(c.label)}</div>
-        <div style="font-family:monospace;font-size:12px;color:var(--muted)">user: ${_cmdbEsc(c.username) || '—'}</div>
+    return `<div class="isl-444">
+      <div class="isl-445">
+        <div class="fw-600">${_cmdbEsc(c.label)}</div>
+        <div class="isl-328">user: ${_cmdbEsc(c.username) || '—'}</div>
         ${note}
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
+      <div class="isl-446">
         ${sshButtons}
-        <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredReveal('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Reveal</button>
-        <button class="btn-icon" ${locked ? 'disabled' : ''} onclick="cmdbCredEditOpen('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}','${_cmdbEsc(c.label)}','${_cmdbEsc(c.username)}','${_cmdbEsc(c.note || '')}')">Edit</button>
-        <button class="btn-icon" style="color:var(--red)" onclick="cmdbCredDelete('${_cmdbEsc(deviceId)}','${_cmdbEsc(c.id)}')">Delete</button>
+        <button class="btn-icon" ${locked ? 'disabled' : ''} data-action="cmdbCredReveal" data-arg="${_cmdbEsc(deviceId)}" data-arg2="${_cmdbEsc(c.id)}" >Reveal</button>
+        <button class="btn-icon" ${locked ? 'disabled' : ''} data-action="cmdbCredEditOpen" data-arg="${_cmdbEsc(deviceId)}" data-arg2="${_cmdbEsc(c.id)}" data-arg3="${_cmdbEsc(c.label)}" data-arg4="${_cmdbEsc(c.username)}" data-arg5="${_cmdbEsc(c.note || '')}">Edit</button>
+        <button class="btn-icon c-red" data-action="cmdbCredDelete" data-arg="${_cmdbEsc(deviceId)}" data-arg2="${_cmdbEsc(c.id)}" >Delete</button>
       </div>
     </div>`;
   }).join('');
@@ -4516,7 +4516,7 @@ async function openUpdateLogs(deviceId, name) {
   _updateLogsCurrent = {id: deviceId, name: name};
   document.getElementById('update-logs-title').textContent = `Update history — ${name}`;
   document.getElementById('update-logs-body').innerHTML =
-    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+    '<div class="empty-state">Loading…</div>';
   openModal('update-logs-modal');
   await reloadUpdateLogs();
 }
@@ -4529,7 +4529,7 @@ async function reloadUpdateLogs() {
   document.getElementById('update-logs-capacity').textContent = r.capacity || 10;
   const logs = (r.logs || []).slice().reverse();   // newest first
   if (!logs.length) {
-    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No update runs captured yet. Run "Upgrade packages" on this device — the output will land here on the next heartbeat (~60s).</div>';
+    body.innerHTML = '<div class="empty-state">No update runs captured yet. Run "Upgrade packages" on this device — the output will land here on the next heartbeat (~60s).</div>';
     return;
   }
   // v2.8.1: deduplicate — suppress consecutive runs with identical output
@@ -4546,8 +4546,8 @@ async function reloadUpdateLogs() {
   body.innerHTML = dedupedLogs.map((entry, idx) => {
     const ok = entry.exit_code === 0;
     const status = ok
-      ? '<span style="color:var(--green)">● success</span>'
-      : `<span style="color:var(--red)">● failed (rc=${entry.exit_code})</span>`;
+      ? '<span class="c-green">● success</span>'
+      : `<span class="c-red">● failed (rc=${entry.exit_code})</span>`;
     const when = entry.finished_at
       ? new Date(entry.finished_at * 1000).toLocaleString()
       : '—';
@@ -4557,13 +4557,13 @@ async function reloadUpdateLogs() {
     const pm = entry.package_manager || 'unknown';
     const out = entry.output || '(no output captured)';
     const open = idx === 0 ? 'open' : '';
-    return `<details ${open} style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;background:var(--surface2)">
-      <summary style="padding:10px 12px;cursor:pointer;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <span style="font-weight:500">${escHtml(when)}</span>
-        <span style="color:var(--muted);font-size:12px">${escHtml(pm)} · ${escHtml(duration)}</span>
-        <span style="margin-left:auto">${status}</span>
+    return `<details ${open} class="isl-447">
+      <summary class="isl-448">
+        <span class="fw-500">${escHtml(when)}</span>
+        <span class="hint">${escHtml(pm)} · ${escHtml(duration)}</span>
+        <span class="isl-12">${status}</span>
       </summary>
-      <pre style="margin:0;padding:12px;background:var(--surface);border-top:1px solid var(--border);font-family:monospace;font-size:12px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word;max-height:400px;overflow-y:auto">${escHtml(out)}</pre>
+      <pre class="isl-449">${escHtml(out)}</pre>
     </details>`;
   }).join('');
 }
@@ -4589,7 +4589,7 @@ async function enterContainers() {
 
 async function loadContainersOverview() {
   const tbody = document.getElementById('containers-tbody');
-  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/containers');
   _containersOverview = Array.isArray(data) ? data : [];
   renderContainersOverview();
@@ -4637,23 +4637,23 @@ function _registerContainersOverviewTable() {
         .join(', ') || '—';
       const reported = r.reported_at ? new Date(r.reported_at * 1000).toLocaleString() : '—';
       const staleBadge = r.is_stale
-        ? '<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:3px;font-size:10px;background:var(--amber);color:#000;font-weight:600">STALE</span>'
+        ? '<span class="isl-450">STALE</span>'
         : '';
       const restartingCell = s.restarting > 0
-        ? `<span style="color:var(--red)">${s.restarting}</span>`
-        : `<span style="color:var(--muted)">0</span>`;
-      return `<tr${r.is_stale ? ' style="opacity:.75"' : ''}>
-        <td style="font-weight:500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
-        <td style="font-size:12px;color:var(--muted)">${escHtml(r.os || '—')}</td>
-        <td style="font-weight:500">${s.total}</td>
-        <td style="color:var(--green)">${s.running}</td>
-        <td style="color:var(--muted)">${s.stopped}</td>
+        ? `<span class="c-red">${s.restarting}</span>`
+        : `<span class="c-muted">0</span>`;
+      return `<tr${r.is_stale ? '' : ''} class="isl-451">
+        <td class="fw-500">${osIcon(r.os, 14)} ${escHtml(r.name)}</td>
+        <td class="hint">${escHtml(r.os || '—')}</td>
+        <td class="fw-500">${s.total}</td>
+        <td class="c-green">${s.running}</td>
+        <td class="c-muted">${s.stopped}</td>
         <td>${restartingCell}</td>
-        <td style="font-size:12px;color:var(--muted)">${runtimes}</td>
-        <td style="font-size:12px;color:var(--muted);white-space:nowrap">${reported}${staleBadge}</td>
-        <td style="display:flex;gap:4px">
-          <button class="btn-icon" onclick="containersOpen('${escAttr(r.device_id)}','${escAttr(r.name)}')">View</button>
-          <button class="btn-icon" style="color:var(--muted)" title="Hide this device from the Containers page" onclick="ignoreContainerDevice('${escAttr(r.device_id)}','${escAttr(r.name)}')">×</button>
+        <td class="hint">${runtimes}</td>
+        <td class="hint-nowrap">${reported}${staleBadge}</td>
+        <td class="row-4">
+          <button class="btn-icon" data-action="containersOpen" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" >View</button>
+          <button class="btn-icon c-muted" title="Hide this device from the Containers page" data-action="ignoreContainerDevice" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.name)}" >×</button>
         </td>
       </tr>`;
     },
@@ -4671,7 +4671,7 @@ async function containersOpen(deviceId, name) {
   _containersOpenDeviceId = deviceId;
   document.getElementById('containers-detail-title').textContent = `Containers — ${name}`;
   const body = document.getElementById('containers-detail-body');
-  body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+  body.innerHTML = '<div class="empty-state">Loading…</div>';
   openModal('containers-detail-modal');
   const data = await api('GET', `/devices/${encodeURIComponent(deviceId)}/containers`);
   if (!data) return;
@@ -4679,14 +4679,14 @@ async function containersOpen(deviceId, name) {
   // v1.11.4: stale-data warning at the top of the modal.
   const reportedHuman = data.reported_at ? new Date(data.reported_at * 1000).toLocaleString() : 'never';
   const staleBanner = data.is_stale
-    ? `<div style="background:var(--amber);color:#000;padding:8px 12px;border-radius:6px;margin-bottom:12px;font-size:12px;font-weight:500">
+    ? `<div class="isl-452">
          ⚠ Container data is stale (last reported: ${escHtml(reportedHuman)}).
          Agent reports every ~5 min when a runtime is installed; check
          <code>journalctl -u remotepower-agent</code> on the device.
        </div>`
     : '';
   if (!items.length) {
-    body.innerHTML = staleBanner + '<div style="color:var(--muted);text-align:center;padding:40px">No containers reported.</div>';
+    body.innerHTML = staleBanner + '<div class="empty-state">No containers reported.</div>';
     return;
   }
   body.innerHTML = staleBanner + items.map(c => {
@@ -4694,20 +4694,20 @@ async function containersOpen(deviceId, name) {
     const statusColor = statusLower.includes('running') || statusLower.includes('up ')
       ? 'var(--green)'
       : statusLower.includes('exit') ? 'var(--red)' : 'var(--muted)';
-    const ports = (c.ports || []).map(p => `<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:11px">${escHtml(p)}</code>`).join(' ');
+    const ports = (c.ports || []).map(p => `<code class="isl-453">${escHtml(p)}</code>`).join(' ');
     const restart = c.restart_count > 0
-      ? `<span style="color:${c.restart_count >= 5 ? 'var(--red)' : 'var(--amber)'}">restart×${c.restart_count}</span>`
+      ? `<span class="isl-454">restart×${c.restart_count}</span>`
       : '';
-    const ns = c.namespace ? `<span style="color:var(--muted)">${escHtml(c.namespace)}/</span>` : '';
+    const ns = c.namespace ? `<span class="c-muted">${escHtml(c.namespace)}/</span>` : '';
     // v2.2.6: container health badge — the agent parses (healthy)/
     // (unhealthy)/(starting) out of the docker status string.
     let healthBadge = '';
     if (c.health === 'healthy') {
-      healthBadge = '<span class="status-pill ok" style="font-size:10px;padding:1px 7px">healthy</span>';
+      healthBadge = '<span class="status-pill ok isl-455">healthy</span>';
     } else if (c.health === 'unhealthy') {
-      healthBadge = '<span class="status-pill critical" style="font-size:10px;padding:1px 7px">unhealthy</span>';
+      healthBadge = '<span class="status-pill critical isl-455">unhealthy</span>';
     } else if (c.health === 'starting') {
-      healthBadge = '<span class="status-pill warn" style="font-size:10px;padding:1px 7px">starting</span>';
+      healthBadge = '<span class="status-pill warn isl-455">starting</span>';
     }
     // v2.2.6: per-container CPU / memory from `docker stats`. Only
     // shown when the agent reported them (omitted for kubectl pods
@@ -4720,9 +4720,9 @@ async function containersOpen(deviceId, name) {
         : '';
       const memColor = c.mem_percent > 85 ? 'var(--red)'
                      : c.mem_percent > 70 ? 'var(--amber)' : 'var(--muted)';
-      resourceLine = `<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--font-mono);display:flex;gap:12px">
+      resourceLine = `<div class="isl-456">
         ${cpuTxt ? `<span>${cpuTxt}</span>` : ''}
-        ${memTxt ? `<span style="color:${memColor}">${memTxt}</span>` : ''}
+        ${memTxt ? `<span class="isl-457">${memTxt}</span>` : ''}
       </div>`;
     }
     const cid = c.id || c.name || '';
@@ -4730,24 +4730,24 @@ async function containersOpen(deviceId, name) {
     const actionable = (runtime === 'docker' || runtime === 'podman') && cid;
     const isRunning = statusLower.includes('running') || statusLower.includes('up ');
     const actions = actionable ? `
-      <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
-        ${!isRunning ? `<button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','start','${escAttr(c.name||'')}')">Start</button>` : ''}
-        ${isRunning  ? `<button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','stop','${escAttr(c.name||'')}')">Stop</button>` : ''}
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','restart','${escAttr(c.name||'')}')">Restart</button>
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="containerAction('${escAttr(deviceId)}','${escAttr(runtime)}','${escAttr(cid)}','logs','${escAttr(c.name||'')}')">Logs</button>
+      <div class="isl-458">
+        ${!isRunning ? `<button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="start" data-arg5="${escAttr(c.name||'')}">Start</button>` : ''}
+        ${isRunning  ? `<button class="btn-icon isl-459" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="stop" data-arg5="${escAttr(c.name||'')}">Stop</button>` : ''}
+        <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="restart" data-arg5="${escAttr(c.name||'')}">Restart</button>
+        <button class="btn-icon badge-xs" data-action="containerAction" data-arg="${escAttr(deviceId)}" data-arg2="${escAttr(runtime)}" data-arg3="${escAttr(cid)}" data-arg4="logs" data-arg5="${escAttr(c.name||'')}">Logs</button>
       </div>` : '';
-    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-weight:600;display:flex;align-items:center;gap:6px">${ns}${escHtml(c.name)}${healthBadge}</div>
-        <div style="display:flex;gap:8px;align-items:center;font-size:12px">
-          <span style="color:${statusColor}">${escHtml(c.status || '?')}</span>
+    return `<div class="isl-460">
+      <div class="isl-461">
+        <div class="isl-462">${ns}${escHtml(c.name)}${healthBadge}</div>
+        <div class="isl-463">
+          <span class="isl-376">${escHtml(c.status || '?')}</span>
           ${restart}
-          <span class="cmd-badge ${escHtml(c.runtime)}" style="font-size:10px;padding:2px 6px">${escHtml(c.runtime)}</span>
+          <span class="cmd-badge ${escHtml(c.runtime)} isl-464">${escHtml(c.runtime)}</span>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px;font-family:monospace">${escHtml(c.image)}${c.tag ? ':' + escHtml(c.tag) : ''}</div>
+      <div class="isl-465">${escHtml(c.image)}${c.tag ? ':' + escHtml(c.tag) : ''}</div>
       ${resourceLine}
-      ${ports ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ports}</div>` : ''}
+      ${ports ? `<div class="isl-466">${ports}</div>` : ''}
       ${actions}
     </div>`;
   }).join('');
@@ -4868,7 +4868,7 @@ function renderNetmap() {
     const fill   = n.online ? 'var(--green)' : 'var(--red)';
     const stroke = n.agentless ? 'var(--amber)' : 'var(--accent)';
     const r = 14;
-    return `<g class="netmap-node" data-node-id="${escHtml(n.id)}" transform="translate(${n.x}, ${n.y})" style="cursor:grab">
+    return `<g class="netmap-node isl-467" data-node-id="${escHtml(n.id)}" transform="translate(${n.x}, ${n.y})">
       <circle cx="0" cy="0" r="${r}" fill="${fill}" fill-opacity="0.18" stroke="${stroke}" stroke-width="2"/>
       <text x="0" y="4" font-size="10" fill="currentColor" text-anchor="middle" font-weight="600" pointer-events="none">${escHtml((n.type || '?').slice(0,3).toUpperCase())}</text>
       <text x="0" y="${r + 14}" font-size="11" fill="currentColor" text-anchor="middle" pointer-events="none">${escHtml(n.name)}</text>
@@ -5027,14 +5027,14 @@ async function netmapEditOpen() {
   const body = document.getElementById('netmap-edit-body');
   const nodes = _netmapData.nodes;
   if (!nodes.length) {
-    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No devices to link.</div>';
+    body.innerHTML = '<div class="empty-state">No devices to link.</div>';
     openModal('netmap-edit-modal');
     return;
   }
   // Build an option list of all devices for the dropdowns
   const optsHtml = '<option value="">— none —</option>' +
     nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
-  body.innerHTML = `<table style="width:100%"><thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th style="padding:6px 8px">Device</th><th style="padding:6px 8px">Type</th><th style="padding:6px 8px">Connected to (upstream)</th></tr></thead><tbody>${
+  body.innerHTML = `<table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Device</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th></tr></thead><tbody>${
     nodes.map(n => {
       const cur = (_netmapData.edges.find(e => e.from === n.id) || {}).to || '';
       // Build per-row options where the current value is selected and self-link is removed
@@ -5043,9 +5043,9 @@ async function netmapEditOpen() {
           `<option value="${escHtml(o.id)}"${o.id === cur ? ' selected' : ''}>${escHtml(o.name)} (${escHtml(o.type || 'host')})</option>`
         ).join('');
       return `<tr>
-        <td style="padding:6px 8px;font-weight:500">${escHtml(n.name)}</td>
-        <td style="padding:6px 8px;color:var(--muted);font-size:12px">${escHtml(n.type || 'host')}</td>
-        <td style="padding:6px 8px"><select class="form-input netmap-link-sel" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}" style="width:100%">${rowOpts}</select></td>
+        <td class="isl-469">${escHtml(n.name)}</td>
+        <td class="isl-470">${escHtml(n.type || 'host')}</td>
+        <td class="cell-m"><select class="form-input netmap-link-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}">${rowOpts}</select></td>
       </tr>`;
     }).join('')
   }</tbody></table>`;
@@ -5095,7 +5095,7 @@ async function tunnelRenderList() {
   const list = document.getElementById('tun-list');
   const tunnels = await api('GET', '/network-map/tunnels');
   if (!Array.isArray(tunnels) || !tunnels.length) {
-    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:24px">No tunnels yet.</div>';
+    list.innerHTML = '<div class="empty-state-sm">No tunnels yet.</div>';
     return;
   }
   // Build a name lookup for friendlier rendering
@@ -5103,9 +5103,9 @@ async function tunnelRenderList() {
     const n = _netmapData.nodes.find(x => x.id === id);
     return n ? n.name : id;
   };
-  list.innerHTML = tunnels.map(t => `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2);display:flex;justify-content:space-between;align-items:center;gap:10px">
-    <div style="font-weight:500">${escHtml(nameOf(t.endpoints[0]))} <span style="color:var(--amber)">↔</span> ${escHtml(nameOf(t.endpoints[1]))}</div>
-    <button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tunnelDelete('${escAttr(t.id)}')">✕</button>
+  list.innerHTML = tunnels.map(t => `<div class="isl-471">
+    <div class="fw-500">${escHtml(nameOf(t.endpoints[0]))} <span class="c-amber">↔</span> ${escHtml(nameOf(t.endpoints[1]))}</div>
+    <button class="btn-icon c-danger-outline" data-action="tunnelDelete" data-arg="${escAttr(t.id)}" >✕</button>
   </div>`).join('');
 }
 
@@ -5155,7 +5155,7 @@ async function enterTLS() {
 
 async function loadTLS() {
   const tbody = document.getElementById('tls-tbody');
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</tbody>';
+  tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</tbody>';
   const data = await api('GET', '/tls/targets');
   _tlsTargets = Array.isArray(data) ? data : [];
   renderTLS();
@@ -5186,43 +5186,43 @@ function _registerTlsTable() {
     }),
     row: (t) => {
       const statusBadge = (() => {
-        if (t.status === 'critical') return '<span style="color:var(--red);font-weight:600">● critical</span>';
-        if (t.status === 'warning')  return '<span style="color:var(--amber);font-weight:600">● warn</span>';
-        if (t.status === 'error')    return '<span style="color:var(--red)">● error</span>';
-        if (t.status === 'ok')       return '<span style="color:var(--green)">● ok</span>';
-        return '<span style="color:var(--muted)">— never scanned</span>';
+        if (t.status === 'critical') return '<span class="c-red-bold">● critical</span>';
+        if (t.status === 'warning')  return '<span class="c-amber-bold">● warn</span>';
+        if (t.status === 'error')    return '<span class="c-red">● error</span>';
+        if (t.status === 'ok')       return '<span class="c-green">● ok</span>';
+        return '<span class="c-muted">— never scanned</span>';
       })();
       const daneBadge = (() => {
         if (!t.dane_check) return '';
         const s = t.dane_status || 'not_checked';
         const colours = { ok: 'var(--green)', mismatch: 'var(--amber)', insecure: 'var(--red)', error: 'var(--red)', missing: 'var(--muted)', not_checked: 'var(--muted)' };
         const labels  = { ok: 'DANE ok', mismatch: 'DANE mismatch', insecure: 'DANE insecure', error: 'DANE error', missing: 'DANE missing', not_checked: 'DANE pending' };
-        return `<span style="color:${colours[s] || 'var(--muted)'};font-size:11px;margin-left:8px;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px">${labels[s] || s}</span>`;
+        return `<span class="isl-472">${labels[s] || s}</span>`;
       })();
       const expires = t.expires_at ? new Date(t.expires_at * 1000).toLocaleDateString() : '—';
       const lastChk = t.last_check ? new Date(t.last_check * 1000).toLocaleString() : '—';
       const days = (t.status === 'ok' || t.status === 'warning' || t.status === 'critical')
         ? `${t.days_left}d` : (t.dns_error ? 'DNS' : t.tls_error ? 'TLS' : '—');
       const issuer = (t.issuer || '').replace(/CN=/, '').split(',')[0] || '—';
-      const labelHtml = t.label ? `<span style="color:var(--muted);font-size:11px;margin-left:6px">${escHtml(t.label)}</span>` : '';
-      const connectHtml = t.connect_address ? `<div style="color:var(--muted);font-size:11px;margin-top:2px">via ${escHtml(t.connect_address)}</div>` : '';
+      const labelHtml = t.label ? `<span class="isl-289">${escHtml(t.label)}</span>` : '';
+      const connectHtml = t.connect_address ? `<div class="isl-473">via ${escHtml(t.connect_address)}</div>` : '';
       const starttlsHtml = (t.starttls && t.starttls !== 'none')
-        ? `<span style="color:var(--accent);font-size:10px;margin-left:6px;background:rgba(59,126,255,0.12);padding:1px 5px;border-radius:3px;text-transform:uppercase">${escHtml(t.starttls)}</span>`
+        ? `<span class="isl-474">${escHtml(t.starttls)}</span>`
         : '';
       // v2.1.5: ✨ Triage only on warning/critical/error — no point asking
       // about cert lifecycle on a healthy 90-days-left target.
       const aiBtn = (t.status === 'warning' || t.status === 'critical' || t.status === 'error')
-        ? `<button class="btn-icon" style="padding:2px 6px;font-size:11px;margin-right:6px" onclick="event.stopPropagation();aiExplainTls('${escAttr(t.host)}',${t.port||443},${t.expires_at||0},'${escAttr(t.issuer||'')}','starttls=${escAttr(t.starttls||'none')}')" title="AI: triage this cert">✨</button>`
+        ? `<button class="btn-icon isl-475" data-action="aiExplainTls" data-stop-prop="1" data-arg="${escAttr(t.host)}" data-arg2="${t.port||443}" data-arg3="${t.expires_at||0}" data-arg4="${escAttr(t.issuer||'')}" data-arg5="starttls=${escAttr(t.starttls||'none')}" title="AI: triage this cert">✨</button>`
         : '';
-      return `<tr style="cursor:pointer" onclick="tlsDetailOpen('${escAttr(t.id)}')">
+      return `<tr data-action="tlsDetailOpen" data-arg="${escAttr(t.id)}" class="pointer">
         <td>${statusBadge}${daneBadge}</td>
-        <td style="font-family:monospace">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
-        <td style="font-family:monospace;color:var(--muted)">${t.port}</td>
-        <td style="font-weight:500">${days}</td>
-        <td style="font-size:12px;color:var(--muted)">${expires}</td>
-        <td style="font-size:12px;color:var(--muted)">${escHtml(issuer.slice(0,30))}</td>
-        <td style="font-size:12px;color:var(--muted);white-space:nowrap">${lastChk}</td>
-        <td onclick="event.stopPropagation()">${aiBtn}<button class="btn-icon" style="color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="tlsDelete('${escAttr(t.id)}','${escAttr(t.host)}')">✕</button></td>
+        <td class="ff-mono">${escHtml(t.host)}${labelHtml}${starttlsHtml}${connectHtml}</td>
+        <td class="isl-476">${t.port}</td>
+        <td class="fw-500">${days}</td>
+        <td class="hint">${expires}</td>
+        <td class="hint">${escHtml(issuer.slice(0,30))}</td>
+        <td class="hint-nowrap">${lastChk}</td>
+        <td data-stop-prop="1" >${aiBtn}<button class="btn-icon c-danger-outline" data-action="tlsDelete" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.host)}" >✕</button></td>
       </tr>`;
     },
     emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
@@ -5302,35 +5302,35 @@ function tlsDetailOpen(id) {
   const t = _tlsTargets.find(x => x.id === id);
   if (!t) return;
   document.getElementById('tls-detail-title').textContent = `${t.host}:${t.port}`;
-  const fmt = (v, fallback) => v ? escHtml(v) : `<span style="color:var(--muted)">${fallback}</span>`;
+  const fmt = (v, fallback) => v ? escHtml(v) : `<span class="c-muted">${fallback}</span>`;
   const sans = (t.san && t.san.length)
-    ? t.san.map(s => `<code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-size:11px;margin-right:4px">${escHtml(s)}</code>`).join('')
-    : '<span style="color:var(--muted)">none</span>';
+    ? t.san.map(s => `<code class="isl-477">${escHtml(s)}</code>`).join('')
+    : '<span class="c-muted">none</span>';
   const errs = [
-    t.dns_error    ? `<div style="color:var(--red);margin-top:4px">DNS: ${escHtml(t.dns_error)}</div>`    : '',
-    t.tls_error    ? `<div style="color:var(--red);margin-top:4px">TLS: ${escHtml(t.tls_error)}</div>`    : '',
-    t.verify_error ? `<div style="color:var(--amber);margin-top:4px">Verification: ${escHtml(t.verify_error)}</div>` : '',
+    t.dns_error    ? `<div class="isl-478">DNS: ${escHtml(t.dns_error)}</div>`    : '',
+    t.tls_error    ? `<div class="isl-478">TLS: ${escHtml(t.tls_error)}</div>`    : '',
+    t.verify_error ? `<div class="isl-479">Verification: ${escHtml(t.verify_error)}</div>` : '',
   ].join('');
 
   // v1.11.2: hostname-match indicator. Useful when probing by IP — helps
   // distinguish "wrong cert" from "right cert, wrong IP."
   const hostnameMatchHtml = (() => {
     if (t.hostname_match === null || t.hostname_match === undefined) {
-      return '<span style="color:var(--muted)">—</span>';
+      return '<span class="c-muted">—</span>';
     }
     return t.hostname_match
-      ? '<span style="color:var(--green)">✓ matches</span>'
-      : '<span style="color:var(--amber)">✗ no match</span>';
+      ? '<span class="c-green">✓ matches</span>'
+      : '<span class="c-amber">✗ no match</span>';
   })();
 
   // Connect-address row only renders when overridden — otherwise it's noise
   const connectAddrRow = t.connect_address
-    ? `<div style="color:var(--muted)">Connect address</div><div style="font-family:monospace">${escHtml(t.connect_address)}</div>`
+    ? `<div class="c-muted">Connect address</div><div class="ff-mono">${escHtml(t.connect_address)}</div>`
     : '';
 
   // STARTTLS row only renders when not 'none' — direct TLS doesn't need a label
   const starttlsRow = (t.starttls && t.starttls !== 'none')
-    ? `<div style="color:var(--muted)">STARTTLS</div><div style="font-family:monospace">${escHtml(t.starttls.toUpperCase())}</div>`
+    ? `<div class="c-muted">STARTTLS</div><div class="ff-mono">${escHtml(t.starttls.toUpperCase())}</div>`
     : '';
 
   // DANE block — render the records in a compact table when present.
@@ -5364,45 +5364,45 @@ function tlsDetailOpen(id) {
     const text   = daneStatusText[status]   || status;
     let recordsHtml = '';
     if ((t.dane_records || []).length) {
-      recordsHtml = `<table style="width:100%;margin-top:8px;font-family:monospace;font-size:11px;border-collapse:collapse">
-        <thead><tr style="border-bottom:1px solid var(--border);text-align:left">
-          <th style="padding:4px 8px">Usage</th>
-          <th style="padding:4px 8px">Selector</th>
-          <th style="padding:4px 8px">Match</th>
-          <th style="padding:4px 8px">Data</th>
+      recordsHtml = `<table class="isl-480">
+        <thead><tr class="isl-481">
+          <th class="isl-44">Usage</th>
+          <th class="isl-44">Selector</th>
+          <th class="isl-44">Match</th>
+          <th class="isl-44">Data</th>
         </tr></thead><tbody>
         ${t.dane_records.map(r => `<tr>
-          <td style="padding:4px 8px">${r.usage}</td>
-          <td style="padding:4px 8px">${r.selector}</td>
-          <td style="padding:4px 8px">${r.matching_type}</td>
-          <td style="padding:4px 8px;word-break:break-all">${escHtml(String(r.data || '').slice(0, 64))}${(r.data || '').length > 64 ? '…' : ''}</td>
+          <td class="isl-44">${r.usage}</td>
+          <td class="isl-44">${r.selector}</td>
+          <td class="isl-44">${r.matching_type}</td>
+          <td class="isl-482">${escHtml(String(r.data || '').slice(0, 64))}${(r.data || '').length > 64 ? '…' : ''}</td>
         </tr>`).join('')}
         </tbody></table>`;
     }
-    daneHtml = `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-      <div style="font-weight:600;margin-bottom:6px">DANE / TLSA</div>
-      <div style="color:${colour};font-size:13px">${escHtml(text)}</div>
-      ${t.dane_error ? `<div style="color:var(--red);font-size:12px;margin-top:4px">${escHtml(t.dane_error)}</div>` : ''}
+    daneHtml = `<div class="isl-483">
+      <div class="isl-421">DANE / TLSA</div>
+      <div class="isl-484">${escHtml(text)}</div>
+      ${t.dane_error ? `<div class="isl-485">${escHtml(t.dane_error)}</div>` : ''}
       ${recordsHtml}
     </div>`;
   }
 
   const body = document.getElementById('tls-detail-body');
   body.innerHTML = `
-    <div style="display:grid;grid-template-columns:140px 1fr;gap:8px 14px">
-      <div style="color:var(--muted)">Host (SNI)</div><div style="font-family:monospace">${escHtml(t.host)}:${t.port}</div>
+    <div class="isl-486">
+      <div class="c-muted">Host (SNI)</div><div class="ff-mono">${escHtml(t.host)}:${t.port}</div>
       ${connectAddrRow}
       ${starttlsRow}
-      <div style="color:var(--muted)">Hostname match</div><div>${hostnameMatchHtml}</div>
-      <div style="color:var(--muted)">Label</div><div>${fmt(t.label, '—')}</div>
-      <div style="color:var(--muted)">Status</div><div>${escHtml(t.status)}</div>
-      <div style="color:var(--muted)">Days left</div><div>${t.days_left}d</div>
-      <div style="color:var(--muted)">Expires</div><div>${t.expires_at ? new Date(t.expires_at*1000).toLocaleString() : '—'}</div>
-      <div style="color:var(--muted)">Issuer</div><div>${fmt(t.issuer, '—')}</div>
-      <div style="color:var(--muted)">Subject</div><div>${fmt(t.subject, '—')}</div>
-      <div style="color:var(--muted)">SAN</div><div>${sans}</div>
-      <div style="color:var(--muted)">DNS A/AAAA</div><div style="font-family:monospace">${(t.addresses || []).map(escHtml).join(', ') || '—'}</div>
-      <div style="color:var(--muted)">Warn / Critical</div><div>${t.warn_days}d / ${t.crit_days}d</div>
+      <div class="c-muted">Hostname match</div><div>${hostnameMatchHtml}</div>
+      <div class="c-muted">Label</div><div>${fmt(t.label, '—')}</div>
+      <div class="c-muted">Status</div><div>${escHtml(t.status)}</div>
+      <div class="c-muted">Days left</div><div>${t.days_left}d</div>
+      <div class="c-muted">Expires</div><div>${t.expires_at ? new Date(t.expires_at*1000).toLocaleString() : '—'}</div>
+      <div class="c-muted">Issuer</div><div>${fmt(t.issuer, '—')}</div>
+      <div class="c-muted">Subject</div><div>${fmt(t.subject, '—')}</div>
+      <div class="c-muted">SAN</div><div>${sans}</div>
+      <div class="c-muted">DNS A/AAAA</div><div class="ff-mono">${(t.addresses || []).map(escHtml).join(', ') || '—'}</div>
+      <div class="c-muted">Warn / Critical</div><div>${t.warn_days}d / ${t.crit_days}d</div>
     </div>
     ${errs}
     ${daneHtml}
@@ -5508,9 +5508,9 @@ function renderLinks() {
 
   if (!filtered.length) {
     if (!all.length) {
-      grid.innerHTML = '<div style="color:var(--muted);text-align:center;padding:60px">No links yet. Click "+ Add link" to start.</div>';
+      grid.innerHTML = '<div class="isl-487">No links yet. Click "+ Add link" to start.</div>';
     } else {
-      grid.innerHTML = '<div style="color:var(--muted);text-align:center;padding:60px">No links match the current filter.</div>';
+      grid.innerHTML = '<div class="isl-487">No links match the current filter.</div>';
     }
     return;
   }
@@ -5532,12 +5532,12 @@ function renderLinks() {
     const items = byCat[cat];
     const cards = items.map(l => _renderLinkCard(l)).join('');
     return `<div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <h3 style="margin:0;font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">${escHtml(cat)}</h3>
-        <span style="font-size:11px;color:var(--muted);opacity:0.7">${items.length}</span>
-        <div style="flex:1;height:1px;background:var(--border)"></div>
+      <div class="isl-488">
+        <h3 class="isl-489">${escHtml(cat)}</h3>
+        <span class="isl-490">${items.length}</span>
+        <div class="isl-491"></div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));gap:12px">${cards}</div>
+      <div class="isl-492">${cards}</div>
     </div>`;
   }).join('');
 }
@@ -5547,8 +5547,8 @@ function _renderLinkCard(l) {
   const borderColor = isInternal ? 'var(--amber)' : 'var(--accent)';
   const borderStyle = isInternal ? 'dashed' : 'solid';
   const scopeBadge = isInternal
-    ? '<span style="font-size:10px;color:var(--amber);background:rgba(245,158,11,0.12);padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Internal</span>'
-    : '<span style="font-size:10px;color:var(--accent);background:rgba(59,126,255,0.12);padding:2px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">External</span>';
+    ? '<span class="isl-493">Internal</span>'
+    : '<span class="isl-494">External</span>';
 
   // Display the URL's hostname (stripped) for visual reference. Falls back
   // to the full URL if it can't be parsed.
@@ -5562,25 +5562,25 @@ function _renderLinkCard(l) {
   // entire card is clickable; in edit mode the click is intercepted to
   // avoid accidentally opening the link while editing.
   const editButtons = _linksEditMode
-    ? `<div style="display:flex;gap:6px;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
-         <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="event.stopPropagation();linkEditOpen('${escAttr(l.id)}')">Edit</button>
-         <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="event.stopPropagation();linkDelete('${escAttr(l.id)}','${escAttr(l.title)}')">Delete</button>
+    ? `<div class="isl-495">
+         <button class="btn-icon badge-xs" data-stop-prop="1" data-action="linkEditOpen" data-arg="${escAttr(l.id)}" >Edit</button>
+         <button class="btn-icon isl-459" data-stop-prop="1" data-action="linkDelete" data-arg="${escAttr(l.id)}" data-arg2="${escAttr(l.title)}" >Delete</button>
        </div>`
     : '';
 
   // The whole card is the click target when not in edit mode. We use an
   // <a> wrapper rather than onclick=window.open so middle-click and
   // ctrl-click work naturally for power users.
-  const cardInner = `<div style="border:1px ${borderStyle} ${borderColor};border-radius:8px;padding:12px 14px;background:var(--surface2);transition:background 0.1s;cursor:${_linksEditMode ? 'default' : 'pointer'};height:100%;display:flex;flex-direction:column;justify-content:space-between"
+  const cardInner = `<div
     onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface2)'"
-    title="${escHtml(l.description || l.url)}">
+    title="${escHtml(l.description || l.url)}" class="isl-496">
     <div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">
-        <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(l.title)}</div>
+      <div class="isl-497">
+        <div class="isl-498">${escHtml(l.title)}</div>
         ${scopeBadge}
       </div>
-      <div style="font-family:monospace;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(displayUrl)}</div>
-      ${l.description ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escHtml(l.description)}</div>` : ''}
+      <div class="isl-499">${escHtml(displayUrl)}</div>
+      ${l.description ? `<div class="isl-500">${escHtml(l.description)}</div>` : ''}
     </div>
     ${editButtons}
   </div>`;
@@ -5589,7 +5589,7 @@ function _renderLinkCard(l) {
     // No anchor — clicks go through stopPropagation on edit buttons above.
     return cardInner;
   }
-  return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit;display:block">${cardInner}</a>`;
+  return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-501">${cardInner}</a>`;
 }
 
 function linksToggleEditMode() {
@@ -5720,7 +5720,7 @@ function renderScriptsList() {
                             (s.description||'').toLowerCase().includes(term));
   }
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">${_scriptsCache.length ? 'No matches' : 'No scripts yet. Click <b>New script</b> to create one.'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${_scriptsCache.length ? 'No matches' : 'No scripts yet. Click <b>New script</b> to create one.'}</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(s => {
@@ -5730,15 +5730,15 @@ function renderScriptsList() {
       ? '<span class="patch-badge warn" title="Dry run flagged dangerous patterns">⚠ DANGER</span>'
       : '';
     return `<tr>
-      <td style="font-weight:500">${escHtml(s.name||'—')}</td>
-      <td style="color:var(--muted);font-size:12px">${escHtml(s.description||'')}</td>
-      <td style="font-family:monospace;font-size:12px;color:var(--muted)">${escHtml(size)}</td>
-      <td style="font-size:12px;color:var(--muted)">${escHtml(updated)}</td>
+      <td class="fw-500">${escHtml(s.name||'—')}</td>
+      <td class="hint">${escHtml(s.description||'')}</td>
+      <td class="isl-328">${escHtml(size)}</td>
+      <td class="hint">${escHtml(updated)}</td>
       <td>${dangerBadge}</td>
-      <td style="white-space:nowrap">
-        <button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="openScriptEdit('${escAttr(s.id)}')">Edit</button>
-        <button class="btn-icon" style="font-size:11px;padding:4px 8px" onclick="dryRunScript('${escAttr(s.id)}')">Dry run</button>
-        <button class="btn-icon" style="font-size:11px;padding:4px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="deleteScript('${escAttr(s.id)}','${escAttr(s.name||'')}')">Delete</button>
+      <td class="nowrap">
+        <button class="btn-icon isl-352" data-action="openScriptEdit" data-arg="${escAttr(s.id)}" >Edit</button>
+        <button class="btn-icon isl-352" data-action="dryRunScript" data-arg="${escAttr(s.id)}" >Dry run</button>
+        <button class="btn-icon isl-502" data-action="deleteScript" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name||'')}">Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -5943,7 +5943,7 @@ let _batchJobTimer = null;
 function openBatchJobModal(jobId) {
   document.getElementById('batch-job-id').value = jobId;
   document.getElementById('batch-job-body').innerHTML =
-    '<div style="color:var(--muted);text-align:center;padding:40px">Loading…</div>';
+    '<div class="empty-state">Loading…</div>';
   document.getElementById('batch-job-title').textContent = 'Batch script run';
   document.getElementById('batch-job-sub').textContent = 'Polling for results…';
   openModal('batch-job-modal');
@@ -5962,7 +5962,7 @@ async function refreshBatchJob() {
   const data = await api('GET', '/exec/batch/' + encodeURIComponent(jobId));
   if (!data || data.error) {
     document.getElementById('batch-job-body').innerHTML =
-      `<div style="color:var(--red);padding:20px">${escHtml(data?.error||'Failed to load job')}</div>`;
+      `<div class="c-red-p20">${escHtml(data?.error||'Failed to load job')}</div>`;
     clearInterval(_batchJobTimer);
     return;
   }
@@ -5976,22 +5976,22 @@ async function refreshBatchJob() {
   let body = '';
   for (const [devId, e] of entries) {
     const name = escHtml(e.name || devId);
-    let pill = '<span class="patch-badge ok" style="font-size:11px">pending</span>';
+    let pill = '<span class="patch-badge ok fs-11">pending</span>';
     let outBox = '';
     if (!e.queued) {
-      pill = `<span class="patch-badge warn" style="font-size:11px">${escHtml(e.reason||'skipped')}</span>`;
+      pill = `<span class="patch-badge warn fs-11">${escHtml(e.reason||'skipped')}</span>`;
     } else if (e.status === 'done') {
       const ok = e.rc === 0;
-      pill = `<span class="patch-badge ${ok ? 'ok' : 'warn'}" style="font-size:11px">rc=${escHtml(String(e.rc))}</span>`;
+      pill = `<span class="patch-badge ${ok ? 'ok' : 'warn'} fs-11">rc=${escHtml(String(e.rc))}</span>`;
       const finished = e.finished_at ? new Date(e.finished_at*1000).toLocaleTimeString() : '';
-      outBox = `<pre style="margin-top:6px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-word">${escHtml(e.output||'(no output)')}</pre><div style="font-size:11px;color:var(--muted);margin-top:2px">finished ${escHtml(finished)}</div>`;
+      outBox = `<pre class="isl-503">${escHtml(e.output||'(no output)')}</pre><div class="isl-504">finished ${escHtml(finished)}</div>`;
     }
-    body += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--surface)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div style="font-weight:600">${name}</div>${pill}</div>
+    body += `<div class="isl-505">
+      <div class="isl-506"><div class="fw-600">${name}</div>${pill}</div>
       ${outBox}
     </div>`;
   }
-  if (!entries.length) body = '<div style="color:var(--muted);padding:20px">No targets in this batch.</div>';
+  if (!entries.length) body = '<div class="isl-507">No targets in this batch.</div>';
   document.getElementById('batch-job-body').innerHTML = body;
   // Stop polling once everyone has either returned output or was skipped.
   if (queued === 0 || done >= queued) {
@@ -6191,20 +6191,20 @@ function _ensureAIModal() {
   wrap.className = 'modal-overlay';
   wrap.id = 'ai-modal';
   wrap.innerHTML = `
-    <div class="modal" style="max-width:720px;width:92vw;max-height:88vh;display:flex;flex-direction:column">
-      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:600" id="ai-modal-title">✨ AI</div>
-        <button class="btn-icon" onclick="closeAIModal()" style="padding:4px 8px">✕</button>
+    <div class="modal isl-508">
+      <div class="modal-header row-between">
+        <div id="ai-modal-title" class="fw-600">✨ AI</div>
+        <button class="btn-icon isl-44" data-action="closeAIModal" >✕</button>
       </div>
-      <div style="padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)" id="ai-modal-meta">—</div>
-      <div id="ai-modal-body" style="flex:1;overflow:auto;padding:14px 16px;font-size:13px;line-height:1.5;white-space:pre-wrap;font-family:ui-sans-serif,-apple-system,Segoe UI,sans-serif">
-        <div style="color:var(--muted)">Thinking…</div>
+      <div id="ai-modal-meta" class="isl-509">—</div>
+      <div id="ai-modal-body" class="isl-510">
+        <div class="c-muted">Thinking…</div>
       </div>
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn-icon" id="ai-modal-copy" onclick="aiModalCopy()" disabled>Copy response</button>
-        <button class="btn-icon" id="ai-modal-action" style="display:none"></button>
-        <div style="flex:1"></div>
-        <button class="btn-icon" onclick="closeAIModal()">Close</button>
+      <div class="isl-511">
+        <button class="btn-icon" id="ai-modal-copy" data-action="aiModalCopy" disabled>Copy response</button>
+        <button class="btn-icon d-none" id="ai-modal-action"></button>
+        <div class="flex-1"></div>
+        <button class="btn-icon" data-action="closeAIModal" >Close</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -6229,7 +6229,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   document.getElementById('ai-modal-meta').textContent  =
     `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
   const body = document.getElementById('ai-modal-body');
-  body.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--muted)">${aiThinkingHtml()} <span>Thinking… <span id="ai-modal-elapsed" style="font-size:11px"></span></span></div>`;
+  body.innerHTML = `<div class="isl-512">${aiThinkingHtml()} <span>Thinking… <span id="ai-modal-elapsed" class="fs-11"></span></span></div>`;
   body.dataset.rawText = '';
   document.getElementById('ai-modal-copy').disabled = true;
   const actionBtn = document.getElementById('ai-modal-action');
@@ -6259,7 +6259,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
     // HTML or a timeout — show it intelligibly. Most common: nginx 504
     // because fastcgi_read_timeout is shorter than the model's actual
     // think time.
-    body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
+    body.innerHTML = `<div class="isl-513">${escHtml(resp.error)}</div>`;
     return;
   }
   // v2.1.5: render markdown so **bold** and # headers and `code`
@@ -6512,9 +6512,7 @@ function renderMarkdown(text) {
   html = html.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
     const idx = codeBlocks.length;
     codeBlocks.push(
-      `<pre style="background:var(--surface2);border:1px solid var(--border);` +
-      `padding:10px 12px;border-radius:6px;overflow-x:auto;font-size:12px;` +
-      `margin:8px 0;line-height:1.5"><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`
+      `<pre class="isl-514"><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`
     );
     return `\x00CODEBLOCK${idx}\x00`;
   });
@@ -6525,8 +6523,7 @@ function renderMarkdown(text) {
   html = html.replace(/`([^`\n]+)`/g, (_, code) => {
     const idx = inlineCodes.length;
     inlineCodes.push(
-      `<code style="background:var(--surface2);padding:1px 5px;` +
-      `border-radius:3px;font-size:90%;font-family:ui-monospace,monospace">` +
+      `<code class="isl-515">` +
       `${code}</code>`
     );
     return `\x00INLINE${idx}\x00`;
@@ -6534,11 +6531,11 @@ function renderMarkdown(text) {
 
   // Headers — only at the start of a line. The big-three are enough.
   html = html.replace(/^### +(.+)$/gm,
-    '<div style="font-size:14px;font-weight:600;margin:10px 0 4px">$1</div>');
+    '<div class="isl-516">$1</div>');
   html = html.replace(/^## +(.+)$/gm,
-    '<div style="font-size:15px;font-weight:600;margin:12px 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px">$1</div>');
+    '<div class="isl-517">$1</div>');
   html = html.replace(/^# +(.+)$/gm,
-    '<div style="font-size:17px;font-weight:700;margin:14px 0 8px">$1</div>');
+    '<div class="isl-518">$1</div>');
 
   // Bold (**foo**) and italic (*foo*). Run bold first so we don't
   // eat the inner asterisks of bold inside italic.
@@ -6561,10 +6558,10 @@ function renderMarkdown(text) {
     const bullet = line.match(/^(?:[-*]) +(.+)$/);
     const numbered = line.match(/^\d+\.\s+(.+)$/);
     if (bullet) {
-      if (listType !== 'ul') { closeList(); out.push('<ul style="margin:6px 0;padding-left:22px">'); listType = 'ul'; }
+      if (listType !== 'ul') { closeList(); out.push('<ul class="isl-519">'); listType = 'ul'; }
       out.push(`<li>${bullet[1]}</li>`);
     } else if (numbered) {
-      if (listType !== 'ol') { closeList(); out.push('<ol style="margin:6px 0;padding-left:22px">'); listType = 'ol'; }
+      if (listType !== 'ol') { closeList(); out.push('<ol class="isl-519">'); listType = 'ol'; }
       out.push(`<li>${numbered[1]}</li>`);
     } else {
       closeList();
@@ -6576,7 +6573,7 @@ function renderMarkdown(text) {
 
   // Blockquotes
   html = html.replace(/^&gt; (.+)$/gm,
-    '<div style="border-left:3px solid var(--border);padding:2px 10px;color:var(--muted);margin:6px 0">$1</div>');
+    '<div class="isl-520">$1</div>');
 
   // Paragraphs: turn blank-line-separated chunks into <p>, single newlines
   // into <br>. Don't wrap content that's already block-level (lists,
@@ -6585,7 +6582,7 @@ function renderMarkdown(text) {
     const trimmed = b.trim();
     if (!trimmed) return '';
     if (/^<(?:div|ul|ol|pre|h[1-6]|blockquote)/i.test(trimmed)) return trimmed;
-    return `<p style="margin:6px 0;line-height:1.55">${trimmed.replace(/\n/g, '<br>')}</p>`;
+    return `<p class="isl-521">${trimmed.replace(/\n/g, '<br>')}</p>`;
   });
   html = blocks.join('\n');
 
@@ -6669,9 +6666,9 @@ function _aiPageRenderConv() {
   const wrap = document.getElementById('ai-page-history');
   if (!wrap) return;
   if (!_aiPageConv.length) {
-    wrap.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px 12px">' +
+    wrap.innerHTML = '<div class="isl-117">' +
       'No messages yet — type a prompt below.<br>' +
-      '<span style="font-size:11px">Conversation history is kept in your browser (localStorage) — not on the server. ' +
+      '<span class="fs-11">Conversation history is kept in your browser (localStorage) — not on the server. ' +
       'Clearing the conversation clears only your view.</span></div>';
     return;
   }
@@ -6681,19 +6678,19 @@ function _aiPageRenderConv() {
     const bg = isUser ? 'rgba(59,126,255,0.08)' : 'var(--surface)';
     const border = isUser ? 'rgba(59,126,255,0.25)' : 'var(--border)';
     const label = isUser ? 'You' : (m.model ? `Assistant · ${escHtml(m.model)}` : 'Assistant');
-    const meta = m.meta ? `<div style="font-size:10px;color:var(--muted);margin-top:6px">${escHtml(m.meta)}</div>` : '';
+    const meta = m.meta ? `<div class="isl-522">${escHtml(m.meta)}</div>` : '';
     // v2.1.5: render markdown for assistant turns. User turns stay
     // plain — what the user typed shouldn't be re-interpreted.
     let content;
     if (isPending) {
-      content = '<div style="color:var(--muted)">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
+      content = '<div class="c-muted">Thinking… <span class="ai-page-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
     } else if (isUser) {
-      content = `<div style="white-space:pre-wrap">${escHtml(m.content || '')}</div>`;
+      content = `<div class="isl-523">${escHtml(m.content || '')}</div>`;
     } else {
       content = `<div class="ai-content">${renderMarkdown(m.content || '')}</div>`;
     }
-    return `<div style="margin-bottom:12px"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px">${label}</div>` +
-           `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 14px;word-wrap:break-word">${content}${meta}</div></div>`;
+    return `<div class="mb-12"><div class="isl-524">${label}</div>` +
+           `<div class="isl-525">${content}${meta}</div></div>`;
   }).join('');
   wrap.scrollTop = wrap.scrollHeight;
 }
@@ -6707,7 +6704,7 @@ async function aiPageRefreshStats() {
     const stats = await aiApi('GET', '/ai/stats');
     if (!stats.ok) {
       document.getElementById('ai-page-stat-status').innerHTML =
-        '<span style="color:var(--red)">● Error</span>';
+        '<span class="c-red">● Error</span>';
       document.getElementById('ai-page-stat-provider').textContent = '—';
       return;
     }
@@ -6715,20 +6712,20 @@ async function aiPageRefreshStats() {
     document.getElementById('ai-page-stat-baseurl').textContent  = stats.base_url || '';
     document.getElementById('ai-page-stat-version').textContent  = stats.version || (stats.local ? 'unknown' : '(cloud)');
     document.getElementById('ai-page-stat-status').innerHTML = stats.reachable
-      ? '<span style="color:var(--green)">● Reachable</span>'
-      : '<span style="color:var(--amber)">● Unreachable</span>';
+      ? '<span class="c-green">● Reachable</span>'
+      : '<span class="c-amber">● Unreachable</span>';
     const loadedEl = document.getElementById('ai-page-stat-loaded');
     if (Array.isArray(stats.loaded_models) && stats.loaded_models.length) {
       loadedEl.innerHTML = stats.loaded_models.map(m =>
         `<div><strong>${escHtml(m.name)}</strong>` +
-        (m.vram_mb ? ` <span style="color:var(--muted)">· ${m.vram_mb} MB VRAM</span>` : '') +
-        (m.expires_at ? ` <span style="color:var(--muted);font-size:11px">· expires ${escHtml(String(m.expires_at).slice(0,19).replace('T',' '))}</span>` : '') +
+        (m.vram_mb ? ` <span class="c-muted">· ${m.vram_mb} MB VRAM</span>` : '') +
+        (m.expires_at ? ` <span class="meta-sm-nm">· expires ${escHtml(String(m.expires_at).slice(0,19).replace('T',' '))}</span>` : '') +
         '</div>'
       ).join('');
     } else if (stats.local) {
-      loadedEl.innerHTML = '<span style="color:var(--muted)">No models currently loaded (will load on first request)</span>';
+      loadedEl.innerHTML = '<span class="c-muted">No models currently loaded (will load on first request)</span>';
     } else {
-      loadedEl.innerHTML = '<span style="color:var(--muted)">(cloud provider — no introspection)</span>';
+      loadedEl.innerHTML = '<span class="c-muted">(cloud provider — no introspection)</span>';
     }
   } finally {
     _aiPageStatsRefreshing = false;
@@ -6886,9 +6883,8 @@ function deviceDropdownHtml(d, isMonitored) {
   const idEsc   = d.id;
   const nameEsc = escAttr(d.name);
   // v2.9.0: ⋮ opens the device drawer on Actions & Settings tab.
-  return `<button class="btn-icon" title="Actions &amp; Settings"
-    style="font-size:18px;padding:2px 8px;line-height:1"
-    onclick="event.stopPropagation();openDeviceDrawer('${idEsc}','${nameEsc}','actions')">⋮</button>`;
+  return `<button class="btn-icon isl-526" title="Actions &amp; Settings"
+    data-stop-prop="1" data-action="openDeviceDrawer" data-arg="${idEsc}" data-arg2="${nameEsc}" data-arg3="actions" >⋮</button>`;
 }
 function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs) {
   const logs = Array.isArray(recentLogs) ? recentLogs.join('\n') : (recentLogs || '');
@@ -7053,20 +7049,20 @@ function _ensureRunbookModal() {
   wrap.className = 'modal-overlay';
   wrap.id = 'runbook-modal';
   wrap.innerHTML = `
-    <div class="modal" style="max-width:820px;width:94vw;max-height:88vh;display:flex;flex-direction:column">
-      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:600" id="runbook-modal-title">✨ Runbook</div>
-        <button class="btn-icon" onclick="closeRunbookModal()" style="padding:4px 8px">✕</button>
+    <div class="modal isl-527">
+      <div class="modal-header row-between">
+        <div id="runbook-modal-title" class="fw-600">✨ Runbook</div>
+        <button class="btn-icon isl-44" data-action="closeRunbookModal" >✕</button>
       </div>
-      <div style="padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)" id="runbook-modal-meta">—</div>
-      <div id="runbook-modal-body" style="flex:1;overflow:auto;padding:16px 20px;font-size:13px;line-height:1.55">
-        <div style="color:var(--muted)">Generating runbook…</div>
+      <div id="runbook-modal-meta" class="isl-509">—</div>
+      <div id="runbook-modal-body" class="isl-528">
+        <div class="c-muted">Generating runbook…</div>
       </div>
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn-icon" id="runbook-modal-copy" onclick="runbookModalCopy()" disabled>Copy markdown</button>
-        <button class="btn-icon" id="runbook-modal-regen" onclick="runbookModalRegen()" style="display:none">Regenerate</button>
-        <div style="flex:1"></div>
-        <button class="btn-icon" onclick="closeRunbookModal()">Close</button>
+      <div class="isl-529">
+        <button class="btn-icon" id="runbook-modal-copy" data-action="runbookModalCopy"  disabled>Copy markdown</button>
+        <button class="btn-icon d-none" id="runbook-modal-regen" data-action="runbookModalRegen" >Regenerate</button>
+        <div class="flex-1"></div>
+        <button class="btn-icon" data-action="closeRunbookModal" >Close</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -7100,7 +7096,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   document.getElementById('runbook-modal-meta').textContent =
     'Gathering device snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
   const body = document.getElementById('runbook-modal-body');
-  body.innerHTML = '<div style="color:var(--muted)">Thinking… <span id="runbook-modal-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
+  body.innerHTML = '<div class="c-muted">Thinking… <span id="runbook-modal-elapsed" data-start="' + Date.now() + '">(0s elapsed)</span></div>';
   body.dataset.rawText = '';
   document.getElementById('runbook-modal-copy').disabled = true;
   document.getElementById('runbook-modal-regen').style.display = 'none';
@@ -7118,7 +7114,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   clearInterval(tick);
 
   if (!resp.ok) {
-    body.innerHTML = `<div style="color:var(--red);white-space:pre-wrap">${escHtml(resp.error)}</div>`;
+    body.innerHTML = `<div class="isl-513">${escHtml(resp.error)}</div>`;
     return;
   }
   body.innerHTML = `<div class="ai-content">${renderMarkdown(resp.content || '(empty)')}</div>`;
@@ -7144,17 +7140,17 @@ async function aiViewRunbook(devId, deviceName) {
   document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent = 'Loading…';
   const body = document.getElementById('runbook-modal-body');
-  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
   document.getElementById('runbook-modal-copy').disabled = true;
   document.getElementById('runbook-modal-regen').style.display = '';
 
   const resp = await aiApi('GET', `/devices/${encodeURIComponent(devId)}/runbook`);
   if (!resp.ok) {
-    body.innerHTML = `<div style="color:var(--red)">${escHtml(resp.error)}</div>`;
+    body.innerHTML = `<div class="c-red">${escHtml(resp.error)}</div>`;
     return;
   }
   if (!resp.exists) {
-    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No runbook generated yet. Click <strong>Regenerate</strong> to create one.</div>';
+    body.innerHTML = '<div class="empty-state">No runbook generated yet. Click <strong>Regenerate</strong> to create one.</div>';
     document.getElementById('runbook-modal-meta').textContent = 'No runbook stored.';
     return;
   }
@@ -7194,28 +7190,28 @@ function _renderRunbookSectionHtml(devId, resp) {
   // Shared between openDetail() and refreshDetailRunbookSection()
   if (!resp || !resp.ok) return '';
   if (!resp.exists) {
-    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-weight:600;font-size:13px">Runbook</div>
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiGenerateRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">✨ Generate runbook</button>
+    return `<div class="isl-530">
+      <div class="isl-93">
+        <div class="isl-433">Runbook</div>
+        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">✨ Generate runbook</button>
       </div>
-      <div style="color:var(--muted);font-size:12px">No runbook generated yet for this device.</div>
+      <div class="hint">No runbook generated yet for this device.</div>
     </div>`;
   }
   const when = resp.generated_at ? new Date(resp.generated_at * 1000).toLocaleString() : '—';
-  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+  return `<div class="isl-530">
+    <div class="isl-531">
       <div>
-        <div style="font-weight:600;font-size:13px">Runbook</div>
-        <div style="font-size:11px;color:var(--muted)">${escHtml(resp.model || '?')} · generated ${escHtml(when)} by ${escHtml(resp.generated_by || '?')}</div>
+        <div class="isl-433">Runbook</div>
+        <div class="meta-sm-nm">${escHtml(resp.model || '?')} · generated ${escHtml(when)} by ${escHtml(resp.generated_by || '?')}</div>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiViewRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">Open full</button>
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" onclick="aiGenerateRunbook('${escAttr(devId)}', '${escAttr(_lastOpenDeviceName||'')}')">✨ Regenerate</button>
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="aiDeleteRunbook('${escAttr(devId)}')">Delete</button>
+      <div class="row-6">
+        <button class="btn-icon badge-xs" data-action="aiViewRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">Open full</button>
+        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">✨ Regenerate</button>
+        <button class="btn-icon isl-459" data-action="aiDeleteRunbook" data-arg="${escAttr(devId)}" >Delete</button>
       </div>
     </div>
-    <div class="ai-content" style="max-height:300px;overflow-y:auto;font-size:13px;line-height:1.55;padding:8px 16px">${renderMarkdown(resp.content || '')}</div>
+    <div class="ai-content isl-532">${renderMarkdown(resp.content || '')}</div>
   </div>`;
 }
 
@@ -7248,7 +7244,7 @@ async function loadDrift() {
     const totalMissing = (data.devices || []).reduce((s, d) => s + (d.missing || 0), 0);
     summary.textContent = `${(data.devices || []).length} devices reporting · ${totalDrift} files drifted · ${totalMissing} files missing`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);padding:30px">Failed to load: ${escHtml(String(e))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
   }
 }
 
@@ -7261,7 +7257,7 @@ function _renderDrift(rows) {
     (r.group || '').toLowerCase().includes(filter)
   );
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No drift data yet. Wait for the first agent heartbeat with v2.2.0+ and drift enabled.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No drift data yet. Wait for the first agent heartbeat with v2.2.0+ and drift enabled.</td></tr>';
     return;
   }
   tbody.innerHTML = visible.map(r => {
@@ -7269,13 +7265,13 @@ function _renderDrift(rows) {
     const driftColor = r.drifted > 0 ? 'var(--amber)' : 'var(--muted)';
     const missingColor = r.missing > 0 ? 'var(--red)' : 'var(--muted)';
     return `<tr>
-      <td style="font-weight:500">${escHtml(r.device_name)}</td>
-      <td style="font-size:12px;color:var(--muted)">${escHtml(r.group || '—')}</td>
+      <td class="fw-500">${escHtml(r.device_name)}</td>
+      <td class="hint">${escHtml(r.group || '—')}</td>
       <td>${r.total}</td>
-      <td style="color:${driftColor};font-weight:${r.drifted > 0 ? 600 : 400}">${r.drifted}</td>
-      <td style="color:${missingColor}">${r.missing}</td>
-      <td style="font-size:12px;color:var(--muted)">${lastCheck}</td>
-      <td><button class="btn-icon" style="padding:4px 8px;font-size:11px" onclick="openDriftDetail('${escAttr(r.device_id)}', '${escAttr(r.device_name)}')">Detail</button></td>
+      <td class="isl-535">${r.drifted}</td>
+      <td class="isl-536">${r.missing}</td>
+      <td class="hint">${lastCheck}</td>
+      <td><button class="btn-icon cell-sm" data-action="openDriftDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">Detail</button></td>
     </tr>`;
   }).join('');
 }
@@ -7293,18 +7289,18 @@ function _ensureDriftModal() {
   wrap.className = 'modal-overlay';
   wrap.id = 'drift-detail-modal';
   wrap.innerHTML = `
-    <div class="modal" style="max-width:900px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
-      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
-        <div style="font-weight:600" id="drift-detail-title">Drift detail</div>
-        <button class="btn-icon" onclick="closeDriftDetail()" style="padding:4px 8px">✕</button>
+    <div class="modal isl-537">
+      <div class="modal-header row-between">
+        <div id="drift-detail-title" class="fw-600">Drift detail</div>
+        <button class="btn-icon isl-44" data-action="closeDriftDetail" >✕</button>
       </div>
-      <div id="drift-detail-body" style="flex:1;overflow:auto;padding:14px 18px;font-size:13px">
-        <div style="color:var(--muted)">Loading…</div>
+      <div id="drift-detail-body" class="isl-538">
+        <div class="c-muted">Loading…</div>
       </div>
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn-icon" id="drift-accept-all" onclick="driftAcceptAll()" style="display:none">Accept all current as new baseline</button>
-        <div style="flex:1"></div>
-        <button class="btn-icon" onclick="closeDriftDetail()">Close</button>
+      <div class="isl-529">
+        <button class="btn-icon d-none" id="drift-accept-all" data-action="driftAcceptAll" >Accept all current as new baseline</button>
+        <div class="flex-1"></div>
+        <button class="btn-icon" data-action="closeDriftDetail" >Close</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -7324,7 +7320,7 @@ async function openDriftDetail(devId, devName) {
   _driftCurrentDevice = {id: devId, name: devName};
   document.getElementById('drift-detail-title').textContent = `Drift detail — ${devName}`;
   const body = document.getElementById('drift-detail-body');
-  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
   document.getElementById('drift-accept-all').style.display = 'none';
 
   try {
@@ -7334,9 +7330,9 @@ async function openDriftDetail(devId, devName) {
     const fileKeys = Object.keys(files).sort();
 
     if (fileKeys.length === 0) {
-      body.innerHTML = `<div style="color:var(--muted);padding:20px;text-align:center">
+      body.innerHTML = `<div class="empty-p20">
         No drift report received yet for this device.<br>
-        <span style="font-size:12px">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the device has checked in.</span>
+        <span class="fs-12">The agent submits hashes for ${watched.length} watched ${watched.length === 1 ? 'file' : 'files'} every few heartbeats once the device has checked in.</span>
       </div>`;
       return;
     }
@@ -7347,11 +7343,11 @@ async function openDriftDetail(devId, devName) {
       document.getElementById('drift-accept-all').style.display = '';
     }
 
-    let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+    let html = `<div class="isl-539">
       Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
     </div>`;
 
-    html += '<table style="width:100%;font-size:12px"><thead><tr style="text-align:left;border-bottom:1px solid var(--border)"><th style="padding:6px 4px">Path</th><th style="padding:6px 4px">Status</th><th style="padding:6px 4px">Last check</th><th style="padding:6px 4px">Drift count</th><th></th></tr></thead><tbody>';
+    html += '<table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
 
     for (const p of fileKeys) {
       const f = files[p];
@@ -7368,19 +7364,19 @@ async function openDriftDetail(devId, devName) {
       let statusHtml;
       if (ignored) {
         const underlying = missing ? 'missing' : (drifted ? 'drifted' : 'baseline');
-        statusHtml = `<span style="color:var(--muted)">○ Ignored <span style="font-size:10px">(${underlying})</span></span>`;
+        statusHtml = `<span class="c-muted">○ Ignored <span class="fs-10">(${underlying})</span></span>`;
       } else if (missing) {
-        statusHtml = '<span style="color:var(--red)">● Missing</span>';
+        statusHtml = '<span class="c-red">● Missing</span>';
       } else if (dormant) {
-        statusHtml = '<span style="color:var(--muted)">○ Dormant</span>';
+        statusHtml = '<span class="c-muted">○ Dormant</span>';
       } else if (drifted) {
-        statusHtml = '<span style="color:var(--amber)">● Drifted</span>';
+        statusHtml = '<span class="c-amber">● Drifted</span>';
       } else {
-        statusHtml = '<span style="color:var(--green)">● Baseline</span>';
+        statusHtml = '<span class="c-green">● Baseline</span>';
       }
 
       const acceptBtn = (drifted && !ignored)
-        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px" onclick="driftAcceptPath('${escAttr(p)}')">Accept as baseline</button>`
+        ? `<button class="btn-icon isl-464" data-action="driftAcceptPath" data-arg="${escAttr(p)}" >Accept as baseline</button>`
         : '';
 
       // v2.3.4: per-file ignore toggle. Marking a file ignored makes
@@ -7388,34 +7384,34 @@ async function openDriftDetail(devId, devName) {
       // status) — the fix for drift false positives like a watched
       // file legitimately absent on this host.
       const ignoreBtn = ignored
-        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="driftSetIgnore('${escAttr(p)}',false)">Un-ignore</button>`
-        : `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="driftSetIgnore('${escAttr(p)}',true)">Ignore</button>`;
+        ? `<button class="btn-icon isl-541" data-action-btn="_driftSetIgnoreFalse" data-arg="${escAttr(p)}">Un-ignore</button>`
+        : `<button class="btn-icon isl-541" data-action-btn="_driftSetIgnoreTrue" data-arg="${escAttr(p)}">Ignore</button>`;
 
       const DENYLIST = new Set(['/etc/shadow','/etc/gshadow','/etc/shadow-','/etc/gshadow-']);
       const isDenylist = DENYLIST.has(p);
       const diffBtn = (drifted && !missing && !isDenylist && !ignored)
-        ? `<button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px" onclick="openDriftDiff('${escAttr(_driftCurrentDevice.id)}','${escAttr(p)}')">Show diff</button>`
+        ? `<button class="btn-icon isl-541" data-action="openDriftDiff" data-arg="${escAttr(_driftCurrentDevice.id)}" data-arg2="${escAttr(p)}" >Show diff</button>`
         : (isDenylist
-          ? `<span style="font-size:10px;color:var(--muted);margin-right:4px" title="Content retrieval refused for sensitive files">no content</span>`
+          ? `<span title="Content retrieval refused for sensitive files" class="isl-542">no content</span>`
           : '');
 
       const rowStyle = ignored
         ? 'border-bottom:1px solid var(--border);opacity:0.55'
         : 'border-bottom:1px solid var(--border)';
-      html += `<tr style="${rowStyle}">
-        <td style="padding:6px 4px;font-family:var(--font-mono);font-size:11px">${escHtml(p)}</td>
-        <td style="padding:6px 4px">${statusHtml}</td>
-        <td style="padding:6px 4px;color:var(--muted)">${lastCheck}</td>
-        <td style="padding:6px 4px">${f.drift_count || 0}</td>
-        <td style="padding:6px 4px;text-align:right">${diffBtn}${ignoreBtn}${acceptBtn}</td>
+      html += `<tr class="isl-543">
+        <td class="isl-544">${escHtml(p)}</td>
+        <td class="cell-pad">${statusHtml}</td>
+        <td class="isl-545">${lastCheck}</td>
+        <td class="cell-pad">${f.drift_count || 0}</td>
+        <td class="isl-546">${diffBtn}${ignoreBtn}${acceptBtn}</td>
       </tr>`;
       if (ignored && f.ignore_reason) {
-        html += `<tr style="opacity:0.55"><td colspan="5" style="padding:0 4px 6px 16px;font-size:10px;color:var(--muted)">Ignore reason: ${escHtml(f.ignore_reason)}</td></tr>`;
+        html += `<tr class="isl-547"><td colspan="5" class="isl-548">Ignore reason: ${escHtml(f.ignore_reason)}</td></tr>`;
       }
 
       if (drifted && f.history && f.history.length > 0) {
-        html += `<tr><td colspan="5" style="padding:0 4px 8px 16px"><details><summary style="font-size:11px;color:var(--muted);cursor:pointer">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
-          <div style="margin-top:4px;font-family:monospace;font-size:10px;color:var(--muted)">
+        html += `<tr><td colspan="5" class="isl-549"><details><summary class="isl-550">History (${f.history.length} ${f.history.length === 1 ? 'change' : 'changes'})</summary>
+          <div class="isl-551">
           ${f.history.slice().reverse().slice(0, 10).map(h =>
             `${new Date(h.ts * 1000).toLocaleString()}: ${(h.hash || '').substring(0, 24)}… ${h.exists === false ? ' [missing]' : ''}`
           ).join('<br>')}
@@ -7426,7 +7422,7 @@ async function openDriftDetail(devId, devName) {
 
     body.innerHTML = html;
   } catch (e) {
-    body.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escHtml(String(e))}</div>`;
+    body.innerHTML = `<div class="c-red-p20">Failed to load: ${escHtml(String(e))}</div>`;
   }
 }
 
@@ -7550,12 +7546,12 @@ const DISTRO_ICONS = {
   // Fallback: generic Linux penguin silhouette in muted accent
   linux: {
     match: ['linux'],
-    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor" style="color:var(--muted)"><circle cx="12" cy="9" r="4"/><path d="M8 13c0 4 1 7 4 7s4-3 4-7c-1 1-3 1.5-4 1.5S9 14 8 13z"/><circle cx="10" cy="8" r="1" fill="white"/><circle cx="14" cy="8" r="1" fill="white"/></svg>'
+    svg: '<svg class="distro-icon c-muted" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><circle cx="12" cy="9" r="4"/><path d="M8 13c0 4 1 7 4 7s4-3 4-7c-1 1-3 1.5-4 1.5S9 14 8 13z"/><circle cx="10" cy="8" r="1" fill="white"/><circle cx="14" cy="8" r="1" fill="white"/></svg>'
   },
   // Unknown OS: simple terminal-block icon
   unknown: {
     match: [],
-    svg: '<svg class="distro-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor" style="color:var(--muted)"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" fill="none" stroke-width="2"/><path d="M7 9l3 3-3 3M12 15h5" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round"/></svg>'
+    svg: '<svg class="distro-icon c-muted" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" fill="none" stroke-width="2"/><path d="M7 9l3 3-3 3M12 15h5" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round"/></svg>'
   },
 };
 
@@ -7903,7 +7899,7 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
   const tiles = [
     {
       label: 'Devices online',
-      value: `${online}<span style="color:var(--muted);font-size:18px"> / ${total}</span>`,
+      value: `${online}<span class="isl-552"> / ${total}</span>`,
       sub: offline === 0 ? 'All devices reporting in' :
            offline === 1 ? '1 device offline' : `${offline} devices offline`,
       cls: offline > 0 ? 'warn' : 'ok',
@@ -7980,13 +7976,13 @@ async function _renderHomeAttention() {
   try {
     data = await api('GET', '/attention');
   } catch (e) {
-    target.innerHTML = '<div class="empty-state" style="padding:14px 8px">'
+    target.innerHTML = '<div class="empty-state isl-553">'
       + '<div class="empty-state-body">Could not load the digest.</div></div>';
     return;
   }
   const items = (data && data.items) || [];
   if (!items.length) {
-    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+    target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">✓</div>
       <div class="empty-state-title">All clear</div>
       <div class="empty-state-body">No offline monitored devices, no critical CVE
@@ -8033,16 +8029,16 @@ async function _renderHomeAttention() {
     const lbl  = `${i.device} — ${i.summary}`;
     // v3.0.1: show 🩺 Investigate when server reported a mitigation_kind
     const mitBtn = (i.mitigation_kind && i.device_id) ?
-      `<button class="btn-icon" style="font-size:12px;padding:2px 8px" title="Investigate with diagnostic + AI suggestion"
-         onclick="event.stopPropagation();openMitigateModal('${escAttr(i.device_id)}','${escAttr(i.mitigation_kind)}','${escAttr(i.mitigation_target || '')}','${escAttr(i.device)}')">🩺</button>` : '';
-    return `<div class="dash-feed-item" style="display:flex;align-items:center;gap:8px">
-      <div style="flex:1;cursor:pointer"
-           onclick="showPage('${page}',document.querySelector('.nav-btn[onclick*=${page}]'))">
+      `<button class="btn-icon isl-554" title="Investigate with diagnostic + AI suggestion"
+         data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">🩺</button>` : '';
+    return `<div class="dash-feed-item isl-156">
+      <div
+           data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
         <span class="status-pill ${pill}">${escHtml(i.kind)}</span>
         <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
       </div>
       ${mitBtn}
-      <button class="btn-icon" style="font-size:14px;padding:2px 8px;color:var(--muted)" title="Ignore this alert (review later in Settings → Ignored items)" onclick="event.stopPropagation();ignoreAttention('${escAttr(key)}','${escAttr(lbl)}')">×</button>
+      <button class="btn-icon isl-556" title="Ignore this alert (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >×</button>
     </div>`;
   }).join('');
 }
@@ -8115,7 +8111,7 @@ function _renderHomeActivity(fleetEvents) {
     })
     .slice(0, 8);
   if (entries.length === 0) {
-    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+    target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">○</div>
       <div class="empty-state-title">No recent fleet events</div>
       <div class="empty-state-body">Fleet events (device offline, drift detected, CVE found, etc.) show up here as they fire — regardless of whether any webhook or email destination is configured.</div>
@@ -8165,88 +8161,45 @@ function _renderHomeActivity(fleetEvents) {
         if (!detail && p.upgradable) detail = `${p.upgradable} updates`;
         if (!detail && p.critical)   detail = `${p.critical} critical`;
     }
-    const action = _homeActivityAction(ev.event, p);
-    return `<div class="dash-feed-item" style="cursor:pointer" onclick="${action}" title="Click for details">
-      <div style="flex:1"><span class="status-pill ${cls}">${escHtml(label)}</span> ${dev ? `<strong>${escHtml(dev)}</strong>` : ''} ${detail ? `<span style="color:var(--muted);font-size:12px">${escHtml(String(detail).substring(0,80))}</span>` : ''}</div>
+    const actAttrs = _homeActivityAttrs(ev.event, p);
+    return `<div class="dash-feed-item pointer" data-action-btn="_homeNavAction" ${actAttrs} title="Click for details">
+      <div class="flex-1"><span class="status-pill ${cls}">${escHtml(label)}</span> ${dev ? `<strong>${escHtml(dev)}</strong>` : ''} ${detail ? `<span class="hint">${escHtml(String(detail).substring(0,80))}</span>` : ''}</div>
       <span class="ts">${ts}</span>
     </div>`;
   }).join('');
 }
 
-// v2.2.5: map an activity event to the click-action that drills in.
-// Per event class, navigate to the page that surfaces the underlying
-// resource — device detail modal for device_online/offline, drift
-// detail for drift_detected, etc. Returns an inline-handler string
-// suitable for HTML onclick attributes; escAttr handles quoting.
-function _homeActivityAction(event, p) {
+// v2.2.5 (CSP L1 refactor): returns data-attribute string for _homeNavAction.
+function _homeActivityAttrs(event, p) {
   const devId   = escAttr(p.device_id || '');
   const devName = escAttr(p.device_name || p.host || '');
+  const base = `data-dev-id="${devId}" data-dev-name="${devName}"`;
   switch (event) {
-    case 'device_offline':
-    case 'device_online':
-      // Open the device's detail modal directly if we have the id
-      return devId
-        ? `openDetail('${devId}','${devName}')`
-        : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
+    case 'device_offline': case 'device_online':
+    case 'mailbox_threshold': case 'reboot_required':
+    case 'new_port_detected': case 'ssh_key_added':
+    case 'brute_force_detected': case 'backup_stale':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'drift_detected':
-      // Drift page + auto-open the per-device drift detail modal
-      return devId
-        ? `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'));setTimeout(()=>openDriftDetail('${devId}','${devName}'),100)`
-        : `showPage('drift',document.querySelector('.nav-btn[onclick*=drift]'))`;
-    case 'cve_found':
-      return `showPage('cve',document.querySelector('.nav-btn[onclick*=cve]'))`;
-    case 'patch_alert':
-      return `showPage('patches',document.querySelector('.nav-btn[onclick*=patches]'))`;
-    case 'monitor_down':
-    case 'monitor_up':
-      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
-    case 'service_down':
-    case 'service_up':
-      return `showPage('services',document.querySelector('.nav-btn[onclick*=services]'))`;
-    case 'container_stopped':
-    case 'container_restarting':
-    case 'containers_stale':
-      return `showPage('containers',document.querySelector('.nav-btn[onclick*=containers]'))`;
-    case 'log_alert':
-      return `showPage('logs',document.querySelector('.nav-btn[onclick*=logs]'))`;
-    case 'mailbox_threshold':
-      // The mailbox monitor is configured per device in Settings;
-      // the device detail is the most useful jump.
-      return devId
-        ? `openDetail('${devId}','${devName}')`
-        : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
-    case 'metric_warning':
-    case 'metric_critical':
-    case 'metric_recovered':
-      // The Monitor page hosts the per-device metric dashboards
-      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
-    case 'command_queued':
-    case 'command_executed':
-      return `showPage('history',document.querySelector('.nav-btn[onclick*=history]'))`;
-    case 'custom_script_fail':
-    case 'custom_script_recover':
-      // v2.5.0: Custom Scripts section lives on the Monitor page
-      return `showPage('monitor',document.querySelector('.nav-btn[onclick*=monitor]'))`;
-    case 'config_drift':
-      // v2.6.0: navigate to the Devices page
-      return `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
-    case 'tls_expiry':
-      // v2.6.1: TLS cert expiry — navigate to the TLS monitor page
-      return `showPage('tls',document.querySelector('.nav-btn[onclick*=tls]'))`;
-    case 'reboot_required':
-      // v2.6.1: pending reboot — open device detail
-      return devId ? `openDetail('${devId}','${devName}')` : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
-    case 'snapshot_old':
-      return `showPage('virtualization',document.querySelector('.nav-btn[onclick*=virtualization]'))`;
-    case 'new_port_detected':
-    case 'ssh_key_added':
-    case 'brute_force_detected':
-    case 'backup_stale':
-      return devId ? `openDetail('${devId}','${devName}')` : `showPage('devices',document.querySelector('.nav-btn[onclick*=devices]'))`;
+      return `${base} data-home-act="drift"`;
+    case 'cve_found':      return `${base} data-home-act="cve"`;
+    case 'patch_alert':    return `${base} data-home-act="patches"`;
+    case 'monitor_down':   case 'monitor_up':
+    case 'metric_warning': case 'metric_critical': case 'metric_recovered':
+    case 'custom_script_fail': case 'custom_script_recover':
+      return `${base} data-home-act="monitor"`;
+    case 'service_down':   case 'service_up':
+      return `${base} data-home-act="services"`;
+    case 'container_stopped': case 'container_restarting': case 'containers_stale':
+      return `${base} data-home-act="containers"`;
+    case 'log_alert':      return `${base} data-home-act="logs"`;
+    case 'command_queued': case 'command_executed':
+      return `${base} data-home-act="history"`;
+    case 'config_drift':   return `${base} data-home-act="devices"`;
+    case 'tls_expiry':     return `${base} data-home-act="tls"`;
+    case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
     default:
-      // Fallback: device detail if we know the device, otherwise
-      // nothing happens
-      return devId ? `openDetail('${devId}','${devName}')` : '';
+      return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
 }
 
@@ -8259,7 +8212,7 @@ async function _renderHomeFleet(devs) {
   // /fleet/uptime7d already excludes them; this drops their rows too.
   devs = (devs || []).filter(d => d.monitored !== false);
   if (devs.length === 0) {
-    target.innerHTML = `<div class="empty-state" style="padding:14px 8px">
+    target.innerHTML = `<div class="empty-state isl-553">
       <div class="empty-state-icon">📦</div>
       <div class="empty-state-title">No devices enrolled yet</div>
       <div class="empty-state-body">Once you enroll your first device, you'll see its 7-day status stripe here.</div>
@@ -8290,16 +8243,15 @@ async function _renderHomeFleet(devs) {
       // the device's live online flag is fresher — trust it for today.
       history = history.slice(0, 6).concat([todayCell]);
     }
-    return `<div style="display:flex;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid var(--border)">
-      <div style="flex:1;font-size:13px;display:flex;align-items:center;gap:6px">
+    return `<div class="isl-557">
+      <div class="isl-558">
         ${getDistroIcon(d.os)}
-        <a href="#" onclick="openDeviceDrawer('${d.id}','${escAttr(d.name)}','audit');return false;"
-           style="color:var(--text);text-decoration:none;font-weight:600">${escHtml(d.name)}</a>
-        ${d.group ? `<span style="color:var(--muted);font-size:11px">${escHtml(d.group)}</span>` : ''}
+        <a href="#" data-action="openDeviceDrawer" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-arg3="audit" class="isl-559">${escHtml(d.name)}</a>
+        ${d.group ? `<span class="meta-sm-nm">${escHtml(d.group)}</span>` : ''}
       </div>
       <div>${renderStatusStripe(history)}</div>
-      <div style="width:80px;text-align:right;font-size:11px;color:var(--muted)">
-        ${d.online ? '<span style="color:var(--green)">● online</span>' : '<span style="color:var(--red)">● offline</span>'}
+      <div class="isl-560">
+        ${d.online ? '<span class="c-green">● online</span>' : '<span class="c-red">● offline</span>'}
       </div>
     </div>`;
   }).join('');
@@ -8395,7 +8347,7 @@ function aiThinkingHtml() {
 
 function openLogsForDevice(devId, devName) {
   // Click the Logs nav button so showPage's sidebar-expand logic fires
-  const navBtn = document.querySelector('.nav-btn[onclick*="\'logs\'"]');
+  const navBtn = document.querySelector('.nav-btn[data-page=\"logs\\"]');
   if (navBtn) {
     showPage('logs', navBtn);
   } else {
@@ -8510,22 +8462,22 @@ function _ensureDriftDiffModal() {
   wrap.style.zIndex = '1100';  // v2.2.6: nested-modal tier — above the
                                // base drift detail modal (1000)
   wrap.innerHTML = `
-    <div class="modal" style="max-width:1100px;width:96vw;max-height:88vh;display:flex;flex-direction:column">
-      <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center">
+    <div class="modal isl-561">
+      <div class="modal-header row-between">
         <div>
-          <div id="drift-diff-title" style="font-weight:600">Drift diff</div>
-          <div id="drift-diff-path" style="font-family:var(--font-mono);font-size:11px;color:var(--muted)"></div>
+          <div id="drift-diff-title" class="fw-600">Drift diff</div>
+          <div id="drift-diff-path" class="isl-562"></div>
         </div>
-        <button class="btn-icon" onclick="closeDriftDiff()" style="padding:4px 8px">✕</button>
+        <button class="btn-icon isl-44" data-action="closeDriftDiff" >✕</button>
       </div>
-      <div id="drift-diff-body" style="flex:1;overflow:auto;padding:14px 18px;font-size:13px">
-        <div style="color:var(--muted)">Loading…</div>
+      <div id="drift-diff-body" class="isl-538">
+        <div class="c-muted">Loading…</div>
       </div>
-      <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn-icon" id="drift-diff-fetch-btn" onclick="driftFetchCurrent()">Fetch current content</button>
-        <span id="drift-diff-status" style="font-size:12px;color:var(--muted)"></span>
-        <div style="flex:1"></div>
-        <button class="btn-icon" onclick="closeDriftDiff()">Close</button>
+      <div class="isl-529">
+        <button class="btn-icon" id="drift-diff-fetch-btn" data-action="driftFetchCurrent" >Fetch current content</button>
+        <span id="drift-diff-status" class="hint"></span>
+        <div class="flex-1"></div>
+        <button class="btn-icon" data-action="closeDriftDiff" >Close</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
@@ -8564,7 +8516,7 @@ async function _refreshDriftDiff() {
     const data = await api('GET',
       `/devices/${encodeURIComponent(devId)}/drift/content?path=${encodeURIComponent(path)}`);
     if (!data) {
-      body.innerHTML = '<div style="color:var(--red);padding:20px">Failed to load captures.</div>';
+      body.innerHTML = '<div class="c-red-p20">Failed to load captures.</div>';
       return;
     }
     if (data.denied) {
@@ -8594,7 +8546,7 @@ async function _refreshDriftDiff() {
       const c = captures[0];
       const ts = new Date(c.ts * 1000).toLocaleString();
       body.innerHTML = `
-        <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        <div class="isl-563">
           One capture so far · ${ts} · rc=${c.rc} · ${c.sha256.substring(0, 27)}…
           <br>
           Fetch again after another change to see a diff between the two captures.
@@ -8609,16 +8561,16 @@ async function _refreshDriftDiff() {
       const olderTs = new Date(older.ts * 1000).toLocaleString();
       const newerTs = new Date(newer.ts * 1000).toLocaleString();
       body.innerHTML = `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:var(--muted);margin-bottom:10px">
-          <div><span style="color:var(--red)">− Older</span> · ${olderTs} · rc=${older.rc}<br>
-            <code style="font-size:10px">${older.sha256.substring(0, 27)}…</code></div>
-          <div><span style="color:var(--green)">+ Newer</span> · ${newerTs} · rc=${newer.rc}<br>
-            <code style="font-size:10px">${newer.sha256.substring(0, 27)}…</code></div>
+        <div class="isl-564">
+          <div><span class="c-red">− Older</span> · ${olderTs} · rc=${older.rc}<br>
+            <code class="fs-10">${older.sha256.substring(0, 27)}…</code></div>
+          <div><span class="c-green">+ Newer</span> · ${newerTs} · rc=${newer.rc}<br>
+            <code class="fs-10">${newer.sha256.substring(0, 27)}…</code></div>
         </div>
         ${renderDiff(older.content, newer.content)}`;
     }
   } catch (e) {
-    body.innerHTML = `<div style="color:var(--red);padding:20px">Failed to load: ${escHtml(String(e))}</div>`;
+    body.innerHTML = `<div class="c-red-p20">Failed to load: ${escHtml(String(e))}</div>`;
   }
 }
 
@@ -8704,18 +8656,18 @@ function _renderHostHealth(si) {
   // Reboot required — loud amber banner when true
   if (si.reboot_required === true) {
     const reason = si.reboot_reason
-      ? ` <span style="color:var(--muted);font-size:11px">(${escHtml(si.reboot_reason)})</span>`
+      ? ` <span class="meta-sm-nm">(${escHtml(si.reboot_reason)})</span>`
       : '';
-    html += `<div style="background:var(--amber-soft);border:1px solid var(--amber-edge);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--amber)">
+    html += `<div class="isl-565">
       ⟳ <strong>Reboot required</strong>${reason}
     </div>`;
   }
 
   // Failed systemd units
   if (Array.isArray(si.failed_units) && si.failed_units.length) {
-    html += `<div style="background:var(--red-soft);border:1px solid var(--red-edge);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px">
-      <div style="color:var(--red);font-weight:600;margin-bottom:4px">${si.failed_units.length} failed systemd unit${si.failed_units.length === 1 ? '' : 's'}</div>
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">${si.failed_units.map(u => escHtml(u)).join(', ')}</div>
+    html += `<div class="isl-566">
+      <div class="isl-567">${si.failed_units.length} failed systemd unit${si.failed_units.length === 1 ? '' : 's'}</div>
+      <div class="isl-562">${si.failed_units.map(u => escHtml(u)).join(', ')}</div>
     </div>`;
   }
 
@@ -8725,26 +8677,26 @@ function _renderHostHealth(si) {
     pills.push(`<div class="sysinfo-pill"><div class="label">Logged in</div><div class="value">${si.logged_in.length ? si.logged_in.map(u => escHtml(u)).join(', ') : '—'}</div></div>`);
   }
   if (si.last_boot) {
-    pills.push(`<div class="sysinfo-pill"><div class="label">Booted</div><div class="value" style="font-size:11px">${new Date(si.last_boot * 1000).toLocaleString()}</div></div>`);
+    pills.push(`<div class="sysinfo-pill"><div class="label">Booted</div><div class="value fs-11">${new Date(si.last_boot * 1000).toLocaleString()}</div></div>`);
   }
   if (pills.length) {
-    html += `<div class="sysinfo-row" style="margin-bottom:14px">${pills.join('')}</div>`;
+    html += `<div class="sysinfo-row mb-14">${pills.join('')}</div>`;
   }
 
   // Listening ports — compact table
   if (Array.isArray(si.listening_ports) && si.listening_ports.length) {
     const rows = si.listening_ports.map(p =>
       `<tr>
-        <td style="font-family:var(--font-mono);font-size:11px">${escHtml(p.proto)}</td>
-        <td style="font-family:var(--font-mono);font-size:11px;font-weight:600">${p.port}</td>
-        <td style="font-size:11px;color:var(--muted)">${escHtml(p.process || '—')}</td>
+        <td class="isl-568">${escHtml(p.proto)}</td>
+        <td class="isl-569">${p.port}</td>
+        <td class="meta-sm-nm">${escHtml(p.process || '—')}</td>
       </tr>`
     ).join('');
-    html += `<details style="margin-bottom:14px">
-      <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);padding:4px 0">
+    html += `<details class="mb-14">
+      <summary class="isl-570">
         Listening ports (${si.listening_ports.length})
       </summary>
-      <div class="table-card" style="margin-top:8px;max-height:220px;overflow-y:auto">
+      <div class="table-card isl-571">
         <table><thead><tr><th>Proto</th><th>Port</th><th>Process</th></tr></thead>
         <tbody>${rows}</tbody></table>
       </div>
@@ -8785,30 +8737,30 @@ function _renderProxmoxGuest(g, kind) {
   if (g.cpu_percent != null) res.push(`CPU ${g.cpu_percent}%`);
   if (g.mem_percent != null) res.push(`MEM ${g.mem_percent}%`);
   const resLine = (running && res.length)
-    ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--font-mono)">${res.join('  ·  ')}</div>`
+    ? `<div class="isl-572">${res.join('  ·  ')}</div>`
     : '';
   const upLine = (running && g.uptime)
-    ? `<span style="font-size:11px;color:var(--muted)">up ${_fmtDuration(g.uptime)}</span>`
+    ? `<span class="meta-sm-nm">up ${_fmtDuration(g.uptime)}</span>`
     : '';
   // Actions: start when stopped, graceful shutdown when running.
   // `stop` (hard) is intentionally not exposed in the UI.
   const ep = kind === 'qemu' ? 'qemu' : 'lxc';
   const actions = `
-    <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
-      ${!running ? `<button class="btn-icon" style="font-size:11px;padding:3px 10px" onclick="proxmoxAction('${ep}',${g.vmid},'start','${escAttr(g.name)}')">Start</button>` : ''}
-      ${running  ? `<button class="btn-icon" style="font-size:11px;padding:3px 10px;color:var(--amber);border-color:rgba(245,158,11,0.3)" onclick="proxmoxAction('${ep}',${g.vmid},'shutdown','${escAttr(g.name)}')">Shutdown</button>` : ''}
-      <button class="btn-icon" style="font-size:11px;padding:3px 10px" onclick="openSnapshots('${ep}',${g.vmid},'${escAttr(g.name)}')">Snapshots</button>
+    <div class="isl-458">
+      ${!running ? `<button class="btn-icon badge-sm" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
+      ${running  ? `<button class="btn-icon isl-573" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="shutdown" data-arg4="${escAttr(g.name)}">Shutdown</button>` : ''}
+      <button class="btn-icon badge-sm" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
     </div>`;
-  return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--surface2)">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-      <div style="font-weight:600">
-        <span style="color:var(--muted);font-family:var(--font-mono);font-size:12px">${g.vmid}</span>
+  return `<div class="isl-460">
+    <div class="isl-461">
+      <div class="fw-600">
+        <span class="isl-574">${g.vmid}</span>
         ${escHtml(g.name)}
-        ${g.tags ? `<span style="font-size:10px;color:var(--muted);background:var(--surface);padding:1px 5px;border-radius:3px;margin-left:4px">${escHtml(g.tags)}</span>` : ''}
+        ${g.tags ? `<span class="isl-575">${escHtml(g.tags)}</span>` : ''}
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div class="row-8-center">
         ${upLine}
-        <span style="color:${statusColor};font-size:12px;font-weight:600">${escHtml(g.status || '?')}</span>
+        <span class="isl-576">${escHtml(g.status || '?')}</span>
       </div>
     </div>
     ${resLine}
@@ -8831,29 +8783,29 @@ async function loadVirtualization() {
   const body = document.getElementById('virtualization-body');
   const nodeLabel = document.getElementById('virtualization-node');
   if (!body) return;
-  body.innerHTML = '<div style="color:var(--muted);padding:20px">Loading…</div>';
+  body.innerHTML = '<div class="isl-507">Loading…</div>';
   let data;
   try {
     data = await api('GET', '/proxmox/qemu');
   } catch (e) {
-    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--red)">
+    body.innerHTML = `<div class="table-card isl-577">
       Could not reach Proxmox: ${escHtml(e.message || String(e))}</div>`;
     return;
   }
   if (!data || !data.enabled) {
-    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+    body.innerHTML = `<div class="table-card isl-578">
       Proxmox integration is not enabled. Configure it under Settings → Proxmox.</div>`;
     return;
   }
   if (!data.configured) {
-    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+    body.innerHTML = `<div class="table-card isl-578">
       Proxmox is enabled but not fully configured. Add the host, node and API token under Settings → Proxmox.</div>`;
     return;
   }
   if (nodeLabel) nodeLabel.textContent = data.node ? `node: ${data.node}` : '';
   const guests = data.guests || [];
   if (!guests.length) {
-    body.innerHTML = '<div class="table-card" style="padding:20px;color:var(--muted)">No QEMU VMs on this node.</div>';
+    body.innerHTML = '<div class="table-card isl-578">No QEMU VMs on this node.</div>';
     return;
   }
   // v2.4.12: keep the fetched guests so the search box can filter
@@ -8876,11 +8828,11 @@ function _renderVirtualizationList() {
         String(g.vmid || '').includes(q))
     : _virtGuests;
   if (!shown.length) {
-    body.innerHTML = `<div class="table-card" style="padding:20px;color:var(--muted)">
+    body.innerHTML = `<div class="table-card isl-578">
       No VMs match "${escHtml(q)}".</div>`;
     return;
   }
-  body.innerHTML = `<div class="table-card" style="padding:14px">
+  body.innerHTML = `<div class="table-card isl-579">
     ${shown.map(g => _renderProxmoxGuest(g, 'qemu')).join('')}
   </div>`;
 }
@@ -8910,10 +8862,10 @@ async function loadProxmoxLXC() {
   section.style.display = '';
   const guests = data.guests || [];
   if (!guests.length) {
-    body.innerHTML = '<div class="table-card" style="padding:16px;color:var(--muted)">No LXC containers on the Proxmox node.</div>';
+    body.innerHTML = '<div class="table-card isl-580">No LXC containers on the Proxmox node.</div>';
     return;
   }
-  body.innerHTML = `<div class="table-card" style="padding:14px">
+  body.innerHTML = `<div class="table-card isl-579">
     ${guests.map(g => _renderProxmoxGuest(g, 'lxc')).join('')}
   </div>`;
 }
@@ -9005,21 +8957,21 @@ async function openSnapshots(kind, vmid, guestName) {
     modal.id = 'snapshot-modal';
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal" style="max-width:620px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <div style="font-weight:600" id="snapshot-modal-title">Snapshots</div>
-          <button class="btn-icon" onclick="closeModal('snapshot-modal')">✕</button>
+      <div class="modal isl-581">
+        <div class="isl-582">
+          <div id="snapshot-modal-title" class="fw-600">Snapshots</div>
+          <button class="btn-icon" data-action="closeModal" data-arg="snapshot-modal" >✕</button>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end">
-          <div class="form-group" style="flex:1;min-width:160px;margin:0">
-            <label class="form-label" style="font-size:11px">New snapshot name</label>
+        <div class="isl-583">
+          <div class="form-group form-group">
+            <label class="form-label fs-11">New snapshot name</label>
             <input type="text" id="snapshot-new-name" class="form-input" placeholder="e.g. before_upgrade">
           </div>
-          <div class="form-group" style="flex:2;min-width:160px;margin:0">
-            <label class="form-label" style="font-size:11px">Description (optional)</label>
+          <div class="form-group isl-584">
+            <label class="form-label fs-11">Description (optional)</label>
             <input type="text" id="snapshot-new-desc" class="form-input" placeholder="why">
           </div>
-          <button class="btn-primary" style="padding:8px 14px" onclick="snapshotCreate()">Create</button>
+          <button class="btn-primary isl-40" data-action="snapshotCreate" >Create</button>
         </div>
         <div id="snapshot-list"></div>
       </div>`;
@@ -9036,32 +8988,32 @@ async function openSnapshots(kind, vmid, guestName) {
 async function loadSnapshots() {
   if (!_snapCtx) return;
   const list = document.getElementById('snapshot-list');
-  list.innerHTML = '<div style="color:var(--muted);padding:12px">Loading…</div>';
+  list.innerHTML = '<div class="isl-585">Loading…</div>';
   let data;
   try {
     data = await api('GET', `/proxmox/snapshots?type=${_snapCtx.kind}&vmid=${_snapCtx.vmid}`);
   } catch (e) {
-    list.innerHTML = `<div style="color:var(--red);padding:12px">${escHtml(e.message || String(e))}</div>`;
+    list.innerHTML = `<div class="isl-586">${escHtml(e.message || String(e))}</div>`;
     return;
   }
   const snaps = (data && data.snapshots) || [];
   if (!snaps.length) {
-    list.innerHTML = '<div style="color:var(--muted);padding:12px">No snapshots.</div>';
+    list.innerHTML = '<div class="isl-585">No snapshots.</div>';
     return;
   }
-  list.innerHTML = `<table style="width:100%;font-size:12px"><thead>
-    <tr style="text-align:left;border-bottom:1px solid var(--border)">
-      <th style="padding:6px 4px">Name</th><th style="padding:6px 4px">Taken</th>
-      <th style="padding:6px 4px">Description</th><th></th></tr></thead><tbody>` +
+  list.innerHTML = `<table class="isl-540"><thead>
+    <tr class="isl-468">
+      <th class="cell-pad">Name</th><th class="cell-pad">Taken</th>
+      <th class="cell-pad">Description</th><th></th></tr></thead><tbody>` +
     snaps.map(s => {
       const taken = s.snaptime ? new Date(s.snaptime * 1000).toLocaleString() : '—';
-      return `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 4px;font-family:var(--font-mono)">${escHtml(s.name)}${s.vmstate ? ' <span style="font-size:9px;color:var(--muted)">+RAM</span>' : ''}</td>
-        <td style="padding:6px 4px;color:var(--muted)">${taken}</td>
-        <td style="padding:6px 4px;color:var(--muted)">${escHtml(s.description || '—')}</td>
-        <td style="padding:6px 4px;text-align:right;white-space:nowrap">
-          <button class="btn-icon" style="font-size:10px;padding:2px 6px;margin-right:4px;color:var(--amber);border-color:rgba(245,158,11,0.3)" onclick="snapshotRollback('${escAttr(s.name)}')">Rollback</button>
-          <button class="btn-icon" style="font-size:10px;padding:2px 6px;color:var(--red);border-color:rgba(239,68,68,0.3)" onclick="snapshotDelete('${escAttr(s.name)}')">Delete</button>
+      return `<tr class="border-bottom">
+        <td class="isl-587">${escHtml(s.name)}${s.vmstate ? ' <span class="isl-588">+RAM</span>' : ''}</td>
+        <td class="isl-545">${taken}</td>
+        <td class="isl-545">${escHtml(s.description || '—')}</td>
+        <td class="isl-589">
+          <button class="btn-icon isl-590" data-action="snapshotRollback" data-arg="${escAttr(s.name)}" >Rollback</button>
+          <button class="btn-icon isl-591" data-action="snapshotDelete" data-arg="${escAttr(s.name)}" >Delete</button>
         </td></tr>`;
     }).join('') + '</tbody></table>';
 }
@@ -9176,9 +9128,9 @@ function sshLinkIcon(d) {
   // the dark sidebar/table. var(--text) resolves to near-white in dark
   // mode and near-black in light mode, so the icon stays visible in
   // both themes. The currentColor stroke on the SVG inherits this.
-  return ` <a href="#" title="Quick SSH" onclick="quickSsh('${escAttr(host)}'); return false;"` +
-         ` style="text-decoration:none;margin-left:4px;color:var(--text)">` +
-         `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;opacity:0.7">` +
+  return ` <a href="#" title="Quick SSH" data-action="quickSsh" data-arg="${escAttr(host)}" data-prevent-default` +
+         ` class="isl-592">` +
+         `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" class="isl-593">` +
          `<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></a>`;
 }
 
@@ -9264,18 +9216,18 @@ function loadMailwatchForDevice() {
   const keys = Object.keys(counts);
   if (!keys.length) {
     cur.innerHTML = paths.length
-      ? '<div style="font-size:12px;color:var(--muted)">No agent report yet — counts appear a few minutes after the agent next heartbeats.</div>'
+      ? '<div class="hint">No agent report yet — counts appear a few minutes after the agent next heartbeats.</div>'
       : '';
     return;
   }
-  cur.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">Latest counts</div>' +
+  cur.innerHTML = '<div class="isl-594">Latest counts</div>' +
     keys.map(p => {
       const info = counts[p] || {};
       let v = '—';
-      if (info.error) v = `<span style="color:var(--amber)">${escHtml(info.error)}</span>`;
+      if (info.error) v = `<span class="c-amber">${escHtml(info.error)}</span>`;
       else if (typeof info.count === 'number') v = `<strong>${info.count}</strong> files`;
-      return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid var(--border)">
-        <code style="font-size:11px">${escHtml(p)}</code><span>${v}</span></div>`;
+      return `<div class="isl-595">
+        <code class="fs-11">${escHtml(p)}</code><span>${v}</span></div>`;
     }).join('');
 }
 
@@ -9361,7 +9313,7 @@ async function revokeStatusToken() {
     await api('POST', '/status-token', {enabled: false});
     const box = document.getElementById('status-token-box');
     if (box) box.innerHTML =
-      '<button class="btn-primary" onclick="generateStatusToken()">Generate status token</button>';
+      '<button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>';
     toast('Status endpoint disabled', 'success');
   } catch (e) {
     toast('Failed: ' + (e.message || String(e)), 'error');
@@ -9373,12 +9325,11 @@ function _renderStatusToken(token) {
   if (!box) return;
   const url = `${location.origin}/api/status?token=${encodeURIComponent(token)}`;
   box.innerHTML = `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Poll this URL from your dashboard tool:</div>
-    <input type="text" class="form-input" readonly value="${escAttr(url)}"
-      style="font-family:var(--font-mono);font-size:12px" onclick="this.select()">
-    <div style="margin-top:8px;display:flex;gap:8px">
-      <button class="btn-icon" onclick="generateStatusToken()">Rotate token</button>
-      <button class="btn-icon" style="color:var(--red)" onclick="revokeStatusToken()">Disable endpoint</button>
+    <div class="hint-mb6">Poll this URL from your dashboard tool:</div>
+    <input type="text" class="form-input isl-66" readonly value="${escAttr(url)}" data-self-select="1">
+    <div class="isl-596">
+      <button class="btn-icon" data-action="generateStatusToken" >Rotate token</button>
+      <button class="btn-icon c-red" data-action="revokeStatusToken" >Disable endpoint</button>
     </div>`;
 }
 
@@ -9400,13 +9351,13 @@ function loadCustomScripts() {
     renderCustomScriptsPage();
   }).catch(() => {
     const tbody = document.getElementById('cs-results-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:20px">Failed to load. Refresh to retry.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="isl-597">Failed to load. Refresh to retry.</td></tr>';
   });
 }
 
 function renderCustomScriptsLoading() {
   const tbody = document.getElementById('cs-results-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</td></tr>';
 }
 
 function renderCustomScriptsPage() {
@@ -9453,21 +9404,21 @@ function renderCustomScriptsPage() {
 
   const noResultHtml = noResultRows.map(s => {
     const sid = escAttr(s.id);   // safe: IDs are cs_hexhex, no special chars
-    return `<tr style="opacity:0.65">
-      <td style="font-weight:500">${escHtml(s.name)}</td>
-      <td style="color:var(--muted);font-style:italic" colspan="5">No results yet — waiting for next run cycle</td>
+    return `<tr class="isl-598">
+      <td class="fw-500">${escHtml(s.name)}</td>
+      <td colspan="5" class="isl-599">No results yet — waiting for next run cycle</td>
       <td></td>
-      <td style="white-space:nowrap">
-        <button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-right:4px"
-            onclick="openCustomScriptModal('${sid}')">Edit</button>
-        <button class="btn-icon" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)"
-            onclick="csDeleteScript('${sid}')">Delete</button>
+      <td class="nowrap">
+        <button class="btn-icon isl-600"
+            data-action="openCustomScriptModal" data-arg="${sid}" >Edit</button>
+        <button class="btn-icon isl-601"
+            data-action="csDeleteScript" data-arg="${sid}" >Delete</button>
       </td>
     </tr>`;
   }).join('');
 
   if (!rows.length && !noResultRows.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:40px">${
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${
       filterText || statusFilter !== 'all' ? 'No results match the filter.' : 'No custom script results yet. Assign a script to a device and wait one run cycle (5 min).'
     }</td></tr>`;
     return;
@@ -9475,32 +9426,32 @@ function renderCustomScriptsPage() {
 
   tbody.innerHTML = noResultHtml + rows.map(r => {
     const statusBadge = r.ok
-      ? '<span style="color:var(--green);font-weight:600">● OK</span>'
-      : '<span style="color:var(--red);font-weight:600">● FAIL</span>';
+      ? '<span class="c-green-bold">● OK</span>'
+      : '<span class="c-red-bold">● FAIL</span>';
     const output = (r.output || '').trim();
     const outputSnippet = output.length > 80
-      ? escHtml(output.slice(0, 80)) + '<span style="color:var(--muted)">…</span>'
+      ? escHtml(output.slice(0, 80)) + '<span class="c-muted">…</span>'
       : escHtml(output || '—');
     const ranAt = r.ran_at ? new Date(r.ran_at * 1000).toLocaleString() : '—';
     const dur   = r.duration_ms ? `${r.duration_ms} ms` : '—';
     const changedAgo = r.changed_at
-      ? `<span title="Status changed ${new Date(r.changed_at*1000).toLocaleString()}" style="font-size:10px;color:var(--muted)">changed ${_reltime(r.changed_at)}</span>`
+      ? `<span title="Status changed ${new Date(r.changed_at*1000).toLocaleString()}" class="isl-602">changed ${_reltime(r.changed_at)}</span>`
       : '';
     return `<tr>
-      <td style="font-weight:500">${escHtml(r.script_name)}</td>
+      <td class="fw-500">${escHtml(r.script_name)}</td>
       <td>${escHtml(r.device_name)}</td>
-      <td style="font-size:12px;color:var(--muted)">${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '—'}</td>
-      <td style="text-align:center">${statusBadge}<br>${changedAgo}</td>
-      <td style="font-family:var(--font-mono);font-size:11px;max-width:260px;overflow:hidden;cursor:pointer"
-          onclick="openCsOutput(${JSON.stringify(r.script_name).replace(/&/g,'&amp;').replace(/"/g,'&quot;')},${JSON.stringify(r.device_name).replace(/&/g,'&amp;').replace(/"/g,'&quot;')},${JSON.stringify(output).replace(/&/g,'&amp;').replace(/"/g,'&quot;')})"
-          title="Click for full output">${outputSnippet}</td>
-      <td style="font-size:11px;color:var(--muted)">${ranAt}</td>
-      <td style="text-align:right;font-size:11px;color:var(--muted)">${dur}</td>
-      <td style="white-space:nowrap">
-        <button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-right:4px"
-            onclick="openCustomScriptModal('${escAttr(r.script_id)}')">Edit</button>
-        <button class="btn-icon" style="font-size:11px;padding:2px 8px;color:var(--red);border-color:rgba(239,68,68,0.3)"
-            onclick="csDeleteScript('${escAttr(r.script_id)}')">Delete</button>
+      <td class="hint">${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '—'}</td>
+      <td class="ta-center">${statusBadge}<br>${changedAgo}</td>
+      <td
+          data-action-btn="_csOutputFromStore" data-store-key="${_storeEvtData([r.script_name, r.device_name, output])}"
+          title="Click for full output" class="isl-603">${outputSnippet}</td>
+      <td class="meta-sm-nm">${ranAt}</td>
+      <td class="isl-604">${dur}</td>
+      <td class="nowrap">
+        <button class="btn-icon isl-600"
+            data-action="openCustomScriptModal" data-arg="${escAttr(r.script_id)}" >Edit</button>
+        <button class="btn-icon isl-601"
+            data-action="csDeleteScript" data-arg="${escAttr(r.script_id)}" >Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -9546,7 +9497,7 @@ async function openCustomScriptModal(scriptId) {
 async function _buildCsDevicePicker(scriptId) {
   const container = document.getElementById('cs-device-picker');
   if (!container) return;
-  container.innerHTML = '<span style="color:var(--muted);font-size:12px">Loading devices…</span>';
+  container.innerHTML = '<span class="hint">Loading devices…</span>';
 
   // Get assigned_devices for this script (if editing) — always fetch so
   // we don't need _csData to be loaded first.
@@ -9572,17 +9523,17 @@ async function _buildCsDevicePicker(scriptId) {
 
   const agentDevs = (devs || []).filter(d => !d.agentless);
   if (!agentDevs.length) {
-    container.innerHTML = '<span style="color:var(--muted);font-size:12px">No devices enrolled.</span>';
+    container.innerHTML = '<span class="hint">No devices enrolled.</span>';
     return;
   }
 
   container.innerHTML = agentDevs.map(d => {
     const devId  = d.device_id || d.id;
     const checked = assigned.includes(devId) ? 'checked' : '';
-    return `<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12px;background:var(--surface);border:1px solid var(--border)">
-      <input type="checkbox" class="cs-device-cb" value="${escAttr(devId)}" ${checked} style="width:14px;height:14px">
+    return `<label class="isl-605">
+      <input type="checkbox" class="cs-device-cb isl-606" value="${escAttr(devId)}" ${checked}>
       ${escHtml(d.name || devId)}
-      ${d.group ? `<span class="group-badge" style="font-size:10px">${escHtml(d.group)}</span>` : ''}
+      ${d.group ? `<span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}
     </label>`;
   }).join('');
 }
@@ -9850,17 +9801,17 @@ function _hcUserCard(u, i) {
   div.dataset.idx = i;
   div.style.cssText = 'background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;position:relative';
   div.innerHTML = `
-    <button onclick="hcRemoveUser(${i})" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px" title="Remove user">×</button>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Username</label>
-        <input class="form-input" style="font-size:12px" value="${escAttr(u.name||'')}" data-field="name" oninput="hcUserField(${i},this)"></div>
-      <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Shell</label>
-        <input class="form-input" style="font-size:12px" value="${escAttr(u.shell||'/bin/bash')}" data-field="shell" oninput="hcUserField(${i},this)"></div>
+    <button data-action="hcRemoveUser" data-arg="${i}" title="Remove user" class="isl-607">×</button>
+    <div class="isl-608">
+      <div><label class="isl-609">Username</label>
+        <input class="form-input fs-12" value="${escAttr(u.name||'')}" data-field="name"></div>
+      <div><label class="isl-609">Shell</label>
+        <input class="form-input fs-12" value="${escAttr(u.shell||'/bin/bash')}" data-field="shell"></div>
     </div>
-    <div style="margin-bottom:10px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Groups (comma-separated)</label>
-      <input class="form-input" style="font-size:12px" value="${escAttr((u.groups||[]).join(', '))}" data-field="groups" oninput="hcUserField(${i},this)"></div>
-    <div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">authorized_keys</label>
-      <textarea class="form-textarea" style="font-family:var(--font-mono);font-size:11px;min-height:80px;resize:vertical" data-field="authorized_keys" oninput="hcUserField(${i},this)">${escHtml(u.authorized_keys||'')}</textarea></div>`;
+    <div class="isl-610"><label class="isl-609">Groups (comma-separated)</label>
+      <input class="form-input fs-12" value="${escAttr((u.groups||[]).join(', '))}" data-field="groups"></div>
+    <div><label class="isl-609">authorized_keys</label>
+      <textarea class="form-textarea isl-611" data-field="authorized_keys">${escHtml(u.authorized_keys||'')}</textarea></div>`;
   return div;
 }
 
@@ -9922,12 +9873,11 @@ function _hcGroupRow(g, i) {
   div.className = 'hc-group-row';
   div.style.cssText = 'display:flex;gap:10px;align-items:center';
   div.innerHTML = `
-    <input class="form-input" style="font-size:12px;flex:1" placeholder="groupname"
+    <input class="form-input isl-612" placeholder="groupname"
            value="${escAttr(g.name||'')}" data-field="name">
-    <input class="form-input" style="font-size:12px;width:90px" placeholder="GID (opt)"
+    <input class="form-input isl-613" placeholder="GID (opt)"
            value="${g.gid !== null && g.gid !== undefined ? g.gid : ''}" data-field="gid" type="number">
-    <button onclick="this.closest('.hc-group-row').remove()"
-            style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px">×</button>`;
+    <button data-remove-closest=".hc-group-row" class="isl-614">×</button>`;
   return div;
 }
 
@@ -10021,7 +9971,7 @@ async function hcFetchAllCurrent() {
 async function loadListeningPorts() {
   const el = document.getElementById('ports-container');
   if (!el) return;
-  el.innerHTML = '<span style="color:var(--muted);font-size:13px">Loading…</span>';
+  el.innerHTML = '<span class="c-muted-fs13">Loading…</span>';
   const devs = await api('GET', '/devices');
   if (!Array.isArray(devs)) { el.textContent = 'Failed to load'; return; }
 
@@ -10073,16 +10023,16 @@ async function loadListeningPorts() {
               `<span class="cmd-badge" title="${escHtml(h.device)}">${escHtml(h.device)}</span>`
             ).join(' ');
             return `<tr>
-              <td><code style="font-size:12px">${escHtml(e.proto)}/${e.port}</code></td>
-              <td style="color:var(--muted);font-size:12px">${escHtml(procs.join(', ') || '—')}</td>
-              <td style="font-size:12px">${devLinks}</td>
+              <td><code class="fs-12">${escHtml(e.proto)}/${e.port}</code></td>
+              <td class="hint">${escHtml(procs.join(', ') || '—')}</td>
+              <td class="fs-12">${devLinks}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     </div>` +
-    (hidden.length ? `<button class="btn-secondary" style="margin-top:8px;font-size:12px"
-       onclick="expandPortsTable(${JSON.stringify(hidden).replace(/&/g, '&amp;').replace(/"/g, '&quot;')})">Show ${hidden.length} more ports</button>` : '');
+    (hidden.length ? `<button class="btn-secondary isl-55"
+       data-action-btn="_expandPortsFromStore" data-store-key="${_storeEvtData(hidden)}">Show ${hidden.length} more ports</button>` : '');
 }
 
 
@@ -10141,9 +10091,9 @@ async function loadDashboardSettings() {
   // Attention kind toggles — each also controls its linked activity events
   const attnEl = document.getElementById('dash-attn-kinds');
   if (attnEl) attnEl.innerHTML = ATTENTION_KINDS.map(([kind, label]) =>
-    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+    `<label class="isl-615">
        <input type="checkbox" ${hiddenAttn.has(kind) ? '' : 'checked'}
-              onchange="dashToggleAttn('${kind}',this.checked)">
+              data-change="dashToggleAttn" data-change-arg="${kind}">
        <span>${escHtml(label)}</span>
      </label>`
   ).join('');
@@ -10151,9 +10101,9 @@ async function loadDashboardSettings() {
   // Activity event toggles (informational-only events)
   const actEl = document.getElementById('dash-act-events');
   if (actEl) actEl.innerHTML = ACTIVITY_EVENTS.map(([ev, label]) =>
-    `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer">
+    `<label class="isl-615">
        <input type="checkbox" ${hiddenAct.has(ev) ? '' : 'checked'}
-              onchange="dashToggleAct('${ev}',this.checked)">
+              data-change="dashToggleAct" data-change-arg="${ev}">
        <span>${escHtml(label)}</span>
      </label>`
   ).join('');
@@ -10214,15 +10164,15 @@ function renderBackupMonitors(monitors) {
   const el = document.getElementById('backup-monitors-list');
   if (!el) return;
   if (!_backupMonitors.length) {
-    el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">No backup monitors configured.</div>';
+    el.innerHTML = '<div class="isl-616">No backup monitors configured.</div>';
     return;
   }
   el.innerHTML = _backupMonitors.map((m, i) => `
-    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:13px"><code>${escHtml(m.path)}</code></span>
-      <span style="color:var(--muted);font-size:12px">${escHtml(m.label||m.path)}</span>
+    <div class="isl-617">
+      <span class="isl-618"><code>${escHtml(m.path)}</code></span>
+      <span class="hint">${escHtml(m.label||m.path)}</span>
       <span class="cmd-badge">${m.max_age_hours}h</span>
-      <button class="btn-icon" style="color:var(--red)" onclick="removeBackupMonitor(${i})">✕</button>
+      <button class="btn-icon c-red" data-action="removeBackupMonitor" data-arg="${i}">✕</button>
     </div>`).join('');
 }
 
@@ -10279,7 +10229,7 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
     const status = online ? '● Online' : '○ Offline';
     const color  = online ? 'var(--green)' : 'var(--red)';
     document.getElementById('drawer-device-sub').innerHTML =
-      `<span style="color:${color}">${status}</span>` +
+      `<span class="isl-401">${status}</span>` +
       (_drawerDeviceData.group ? ` · ${escHtml(_drawerDeviceData.group)}` : '');
   } catch(e) {
     _drawerDeviceData = {};
@@ -10323,36 +10273,39 @@ function _renderDrawerActions() {
   const d    = _drawerDeviceData || {};
   const agentless = d.agentless;
 
-  // Icon, label, onclick, danger flag
+  // Icon, label, fn (closure), danger flag, hidden flag
   const actions = [
-    ['💻', 'Run command',       `closeDeviceDrawer();openExecModal('${id}','${escAttr(name)}')`,              false, agentless],
-    ['🔄', 'Reboot',           `rebootTarget='${id}';closeDeviceDrawer();openModal('reboot-modal');document.getElementById('reboot-name').textContent='${escAttr(name)}'`,   false, agentless],
-    ['⏻',  'Shut down',        `shutdownTarget='${id}';closeDeviceDrawer();openModal('shutdown-modal');document.getElementById('shutdown-name').textContent='${escAttr(name)}'`, false, agentless],
-    ['📡', 'Wake on LAN',      `_wolWithMacCheck('${id}','${escAttr(name)}',this)`,                                false, false],
-    ['📦', 'Upgrade packages', `closeDeviceDrawer();upgradePackages('${id}','${escAttr(name)}')`,             false, agentless],
-    ['🔍', 'Scan packages',    `forcePackageScan('${id}','${escAttr(name)}',this)`,                          false, agentless],
-    ['🖥',  'Web terminal',    `closeDeviceDrawer();openWebTerm('${id}','${escAttr(name)}')`,                 false, agentless],
-    ['📜', 'Run script',       `closeDeviceDrawer();openScriptRunForDevice('${id}','${escAttr(name)}')`,      false, agentless],
-    ['🔧', 'Update agent',     `closeDeviceDrawer();sendUpdate('${id}','${escAttr(name)}')`,                  false, agentless],
-    ['⚡', 'Force-upgrade',    `closeDeviceDrawer();forceAgentUpgrade('${id}','${escAttr(name)}')`,           true,  agentless],
-    ['🐳', 'Docker compose',   `closeDeviceDrawer();openComposeModal('${id}','${escAttr(name)}')`,            false, agentless],
-    ['⚙',  'Host config',     `closeDeviceDrawer();openHostConfigModal('${id}','${escAttr(name)}')`,         false, agentless],
-    ['✨', 'AI Investigate',   `aiInvestigateDevice('${id}','${escAttr(name)}')`,                             false, false],
-    ['📋', 'CMDB',             `closeDeviceDrawer();cmdbOpenAsset('${id}')`,                                  false, false],
-    ['📖', 'Runbook',          `closeDeviceDrawer();aiViewRunbook('${id}','${escAttr(name)}')`,               false, false],
-    ['🔧', 'Maintenance',      `closeDeviceDrawer();openNewMaintModal()`,                                     false, false],
-    ['⏱',  'Adjust poll',     `_drawerAdjustPoll()`,                                                         false, agentless],
-    ['🗑',  'Remove device',   `closeDeviceDrawer();deleteDevice('${id}','${escAttr(name)}')`,                true,  false],
+    ['💻', 'Run command',       () => { closeDeviceDrawer(); openExecModal(id, name); },                      false, agentless],
+    ['🔄', 'Reboot',           () => { rebootTarget = id; closeDeviceDrawer(); openModal('reboot-modal'); document.getElementById('reboot-name').textContent = name; }, false, agentless],
+    ['⏻',  'Shut down',        () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
+    ['📡', 'Wake on LAN',      () => _wolWithMacCheck(id, name),                                              false, false],
+    ['📦', 'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                     false, agentless],
+    ['🔍', 'Scan packages',    () => forcePackageScan(id, name, null),                                        false, agentless],
+    ['🖥',  'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                         false, agentless],
+    ['📜', 'Run script',       () => { closeDeviceDrawer(); openScriptRunForDevice(id, name); },              false, agentless],
+    ['🔧', 'Update agent',     () => { closeDeviceDrawer(); sendUpdate(id, name); },                          false, agentless],
+    ['⚡', 'Force-upgrade',    () => { closeDeviceDrawer(); forceAgentUpgrade(id, name); },                   true,  agentless],
+    ['🐳', 'Docker compose',   () => { closeDeviceDrawer(); openComposeModal(id, name); },                    false, agentless],
+    ['⚙',  'Host config',     () => { closeDeviceDrawer(); openHostConfigModal(id, name); },                 false, agentless],
+    ['✨', 'AI Investigate',   () => aiInvestigateDevice(id, name),                                           false, false],
+    ['📋', 'CMDB',             () => { closeDeviceDrawer(); cmdbOpenAsset(id); },                             false, false],
+    ['📖', 'Runbook',          () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                       false, false],
+    ['🔧', 'Maintenance',      () => { closeDeviceDrawer(); openNewMaintModal(); },                           false, false],
+    ['⏱',  'Adjust poll',     () => _drawerAdjustPoll(),                                                     false, agentless],
+    ['🗑',  'Remove device',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                        true,  false],
   ];
 
+  _drawerActMap.clear();
   document.getElementById('drawer-actions-grid').innerHTML = actions
     .filter(([,,,, hidden]) => !hidden)
-    .map(([icon, label, onclick, danger]) =>
-      `<button class="drawer-action-btn${danger ? ' danger' : ''}" onclick="${onclick}">
-        <span style="font-size:15px">${icon}</span>
+    .map(([icon, label, fn, danger]) => {
+      const key = `da_${Math.random().toString(36).slice(2)}`;
+      _drawerActMap.set(key, fn);
+      return `<button class="drawer-action-btn${danger ? ' danger' : ''}" data-drawer-act="${key}">
+        <span class="fs-15">${icon}</span>
         <span>${escHtml(label)}</span>
-      </button>`
-    ).join('');
+      </button>`;
+    }).join('');
 }
 
 async function _drawerAdjustPoll() {
@@ -10382,46 +10335,46 @@ function _renderDrawerSettings() {
   document.getElementById('drawer-settings-form').innerHTML = `
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Group</span>
-      <input class="form-input" id="ds-group" value="${escAttr(d.group||'')}" style="flex:1;padding:5px 8px;font-size:12px">
+      <input class="form-input isl-619" id="ds-group" value="${escAttr(d.group||'')}">
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Tags</span>
-      <input class="form-input" id="ds-tags" value="${escAttr((d.tags||[]).join(', '))}" placeholder="prod, web, linux" style="flex:1;padding:5px 8px;font-size:12px">
+      <input class="form-input isl-619" id="ds-tags" value="${escAttr((d.tags||[]).join(', '))}" placeholder="prod, web, linux">
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Icon</span>
-      <input class="form-input" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="🖥" style="width:70px;padding:5px 8px;font-size:16px;text-align:center">
+      <input class="form-input isl-620" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="🖥">
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Monitored</span>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+      <label class="click-row-6">
         <input type="checkbox" id="ds-monitored" ${d.monitored !== false ? 'checked' : ''}>
-        <span style="font-size:12px">Active monitoring</span>
+        <span class="fs-12">Active monitoring</span>
       </label>
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Poll interval</span>
-      <input class="form-input" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30" style="width:80px;padding:5px 8px;font-size:12px">
-      <span style="font-size:12px;color:var(--muted)">seconds</span>
+      <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
+      <span class="hint">seconds</span>
     </div>
-    <div class="drawer-setting-row" style="align-items:flex-start">
-      <span class="drawer-setting-label" style="padding-top:4px">Watched services</span>
-      <input class="form-input" id="ds-services" value="${escAttr(watched)}" placeholder="nginx, sshd, postfix" style="flex:1;padding:5px 8px;font-size:12px">
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">Watched services</span>
+      <input class="form-input isl-619" id="ds-services" value="${escAttr(watched)}" placeholder="nginx, sshd, postfix">
     </div>
-    <div class="drawer-setting-row" style="align-items:flex-start">
-      <span class="drawer-setting-label" style="padding-top:4px">Log watch rules</span>
-      <textarea class="form-input" id="ds-logrules" rows="3" placeholder="sshd : Failed password\nnginx : 5[0-9][0-9]" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(logRules)}</textarea>
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">Log watch rules</span>
+      <textarea class="form-input isl-624" id="ds-logrules" rows="3" placeholder="sshd : Failed password\nnginx : 5[0-9][0-9]">${escHtml(logRules)}</textarea>
     </div>
-    <div class="drawer-setting-row" style="align-items:flex-start">
-      <span class="drawer-setting-label" style="padding-top:4px">Drift watch files</span>
-      <textarea class="form-input" id="ds-drift" rows="3" placeholder="/etc/nginx/nginx.conf\n/etc/hosts" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(driftList)}</textarea>
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">Drift watch files</span>
+      <textarea class="form-input isl-624" id="ds-drift" rows="3" placeholder="/etc/nginx/nginx.conf\n/etc/hosts">${escHtml(driftList)}</textarea>
     </div>
-    <div class="drawer-setting-row" style="align-items:flex-start">
-      <span class="drawer-setting-label" style="padding-top:4px">Command allowlist</span>
-      <textarea class="form-input" id="ds-allowlist" rows="3" placeholder="systemctl status *\nnginx -t" style="flex:1;padding:5px 8px;font-size:11.5px;font-family:var(--font-mono);resize:vertical">${escHtml(allowList)}</textarea>
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">Command allowlist</span>
+      <textarea class="form-input isl-624" id="ds-allowlist" rows="3" placeholder="systemctl status *\nnginx -t">${escHtml(allowList)}</textarea>
     </div>
-    <div style="padding:12px 0 4px;display:flex;gap:8px">
-      <button class="btn-primary" style="font-size:12px;padding:6px 16px" onclick="_drawerSaveSettings()">Save settings</button>
+    <div class="isl-625">
+      <button class="btn-primary isl-626" data-action="_drawerSaveSettings" >Save settings</button>
     </div>`;
 }
 
@@ -10491,7 +10444,7 @@ function _renderDrawerAuditSections() {
         <span>${s.icon} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
       </summary>
       <div class="audit-section-body" id="audit-body-${s.key}">
-        <div style="color:var(--muted)">Click to load…</div>
+        <div class="c-muted">Click to load…</div>
       </div>
     </details>`
   ).join('');
@@ -10509,7 +10462,7 @@ async function _loadAuditSection(key) {
   const body = document.getElementById(`audit-body-${key}`);
   const badge= document.getElementById(`audit-badge-${key}`);
   if (!body || !id) return;
-  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
 
   try {
     switch (key) {
@@ -10519,7 +10472,7 @@ async function _loadAuditSection(key) {
         const si   = data?.sysinfo || {};
         const jrnl = data?.journal || [];
         if (!si.uptime && !jrnl.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No sysinfo yet — agent reports every ~10 min.</div>';
+          body.innerHTML = '<div class="c-muted">No sysinfo yet — agent reports every ~10 min.</div>';
           return;
         }
         let h = '';
@@ -10530,29 +10483,29 @@ async function _loadAuditSection(key) {
           ['Load avg',  si.loadavg],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
         ];
-        h += `<div class="sysinfo-row" style="margin-bottom:10px">` +
+        h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
             `<div class="sysinfo-pill"><div class="label">${l}</div><div class="value">${escHtml(String(v))}</div></div>`
           ).join('') + `</div>`;
         if ((si.network||[]).length) {
-          h += `<div style="margin-bottom:8px">` +
+          h += `<div class="mb-8">` +
             si.network.map(n=>
-              `<span class="cmd-badge" style="font-size:11px">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
+              `<span class="cmd-badge fs-11">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
             ).join('') + `</div>`;
         }
         if ((si.mounts||[]).length) {
-          h += `<table style="font-size:11.5px;width:100%;border-collapse:collapse">
-            <thead><tr style="color:var(--muted)"><th style="text-align:left;padding:3px 6px">Mount</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
+          h += `<table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
             <tbody>` + si.mounts.map(m=>
-              `<tr><td style="padding:3px 6px"><code>${escHtml(m.path)}</code></td>
-                   <td style="text-align:center">${m.used_gb}GB</td>
-                   <td style="text-align:center">${m.total_gb}GB</td>
-                   <td style="text-align:center;color:${m.percent>85?'var(--red)':m.percent>70?'var(--amber)':'inherit'}">${m.percent}%</td></tr>`
+              `<tr><td class="isl-629"><code>${escHtml(m.path)}</code></td>
+                   <td class="ta-center">${m.used_gb}GB</td>
+                   <td class="ta-center">${m.total_gb}GB</td>
+                   <td class="isl-630">${m.percent}%</td></tr>`
             ).join('') + `</tbody></table>`;
         }
         if (jrnl.length) {
-          h += `<div style="font-size:11px;color:var(--muted);margin:10px 0 4px">Journal — last ${jrnl.length} lines</div>
-                <div class="journal-wrap" style="max-height:200px">${escHtml(jrnl.join('\n'))}</div>`;
+          h += `<div class="isl-631">Journal — last ${jrnl.length} lines</div>
+                <div class="journal-wrap isl-632">${escHtml(jrnl.join('\n'))}</div>`;
         }
         body.innerHTML = h;
         badge.textContent = si.uptime || '';
@@ -10561,12 +10514,12 @@ async function _loadAuditSection(key) {
           const aiDiv = document.createElement('div');
           aiDiv.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
           aiDiv.innerHTML = `
-            <button class="btn-secondary" style="font-size:12px"
-              onclick="aiFindProblemInJournal('${escAttr(id)}', document.querySelector('.journal-wrap')?.textContent?.split('\\n') || [])">
+            <button class="btn-secondary fs-12"
+              data-action-btn="_aiFindProblemBtn" data-dev-id="${escAttr(id)}" data-journal-sel=".journal-wrap" >
               ✨ Find the problem
             </button>
-            <button class="btn-secondary" style="font-size:12px"
-              onclick="aiInvestigateDevice('${escAttr(id)}','${escAttr(name)}')">
+            <button class="btn-secondary fs-12"
+              data-action="aiInvestigateDevice" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" >
               ✨ Full investigation
             </button>`;
           body.appendChild(aiDiv);
@@ -10578,14 +10531,14 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/sysinfo`);
         const ports = data?.sysinfo?.listening_ports || [];
         if (!ports.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No port data yet. Agent reports ports with sysinfo (~10 min).</div>';
+          body.innerHTML = '<div class="c-muted">No port data yet. Agent reports ports with sysinfo (~10 min).</div>';
           badge.textContent = 'none';
           return;
         }
         body.innerHTML = `
-          <input class="audit-filter" placeholder="Filter ports…" oninput="_filterPorts(this, '${id}')">
-          <table class="ports-table" id="ports-tbl-${id}" style="width:100%;border-collapse:collapse">
-            <thead><tr style="color:var(--muted);text-align:left">
+          <input class="audit-filter" placeholder="Filter ports…" data-input="_filterPorts" data-input-el="1" data-input-arg="${id}">
+          <table class="ports-table isl-633" id="ports-tbl-${id}">
+            <thead><tr class="isl-634">
               <th>Proto</th><th>Port</th><th>Process</th>
             </tr></thead>
             <tbody id="ports-body-${id}">
@@ -10593,7 +10546,7 @@ async function _loadAuditSection(key) {
                 `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''}`)}">
                   <td><code>${escHtml(p.proto)}</code></td>
                   <td><strong>${p.port}</strong></td>
-                  <td style="color:var(--muted)">${escHtml(p.process||'—')}</td>
+                  <td class="c-muted">${escHtml(p.process||'—')}</td>
                 </tr>`
               ).join('')}
             </tbody>
@@ -10607,12 +10560,12 @@ async function _loadAuditSection(key) {
         const pkg  = data?.sysinfo?.packages || {};
         const upg  = pkg.upgradable ?? '?';
         body.innerHTML = `
-          <div class="sysinfo-row" style="margin-bottom:10px">
+          <div class="sysinfo-row isl-610">
             <div class="sysinfo-pill"><div class="label">Manager</div><div class="value">${escHtml(pkg.manager||'unknown')}</div></div>
-            <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value" style="color:${upg>0?'var(--amber)':'var(--green)'}">${upg}</div></div>
+            <div class="sysinfo-pill"><div class="label">Upgradable</div><div class="value isl-635">${upg}</div></div>
             <div class="sysinfo-pill"><div class="label">Last scan</div><div class="value">${data?.sysinfo?.pkg_scan_ts ? timeAgo(data.sysinfo.pkg_scan_ts) : '—'}</div></div>
           </div>
-          <button class="btn-secondary" style="font-size:12px" onclick="forcePackageScan('${id}','${escAttr(_drawerDeviceName)}',this)">⟳ Scan now</button>`;
+          <button class="btn-secondary fs-12" data-action-btn="_forcePackageScanBtn" data-dev-id="${id}" data-dev-name="${escAttr(_drawerDeviceName)}" >⟳ Scan now</button>`;
         badge.textContent = upg > 0 ? `${upg} upgradable` : 'up to date';
         break;
       }
@@ -10626,10 +10579,10 @@ async function _loadAuditSection(key) {
           const data = await api('GET', `/devices/${id}/sysinfo`);
           const jrnl = data?.journal || [];
           if (!jrnl.length) {
-            body.innerHTML = '<div style="color:var(--muted)">No log data yet.</div>';
+            body.innerHTML = '<div class="c-muted">No log data yet.</div>';
             return;
           }
-          body.innerHTML = `<div class="journal-wrap" style="max-height:300px">${escHtml(jrnl.join('\n'))}</div>`;
+          body.innerHTML = `<div class="journal-wrap isl-636">${escHtml(jrnl.join('\n'))}</div>`;
           badge.textContent = `${jrnl.length} lines`;
           return;
         }
@@ -10639,16 +10592,16 @@ async function _loadAuditSection(key) {
         badge.textContent = `${entries.length} entries`;
         body.innerHTML = `
           <input class="audit-filter" id="log-filter-${id}" placeholder="Filter by unit or text…"
-                 oninput="_filterLogs('${id}')">
-          <div id="log-lines-${id}" style="max-height:320px;overflow-y:auto">
+                 data-input="_filterLogs" data-input-arg="${id}">
+          <div id="log-lines-${id}" class="isl-637">
             ${entries.length
               ? entries.map(e=>
                   `<div class="log-line" data-unit="${escAttr(e.unit||'')}" data-line="${escAttr(e.line||e.msg||'')}">
                     <span class="log-unit-badge">${escHtml(e.unit||'—')}</span>
-                    <span class="journal-wrap" style="font-size:11px">${escHtml(e.line||e.msg||'')}</span>
+                    <span class="journal-wrap fs-11">${escHtml(e.line||e.msg||'')}</span>
                   </div>`
                 ).join('')
-              : '<div style="color:var(--muted)">No log entries.</div>'}
+              : '<div class="c-muted">No log entries.</div>'}
           </div>`;
         break;
       }
@@ -10657,7 +10610,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/output`);
         const outputs = (data?.outputs || []).slice().reverse();
         if (!outputs.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No commands run yet.</div>';
+          body.innerHTML = '<div class="c-muted">No commands run yet.</div>';
           badge.textContent = 'none';
           return;
         }
@@ -10669,18 +10622,18 @@ async function _loadAuditSection(key) {
           const ts    = o.ts ? new Date(o.ts*1000).toLocaleString() : '';
           const outTxt= o.output || o.stdout || '(no output)';
           return `<div class="audit-cmd-entry" id="cmd-entry-${id}-${i}">
-            <div class="audit-cmd-summary" onclick="toggleAuditCmd('${id}',${i})">
-              <code style="flex:1;font-size:11.5px;color:var(--accent);overflow:hidden;text-overflow:ellipsis">${escHtml(o.cmd||'?')}</code>
-              <span style="font-size:10px;color:var(--muted);white-space:nowrap;margin-left:8px">rc=${rc} · ${ts}</span>
-              <span style="font-size:11px;color:var(--muted);margin-left:6px">▶</span>
+            <div class="audit-cmd-summary" data-action="toggleAuditCmd" data-arg="${id}" data-arg2="${i}">
+              <code class="isl-638">${escHtml(o.cmd||'?')}</code>
+              <span class="isl-639">rc=${rc} · ${ts}</span>
+              <span class="isl-640">▶</span>
             </div>
             <div class="audit-cmd-output">${escHtml(outTxt)}</div>
           </div>`;
         }).join('');
         body.innerHTML = renderCmds(recent) +
           (older.length
-            ? `<div id="older-cmds-${id}" style="display:none">${renderCmds(older)}</div>
-               <button class="btn-secondary" style="font-size:11px;margin-top:6px" onclick="_showOlderCmds('${id}')">Show ${older.length} older commands</button>`
+            ? `<div id="older-cmds-${id}" class="d-none">${renderCmds(older)}</div>
+               <button class="btn-secondary isl-641" data-action="_showOlderCmds" data-arg="${id}" >Show ${older.length} older commands</button>`
             : '');
         badge.textContent = `${outputs.length} commands`;
         break;
@@ -10690,7 +10643,7 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/fleet/events?device_id=${encodeURIComponent(id)}&limit=30`);
         const evs  = Array.isArray(data) ? data : (data?.events || data?.items || []);
         if (!evs.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No fleet events for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No fleet events for this device.</div>';
           badge.textContent = 'none';
           return;
         }
@@ -10698,11 +10651,11 @@ async function _loadAuditSection(key) {
         body.innerHTML = evs.slice(0,30).map(ev => {
           const p = ev.payload || {};
           const cls = EVENT_CLASS[ev.event] || 'info';
-          return `<div style="display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+          return `<div class="isl-642">
             <span class="activity-dot ${cls}"></span>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:12px">${escHtml((ev.event||'').replace(/_/g,' '))}</div>
-              <div style="font-size:11px;color:var(--muted)">${ev.ts ? timeAgo(ev.ts) : ''}</div>
+            <div class="isl-445">
+              <div class="fs-12">${escHtml((ev.event||'').replace(/_/g,' '))}</div>
+              <div class="meta-sm-nm">${ev.ts ? timeAgo(ev.ts) : ''}</div>
             </div>
           </div>`;
         }).join('');
@@ -10714,18 +10667,18 @@ async function _loadAuditSection(key) {
         const devDrift = (data?.drifts || data || []).find?.(d=>d.device_id===id)
                       || (typeof data==='object' && data[id]) || null;
         if (!devDrift) {
-          body.innerHTML = '<div style="color:var(--muted)">No drift state for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No drift state for this device.</div>';
           badge.textContent = 'clean';
           return;
         }
         const drifted = devDrift.drifted || devDrift.files || [];
         badge.textContent = drifted.length ? `${drifted.length} changed` : 'clean';
         body.innerHTML = !drifted.length
-          ? '<div style="color:var(--green)">All watched files at baseline.</div>'
+          ? '<div class="c-green">All watched files at baseline.</div>'
           : drifted.map(f =>
-              `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
-                <code style="color:var(--amber)">${escHtml(f.path||f)}</code>
-                ${f.changed_at ? `<span style="color:var(--muted);font-size:11px"> · ${timeAgo(f.changed_at)}</span>` : ''}
+              `<div class="isl-643">
+                <code class="c-amber">${escHtml(f.path||f)}</code>
+                ${f.changed_at ? `<span class="meta-sm-nm"> · ${timeAgo(f.changed_at)}</span>` : ''}
                </div>`
             ).join('');
         break;
@@ -10739,7 +10692,7 @@ async function _loadAuditSection(key) {
           const fleet = await api('GET', '/cve/findings');
           const devCve = (fleet?.devices || []).find(d => d.device_id === id);
           if (!devCve) {
-            body.innerHTML = '<div style="color:var(--muted)">No CVE data for this device yet.</div>';
+            body.innerHTML = '<div class="c-muted">No CVE data for this device yet.</div>';
             badge.textContent = 'none'; return;
           }
           const c = devCve.counts || {};
@@ -10747,7 +10700,7 @@ async function _loadAuditSection(key) {
           body.innerHTML = `<div class="sysinfo-row">` +
             ['critical','high','medium','low'].map(s =>
               `<div class="sysinfo-pill"><div class="label">${s}</div>
-               <div class="value" style="color:${s==='critical'?'var(--red)':s==='high'?'var(--amber)':'inherit'}">${c[s]||0}</div></div>`
+               <div class="value isl-644">${c[s]||0}</div></div>`
             ).join('') + '</div>';
           break;
         }
@@ -10763,27 +10716,27 @@ async function _loadAuditSection(key) {
         const high = (bySev.high||[]).length;
         badge.textContent = crit > 0 ? `${crit} critical` : high > 0 ? `${high} high` : findings.length ? `${findings.length} total` : 'clean';
         body.innerHTML = `
-          <div class="sysinfo-row" style="margin-bottom:10px">
+          <div class="sysinfo-row isl-610">
             ${['critical','high','medium','low'].map(sev =>
               `<div class="sysinfo-pill">
                 <div class="label">${sev}</div>
-                <div class="value" style="color:${sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'inherit'}">${(bySev[sev]||[]).length}</div>
+                <div class="value isl-645">${(bySev[sev]||[]).length}</div>
               </div>`
             ).join('')}
           </div>` +
           ['critical','high','medium','low'].filter(s => bySev[s]?.length).map(sev => {
             const col = sev==='critical'?'var(--red)':sev==='high'?'var(--amber)':'var(--muted)';
-            return `<div style="margin-bottom:6px">
-              <div style="font-size:11px;font-weight:600;color:${col};margin-bottom:3px;text-transform:uppercase">${sev}</div>
+            return `<div class="mb-6">
+              <div class="isl-646">${sev}</div>
               ${bySev[sev].slice(0,5).map(f =>
-                `<div style="font-size:11px;padding:2px 0;border-bottom:1px solid var(--border)">
-                  <code style="color:${col}">${escHtml(f.cve_id||f.vuln_id||f.id||'')}</code>
-                  <span style="color:var(--muted)"> — ${escHtml(f.package||f.pkg||'')} ${escHtml(f.version||'')}</span>
+                `<div class="isl-647">
+                  <code class="isl-648">${escHtml(f.cve_id||f.vuln_id||f.id||'')}</code>
+                  <span class="c-muted"> — ${escHtml(f.package||f.pkg||'')} ${escHtml(f.version||'')}</span>
                 </div>`).join('')}
-              ${bySev[sev].length>5 ? `<div style="font-size:11px;color:var(--muted)">…and ${bySev[sev].length-5} more</div>` : ''}
+              ${bySev[sev].length>5 ? `<div class="meta-sm-nm">…and ${bySev[sev].length-5} more</div>` : ''}
             </div>`;
           }).join('') ||
-          '<div style="color:var(--green)">No CVEs found. 🎉</div>';
+          '<div class="c-green">No CVEs found. 🎉</div>';
         break;
       }
 
@@ -10792,13 +10745,13 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/containers`);
         const ctrs = data?.items || data?.containers || [];
         if (!ctrs.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No container data for this device.</div>';
+          body.innerHTML = '<div class="c-muted">No container data for this device.</div>';
           badge.textContent = 'none'; return;
         }
         badge.textContent = `${ctrs.length} container${ctrs.length!==1?'s':''}`;
-        body.innerHTML = `<table style="font-size:12px;width:100%;border-collapse:collapse">
-          <thead><tr style="color:var(--muted)">
-            <th style="text-align:left;padding:4px 6px">Name</th>
+        body.innerHTML = `<table class="isl-649">
+          <thead><tr class="c-muted">
+            <th class="isl-650">Name</th>
             <th>Status</th><th>Image</th>
           </tr></thead>
           <tbody>
@@ -10807,10 +10760,10 @@ async function _loadAuditSection(key) {
               const up   = stat.includes('up ') || stat.includes('running') || stat === 'running';
               const col  = up ? 'var(--green)' : stat.includes('exit') ? 'var(--red)' : 'var(--muted)';
               const img  = (c.image || c.Image || '—').split(':')[0];
-              return `<tr style="border-top:1px solid var(--border)">
-                <td style="padding:4px 6px"><code>${escHtml(c.name||c.Names||'?')}</code></td>
-                <td style="text-align:center;color:${col}">${escHtml(c.status||c.State||'?')}</td>
-                <td style="text-align:center;color:var(--muted);font-size:11px">${escHtml(img)}</td>
+              return `<tr class="border-top">
+                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code></td>
+                <td class="isl-652">${escHtml(c.status||c.State||'?')}</td>
+                <td class="isl-653">${escHtml(img)}</td>
               </tr>`;
             }).join('')}
           </tbody></table>`;
@@ -10832,7 +10785,7 @@ async function _loadAuditSection(key) {
           ['Disk /', rootM?.percent,   'disk:/'],
         ].filter(([,v]) => v != null && typeof v === 'number');
         if (!pairs.length) {
-          body.innerHTML = '<div style="color:var(--muted)">No metric data yet — agent needs psutil.</div>';
+          body.innerHTML = '<div class="c-muted">No metric data yet — agent needs psutil.</div>';
           badge.textContent = 'none';
           return;
         }
@@ -10843,7 +10796,7 @@ async function _loadAuditSection(key) {
             const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'inherit';
             return `<div class="sysinfo-pill">
               <div class="label">${escHtml(k)}</div>
-              <div class="value" style="color:${col}">${v.toFixed(1)}%</div>
+              <div class="value isl-648">${v.toFixed(1)}%</div>
             </div>`;
           }).join('') + `</div>`;
         break;
@@ -10853,20 +10806,20 @@ async function _loadAuditSection(key) {
         const data = await api('GET', `/devices/${id}/host-config`);
         const cfg  = data?.current || data || {};
         if (!cfg || !Object.keys(cfg).length) {
-          body.innerHTML = '<div style="color:var(--muted)">No host config state collected yet.</div>';
+          body.innerHTML = '<div class="c-muted">No host config state collected yet.</div>';
           badge.textContent = 'none';
           return;
         }
         badge.textContent = 'loaded';
-        body.innerHTML = `<pre style="font-size:11px;overflow-x:auto;white-space:pre-wrap;max-height:300px">${escHtml(JSON.stringify(cfg, null, 2))}</pre>`;
+        body.innerHTML = `<pre class="isl-654">${escHtml(JSON.stringify(cfg, null, 2))}</pre>`;
         break;
       }
 
       default:
-        body.innerHTML = `<div style="color:var(--muted)">Section "${key}" not implemented.</div>`;
+        body.innerHTML = `<div class="c-muted">Section "${key}" not implemented.</div>`;
     }
   } catch(err) {
-    body.innerHTML = `<div style="color:var(--red)">Error loading: ${escHtml(String(err))}</div>`;
+    body.innerHTML = `<div class="c-red">Error loading: ${escHtml(String(err))}</div>`;
     if (_drawerAuditLoaded[key]) delete _drawerAuditLoaded[key]; // allow retry
   }
 }
@@ -10911,9 +10864,9 @@ function expandPortsTable(hidden) {
     ).join(' ');
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><code style="font-size:12px">${escHtml(e.proto)}/${e.port}</code></td>
-      <td style="color:var(--muted);font-size:12px">${escHtml(procs.join(', ') || '—')}</td>
-      <td style="font-size:12px">${devLinks}</td>`;
+      <td><code class="fs-12">${escHtml(e.proto)}/${e.port}</code></td>
+      <td class="hint">${escHtml(procs.join(', ') || '—')}</td>
+      <td class="fs-12">${devLinks}</td>`;
     tbody.appendChild(tr);
   });
   // Remove expand button
@@ -10971,12 +10924,12 @@ function _addAiButtonsToSysinfo(devId, devName, journal) {
   const btn = document.createElement('div');
   btn.style.cssText = 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap';
   btn.innerHTML = `
-    <button class="btn-secondary" style="font-size:12px"
-      onclick="aiFindProblemInJournal('${escAttr(devName)}', document.getElementById('audit-sysinfo-body').querySelector('.journal-wrap')?.textContent?.split('\\n') || [])">
+    <button class="btn-secondary fs-12"
+      data-action-btn="_aiFindProblemBtn" data-dev-id="${escAttr(devName)}" data-journal-sel="#audit-sysinfo-body .journal-wrap">
       ✨ Find the problem
     </button>
-    <button class="btn-secondary" style="font-size:12px"
-      onclick="aiInvestigateDevice('${escAttr(devId)}','${escAttr(devName)}')">
+    <button class="btn-secondary fs-12"
+      data-action="aiInvestigateDevice" data-arg="${escAttr(devId)}" data-arg2="${escAttr(devName)}" >
       ✨ Full investigation
     </button>`;
   el.appendChild(btn);
@@ -10990,13 +10943,13 @@ function _renderLogIgnoreList() {
   const el = document.getElementById('log-ignore-list');
   if (!el) return;
   if (!_logIgnorePatterns.length) {
-    el.innerHTML = '<span style="color:var(--muted)">No patterns configured.</span>';
+    el.innerHTML = '<span class="c-muted">No patterns configured.</span>';
     return;
   }
   el.innerHTML = _logIgnorePatterns.map((p, i) =>
-    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
-       <code style="flex:1;font-size:12px">${escHtml(p)}</code>
-       <button class="btn-icon" style="color:var(--red);font-size:13px" onclick="removeLogIgnorePattern(${i})">✕</button>
+    `<div class="isl-655">
+       <code class="isl-656">${escHtml(p)}</code>
+       <button class="btn-icon isl-657" data-action="removeLogIgnorePattern" data-arg="${i}">✕</button>
      </div>`
   ).join('');
 }
@@ -11265,7 +11218,7 @@ async function loadIacPage() {
   if (list) {
     list.innerHTML = IAC_CATEGORIES.map(c => `
       <label class="iac-cat-row">
-        <input type="checkbox" value="${escAttr(c.key)}" ${defaultCats.includes(c.key)?'checked':''} onchange="_iacSavePref()">
+        <input type="checkbox" value="${escAttr(c.key)}" ${defaultCats.includes(c.key)?'checked':''} data-change="_iacSavePref">
         <span>${escHtml(c.label)}</span>
         <span class="hint">${c.source}</span>
       </label>`).join('');
@@ -11523,12 +11476,12 @@ function _iacRenderConversation() {
   const el = document.getElementById('iac-convo-output');
   if (!el) return;
   if (!_iacLastConvo) {
-    el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No conversation yet.</div>';
+    el.innerHTML = '<div class="empty-state">No conversation yet.</div>';
     return;
   }
   const c = _iacLastConvo;
   el.innerHTML = `
-    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+    <div class="isl-658">
       Provider: <strong>${escHtml(c.provider||'?')}</strong> · Model: <strong>${escHtml(c.model||'?')}</strong>
     </div>
     <div class="iac-convo-block">
@@ -11550,13 +11503,13 @@ function _iacRenderConversation() {
 async function loadAiPrompts() {
   const list = document.getElementById('ai-prompts-list');
   if (!list) return;
-  list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:30px">Loading prompts…</div>';
+  list.innerHTML = '<div class="isl-78">Loading prompts…</div>';
   const [r, paramsResp] = await Promise.all([
     api('GET', '/ai/prompts'),
     api('GET', '/ai/params'),
   ]);
   if (!r?.prompts) {
-    list.innerHTML = '<div style="color:var(--red);font-size:13px">Failed to load prompts.</div>';
+    list.innerHTML = '<div class="isl-657">Failed to load prompts.</div>';
     return;
   }
   // Index params by key for easy lookup
@@ -11567,47 +11520,46 @@ async function loadAiPrompts() {
     const hasParams = (params.temperature != null) || (params.top_p != null)
                    || (params.max_tokens != null)  || (params.num_ctx != null);
     return `
-    <div class="prompt-card" data-key="${escAttr(p.key)}" style="border:1px solid var(--border);border-radius:8px;padding:12px;background:var(--surface2)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+    <div class="prompt-card isl-659" data-key="${escAttr(p.key)}">
+      <div class="isl-660">
         <div>
-          <strong style="font-size:14px">${escHtml(p.label)}</strong>
-          <span style="font-size:11px;color:var(--muted);margin-left:6px">${escHtml(p.key)}</span>
-          ${p.is_customized ? '<span style="font-size:11px;color:var(--amber);margin-left:8px">● customized</span>' : ''}
-          ${hasParams ? '<span style="font-size:11px;color:var(--accent2);margin-left:8px">● tuned</span>' : ''}
+          <strong class="fs-14">${escHtml(p.label)}</strong>
+          <span class="isl-640">${escHtml(p.key)}</span>
+          ${p.is_customized ? '<span class="isl-661">● customized</span>' : ''}
+          ${hasParams ? '<span class="isl-662">● tuned</span>' : ''}
         </div>
-        <div style="display:flex;gap:6px">
-          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="saveAiPrompt('${escAttr(p.key)}', this)">Save prompt</button>
-          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="resetAiPrompt('${escAttr(p.key)}', this)">Default</button>
+        <div class="row-6">
+          <button class="btn-secondary badge-sm" data-action-btn="_saveAiPromptBtn" data-key="${escAttr(p.key)}" >Save prompt</button>
+          <button class="btn-secondary badge-sm" data-action-btn="_resetAiPromptBtn" data-key="${escAttr(p.key)}" >Default</button>
         </div>
       </div>
-      <textarea class="form-input prompt-textarea"
-                style="width:100%;min-height:90px;font-family:var(--font-mono);font-size:12px;resize:vertical"
+      <textarea class="form-input prompt-textarea isl-663"
                 data-default="${escAttr(p.default)}"
                 placeholder="(empty = use default)">${escHtml(p.current)}</textarea>
 
-      <details style="margin-top:10px" ${hasParams ? 'open' : ''}>
-        <summary style="cursor:pointer;font-size:12px;color:var(--muted);user-select:none">⚙ Fine-tuning (temperature, top_p, tokens, context)</summary>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:8px;padding:10px;background:var(--surface);border-radius:6px">
+      <details ${hasParams ? 'open' : ''} class="isl-26">
+        <summary class="isl-664">⚙ Fine-tuning (temperature, top_p, tokens, context)</summary>
+        <div class="isl-665">
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">Temperature (0.0–2.0)</label>
-            <input type="number" step="0.1" min="0" max="2" class="form-input prompt-temp" style="font-size:12px" value="${params.temperature != null ? params.temperature : ''}" placeholder="default">
+            <label class="isl-666">Temperature (0.0–2.0)</label>
+            <input type="number" step="0.1" min="0" max="2" class="form-input prompt-temp fs-12" value="${params.temperature != null ? params.temperature : ''}" placeholder="default">
           </div>
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">top_p (0.0–1.0)</label>
-            <input type="number" step="0.05" min="0" max="1" class="form-input prompt-topp" style="font-size:12px" value="${params.top_p != null ? params.top_p : ''}" placeholder="default">
+            <label class="isl-666">top_p (0.0–1.0)</label>
+            <input type="number" step="0.05" min="0" max="1" class="form-input prompt-topp fs-12" value="${params.top_p != null ? params.top_p : ''}" placeholder="default">
           </div>
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">max_tokens (1–16000)</label>
-            <input type="number" step="100" min="1" max="16000" class="form-input prompt-maxtok" style="font-size:12px" value="${params.max_tokens != null ? params.max_tokens : ''}" placeholder="default">
+            <label class="isl-666">max_tokens (1–16000)</label>
+            <input type="number" step="100" min="1" max="16000" class="form-input prompt-maxtok fs-12" value="${params.max_tokens != null ? params.max_tokens : ''}" placeholder="default">
           </div>
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">num_ctx (Ollama/LocalAI)</label>
-            <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx" style="font-size:12px" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
+            <label class="isl-666">num_ctx (Ollama/LocalAI)</label>
+            <input type="number" step="1024" min="512" max="131072" class="form-input prompt-numctx fs-12" value="${params.num_ctx != null ? params.num_ctx : ''}" placeholder="16384">
           </div>
         </div>
-        <div style="display:flex;gap:6px;margin-top:6px;justify-content:flex-end">
-          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="saveAiParams('${escAttr(p.key)}', this)">Save tuning</button>
-          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="resetAiParams('${escAttr(p.key)}', this)">Reset tuning</button>
+        <div class="isl-667">
+          <button class="btn-secondary badge-sm" data-action-btn="_saveAiParamsBtn" data-key="${escAttr(p.key)}" >Save tuning</button>
+          <button class="btn-secondary badge-sm" data-action-btn="_resetAiParamsBtn" data-key="${escAttr(p.key)}" >Reset tuning</button>
         </div>
       </details>
     </div>`;
@@ -11741,17 +11693,17 @@ async function loadIgnoredItems() {
   let html = '';
   for (const sec of sections) {
     const entries = data[sec.key] || [];
-    html += `<div style="margin-bottom:16px">
-      <h4 style="margin:0 0 8px 0">${sec.label} <span style="font-size:11px;color:var(--muted);font-weight:400">(${entries.length})</span></h4>`;
+    html += `<div class="mb-16">
+      <h4 class="isl-668">${sec.label} <span class="isl-74">(${entries.length})</span></h4>`;
     if (!entries.length) {
-      html += '<div style="color:var(--muted);font-size:13px;padding:8px 0">— none —</div>';
+      html += '<div class="isl-616">— none —</div>';
     } else {
       html += entries.map(e => {
         const id = sec.identify(e);
         const when = e.ts ? new Date(e.ts * 1000).toLocaleString() : '';
-        return `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;background:var(--surface2)">
-          <div style="flex:1;font-size:13px">${escHtml(e.label || id)}<div style="font-size:11px;color:var(--muted)">${escHtml(when)}</div></div>
-          <button class="btn-secondary" style="font-size:11px;padding:3px 10px" onclick="restoreIgnored('${escAttr(sec.key)}', ${JSON.stringify(e).replace(/"/g, '&quot;')})">Restore</button>
+        return `<div class="isl-669">
+          <div class="isl-618">${escHtml(e.label || id)}<div class="meta-sm-nm">${escHtml(when)}</div></div>
+          <button class="btn-secondary badge-sm" data-action-btn="_restoreIgnoredFromStore" data-store-key="${_storeEvtData([sec.key, e])}">Restore</button>
         </div>`;
       }).join('');
     }
@@ -11842,9 +11794,9 @@ let _acmeData = { devices: [], providers: {} };
 async function loadAcme() {
   const tbody = document.getElementById('acme-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="8" class="empty-state-sm">Loading…</td></tr>';
   const data = await api('GET', '/acme');
-  if (!data) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--red);padding:24px">Failed to load.</td></tr>'; return; }
+  if (!data) { tbody.innerHTML = '<tr><td colspan="8" class="isl-670">Failed to load.</td></tr>'; return; }
   _acmeData = data;
   _acmeRenderTable();
 }
@@ -11899,19 +11851,19 @@ function _acmeRenderTable() {
   const now = Math.floor(Date.now() / 1000);
   const html = rows.map(r => {
     if (r._kind === 'unavailable') {
-      return `<tr style="opacity:.7">
+      return `<tr class="isl-671">
         <td>${escHtml(r.device_name)}</td>
-        <td colspan="6" style="font-size:12px;color:var(--muted);font-style:italic">acme.sh not installed on this device</td>
+        <td colspan="6" class="isl-672">acme.sh not installed on this device</td>
         <td></td>
       </tr>`;
     }
     if (r._kind === 'no-certs') {
-      return `<tr style="opacity:.85">
+      return `<tr class="isl-673">
         <td>${escHtml(r.device_name)}</td>
-        <td colspan="6" style="font-size:12px;color:var(--muted)">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
-        <td style="display:flex;gap:4px">
-          <button class="btn-icon" style="font-size:11px;padding:3px 10px" title="Issue a new cert" onclick="acmeOpenIssue('${escAttr(r.device_id)}')">+ Issue</button>
-          <button class="btn-icon" style="font-size:11px;padding:3px 10px" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" onclick="event.stopPropagation();acmeForceRescan('${escAttr(r.device_id)}')">↻ Rescan</button>
+        <td colspan="6" class="hint">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
+        <td class="row-4">
+          <button class="btn-icon badge-sm" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
+          <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >↻ Rescan</button>
         </td>
       </tr>`;
     }
@@ -11925,26 +11877,26 @@ function _acmeRenderTable() {
     else { pillCls = 'acme-pill-ok'; pillText = `${days}d`; }
     const wildcardGlyph = r.is_wildcard ? '<span class="acme-wildcard-glyph" title="Wildcard cert">★</span>' : '';
     const altCount = (r.alt_names || []).filter(a => a !== r.domain).length;
-    const altLabel = altCount ? `<span style="font-size:11px;color:var(--muted)"> +${altCount} SAN</span>` : '';
+    const altLabel = altCount ? `<span class="meta-sm-nm"> +${altCount} SAN</span>` : '';
     const challengeLabel = r.is_dns_challenge ? 'DNS-01' : (r.challenge || '—');
     const providerLabel  = r.dns_provider_label || (r.is_dns_challenge ? r.dns_provider : '—');
     const createdStr = r.created_ts ? new Date(r.created_ts * 1000).toLocaleDateString() : '—';
     const renewStr   = r.next_renew_ts ? new Date(r.next_renew_ts * 1000).toLocaleDateString() : '—';
-    return `<tr class="acme-row" onclick="acmeOpenDetail('${escAttr(r.device_id)}','${escAttr(r.domain)}')">
+    return `<tr class="acme-row" data-action="acmeOpenDetail" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >
       <td>${escHtml(r.device_name)}</td>
       <td>
-        <code style="font-size:12px;font-weight:500">${escHtml(r.domain)}</code>${wildcardGlyph}${altLabel}
+        <code class="isl-674">${escHtml(r.domain)}</code>${wildcardGlyph}${altLabel}
       </td>
       <td><span class="acme-pill acme-pill-info">${challengeLabel}</span></td>
-      <td style="font-size:12px;color:var(--muted)">${escHtml(providerLabel)}</td>
-      <td style="font-size:12px;color:var(--muted)">${createdStr}</td>
-      <td style="font-size:12px">${renewStr}</td>
+      <td class="hint">${escHtml(providerLabel)}</td>
+      <td class="hint">${createdStr}</td>
+      <td class="fs-12">${renewStr}</td>
       <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
-      <td onclick="event.stopPropagation()" style="white-space:nowrap">
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px" title="Force renew now"
-                onclick="acmeForceRenew('${escAttr(r.device_id)}','${escAttr(r.domain)}')">↻</button>
-        <button class="btn-icon" style="font-size:11px;padding:3px 8px;color:var(--red)" title="Revoke and remove"
-                onclick="acmeRevoke('${escAttr(r.device_id)}','${escAttr(r.domain)}')">✗</button>
+      <td data-stop-prop="1" class="nowrap">
+        <button class="btn-icon badge-xs" title="Force renew now"
+                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >↻</button>
+        <button class="btn-icon isl-675" title="Revoke and remove"
+                data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >✗</button>
       </td>
     </tr>`;
   }).join('');
@@ -11983,7 +11935,7 @@ async function acmeOpenDetail(devId, domain) {
   _acmeDetailContext = { devId, domain };
   document.getElementById('acme-detail-title').textContent = domain;
   document.getElementById('acme-detail-subtitle').textContent = '';
-  document.getElementById('acme-detail-overview').innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Loading…</div>';
+  document.getElementById('acme-detail-overview').innerHTML = '<div class="empty-p20">Loading…</div>';
   document.getElementById('acme-detail-timeline').innerHTML = '';
   document.getElementById('acme-detail-logs').innerHTML = '';
   acmeDetailTab('overview');
@@ -11991,7 +11943,7 @@ async function acmeOpenDetail(devId, domain) {
   const r = await api('GET', `/acme/${encodeURIComponent(devId)}/${encodeURIComponent(domain)}`);
   if (!r || !r.cert) {
     document.getElementById('acme-detail-overview').innerHTML =
-      `<div style="color:var(--red);padding:20px;text-align:center">${escHtml(r?.error || 'Cert not found in last scan')}</div>`;
+      `<div class="isl-676">${escHtml(r?.error || 'Cert not found in last scan')}</div>`;
     return;
   }
   _acmeRenderDetail(r);
@@ -12015,37 +11967,37 @@ function _acmeRenderDetail(r) {
   const now = Math.floor(Date.now() / 1000);
   const daysToRenew = c.next_renew_ts ? Math.round((c.next_renew_ts - now) / 86400) : null;
   const overview = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+    <div class="isl-677">
       ${_acmeStatPill('Primary domain', `<code>${escHtml(c.domain)}</code>`)}
-      ${_acmeStatPill('Wildcard?', c.is_wildcard ? '<span style="color:#9a8dff">★ yes</span>' : 'no')}
+      ${_acmeStatPill('Wildcard?', c.is_wildcard ? '<span class="isl-678">★ yes</span>' : 'no')}
       ${_acmeStatPill('Key length', escHtml(c.key_length || '—'))}
       ${_acmeStatPill('Challenge', c.is_dns_challenge ? `DNS-01 · ${escHtml(c.dns_provider_label || c.dns_provider)}` : escHtml(c.challenge || '—'))}
       ${_acmeStatPill('Created', c.created_str ? escHtml(c.created_str) : '—')}
-      ${_acmeStatPill('Next renewal', c.next_renew_str ? `${escHtml(c.next_renew_str)}<br><span style="font-size:11px;color:var(--muted)">${daysToRenew !== null ? `in ${daysToRenew}d` : ''}</span>` : '—')}
+      ${_acmeStatPill('Next renewal', c.next_renew_str ? `${escHtml(c.next_renew_str)}<br><span class="meta-sm-nm">${daysToRenew !== null ? `in ${daysToRenew}d` : ''}</span>` : '—')}
     </div>
     ${c.alt_names && c.alt_names.length ? `
-      <div style="margin-bottom:14px">
-        <div style="font-weight:500;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Subject Alternative Names</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">
-          ${c.alt_names.map(a => `<code style="background:var(--surface2);padding:3px 8px;border-radius:4px;font-size:12px">${escHtml(a)}</code>`).join('')}
+      <div class="mb-14">
+        <div class="isl-679">Subject Alternative Names</div>
+        <div class="isl-680">
+          ${c.alt_names.map(a => `<code class="isl-681">${escHtml(a)}</code>`).join('')}
         </div>
       </div>` : ''}
     ${c.reload_cmd ? `
-      <div style="margin-bottom:14px">
-        <div style="font-weight:500;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Post-renewal hook (Le_ReloadCmd)</div>
-        <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px;margin:0;white-space:pre-wrap">${escHtml(c.reload_cmd)}</pre>
-        <div style="font-size:11px;color:var(--muted);margin-top:4px">Managed by acme.sh — not modified by RemotePower.</div>
+      <div class="mb-14">
+        <div class="isl-679">Post-renewal hook (Le_ReloadCmd)</div>
+        <pre class="isl-259">${escHtml(c.reload_cmd)}</pre>
+        <div class="meta-sm">Managed by acme.sh — not modified by RemotePower.</div>
       </div>` : `
-      <div style="margin-bottom:14px;font-size:12px;color:var(--muted);font-style:italic">No reload hook configured for this cert.</div>`}
+      <div class="isl-682">No reload hook configured for this cert.</div>`}
     ${c.cert_path ? `
-      <div style="margin-bottom:14px;font-size:12px;color:var(--muted)">
+      <div class="isl-683">
         <div>Cert: <code>${escHtml(c.cert_path)}</code></div>
         ${c.fullchain_path ? `<div>Fullchain: <code>${escHtml(c.fullchain_path)}</code></div>` : ''}
         ${c.key_path ? `<div>Key: <code>${escHtml(c.key_path)}</code></div>` : ''}
       </div>` : ''}
-    <div style="display:flex;gap:8px;padding-top:14px;border-top:1px solid var(--border)">
-      <button class="btn-icon" onclick="acmeForceRenew('${escAttr(_acmeDetailContext.devId)}','${escAttr(c.domain)}')">↻ Force renew</button>
-      <button class="btn-icon" style="color:var(--red)" onclick="acmeRevoke('${escAttr(_acmeDetailContext.devId)}','${escAttr(c.domain)}')">✗ Revoke + remove</button>
+    <div class="isl-265">
+      <button class="btn-icon" data-action="acmeForceRenew" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >↻ Force renew</button>
+      <button class="btn-icon c-red" data-action="acmeRevoke" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >✗ Revoke + remove</button>
     </div>`;
   document.getElementById('acme-detail-overview').innerHTML = overview;
 
@@ -12068,50 +12020,50 @@ function _acmeRenderDetail(r) {
   const timeline = events.length ? events.map(e => `
     <div class="acme-timeline-item">
       <div class="acme-timeline-dot ${e.state}"></div>
-      <div style="flex:1">
-        <div style="font-weight:500">${escHtml(e.label)}${e.rc !== undefined && e.rc !== null ? ` <span style="font-size:11px;color:var(--muted)">(rc=${e.rc})</span>` : ''}</div>
-        <div style="font-size:11px;color:var(--muted)">${new Date(e.ts * 1000).toLocaleString()}</div>
-        ${e.logId ? `<button class="btn-icon" style="font-size:11px;padding:2px 8px;margin-top:4px" onclick="acmeLoadLog('${escAttr(e.logId)}')">View log</button>` : ''}
+      <div class="flex-1">
+        <div class="fw-500">${escHtml(e.label)}${e.rc !== undefined && e.rc !== null ? ` <span class="meta-sm-nm">(rc=${e.rc})</span>` : ''}</div>
+        <div class="meta-sm-nm">${new Date(e.ts * 1000).toLocaleString()}</div>
+        ${e.logId ? `<button class="btn-icon isl-684" data-action="acmeLoadLog" data-arg="${escAttr(e.logId)}" >View log</button>` : ''}
       </div>
-    </div>`).join('') : '<div style="color:var(--muted);padding:20px;text-align:center">No timeline events yet.</div>';
+    </div>`).join('') : '<div class="empty-p20">No timeline events yet.</div>';
   document.getElementById('acme-detail-timeline').innerHTML = timeline;
 
   // ─── Logs tab ─ list of recent log captures ───────────────────────────
   const logsHtml = (r.logs && r.logs.length) ? `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Captured stdout from acme.sh runs queued by RemotePower. Click any entry to view.</div>
-    <div style="display:flex;flex-direction:column;gap:6px">
+    <div class="isl-563">Captured stdout from acme.sh runs queued by RemotePower. Click any entry to view.</div>
+    <div class="isl-201">
       ${r.logs.map(l => {
         const isPending   = l.rc === null || l.rc === undefined;
         const isCancelled = l.rc === -3 || l.rc === -4;
         let stateLabel;
-        if (isCancelled) stateLabel = `<span style="color:var(--muted)">⊘ cancelled</span>`;
-        else if (isPending) stateLabel = `<span style="color:var(--amber)">⏳ pending</span>`;
-        else if (l.rc === 0) stateLabel = `<span style="color:var(--green)">✓ rc=0</span>`;
-        else stateLabel = `<span style="color:var(--red)">✗ rc=${l.rc}</span>`;
-        return `<div style="display:flex;gap:6px;align-items:center">
-          <button class="btn-secondary" style="flex:1;text-align:left;padding:8px 12px;display:flex;justify-content:space-between;align-items:center"
-                  onclick="acmeLoadLog('${escAttr(l.id)}')">
+        if (isCancelled) stateLabel = `<span class="c-muted">⊘ cancelled</span>`;
+        else if (isPending) stateLabel = `<span class="c-amber">⏳ pending</span>`;
+        else if (l.rc === 0) stateLabel = `<span class="c-green">✓ rc=0</span>`;
+        else stateLabel = `<span class="c-red">✗ rc=${l.rc}</span>`;
+        return `<div class="row-6-center">
+          <button class="btn-secondary isl-685"
+                  data-action="acmeLoadLog" data-arg="${escAttr(l.id)}" >
             <span>
               <strong>${escHtml(l.action || 'action')}</strong>
-              <span style="color:var(--muted);font-size:11px;margin-left:8px">${new Date(l.ts * 1000).toLocaleString()}</span>
+              <span class="isl-686">${new Date(l.ts * 1000).toLocaleString()}</span>
             </span>
-            <span style="font-size:11px;color:var(--muted)">
+            <span class="meta-sm-nm">
               ${stateLabel} · ${(l.size / 1024).toFixed(1)} KB
             </span>
           </button>
-          ${isPending ? `<button class="btn-icon" style="font-size:11px;padding:6px 10px;color:var(--red)" title="Cancel — remove from queue if still pending" onclick="acmeCancelAction('${escAttr(l.id)}')">⊘ Cancel</button>` : ''}
-          <button class="btn-icon" style="font-size:11px;padding:6px 10px;color:var(--muted)" title="Ignore — delete this row from the log list (does not affect cert state)" onclick="acmeIgnoreAction('${escAttr(l.id)}')">× Ignore</button>
+          ${isPending ? `<button class="btn-icon isl-687" title="Cancel — remove from queue if still pending" data-action="acmeCancelAction" data-arg="${escAttr(l.id)}" >⊘ Cancel</button>` : ''}
+          <button class="btn-icon isl-688" title="Ignore — delete this row from the log list (does not affect cert state)" data-action="acmeIgnoreAction" data-arg="${escAttr(l.id)}" >× Ignore</button>
         </div>`;
       }).join('')}
     </div>
-    <div id="acme-log-view" style="margin-top:14px"></div>` : '<div style="color:var(--muted);padding:20px;text-align:center">No logs yet. Trigger a force renew to capture one.</div>';
+    <div id="acme-log-view" class="isl-70"></div>` : '<div class="empty-p20">No logs yet. Trigger a force renew to capture one.</div>';
   document.getElementById('acme-detail-logs').innerHTML = logsHtml;
 }
 
 function _acmeStatPill(label, valueHtml) {
-  return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px">
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${escHtml(label)}</div>
-    <div style="font-size:13px">${valueHtml}</div>
+  return `<div class="isl-689">
+    <div class="isl-367">${escHtml(label)}</div>
+    <div class="fs-13">${valueHtml}</div>
   </div>`;
 }
 
@@ -12119,12 +12071,12 @@ async function acmeLoadLog(logId) {
   if (!_acmeDetailContext) return;
   const view = document.getElementById('acme-log-view');
   const target = view || document.getElementById('acme-detail-logs');
-  target.innerHTML = '<div style="color:var(--muted);padding:14px">Loading log…</div>';
+  target.innerHTML = '<div class="isl-690">Loading log…</div>';
   const r = await api('GET', `/acme/${encodeURIComponent(_acmeDetailContext.devId)}/log/${encodeURIComponent(logId)}`);
-  if (!r) { target.innerHTML = '<div style="color:var(--red);padding:14px">Failed to load log</div>'; return; }
+  if (!r) { target.innerHTML = '<div class="isl-691">Failed to load log</div>'; return; }
   target.innerHTML = `
-    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">Action <code>${escHtml(logId)}</code> · ${(r.size / 1024).toFixed(1)} KB</div>
-    <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all">${escHtml(r.content)}</pre>`;
+    <div class="isl-692">Action <code>${escHtml(logId)}</code> · ${(r.size / 1024).toFixed(1)} KB</div>
+    <pre class="isl-693">${escHtml(r.content)}</pre>`;
 }
 
 // ── Issue wizard ─────────────────────────────────────────────────────────
@@ -12419,19 +12371,19 @@ function _mitigateRenderFixOptions(aiResult) {
     const warn = document.getElementById('mitigate-ai-fix-warning');
     if (aiResult.denylist_match) {
       warn.style.display = '';
-      warn.innerHTML = `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px">
+      warn.innerHTML = `<div class="isl-694">
         <strong>⛔ Refused — denylist match.</strong>
         ${escHtml(aiResult.denylist_reason || '')}
-        <div style="margin-top:6px;font-size:11px;color:var(--muted)">
+        <div class="isl-121">
           This command will not be executed by RemotePower. Copy it manually if you really need to.
         </div>
       </div>`;
       document.getElementById('mitigate-ai-use').style.display = 'none';
     } else if (aiResult.requires_confirmation) {
       warn.style.display = '';
-      warn.innerHTML = `<div style="background:rgba(255,170,40,0.10);color:var(--amber);border:1px solid rgba(255,170,40,0.30);border-radius:6px;padding:10px">
+      warn.innerHTML = `<div class="isl-695">
         <strong>⚠ Sensitive — requires explicit RUN confirmation</strong>
-        <div style="margin-top:4px;font-size:12px">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
+        <div class="isl-696">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
       </div>`;
       document.getElementById('mitigate-ai-use').style.display = '';
     } else {
@@ -12462,18 +12414,18 @@ function _mitigateRenderFixOptions(aiResult) {
     });
   }
   const optsHtml = opts.map((o, i) => `
-    <label style="display:flex;align-items:flex-start;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;cursor:pointer">
-      <input type="radio" name="mitigate-fix-pick" value="${i}" onchange="_mitigateSelectFixOption(${i})" style="margin-top:3px">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:500;font-size:12px;color:${o.kind === 'preapproved' ? 'var(--green)' : 'var(--text)'}">
+    <label class="isl-697">
+      <input type="radio" name="mitigate-fix-pick" value="${i}" data-change="_mitigateSelectFixOption" data-change-arg="${i}" class="isl-698">
+      <div class="isl-445">
+        <div class="isl-699">
           ${o.kind === 'preapproved' ? '✓ ' : '✨ '}${escHtml(o.label)}
-          ${o.sensitive ? '<span style="color:var(--amber);font-size:11px;margin-left:6px">(RUN required)</span>' : ''}
+          ${o.sensitive ? '<span class="isl-700">(RUN required)</span>' : ''}
         </div>
-        <code style="font-size:11px;color:var(--muted);display:block;margin-top:4px;word-break:break-all">${escHtml(o.cmd)}</code>
+        <code class="isl-701">${escHtml(o.cmd)}</code>
       </div>
     </label>`).join('');
   document.getElementById('mitigate-fix-options').innerHTML = optsHtml ||
-    '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px">No fix options available. Either nothing to do (read-only diagnostic), or the AI returned no actionable suggestion. You can still type a command manually below.</div>';
+    '<div class="isl-702">No fix options available. Either nothing to do (read-only diagnostic), or the AI returned no actionable suggestion. You can still type a command manually below.</div>';
   // Stash for selection
   window._mitigateFixOpts = opts;
 }
@@ -12526,19 +12478,19 @@ function _mitigateUpdateSafety() {
   const denied  = DENY_RX.some(rx => rx.test(cmd));
   const sensitive = !denied && SENSITIVE_RX.some(rx => rx.test(cmd));
   if (denied) {
-    safetyEl.innerHTML = `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px;font-size:12px">
+    safetyEl.innerHTML = `<div class="isl-703">
       <strong>⛔ This command appears to match the denylist.</strong> The server will refuse to run it. Edit the command, or run it manually on the host.
     </div>`;
     confirmRow.style.display = 'none';
     document.getElementById('mitigate-fix-go').disabled = true;
   } else if (sensitive) {
-    safetyEl.innerHTML = `<div style="background:rgba(255,170,40,0.10);color:var(--amber);border:1px solid rgba(255,170,40,0.30);border-radius:6px;padding:10px;font-size:12px">
+    safetyEl.innerHTML = `<div class="isl-704">
       <strong>⚠ Sensitive command.</strong> Type RUN in the confirmation field below.
     </div>`;
     confirmRow.style.display = '';
     document.getElementById('mitigate-fix-go').disabled = false;
   } else {
-    safetyEl.innerHTML = `<div style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px">
+    safetyEl.innerHTML = `<div class="isl-705">
       Looks like a routine command. Will run as-is on the agent.
     </div>`;
     confirmRow.style.display = 'none';
@@ -12638,11 +12590,123 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── CSP L1: event data store for onclick args too large for data attributes ──
+const _evtData = new Map();
+let _evtDataSeq = 0;
+function _storeEvtData(data) {
+  const key = `d${++_evtDataSeq}`;
+  _evtData.set(key, data);
+  return key;
+}
+
+// ── CSP L1: drawer-action map (avoids onclick= in renderDrawerActions) ────────
+const _drawerActMap = new Map();
+
+// ── CSP L1: wrapper functions for this-passing and complex onclick= patterns ─
+function _cveScanBtn(btn) {
+  triggerCVEScan(btn.dataset.devId || undefined, btn);
+}
+function _forcePackageScanBtn(btn) {
+  forcePackageScan(btn.dataset.devId, btn.dataset.devName || '', btn);
+}
+function _aiPrioritisePatchesBtn(btn) {
+  aiPrioritisePatchesForDevice(btn.dataset.devId, btn.dataset.devName || '', btn);
+}
+function _saveAiPromptBtn(btn) { saveAiPrompt(btn.dataset.key, btn); }
+function _saveAiParamsBtn(btn) { saveAiParams(btn.dataset.key, btn); }
+function _resetAiPromptBtn(btn) { resetAiPrompt(btn.dataset.key, btn); }
+function _resetAiParamsBtn(btn) { resetAiParams(btn.dataset.key, btn); }
+function _aiFindProblemBtn(btn) {
+  const sel = btn.dataset.journalSel;
+  const lines = sel ? (document.querySelector(sel)?.textContent?.split('\n') || []) : [];
+  aiFindProblemInJournal(btn.dataset.devId, lines);
+}
+function _copySecretBtn(btn) {
+  navigator.clipboard?.writeText(btn.dataset.secret);
+  toast('Secret copied', 'success');
+}
+function _densityCtlBtn(btn) {
+  densityCtl.set(btn.dataset.dname, btn.dataset.val, window[`__densityCb_${btn.dataset.dname}`]);
+}
+function _csOutputFromStore(btn) {
+  const args = _evtData.get(btn.dataset.storeKey);
+  if (args) openCsOutput(...args);
+}
+function _expandPortsFromStore(btn) {
+  const data = _evtData.get(btn.dataset.storeKey);
+  if (data) expandPortsTable(data);
+}
+function _restoreIgnoredFromStore(btn) {
+  const args = _evtData.get(btn.dataset.storeKey);
+  if (args) restoreIgnored(...args);
+}
+function _setTagFilterClear()    { setTagFilter(null); }
+function _aiExplainAlertWh(btn)  { aiExplainAlert(btn.dataset.arg, btn.dataset.arg2 || '', btn.dataset.arg3 || '', null); }
+function _aiDiagnoseServiceFromStore(btn) {
+  const args = _evtData.get(btn.dataset.storeKey);
+  if (args) aiDiagnoseService(...args);
+}
+function _driftSetIgnoreTrue(btn)  { driftSetIgnore(btn.dataset.arg, true); }
+function _driftSetIgnoreFalse(btn) { driftSetIgnore(btn.dataset.arg, false); }
+function _showPageBtn(btn) {
+  const page = btn.dataset.page;
+  showPage(page, document.querySelector(`.nav-btn[data-page="${page}"]`));
+}
+function _homeNavAction(btn) {
+  const act = btn.dataset.homeAct;
+  const devId   = btn.dataset.devId   || '';
+  const devName = btn.dataset.devName || '';
+  switch (act) {
+    case 'detail':
+      if (devId) openDetail(devId, devName);
+      else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+      break;
+    case 'drift':
+      showPage('drift', document.querySelector('.nav-btn[data-page="drift"]'));
+      if (devId) setTimeout(() => openDriftDetail(devId, devName), 100);
+      break;
+    case 'cve':      showPage('cve',            document.querySelector('.nav-btn[data-page="cve"]')); break;
+    case 'patches':  showPage('patches',         document.querySelector('.nav-btn[data-page="patches"]')); break;
+    case 'monitor':  showPage('monitor',         document.querySelector('.nav-btn[data-page="monitor"]')); break;
+    case 'services': showPage('services',        document.querySelector('.nav-btn[data-page="services"]')); break;
+    case 'containers': showPage('containers',    document.querySelector('.nav-btn[data-page="containers"]')); break;
+    case 'logs':     showPage('logs',            document.querySelector('.nav-btn[data-page="logs"]')); break;
+    case 'history':  showPage('history',         document.querySelector('.nav-btn[data-page="history"]')); break;
+    case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-page="tls"]')); break;
+    case 'virtualization': showPage('virtualization', document.querySelector('.nav-btn[data-page="virtualization"]')); break;
+    default:
+      if (devId) openDetail(devId, devName);
+      else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));
+  }
+}
+
 // Delegated click handler for page-level buttons using data-action / data-arg
 document.addEventListener('click', e => {
-  // data-action-btn: functions that need the element as first or second arg
+  // data-remove-parent
+  const rpEl = e.target.closest('[data-remove-parent]');
+  if (rpEl) { rpEl.parentElement?.remove(); return; }
+
+  // data-remove-closest
+  const rcEl = e.target.closest('[data-remove-closest]');
+  if (rcEl) { rcEl.closest(rcEl.dataset.removeClosest)?.remove(); return; }
+
+  // data-self-select (e.g. <input data-self-select>)
+  const ssEl = e.target.closest('[data-self-select]');
+  if (ssEl && typeof ssEl.select === 'function') { ssEl.select(); return; }
+
+  // data-set-icon-val: sets #icon-custom value
+  const sivEl = e.target.closest('[data-set-icon-val]');
+  if (sivEl) { const ic = document.getElementById('icon-custom'); if (ic) ic.value = sivEl.dataset.setIconVal; return; }
+
+  // data-drawer-act: drawer action map
+  const daEl = e.target.closest('[data-drawer-act]');
+  if (daEl) { const fn = _drawerActMap.get(daEl.dataset.drawerAct); if (fn) fn(); return; }
+
+  // data-action-btn: functions that need the element passed as first arg
   const btnEl = e.target.closest('[data-action-btn]');
   if (btnEl) {
+    if (btnEl.dataset.stopProp) e.stopPropagation();
+    if (btnEl.dataset.preventDefault) e.preventDefault();
     const fn = window[btnEl.dataset.actionBtn];
     if (!fn) return;
     const boolArg = btnEl.dataset.argBool;
@@ -12651,29 +12715,29 @@ document.addEventListener('click', e => {
     return;
   }
 
-  // data-action: standard function call with optional arg
+  // data-action: standard function call with 0–5 args
   const el = e.target.closest('[data-action]');
   if (!el) return;
+
+  if (el.dataset.stopProp) e.stopPropagation();
+  if (el.dataset.preventDefault) e.preventDefault();
+
   const fn = window[el.dataset.action];
   if (!fn) return;
 
-  const rawArg = el.dataset.arg;
-  const boolArg = el.dataset.argBool;
-  const passBtn = el.dataset.passBtn;
+  // Collect positional args from data-arg, data-arg2 … data-arg5
+  const coerce = v => (v !== undefined && v !== '' && !isNaN(v)) ? Number(v) : v;
+  const args = [];
+  if (el.dataset.arg  !== undefined) args.push(coerce(el.dataset.arg));
+  if (el.dataset.arg2 !== undefined) args.push(coerce(el.dataset.arg2));
+  if (el.dataset.arg3 !== undefined) args.push(coerce(el.dataset.arg3));
+  if (el.dataset.arg4 !== undefined) args.push(coerce(el.dataset.arg4));
+  if (el.dataset.arg5 !== undefined) args.push(coerce(el.dataset.arg5));
 
-  if (boolArg !== undefined) {
-    // boolean literal arg (true/false stored as string)
-    const b = boolArg === 'true';
-    if (passBtn) fn(b, el);
-    else fn(b);
-  } else if (rawArg !== undefined) {
-    // string or numeric arg — coerce to number when the string is a valid number
-    const arg = (rawArg !== '' && !isNaN(rawArg)) ? Number(rawArg) : rawArg;
-    if (passBtn) fn(arg, el);
-    else fn(arg);
-  } else {
-    fn();
-  }
+  if (el.dataset.argBool !== undefined) args[0] = el.dataset.argBool === 'true';
+  if (el.dataset.passBtn) args.push(el);
+
+  fn(...args);
 
   if (el.dataset.action2) {
     const fn2 = window[el.dataset.action2];
@@ -12687,8 +12751,15 @@ document.addEventListener('change', e => {
   if (el.dataset.change) {
     const fn = window[el.dataset.change];
     if (!fn) return;
-    if (el.dataset.changeChecked) fn(el.checked);
-    else fn();
+    if (el.dataset.changeArg !== undefined) {
+      const a = el.dataset.changeArg;
+      const coerced = (a !== '' && !isNaN(a)) ? Number(a) : a;
+      fn(coerced, el.checked);
+    } else if (el.dataset.changeChecked) {
+      fn(el.checked);
+    } else {
+      fn();
+    }
   }
 });
 
@@ -12698,7 +12769,9 @@ document.addEventListener('input', e => {
   if (el.dataset.input) {
     const fn = window[el.dataset.input];
     if (!fn) return;
-    if (el.dataset.inputValue) fn(el.value);
+    if (el.dataset.inputEl !== undefined) fn(el, el.dataset.inputArg);
+    else if (el.dataset.inputArg !== undefined) fn(el.dataset.inputArg);
+    else if (el.dataset.inputValue) fn(el.value);
     else fn();
   }
 });
@@ -12719,23 +12792,23 @@ async function mitigateRunFix() {
   btn.disabled = false; btn.textContent = orig;
   if (!r) {
     document.getElementById('mitigate-fix-result').innerHTML =
-      '<div style="color:var(--red);font-size:12px">Request failed</div>';
+      '<div class="isl-706">Request failed</div>';
     return;
   }
   if (r.error) {
     document.getElementById('mitigate-fix-result').innerHTML =
-      `<div style="background:rgba(220,60,60,0.12);color:var(--red);border:1px solid rgba(220,60,60,0.30);border-radius:6px;padding:10px;font-size:12px">
+      `<div class="isl-703">
         ${escHtml(r.error)}
-        ${r.hint ? `<div style="margin-top:4px;font-size:11px;color:var(--muted)">${escHtml(r.hint)}</div>` : ''}
+        ${r.hint ? `<div class="isl-707">${escHtml(r.hint)}</div>` : ''}
       </div>`;
     return;
   }
   if (r.ok && r.action_id) {
     _mitigateCtx.actionId = r.action_id;
     document.getElementById('mitigate-fix-result').innerHTML =
-      `<div style="background:rgba(0,200,120,0.10);color:var(--green);border:1px solid rgba(0,200,120,0.30);border-radius:6px;padding:10px;font-size:12px">
+      `<div class="isl-708">
         ✓ Queued (action ${escHtml(r.action_id)}). Polling for output…
-        <pre id="mitigate-fix-output" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;margin-top:8px;max-height:280px;overflow:auto;white-space:pre-wrap"></pre>
+        <pre id="mitigate-fix-output" class="isl-709"></pre>
       </div>`;
     _mitigatePollAttempts = 0;
     _mitigatePollFix();
@@ -12754,13 +12827,13 @@ async function _mitigatePollFix() {
     if (out) {
       out.textContent = r.content || '(no output)';
       out.insertAdjacentHTML('afterend',
-        `<div style="margin-top:8px;font-size:11px;color:var(--muted)">Done. rc=${r.rc} · ${(r.size/1024).toFixed(1)} KB</div>`);
+        `<div class="isl-710">Done. rc=${r.rc} · ${(r.size/1024).toFixed(1)} KB</div>`);
     }
     return;
   }
   if (_mitigatePollAttempts >= _MITIGATE_POLL_MAX) {
     if (out) out.insertAdjacentHTML('afterend',
-      '<div style="margin-top:8px;font-size:11px;color:var(--amber)">Timed out waiting for output. Agent may be offline.</div>');
+      '<div class="isl-711">Timed out waiting for output. Agent may be offline.</div>');
     return;
   }
   setTimeout(_mitigatePollFix, 2000);
@@ -12813,10 +12886,10 @@ function _selfFmtAgo(ts) {
 }
 async function loadSelfStatus() {
   const body = document.getElementById('self-status-body');
-  body.innerHTML = '<div style="color:var(--muted)">Loading…</div>';
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
   const s = await api('GET', '/self/status');
   if (!s || s.error) {
-    body.innerHTML = '<div style="color:var(--red)">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';
+    body.innerHTML = '<div class="c-red">Failed to load: ' + escHtml(s?.error || 'unknown') + '</div>';
     return;
   }
   // Devices freshness card
@@ -12825,82 +12898,82 @@ async function loadSelfStatus() {
   // Webhook delivery card
   const w24 = (s.webhooks || {}).last_24h;
   const w7d = (s.webhooks || {}).last_7d;
-  const _whHtml = w => !w ? '<span style="color:var(--muted)">no deliveries</span>'
+  const _whHtml = w => !w ? '<span class="c-muted">no deliveries</span>'
     : `<strong>${w.success}</strong> / ${w.attempts} (${(w.rate*100).toFixed(1)}%)`;
   // Disk usage
   const dd = s.data_dir || {};
   const diskPct = (dd.fs_free_bytes && dd.fs_total_bytes)
     ? Math.round((1 - dd.fs_free_bytes / dd.fs_total_bytes) * 100) : null;
   const bigFiles = (dd.big_files || []).map(f =>
-    `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
-       <code>${escHtml(f.name)}</code><span style="color:var(--muted)">${_selfFmtBytes(f.bytes)}</span>
+    `<div class="isl-712">
+       <code>${escHtml(f.name)}</code><span class="c-muted">${_selfFmtBytes(f.bytes)}</span>
      </div>`).join('');
   // Backup state
   const bk = s.backup || {};
   body.innerHTML = `
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Process</div>
-      <table style="font-size:13px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
-        ${s.process?.pid ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">PID</td><td>${s.process.pid}</td></tr>` : ''}
-        ${s.process?.vmrss_kb ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Memory (RSS)</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
+    <div class="card p-16">
+      <div class="fw-600-mb10">Process</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
+        ${s.process?.pid ? `<tr><td class="c-muted-padded">PID</td><td>${s.process.pid}</td></tr>` : ''}
+        ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">Memory (RSS)</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
       </table>
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Devices</div>
-      <table style="font-size:13px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Currently offline</td><td><span style="color:${offlineSev};font-weight:600">${dev.offline ?? '—'}</span></td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Freshest heartbeat</td><td>${_selfFmtAgo(dev.freshest_seen)}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Oldest heartbeat</td><td>${_selfFmtAgo(dev.oldest_seen)}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Online TTL</td><td>${dev.online_ttl_s ?? '—'}s</td></tr>
+    <div class="card p-16">
+      <div class="fw-600-mb10">Devices</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Monitored</td><td>${dev.monitored ?? '—'}</td></tr>
+        <tr><td class="c-muted-padded">Currently offline</td><td><span class="isl-713">${dev.offline ?? '—'}</span></td></tr>
+        <tr><td class="c-muted-padded">Freshest heartbeat</td><td>${_selfFmtAgo(dev.freshest_seen)}</td></tr>
+        <tr><td class="c-muted-padded">Oldest heartbeat</td><td>${_selfFmtAgo(dev.oldest_seen)}</td></tr>
+        <tr><td class="c-muted-padded">Online TTL</td><td>${dev.online_ttl_s ?? '—'}s</td></tr>
       </table>
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Webhook delivery</div>
-      <table style="font-size:13px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last 24h</td><td>${_whHtml(w24)}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Logged total</td><td>${(s.webhooks || {}).total_logged ?? '—'}</td></tr>
+    <div class="card p-16">
+      <div class="fw-600-mb10">Webhook delivery</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
+        <tr><td class="c-muted-padded">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
+        <tr><td class="c-muted-padded">Logged total</td><td>${(s.webhooks || {}).total_logged ?? '—'}</td></tr>
       </table>
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
-      <table style="font-size:13px;margin-bottom:10px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
-        ${diskPct != null ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Filesystem used</td><td>${diskPct}% (${_selfFmtBytes(dd.fs_total_bytes - dd.fs_free_bytes)} of ${_selfFmtBytes(dd.fs_total_bytes)})</td></tr>` : ''}
+    <div class="card p-16">
+      <div class="fw-600-mb10">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>
+      <table class="isl-714">
+        <tr><td class="c-muted-padded">RemotePower data</td><td>${_selfFmtBytes(dd.total_bytes)}</td></tr>
+        ${diskPct != null ? `<tr><td class="c-muted-padded">Filesystem used</td><td>${diskPct}% (${_selfFmtBytes(dd.fs_total_bytes - dd.fs_free_bytes)} of ${_selfFmtBytes(dd.fs_total_bytes)})</td></tr>` : ''}
       </table>
-      ${bigFiles ? `<details><summary style="cursor:pointer;color:var(--muted);font-size:12px">Largest files (>100KB)</summary><div style="margin-top:8px">${bigFiles}</div></details>` : ''}
+      ${bigFiles ? `<details><summary class="isl-715">Largest files (>100KB)</summary><div class="mt-8">${bigFiles}</div></details>` : ''}
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Audit log</div>
-      <table style="font-size:13px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Retention</td><td>${(s.audit_log || {}).retention_days ?? '—'} days</td></tr>
-        ${(s.audit_log || {}).archive_bytes ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Archive (gzip)</td><td>${_selfFmtBytes(s.audit_log.archive_bytes)}</td></tr>` : ''}
+    <div class="card p-16">
+      <div class="fw-600-mb10">Audit log</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Active entries</td><td>${(s.audit_log || {}).entries ?? '—'}</td></tr>
+        <tr><td class="c-muted-padded">Retention</td><td>${(s.audit_log || {}).retention_days ?? '—'} days</td></tr>
+        ${(s.audit_log || {}).archive_bytes ? `<tr><td class="c-muted-padded">Archive (gzip)</td><td>${_selfFmtBytes(s.audit_log.archive_bytes)}</td></tr>` : ''}
       </table>
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Backup</div>
+    <div class="card p-16">
+      <div class="fw-600-mb10">Backup</div>
       ${bk.last_run ? `
-        <table style="font-size:13px">
-          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span style="color:var(--muted)">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
-          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Last file</td><td><code style="font-size:11px">${escHtml(bk.last_file || '—')}</code></td></tr>
-          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
-          <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
-        </table>` : '<div style="color:var(--muted);font-size:13px">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
+        <table class="fs-13">
+          <tr><td class="c-muted-padded">Last run</td><td>${_selfFmtAgo(bk.last_run)} <span class="c-muted">(${escHtml(bk.triggered_by || 'scheduled')})</span></td></tr>
+          <tr><td class="c-muted-padded">Last file</td><td><code class="fs-11">${escHtml(bk.last_file || '—')}</code></td></tr>
+          <tr><td class="c-muted-padded">Size</td><td>${_selfFmtBytes(bk.last_bytes)}</td></tr>
+          <tr><td class="c-muted-padded">Retention</td><td>${bk.retain_days ?? 14} days (last prune removed ${bk.pruned ?? 0})</td></tr>
+        </table>` : '<div class="c-muted-fs13">No backup has run yet. The scheduled job runs once per 24h via the heartbeat hook; click "Run backup now" to trigger one immediately.</div>'}
     </div>
 
-    <div class="card" style="padding:16px">
-      <div style="font-weight:600;margin-bottom:10px">Fleet events</div>
-      <table style="font-size:13px">
-        <tr><td style="color:var(--muted);padding:4px 12px 4px 0">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
-        ${(s.fleet_events || {}).archive_bytes ? `<tr><td style="color:var(--muted);padding:4px 12px 4px 0">Archive (gzip)</td><td>${_selfFmtBytes(s.fleet_events.archive_bytes)}</td></tr>` : ''}
+    <div class="card p-16">
+      <div class="fw-600-mb10">Fleet events</div>
+      <table class="fs-13">
+        <tr><td class="c-muted-padded">Current log</td><td>${_selfFmtBytes((s.fleet_events || {}).bytes)}</td></tr>
+        ${(s.fleet_events || {}).archive_bytes ? `<tr><td class="c-muted-padded">Archive (gzip)</td><td>${_selfFmtBytes(s.fleet_events.archive_bytes)}</td></tr>` : ''}
       </table>
     </div>
   `;
@@ -12996,14 +13069,13 @@ function openCommandPalette() {
   overlay.id = 'cmd-palette-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;justify-content:center;padding-top:80px';
   overlay.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:min(580px,90vw);max-height:60vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
-      <input id="cmd-palette-input" type="text" placeholder="Search devices, pages, settings…" autocomplete="off"
-             style="width:100%;padding:14px 18px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:15px;outline:none">
-      <div id="cmd-palette-results" style="overflow-y:auto;padding:6px;flex:1"></div>
-      <div style="font-size:11px;color:var(--muted);padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:14px">
-        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">↑↓</kbd> navigate</span>
-        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">⏎</kbd> open</span>
-        <span><kbd style="background:var(--bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">esc</kbd> close</span>
+    <div class="isl-716">
+      <input id="cmd-palette-input" type="text" placeholder="Search devices, pages, settings…" autocomplete="off" class="isl-717">
+      <div id="cmd-palette-results" class="isl-718"></div>
+      <div class="isl-719">
+        <span><kbd class="isl-720">↑↓</kbd> navigate</span>
+        <span><kbd class="isl-720">⏎</kbd> open</span>
+        <span><kbd class="isl-720">esc</kbd> close</span>
       </div>
     </div>`;
   overlay.addEventListener('click', e => { if (e.target === overlay) closeCommandPalette(); });
@@ -13025,16 +13097,14 @@ function _palRender() {
     : _palItems.slice(0, 20);
   if (_palCursor >= filtered.length) _palCursor = 0;
   const html = filtered.map((it, idx) => `
-    <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''}"
-         data-idx="${idx}"
-         style="padding:10px 12px;border-radius:6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
-                ${idx === _palCursor ? 'background:var(--surface2);' : ''}">
+    <div class="cmd-palette-row ${idx === _palCursor ? 'cmd-palette-active' : ''} isl-721"
+         data-idx="${idx}">
       <div>
-        <div style="font-size:13px">${escHtml(it.label)}</div>
-        ${it.sub ? `<div style="font-size:11px;color:var(--muted)">${escHtml(it.sub)}</div>` : ''}
+        <div class="fs-13">${escHtml(it.label)}</div>
+        ${it.sub ? `<div class="meta-sm-nm">${escHtml(it.sub)}</div>` : ''}
       </div>
-      <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">${it.kind}</span>
-    </div>`).join('') || '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">No results</div>';
+      <span class="isl-722">${it.kind}</span>
+    </div>`).join('') || '<div class="isl-723">No results</div>';
   document.getElementById('cmd-palette-results').innerHTML = html;
   document.querySelectorAll('.cmd-palette-row').forEach(el => {
     el.addEventListener('click', () => {
@@ -13084,20 +13154,20 @@ function showKeyboardShortcuts() {
   o.id = 'kbd-cheat-overlay';
   o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;display:flex;justify-content:center;align-items:center';
   o.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:460px;width:90vw;box-shadow:0 20px 60px rgba(0,0,0,.4)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-        <h3 style="margin:0;font-size:17px">Keyboard shortcuts</h3>
-        <button class="btn-icon" onclick="document.getElementById('kbd-cheat-overlay')?.remove()" style="font-size:18px;padding:4px 10px">×</button>
+    <div class="isl-724">
+      <div class="isl-725">
+        <h3 class="isl-726">Keyboard shortcuts</h3>
+        <button class="btn-icon isl-727" data-action="closeKbdCheat">×</button>
       </div>
-      <table style="width:100%;font-size:13px">
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">/</kbd></td><td>Open command palette</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">Ctrl-K</kbd></td><td>Open command palette</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">?</kbd></td><td>Show this cheat sheet</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g h</kbd></td><td>Go to Home</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g d</kbd></td><td>Go to Devices</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g l</kbd></td><td>Go to Logs</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">g s</kbd></td><td>Go to Settings</td></tr>
-        <tr><td style="padding:6px 16px 6px 0"><kbd style="background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border);font-family:monospace">Esc</kbd></td><td>Close any modal</td></tr>
+      <table class="isl-728">
+        <tr><td class="cell-padl"><kbd class="code-pill">/</kbd></td><td>Open command palette</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">Ctrl-K</kbd></td><td>Open command palette</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">?</kbd></td><td>Show this cheat sheet</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">g h</kbd></td><td>Go to Home</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">g d</kbd></td><td>Go to Devices</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">g l</kbd></td><td>Go to Logs</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">g s</kbd></td><td>Go to Settings</td></tr>
+        <tr><td class="cell-padl"><kbd class="code-pill">Esc</kbd></td><td>Close any modal</td></tr>
       </table>
     </div>`;
   o.addEventListener('click', e => { if (e.target === o) o.remove(); });
@@ -13224,35 +13294,35 @@ function openBulkActions() {
   const tagSet = new Set();
   devs.forEach(d => (d.tags || []).forEach(t => tagSet.add(t)));
   o.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:640px;width:92vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
-        <h3 style="margin:0;font-size:17px">Bulk actions</h3>
-        <button class="btn-icon" onclick="document.getElementById('bulk-modal-overlay')?.remove()" style="font-size:18px;padding:4px 10px">×</button>
+    <div class="isl-729">
+      <div class="isl-725">
+        <h3 class="isl-726">Bulk actions</h3>
+        <button class="btn-icon isl-727" data-action="closeBulkModal">×</button>
       </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Run an operation across multiple devices at once. Select a filter, pick an action, confirm.</div>
+      <div class="isl-730">Run an operation across multiple devices at once. Select a filter, pick an action, confirm.</div>
 
-      <div style="margin-bottom:14px">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">FILTER</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap" id="bulk-filter-options">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+      <div class="mb-14">
+        <div class="hint-mb6">FILTER</div>
+        <div id="bulk-filter-options" class="row-6-wrap">
+          <label class="isl-731">
             <input type="radio" name="bulk-filter" value="all" checked> All monitored (${devs.length})
           </label>
           ${Object.entries(groups).map(([g, ds]) => `
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <label class="isl-731">
               <input type="radio" name="bulk-filter" value="group:${escAttr(g)}"> Group: <code>${escHtml(g)}</code> (${ds.length})
             </label>`).join('')}
           ${[...tagSet].slice(0, 12).map(t => {
             const ct = devs.filter(d => (d.tags || []).includes(t)).length;
-            return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            return `<label class="isl-731">
               <input type="radio" name="bulk-filter" value="tag:${escAttr(t)}"> Tag: <code>${escHtml(t)}</code> (${ct})
             </label>`;
           }).join('')}
         </div>
       </div>
 
-      <div style="margin-bottom:14px">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">ACTION</div>
-        <select id="bulk-action" class="form-input" style="width:100%;padding:8px">
+      <div class="mb-14">
+        <div class="hint-mb6">ACTION</div>
+        <select id="bulk-action" class="form-input isl-732">
           <option value="upgrade">Upgrade packages — apt/dnf/yum/pacman</option>
           <option value="reboot">Reboot</option>
           <option value="shutdown">Shut down</option>
@@ -13261,11 +13331,11 @@ function openBulkActions() {
         </select>
       </div>
 
-      <div id="bulk-preview" style="font-size:12px;color:var(--muted);padding:10px;background:var(--bg);border-radius:6px;margin-bottom:14px"></div>
+      <div id="bulk-preview" class="isl-733"></div>
 
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn-secondary" onclick="document.getElementById('bulk-modal-overlay')?.remove()">Cancel</button>
-        <button class="btn-primary" onclick="runBulkAction()">Run</button>
+      <div class="user-actions">
+        <button class="btn-secondary" data-action="closeBulkModal">Cancel</button>
+        <button class="btn-primary" data-action="runBulkAction" >Run</button>
       </div>
     </div>`;
   document.body.appendChild(o);
@@ -13293,9 +13363,9 @@ function _bulkUpdatePreview() {
   const el = document.getElementById('bulk-preview');
   if (!el) return;
   el.innerHTML = `Will run <strong>${escHtml(action)}</strong> on ${targets.length} device(s):
-    <div style="margin-top:6px;font-size:11px;line-height:1.7">
+    <div class="isl-734">
       ${targets.slice(0, 10).map(d => `<code>${escHtml(d.name || d.id)}</code>`).join(', ')}
-      ${targets.length > 10 ? ` <span style="color:var(--muted)">+${targets.length - 10} more</span>` : ''}
+      ${targets.length > 10 ? ` <span class="c-muted">+${targets.length - 10} more</span>` : ''}
     </div>`;
 }
 async function runBulkAction() {
@@ -13364,7 +13434,7 @@ function renderWebhookDests() {
   const wrap = document.getElementById('webhook-dests');
   if (!wrap) return;
   if (!_webhookDests.length) {
-    wrap.innerHTML = '<div style="font-size:13px;color:var(--muted);padding:14px;background:var(--surface);border-radius:8px;border:1px dashed var(--border)">No destinations yet. Click "Add destination" to wire one up.</div>';
+    wrap.innerHTML = '<div class="isl-735">No destinations yet. Click "Add destination" to wire one up.</div>';
     return;
   }
   wrap.innerHTML = _webhookDests.map((d, idx) => {
@@ -13374,39 +13444,39 @@ function renderWebhookDests() {
     const tokenSet = d.pushover_token_set;
     const userSet  = d.pushover_user_set;
     return `
-      <div class="webhook-dest-card" data-idx="${idx}" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px">
-        <div style="display:flex;gap:10px;margin-bottom:10px;align-items:center">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+      <div class="webhook-dest-card isl-736" data-idx="${idx}">
+        <div class="isl-737">
+          <label class="isl-731">
             <input type="checkbox" data-field="enabled" ${d.enabled ? 'checked' : ''}>
             <strong>Enabled</strong>
           </label>
-          <input type="text" data-field="name" class="form-input" placeholder="Label (e.g. Pushover crit-only)" value="${escAttr(d.name || '')}" style="flex:1;padding:6px 10px;font-size:13px">
-          <button class="btn-icon" title="Test — fire a 'test' event to this destination" onclick="testWebhookDest(${idx})" style="padding:4px 10px;font-size:11px">⚡ Test</button>
-          <button class="btn-icon" title="Remove" onclick="removeWebhookDest(${idx})" style="padding:4px 10px;color:var(--red);font-size:14px">×</button>
+          <input type="text" data-field="name" class="form-input isl-738" placeholder="Label (e.g. Pushover crit-only)" value="${escAttr(d.name || '')}">
+          <button class="btn-icon isl-739" title="Test — fire a 'test' event to this destination" data-action="testWebhookDest" data-arg="${idx}">⚡ Test</button>
+          <button class="btn-icon isl-740" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">×</button>
         </div>
-        <div style="display:flex;gap:10px;margin-bottom:10px">
-          <select data-field="format" class="form-input" style="flex:0 0 180px;padding:6px 10px;font-size:13px" onchange="updateWebhookDest(${idx})">${fmtOpts}</select>
-          <input type="url" data-field="url" class="form-input" placeholder="${escAttr(_WEBHOOK_FORMATS.find(f => f[0]===d.format)?.[2] || 'https://...')}" value="${escAttr(d.url || '')}" style="flex:1;padding:6px 10px;font-size:13px">
+        <div class="isl-741">
+          <select data-field="format" class="form-input isl-742" data-change="updateWebhookDest" data-change-arg="${idx}">${fmtOpts}</select>
+          <input type="url" data-field="url" class="form-input input-url-dest" placeholder="${escAttr(_WEBHOOK_FORMATS.find(f => f[0]===d.format)?.[2] || 'https://...')}" value="${escAttr(d.url || '')}">
         </div>
         ${isPushover ? `
-          <div style="display:flex;gap:10px;margin-bottom:10px">
-            <input type="text" data-field="pushover_token" class="form-input" placeholder="${tokenSet ? '••••••••••• (set — leave blank to keep)' : 'App token (apXXX...)'}" style="flex:1;padding:6px 10px;font-size:13px;font-family:monospace">
-            <input type="text" data-field="pushover_user"  class="form-input" placeholder="${userSet  ? '••••••••••• (set — leave blank to keep)' : 'User/group key (uXXX...)'}" style="flex:1;padding:6px 10px;font-size:13px;font-family:monospace">
+          <div class="isl-741">
+            <input type="text" data-field="pushover_token" class="form-input isl-743" placeholder="${tokenSet ? '••••••••••• (set — leave blank to keep)' : 'App token (apXXX...)'}">
+            <input type="text" data-field="pushover_user"  class="form-input isl-743" placeholder="${userSet  ? '••••••••••• (set — leave blank to keep)' : 'User/group key (uXXX...)'}">
           </div>` : ''}
-        <details style="font-size:12px">
-          <summary style="cursor:pointer;color:var(--muted)">Advanced — filter which events fire here</summary>
-          <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:6px">
+        <details class="fs-12">
+          <summary class="isl-744">Advanced — filter which events fire here</summary>
+          <div class="isl-745">
+            <label class="isl-746">
               Min severity:
-              <select data-field="min_priority" class="form-input" style="padding:4px 8px;font-size:12px">
+              <select data-field="min_priority" class="form-input isl-747">
                 <option value="" ${d.min_priority == null ? 'selected' : ''}>any</option>
                 <option value="0" ${d.min_priority === 0 ? 'selected' : ''}>info+</option>
                 <option value="1" ${d.min_priority === 1 ? 'selected' : ''}>warning+</option>
                 <option value="2" ${d.min_priority === 2 ? 'selected' : ''}>critical only</option>
               </select>
             </label>
-            <div style="font-size:11px;color:var(--muted)">Or specify exact event names (one per line):</div>
-            <textarea data-field="events" class="form-input" rows="3" placeholder="device_offline&#10;cve_found&#10;monitor_down" style="width:100%;padding:6px 10px;font-size:12px;font-family:monospace;resize:vertical">${escHtml((d.events || []).join('\n'))}</textarea>
+            <div class="meta-sm-nm">Or specify exact event names (one per line):</div>
+            <textarea data-field="events" class="form-input isl-748" rows="3" placeholder="device_offline&#10;cve_found&#10;monitor_down">${escHtml((d.events || []).join('\n'))}</textarea>
           </div>
         </details>
       </div>`;
