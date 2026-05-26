@@ -1819,6 +1819,36 @@ async function loadHistory() {
   const data = await api('GET', '/history');
   tableCtl.render('history', data || []);
 }
+function _schedNextDate(type, runAt) {
+  if (runAt) return new Date(runAt * 1000);
+  const now = new Date();
+  if (type === 'hourly') {
+    const d = new Date(now); d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); return d;
+  }
+  if (type === 'nhours') {
+    const n = Math.max(1, parseInt(document.getElementById('sched-nhours').value) || 4);
+    const d = new Date(now); const nextH = Math.ceil((d.getHours() + 1) / n) * n;
+    d.setHours(nextH, 0, 0, 0); return d;
+  }
+  const timeId = type === 'daily' ? 'sched-daily-time' : type === 'weekly' ? 'sched-weekly-time' : 'sched-monthly-time';
+  const [hh, mm] = (document.getElementById(timeId)?.value || '03:00').split(':');
+  const H = parseInt(hh) || 3, M = parseInt(mm) || 0;
+  if (type === 'daily') {
+    const d = new Date(now); d.setHours(H, M, 0, 0); if (d <= now) d.setDate(d.getDate() + 1); return d;
+  }
+  if (type === 'weekly') {
+    const target = parseInt(document.getElementById('sched-weekly-day').value); // 0=Sun…6=Sat, same as JS getDay()
+    const d = new Date(now); d.setHours(H, M, 0, 0);
+    let ahead = target - d.getDay(); if (ahead < 0 || (ahead === 0 && d <= now)) ahead += 7;
+    d.setDate(d.getDate() + ahead); return d;
+  }
+  if (type === 'monthly') {
+    const dom = Math.max(1, Math.min(28, parseInt(document.getElementById('sched-monthly-day').value) || 1));
+    const d = new Date(now); d.setDate(dom); d.setHours(H, M, 0, 0);
+    if (d <= now) d.setMonth(d.getMonth() + 1); return d;
+  }
+  const d = new Date(now); d.setDate(d.getDate() + 1); return d;
+}
 function _buildSchedCron() {
   const type = document.getElementById('sched-recur-type').value;
   if (type === 'once')   return null;
@@ -1849,9 +1879,12 @@ function onSchedCommandChange() {
   document.getElementById('sched-script-row').classList.toggle('d-none', cmd !== 'script');
   document.getElementById('sched-upgrade-note').classList.toggle('d-none', !cmd.startsWith('upgrade'));
   if (cmd === 'script') _schedLoadScripts();
-  // Auto-suggest maintenance window for disruptive commands
-  const cb = document.getElementById('sched-maint-cb');
-  if (cb) cb.checked = (cmd === 'reboot' || cmd.startsWith('upgrade'));
+  // Auto-suggest maintenance window and calendar entry for disruptive commands
+  const disruptive = cmd === 'reboot' || cmd.startsWith('upgrade');
+  const maintCb = document.getElementById('sched-maint-cb');
+  if (maintCb) maintCb.checked = disruptive;
+  const calCb = document.getElementById('sched-cal-cb');
+  if (calCb) calCb.checked = disruptive;
 }
 function onSchedTypeChange() {
   const type = document.getElementById('sched-recur-type').value;
@@ -1884,6 +1917,22 @@ async function addScheduleJob() {
       else { maintBody.start = new Date(payload.run_at * 1000).toISOString(); maintBody.end = new Date((payload.run_at + 3600) * 1000).toISOString(); }
       await api('POST', '/maintenance', maintBody).catch(() => {});
     }
+    if (document.getElementById('sched-cal-cb')?.checked) {
+      const type = document.getElementById('sched-recur-type').value;
+      const devName = devices.find(d => d.id === dev_id)?.name || dev_id;
+      const calStart = _schedNextDate(type, payload.run_at);
+      const calEnd   = new Date(calStart.getTime() + 3600000);
+      const isDisruptive = command === 'reboot' || command.startsWith('upgrade');
+      const calBody = {
+        title:       `Scheduled: ${label} — ${devName}`,
+        description: cron ? `Recurring: ${cron}` : '',
+        start:       calStart.toISOString(),
+        end:         calEnd.toISOString(),
+        all_day:     false,
+        color:       isDisruptive ? 'amber' : 'blue',
+      };
+      await api('POST', '/calendar', calBody).catch(() => {});
+    }
     toast(cron ? `Recurring "${label}" scheduled (${cron})` : `"${label}" scheduled`, 'success');
     closeModal('schedule-add-modal'); loadSchedule();
   } else toast(data?.error || 'Failed', 'error');
@@ -1899,6 +1948,8 @@ function openScheduleAdd() {
   document.getElementById('sched-upgrade-note').classList.add('d-none');
   const maintCb = document.getElementById('sched-maint-cb');
   if (maintCb) maintCb.checked = false;
+  const calCb = document.getElementById('sched-cal-cb');
+  if (calCb) calCb.checked = false;
   const scriptSel = document.getElementById('sched-script-id');
   scriptSel.innerHTML = '<option value="">Loading…</option>';
   delete scriptSel.dataset.loaded;
@@ -8251,10 +8302,11 @@ async function ignoreAttention(key, label) {
   }
 }
 
-let _activityClearedAt = 0;
+let _activityClearedAt = parseInt(sessionStorage.getItem('rp_activity_cleared') || '0', 10);
 
 function clearHomeActivity() {
   _activityClearedAt = Math.floor(Date.now() / 1000);
+  sessionStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
   const target = document.getElementById('home-activity');
   if (target) target.innerHTML = `<div class="empty-state isl-553">
     <div class="empty-state-icon">○</div>

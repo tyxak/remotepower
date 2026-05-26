@@ -2902,7 +2902,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <option value="shutdown">Shut down</option>
         <option value="reboot">Reboot</option>
         <option value="upgrade_packages">Upgrade packages (apt / dnf / pacman + cleanup)</option>
-        <option value="upgrade_and_reboot">Upgrade packages + reboot</option>
+        <option value="upgrade_and_reboot">Upgrade packages + cleanup + reboot</option>
         <option value="script">Run script…</option>
       </select>
     </div>
@@ -2949,6 +2949,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="meta-sm">5 fields: min hour dom mon dow</div>
     </div>
     <label class="isl-759"><input type="checkbox" id="sched-maint-cb"> Suppress alerts for 1h (maintenance window)</label>
+    <label class="isl-759"><input type="checkbox" id="sched-cal-cb"> Add to calendar</label>
     <div class="modal-actions">
       <button class="btn-secondary" data-action="closeModal" data-arg="schedule-add-modal" >Cancel</button>
       <button class="btn-primary" data-action="addScheduleJob" >Schedule</button>
