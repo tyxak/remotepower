@@ -592,11 +592,19 @@ function toggleTheme() {
   const btn = document.querySelector('.theme-btn');
   if (btn) btn.textContent = isLight ? '🌙' : '☀️';
 }
-async function api(method, path, body) {
+async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
+  }
+  // v3.2.1: callers can pass an AbortController signal (and other fetch
+  // options) via the optional `extra` arg. Used by long-running calls
+  // like AI mitigation so the operator can cancel a hung request.
+  if (extra && typeof extra === 'object') {
+    for (const k of ['signal']) {
+      if (extra[k] !== undefined) opts[k] = extra[k];
+    }
   }
   const r = await fetch('/api' + path, opts);
   if (r.status === 401) { doLogout(); return null; }
@@ -13893,34 +13901,59 @@ async function _mitigateRunAi() {
   if (!_mitigateCtx || !_mitigateCtx.actionId) return;
   mitigateTab('ai');
   const statusEl = document.getElementById('mitigate-ai-status');
-  statusEl.textContent = 'Asking the model…';
   document.getElementById('mitigate-ai-summary').textContent = '';
   document.getElementById('mitigate-ai-fix-box').style.display = 'none';
 
-  // v3.2.1 fix: surface "still waiting" feedback so an AI provider that
-  // takes 60+ seconds doesn't look like a frozen modal. The fetch itself
-  // has no client-side timeout — providers vary from <5s (Anthropic) to
-  // 60-120s (large Ollama models). We just escalate the message.
-  const _slowWarn = setTimeout(() => {
-    statusEl.textContent = 'Still waiting on the AI (45 s+)… large local models can take 1–2 min.';
-  }, 45000);
-  const _verySlowWarn = setTimeout(() => {
-    statusEl.textContent = 'Over 90 s. If this is a local model, that\'s expected on a cold GPU. Click "Re-run AI" to retry, or close and try a different provider in Settings → AI.';
-  }, 90000);
+  // v3.2.1 fix: live elapsed-time counter and abortable fetch. Without
+  // visible movement, an AI provider that takes 30-300s to respond
+  // (Ollama on a cold GPU) makes the modal look frozen. The counter
+  // refreshes every second; after 30s an Abort button appears.
+  const startedAt = Date.now();
+  let aborted = false;
+  const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  function _renderStatus() {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    let msg = `Asking the model… ${elapsed}s elapsed`;
+    if (elapsed > 90) {
+      msg += ' — local models on a cold GPU often take 1–2 min. If your provider should be fast, check the AI config.';
+    } else if (elapsed > 45) {
+      msg += ' — still working. Large prompts + slow models take time.';
+    }
+    const abortHtml = (elapsed > 30 && controller && !aborted)
+      ? ' <button class="btn-icon c-danger-outline btn-xs" data-action="abortMitigateAi">Abort</button>'
+      : '';
+    statusEl.innerHTML = msg + abortHtml;
+  }
+  // v3.2.1: wire the Abort button BEFORE the await so the data-action
+  // handler can find the function. (Defining it after the await is
+  // never reached if the AI call hangs.)
+  window.abortMitigateAi = function() {
+    aborted = true;
+    if (controller) { try { controller.abort(); } catch (_) {} }
+  };
+  _renderStatus();
+  const _tick = setInterval(_renderStatus, 1000);
 
   let r;
   try {
+    const opts = controller ? { signal: controller.signal } : {};
     r = await api('POST',
       `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
-      {});
+      {}, opts);
   } catch (e) {
-    clearTimeout(_slowWarn); clearTimeout(_verySlowWarn);
-    statusEl.textContent = `Network error contacting AI: ${e && e.message ? e.message : e}`;
+    clearInterval(_tick);
+    window.abortMitigateAi = null;
+    if (aborted) {
+      statusEl.textContent = 'Aborted. Close and retry, or change the AI provider in Settings → AI Assistant.';
+    } else {
+      statusEl.textContent = `Network error contacting AI: ${e && e.message ? e.message : e}`;
+    }
     return;
   }
-  clearTimeout(_slowWarn); clearTimeout(_verySlowWarn);
+  clearInterval(_tick);
+  window.abortMitigateAi = null;
   if (!r) {
-    statusEl.textContent = 'AI call failed (no response)';
+    statusEl.textContent = 'AI call failed (no response from server — check Settings → AI Assistant and the nginx error log).';
     return;
   }
   if (r.error) {
@@ -13928,7 +13961,7 @@ async function _mitigateRunAi() {
     document.getElementById('mitigate-ai-summary').textContent = `Error: ${r.error}`;
     return;
   }
-  statusEl.textContent = 'Done.';
+  statusEl.textContent = `Done in ${Math.floor((Date.now() - startedAt) / 1000)}s.`;
   document.getElementById('mitigate-ai-summary').textContent = r.summary || '(empty response)';
   _mitigateRenderFixOptions(r);
 }
