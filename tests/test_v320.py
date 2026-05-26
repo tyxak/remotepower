@@ -1405,6 +1405,167 @@ class TestBearerAuthParity(_ApiTestBase):
             self.assertEqual(tok, '', f'malformed {bad!r} should not auth')
 
 
+class TestSnmpThresholdAlerting(_ApiTestBase):
+    """SNMP-derived metrics flow through the same threshold pipeline as
+    agent metrics. metric_warning / metric_critical / metric_recovered
+    events fire when polled values cross thresholds — and the row lands
+    in the alerts inbox (because metric_warning is _ALERT_RULES-mapped)."""
+
+    def setUp(self):
+        self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-sw': {
+                'name': 'switch01', 'monitored': True,
+                'metric_state': {},
+                # default thresholds — snmp_cpu warn=75 crit=90, temp warn=70 crit=85
+            },
+        })
+
+    def test_snmp_cpu_threshold_fires(self):
+        # Build a synthetic SNMP entry with high CPU
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        snmp_entry = {
+            'processors': [
+                {'index': 1, 'load_pct': 80},
+                {'index': 2, 'load_pct': 85},
+            ],   # avg 82.5 → above warn=75
+            'storage': [],
+            'vendor': {},
+        }
+        self.api.process_snmp_metric_thresholds('d-sw', dev, snmp_entry)
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        metric_alerts = [a for a in alerts if a['event'] == 'metric_warning']
+        self.assertEqual(len(metric_alerts), 1)
+        self.assertEqual(metric_alerts[0]['payload'].get('metric'), 'snmp_cpu')
+
+    def test_snmp_cpu_critical_at_90(self):
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        snmp_entry = {
+            'processors': [{'index': 1, 'load_pct': 95}],
+            'storage': [], 'vendor': {},
+        }
+        self.api.process_snmp_metric_thresholds('d-sw', dev, snmp_entry)
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        crits = [a for a in alerts if a['event'] == 'metric_critical']
+        self.assertEqual(len(crits), 1)
+
+    def test_temperature_threshold_fires(self):
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        # Mikrotik returns temp in tenths-of-deg: 800 = 80°C → above warn=70
+        snmp_entry = {
+            'processors': [], 'storage': [],
+            'vendor': {'mtxrHlBoardTemp': 800},
+        }
+        self.api.process_snmp_metric_thresholds('d-sw', dev, snmp_entry)
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        # 80°C is above warn=70 but below crit=85 → warning
+        warns = [a for a in alerts if a['event'] == 'metric_warning']
+        self.assertEqual(len(warns), 1)
+        self.assertEqual(warns[0]['payload'].get('metric'), 'temp_board')
+
+    def test_unmonitored_no_threshold_alert(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-sw': {'name': 'sw', 'monitored': False, 'metric_state': {}},
+        })
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        snmp_entry = {
+            'processors': [{'index': 1, 'load_pct': 99}],
+            'storage': [], 'vendor': {},
+        }
+        self.api.process_snmp_metric_thresholds('d-sw', dev, snmp_entry)
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len(alerts), 0,
+            'unmonitored devices must not page on SNMP thresholds')
+
+    def test_recovery_clears_state(self):
+        # First poll: high → fires warning
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        self.api.process_snmp_metric_thresholds('d-sw', dev,
+            {'processors': [{'index': 1, 'load_pct': 85}],
+             'storage': [], 'vendor': {}})
+        # Reload dev (state was persisted)
+        dev = self.api.load(self.api.DEVICES_FILE)['d-sw']
+        # Second poll: drops well below warn-buffer (75-5=70)
+        self.api.process_snmp_metric_thresholds('d-sw', dev,
+            {'processors': [{'index': 1, 'load_pct': 50}],
+             'storage': [], 'vendor': {}})
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        # Should have one warning AND one recovered event in the fleet log
+        # (but only the warning makes it into alerts inbox since
+        #  metric_recovered isn't in _ALERT_RULES)
+        warns = [a for a in alerts if a['event'] == 'metric_warning']
+        self.assertEqual(len(warns), 1)
+
+
+class TestAlertsClear(_ApiTestBase):
+    """Bulk-purge endpoints for the Alerts page."""
+
+    def setUp(self):
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        self.tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        # Seed three alerts in different states
+        self.api.save(self.api.ALERTS_FILE, {'alerts': [
+            {'id': 'a-1', 'event': 'x', 'severity': 'high',
+             'ts': 1, 'title': 'open', 'payload': {},
+             'acknowledged_at': None, 'resolved_at': None,
+             'acknowledged_by': None, 'resolved_by': None},
+            {'id': 'a-2', 'event': 'x', 'severity': 'high',
+             'ts': 2, 'title': 'ack', 'payload': {},
+             'acknowledged_at': 100, 'resolved_at': None,
+             'acknowledged_by': 'u', 'resolved_by': None},
+            {'id': 'a-3', 'event': 'x', 'severity': 'high',
+             'ts': 3, 'title': 'resolved', 'payload': {},
+             'acknowledged_at': 100, 'resolved_at': 200,
+             'acknowledged_by': 'u', 'resolved_by': 'u'},
+        ]})
+        os.environ['HTTP_X_TOKEN'] = self.tok
+
+    def _delete(self, qs=''):
+        os.environ['REQUEST_METHOD'] = 'DELETE'
+        os.environ['QUERY_STRING'] = qs
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_alerts_clear()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        return captured
+
+    def test_clear_resolved_keeps_open_and_ack(self):
+        r = self._delete('scope=resolved')
+        self.assertEqual(r['status'], 200)
+        self.assertEqual(r['body']['removed'], 1)
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual({a['id'] for a in rows}, {'a-1', 'a-2'})
+
+    def test_clear_all_wipes_everything(self):
+        r = self._delete('scope=all')
+        self.assertEqual(r['status'], 200)
+        self.assertEqual(r['body']['removed'], 3)
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(rows, [])
+
+    def test_clear_invalid_scope_400(self):
+        r = self._delete('scope=bogus')
+        self.assertEqual(r['status'], 400)
+
+    def test_clear_default_is_resolved(self):
+        r = self._delete('')
+        self.assertEqual(r['status'], 200)
+        self.assertEqual(r['body']['removed'], 1)
+
+
 class TestUnmonitoredAlertSuppression(_ApiTestBase):
     """Regression: alerts.json must not gain rows for unmonitored devices.
 

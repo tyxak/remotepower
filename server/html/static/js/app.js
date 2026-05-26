@@ -2066,8 +2066,12 @@ async function openMetricThresholds(id, name) {
   document.getElementById('metric-thresholds-error').style.display = 'none';
 
   // Clear the form before loading — avoids flashing stale values
-  ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit']
-    .forEach(k => document.getElementById('thr-' + k).value = '');
+  ['mem-warn','mem-crit','swap-warn','swap-crit','disk-warn','disk-crit','cpu-warn','cpu-crit',
+   'snmp-cpu-warn','snmp-cpu-crit','temp-warn','temp-crit']
+    .forEach(k => {
+      const el = document.getElementById('thr-' + k);
+      if (el) el.value = '';
+    });
   document.getElementById('thr-mounts-list').innerHTML = '';
 
   openModal('metric-thresholds-modal');
@@ -2094,6 +2098,11 @@ async function openMetricThresholds(id, name) {
   fillField('thr-disk-crit', 'disk_crit_percent');
   fillField('thr-cpu-warn',  'cpu_warn_load_ratio');
   fillField('thr-cpu-crit',  'cpu_crit_load_ratio');
+  // v3.2.0 follow-up: SNMP-derived thresholds
+  fillField('thr-snmp-cpu-warn', 'snmp_cpu_warn_percent');
+  fillField('thr-snmp-cpu-crit', 'snmp_cpu_crit_percent');
+  fillField('thr-temp-warn',     'temp_warn_celsius');
+  fillField('thr-temp-crit',     'temp_crit_celsius');
 
   // Per-mount overrides
   const perMount = (o.disk_per_mount || {});
@@ -2153,6 +2162,9 @@ async function saveMetricThresholds() {
   readPair('thr-swap-warn', 'thr-swap-crit', 'swap_warn_percent',  'swap_crit_percent');
   readPair('thr-disk-warn', 'thr-disk-crit', 'disk_warn_percent',  'disk_crit_percent');
   readPair('thr-cpu-warn',  'thr-cpu-crit',  'cpu_warn_load_ratio', 'cpu_crit_load_ratio');
+  // v3.2.0 follow-up: SNMP-derived thresholds (CPU% and temperature)
+  readPair('thr-snmp-cpu-warn', 'thr-snmp-cpu-crit', 'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent');
+  readPair('thr-temp-warn',     'thr-temp-crit',     'temp_warn_celsius',     'temp_crit_celsius');
 
   // Per-mount overrides
   const mountRows = document.querySelectorAll('#thr-mounts-list .mount-row');
@@ -3938,6 +3950,25 @@ async function bulkResolveAlerts() {
   const r = await api('POST', '/alerts/bulk-resolve', { ids });
   if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+// v3.2.0 follow-up: bulk-purge resolved or all alerts
+async function clearResolvedAlerts() {
+  if (!confirm('Remove every alert in "resolved" state? Open and acknowledged rows stay.')) return;
+  const r = await api('DELETE', '/alerts?scope=resolved');
+  if (r && r.ok) {
+    toast(`Cleared ${r.removed} resolved alert(s)`, 'success');
+    loadAlerts(); refreshAlertsBadge();
+  } else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function clearAllAlerts() {
+  if (!confirm('Remove EVERY alert — including open and acknowledged ones?\n\nThis cannot be undone. Use "Clear resolved" if you only want to purge resolved.')) return;
+  const r = await api('DELETE', '/alerts?scope=all');
+  if (r && r.ok) {
+    toast(`Cleared ${r.removed} alert(s)`, 'success');
+    loadAlerts(); refreshAlertsBadge();
+  } else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function refreshAlertsBadge() {

@@ -351,6 +351,15 @@ DEFAULT_METRIC_THRESHOLDS = {
     # sysadmins consider 'busy' (warn) and 'overloaded' (critical).
     'cpu_warn_load_ratio': 1.5,
     'cpu_crit_load_ratio': 3.0,
+    # v3.2.0 follow-up: SNMP-derived metrics. SNMP CPU comes as a
+    # percentage (hrProcessorLoad), not a load ratio — different units,
+    # different threshold scale.
+    'snmp_cpu_warn_percent':   75,
+    'snmp_cpu_crit_percent':   90,
+    # Hardware temperature in degrees Celsius. Defaults sized for the
+    # typical homelab router/switch operating envelope.
+    'temp_warn_celsius':       70,
+    'temp_crit_celsius':       85,
 }
 METRIC_RECOVERY_BUFFER = 5      # percentage points (or load-ratio*100 equivalent)
 METRIC_KINDS           = ('disk', 'memory', 'swap', 'cpu')
@@ -1918,6 +1927,11 @@ _ALERT_RULES = {
     'custom_script_fail':     ('high',     None),
     'log_alert':              (None,       None),   # severity from payload.level
     'metric_warning':         (None,       None),   # severity from payload.level
+    # v3.2.0 follow-up: metric_critical was previously absent — a CRITICAL
+    # threshold breach (CPU > 90%, memory > 95%, disk > 90%) fired the
+    # webhook but never landed in the alerts inbox. Adding it here closes
+    # the gap; severity is hard-coded to 'critical' (no payload lookup).
+    'metric_critical':        ('critical', None),
     # v3.2.0 (B5): SNMP polling for agentless devices
     'snmp_unreachable':       ('high',     None),
     'snmp_dead':              ('critical', None),
@@ -3636,7 +3650,10 @@ def handle_device_metric_thresholds(dev_id):
         for k in ('disk_warn_percent', 'disk_crit_percent',
                   'mem_warn_percent',  'mem_crit_percent',
                   'swap_warn_percent', 'swap_crit_percent',
-                  'cpu_warn_load_ratio', 'cpu_crit_load_ratio'):
+                  'cpu_warn_load_ratio', 'cpu_crit_load_ratio',
+                  # v3.2.0 follow-up: SNMP-derived thresholds
+                  'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent',
+                  'temp_warn_celsius',     'temp_crit_celsius'):
             if k in overrides:
                 effective[k] = overrides[k]
         respond(200, {
@@ -3661,7 +3678,9 @@ def handle_device_metric_thresholds(dev_id):
     # Percentage thresholds (1-99 — 0 and 100 don't make sense as alerts)
     pct_keys = ('disk_warn_percent', 'disk_crit_percent',
                 'mem_warn_percent',  'mem_crit_percent',
-                'swap_warn_percent', 'swap_crit_percent')
+                'swap_warn_percent', 'swap_crit_percent',
+                # v3.2.0 follow-up: SNMP-derived percent thresholds
+                'snmp_cpu_warn_percent', 'snmp_cpu_crit_percent')
     for k in pct_keys:
         if k in body:
             v = body[k]
@@ -3675,6 +3694,14 @@ def handle_device_metric_thresholds(dev_id):
             v = body[k]
             if not isinstance(v, (int, float)) or not (0.1 <= v <= 100):
                 respond(400, {'error': f'{k} must be a number between 0.1 and 100'})
+            overrides[k] = float(v)
+
+    # v3.2.0 follow-up: temperature thresholds (°C, range 0-200)
+    for k in ('temp_warn_celsius', 'temp_crit_celsius'):
+        if k in body:
+            v = body[k]
+            if not isinstance(v, (int, float)) or not (0 <= v <= 200):
+                respond(400, {'error': f'{k} must be a number between 0 and 200'})
             overrides[k] = float(v)
 
     # Per-mount overrides
@@ -3702,7 +3729,10 @@ def handle_device_metric_thresholds(dev_id):
     for warn_k, crit_k in (('disk_warn_percent', 'disk_crit_percent'),
                            ('mem_warn_percent',  'mem_crit_percent'),
                            ('swap_warn_percent', 'swap_crit_percent'),
-                           ('cpu_warn_load_ratio','cpu_crit_load_ratio')):
+                           ('cpu_warn_load_ratio','cpu_crit_load_ratio'),
+                           # v3.2.0 follow-up
+                           ('snmp_cpu_warn_percent', 'snmp_cpu_crit_percent'),
+                           ('temp_warn_celsius',     'temp_crit_celsius')):
         w = overrides.get(warn_k, DEFAULT_METRIC_THRESHOLDS[warn_k])
         c = overrides.get(crit_k, DEFAULT_METRIC_THRESHOLDS[crit_k])
         if w >= c:
@@ -12030,6 +12060,41 @@ def handle_alerts_summary():
     respond(200, _alerts_summary(al.get('alerts', [])))
 
 
+def handle_alerts_clear():
+    """DELETE /api/alerts?scope=resolved|all — admin-only purge.
+
+    scope=resolved (default) → drop every entry with resolved_at set.
+                                Keeps open + acknowledged rows.
+    scope=all      → drop EVERY row regardless of state. The
+                                operator gets a confirmation prompt
+                                in the UI before this fires.
+
+    Audit-logged in both cases. Same posture as the audit-log clear
+    endpoint: state lives in alerts.json + audit_log records the act.
+    """
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    scope = (qs.get('scope', ['resolved'])[0] or 'resolved').lower()
+    if scope not in ('resolved', 'all'):
+        respond(400, {'error': 'scope must be "resolved" or "all"'})
+    removed = 0
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            arr = store.get('alerts', [])
+            if scope == 'all':
+                removed = len(arr)
+                store['alerts'] = []
+            else:
+                kept = [a for a in arr if not a.get('resolved_at')]
+                removed = len(arr) - len(kept)
+                store['alerts'] = kept
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    audit_log(actor, 'alerts_clear', f'scope={scope} removed={removed}')
+    respond(200, {'ok': True, 'removed': removed, 'scope': scope})
+
+
 # ── v3.2.0 (B2): inbound webhooks ───────────────────────────────────────────
 
 _VALID_SEVERITIES = ('critical', 'high', 'medium', 'low')
@@ -13172,6 +13237,13 @@ def _do_snmp_poll(dev_id, dev):
     fire alongside the buffer write. Failure must hit a 2-poll threshold
     before unreachable fires (covers single-packet UDP loss). Unmonitored
     devices skip the webhook path — same posture as device_offline.
+
+    v3.2.0 follow-up: also pulls hrProcessorTable + hrStorageTable +
+    vendor MIB (Mikrotik) on every sweep so the Device Metrics view
+    has real values for SNMP devices, and the existing threshold
+    pipeline (metric_warning / metric_critical) can fire on those
+    values. ifTable walking stays on the on-demand deep-poll — too
+    heavy for the 5-minute sweep on big switches.
     """
     target = _device_snmp_target(dev)
     if not target:
@@ -13189,6 +13261,24 @@ def _do_snmp_poll(dev_id, dev):
     try:
         import snmp as snmp_mod
         result = snmp_mod.poll_system(host, community, port=port, timeout=2.0)
+        # v3.2.0 follow-up: gather the lightweight extras alongside
+        # sys-group. Each is a small bounded walk (max 24-64 entries) +
+        # a few scalars — total adds 0.5-1.5 s per device per sweep.
+        try:
+            processors = snmp_mod.poll_processors(host, community, port=port, timeout=2.0)
+        except Exception:
+            processors = []
+        try:
+            storage = snmp_mod.poll_hr_storage(host, community, port=port, timeout=2.0)
+        except Exception:
+            storage = []
+        sys_obj = result.get('sysObjectID') or ''
+        vendor = {}
+        if sys_obj.startswith('1.3.6.1.4.1.14988'):
+            try:
+                vendor = snmp_mod.poll_mikrotik(host, community, port=port, timeout=2.0)
+            except Exception:
+                vendor = {}
         now = int(time.time())
         entry = {
             'host':         host,
@@ -13202,7 +13292,16 @@ def _do_snmp_poll(dev_id, dev):
             'sysContact':   result.get('sysContact'),
             'sysName':      result.get('sysName'),
             'sysLocation':  result.get('sysLocation'),
+            'processors':   processors,
+            'storage':      storage,
+            'vendor':       vendor,
         }
+        # Threshold pipeline — fires metric_warning/critical/recovered
+        # events through the existing webhook + alerts inbox plumbing.
+        try:
+            process_snmp_metric_thresholds(dev_id, dev, entry)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] snmp threshold proc failed: {e}\n')
         # Recover transition: previously failing → now ok
         if prev_state == 'fail' and is_monitored:
             try:
@@ -14597,15 +14696,25 @@ def _below_recovery(value, warn):
 
 def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,
                          extra=None):
-    """Wrapper to fire metric_* webhooks with consistent payload shape."""
+    """Wrapper to fire metric_* webhooks with consistent payload shape.
+
+    Payload uses both `kind` (legacy webhook payload key) and `metric`
+    (the canonical name the alerts inbox + alert-title formatter expect).
+    `level` carries the human-readable severity word so _alert_severity
+    can classify the alert without re-deriving it.
+    """
+    level = ('critical' if event == 'metric_critical' else
+             'warning'  if event == 'metric_warning'  else 'ok')
     payload = {
         'device_id': dev_id,
         'name':      dev.get('name', dev_id),
         'group':     dev.get('group', ''),
         'kind':      kind,
+        'metric':    kind,        # alias for alerts-inbox payload schema
         'target':    target,
         'value':     value,
         'threshold': threshold,
+        'level':     level,
     }
     if extra:
         payload.update(extra)
@@ -14737,6 +14846,176 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         _check('disk', '/', safe_si['disk_percent'])
 
     dev['metric_state'] = state
+
+
+# ── v3.2.0 (B5 follow-up): threshold check for SNMP-polled devices ─────────
+
+def _snmp_threshold_warn_crit(dev, kind):
+    """Return (warn, crit) for an SNMP-derived metric. Uses per-device
+    overrides under `metric_thresholds` if present, falls back to defaults.
+
+    kind ∈ {'snmp_cpu', 'snmp_mem', 'snmp_disk', 'temp_cpu', 'temp_board'}.
+    """
+    overrides = (dev.get('metric_thresholds') or {}) if isinstance(dev, dict) else {}
+    D = DEFAULT_METRIC_THRESHOLDS
+    if kind == 'snmp_cpu':
+        return (float(overrides.get('snmp_cpu_warn_percent',
+                                     D['snmp_cpu_warn_percent'])),
+                float(overrides.get('snmp_cpu_crit_percent',
+                                     D['snmp_cpu_crit_percent'])))
+    if kind == 'snmp_mem':
+        # Re-use existing memory thresholds — same percent units
+        return (float(overrides.get('mem_warn_percent', D['mem_warn_percent'])),
+                float(overrides.get('mem_crit_percent', D['mem_crit_percent'])))
+    if kind == 'snmp_disk':
+        # Re-use existing disk thresholds — same percent units
+        return (float(overrides.get('disk_warn_percent', D['disk_warn_percent'])),
+                float(overrides.get('disk_crit_percent', D['disk_crit_percent'])))
+    if kind in ('temp_cpu', 'temp_board'):
+        return (float(overrides.get('temp_warn_celsius', D['temp_warn_celsius'])),
+                float(overrides.get('temp_crit_celsius', D['temp_crit_celsius'])))
+    return (None, None)
+
+
+def _snmp_memory_used_pct(snmp_entry):
+    """Pick memory used % from the polled storage table. Looks for the
+    physical/main memory entry first; falls back to None."""
+    for s in snmp_entry.get('storage') or []:
+        descr = (s.get('descr') or '').lower()
+        if descr in ('physical memory', 'main memory', 'memory'):
+            return s.get('used_pct')
+    return None
+
+
+def _snmp_storage_mounts(snmp_entry):
+    """List of filesystem-like storage entries (skip memory/swap/cache).
+    Returns [{descr, used_pct}, ...]."""
+    out = []
+    for s in snmp_entry.get('storage') or []:
+        descr = (s.get('descr') or '').strip()
+        low = descr.lower()
+        # Skip non-filesystem rows
+        if not descr:
+            continue
+        if any(t in low for t in ('memory', 'swap', 'cached', 'buffer',
+                                   'virtual', 'shared')):
+            continue
+        if 'system disk' in low or descr.startswith('/'):
+            if s.get('used_pct') is not None:
+                out.append({'descr': descr, 'used_pct': s['used_pct']})
+            continue
+        # Mikrotik exposes "system disk" — accept by descr having no leading /
+        if s.get('used_pct') is not None:
+            out.append({'descr': descr, 'used_pct': s['used_pct']})
+    return out
+
+
+def _snmp_cpu_avg_pct(snmp_entry):
+    """Aggregate the per-core load %s into one number. None if no data."""
+    procs = snmp_entry.get('processors') or []
+    if not procs:
+        return None
+    loads = [p.get('load_pct') for p in procs if isinstance(p.get('load_pct'), (int, float))]
+    if not loads:
+        return None
+    return sum(loads) / len(loads)
+
+
+def _snmp_temp_celsius(snmp_entry, source='board'):
+    """Pick a temperature value out of vendor MIB blocks.
+
+    source='board' → Mikrotik mtxrHlBoardTemp (returned in tenths of °C)
+    source='cpu'   → Mikrotik mtxrHlTemperature
+    Returns None if not advertised.
+    """
+    v = snmp_entry.get('vendor') or {}
+    key = 'mtxrHlBoardTemp' if source == 'board' else 'mtxrHlTemperature'
+    raw = v.get(key)
+    if isinstance(raw, (int, float)) and raw > 0:
+        # Mikrotik returns tenths of degrees. 470 → 47.0 °C.
+        return raw / 10.0
+    return None
+
+
+def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
+    """Run polled SNMP metrics through the threshold pipeline.
+
+    Mirrors `process_metric_thresholds` (the agent path) for SNMP
+    sources. Computes CPU %, memory %, disk % per storage, and hardware
+    temperatures; classifies vs. per-device or default thresholds; and
+    fires the SAME metric_warning / metric_critical / metric_recovered
+    events the agent path fires. Result: SNMP-polled devices show up in
+    the alerts inbox + outbound webhooks exactly like agent hosts.
+
+    Updates dev['metric_state'] in place. Caller is responsible for
+    persisting devices.json (the sweep below does so via _LockedUpdate).
+
+    No-op cleanly for unmonitored devices — same posture as fire_webhook's
+    suppression gate downstream.
+    """
+    if not dev.get('monitored', True):
+        return
+
+    state = dev.get('metric_state') or {}
+    if not isinstance(state, dict):
+        state = {}
+
+    def _check(kind, target, value, kind_for_threshold=None):
+        """value=current measurement; kind_for_threshold lets disk_* re-use
+        the agent's per-mount threshold table when needed."""
+        if value is None:
+            return
+        warn, crit = _snmp_threshold_warn_crit(dev, kind_for_threshold or kind)
+        if warn is None:
+            return
+        new_level = _classify_metric(value, warn, crit)
+        key = f'{kind}:{target}'
+        prev_level = state.get(key, 'ok')
+        if new_level == prev_level:
+            if prev_level != 'ok' and _below_recovery(value, warn):
+                _fire_metric_webhook('metric_recovered', dev_id, dev,
+                                      kind, target, value, warn,
+                                      extra={'source': 'snmp'})
+                state[key] = 'ok'
+            return
+        if new_level == 'critical':
+            _fire_metric_webhook('metric_critical', dev_id, dev, kind, target,
+                                  value, crit, extra={'source': 'snmp'})
+        elif new_level == 'warning':
+            _fire_metric_webhook('metric_warning', dev_id, dev, kind, target,
+                                  value, warn, extra={'source': 'snmp'})
+        else:
+            if _below_recovery(value, warn):
+                _fire_metric_webhook('metric_recovered', dev_id, dev,
+                                      kind, target, value, warn,
+                                      extra={'source': 'snmp'})
+            else:
+                return
+        state[key] = new_level
+
+    # CPU %
+    _check('snmp_cpu', '', _snmp_cpu_avg_pct(snmp_entry))
+    # Memory %
+    _check('snmp_mem', '', _snmp_memory_used_pct(snmp_entry))
+    # Per-storage % (filesystem-like entries only)
+    seen = set()
+    for s in _snmp_storage_mounts(snmp_entry):
+        descr = s['descr']
+        key = f'snmp_disk:{descr}'
+        seen.add(key)
+        _check('snmp_disk', descr, s['used_pct'], kind_for_threshold='snmp_disk')
+    # Clean stale per-disk state (storage entry vanished)
+    for k in list(state.keys()):
+        if k.startswith('snmp_disk:') and k not in seen:
+            state.pop(k, None)
+    # Temperature (Mikrotik vendor MIB)
+    _check('temp_board', '', _snmp_temp_celsius(snmp_entry, source='board'))
+    _check('temp_cpu',   '', _snmp_temp_celsius(snmp_entry, source='cpu'))
+
+    # Persist the updated metric_state on the device record
+    with _LockedUpdate(DEVICES_FILE) as store:
+        if dev_id in store:
+            store[dev_id]['metric_state'] = state
 
 
 def _container_is_running(status_str):
@@ -17510,6 +17789,7 @@ def main():
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
     # v3.2.0 (B1): alerts inbox
     elif pi == '/api/alerts' and m == 'GET': handle_alerts_list()
+    elif pi == '/api/alerts' and m == 'DELETE': handle_alerts_clear()
     elif pi == '/api/alerts/summary' and m == 'GET': handle_alerts_summary()
     elif pi == '/api/alerts/bulk-resolve' and m == 'POST': handle_alerts_bulk_resolve()
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
