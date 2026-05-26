@@ -305,7 +305,7 @@
         <button class="nav-btn" data-page="confirmations" title="Pending MCP write actions awaiting approval">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>MCP Confirmations</span>
-          <span id="confirmations-badge" class="nav-badge d-none">0</span>
+          <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending MCP confirmations">0</span>
         </button>
         <button class="nav-btn" data-page="self" title="RemotePower watching itself: disk, webhooks, audit, backups">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -1566,6 +1566,24 @@
         </div>
 
         <div id="docs-container" class="isl-102">
+          <details class="doc-card" data-keywords="release notes changelog v3.2.0 alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations">
+            <summary><strong>v3.2.0 release notes</strong> — alerts inbox, inbound webhooks, syslog, MCP write tools, OIDC, SNMP</summary>
+            <div class="doc-body">
+              <p>A six-feature release. Drop in the new tarball, reload nginx, hard-reload once to refresh the service worker cache (<code>remotepower-shell-v3.2.0</code>).</p>
+              <ul>
+                <li><strong>Alerts inbox</strong> (top-level sidebar entry with green/red count badge): every actionable webhook event lands in a mutable ledger at <code>alerts.json</code>. Filter views: Open / Acknowledged / Resolved / All. Bulk-resolve via checkboxes. Recover events auto-resolve the matching open row.</li>
+                <li><strong>Inbound webhooks</strong> (Settings → Integrations): create a long-secret token, <code>POST /api/webhook/in/&lt;token&gt;</code> with <code>{severity, title, …}</code>, lands in the Alerts inbox. Works with Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
+                <li><strong>Syslog HTTP ingestion</strong> (Settings → Integrations, same table): kind=syslog tokens accept rsyslog <code>omhttp</code> / fluent-bit / curl POSTs at <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to <code>log_watch</code> under unit <code>syslog</code>; existing log_alert rules fire as if from the agent.</li>
+                <li><strong>MCP write tools (Stage 4)</strong>: <code>reboot_device</code>, <code>run_saved_script</code>, <code>force_package_scan</code>, <code>force_acme_rescan</code>. Destructive tools against <code>require_confirmation=true</code> devices return 202 with a confirmation_id — admin approves at Admin → MCP Confirmations. Audit log records AI host + prompt.</li>
+                <li><strong>OIDC SSO</strong> (Settings → Integrations → OIDC): Authelia / Authentik / Keycloak / Pocket-ID / Google. "Test discovery" button shows the redirect URI to register and lists the IdP endpoints + warnings.</li>
+                <li><strong>SNMPv2c polling</strong> for agentless devices (switches, APs, IPMI, printers): per-device config in the CMDB SNMP tab. 5-minute background sweep + on-demand "Poll now". Devices page cards show a 📡 SNMP green/red pill + "up Nd" meta. New <code>snmp_unreachable</code> / <code>snmp_recover</code> events feed the alerts inbox (fires only after 2nd consecutive failure; respects <code>monitored=false</code>).</li>
+                <li><strong>Site health card</strong> on Server Status: load average, system memory %, active sessions, devices online %, plus a derived <code>ok|warn</code> rollup with reason flags.</li>
+                <li><strong>Webhook delivery rate fix</strong>: dashboards that suppressed every event used to read "1/10 = 10%". Now suppressed/disabled/filtered entries are reported as <code>skipped</code> separately from delivery attempts.</li>
+              </ul>
+              <p>Full reference: <code>CHANGELOG.md</code> and <code>docs/v3.2.0.md</code>.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="release notes changelog v3.0.4 bug fixes ai monitor save mitigation mobile pwa sidebar drawer prioritise patches">
             <summary><strong>v3.0.4 release notes</strong> — eight bug fixes, no schema changes</summary>
             <div class="doc-body">

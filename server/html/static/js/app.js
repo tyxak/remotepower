@@ -931,15 +931,31 @@ function renderDevices() {
     const memSpark = memPct != null && memHist.length >= 2
       ? renderSparkline(memHist, {width: 52, height: 14, color: memPct > 85 ? 'var(--red)' : memPct > 70 ? 'var(--amber)' : 'var(--accent)'})
       : '';
+    // v3.2.0 (B5): SNMP status pill for agentless devices.
+    const ss = d.snmp_status;
+    let snmpPill = '';
+    let snmpMeta = '';
+    if (ss && ss.enabled) {
+      const cls = ss.ok ? 'snmp-pill snmp-ok' : 'snmp-pill snmp-fail';
+      const tip = ss.ok
+        ? `SNMP polled OK · sysName ${ss.sys_name || '?'}${ss.last_ok ? ' · ' + timeAgo(ss.last_ok) : ''}`
+        : `SNMP failing (${ss.fails || 1} cycle${(ss.fails || 1) > 1 ? 's' : ''})${ss.last_error ? ' — ' + ss.last_error : ''}`;
+      snmpPill = ` <span class="${cls}" title="${escAttr(tip)}">📡 ${ss.ok ? 'SNMP' : 'SNMP×'}</span>`;
+      if (ss.ok && ss.sys_uptime != null) {
+        // sysUpTime is hundredths of a second (TimeTicks)
+        const days = Math.floor(ss.sys_uptime / 100 / 86400);
+        snmpMeta = `<div class="meta-item"><div class="meta-label">SNMP up</div><div class="meta-value">${days}d</div></div>`;
+      }
+    }
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}</div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
@@ -3932,13 +3948,20 @@ async function refreshConfirmationsBadge() {
     const pending = arr.filter(c => c.status === 'pending').length;
     const badge = document.getElementById('confirmations-badge');
     if (!badge) return;
-    if (pending > 0) {
-      badge.textContent = pending > 99 ? '99+' : String(pending);
-      badge.classList.remove('d-none');
-    } else {
-      badge.classList.add('d-none');
-    }
-  } catch (_) { /* viewers get 403 here — that's fine, badge stays hidden */ }
+    // v3.2.0: same green-at-zero pattern as the alerts badge — present
+    // state is always visible; colour shows whether action is needed.
+    badge.classList.remove('d-none');
+    badge.textContent = pending > 99 ? '99+' : String(pending);
+    badge.classList.toggle('nav-badge-ok', pending === 0);
+    badge.classList.toggle('nav-badge-alert', pending > 0);
+    badge.title = pending === 0 ? 'No pending MCP confirmations' :
+                  pending === 1 ? '1 pending MCP confirmation' :
+                  `${pending} pending MCP confirmations`;
+  } catch (_) {
+    // Viewers get 403 here — hide entirely rather than showing a confusing badge
+    const badge = document.getElementById('confirmations-badge');
+    if (badge) badge.classList.add('d-none');
+  }
 }
 
 // ─── v3.2.0 (B2): inbound webhooks (Settings → Integrations) ────────────────
@@ -9083,6 +9106,8 @@ function _renderHomeActivity(fleetEvents) {
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
+    // v3.2.0 (B5): SNMP polling state transitions
+    'snmp_unreachable', 'snmp_recover',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -9207,6 +9232,10 @@ function _homeActivityAttrs(event, p) {
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
     case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
+    case 'snmp_unreachable': case 'snmp_recover':
+      // SNMP events surface on agentless device cards; clicking opens the
+      // device drawer if we have an id, else routes to Devices.
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -13990,8 +14019,19 @@ async function loadSelfStatus() {
   // Webhook delivery card
   const w24 = (s.webhooks || {}).last_24h;
   const w7d = (s.webhooks || {}).last_7d;
-  const _whHtml = w => !w ? '<span class="c-muted">no deliveries</span>'
-    : `<strong>${w.success}</strong> / ${w.attempts} (${(w.rate*100).toFixed(1)}%)`;
+  const _whHtml = w => {
+    if (!w) return '<span class="c-muted">no log entries</span>';
+    if (w.attempts === 0) {
+      // v3.2.0 fix: distinguish "no deliveries attempted" (every event was
+      // suppressed/filtered/disabled — fine!) from "deliveries failed".
+      return `<span class="c-muted">no deliveries</span>` +
+        (w.skipped ? ` <span class="hint">(${w.skipped} skipped — disabled/maintenance/filtered)</span>` : '');
+    }
+    const pct = (w.rate * 100).toFixed(1);
+    const pctCls = w.rate >= 0.95 ? 'c-green' : w.rate >= 0.8 ? 'c-amber' : 'c-red';
+    return `<strong>${w.success}</strong> / ${w.attempts} <span class="${pctCls}">(${pct}%)</span>` +
+      (w.skipped ? ` <span class="hint">+${w.skipped} skipped</span>` : '');
+  };
   // Disk usage
   const dd = s.data_dir || {};
   const diskPct = (dd.fs_free_bytes && dd.fs_total_bytes)

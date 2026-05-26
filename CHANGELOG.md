@@ -63,6 +63,41 @@ ingestion. No schema migrations.
   fire as if they came from the agent. Suits rsyslog `omhttp`,
   fluent-bit HTTP output, or any tool that can POST.
 
+### SNMP integration follow-up
+
+- **Devices page surfacing.** Agentless device cards now show an
+  SNMP status pill (green=polling OK, red=polling failing) next to
+  the hostname, plus a "SNMP up Nd" meta cell. The pill tooltip
+  carries `sysName` and the most recent error if any. Operators no
+  longer need to click into CMDB → SNMP tab to spot a dead switch.
+- **`snmp_unreachable` / `snmp_recover` webhook events.** Edge-
+  triggered on the **second** consecutive poll failure (single-packet
+  UDP loss never alerts). On recovery, the matching open alert in
+  the inbox auto-resolves with `resolved_by='auto'`, same as
+  `device_offline` / `device_online`. Unmonitored devices skip
+  both the background sweep and the webhook fire.
+- **MCP `get_snmp_data` read tool.** AI clients can now answer
+  "is the core switch up?" via MCP. Returns the full sys-group
+  readings + last_ok / last_error.
+
+### Notification badges (#1 follow-up)
+
+- **Sidebar badges are always visible.** "Alerts" and "MCP
+  Confirmations" both now render a count badge that's green at 0
+  and red at >0, instead of disappearing when empty. The all-clear
+  signal was previously read as "nothing to look at" — the badge
+  is now a present-tense status indicator.
+
+### Webhook delivery rate accuracy
+
+- **Suppressed/disabled/filtered entries no longer count as failed
+  attempts.** The Server Status webhook-rate widget used to read
+  `1/10 = 10%` on a fleet where every event was operator-suppressed,
+  even though every actual outbound POST succeeded. Now the rate is
+  computed over true delivery attempts only; suppressed entries
+  surface separately as a `skipped` count. Site-health flagging on
+  `< 90%` rate also ignores the all-skipped case.
+
 ### Changed
 
 - `/api/public-info` adds `oidc_enabled` so the login page can render

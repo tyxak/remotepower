@@ -519,6 +519,9 @@ WEBHOOK_EVENTS = (
     ('brute_force_detected',  'Brute-force login attempts detected',         True),
     # v2.8.1: backup file age monitoring
     ('backup_stale',          'Backup file is older than threshold',         True),
+    # v3.2.0 (B5): SNMP polling state changes for agentless devices
+    ('snmp_unreachable',      'SNMP poll failing for 2+ cycles',             True),
+    ('snmp_recover',          'SNMP polling recovered',                      True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1870,6 +1873,8 @@ _ALERT_RULES = {
     'custom_script_fail':     ('high',     None),
     'log_alert':              (None,       None),   # severity from payload.level
     'metric_warning':         (None,       None),   # severity from payload.level
+    # v3.2.0 (B5): SNMP polling for agentless devices
+    'snmp_unreachable':       ('high',     None),
 }
 
 # Map recover event → firing event it resolves
@@ -1877,6 +1882,7 @@ _ALERT_RECOVER = {
     'device_online':           'device_offline',
     'service_recover':         'service_down',
     'custom_script_recover':   'custom_script_fail',
+    'snmp_recover':            'snmp_unreachable',
 }
 
 
@@ -1951,6 +1957,8 @@ def _alert_title(event, payload):
         return f'Log alert on {name}: {p.get("pattern") or p.get("unit", "")}'
     if event == 'metric_warning':
         return f'{p.get("metric", "metric")} {(p.get("level") or "warning")} on {name}: {p.get("value", "?")}'
+    if event == 'snmp_unreachable':
+        return f'SNMP unreachable: {name} ({p.get("host", "?")})'
     return f'{event}: {name}'
 
 
@@ -3175,6 +3183,10 @@ def handle_devices_list():
     now      = int(time.time())
     bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
     pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+    # v3.2.0 (B5): attach a compact SNMP-status summary to each device. Just
+    # the fields the Devices page card actually shows — operators looking
+    # for full data still click into the CMDB SNMP tab.
+    snmp_store = load(SNMP_DATA_FILE) if SNMP_DATA_FILE.exists() else {}
     _, _bf_thresh, _bf_window = _brute_config()
     bf_cutoff = now - _bf_window
     result = []
@@ -3230,6 +3242,22 @@ def handle_devices_list():
             'brute_force_active': _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh),
             'listening_ports':    pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or [],
         })
+        # v3.2.0 (B5): SNMP status summary for the devices page card. The full
+        # data + community config still live behind GET /api/devices/<id>/snmp;
+        # this is the at-a-glance snapshot the cards/table need.
+        snmp_cfg = dev.get('snmp') or {}
+        if snmp_cfg.get('enabled'):
+            sd = snmp_store.get(dev_id) or {}
+            poll_ok = bool(sd.get('last_ok')) and not sd.get('last_error')
+            result[-1]['snmp_status'] = {
+                'enabled':    True,
+                'ok':         poll_ok,
+                'sys_name':   sd.get('sysName'),
+                'sys_uptime': sd.get('sysUpTime'),
+                'last_ok':    sd.get('last_ok'),
+                'last_error': sd.get('last_error'),
+                'fails':      sd.get('consecutive_fails', 0),
+            }
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
     respond(200, result)
 
@@ -6306,12 +6334,37 @@ def handle_self_status():
     try:
         wl = load(WEBHOOK_LOG_FILE)
         entries = wl.get('entries') or []
+        # v3.2.0 fix: only count true delivery *attempts* in the rate
+        # calculation. Entries with status='disabled' / 'suppressed' /
+        # 'filtered' are operator-side decisions NOT to deliver — they
+        # don't represent webhook failures and shouldn't drag the rate
+        # toward zero. A successful attempt has a numeric 2xx status;
+        # a failed attempt has either a numeric non-2xx or the literal
+        # string 'error' (which the dispatcher uses for network/TLS
+        # failures with no HTTP status to report).
+        _NON_ATTEMPT_STATUSES = {'disabled', 'suppressed', 'filtered'}
+        def _is_attempt(e):
+            s = str(e.get('status', ''))
+            return s and s.lower() not in _NON_ATTEMPT_STATUSES
+        def _is_success(e):
+            s = str(e.get('status', ''))
+            return s.startswith('2')
         def _rate(window_s):
             recent = [e for e in entries if e.get('ts', 0) >= now - window_s]
-            if not recent: return None
-            ok = sum(1 for e in recent if str(e.get('status', '')).startswith('2'))
-            return {'attempts': len(recent), 'success': ok,
-                    'rate': round(ok / len(recent), 3)}
+            if not recent:
+                return None
+            attempts = [e for e in recent if _is_attempt(e)]
+            if not attempts:
+                # We logged something but nothing was sent. Return a clear
+                # zero-attempt shape so the UI can render "no deliveries"
+                # rather than 0%.
+                return {'attempts': 0, 'success': 0, 'rate': None,
+                        'skipped': len(recent)}
+            ok = sum(1 for e in attempts if _is_success(e))
+            return {'attempts': len(attempts),
+                    'success':  ok,
+                    'rate':     round(ok / len(attempts), 3),
+                    'skipped':  len(recent) - len(attempts)}
         out['webhooks'] = {
             'last_24h': _rate(86400),
             'last_7d':  _rate(7 * 86400),
@@ -6417,8 +6470,10 @@ def handle_self_status():
         if perf.get('devices_online_pct', 100) < 80:
             flags.append('< 80% devices online')
     if isinstance(out.get('webhooks', {}).get('last_24h'), dict):
-        rate = out['webhooks']['last_24h'].get('rate', 1.0)
-        if rate < 0.9:
+        rate = out['webhooks']['last_24h'].get('rate')
+        # rate is None when every event was suppressed/disabled/filtered —
+        # NOT a delivery failure, so don't flag it.
+        if rate is not None and rate < 0.9:
             flags.append(f'webhook delivery rate {int(rate*100)}%')
     perf['health'] = 'ok' if not flags else 'warn'
     perf['health_flags'] = flags
@@ -12956,19 +13011,35 @@ def _do_snmp_poll(dev_id, dev):
     Doesn't raise — failures are recorded in the same dict under
     `last_error` so the UI can display them and the operator can debug
     without watching nginx logs.
+
+    v3.2.0: edge-triggered `snmp_unreachable` / `snmp_recover` webhooks
+    fire alongside the buffer write. Failure must hit a 2-poll threshold
+    before unreachable fires (covers single-packet UDP loss). Unmonitored
+    devices skip the webhook path — same posture as device_offline.
     """
     target = _device_snmp_target(dev)
     if not target:
         return None
     host, community, port = target
+    name = dev.get('name', dev_id)
+    is_monitored = dev.get('monitored', True)
+
+    # Load previous state to detect transitions
+    prev = (load(SNMP_DATA_FILE).get(dev_id) or {})
+    prev_state = 'ok' if prev.get('last_ok') and not prev.get('last_error') else (
+                 'fail' if prev.get('consecutive_fails', 0) > 0 else 'unknown')
+    prev_fails = int(prev.get('consecutive_fails', 0))
+
     try:
         import snmp as snmp_mod
         result = snmp_mod.poll_system(host, community, port=port, timeout=2.0)
+        now = int(time.time())
         entry = {
             'host':         host,
             'port':         port,
-            'last_ok':      int(time.time()),
+            'last_ok':      now,
             'last_error':   None,
+            'consecutive_fails': 0,
             'sysDescr':     result.get('sysDescr'),
             'sysObjectID':  result.get('sysObjectID'),
             'sysUpTime':    result.get('sysUpTime'),
@@ -12976,13 +13047,41 @@ def _do_snmp_poll(dev_id, dev):
             'sysName':      result.get('sysName'),
             'sysLocation':  result.get('sysLocation'),
         }
+        # Recover transition: previously failing → now ok
+        if prev_state == 'fail' and is_monitored:
+            try:
+                fire_webhook('snmp_recover', {
+                    'device_id': dev_id, 'device_name': name, 'host': host,
+                    'sys_name':  result.get('sysName') or name,
+                })
+            except Exception as e:
+                sys.stderr.write(f'[remotepower] snmp_recover fire failed: {e}\n')
     except Exception as e:
+        now = int(time.time())
+        new_fails = prev_fails + 1
         entry = {
+            **{k: prev.get(k) for k in (
+                'sysDescr', 'sysObjectID', 'sysUpTime', 'sysContact',
+                'sysName', 'sysLocation') if k in prev},
             'host':       host,
             'port':       port,
-            'last_ok':    None,
+            # Preserve the most recent last_ok so the UI can show "polled OK 2h ago"
+            'last_ok':    prev.get('last_ok'),
             'last_error': f'{e.__class__.__name__}: {e}'[:240],
+            'last_fail':  now,
+            'consecutive_fails': new_fails,
         }
+        # Unreachable transition: fires once on the 2nd consecutive failure.
+        # Single packet loss → no alert. Sustained → one alert, then quiet
+        # until the recover transition.
+        if is_monitored and prev_fails == 1 and new_fails == 2:
+            try:
+                fire_webhook('snmp_unreachable', {
+                    'device_id': dev_id, 'device_name': name, 'host': host,
+                    'error':     entry['last_error'],
+                })
+            except Exception as ferr:
+                sys.stderr.write(f'[remotepower] snmp_unreachable fire failed: {ferr}\n')
     try:
         with _LockedUpdate(SNMP_DATA_FILE) as store:
             store[dev_id] = entry
@@ -13004,8 +13103,13 @@ def run_snmp_polls_if_due():
     if (now - last) < SNMP_POLL_INTERVAL:
         return
     devs = load(DEVICES_FILE)
+    # v3.2.0: skip unmonitored devices — same posture as the device_offline
+    # detector (line ~2256). Operator-suppressed devices stay silent.
+    # We still poll on-demand via handle_device_snmp_poll() so admins can
+    # debug; this only skips the background sweep.
     targets = [(did, d) for did, d in devs.items()
-               if _device_snmp_target(d) is not None]
+               if _device_snmp_target(d) is not None
+               and d.get('monitored', True)]
     if not targets:
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire

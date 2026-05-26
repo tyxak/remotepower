@@ -274,6 +274,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             # v2.8.0: security & audit
             'new_port_detected', 'ssh_key_added', 'brute_force_detected',
             'backup_stale',
+            # v3.2.0 (B5): SNMP polling state transitions
+            'snmp_unreachable', 'snmp_recover',
         }
         self.assertEqual(names, expected)
 

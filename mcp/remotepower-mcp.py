@@ -346,6 +346,33 @@ def tool_get_tls(args):
     return data or {"targets": []}
 
 
+def tool_get_snmp_data(args):
+    """Latest SNMP poll for an agentless device. Returns the config and
+    the last successful sys-group readings (sysDescr, sysName, sysUpTime,
+    sysContact, sysLocation, sysObjectID), plus last_error if recent
+    polls failed. Returns ok=false with a clear reason when SNMP isn't
+    configured on the device."""
+    name = (args or {}).get('name') or (args or {}).get('device')
+    if not name:
+        raise RuntimeError("'name' argument required")
+    devs = _api("GET", "/api/devices") or []
+    if isinstance(devs, dict) and 'devices' in devs:
+        devs = devs['devices']
+    target = None
+    for d in devs:
+        if d.get('name') == name or d.get('id') == name:
+            target = d
+            break
+    if not target:
+        # Substring fallback — single match only
+        matches = [d for d in devs if name in (d.get('name') or '')]
+        if len(matches) == 1:
+            target = matches[0]
+    if not target:
+        return {'ok': False, 'error': f'No device matching "{name}"'}
+    return _api("GET", f"/api/devices/{target['id']}/snmp")
+
+
 def tool_search_devices(args):
     """Search devices by free-text query (matches name, os, group, tags, notes)."""
     query = ((args or {}).get("query") or "").lower().strip()
@@ -600,6 +627,21 @@ TOOLS = {
             "days-until-expiry and warning/critical state.",
         "inputSchema": {"type": "object", "properties": {}},
         "handler": tool_get_tls,
+    },
+    "get_snmp_data": {
+        "description":
+            "Latest SNMP poll for an agentless device (switches, APs, "
+            "IPMI, printers). Returns sysDescr / sysName / sysUpTime / "
+            "sysContact / sysLocation / sysObjectID. Includes last_ok / "
+            "last_error so the AI can tell whether the box is currently "
+            "reachable. Returns ok=false if SNMP isn't enabled.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string",
+                                     "description": "Device name (prefix/substring OK)"}},
+            "required": ["name"],
+        },
+        "handler": tool_get_snmp_data,
     },
     "search_devices": {
         "description":

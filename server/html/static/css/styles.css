@@ -3764,6 +3764,18 @@ button, a, [role="button"],
 .nav-badge.nav-badge-ok    { background: #28a745; }
 .nav-badge.nav-badge-alert { background: var(--red); }
 
+/* v3.2.0 (B5): SNMP status pill on device cards */
+.snmp-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+.snmp-pill.snmp-ok   { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
+.snmp-pill.snmp-fail { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+
 /* v3.2.0: Server Status performance bar.
    Width is set by JS via element.style.width = data-pct + '%' (the CSP-safe
    IDL setter — same pattern as data-color in app.js). */

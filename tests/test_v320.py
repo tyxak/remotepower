@@ -1200,6 +1200,146 @@ class TestOidcValidationAndTest(_ApiTestBase):
                       captured['body']['warnings'])
 
 
+class TestSelfStatusWebhookRate(_ApiTestBase):
+    """The webhook delivery rate must not count suppressed/disabled/filtered
+    log entries as attempts. Regression for the v3.2.0 "1/10 = 10%" bug
+    on dashboards where every event was suppressed."""
+
+    def setUp(self):
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        self.tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = self.tok
+        os.environ['REQUEST_METHOD'] = 'GET'
+
+    def _self_status(self):
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_self_status()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        return captured['body']
+
+    def test_suppressed_entries_not_counted_as_attempts(self):
+        now = int(time.time())
+        self.api.save(self.api.WEBHOOK_LOG_FILE, {'entries': [
+            # 1 real successful attempt
+            {'ts': now, 'event': 'device_offline', 'url': 'h://x', 'status': '200',  'detail': 'OK (200) [generic]'},
+            # 9 suppressed (event disabled, in maintenance, etc.)
+            *[{'ts': now, 'event': 'patch_alert', 'url': 'h://x',
+               'status': 'disabled', 'detail': '...'} for _ in range(9)],
+        ]})
+        s = self._self_status()
+        w24 = s['webhooks']['last_24h']
+        self.assertEqual(w24['attempts'], 1, 'only the real POST counts as an attempt')
+        self.assertEqual(w24['success'], 1)
+        self.assertAlmostEqual(w24['rate'], 1.0)
+        self.assertEqual(w24['skipped'], 9)
+
+    def test_all_skipped_returns_none_rate(self):
+        now = int(time.time())
+        self.api.save(self.api.WEBHOOK_LOG_FILE, {'entries': [
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': 'disabled', 'detail': ''},
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': 'suppressed', 'detail': ''},
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': 'filtered',  'detail': ''},
+        ]})
+        s = self._self_status()
+        w24 = s['webhooks']['last_24h']
+        self.assertEqual(w24['attempts'], 0)
+        self.assertIsNone(w24['rate'])
+        self.assertEqual(w24['skipped'], 3)
+
+    def test_real_failure_counted(self):
+        now = int(time.time())
+        self.api.save(self.api.WEBHOOK_LOG_FILE, {'entries': [
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': '200',   'detail': 'OK'},
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': '500',   'detail': 'fail'},
+            {'ts': now, 'event': 'x', 'url': 'h', 'status': 'error', 'detail': 'TLS handshake'},
+        ]})
+        s = self._self_status()
+        w24 = s['webhooks']['last_24h']
+        self.assertEqual(w24['attempts'], 3)
+        self.assertEqual(w24['success'], 1)
+
+
+class TestSnmpAlertsMonitored(_ApiTestBase):
+    """SNMP failure/recovery events must respect the monitored flag and
+    fire exactly once on the transition."""
+
+    def setUp(self):
+        self.api.save(self.api.SNMP_DATA_FILE, {})
+        self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+
+    def _patch_poll(self, dev_id, dev, raises=None, sysname='sw'):
+        """Stub the SNMP module to either return synthetic data or raise."""
+        import snmp
+        orig_poll = snmp.poll_system
+        def fake_poll(*a, **kw):
+            if raises:
+                raise raises
+            return {'sysDescr': 'Test', 'sysName': sysname,
+                    'sysUpTime': 100000, 'sysContact': '', 'sysLocation': '',
+                    'sysObjectID': '1.3.6.1.4.1.1', '_oids': {}}
+        snmp.poll_system = fake_poll
+        try:
+            return self.api._do_snmp_poll(dev_id, dev)
+        finally:
+            snmp.poll_system = orig_poll
+
+    def test_unreachable_fires_only_on_second_fail(self):
+        dev = {'name': 'sw', 'ip': '10.0.0.1', 'monitored': True,
+               'snmp': {'enabled': True, 'community': 'public', 'port': 161}}
+        # First failure — no alert yet
+        self._patch_poll('d-1', dev, raises=RuntimeError('timeout'))
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len([a for a in alerts if a['event'] == 'snmp_unreachable']), 0,
+                          'first failure must not page')
+        # Second failure — single alert fires
+        self._patch_poll('d-1', dev, raises=RuntimeError('timeout'))
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        unreach = [a for a in alerts if a['event'] == 'snmp_unreachable']
+        self.assertEqual(len(unreach), 1)
+        # Third failure — still just one (edge-triggered)
+        self._patch_poll('d-1', dev, raises=RuntimeError('timeout'))
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len([a for a in alerts if a['event'] == 'snmp_unreachable']), 1,
+                          'edge-triggered: subsequent fails must not repeat')
+
+    def test_unmonitored_device_no_alert(self):
+        dev = {'name': 'sw', 'ip': '10.0.0.1', 'monitored': False,
+               'snmp': {'enabled': True, 'community': 'public', 'port': 161}}
+        # Two consecutive failures
+        self._patch_poll('d-1', dev, raises=RuntimeError('x'))
+        self._patch_poll('d-1', dev, raises=RuntimeError('x'))
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len([a for a in alerts if a['event'] == 'snmp_unreachable']), 0,
+                          'unmonitored devices must not page')
+
+    def test_recover_resolves_existing_alert(self):
+        dev = {'name': 'sw', 'ip': '10.0.0.1', 'monitored': True,
+               'snmp': {'enabled': True, 'community': 'public', 'port': 161}}
+        # Two fails → unreachable alert created
+        self._patch_poll('d-1', dev, raises=RuntimeError('x'))
+        self._patch_poll('d-1', dev, raises=RuntimeError('x'))
+        # Recovery — the matching alert auto-resolves via _auto_resolve_alerts
+        self._patch_poll('d-1', dev)
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        unreach = [a for a in alerts if a['event'] == 'snmp_unreachable']
+        self.assertEqual(len(unreach), 1)
+        self.assertEqual(unreach[0]['resolved_by'], 'auto')
+
+
 class TestSelfStatusPerformance(_ApiTestBase):
     """The performance block on /api/self/status."""
 
