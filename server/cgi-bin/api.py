@@ -3339,18 +3339,79 @@ def handle_devices_list():
         # v3.2.0 (B5): SNMP status summary for the devices page card. The full
         # data + community config still live behind GET /api/devices/<id>/snmp;
         # this is the at-a-glance snapshot the cards/table need.
+        # v3.2.0 follow-up: also surface derived metrics (cpu%, mem%, top
+        # storage %, temperature, load avg) so the SNMP Device Metrics
+        # table has values to render without a second round trip.
         snmp_cfg = dev.get('snmp') or {}
         if snmp_cfg.get('enabled'):
             sd = snmp_store.get(dev_id) or {}
             poll_ok = bool(sd.get('last_ok')) and not sd.get('last_error')
+            # Average CPU % across cores (hrProcessorTable)
+            cpu_pct = None
+            procs = sd.get('processors') or []
+            if procs:
+                loads = [p.get('load_pct') for p in procs
+                          if isinstance(p.get('load_pct'), (int, float))]
+                if loads:
+                    cpu_pct = round(sum(loads) / len(loads), 1)
+            # Memory % — physical/main memory entry from hrStorage
+            mem_pct = None
+            mem_total_kb = None
+            mem_used_kb  = None
+            for s in (sd.get('storage') or []):
+                descr = (s.get('descr') or '').lower()
+                if descr in ('physical memory', 'main memory', 'memory'):
+                    mem_pct = s.get('used_pct')
+                    if s.get('size_bytes'):
+                        mem_total_kb = s['size_bytes'] // 1024
+                    if s.get('used_bytes') is not None:
+                        mem_used_kb = s['used_bytes'] // 1024
+                    break
+            # Filesystem-like storage entries (skip memory/swap/cache)
+            mounts = []
+            for s in (sd.get('storage') or []):
+                d_descr = (s.get('descr') or '').strip()
+                low = d_descr.lower()
+                if not d_descr:
+                    continue
+                if any(t in low for t in ('memory', 'swap', 'cached',
+                                           'buffer', 'virtual', 'shared')):
+                    continue
+                if s.get('used_pct') is None:
+                    continue
+                mounts.append({
+                    'path':     d_descr,
+                    'percent':  s.get('used_pct'),
+                    'size_gb':  (s.get('size_bytes') or 0) / (1024**3),
+                    'used_gb':  (s.get('used_bytes') or 0) / (1024**3),
+                })
+            # Temperatures (Mikrotik tenths-of-deg → °C)
+            vendor = sd.get('vendor') or {}
+            temp_board = None; temp_cpu = None
+            if isinstance(vendor.get('mtxrHlBoardTemp'), (int, float)):
+                temp_board = vendor['mtxrHlBoardTemp'] / 10.0
+            if isinstance(vendor.get('mtxrHlTemperature'), (int, float)):
+                temp_cpu = vendor['mtxrHlTemperature'] / 10.0
             result[-1]['snmp_status'] = {
                 'enabled':    True,
                 'ok':         poll_ok,
                 'sys_name':   sd.get('sysName'),
+                'sys_descr':  sd.get('sysDescr'),
                 'sys_uptime': sd.get('sysUpTime'),
                 'last_ok':    sd.get('last_ok'),
                 'last_error': sd.get('last_error'),
                 'fails':      sd.get('consecutive_fails', 0),
+                'cpu_pct':    cpu_pct,
+                'cpu_count':  len(procs),
+                'mem_pct':    mem_pct,
+                'mem_total_kb': mem_total_kb,
+                'mem_used_kb':  mem_used_kb,
+                'mounts':     mounts,
+                'temp_board': temp_board,
+                'temp_cpu':   temp_cpu,
+                'vendor_kind': ('mikrotik' if (sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.14988')
+                                 else 'ubnt' if (sd.get('sysObjectID') or '').startswith('1.3.6.1.4.1.41112')
+                                 else ''),
             }
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
     respond(200, result)
@@ -13279,6 +13340,12 @@ def _do_snmp_poll(dev_id, dev):
                 vendor = snmp_mod.poll_mikrotik(host, community, port=port, timeout=2.0)
             except Exception:
                 vendor = {}
+        # UCD-SNMP — present on net-snmp boxes (Linux, FreeBSD/OPNsense),
+        # empty on Mikrotik/proprietary. Cheap (single GET of ~12 OIDs).
+        try:
+            ucd = snmp_mod.poll_ucd_snmp(host, community, port=port, timeout=2.0)
+        except Exception:
+            ucd = {}
         now = int(time.time())
         entry = {
             'host':         host,

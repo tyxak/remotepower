@@ -541,11 +541,41 @@
                 <th data-col="swap" class="ta-right">Swap</th>
                 <th data-col="cpu" class="ta-right">CPU load</th>
                 <th data-col="disks">Disks</th>
-                <th data-col="snmp">SNMP</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="device-metrics-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+          </table>
+        </div>
+
+        <!-- v3.2.0 follow-up: separate SNMP metrics table for agentless
+             SNMP-polled devices. Different columns from the agent table
+             (CPU is a percent not a load ratio, no swap, temperature
+             column when the vendor MIB exposes it). -->
+        <div id="snmp-metrics-section" class="section-header mt-32">
+          <div class="section-title">SNMP devices</div>
+          <div class="row-8-center">
+            <span id="snmp-metrics-summary" class="hint"></span>
+          </div>
+        </div>
+        <div class="mb-12">
+          <input type="text" id="snmp-metrics-filter" class="form-input input-wide" placeholder="Filter SNMP devices by name, sysName, group…">
+        </div>
+        <div class="table-card">
+          <table>
+            <thead id="snmp-metrics-thead">
+              <tr>
+                <th data-col="name">Device</th>
+                <th data-col="status">Alert</th>
+                <th data-col="cpu" class="ta-right">CPU</th>
+                <th data-col="memory" class="ta-right">Memory</th>
+                <th data-col="disks">Storage</th>
+                <th data-col="temp" class="ta-right">Temp</th>
+                <th data-col="uptime" class="ta-right">Uptime</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="snmp-metrics-tbody"><tr><td colspan="8" class="empty-state">No SNMP devices yet — enable SNMP on an agentless device's Settings tab.</td></tr></tbody>
           </table>
         </div>
 

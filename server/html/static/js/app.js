@@ -2229,44 +2229,25 @@ function _registerDeviceMetricsTable() {
     tbody: 'device-metrics-tbody',
     filterInput: 'device-metrics-filter',
     sortHeaders: 'device-metrics-thead',
-    colspan: 8,
-    columns: ['name', 'status', 'memory', 'swap', 'cpu', 'disks', 'snmp'],
+    colspan: 7,
+    columns: ['name', 'status', 'memory', 'swap', 'cpu', 'disks'],
     getColumns: (d) => {
       const si = d.sysinfo || {};
       const state = d.metric_state || {};
-      const ss = d.snmp_status || null;
-      // Aggregate alert level: critical > warning > ok. We compute it
-      // here so the row can sort by severity in addition to per-metric.
       let level = 'ok';
       for (const [, v] of Object.entries(state)) {
         if (v === 'critical') { level = 'critical'; break; }
         if (v === 'warning')  { level = 'warning'; }
       }
-      // v3.2.0: include SNMP fail state in the aggregate alert level —
-      // a switch that's failing SNMP polls is just as much "needs
-      // attention" as one breaching a memory threshold. Skip for
-      // unmonitored: per operator policy those collect-but-don't-page.
-      if (d.monitored !== false && ss && ss.enabled && !ss.ok && ss.fails >= 2) {
-        // snmp_dead (72+ fails) → critical, otherwise warning
-        if (level !== 'critical' && ss.fails >= 72) level = 'critical';
-        else if (level === 'ok') level = 'warning';
-      }
       return {
         name:   d.name || '',
-        // sort: critical first when ascending
         status: level === 'critical' ? 'a-critical' : level === 'warning' ? 'b-warning' : 'c-ok',
         memory: si.mem_percent ?? -1,
         swap:   si.swap_percent ?? -1,
-        // Sort CPU by ratio (load / cpus), not raw load — comparable across hosts
         cpu:    (si.loadavg_1m && si.cpu_count) ? si.loadavg_1m / si.cpu_count : -1,
-        // Disks: highest mount usage of the device
         disks:  Array.isArray(si.mounts) && si.mounts.length
                   ? Math.max(...si.mounts.map(m => m.percent || 0))
                   : (si.disk_percent ?? -1),
-        // SNMP: sort by uptime (ok rows) or fails count (failing rows)
-        snmp:   ss && ss.enabled
-                  ? (ss.ok && ss.sys_uptime ? ss.sys_uptime : (ss.fails || 0) * -1)
-                  : -Infinity,
       };
     },
     match: (d, q) => {
@@ -2279,25 +2260,17 @@ function _registerDeviceMetricsTable() {
     row: (d) => {
       const si = d.sysinfo || {};
       const state = d.metric_state || {};
-      const ss = d.snmp_status || null;
       const isMonitored = d.monitored !== false;
-      // Aggregate alert level (mirror the getColumns logic so the badge
-      // matches the sort key)
       let level = 'ok';
       for (const [, v] of Object.entries(state)) {
         if (v === 'critical') { level = 'critical'; break; }
         if (v === 'warning')  level = 'warning';
-      }
-      if (isMonitored && ss && ss.enabled && !ss.ok && ss.fails >= 2) {
-        if (level !== 'critical' && ss.fails >= 72) level = 'critical';
-        else if (level === 'ok') level = 'warning';
       }
       const levelBadge =
         !isMonitored        ? '<span class="patch-badge fs-10 c-muted" title="Unmonitored — data collected, no alerts">silent</span>' :
         level === 'critical' ? '<span class="patch-badge isl-347">CRIT</span>' :
         level === 'warning'  ? '<span class="patch-badge warn fs-10">WARN</span>' :
         d.online ? '<span class="patch-badge ok fs-10">OK</span>' :
-        d.agentless ? '<span class="patch-badge ok fs-10">OK</span>' :
         '<span class="meta-sm-nm">offline</span>';
 
       const fmtPct = (v, key) => {
@@ -2335,34 +2308,6 @@ function _registerDeviceMetricsTable() {
         diskCell = `<span class="isl-348" data-color="${color}">/ ${si.disk_percent.toFixed(1)}%</span>`;
       }
 
-      // v3.2.0: SNMP cell — empty for agent-only hosts; status pill +
-      // sysName/uptime for SNMP-polled agentless devices. Unmonitored
-      // devices still show the collected data but with a muted "silent"
-      // hint so the operator remembers no alerts will fire.
-      let snmpCell = '<span class="c-muted">—</span>';
-      if (ss && ss.enabled) {
-        if (ss.ok) {
-          // sysUpTime is TimeTicks (1/100 sec). Compose Nd Nh display.
-          let uptimeTxt = '';
-          if (ss.sys_uptime != null) {
-            const secs = ss.sys_uptime / 100;
-            const days = Math.floor(secs / 86400);
-            const hours = Math.floor((secs % 86400) / 3600);
-            uptimeTxt = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-          }
-          const nm = ss.sys_name ? `<span title="sysName: ${escAttr(ss.sys_name)}" class="c-muted">${escHtml(ss.sys_name)}</span>` : '';
-          const silent = isMonitored ? '' : ' <span class="hint" title="Unmonitored — collecting data but no alerts">(silent)</span>';
-          snmpCell = `<span class="snmp-pill snmp-ok">📡 ${uptimeTxt || 'ok'}</span> ${nm}${silent}`;
-        } else if (ss.fails >= 72) {
-          snmpCell = `<span class="snmp-pill snmp-fail" title="${escAttr(ss.last_error || '')}">📡 dead (${ss.fails} fails)</span>${isMonitored ? '' : ' <span class="hint">(silent)</span>'}`;
-        } else if (ss.fails >= 2) {
-          snmpCell = `<span class="snmp-pill snmp-fail" title="${escAttr(ss.last_error || '')}">📡 fail (${ss.fails})</span>${isMonitored ? '' : ' <span class="hint">(silent)</span>'}`;
-        } else {
-          // 1 fail = transient, don't flag yet
-          snmpCell = `<span class="snmp-pill snmp-ok" title="${escAttr(ss.last_error || 'pending')}">📡 pending</span>`;
-        }
-      }
-
       return `<tr>
         <td class="fw-500"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-350">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}</td>
         <td>${levelBadge}</td>
@@ -2370,13 +2315,140 @@ function _registerDeviceMetricsTable() {
         <td class="ta-right">${swapCell}</td>
         <td class="ta-right">${cpuCell}</td>
         <td>${diskCell}</td>
-        <td>${snmpCell}</td>
         <td class="nowrap"><button class="btn-icon isl-351" data-action="openMetrics" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" title="Show metric trend over time">Trend</button><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" >Thresholds</button></td>
       </tr>`;
     },
     emptyMsg: 'No devices to show metrics for.',
     emptyMsgFiltered: 'No devices match the filter.',
   });
+  // v3.2.0 follow-up: SNMP devices table (separate from agent metrics)
+  tableCtl.register({
+    name: 'snmp_metrics',
+    tbody: 'snmp-metrics-tbody',
+    filterInput: 'snmp-metrics-filter',
+    sortHeaders: 'snmp-metrics-thead',
+    colspan: 8,
+    columns: ['name', 'status', 'cpu', 'memory', 'disks', 'temp', 'uptime'],
+    getColumns: (d) => {
+      const ss = d.snmp_status || {};
+      const state = d.metric_state || {};
+      const isMonitored = d.monitored !== false;
+      let level = 'ok';
+      for (const [, v] of Object.entries(state)) {
+        if (v === 'critical') { level = 'critical'; break; }
+        if (v === 'warning')  { level = 'warning'; }
+      }
+      if (isMonitored && ss.enabled && !ss.ok && ss.fails >= 2) {
+        if (level !== 'critical' && ss.fails >= 72) level = 'critical';
+        else if (level === 'ok') level = 'warning';
+      }
+      return {
+        name:   d.name || '',
+        status: level === 'critical' ? 'a-critical' : level === 'warning' ? 'b-warning' : 'c-ok',
+        cpu:    ss.cpu_pct ?? -1,
+        memory: ss.mem_pct ?? -1,
+        disks:  Array.isArray(ss.mounts) && ss.mounts.length
+                  ? Math.max(...ss.mounts.map(m => m.percent || 0))
+                  : -1,
+        temp:   ss.temp_board ?? ss.temp_cpu ?? -1000,
+        uptime: ss.sys_uptime ?? -1,
+      };
+    },
+    match: (d, q) => {
+      const ss = d.snmp_status || {};
+      const hay = `${d.name || ''} ${ss.sys_name || ''} ${ss.sys_descr || ''} ${d.group || ''} ${(d.tags||[]).join(' ')}`.toLowerCase();
+      return hay.includes(q);
+    },
+    row: (d) => _snmpMetricsRow(d),
+    emptyMsg: 'No SNMP devices yet — enable SNMP on an agentless device\'s Settings tab.',
+    emptyMsgFiltered: 'No SNMP devices match the filter.',
+  });
+}
+
+function _snmpMetricsRow(d) {
+  const ss = d.snmp_status || {};
+  const state = d.metric_state || {};
+  const isMonitored = d.monitored !== false;
+  // Aggregate alert level
+  let level = 'ok';
+  for (const [, v] of Object.entries(state)) {
+    if (v === 'critical') { level = 'critical'; break; }
+    if (v === 'warning')  level = 'warning';
+  }
+  if (isMonitored && ss.enabled && !ss.ok && ss.fails >= 2) {
+    if (level !== 'critical' && ss.fails >= 72) level = 'critical';
+    else if (level === 'ok') level = 'warning';
+  }
+  const levelBadge =
+    !isMonitored          ? '<span class="patch-badge fs-10 c-muted" title="Unmonitored — collecting, no alerts">silent</span>' :
+    !ss.ok && ss.fails >= 72 ? '<span class="patch-badge isl-347" title="SNMP polling failed for 6+ hours">SNMP DEAD</span>' :
+    !ss.ok && ss.fails >= 2  ? '<span class="patch-badge warn fs-10" title="SNMP poll failing">SNMP FAIL</span>' :
+    level === 'critical' ? '<span class="patch-badge isl-347">CRIT</span>' :
+    level === 'warning'  ? '<span class="patch-badge warn fs-10">WARN</span>' :
+    '<span class="patch-badge ok fs-10">OK</span>';
+
+  const fmtPct = (v, key) => {
+    if (v === null || v === undefined) return '<span class="c-muted">—</span>';
+    const lv = state[key] || 'ok';
+    const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
+    return `<span class="isl-348" data-color="${col}">${Number(v).toFixed(1)}%</span>`;
+  };
+
+  let cpuCell = '<span class="c-muted">—</span>';
+  if (ss.cpu_pct != null) {
+    const cores = ss.cpu_count ? ` <span class="hint">(${ss.cpu_count} core${ss.cpu_count > 1 ? 's' : ''})</span>` : '';
+    cpuCell = `${fmtPct(ss.cpu_pct, 'snmp_cpu:')}${cores}`;
+  }
+  const memCell = ss.mem_pct != null
+    ? fmtPct(ss.mem_pct, 'snmp_mem:')
+    : '<span class="c-muted">—</span>';
+
+  // Storage cell: list each filesystem with its percent
+  let diskCell = '<span class="c-muted">—</span>';
+  if (Array.isArray(ss.mounts) && ss.mounts.length) {
+    diskCell = ss.mounts.map(m => {
+      const lv = state[`snmp_disk:${m.path}`] || 'ok';
+      const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
+      const label = m.path.length > 18 ? '…' + m.path.slice(-17) : m.path;
+      return `<span title="${escAttr(m.path)} — ${m.used_gb.toFixed(1)}/${m.size_gb.toFixed(1)} GB" class="isl-349" data-color="${col}">${escHtml(label)}: ${Number(m.percent).toFixed(0)}%</span>`;
+    }).join('');
+  }
+
+  // Temperature
+  let tempCell = '<span class="c-muted">—</span>';
+  const t = ss.temp_board ?? ss.temp_cpu;
+  if (t != null) {
+    const lv = state['temp_board:'] || state['temp_cpu:'] || 'ok';
+    const col = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--text)';
+    const which = ss.temp_board != null ? 'board' : 'cpu';
+    tempCell = `<span class="isl-348" data-color="${col}" title="${which} temperature">${t.toFixed(1)} °C</span>`;
+  }
+
+  // Uptime
+  let uptimeCell = '<span class="c-muted">—</span>';
+  if (ss.sys_uptime != null) {
+    const secs = ss.sys_uptime / 100;
+    const days = Math.floor(secs / 86400);
+    const hours = Math.floor((secs % 86400) / 3600);
+    uptimeCell = `<span class="ta-right">${days}d ${hours}h</span>`;
+  }
+
+  // sysName below the device name as a hint
+  const sysNm = ss.sys_name ? `<div class="hint fs-11">${escHtml(ss.sys_name)}</div>` : '';
+
+  return `<tr>
+    <td class="fw-500">
+      <a href="#" data-action="openDeviceDrawer" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-prevent-default class="isl-350">${escHtml(d.name)}</a>${d.group ? ` <span class="group-badge fs-10">${escHtml(d.group)}</span>` : ''}
+      ${sysNm}
+    </td>
+    <td>${levelBadge}</td>
+    <td class="ta-right">${cpuCell}</td>
+    <td class="ta-right">${memCell}</td>
+    <td>${diskCell}</td>
+    <td class="ta-right">${tempCell}</td>
+    <td class="ta-right nowrap">${uptimeCell}</td>
+    <td class="nowrap"><button class="btn-icon isl-352" data-action="openMetricThresholds" data-arg="${d.id}" data-arg2="${escAttr(d.name)}">Thresholds</button></td>
+  </tr>`;
 }
 
 async function loadDeviceMetrics() {
@@ -2386,49 +2458,52 @@ async function loadDeviceMetrics() {
   // Update the global cache so other code paths see fresh sysinfo too
   if (typeof devices !== 'undefined') devices = data;
 
-  // Summary line: count of devices in each alert level + SNMP roll-up.
-  // Unmonitored devices are excluded from warn/crit counts (collect-only
-  // policy) but counted separately under snmp_silent.
-  let warn = 0, crit = 0, snmpOk = 0, snmpFail = 0, snmpSilent = 0;
-  for (const d of data) {
+  // v3.2.0 follow-up: split rows into agent-based and SNMP-polled.
+  // The two tables have different columns and threshold conventions.
+  const agentRows = data.filter(d => !d.agentless);
+  const snmpRows  = data.filter(d => d.snmp_status && d.snmp_status.enabled);
+
+  // Agent table summary: count alert levels on monitored devices only
+  let warn = 0, crit = 0;
+  for (const d of agentRows) {
+    if (d.monitored === false) continue;
     const state = d.metric_state || {};
-    const ss = d.snmp_status;
-    const isMonitored = d.monitored !== false;
     let level = 'ok';
     for (const [, v] of Object.entries(state)) {
       if (v === 'critical') { level = 'critical'; break; }
       if (v === 'warning')  level = 'warning';
     }
-    if (isMonitored && ss && ss.enabled && !ss.ok && ss.fails >= 2) {
-      if (level !== 'critical' && ss.fails >= 72) level = 'critical';
-      else if (level === 'ok') level = 'warning';
-    }
-    if (isMonitored) {
-      if (level === 'critical') crit++;
-      else if (level === 'warning') warn++;
-    }
-    if (ss && ss.enabled) {
-      if (!isMonitored) snmpSilent++;
-      else if (ss.ok) snmpOk++;
-      else snmpFail++;
-    }
+    if (level === 'critical') crit++;
+    else if (level === 'warning') warn++;
   }
-  const summary = document.getElementById('device-metrics-summary');
-  if (summary) {
+  const agentSum = document.getElementById('device-metrics-summary');
+  if (agentSum) {
     const parts = [];
     if (crit) parts.push(`<span class="c-red-bold">${crit} critical</span>`);
     if (warn) parts.push(`<span class="c-amber-bold">${warn} warning</span>`);
     if (!crit && !warn) parts.push(`<span class="c-green">all clear</span>`);
-    if (snmpOk + snmpFail + snmpSilent > 0) {
-      const snmpParts = [];
-      if (snmpOk)     snmpParts.push(`📡 ${snmpOk} ok`);
-      if (snmpFail)   snmpParts.push(`<span class="c-red">${snmpFail} failing</span>`);
-      if (snmpSilent) snmpParts.push(`<span class="c-muted">${snmpSilent} silent</span>`);
-      parts.push(snmpParts.join(' / '));
-    }
-    summary.innerHTML = parts.join('  •  ');
+    agentSum.innerHTML = parts.join('  •  ');
   }
-  tableCtl.render('device_metrics', data);
+
+  // SNMP table summary: counts split by ok/failing/silent
+  let snmpOk = 0, snmpFail = 0, snmpSilent = 0;
+  for (const d of snmpRows) {
+    const ss = d.snmp_status;
+    if (d.monitored === false) snmpSilent++;
+    else if (ss.ok) snmpOk++;
+    else snmpFail++;
+  }
+  const snmpSum = document.getElementById('snmp-metrics-summary');
+  if (snmpSum) {
+    const parts = [];
+    if (snmpOk)     parts.push(`📡 <span class="c-green">${snmpOk} ok</span>`);
+    if (snmpFail)   parts.push(`<span class="c-red">${snmpFail} failing</span>`);
+    if (snmpSilent) parts.push(`<span class="c-muted">${snmpSilent} silent</span>`);
+    if (!parts.length) parts.push('<span class="c-muted">no SNMP devices</span>');
+    snmpSum.innerHTML = parts.join('  •  ');
+  }
+  tableCtl.render('device_metrics', agentRows);
+  tableCtl.render('snmp_metrics',   snmpRows);
 }
 
 // ─── v1.11.11: web terminal ─────────────────────────────────────────────────
