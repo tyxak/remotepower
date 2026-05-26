@@ -126,7 +126,7 @@
     <button class="nav-btn" data-page="alerts" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span>Alerts</span>
-      <span id="alerts-badge" class="nav-badge d-none">0</span>
+      <span id="alerts-badge" class="nav-badge nav-badge-ok" title="No open alerts">0</span>
     </button>
     <button class="nav-btn" data-page="links" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -897,7 +897,9 @@
               <div id="oidc-redirect-hint" class="hint mt-12"></div>
               <div class="mt-12">
                 <button type="submit" class="btn-primary">Save OIDC config</button>
+                <button type="button" class="btn-secondary" data-action="testOidcConfig">Test discovery</button>
               </div>
+              <div id="oidc-test-result" class="mt-12"></div>
             </form>
           </div>
         </div>

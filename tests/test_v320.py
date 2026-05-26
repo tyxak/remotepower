@@ -937,6 +937,311 @@ class TestSnmpIntegration(_ApiTestBase):
         self.assertTrue(cfg['has_community'])
 
 
+# ─── Follow-up fixes (#1–#6 batch) ─────────────────────────────────────────
+
+class TestSnmpValidation(_ApiTestBase):
+    """Server-side validation guards on the PATCH SNMP endpoint."""
+
+    def setUp(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-1': {'name': 'sw', 'ip': '10.0.0.1'},
+            'd-2': {'name': 'no-ip'},   # No ip/hostname/host — disallow enable
+        })
+        # Admin session
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        self.tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = self.tok
+
+    def _patch(self, dev_id, body):
+        os.environ['REQUEST_METHOD'] = 'PATCH'
+        self.api.get_json_body = lambda: body
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_device_snmp(dev_id)
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        return captured
+
+    def test_enable_without_community_400(self):
+        r = self._patch('d-1', {'enabled': True})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('community', r['body']['error'])
+
+    def test_enable_without_ip_400(self):
+        r = self._patch('d-2', {'enabled': True, 'community': 'public'})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('ip', r['body']['error'])
+
+    def test_community_with_whitespace_400(self):
+        r = self._patch('d-1', {'community': 'has space'})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('whitespace', r['body']['error'])
+
+    def test_port_out_of_range_400(self):
+        r = self._patch('d-1', {'community': 'public', 'port': 99999})
+        self.assertEqual(r['status'], 400)
+
+    def test_valid_save_200(self):
+        r = self._patch('d-1', {'enabled': True, 'community': 'public', 'port': 161})
+        self.assertEqual(r['status'], 200)
+
+    def test_disable_without_community_ok(self):
+        # Disabling shouldn't require community
+        r = self._patch('d-1', {'enabled': False})
+        self.assertEqual(r['status'], 200)
+
+
+class TestSyslogParser(unittest.TestCase):
+    def setUp(self):
+        import sys, importlib
+        sys.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        if 'api' in sys.modules:
+            del sys.modules['api']
+        os.environ['RP_DATA_DIR'] = tempfile.mkdtemp(prefix='rp_syslog_')
+        import api
+        self.api = api
+
+    def test_pri_zero_emerg(self):
+        sev, msg = self.api._parse_syslog_line('<0>kernel panic')
+        self.assertEqual(sev, 0)
+        self.assertEqual(msg, 'kernel panic')
+
+    def test_pri_max_legal(self):
+        # PRI 191 = facility 23 × 8 + severity 7
+        sev, msg = self.api._parse_syslog_line('<191>foo')
+        self.assertEqual(sev, 7)
+
+    def test_pri_out_of_range_falls_back(self):
+        sev, msg = self.api._parse_syslog_line('<999>weird')
+        self.assertEqual(sev, 6)
+        # Whole input preserved because the PRI was rejected
+        self.assertEqual(msg, '<999>weird')
+
+    def test_no_pri_defaults_to_info(self):
+        sev, msg = self.api._parse_syslog_line('plain line no pri')
+        self.assertEqual(sev, 6)
+        self.assertEqual(msg, 'plain line no pri')
+
+    def test_line_truncation(self):
+        sev, msg = self.api._parse_syslog_line('<14>' + 'a' * 5000)
+        # Truncated to MAX_SYSLOG_LINE (2048) - PRI prefix len = 2044
+        self.assertLessEqual(len(msg), 2048)
+
+    def test_crlf_stripped(self):
+        sev, msg = self.api._parse_syslog_line('<14>foo\r\n')
+        self.assertEqual(msg, 'foo')
+
+
+class TestOidcValidationAndTest(_ApiTestBase):
+    def setUp(self):
+        self.api.save(self.api.CONFIG_FILE, {})
+        # Admin session
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        self.tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = self.tok
+
+    def _save_config(self, body):
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: body
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_config_save()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        return captured
+
+    def test_enable_without_required_fields_400(self):
+        r = self._save_config({'oidc_enabled': True, 'oidc_issuer': 'https://idp.example.com'})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('oidc_client_id', r['body']['error'])
+
+    def test_issuer_must_have_scheme(self):
+        r = self._save_config({'oidc_issuer': 'idp.example.com'})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('http', r['body']['error'])
+
+    def test_issuer_must_have_hostname(self):
+        r = self._save_config({'oidc_issuer': 'https://'})
+        self.assertEqual(r['status'], 400)
+
+    def test_issuer_whitespace_rejected(self):
+        r = self._save_config({'oidc_issuer': 'https://idp.example.com /foo'})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('whitespace', r['body']['error'])
+
+    def test_save_clears_discovery_cache(self):
+        # Pre-seed the cache to confirm save clears it
+        self.api._OIDC_METADATA_CACHE['https://stale.example.com'] = (
+            int(time.time()) + 999, {'authorization_endpoint': 'x'})
+        r = self._save_config({'oidc_issuer': 'https://new.example.com',
+                                'oidc_client_id': 'rp',
+                                'oidc_client_secret': 'sek'})
+        self.assertEqual(r['status'], 200)
+        self.assertNotIn('https://stale.example.com',
+                         self.api._OIDC_METADATA_CACHE)
+
+    def test_test_endpoint_503_when_unconfigured(self):
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: {}
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_oidc_test()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        # No issuer set → 400 not 503 (config is invalid, not the IdP)
+        self.assertEqual(captured['status'], 400)
+
+    def test_test_endpoint_returns_endpoints(self):
+        # Pre-seed config + metadata cache so we don't actually make an HTTP call
+        self.api.save(self.api.CONFIG_FILE, {
+            'oidc_issuer':        'https://idp.example.com',
+            'oidc_client_id':     'rp',
+            'oidc_client_secret': 'sek',
+        })
+        # The cache is cleared on entry to handle_oidc_test; to skip the real
+        # fetch we monkey-patch _oidc_discover.
+        def fake_discover(_issuer):
+            return {
+                'issuer': 'https://idp.example.com',
+                'authorization_endpoint': 'https://idp.example.com/authorize',
+                'token_endpoint':         'https://idp.example.com/token',
+                'jwks_uri':               'https://idp.example.com/jwks',
+                'scopes_supported':       ['openid', 'profile', 'email'],
+            }
+        orig_discover = self.api._oidc_discover
+        self.api._oidc_discover = fake_discover
+        os.environ['HTTP_HOST'] = 'remote.example.com'
+        os.environ['HTTPS'] = 'on'
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: {}
+        captured = {}
+        orig_resp = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_oidc_test()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig_resp
+            self.api._oidc_discover = orig_discover
+        self.assertEqual(captured['status'], 200)
+        self.assertTrue(captured['body']['ok'])
+        self.assertEqual(captured['body']['endpoints']['token'],
+                          'https://idp.example.com/token')
+        # client_secret_set must be True
+        self.assertTrue(captured['body']['client_secret_set'])
+
+    def test_test_endpoint_warnings_for_missing_secret(self):
+        self.api.save(self.api.CONFIG_FILE, {
+            'oidc_issuer':    'https://idp.example.com',
+            'oidc_client_id': 'rp',
+            # client_secret deliberately missing
+        })
+        def fake_discover(_issuer):
+            return {
+                'issuer': 'https://idp.example.com',
+                'authorization_endpoint': 'https://idp.example.com/authorize',
+                'token_endpoint':         'https://idp.example.com/token',
+                'scopes_supported':       ['openid', 'profile'],
+            }
+        orig_discover = self.api._oidc_discover
+        self.api._oidc_discover = fake_discover
+        os.environ['HTTP_HOST'] = 'r.x'
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.get_json_body = lambda: {}
+        captured = {}
+        orig_resp = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_oidc_test()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig_resp
+            self.api._oidc_discover = orig_discover
+        self.assertIn('oidc_client_secret not configured',
+                      captured['body']['warnings'])
+
+
+class TestSelfStatusPerformance(_ApiTestBase):
+    """The performance block on /api/self/status."""
+
+    def setUp(self):
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        self.tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[self.tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = self.tok
+
+    def test_self_status_includes_performance(self):
+        os.environ['REQUEST_METHOD'] = 'GET'
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_self_status()
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        self.assertEqual(captured['status'], 200)
+        self.assertIn('performance', captured['body'])
+        perf = captured['body']['performance']
+        # On Linux these should be present
+        if os.path.exists('/proc/loadavg'):
+            self.assertIn('load_avg', perf)
+            self.assertIn('1m', perf['load_avg'])
+        if os.path.exists('/proc/meminfo'):
+            self.assertIn('memory', perf)
+            self.assertIn('used_pct', perf['memory'])
+        self.assertIn('sessions', perf)
+        self.assertIn('health', perf)
+        self.assertIsInstance(perf.get('health_flags'), list)
+
+
 # ─── v3.2.0 strict version pins ─────────────────────────────────────────────
 
 class TestVersionBumps(unittest.TestCase):

@@ -5854,21 +5854,45 @@ def handle_config_save():
 
     # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
     # update only — empty string means "keep current".
+    oidc_keys_touched = False
     for key in ('oidc_issuer', 'oidc_client_id', 'oidc_scopes',
                 'oidc_admin_group'):
         if key in body:
             cfg[key] = _sanitize_str(str(body[key] or ''), 512)
+            oidc_keys_touched = True
     if 'oidc_enabled' in body:
         cfg['oidc_enabled'] = bool(body['oidc_enabled'])
+        oidc_keys_touched = True
     if cfg.get('oidc_issuer'):
         p = urllib.parse.urlparse(cfg['oidc_issuer'])
         if p.scheme not in ('http', 'https'):
-            respond(400, {'error': 'oidc_issuer must be http or https'})
+            respond(400, {'error': 'oidc_issuer must be http:// or https://'})
+        if not p.netloc:
+            respond(400, {'error': 'oidc_issuer is missing the hostname'})
+        if any(c in cfg['oidc_issuer'] for c in (' ', '\t', '\n')):
+            respond(400, {'error': 'oidc_issuer must not contain whitespace'})
     if 'oidc_client_secret' in body:
         sec = body['oidc_client_secret']
         if isinstance(sec, str) and sec:
             cfg['oidc_client_secret'] = _sanitize_str(sec, 512)
+            oidc_keys_touched = True
         # Empty string means "no change" — don't overwrite the existing one
+
+    # If OIDC is being enabled, all the required fields must be present.
+    if cfg.get('oidc_enabled'):
+        missing = [k for k in ('oidc_issuer', 'oidc_client_id', 'oidc_client_secret')
+                   if not cfg.get(k)]
+        if missing:
+            respond(400, {
+                'error': f'OIDC enabled but missing: {", ".join(missing)}'})
+
+    # If anything OIDC-relevant changed, drop the discovery cache so the
+    # next /api/auth/oidc/test (or /start) fetches fresh metadata.
+    if oidc_keys_touched:
+        try:
+            _OIDC_METADATA_CACHE.clear()
+        except Exception:
+            pass
 
     save(CONFIG_FILE, cfg)
     respond(200, {'ok': True})
@@ -6330,6 +6354,75 @@ def handle_self_status():
             pass
     except Exception:
         pass
+
+    # v3.2.0: performance snapshot for the Server Status page.
+    # All four parts are best-effort — if /proc is unavailable (e.g. macOS
+    # dev box), the field is omitted rather than failing the response.
+    perf = {}
+    try:
+        with open('/proc/loadavg') as f:
+            parts = f.read().split()
+            perf['load_avg'] = {
+                '1m':  float(parts[0]),
+                '5m':  float(parts[1]),
+                '15m': float(parts[2]),
+            }
+    except OSError:
+        pass
+    try:
+        meminfo = {}
+        with open('/proc/meminfo') as f:
+            for line in f:
+                k, _, v = line.partition(':')
+                v = v.strip().split()
+                if v:
+                    meminfo[k] = int(v[0])  # all values are in kB
+        total = meminfo.get('MemTotal', 0)
+        avail = meminfo.get('MemAvailable') or meminfo.get('MemFree', 0)
+        if total > 0:
+            perf['memory'] = {
+                'total_kb':     total,
+                'available_kb': avail,
+                'used_pct':     round((total - avail) * 100.0 / total, 1),
+            }
+    except OSError:
+        pass
+    # Active sessions (TOKENS_FILE) — excluding expired ones the
+    # cleanup_tokens sweep hasn't reached yet.
+    try:
+        tokens = load(TOKENS_FILE)
+        active = 0
+        for t, meta in tokens.items():
+            if not isinstance(meta, dict):
+                continue
+            ttl = meta.get('ttl', 0)
+            created = meta.get('created', 0)
+            if not ttl or (now - created) <= ttl:
+                active += 1
+        perf['sessions'] = {'active': active}
+    except Exception:
+        pass
+    # Devices online/offline percentage — pulled from the freshness block
+    if isinstance(out.get('devices'), dict) and out['devices'].get('monitored'):
+        mon = out['devices']['monitored']
+        off = out['devices'].get('offline', 0)
+        perf['devices_online_pct'] = round((mon - off) * 100.0 / mon, 1)
+    # Site health: 'ok' if no scary signals, otherwise list the reasons
+    flags = []
+    if perf.get('load_avg', {}).get('5m', 0) > os.cpu_count() * 2 if os.cpu_count() else 999:
+        flags.append('high load')
+    if perf.get('memory', {}).get('used_pct', 0) > 90:
+        flags.append('memory > 90%')
+    if isinstance(out.get('devices'), dict) and out['devices'].get('monitored'):
+        if perf.get('devices_online_pct', 100) < 80:
+            flags.append('< 80% devices online')
+    if isinstance(out.get('webhooks', {}).get('last_24h'), dict):
+        rate = out['webhooks']['last_24h'].get('rate', 1.0)
+        if rate < 0.9:
+            flags.append(f'webhook delivery rate {int(rate*100)}%')
+    perf['health'] = 'ok' if not flags else 'warn'
+    perf['health_flags'] = flags
+    out['performance'] = perf
     # Backup state
     try:
         bs_file = DATA_DIR / 'self_backup_state.json'
@@ -12058,9 +12151,11 @@ def _parse_syslog_line(raw):
     """Extract (severity_level, message) from a syslog line.
 
     Accepts RFC 3164 and RFC 5424 prefixes — the <PRI> facility*8+severity
-    number at the start. Returns severity 0..7 (emerg..debug) and the
-    remainder of the line. If no <PRI>, severity defaults to 6 (info)
-    and the whole line is the message.
+    number at the start. PRI must be in the legal 0..191 range (24
+    facilities × 8 severities). Returns severity 0..7 (emerg..debug) and
+    the remainder of the line. If no <PRI> or the PRI is out of range,
+    the whole input is treated as the message and severity defaults to
+    6 (info).
     """
     s = raw.rstrip('\r\n')[:_SYSLOG_MAX_LINE]
     m = _SYSLOG_PRI_RE.match(s)
@@ -12068,9 +12163,12 @@ def _parse_syslog_line(raw):
         return 6, s
     try:
         pri = int(m.group(1))
-        sev = pri & 0x07
     except ValueError:
-        sev = 6
+        return 6, s
+    # PRI = facility (0..23) * 8 + severity (0..7) ⇒ legal 0..191
+    if pri < 0 or pri > 191:
+        return 6, s   # Malformed — keep the line whole, sev=info
+    sev = pri & 0x07
     return sev, s[m.end():].lstrip()
 
 
@@ -12545,6 +12643,71 @@ def _prune_oidc_states(store):
     return keep
 
 
+def handle_oidc_test():
+    """POST /api/auth/oidc/test — admin-only.
+
+    Validates the saved OIDC config by fetching the discovery document
+    and reporting the four key endpoints (authorize / token / userinfo /
+    jwks) along with the issuer name. Bypasses the cache so the report
+    always reflects what the server can reach RIGHT NOW.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    issuer = (cfg.get('oidc_issuer') or '').strip()
+    if not issuer:
+        respond(400, {'ok': False,
+                      'error': 'oidc_issuer not set in config'})
+    # Drop the cache so we test the actual reachable state, not last
+    # successful discovery.
+    try:
+        _OIDC_METADATA_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        meta = _oidc_discover(issuer)
+    except urllib.error.HTTPError as e:
+        respond(502, {'ok': False,
+                      'error': f'IdP returned HTTP {e.code}: {e.reason}',
+                      'issuer': issuer})
+    except Exception as e:
+        respond(502, {'ok': False,
+                      'error': f'{e.__class__.__name__}: {e}',
+                      'issuer': issuer})
+
+    report = {
+        'ok':       True,
+        'issuer':   meta.get('issuer') or issuer,
+        'endpoints': {
+            'authorization': meta.get('authorization_endpoint'),
+            'token':         meta.get('token_endpoint'),
+            'userinfo':      meta.get('userinfo_endpoint'),
+            'jwks':          meta.get('jwks_uri'),
+        },
+        'scopes_supported':         meta.get('scopes_supported'),
+        'grant_types_supported':    meta.get('grant_types_supported'),
+        'response_types_supported': meta.get('response_types_supported'),
+        'redirect_uri_needed':      _oidc_redirect_uri(),
+        'client_secret_set':        bool(cfg.get('oidc_client_secret')),
+        'client_id_set':            bool(cfg.get('oidc_client_id')),
+    }
+    # Flag the most common misconfigurations
+    warnings = []
+    if not report['endpoints']['authorization']:
+        warnings.append('authorization_endpoint missing from discovery')
+    if not report['endpoints']['token']:
+        warnings.append('token_endpoint missing from discovery')
+    if not report['client_id_set']:
+        warnings.append('oidc_client_id not configured')
+    if not report['client_secret_set']:
+        warnings.append('oidc_client_secret not configured')
+    if report['scopes_supported'] and 'openid' not in report['scopes_supported']:
+        warnings.append("issuer doesn't advertise the 'openid' scope")
+    report['warnings'] = warnings
+    audit_log(actor, 'oidc_test', f'issuer={issuer} ok=True')
+    respond(200, report)
+
+
 def handle_oidc_start():
     """GET /api/auth/oidc/start — initiate the OIDC authorization code flow.
 
@@ -12883,6 +13046,20 @@ def handle_device_snmp(dev_id):
     elif m == 'PATCH':
         actor = require_admin_auth()
         body = get_json_body() or {}
+        if 'community' in body:
+            c = str(body['community'])
+            if any(ws in c for ws in (' ', '\t', '\n', '\r')):
+                respond(400, {'error': 'community must not contain whitespace'})
+            if len(c) > 128:
+                respond(400, {'error': 'community too long (max 128)'})
+        port_in = None
+        if 'port' in body:
+            try:
+                port_in = int(body['port'])
+                if not (1 <= port_in <= 65535):
+                    respond(400, {'error': 'port must be 1..65535'})
+            except (TypeError, ValueError):
+                respond(400, {'error': 'port must be an integer'})
         with _LockedUpdate(DEVICES_FILE) as store:
             dev = store.get(dev_id) or {}
             snmp_cfg = dict(dev.get('snmp') or {})
@@ -12890,14 +13067,20 @@ def handle_device_snmp(dev_id):
                 snmp_cfg['enabled'] = bool(body['enabled'])
             if 'community' in body:
                 snmp_cfg['community'] = _sanitize_str(str(body['community']), 128)
-            if 'port' in body:
-                try:
-                    p = int(body['port'])
-                    if not (1 <= p <= 65535):
-                        respond(400, {'error': 'port must be 1..65535'})
-                    snmp_cfg['port'] = p
-                except (TypeError, ValueError):
-                    respond(400, {'error': 'port must be an integer'})
+            if port_in is not None:
+                snmp_cfg['port'] = port_in
+            # If enabling, require a community + a reachable host on the
+            # device record. Catches the "I ticked enabled but forgot to
+            # type a community" path before the polling layer sees nothing
+            # to do.
+            if snmp_cfg.get('enabled'):
+                if not snmp_cfg.get('community'):
+                    respond(400, {
+                        'error': 'community required when SNMP is enabled — '
+                                 'set it in the same PATCH, or untick "enabled"'})
+                if not (dev.get('ip') or dev.get('hostname') or dev.get('host')):
+                    respond(400, {
+                        'error': 'device has no ip/hostname; cannot poll'})
             dev['snmp'] = snmp_cfg
             store[dev_id] = dev
         audit_log(actor, 'device_snmp_config',
@@ -16710,6 +16893,7 @@ def main():
     # v3.2.0 (B3): OIDC SSO endpoints — must come before public-info
     elif pi == '/api/auth/oidc/start' and m == 'GET':    handle_oidc_start()
     elif pi == '/api/auth/oidc/callback' and m == 'GET': handle_oidc_callback()
+    elif pi == '/api/auth/oidc/test' and m == 'POST':    handle_oidc_test()
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
     elif pi == '/api/health' and m == 'GET': handle_health()
     elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()

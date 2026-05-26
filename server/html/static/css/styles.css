@@ -3761,6 +3761,27 @@ button, a, [role="button"],
   min-width: 18px;
   text-align: center;
 }
+.nav-badge.nav-badge-ok    { background: #28a745; }
+.nav-badge.nav-badge-alert { background: var(--red); }
+
+/* v3.2.0: Server Status performance bar.
+   Width is set by JS via element.style.width = data-pct + '%' (the CSP-safe
+   IDL setter — same pattern as data-color in app.js). */
+.perf-bar {
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.perf-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
 .sev-pill {
   display: inline-block;
   padding: 2px 8px;

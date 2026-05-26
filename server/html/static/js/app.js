@@ -3850,12 +3850,16 @@ async function refreshAlertsBadge() {
     const badge = document.getElementById('alerts-badge');
     if (!badge || !s) return;
     const n = s.open || 0;
-    if (n > 0) {
-      badge.textContent = n > 99 ? '99+' : String(n);
-      badge.classList.remove('d-none');
-    } else {
-      badge.classList.add('d-none');
-    }
+    // v3.2.0: always visible — green at 0 (the "all clear" signal), red
+    // when anything is open. The icon-only sidebar is misread as "nothing
+    // to look at" without a present-tense indicator.
+    badge.classList.remove('d-none');
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.classList.toggle('nav-badge-ok', n === 0);
+    badge.classList.toggle('nav-badge-alert', n > 0);
+    badge.title = n === 0 ? 'No open alerts' :
+                  n === 1 ? '1 open alert' :
+                  `${n} open alerts`;
   } catch (_) { /* non-fatal */ }
 }
 
@@ -4106,6 +4110,33 @@ async function revokeInboundWebhook(id, label) {
   const r = await api('DELETE', `/inbound-webhooks/${encodeURIComponent(id)}`);
   if (r && r.ok) { toast('Token revoked', 'success'); loadInboundWebhooks(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+// v3.2.0: Test OIDC discovery — POST /api/auth/oidc/test
+async function testOidcConfig() {
+  const out = document.getElementById('oidc-test-result');
+  if (out) out.innerHTML = '<span class="sev-pill sev-medium">testing</span> Fetching discovery document…';
+  // Save first so we test what's actually on disk
+  await saveOidcConfig();
+  const r = await api('POST', '/auth/oidc/test', {});
+  if (!out) return;
+  if (!r || r.ok === false) {
+    out.innerHTML = `<div class="sev-pill sev-critical">failed</div> ${_escapeHtml((r && r.error) || 'unknown error')}`;
+    return;
+  }
+  const ep = r.endpoints || {};
+  const warns = (r.warnings || []).map(w => `<li>${_escapeHtml(w)}</li>`).join('');
+  out.innerHTML =
+    `<div class="sev-pill sev-success">ok</div> Discovery succeeded.` +
+    `<table class="fs-13 mt-8">` +
+      `<tr><td class="c-muted-padded">Issuer</td><td><code>${_escapeHtml(r.issuer || '—')}</code></td></tr>` +
+      `<tr><td class="c-muted-padded">Authorization</td><td><code>${_escapeHtml(ep.authorization || '—')}</code></td></tr>` +
+      `<tr><td class="c-muted-padded">Token</td><td><code>${_escapeHtml(ep.token || '—')}</code></td></tr>` +
+      `<tr><td class="c-muted-padded">Userinfo</td><td><code>${_escapeHtml(ep.userinfo || '—')}</code></td></tr>` +
+      `<tr><td class="c-muted-padded">JWKS</td><td><code>${_escapeHtml(ep.jwks || '—')}</code></td></tr>` +
+      `<tr><td class="c-muted-padded">Register redirect URI</td><td><code>${_escapeHtml(r.redirect_uri_needed || '—')}</code></td></tr>` +
+    `</table>` +
+    (warns ? `<div class="mt-8"><strong>Warnings:</strong><ul>${warns}</ul></div>` : '');
 }
 
 // OIDC config save is wired here so the Integrations tab is self-contained
@@ -4929,33 +4960,87 @@ function _renderCmdbSnmpData(data) {
 async function saveCmdbSnmp() {
   const deviceId = document.getElementById('cmdb-asset-deviceid').value;
   if (!deviceId) return;
-  const body = {
-    enabled:    document.getElementById('cmdb-snmp-enabled').checked,
-    port:       parseInt(document.getElementById('cmdb-snmp-port').value, 10) || 161,
-  };
+  const enabled = document.getElementById('cmdb-snmp-enabled').checked;
+  const portRaw = document.getElementById('cmdb-snmp-port').value;
   const comm = document.getElementById('cmdb-snmp-community').value;
-  if (comm) body.community = comm;   // blank = keep current
+
+  // Client-side validation — server validates too, but a clear message
+  // before the round trip is much friendlier than a 400 toast.
+  const port = parseInt(portRaw, 10) || 161;
+  if (port < 1 || port > 65535) {
+    _showSnmpInlineError('UDP port must be 1..65535.');
+    return;
+  }
+  if (enabled) {
+    // If enabling for the first time, community is required. We can't tell
+    // from the client whether one already exists; rely on the server's
+    // explicit error if it's missing (returns 400 with a clear message).
+    if (comm && /\s/.test(comm)) {
+      _showSnmpInlineError('Community string cannot contain whitespace.');
+      return;
+    }
+  }
+  const body = { enabled, port };
+  if (comm) body.community = comm;
+  _showSnmpInlineNotice('Saving…');
   const r = await api('PATCH', `/devices/${encodeURIComponent(deviceId)}/snmp`, body);
   if (r && r.ok) {
     toast('SNMP config saved', 'success');
+    _showSnmpInlineNotice('Config saved.', 'success');
     document.getElementById('cmdb-snmp-community').value = '';
     cmdbLoadSnmp(deviceId);
   } else {
-    toast((r && r.error) || 'Save failed', 'error');
+    _showSnmpInlineError((r && r.error) || 'Save failed');
   }
 }
 
 async function pollCmdbSnmp() {
   const deviceId = document.getElementById('cmdb-asset-deviceid').value;
   if (!deviceId) return;
-  toast('Polling…', 'info');
-  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/snmp/poll`, {});
-  if (r && r.ok) {
-    _renderCmdbSnmpData(r.data);
-    toast(r.data.last_ok ? 'Polled OK' : 'Poll error', r.data.last_ok ? 'success' : 'error');
-  } else {
-    toast((r && r.error) || 'Poll failed', 'error');
+  const enabled = document.getElementById('cmdb-snmp-enabled').checked;
+  if (!enabled) {
+    _showSnmpInlineError('SNMP is disabled on this device. Tick "Enable SNMP polling" and Save first.');
+    return;
   }
+  // Disable the button + show in-progress so the user knows we're working
+  const btn = document.querySelector('[data-action="pollCmdbSnmp"]');
+  const prevText = btn ? btn.textContent : 'Poll now';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Polling…'; }
+  _showSnmpInlineNotice('Polling SNMP target (up to 4 s)…');
+  try {
+    const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/snmp/poll`, {});
+    if (r && r.ok) {
+      _renderCmdbSnmpData(r.data);
+      if (r.data && r.data.last_ok) {
+        toast('Polled OK — see Latest poll below', 'success');
+        _showSnmpInlineNotice(`Last successful poll: ${_formatTs(r.data.last_ok)}`, 'success');
+      } else {
+        toast('Poll failed — see error below', 'error');
+        _showSnmpInlineError(r.data && r.data.last_error ? r.data.last_error
+                                                          : 'Unknown error');
+      }
+    } else {
+      const msg = (r && r.error) || 'Poll request failed';
+      toast(msg, 'error');
+      _showSnmpInlineError(msg);
+    }
+  } catch (e) {
+    _showSnmpInlineError(`Network error: ${e && e.message ? e.message : e}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prevText; }
+  }
+}
+
+function _showSnmpInlineError(msg) {
+  const el = document.getElementById('cmdb-snmp-data');
+  if (!el) return;
+  el.innerHTML = `<div class="sev-pill sev-critical">error</div> <span>${_escapeHtml(msg)}</span>`;
+}
+function _showSnmpInlineNotice(msg, kind) {
+  const el = document.getElementById('cmdb-snmp-data');
+  if (!el) return;
+  const pillCls = kind === 'success' ? 'sev-pill sev-success' : 'sev-pill sev-medium';
+  el.innerHTML = `<div class="${pillCls}">${kind || 'info'}</div> <span>${_escapeHtml(msg)}</span>`;
 }
 
 // ── v2.0: multi-doc list ─────────────────────────────────────────────────────
@@ -13917,14 +14002,36 @@ async function loadSelfStatus() {
      </div>`).join('');
   // Backup state
   const bk = s.backup || {};
+  // v3.2.0: performance snapshot
+  const perf = s.performance || {};
+  const la = perf.load_avg || {};
+  const mem = perf.memory || {};
+  const sess = perf.sessions || {};
+  const healthOk = perf.health === 'ok';
+  const healthPill = healthOk
+    ? '<span class="sev-pill sev-success">healthy</span>'
+    : `<span class="sev-pill sev-medium">${(perf.health_flags || []).length} warning(s)</span>`;
+  const memBar = mem.used_pct != null
+    ? `<div class="perf-bar" title="${mem.used_pct}% used"><div class="perf-bar-fill" data-pct="${mem.used_pct}"></div></div>`
+    : '';
+  const onlinePct = perf.devices_online_pct;
+  const onlinePctText = onlinePct != null ? `${onlinePct}%` : '—';
+  const flagsHtml = (perf.health_flags || []).length
+    ? `<details class="mt-8"><summary class="c-muted">View ${perf.health_flags.length} reason(s)</summary><ul class="mt-4">${perf.health_flags.map(f => `<li>${escHtml(f)}</li>`).join('')}</ul></details>`
+    : '';
   body.innerHTML = `
     <div class="card p-16">
-      <div class="fw-600-mb10">Process</div>
+      <div class="fw-600-mb10">Site health ${healthPill}</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Server version</td><td>${escHtml(s.server_version || '?')}</td></tr>
+        ${la['1m'] != null ? `<tr><td class="c-muted-padded">Load average</td><td>${la['1m'].toFixed(2)} · ${la['5m'].toFixed(2)} · ${la['15m'].toFixed(2)} <span class="c-muted">(1m · 5m · 15m)</span></td></tr>` : ''}
+        ${mem.used_pct != null ? `<tr><td class="c-muted-padded">System memory</td><td>${mem.used_pct}% used · ${_selfFmtBytes((mem.total_kb - mem.available_kb)*1024)} of ${_selfFmtBytes(mem.total_kb*1024)} ${memBar}</td></tr>` : ''}
+        ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">CGI process RSS</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
+        ${sess.active != null ? `<tr><td class="c-muted-padded">Active sessions</td><td>${sess.active}</td></tr>` : ''}
+        <tr><td class="c-muted-padded">Devices online</td><td>${onlinePctText}</td></tr>
         ${s.process?.pid ? `<tr><td class="c-muted-padded">PID</td><td>${s.process.pid}</td></tr>` : ''}
-        ${s.process?.vmrss_kb ? `<tr><td class="c-muted-padded">Memory (RSS)</td><td>${_selfFmtBytes(s.process.vmrss_kb*1024)}</td></tr>` : ''}
       </table>
+      ${flagsHtml}
     </div>
 
     <div class="card p-16">
@@ -14587,6 +14694,8 @@ const _dynColorObserver = new MutationObserver((muts) => {
       if (node.dataset?.bdStyle && node.dataset?.bdColor) {
         node.style.border = '1px ' + node.dataset.bdStyle + ' ' + node.dataset.bdColor;
       }
+      // v3.2.0: data-pct → percentage width (Server Status performance bars)
+      if (node.dataset?.pct) node.style.width = node.dataset.pct + '%';
       if (node.querySelectorAll) {
         node.querySelectorAll('[data-color]').forEach(el => { el.style.color = el.dataset.color; });
         node.querySelectorAll('[data-bg]').forEach(el => { el.style.background = el.dataset.bg; });
@@ -14594,6 +14703,7 @@ const _dynColorObserver = new MutationObserver((muts) => {
         node.querySelectorAll('[data-bd-style][data-bd-color]').forEach(el => {
           el.style.border = '1px ' + el.dataset.bdStyle + ' ' + el.dataset.bdColor;
         });
+        node.querySelectorAll('[data-pct]').forEach(el => { el.style.width = el.dataset.pct + '%'; });
       }
     }
   }
