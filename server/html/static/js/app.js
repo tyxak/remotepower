@@ -1923,13 +1923,17 @@ async function addScheduleJob() {
       const calStart = _schedNextDate(type, payload.run_at);
       const calEnd   = new Date(calStart.getTime() + 3600000);
       const isDisruptive = command === 'reboot' || command.startsWith('upgrade');
+      // Map schedule recurrence type to calendar recur field
+      const recurMap = {once:'none', hourly:'daily', nhours:'daily', daily:'daily', weekly:'weekly', monthly:'monthly', custom:'none'};
+      const calRecur = recurMap[type] || 'none';
       const calBody = {
         title:       `Scheduled: ${label} — ${devName}`,
-        description: cron ? `Recurring: ${cron}` : '',
+        description: cron ? `Cron: ${cron}` : '',
         start:       calStart.toISOString(),
         end:         calEnd.toISOString(),
         all_day:     false,
         color:       isDisruptive ? 'amber' : 'blue',
+        recur:       calRecur,
       };
       await api('POST', '/calendar', calBody).catch(() => {});
     }
@@ -3747,7 +3751,7 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph">↻</span>' : ''}${escHtml(ev.title)}</div>`
     ).join('');
     const more = events.length > 3 ? `<div class="isl-428">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -3772,13 +3776,13 @@ function openEventModal(eventId) {
     };
   });
 
-  let title = '', desc = '', color = 'blue', allDay = false;
+  let title = '', desc = '', color = 'blue', allDay = false, recur = 'none';
   let startVal = '', endVal = '';
   if (eventId) {
     const ev = calCurrentEvents.find(e => e.id === eventId);
     if (!ev) { toast('Event not found', 'error'); return; }
     title = ev.title; desc = ev.description || ''; color = ev.color || 'blue';
-    allDay = !!ev.all_day;
+    allDay = !!ev.all_day; recur = ev.recur || 'none';
     startVal = isoToLocalInput(ev.start);
     endVal   = ev.end ? isoToLocalInput(ev.end) : startVal;
   } else {
@@ -3795,6 +3799,10 @@ function openEventModal(eventId) {
   document.getElementById('event-start').value = startVal;
   document.getElementById('event-end').value = endVal;
   document.getElementById('event-all-day').checked = allDay;
+  document.getElementById('event-recur').value = recur;
+  // Update delete button label to reflect recurring vs one-off
+  const delBtn = document.getElementById('event-delete-btn');
+  if (delBtn) delBtn.textContent = (recur !== 'none') ? 'Delete all occurrences' : 'Delete';
   calSelectedColor = color;
   document.querySelectorAll('#event-color-picker .ev-color').forEach(el => {
     el.style.borderColor = (el.dataset.color === color) ? 'var(--text)' : 'transparent';
@@ -3823,6 +3831,7 @@ function openEventModalForDay(dayStr) {
   document.getElementById('event-start').value = dateToLocalInput(start);
   document.getElementById('event-end').value = dateToLocalInput(end);
   document.getElementById('event-all-day').checked = false;
+  document.getElementById('event-recur').value = 'none';
   calSelectedColor = 'blue';
   openModal('event-modal');
 }
@@ -3852,6 +3861,7 @@ async function saveEvent() {
     end:         endLocal ? new Date(endLocal).toISOString() : new Date(startLocal).toISOString(),
     all_day:     document.getElementById('event-all-day').checked,
     color:       calSelectedColor,
+    recur:       document.getElementById('event-recur').value || 'none',
   };
   let result;
   if (calEditingId) {
@@ -3870,10 +3880,15 @@ async function saveEvent() {
 
 async function deleteCurrentEvent() {
   if (!calEditingId) return;
-  if (!confirm('Delete this event?')) return;
+  const ev = calCurrentEvents.find(e => e.id === calEditingId);
+  const isRecurring = ev && (ev.recur && ev.recur !== 'none' || ev.is_recurring);
+  const msg = isRecurring
+    ? 'Delete this recurring event and all its occurrences?'
+    : 'Delete this event?';
+  if (!confirm(msg)) return;
   const result = await api('DELETE', `/calendar/${calEditingId}`);
   if (result && result.ok) {
-    toast('Event deleted', 'success');
+    toast(isRecurring ? 'All occurrences deleted' : 'Event deleted', 'success');
     closeModal('event-modal');
     loadCalendar();
   } else {

@@ -13362,6 +13362,7 @@ def handle_log_tail():
 ALLOWED_EVENT_COLORS = (
     'blue', 'green', 'amber', 'red', 'purple', 'teal', 'slate',
 )
+ALLOWED_RECUR = ('none', 'daily', 'weekly', 'monthly', 'yearly')
 
 
 def _sanitize_event(body):
@@ -13390,6 +13391,9 @@ def _sanitize_event(body):
     color = _sanitize_str(body.get('color', 'blue'), 16)
     if color not in ALLOWED_EVENT_COLORS:
         color = 'blue'
+    recur = _sanitize_str(body.get('recur', 'none'), 10)
+    if recur not in ALLOWED_RECUR:
+        recur = 'none'
     return {
         'title':       title,
         'description': description,
@@ -13397,7 +13401,59 @@ def _sanitize_event(body):
         'end':         end or start,
         'all_day':     all_day,
         'color':       color,
+        'recur':       recur,
     }, None
+
+
+def _expand_event(ev, from_ts, to_ts):
+    """Yield occurrence dicts for ev within the [from_ts, to_ts] window.
+    Single (non-recurring) events are yielded as-is when they overlap.
+    Recurring events are expanded up to 500 occurrences per query window.
+    """
+    recur = ev.get('recur', 'none') or 'none'
+    try:
+        base_start_ts = _parse_iso(ev['start'])
+        base_end_ts   = _parse_iso(ev['end']) if ev.get('end') else base_start_ts
+    except (ValueError, KeyError):
+        return
+    duration = base_end_ts - base_start_ts
+
+    if recur == 'none':
+        if base_end_ts >= from_ts and base_start_ts <= to_ts:
+            yield ev
+        return
+
+    import datetime as _dt
+    import calendar as _cal_mod
+    cur = _dt.datetime.fromtimestamp(base_start_ts, tz=_dt.timezone.utc)
+    count = 0
+    while count < 500:
+        occ_start = cur.timestamp()
+        if occ_start > to_ts:
+            break
+        occ_end = occ_start + duration
+        if occ_end >= from_ts:
+            occ = dict(ev)
+            occ['start']        = cur.isoformat()
+            occ['end']          = _dt.datetime.fromtimestamp(occ_end, tz=_dt.timezone.utc).isoformat()
+            occ['is_recurring'] = True
+            yield occ
+        count += 1
+        if recur == 'daily':
+            cur += _dt.timedelta(days=1)
+        elif recur == 'weekly':
+            cur += _dt.timedelta(weeks=1)
+        elif recur == 'monthly':
+            m = cur.month + 1; y = cur.year
+            if m > 12: m = 1; y += 1
+            day = min(cur.day, _cal_mod.monthrange(y, m)[1])
+            cur = cur.replace(year=y, month=m, day=day)
+        elif recur == 'yearly':
+            y = cur.year + 1
+            day = min(cur.day, _cal_mod.monthrange(y, cur.month)[1])
+            cur = cur.replace(year=y, day=day)
+        else:
+            break
 
 
 def handle_calendar_list():
@@ -13418,15 +13474,8 @@ def handle_calendar_list():
     events = store.get('events') or []
     out = []
     for ev in events:
-        try:
-            ev_start = _parse_iso(ev.get('start', ''))
-            ev_end   = _parse_iso(ev.get('end', '')) if ev.get('end') else ev_start
-        except ValueError:
-            continue
-        # Overlap check
-        if ev_end < from_ts or ev_start > to_ts:
-            continue
-        out.append(ev)
+        for occ in _expand_event(ev, from_ts, to_ts):
+            out.append(occ)
     out.sort(key=lambda e: e.get('start', ''))
     respond(200, {'events': out})
 

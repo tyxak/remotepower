@@ -340,7 +340,7 @@
         </div>
 
         <!-- Links widget — hidden until at least one link is saved -->
-        <div class="dash-card d-none" id="home-links">
+        <div class="dash-card mt-16 d-none" id="home-links">
           <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
           <div id="home-links-body" class="isl-762"></div>
         </div>
@@ -3802,7 +3802,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="form-group"><label>Start</label><input type="datetime-local" id="event-start"></div>
     <div class="form-group"><label>End</label><input type="datetime-local" id="event-end"></div>
   </div>
-  <div class="form-group"><label><input type="checkbox" id="event-all-day"> All day</label></div>
+  <div class="grid-2col">
+    <div class="form-group"><label><input type="checkbox" id="event-all-day"> All day</label></div>
+    <div class="form-group"><label>Recurrence</label>
+      <select id="event-recur" class="form-input">
+        <option value="none">None (one-off)</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+    </div>
+  </div>
   <div class="form-group"><label>Color</label>
     <div id="event-color-picker" class="isl-43">
       <div data-color="blue"   class="ev-color isl-272"></div>
