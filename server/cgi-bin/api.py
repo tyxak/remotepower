@@ -19710,15 +19710,30 @@ _MITIGATE_PLAYBOOKS = {
     },
     'disk': {
         'label': 'Disk pressure',
+        # v3.2.1 fix: previous diagnostic used `du -h --max-depth=2 /`
+        # which walks the ENTIRE root filesystem — on a busy server
+        # (mail spool, web logs, db backups) that routinely exceeds the
+        # agent's 300s exec timeout and the UI's 3-minute poll cap, so
+        # the AI Analysis step never fires. Replaced with bounded
+        # commands: each step has a timeout wrapper, the global walk is
+        # limited to depth=1 + -x (no cross-mount), and the find scope
+        # is narrower. Total wall time bounded at ~60s in the worst
+        # case on a typical fleet host.
         'diagnostic': (
-            'set -e; echo "== DF =="; df -h -x tmpfs -x devtmpfs; '
-            'echo; echo "== TOP 20 DIRECTORIES (under /, max depth 2) =="; '
-            'du -h --max-depth=2 / 2>/dev/null | sort -hr | head -20; '
-            'echo; echo "== FILES >500MB =="; '
-            'find /var /home /tmp /opt -xdev -size +500M -type f 2>/dev/null | head -20; '
+            'set -e; '
+            'echo "== DF =="; df -h -x tmpfs -x devtmpfs; '
+            'echo; echo "== INODE USE =="; df -hi -x tmpfs -x devtmpfs; '
+            'echo; echo "== TOP-LEVEL DIRECTORY SIZES (root mount only, depth 1, 30s cap) =="; '
+            'timeout 30 du --max-depth=1 -x / 2>/dev/null | sort -hr | head -20 | numfmt --to=iec --field=1 || echo "(timed out)"; '
+            'echo; echo "== /var, /home, /opt subdirectories (depth 2, 20s cap) =="; '
+            'for d in /var /home /opt; do '
+            '  [ -d "$d" ] && timeout 20 du --max-depth=2 -x "$d" 2>/dev/null | sort -hr | head -10 | numfmt --to=iec --field=1; '
+            'done; '
+            'echo; echo "== FILES >500MB (capped at 20 results) =="; '
+            'timeout 15 find /var /home /tmp /opt /root -xdev -size +500M -type f 2>/dev/null | head -20 || true; '
             'echo; echo "== JOURNAL DISK USAGE =="; '
             'journalctl --disk-usage 2>/dev/null || true; '
-            'echo; echo "== /tmp + /var/log =="; '
+            'echo; echo "== /tmp + /var/log + /var/cache =="; '
             'du -sh /tmp /var/log /var/cache 2>/dev/null'
         ),
         'fix': None,

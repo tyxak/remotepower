@@ -13769,7 +13769,12 @@ if (_origEnterTLS) {
 let _mitigateCtx = null;           // { devId, kind, target, actionId, deviceName }
 let _mitigatePollTimer = null;
 let _mitigatePollAttempts = 0;
-const _MITIGATE_POLL_MAX = 90;     // 90 * 2s = 3 min max wait for diagnostic
+// v3.2.1 fix: 90 * 2s = 3 min was too tight for the disk diagnostic on
+// busy servers (du walk can take 5+ min). Bumped to 180 * 2s = 6 min,
+// which covers the agent's 300s exec timeout plus a heartbeat round
+// trip. The agent itself kills the exec at 300s with rc=-1 so we never
+// poll forever.
+const _MITIGATE_POLL_MAX = 180;
 
 const _MITIGATE_KIND_LABELS = {
   patches:      'Pending patches',
@@ -13887,22 +13892,43 @@ async function _mitigatePollDiag() {
 async function _mitigateRunAi() {
   if (!_mitigateCtx || !_mitigateCtx.actionId) return;
   mitigateTab('ai');
-  document.getElementById('mitigate-ai-status').textContent = 'Asking the model…';
+  const statusEl = document.getElementById('mitigate-ai-status');
+  statusEl.textContent = 'Asking the model…';
   document.getElementById('mitigate-ai-summary').textContent = '';
   document.getElementById('mitigate-ai-fix-box').style.display = 'none';
-  const r = await api('POST',
-    `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
-    {});
+
+  // v3.2.1 fix: surface "still waiting" feedback so an AI provider that
+  // takes 60+ seconds doesn't look like a frozen modal. The fetch itself
+  // has no client-side timeout — providers vary from <5s (Anthropic) to
+  // 60-120s (large Ollama models). We just escalate the message.
+  const _slowWarn = setTimeout(() => {
+    statusEl.textContent = 'Still waiting on the AI (45 s+)… large local models can take 1–2 min.';
+  }, 45000);
+  const _verySlowWarn = setTimeout(() => {
+    statusEl.textContent = 'Over 90 s. If this is a local model, that\'s expected on a cold GPU. Click "Re-run AI" to retry, or close and try a different provider in Settings → AI.';
+  }, 90000);
+
+  let r;
+  try {
+    r = await api('POST',
+      `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
+      {});
+  } catch (e) {
+    clearTimeout(_slowWarn); clearTimeout(_verySlowWarn);
+    statusEl.textContent = `Network error contacting AI: ${e && e.message ? e.message : e}`;
+    return;
+  }
+  clearTimeout(_slowWarn); clearTimeout(_verySlowWarn);
   if (!r) {
-    document.getElementById('mitigate-ai-status').textContent = 'AI call failed';
+    statusEl.textContent = 'AI call failed (no response)';
     return;
   }
   if (r.error) {
-    document.getElementById('mitigate-ai-status').textContent = '';
+    statusEl.textContent = '';
     document.getElementById('mitigate-ai-summary').textContent = `Error: ${r.error}`;
     return;
   }
-  document.getElementById('mitigate-ai-status').textContent = 'Done.';
+  statusEl.textContent = 'Done.';
   document.getElementById('mitigate-ai-summary').textContent = r.summary || '(empty response)';
   _mitigateRenderFixOptions(r);
 }
