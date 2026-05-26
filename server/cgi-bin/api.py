@@ -13368,6 +13368,71 @@ def handle_device_snmp_poll(dev_id):
     respond(200, {'ok': True, 'data': entry})
 
 
+def handle_device_snmp_deep(dev_id):
+    """GET /api/devices/<id>/snmp/deep — admin-only, on-demand richer SNMP read.
+
+    Returns interface table + Host Resources MIB scalars + vendor-specific
+    health (Mikrotik) on top of the sys-group. Everything best-effort —
+    a row missing from the response just means the agent doesn't expose
+    that MIB. Slower than the standard poll (multiple round trips for
+    table walks), so it's not in the 5-minute sweep.
+    """
+    require_admin_auth()
+    if method() != 'GET': respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    devs = load(DEVICES_FILE)
+    dev = devs.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    target = _device_snmp_target(dev)
+    if not target:
+        respond(400, {'error': 'SNMP not configured/enabled on this device'})
+    host, community, port = target
+    import snmp as snmp_mod
+    out = {'host': host, 'port': port, 'errors': {}}
+    # 1. sys-group (also cached on disk by the regular poll)
+    try:
+        out['system'] = snmp_mod.poll_system(host, community,
+                                              port=port, timeout=2.5)
+        out['system'].pop('_oids', None)
+    except Exception as e:
+        out['errors']['system'] = f'{type(e).__name__}: {e}'
+
+    # 2. Interfaces (ifTable walk) — capped at 64 interfaces
+    try:
+        out['interfaces'] = snmp_mod.poll_interfaces(host, community,
+                                                      port=port, timeout=2.5)
+    except Exception as e:
+        out['errors']['interfaces'] = f'{type(e).__name__}: {e}'
+
+    # 3. Host Resources MIB scalars
+    try:
+        out['host_resources'] = snmp_mod.poll_host_resources(host, community,
+                                                              port=port, timeout=2.5)
+    except Exception as e:
+        out['errors']['host_resources'] = f'{type(e).__name__}: {e}'
+
+    # 4. hrStorageTable
+    try:
+        out['storage'] = snmp_mod.poll_hr_storage(host, community,
+                                                   port=port, timeout=2.5)
+    except Exception as e:
+        out['errors']['storage'] = f'{type(e).__name__}: {e}'
+
+    # 5. Vendor-specific (only if sysObjectID indicates a known vendor)
+    sys_obj = (out.get('system') or {}).get('sysObjectID') or ''
+    if sys_obj.startswith('1.3.6.1.4.1.14988'):
+        try:
+            out['mikrotik'] = snmp_mod.poll_mikrotik(host, community,
+                                                     port=port, timeout=2.5)
+        except Exception as e:
+            out['errors']['mikrotik'] = f'{type(e).__name__}: {e}'
+
+    out['polled_at'] = int(time.time())
+    respond(200, out)
+
+
 def handle_webhook_test():
     """Send a test webhook.
 
@@ -17172,7 +17237,7 @@ def main():
                                      # v1.11.10
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)
-                                     '/snmp', '/snmp/poll')):
+                                     '/snmp', '/snmp/poll', '/snmp/deep')):
         handle_device_delete(pi[len('/api/devices/'):])
     # v3.0.4: bulk device settings save from the device drawer.
     # Matches POST /api/devices/<id> exactly — no further slashes.
@@ -17205,6 +17270,8 @@ def main():
     # v3.2.0 (B5): SNMP per-device config + on-demand poll
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST':
         handle_device_snmp_poll(pi[len('/api/devices/'):-len('/snmp/poll')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/snmp/deep') and m == 'GET':
+        handle_device_snmp_deep(pi[len('/api/devices/'):-len('/snmp/deep')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
         handle_device_snmp(pi[len('/api/devices/'):-len('/snmp')])
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':

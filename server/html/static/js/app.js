@@ -11484,6 +11484,7 @@ async function _drawerAdjustPoll() {
 function _renderDrawerSettings() {
   const d    = _drawerDeviceData || {};
   const id   = _drawerDeviceId;
+  const isAgentless = !!d.agentless;
 
   const watched   = (d.watched_services || []).join(', ');
   const driftList = (d.watched_files    || []).join('\n');
@@ -11532,9 +11533,89 @@ function _renderDrawerSettings() {
       <span class="drawer-setting-label isl-623">Command allowlist</span>
       <textarea class="form-input isl-624" id="ds-allowlist" rows="3" placeholder="systemctl status *\nnginx -t">${escHtml(allowList)}</textarea>
     </div>
+    ${isAgentless ? `
+    <!-- v3.2.0 (B5): SNMP polling — agentless devices only -->
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">SNMP polling</span>
+      <div id="ds-snmp-status" class="hint mb-8">Loading…</div>
+      <label class="click-row-6">
+        <input type="checkbox" id="ds-snmp-enabled">
+        <span class="fs-12">Enable SNMPv2c polling (sys-group every 5 min)</span>
+      </label>
+    </div>
+    <div class="drawer-setting-row isl-622">
+      <span class="drawer-setting-label isl-623">Community / port</span>
+      <div class="row-8-center">
+        <input type="password" class="form-input isl-620" id="ds-snmp-community" placeholder="(keep current)" maxlength="128" autocomplete="off">
+        <input type="number" class="form-input isl-621" id="ds-snmp-port" placeholder="161" min="1" max="65535">
+        <button class="btn-icon" data-action="_drawerSnmpPollNow" type="button">Poll now</button>
+      </div>
+      <span class="hint">Community is write-only; the GET response shows only a 3-char preview.</span>
+    </div>
+    <div id="ds-snmp-feedback" class="mb-8"></div>
+    ` : ''}
     <div class="isl-625">
       <button class="btn-primary isl-626" data-action="_drawerSaveSettings" >Save settings</button>
     </div>`;
+
+  // Populate SNMP fields async (agentless only). Don't block the form
+  // render on the round trip.
+  if (isAgentless) _drawerLoadSnmpConfig(id);
+}
+
+async function _drawerLoadSnmpConfig(devId) {
+  try {
+    const r = await api('GET', `/devices/${encodeURIComponent(devId)}/snmp`);
+    if (!r) return;
+    const cfg = r.config || {};
+    const data = r.data || {};
+    const en = document.getElementById('ds-snmp-enabled');
+    const port = document.getElementById('ds-snmp-port');
+    const comm = document.getElementById('ds-snmp-community');
+    const status = document.getElementById('ds-snmp-status');
+    if (en)   en.checked = !!cfg.enabled;
+    if (port) port.value = cfg.port || 161;
+    if (comm) comm.placeholder = cfg.has_community
+                ? `(keep current — preview: ${cfg.community_preview || '…'})`
+                : 'public';
+    if (status) {
+      if (!cfg.enabled) {
+        status.innerHTML = '<span class="c-muted">Disabled</span>';
+      } else if (data.last_ok && !data.last_error) {
+        status.innerHTML =
+          `<span class="snmp-pill snmp-ok">📡 polled OK</span> ` +
+          `<span class="hint">${_formatTs(data.last_ok)} · sysName ${_escapeHtml(data.sysName || '?')}</span>`;
+      } else if (data.last_error) {
+        status.innerHTML =
+          `<span class="snmp-pill snmp-fail">📡 failing</span> ` +
+          `<span class="hint">${_escapeHtml(data.last_error)}</span>`;
+      } else {
+        status.innerHTML = '<span class="hint">Enabled, never polled yet — click "Poll now"</span>';
+      }
+    }
+  } catch (_) { /* viewer or transient — leave blank */ }
+}
+
+async function _drawerSnmpPollNow() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const fb = document.getElementById('ds-snmp-feedback');
+  if (fb) fb.innerHTML = '<span class="sev-pill sev-medium">polling</span> Up to 4 s…';
+  try {
+    const r = await api('POST', `/devices/${encodeURIComponent(id)}/snmp/poll`, {});
+    if (!r || !r.ok) {
+      if (fb) fb.innerHTML = `<span class="sev-pill sev-critical">error</span> ${_escapeHtml((r && r.error) || 'unknown')}`;
+      return;
+    }
+    if (r.data && r.data.last_ok) {
+      if (fb) fb.innerHTML = `<span class="sev-pill sev-success">ok</span> sysName: ${_escapeHtml(r.data.sysName || '?')} · uptime ${r.data.sysUpTime}`;
+      _drawerLoadSnmpConfig(id);   // refresh the status block
+    } else {
+      if (fb) fb.innerHTML = `<span class="sev-pill sev-critical">poll failed</span> ${_escapeHtml(r.data && r.data.last_error || 'unknown error')}`;
+    }
+  } catch (e) {
+    if (fb) fb.innerHTML = `<span class="sev-pill sev-critical">error</span> ${_escapeHtml(e && e.message ? e.message : e)}`;
+  }
 }
 
 async function _drawerSaveSettings() {
@@ -11573,13 +11654,38 @@ async function _drawerSaveSettings() {
 
   const r = await api('POST', `/devices/${id}`, body);
   if (r?.ok) toast('Settings saved', 'success');
-  else toast(r?.error || 'Failed to save', 'error');
+  else { toast(r?.error || 'Failed to save', 'error'); return; }
+
+  // v3.2.0 (B5): persist SNMP config too if the form has those inputs.
+  // Separate endpoint because SNMP config is on the agentless device
+  // record but has its own validation rules (community required when
+  // enabled, port range 1..65535).
+  const snmpEnabled = document.getElementById('ds-snmp-enabled');
+  if (snmpEnabled) {
+    const snmpBody = {
+      enabled: snmpEnabled.checked,
+      port:    parseInt(document.getElementById('ds-snmp-port')?.value || '161', 10),
+    };
+    const comm = document.getElementById('ds-snmp-community')?.value || '';
+    if (comm) snmpBody.community = comm;
+    const sr = await api('PATCH', `/devices/${id}/snmp`, snmpBody);
+    if (sr?.ok) {
+      toast('SNMP config saved', 'success');
+      // Refresh the status block so the operator sees the new state
+      _drawerLoadSnmpConfig(id);
+      const c = document.getElementById('ds-snmp-community');
+      if (c) c.value = '';
+    } else {
+      toast(sr?.error || 'SNMP save failed', 'error');
+    }
+  }
 }
 
 // ── Audit tab ─────────────────────────────────────────────────────────────────
 
 const _AUDIT_SECTIONS = [
   {key: 'sysinfo',   title: 'System Info',      icon: '🖥'},
+  {key: 'snmp',      title: 'SNMP',             icon: '📡'},
   {key: 'ports',     title: 'Listening Ports',  icon: '🔌'},
   {key: 'packages',  title: 'Packages',         icon: '📦'},
   {key: 'logs',      title: 'Logs',             icon: '📄'},
@@ -11966,6 +12072,113 @@ async function _loadAuditSection(key) {
               <div class="value isl-648">${v.toFixed(1)}%</div>
             </div>`;
           }).join('') + `</div>`;
+        break;
+      }
+
+      case 'snmp': {
+        // v3.2.0: deep SNMP read — sys-group, ifTable, Host Resources MIB,
+        // vendor-specific (Mikrotik). Slower than the standard 5-min poll
+        // (multiple round trips), so it's on-demand only.
+        let data;
+        try {
+          data = await api('GET', `/devices/${id}/snmp/deep`);
+        } catch (e) {
+          body.innerHTML = `<div class="c-muted">SNMP not configured or unreachable.</div>`;
+          badge.textContent = 'n/a';
+          return;
+        }
+        if (!data || data.error) {
+          body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'request failed')}</div>`;
+          badge.textContent = 'error';
+          return;
+        }
+        const sysObj = (data.system || {}).sysObjectID || '';
+        const isMikrotik = sysObj.startsWith('1.3.6.1.4.1.14988');
+        let h = '';
+        // Sys-group
+        if (data.system) {
+          h += '<h4 class="mt-0">System</h4><table class="fs-13">';
+          for (const [k, v] of Object.entries(data.system)) {
+            if (k === '_oids') continue;
+            h += `<tr><td class="c-muted-padded">${escHtml(k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
+          }
+          h += '</table>';
+        }
+        // Vendor-specific
+        if (data.mikrotik && Object.keys(data.mikrotik).length) {
+          h += '<h4 class="mt-12">Mikrotik vendor</h4><table class="fs-13">';
+          const labels = {
+            mtxrSystemVersion:  'RouterOS version',
+            mtxrSystemUptime:   'Uptime (1/100 s)',
+            mtxrHlCoreVoltage:  'Core voltage (mV)',
+            mtxrHlTemperature:  'CPU temperature (°C)',
+            mtxrHlBoardTemp:    'Board temperature (°C)',
+            mtxrHlCpuFrequency: 'CPU frequency (MHz)',
+          };
+          for (const [k, v] of Object.entries(data.mikrotik)) {
+            h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
+          }
+          h += '</table>';
+        }
+        // Host Resources MIB
+        if (data.host_resources && Object.keys(data.host_resources).length) {
+          h += '<h4 class="mt-12">Host Resources MIB</h4><table class="fs-13">';
+          const labels = {
+            hrSystemUptime:     'Uptime (1/100 s)',
+            hrSystemNumUsers:   'Logged-in users',
+            hrSystemProcesses:  'Running processes',
+            hrMemorySize:       'Physical memory (kB)',
+          };
+          for (const [k, v] of Object.entries(data.host_resources)) {
+            h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
+          }
+          h += '</table>';
+        }
+        // Storage table
+        if (Array.isArray(data.storage) && data.storage.length) {
+          h += '<h4 class="mt-12">Storage</h4><table class="fs-13"><thead><tr><th>Mount</th><th class="ta-right">Size</th><th class="ta-right">Used</th><th class="ta-right">%</th></tr></thead><tbody>';
+          for (const s of data.storage) {
+            const sizeMb = s.size_bytes ? (s.size_bytes / 1024 / 1024).toFixed(0) : '?';
+            const usedMb = s.used_bytes != null ? (s.used_bytes / 1024 / 1024).toFixed(0) : '?';
+            const pct = s.used_pct != null ? `${s.used_pct}%` : '—';
+            const pctCls = (s.used_pct ?? 0) > 90 ? 'c-red' : (s.used_pct ?? 0) > 70 ? 'c-amber' : '';
+            h += `<tr><td>${escHtml(s.descr || '?')}</td><td class="ta-right">${sizeMb} MB</td><td class="ta-right">${usedMb} MB</td><td class="ta-right ${pctCls}">${pct}</td></tr>`;
+          }
+          h += '</tbody></table>';
+        }
+        // Interface table
+        if (Array.isArray(data.interfaces) && data.interfaces.length) {
+          h += `<h4 class="mt-12">Interfaces (${data.interfaces.length})</h4>`;
+          h += '<table class="fs-13"><thead><tr><th>Name</th><th>Admin</th><th>Oper</th><th class="ta-right">Speed</th><th class="ta-right">In</th><th class="ta-right">Out</th><th class="ta-right">Errs</th></tr></thead><tbody>';
+          for (const ifn of data.interfaces) {
+            const speedMbps = ifn.speed_bps ? Math.round(ifn.speed_bps / 1e6) + ' Mbps' : '—';
+            const upCls = ifn.oper === 'up' ? 'c-green' : 'c-muted';
+            const fmtB = (b) => {
+              if (!b || b < 1024) return String(b || 0);
+              const u = ['B','KB','MB','GB','TB']; let i=0; let v=b;
+              while (v >= 1024 && i < u.length-1) { v /= 1024; i++; }
+              return v.toFixed(v < 10 ? 1 : 0) + u[i];
+            };
+            const errs = (ifn.in_errors || 0) + (ifn.out_errors || 0);
+            const errCls = errs > 0 ? 'c-amber' : '';
+            h += `<tr><td><strong>${escHtml(ifn.descr || `if${ifn.index}`)}</strong></td><td>${escHtml(ifn.admin)}</td><td class="${upCls}">${escHtml(ifn.oper)}</td><td class="ta-right">${speedMbps}</td><td class="ta-right">${fmtB(ifn.in_octets)}</td><td class="ta-right">${fmtB(ifn.out_octets)}</td><td class="ta-right ${errCls}">${errs}</td></tr>`;
+          }
+          h += '</tbody></table>';
+        }
+        // Errors
+        if (data.errors && Object.keys(data.errors).length) {
+          h += '<h4 class="mt-12">Partial errors</h4><ul class="hint">';
+          for (const [k, v] of Object.entries(data.errors)) {
+            h += `<li><code>${escHtml(k)}</code>: ${escHtml(v)}</li>`;
+          }
+          h += '</ul>';
+        }
+        const counts = [];
+        if (data.interfaces?.length) counts.push(`${data.interfaces.length} if`);
+        if (data.storage?.length)    counts.push(`${data.storage.length} stor`);
+        if (isMikrotik) counts.push('mikrotik');
+        badge.textContent = counts.join(' · ') || 'loaded';
+        body.innerHTML = h || '<div class="c-muted">No SNMP data returned.</div>';
         break;
       }
 

@@ -796,6 +796,69 @@ class TestSnmpModule(unittest.TestCase):
         self.assertEqual(parsed['1.3.6.1.2.1.1.5.0'], 'sw-test')
         self.assertEqual(parsed['1.3.6.1.2.1.1.1.0'], 'Test Switch')
 
+    def test_walk_returns_subtree(self):
+        """End-to-end walk against a fake UDP server that serves 3 entries
+        in the ifDescr subtree (.2.2.1.2.1 / .2 / .3) then walks off."""
+        import socket, threading
+        port_box = []
+        ready = threading.Event()
+        # Walk targets: GETNEXT 1.3.6.1.2.1.2.2.1.2 → returns .2.2.1.2.1
+        # GETNEXT .2.2.1.2.1 → .2.2.1.2.2
+        # GETNEXT .2.2.1.2.2 → .2.2.1.2.3
+        # GETNEXT .2.2.1.2.3 → .2.2.1.3.1 (out of subtree → stop)
+        responses = [
+            ('1.3.6.1.2.1.2.2.1.2.1', 'eth0'),
+            ('1.3.6.1.2.1.2.2.1.2.2', 'eth1'),
+            ('1.3.6.1.2.1.2.2.1.2.3', 'eth2'),
+            ('1.3.6.1.2.1.2.2.1.3.1', 6),    # Out of subtree
+        ]
+        def serve():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('127.0.0.1', 0))
+            port_box.append(sock.getsockname()[1])
+            ready.set()
+            sock.settimeout(5)
+            try:
+                for oid, value in responses:
+                    data, addr = sock.recvfrom(65536)
+                    tag, body, _ = self.snmp._decode_tlv(data, 0)
+                    off = 0
+                    _, _, off = self.snmp._decode_tlv(body, off)    # version
+                    _, _, off = self.snmp._decode_tlv(body, off)    # community
+                    pdu_tag, pdu_body, _ = self.snmp._decode_tlv(body, off)
+                    _, rid_bytes, _ = self.snmp._decode_tlv(pdu_body, 0)
+                    rid = self.snmp._decode_integer(rid_bytes)
+                    if isinstance(value, str):
+                        v_enc = self.snmp._encode_octet_string(value)
+                    else:
+                        v_enc = self.snmp._encode_integer(value)
+                    vbs = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+                        self.snmp._encode_oid(oid) + v_enc)
+                    pdu = self.snmp._encode_tlv(self.snmp.PDU_GET_RESPONSE,
+                        self.snmp._encode_integer(rid) +
+                        self.snmp._encode_integer(0) +
+                        self.snmp._encode_integer(0) +
+                        self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE, vbs))
+                    msg = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+                        self.snmp._encode_integer(self.snmp.SNMP_V2C) +
+                        self.snmp._encode_octet_string('public') + pdu)
+                    sock.sendto(msg, addr)
+            finally:
+                sock.close()
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready.wait(timeout=2)
+        results = self.snmp.snmp_walk('127.0.0.1', 'public',
+            '1.3.6.1.2.1.2.2.1.2', port=port_box[0], timeout=2)
+        t.join(timeout=3)
+        # Should have 3 entries (stopped before the out-of-subtree one)
+        self.assertEqual(len(results), 3)
+        self.assertIn('1.3.6.1.2.1.2.2.1.2.1', results)
+        self.assertEqual(results['1.3.6.1.2.1.2.2.1.2.1'], 'eth0')
+        self.assertEqual(results['1.3.6.1.2.1.2.2.1.2.3'], 'eth2')
+        self.assertNotIn('1.3.6.1.2.1.2.2.1.3.1', results,
+                          'walk must stop at subtree boundary')
+
     def test_request_id_mismatch_raises(self):
         # Build a response for a different request_id
         vbs = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,

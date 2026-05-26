@@ -336,6 +336,88 @@ def snmp_get(host, community, oids, port=161, timeout=2.0, retries=1):
     raise last_err if last_err else SnmpError('unknown')
 
 
+# ── GETNEXT / walk ─────────────────────────────────────────────────────────
+
+def _build_get_next_request(community, request_id, oid):
+    """Build a GetNextRequest PDU for a single OID."""
+    vb = _encode_oid(oid) + _encode_null()
+    var_binds = _encode_tlv(TAG_SEQUENCE, _encode_tlv(TAG_SEQUENCE, vb))
+    pdu_body = (
+        _encode_integer(request_id) +
+        _encode_integer(0) +
+        _encode_integer(0) +
+        var_binds
+    )
+    pdu = _encode_tlv(PDU_GET_NEXT, pdu_body)
+    msg_body = (
+        _encode_integer(SNMP_V2C) +
+        _encode_octet_string(community) +
+        pdu
+    )
+    return _encode_tlv(TAG_SEQUENCE, msg_body)
+
+
+def _oid_in_subtree(oid_str, root_str):
+    """True if oid_str == root_str OR is a descendant."""
+    if oid_str == root_str:
+        return True
+    return oid_str.startswith(root_str + '.')
+
+
+def snmp_walk(host, community, root_oid, port=161, timeout=2.0, retries=1,
+              max_results=256):
+    """Walk an OID subtree via repeated GETNEXT. Returns {oid: value}.
+
+    Stops when:
+      * the next OID falls outside `root_oid`'s subtree (normal completion),
+      * the agent returns an endOfMibView exception, or
+      * `max_results` is reached (safety cap against runaway walks on
+        gigantic ifTables).
+
+    Each round trip uses a fresh request-id so we can detect mismatched
+    replies. Per-step retry on timeout matches `snmp_get`'s posture.
+    """
+    results = {}
+    current = root_oid
+    base_rid = int(time.time() * 1000) & 0x7FFFFFFF
+    for step in range(max_results):
+        request_id = (base_rid + step) & 0x7FFFFFFF
+        msg = _build_get_next_request(community, request_id, current)
+        last_err = None
+        got = None
+        for _attempt in range(retries + 1):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(timeout)
+            try:
+                sock.sendto(msg, (host, port))
+                buf, _ = sock.recvfrom(65536)
+                got = _parse_response(buf, request_id)
+                break
+            except socket.timeout:
+                last_err = SnmpError(f'timeout at OID {current}')
+            except OSError as e:
+                last_err = SnmpError(f'transport error at OID {current}: {e}')
+            finally:
+                sock.close()
+        if got is None:
+            if results:
+                # Partial walk — return what we have rather than dropping it
+                return results
+            raise last_err if last_err else SnmpError('walk failed (no response)')
+        if not got:
+            return results
+        next_oid, value = next(iter(got.items()))
+        # endOfMibView from _decode_value returns None for the value AND
+        # the OID often remains the same one we asked from. Bail out.
+        if value is None and next_oid == current:
+            return results
+        if not _oid_in_subtree(next_oid, root_oid):
+            return results
+        results[next_oid] = value
+        current = next_oid
+    return results
+
+
 # Standard sys* OIDs — RFC 3418 SNMPv2-MIB::system
 SYSTEM_OIDS = {
     'sysDescr':    '1.3.6.1.2.1.1.1.0',
@@ -356,4 +438,187 @@ def poll_system(host, community, port=161, timeout=2.0):
     for name, oid in SYSTEM_OIDS.items():
         out[name] = raw.get(oid)
     out['_oids'] = raw
+    return out
+
+
+# ── Interface table walks ──────────────────────────────────────────────────
+
+# RFC 1213 IF-MIB ifTable columns
+_IF_COLUMNS = {
+    'ifDescr':       '1.3.6.1.2.1.2.2.1.2',
+    'ifType':        '1.3.6.1.2.1.2.2.1.3',
+    'ifMtu':         '1.3.6.1.2.1.2.2.1.4',
+    'ifSpeed':       '1.3.6.1.2.1.2.2.1.5',
+    'ifPhysAddress': '1.3.6.1.2.1.2.2.1.6',
+    'ifAdminStatus': '1.3.6.1.2.1.2.2.1.7',
+    'ifOperStatus':  '1.3.6.1.2.1.2.2.1.8',
+    'ifInOctets':    '1.3.6.1.2.1.2.2.1.10',
+    'ifOutOctets':   '1.3.6.1.2.1.2.2.1.16',
+    'ifInErrors':    '1.3.6.1.2.1.2.2.1.14',
+    'ifOutErrors':   '1.3.6.1.2.1.2.2.1.20',
+}
+# IF-MIB enums for status
+_IF_ADMIN_STATUS = {1: 'up', 2: 'down', 3: 'testing'}
+_IF_OPER_STATUS  = {1: 'up', 2: 'down', 3: 'testing', 4: 'unknown',
+                    5: 'dormant', 6: 'notPresent', 7: 'lowerLayerDown'}
+
+
+def poll_interfaces(host, community, port=161, timeout=2.0, max_interfaces=64):
+    """Walk IF-MIB::ifTable. Returns a list of per-interface dicts.
+
+    Each entry: {index, descr, type, mtu, speed_bps, mac, admin, oper,
+                 in_octets, out_octets, in_errors, out_errors}.
+
+    Bounded at max_interfaces × len(_IF_COLUMNS) walk steps. A switch
+    with 200 ports won't blow up the response.
+    """
+    rows = {}  # idx → dict
+    # Walk each column separately. Cheaper than walking the whole ifTable
+    # subtree because we skip columns we don't display.
+    for name, oid in _IF_COLUMNS.items():
+        try:
+            walked = snmp_walk(host, community, oid, port=port,
+                               timeout=timeout, retries=1,
+                               max_results=max_interfaces)
+        except SnmpError:
+            continue
+        for found_oid, value in walked.items():
+            # ifTable column.index → the trailing arc is the interface index
+            idx_str = found_oid[len(oid) + 1:]
+            if not idx_str.isdigit():
+                continue
+            idx = int(idx_str)
+            rows.setdefault(idx, {'index': idx})[name] = value
+    # Map to a friendlier shape
+    out = []
+    for idx in sorted(rows.keys()):
+        r = rows[idx]
+        out.append({
+            'index':       idx,
+            'descr':       r.get('ifDescr', ''),
+            'type':        r.get('ifType'),
+            'mtu':         r.get('ifMtu'),
+            'speed_bps':   r.get('ifSpeed'),
+            'mac':         r.get('ifPhysAddress', ''),
+            'admin':       _IF_ADMIN_STATUS.get(r.get('ifAdminStatus'), '?'),
+            'oper':        _IF_OPER_STATUS.get(r.get('ifOperStatus'), '?'),
+            'in_octets':   r.get('ifInOctets', 0),
+            'out_octets':  r.get('ifOutOctets', 0),
+            'in_errors':   r.get('ifInErrors', 0),
+            'out_errors':  r.get('ifOutErrors', 0),
+        })
+    return out
+
+
+# ── Host Resources MIB (RFC 2790) — best effort, many vendors implement it ──
+
+HRMIB_SCALARS = {
+    'hrSystemUptime':     '1.3.6.1.2.1.25.1.1.0',     # TimeTicks
+    'hrSystemNumUsers':   '1.3.6.1.2.1.25.1.5.0',
+    'hrSystemProcesses':  '1.3.6.1.2.1.25.1.6.0',
+    'hrMemorySize':       '1.3.6.1.2.1.25.2.2.0',     # kB
+}
+
+
+def poll_host_resources(host, community, port=161, timeout=2.0):
+    """Best-effort fetch of the well-known scalars from Host Resources MIB.
+
+    Many vendors (Linux, BSD/OPNsense, Windows, Mikrotik) implement these.
+    Returns a dict with the values present; OIDs the agent doesn't expose
+    are simply omitted rather than raising.
+    """
+    out = {}
+    try:
+        raw = snmp_get(host, community, list(HRMIB_SCALARS.values()),
+                       port=port, timeout=timeout)
+    except SnmpError:
+        return out
+    for name, oid in HRMIB_SCALARS.items():
+        val = raw.get(oid)
+        if val is not None:
+            out[name] = val
+    return out
+
+
+def poll_hr_storage(host, community, port=161, timeout=2.0, max_entries=24):
+    """Walk hrStorageTable for memory + filesystems.
+
+    Returns a list of {descr, type, units, size, used, used_pct}.
+    Walks 3 columns: hrStorageDescr (.3), hrStorageAllocationUnits (.4),
+    hrStorageSize (.5), hrStorageUsed (.6). Skips entries with size=0.
+    """
+    cols = {
+        'descr':  '1.3.6.1.2.1.25.2.3.1.3',
+        'units':  '1.3.6.1.2.1.25.2.3.1.4',
+        'size':   '1.3.6.1.2.1.25.2.3.1.5',
+        'used':   '1.3.6.1.2.1.25.2.3.1.6',
+    }
+    rows = {}
+    for key, oid in cols.items():
+        try:
+            walked = snmp_walk(host, community, oid, port=port,
+                               timeout=timeout, retries=1,
+                               max_results=max_entries)
+        except SnmpError:
+            continue
+        for found_oid, value in walked.items():
+            idx_str = found_oid[len(oid) + 1:]
+            if not idx_str.isdigit():
+                continue
+            idx = int(idx_str)
+            rows.setdefault(idx, {})[key] = value
+    out = []
+    for idx in sorted(rows.keys()):
+        r = rows[idx]
+        size = r.get('size')
+        used = r.get('used')
+        units = r.get('units') or 1
+        try:
+            size_bytes = int(size) * int(units) if size is not None else None
+            used_bytes = int(used) * int(units) if used is not None else None
+        except (TypeError, ValueError):
+            size_bytes = used_bytes = None
+        used_pct = None
+        if size_bytes and used_bytes is not None and size_bytes > 0:
+            used_pct = round(used_bytes * 100.0 / size_bytes, 1)
+        if not size_bytes:
+            continue   # Skip placeholder rows
+        out.append({
+            'index':     idx,
+            'descr':     r.get('descr', ''),
+            'size_bytes': size_bytes,
+            'used_bytes': used_bytes,
+            'used_pct':  used_pct,
+        })
+    return out
+
+
+# ── Mikrotik vendor MIB (1.3.6.1.4.1.14988.*) ──────────────────────────────
+
+MIKROTIK_OIDS = {
+    'mtxrSystemVersion':  '1.3.6.1.4.1.14988.1.1.4.4.0',
+    'mtxrSystemUptime':   '1.3.6.1.4.1.14988.1.1.7.1.0',   # 1/100 sec
+    'mtxrHlCoreVoltage':  '1.3.6.1.4.1.14988.1.1.3.8.0',   # mV
+    'mtxrHlTemperature':  '1.3.6.1.4.1.14988.1.1.3.10.0',  # °C × 1
+    'mtxrHlBoardTemp':    '1.3.6.1.4.1.14988.1.1.3.11.0',
+    'mtxrHlCpuFrequency': '1.3.6.1.4.1.14988.1.1.3.14.0',  # MHz
+}
+
+
+def poll_mikrotik(host, community, port=161, timeout=2.0):
+    """Mikrotik RouterBOARD health (temp, voltage, CPU freq, version).
+
+    Detected by sysObjectID prefix 1.3.6.1.4.1.14988. Best effort —
+    units that don't expose health (cloud routers) just return empties.
+    """
+    out = {}
+    try:
+        raw = snmp_get(host, community, list(MIKROTIK_OIDS.values()),
+                       port=port, timeout=timeout)
+    except SnmpError:
+        return out
+    for name, oid in MIKROTIK_OIDS.items():
+        v = raw.get(oid)
+        if v is not None:
+            out[name] = v
     return out
