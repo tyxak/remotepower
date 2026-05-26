@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.1.0'
+SERVER_VERSION = '3.2.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -68,6 +68,29 @@ WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
 # config; the Home dashboard reads from it. Webhook log stays
 # delivery-attempts-only for Settings → Webhook log (unchanged).
 FLEET_EVENTS_FILE = DATA_DIR / 'fleet_events.json'
+
+# v3.2.0 (B1): mutable alert inbox with acknowledge / resolve lifecycle.
+# Distinct from FLEET_EVENTS_FILE (immutable history of every event) — alerts
+# carries only events the operator needs to *act* on, with state attached.
+# Severity, ack_by, ack_at, resolved_by, resolved_at land here.
+ALERTS_FILE = DATA_DIR / 'alerts.json'
+
+# v3.2.0 (B2): inbound webhook tokens for receiving alerts from external
+# systems (Grafana, Alertmanager, Authentik, n8n, Home Assistant). Each token
+# is a long random secret embedded in the receive URL. Tokens can be scoped
+# to a single device or a tag, or be fleet-wide.
+INBOUND_WEBHOOKS_FILE = DATA_DIR / 'inbound_webhooks.json'
+
+# v3.2.0 (A1): MCP Stage 4 — pending confirmations for destructive write
+# tools called via MCP against devices with require_confirmation=True. The
+# MCP server gets 202 with confirmation_id; an admin approves in the
+# dashboard before the action runs.
+CONFIRMATIONS_FILE = DATA_DIR / 'pending_confirmations.json'
+
+# v3.2.0 (B3): OIDC SSO — short-lived state/nonce store for in-flight
+# authorize-code-flow logins. Entries are added by /api/auth/oidc/start
+# and consumed by /api/auth/oidc/callback. TTL is short (10 minutes).
+OIDC_STATES_FILE = DATA_DIR / 'oidc_states.json'
 
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
@@ -388,6 +411,9 @@ MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
 MAX_AUDIT_LOG     = 500
 MAX_WEBHOOK_LOG   = 100
+MAX_ALERTS        = 5000   # v3.2.0 (B1): alerts ledger cap
+MAX_CONFIRMATIONS = 200    # v3.2.0 (A1): pending MCP confirmations cap
+CONFIRMATION_TTL_SEC = 3600  # v3.2.0 (A1): confirmations expire after 1h
 # v2.2.4: cap on the fleet event log (separate from webhook log).
 # 200 fits well into a few KB on disk and gives the Home dashboard
 # enough history to show meaningful activity even on quiet fleets
@@ -419,7 +445,23 @@ MAX_FLEET_EVENTS = 200
 VALID_ROLES        = frozenset({'admin', 'viewer', 'mcp'})
 USER_ROLES         = frozenset({'admin', 'viewer'})         # roles a user account may hold
 APIKEY_ROLES       = frozenset({'admin', 'viewer', 'mcp'})  # roles an API key may hold
-MCP_ACTION_ALLOWLIST = frozenset()  # populated in v3.1.0 Stage 4; empty for now
+MCP_ACTION_ALLOWLIST = frozenset({
+    # v3.2.0 Stage 4: initial write tools. Each is intentionally narrow:
+    #   - reboot_device: a `reboot` command queued for the agent.
+    #   - run_saved_script: runs a pre-vetted script from scripts.json; MCP
+    #     cannot supply arbitrary bash. The script must already exist.
+    #   - force_package_scan: triggers the one-shot package inventory flag.
+    #     Non-destructive — same effect as the dashboard's "Scan now" button.
+    #   - force_acme_rescan: triggers the one-shot ACME rescan flag. Also
+    #     non-destructive.
+    # Destructive ones (reboot, run_saved_script) gate through the per-device
+    # `require_confirmation` flag — operator must approve in the dashboard
+    # before the action runs. Non-destructive ones execute immediately.
+    'reboot_device',
+    'run_saved_script',
+    'force_package_scan',
+    'force_acme_rescan',
+})
 
 
 # v1.8.4: All known webhook events, with metadata used by the UI to render
@@ -1325,7 +1367,22 @@ def get_json_body():
         return {}
 
 def get_token_from_request():
-    return os.environ.get('HTTP_X_TOKEN', '')
+    """Extract the auth token from the request.
+
+    Primary header: ``X-Token`` — used by the dashboard, agents, and API
+    keys. v3.2.0 also accepts ``Authorization: Bearer <token>`` so the
+    MCP server (and any external API client that follows the standard
+    Authorization scheme) Just Works without an extra translation step.
+    The existing Prometheus /api/metrics handler already accepted Bearer;
+    this generalises that across every endpoint.
+    """
+    tok = os.environ.get('HTTP_X_TOKEN', '').strip()
+    if tok:
+        return tok
+    auth = os.environ.get('HTTP_AUTHORIZATION', '').strip()
+    if auth.lower().startswith('bearer '):
+        return auth[7:].strip()
+    return ''
 
 def path_info():
     return os.environ.get('PATH_INFO', '').rstrip('/')
@@ -1783,6 +1840,204 @@ def _record_fleet_event(event, payload):
         pass
 
 
+# ── v3.2.0 (B1): alerts inbox — acknowledgement ledger ──────────────────────
+# fire_webhook() records every event in fleet_events.json (immutable history)
+# and webhook_log.json (delivery attempts). Alerts is the third channel: only
+# events the operator must *act* on land here, with mutable ack/resolve state.
+# A recover event (device_online, service_recover, custom_script_recover)
+# auto-resolves the matching open alert.
+
+# Map firing event → (severity, auto_resolves_event). None severity = skip.
+_ALERT_RULES = {
+    'device_offline':         ('critical', None),
+    'service_down':           ('high',     None),
+    'container_stopped':      ('high',     None),
+    'container_restarting':   ('medium',   None),
+    'containers_stale':       ('medium',   None),
+    'patch_alert':            ('medium',   None),
+    'cve_found':              (None,       None),   # severity from payload
+    'drift_detected':         ('medium',   None),
+    'config_drift':           ('medium',   None),
+    'tls_expiring':           (None,       None),   # severity from payload.days
+    'mailbox_threshold':      ('medium',   None),
+    'custom_script_fail':     ('high',     None),
+    'log_alert':              (None,       None),   # severity from payload.level
+    'metric_warning':         (None,       None),   # severity from payload.level
+}
+
+# Map recover event → firing event it resolves
+_ALERT_RECOVER = {
+    'device_online':           'device_offline',
+    'service_recover':         'service_down',
+    'custom_script_recover':   'custom_script_fail',
+}
+
+
+def _alert_severity(event, payload):
+    """Return severity string for this firing event, or None to skip."""
+    rule = _ALERT_RULES.get(event)
+    if not rule:
+        return None
+    sev, _ = rule
+    if sev is not None:
+        return sev
+    # Payload-derived severity
+    p = payload or {}
+    if event == 'cve_found':
+        if int(p.get('critical') or 0) > 0:
+            return 'critical'
+        if int(p.get('high') or 0) > 0:
+            return 'high'
+        return 'medium'
+    if event == 'tls_expiring':
+        days = p.get('days')
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            return 'high'
+        if days < 3:
+            return 'critical'
+        if days < 14:
+            return 'high'
+        return 'medium'
+    if event in ('log_alert', 'metric_warning'):
+        lvl = (p.get('level') or '').lower()
+        if lvl in ('critical', 'crit'):
+            return 'critical'
+        if lvl in ('high', 'error', 'err'):
+            return 'high'
+        if lvl in ('warning', 'warn', 'medium'):
+            return 'medium'
+        return 'medium'
+    return None
+
+
+def _alert_title(event, payload):
+    """One-line human-readable title for the alert row."""
+    p = payload or {}
+    name = p.get('device_name') or p.get('name') or p.get('host') or ''
+    if event == 'device_offline':
+        return f'Device offline: {name}'
+    if event == 'service_down':
+        return f'Service down on {name}: {p.get("unit", "")}'
+    if event == 'container_stopped':
+        return f'Container stopped on {name}: {p.get("container", "")}'
+    if event == 'container_restarting':
+        return f'Container restarting on {name}: {p.get("container", "")}'
+    if event == 'containers_stale':
+        return f'Container data stale on {name}'
+    if event == 'patch_alert':
+        return f'{p.get("upgradable", "?")} pending updates on {name}'
+    if event == 'cve_found':
+        c = p.get('critical') or 0; h = p.get('high') or 0
+        return f'CVEs on {name}: {c} critical, {h} high'
+    if event in ('drift_detected', 'config_drift'):
+        return f'Config drift on {name}: {p.get("files", "?")} file(s)'
+    if event == 'tls_expiring':
+        host = p.get('host') or name
+        return f'TLS expires in {p.get("days", "?")}d: {host}'
+    if event == 'mailbox_threshold':
+        return f'Mailbox threshold on {name}: {p.get("path", "")} = {p.get("count", "?")}'
+    if event == 'custom_script_fail':
+        return f'Custom script failed on {name}: {p.get("script_name", "")}'
+    if event == 'log_alert':
+        return f'Log alert on {name}: {p.get("pattern") or p.get("unit", "")}'
+    if event == 'metric_warning':
+        return f'{p.get("metric", "metric")} {(p.get("level") or "warning")} on {name}: {p.get("value", "?")}'
+    return f'{event}: {name}'
+
+
+def _record_alert(event, payload):
+    """Create an alert row if this event is actionable.
+
+    v3.2.0 (B1): wired into fire_webhook() unconditionally — independent of
+    whether any webhook destination is configured. Operators see alerts in
+    the inbox even without external delivery.
+    """
+    sev = _alert_severity(event, payload)
+    if not sev:
+        return None
+    p = payload or {}
+    summary = {}
+    if isinstance(p, dict):
+        for key in ('device_id', 'device_name', 'name', 'host', 'path',
+                    'unit', 'metric', 'cve_id', 'severity', 'critical',
+                    'high', 'upgradable', 'pattern', 'level', 'days',
+                    'container', 'script_name', 'value', 'source',
+                    # B2: inbound webhooks set these
+                    'inbound_token_id', 'inbound_source'):
+            if key in p and p[key] is not None:
+                v = p[key]
+                if isinstance(v, str):
+                    v = v[:512]
+                summary[key] = v
+    alert = {
+        'id':              'a-' + os.urandom(6).hex(),
+        'ts':              int(time.time()),
+        'event':           str(event)[:64],
+        'severity':        sev,
+        'title':           _alert_title(event, payload)[:256],
+        'device_id':       (p.get('device_id') or '')[:64] if isinstance(p.get('device_id'), str) else p.get('device_id'),
+        'device_name':     (p.get('device_name') or p.get('name') or '')[:128],
+        'payload':         summary,
+        'source':          p.get('_alert_source', 'internal'),
+        'acknowledged_by': None,
+        'acknowledged_at': None,
+        'resolved_by':     None,
+        'resolved_at':     None,
+    }
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            alerts = store.setdefault('alerts', [])
+            alerts.append(alert)
+            if len(alerts) > MAX_ALERTS:
+                del alerts[:-MAX_ALERTS]
+    except Exception:
+        pass
+    return alert
+
+
+def _auto_resolve_alerts(event, payload):
+    """If `event` is a recover event, mark matching open alerts resolved."""
+    fired_event = _ALERT_RECOVER.get(event)
+    if not fired_event:
+        return
+    p = payload or {}
+    dev_id = p.get('device_id')
+    if not dev_id:
+        return
+    # Optional sub-keys to disambiguate (e.g. service unit, script name)
+    sub_match = {}
+    if event == 'service_recover':
+        sub_match['unit'] = p.get('unit')
+    elif event == 'custom_script_recover':
+        sub_match['script_name'] = p.get('script_name')
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if a.get('resolved_at'):
+                    continue
+                if a.get('event') != fired_event:
+                    continue
+                if a.get('device_id') != dev_id:
+                    continue
+                # Sub-key match for service/script events
+                ok = True
+                for k, v in sub_match.items():
+                    if v is None:
+                        continue
+                    if (a.get('payload') or {}).get(k) != v:
+                        ok = False
+                        break
+                if not ok:
+                    continue
+                a['resolved_at'] = now
+                a['resolved_by'] = 'auto'
+    except Exception:
+        pass
+
+
 def fire_webhook(event, payload):
     """
     v1.8.6: Despite the historical name, this is now the single dispatch point
@@ -1804,6 +2059,18 @@ def fire_webhook(event, payload):
     # event firing path.
     try:
         _record_fleet_event(event, payload)
+    except Exception:
+        pass
+
+    # v3.2.0 (B1): alerts inbox — for actionable events, append to the
+    # mutable ledger; for recover events, auto-resolve matching alerts.
+    # Both wrapped so a ledger bug can never break the event firing path.
+    try:
+        _record_alert(event, payload)
+    except Exception:
+        pass
+    try:
+        _auto_resolve_alerts(event, payload)
     except Exception:
         pass
 
@@ -2538,6 +2805,7 @@ def handle_public_info():
     server's display name and remember-me default before the user logs in.
     Deliberately exposes only non-sensitive values.
     """
+    cfg = load(CONFIG_FILE) or {}
     respond(200, {
         'server_name':         get_server_name(),
         'server_version':      SERVER_VERSION,
@@ -2547,6 +2815,10 @@ def handle_public_info():
         # tries a write will get the same 403 regardless. Knowing up-front
         # lets the UI pre-emptively hide pointless buttons.
         'read_only':           _is_demo_read_only(),
+        # v3.2.0 (B3): tells the login page whether to render the
+        # "Sign in with SSO" button. Just a yes/no — the issuer URL
+        # itself is admin-only and never exposed pre-login.
+        'oidc_enabled':        bool(cfg.get('oidc_enabled') and cfg.get('oidc_issuer')),
     })
 
 
@@ -5572,6 +5844,24 @@ def handle_config_save():
             except (TypeError, ValueError):
                 respond(400, {'error': 'backup.retain_days must be an integer'})
         cfg['backup'] = clean_bk
+
+    # v3.2.0 (B3): OIDC SSO config. Validate URL shape; secret is opt-in
+    # update only — empty string means "keep current".
+    for key in ('oidc_issuer', 'oidc_client_id', 'oidc_scopes',
+                'oidc_admin_group'):
+        if key in body:
+            cfg[key] = _sanitize_str(str(body[key] or ''), 512)
+    if 'oidc_enabled' in body:
+        cfg['oidc_enabled'] = bool(body['oidc_enabled'])
+    if cfg.get('oidc_issuer'):
+        p = urllib.parse.urlparse(cfg['oidc_issuer'])
+        if p.scheme not in ('http', 'https'):
+            respond(400, {'error': 'oidc_issuer must be http or https'})
+    if 'oidc_client_secret' in body:
+        sec = body['oidc_client_secret']
+        if isinstance(sec, str) and sec:
+            cfg['oidc_client_secret'] = _sanitize_str(sec, 512)
+        # Empty string means "no change" — don't overwrite the existing one
 
     save(CONFIG_FILE, cfg)
     respond(200, {'ok': True})
@@ -11295,6 +11585,976 @@ def handle_audit_log_clear():
     respond(200, {'ok': True})
 
 
+# ── v3.2.0 (B1): alerts inbox ───────────────────────────────────────────────
+
+def _alerts_summary(alerts):
+    """Lightweight counts used by Home/sidebar badges."""
+    out = {'open': 0, 'acknowledged': 0, 'resolved': 0,
+           'by_severity': {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}}
+    for a in alerts:
+        if a.get('resolved_at'):
+            out['resolved'] += 1
+        elif a.get('acknowledged_at'):
+            out['acknowledged'] += 1
+            sev = a.get('severity') or 'medium'
+            out['by_severity'][sev] = out['by_severity'].get(sev, 0) + 1
+        else:
+            out['open'] += 1
+            sev = a.get('severity') or 'medium'
+            out['by_severity'][sev] = out['by_severity'].get(sev, 0) + 1
+    return out
+
+
+def handle_alerts_list():
+    """GET /api/alerts?status=open|ack|resolved|all&limit=N
+
+    Returns newest first. `status` filter:
+      - open      → no ack, no resolve  (default)
+      - ack       → ack present, not resolved
+      - resolved  → resolved
+      - all       → everything
+    """
+    user = require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', ''))
+    status = (qs.get('status', ['open'])[0] or 'open').lower()
+    try:
+        limit = max(1, min(1000, int(qs.get('limit', ['200'])[0])))
+    except ValueError:
+        limit = 200
+    al = load(ALERTS_FILE)
+    all_alerts = al.get('alerts', [])
+    if status == 'all':
+        filtered = list(all_alerts)
+    elif status == 'ack':
+        filtered = [a for a in all_alerts
+                    if a.get('acknowledged_at') and not a.get('resolved_at')]
+    elif status == 'resolved':
+        filtered = [a for a in all_alerts if a.get('resolved_at')]
+    else:  # open
+        filtered = [a for a in all_alerts
+                    if not a.get('acknowledged_at') and not a.get('resolved_at')]
+    filtered.reverse()  # newest first
+    respond(200, {
+        'alerts': filtered[:limit],
+        'total':  len(filtered),
+        'summary': _alerts_summary(all_alerts),
+    })
+
+
+def _find_alert(alert_id):
+    """Used by ack/resolve/unack handlers under a single _LockedUpdate."""
+    return alert_id
+
+
+def handle_alert_ack(alert_id):
+    """POST /api/alerts/<id>/ack — any logged-in user can acknowledge."""
+    user = require_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    note = _sanitize_str(body.get('note', ''), 256)
+    found = False
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            for a in store.get('alerts', []):
+                if a.get('id') == alert_id:
+                    if a.get('resolved_at'):
+                        respond(409, {'error': 'alert already resolved'})
+                    a['acknowledged_by'] = user
+                    a['acknowledged_at'] = int(time.time())
+                    if note:
+                        a['ack_note'] = note
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'alert not found'})
+    audit_log(user, 'alert_ack', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
+    respond(200, {'ok': True})
+
+
+def handle_alert_unack(alert_id):
+    """POST /api/alerts/<id>/unack — clear an accidental ack."""
+    user = require_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    found = False
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            for a in store.get('alerts', []):
+                if a.get('id') == alert_id:
+                    if a.get('resolved_at'):
+                        respond(409, {'error': 'alert already resolved'})
+                    a['acknowledged_by'] = None
+                    a['acknowledged_at'] = None
+                    a.pop('ack_note', None)
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'alert not found'})
+    audit_log(user, 'alert_unack', f'id={alert_id}')
+    respond(200, {'ok': True})
+
+
+def handle_alert_resolve(alert_id):
+    """POST /api/alerts/<id>/resolve — manual close (auto-resolve runs via recover events)."""
+    user = require_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    note = _sanitize_str(body.get('note', ''), 256)
+    found = False
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            for a in store.get('alerts', []):
+                if a.get('id') == alert_id:
+                    if a.get('resolved_at'):
+                        respond(409, {'error': 'alert already resolved'})
+                    now = int(time.time())
+                    a['resolved_by'] = user
+                    a['resolved_at'] = now
+                    if not a.get('acknowledged_at'):
+                        # Resolve implies ack
+                        a['acknowledged_by'] = user
+                        a['acknowledged_at'] = now
+                    if note:
+                        a['resolve_note'] = note
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'alert not found'})
+    audit_log(user, 'alert_resolve', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
+    respond(200, {'ok': True})
+
+
+def handle_alerts_bulk_resolve():
+    """POST /api/alerts/bulk-resolve — admin-only, resolves matching open/ack alerts.
+
+    Body: {ids: [...]} or {event: 'device_offline', device_id: '...'}
+    Used by the Alerts page "Resolve selected" button.
+    """
+    user = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    ids = body.get('ids') or []
+    if not isinstance(ids, list) or not ids:
+        respond(400, {'error': 'ids list required'})
+    ids_set = {str(i) for i in ids}
+    resolved = 0
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if a.get('id') in ids_set and not a.get('resolved_at'):
+                    a['resolved_by'] = user
+                    a['resolved_at'] = now
+                    if not a.get('acknowledged_at'):
+                        a['acknowledged_by'] = user
+                        a['acknowledged_at'] = now
+                    resolved += 1
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    audit_log(user, 'alert_bulk_resolve', f'count={resolved}')
+    respond(200, {'ok': True, 'resolved': resolved})
+
+
+def handle_alerts_summary():
+    """GET /api/alerts/summary — small counts payload for sidebar badge."""
+    require_auth()
+    al = load(ALERTS_FILE)
+    respond(200, _alerts_summary(al.get('alerts', [])))
+
+
+# ── v3.2.0 (B2): inbound webhooks ───────────────────────────────────────────
+
+_VALID_SEVERITIES = ('critical', 'high', 'medium', 'low')
+
+
+def _generate_inbound_token():
+    """Token format: rpwi_<32 hex>. Prefix lets ops grep it in payloads/logs."""
+    return 'rpwi_' + secrets.token_hex(16)
+
+
+def _resolve_inbound_device(token_cfg, body):
+    """Return (device_id, device_name) for an inbound payload, or ('', '').
+
+    Resolution order:
+      1. Token has scope_device_id pinned → that wins.
+      2. Body carries `device` (name match against devices.json).
+      3. Body carries `device_id` (direct match).
+    """
+    pinned = token_cfg.get('scope_device_id')
+    if pinned:
+        d = load(DEVICES_FILE).get(pinned) or {}
+        return pinned, d.get('name', '')
+    if isinstance(body, dict):
+        dev_id_in = body.get('device_id')
+        if dev_id_in:
+            d = load(DEVICES_FILE).get(dev_id_in) or {}
+            if d:
+                return dev_id_in, d.get('name', '')
+        dev_name = body.get('device') or body.get('hostname')
+        if dev_name:
+            devs = load(DEVICES_FILE)
+            for did, d in devs.items():
+                if (d.get('name') == dev_name
+                        or d.get('hostname') == dev_name):
+                    return did, d.get('name', '')
+    return '', ''
+
+
+def handle_inbound_webhook(token_str):
+    """POST /api/webhook/in/<token>
+
+    Receives a generic alert payload from an external system. Writes the
+    alert to the inbox (B1) and to fleet_events. Does NOT fan out to
+    outbound webhook destinations — that would double-deliver when the
+    source already sent the alert to those same destinations.
+
+    No auth header is required — the token in the URL IS the auth.
+
+    Body shape (all fields optional except severity + title):
+      {
+        "source":   "grafana" | "alertmanager" | ...,
+        "severity": "critical" | "high" | "medium" | "low",
+        "title":    "Alert title",
+        "body":     "Longer description",
+        "device":   "tviweb01" (hostname or .name match) | null,
+        "device_id": "d-xxxxx" (explicit match) | null,
+        "links":    [{ "url": "...", "label": "..." }, ...]
+      }
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    cfg = load(INBOUND_WEBHOOKS_FILE)
+    tokens = cfg.get('tokens', [])
+    token_str = (token_str or '').strip()
+    if not token_str or not token_str.startswith('rpwi_'):
+        respond(401, {'error': 'invalid token'})
+    match = None
+    for t in tokens:
+        if (t.get('token') == token_str) and t.get('enabled', True):
+            match = t
+            break
+    if not match:
+        respond(401, {'error': 'invalid or disabled token'})
+
+    body = get_json_body() or {}
+    if not isinstance(body, dict):
+        respond(400, {'error': 'body must be a JSON object'})
+
+    severity = (body.get('severity') or 'medium').lower()
+    if severity not in _VALID_SEVERITIES:
+        severity = 'medium'
+    title = _sanitize_str(body.get('title', ''), 256)
+    if not title:
+        respond(400, {'error': 'title required'})
+
+    dev_id, dev_name = _resolve_inbound_device(match, body)
+    source = _sanitize_str(body.get('source') or match.get('label') or 'inbound', 64)
+
+    # Build alert directly. We bypass fire_webhook() to avoid fanning out to
+    # outbound destinations (the source likely already delivered to them).
+    summary = {
+        'device_id':         dev_id or None,
+        'device_name':       dev_name or None,
+        'source':            source,
+        'severity':          severity,
+        'inbound_token_id':  match.get('id'),
+        'inbound_source':    source,
+    }
+    if body.get('body'):
+        summary['body'] = _sanitize_str(body.get('body'), 1024)
+    links = body.get('links')
+    if isinstance(links, list):
+        safe_links = []
+        for ln in links[:5]:
+            if isinstance(ln, dict) and ln.get('url'):
+                safe_links.append({
+                    'url':   _sanitize_str(ln.get('url'), 512),
+                    'label': _sanitize_str(ln.get('label', 'link'), 64),
+                })
+        if safe_links:
+            summary['links'] = safe_links
+
+    alert = {
+        'id':              'a-' + os.urandom(6).hex(),
+        'ts':              int(time.time()),
+        'event':           'inbound',
+        'severity':        severity,
+        'title':           title,
+        'device_id':       dev_id or None,
+        'device_name':     dev_name or '',
+        'payload':         summary,
+        'source':          'inbound',
+        'acknowledged_by': None,
+        'acknowledged_at': None,
+        'resolved_by':     None,
+        'resolved_at':     None,
+    }
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            arr = store.setdefault('alerts', [])
+            arr.append(alert)
+            if len(arr) > MAX_ALERTS:
+                del arr[:-MAX_ALERTS]
+    except Exception as e:
+        respond(500, {'error': f'failed to record alert: {e}'})
+
+    # Also record in fleet_events for the activity panel
+    try:
+        _record_fleet_event('inbound', {
+            'device_id':   dev_id,
+            'device_name': dev_name,
+            'source':      source,
+            'severity':    severity,
+        })
+    except Exception:
+        pass
+
+    # Bump token stats
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            for t in store.get('tokens', []):
+                if t.get('token') == token_str:
+                    t['last_seen'] = int(time.time())
+                    t['hit_count'] = int(t.get('hit_count', 0)) + 1
+                    break
+    except Exception:
+        pass
+
+    # Audit log — actor is the token label so the operator sees which token fired
+    audit_log(f'inbound:{match.get("label", match.get("id", "?"))}',
+              'inbound_webhook',
+              f'severity={severity} title={title[:80]} device={dev_name or "-"}')
+
+    respond(200, {'ok': True, 'alert_id': alert['id']})
+
+
+def handle_inbound_webhooks_list():
+    """GET /api/inbound-webhooks — admin-only. Returns tokens without secret."""
+    require_admin_auth()
+    cfg = load(INBOUND_WEBHOOKS_FILE)
+    redacted = []
+    for t in cfg.get('tokens', []):
+        copy = {k: v for k, v in t.items() if k != 'token'}
+        copy['token_preview'] = (t.get('token') or '')[:12] + '…'
+        redacted.append(copy)
+    respond(200, {'tokens': redacted})
+
+
+def handle_inbound_webhooks_create():
+    """POST /api/inbound-webhooks — admin-only. Returns token ONCE."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    label = _sanitize_str(body.get('label', ''), 64)
+    if not label:
+        respond(400, {'error': 'label required'})
+    scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
+    scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
+    token = _generate_inbound_token()
+    entry = {
+        'id':                'iwh_' + os.urandom(4).hex(),
+        'label':             label,
+        'token':             token,
+        'scope_device_id':   scope_dev,
+        'scope_tag':         scope_tag,
+        'enabled':           True,
+        'created_by':        actor,
+        'created_at':        int(time.time()),
+        'last_seen':         None,
+        'hit_count':         0,
+    }
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            store.setdefault('tokens', []).append(entry)
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    audit_log(actor, 'inbound_webhook_create',
+              f'id={entry["id"]} label={label}')
+    # Returned ONCE — store it now or you lose it.
+    respond(200, {'ok': True, 'token': token, 'id': entry['id']})
+
+
+def handle_inbound_webhook_revoke(token_id):
+    """DELETE /api/inbound-webhooks/<id> — admin-only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    found = False
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            arr = store.get('tokens', [])
+            for i, t in enumerate(arr):
+                if t.get('id') == token_id:
+                    arr.pop(i)
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'token not found'})
+    audit_log(actor, 'inbound_webhook_revoke', f'id={token_id}')
+    respond(200, {'ok': True})
+
+
+def handle_inbound_webhook_toggle(token_id):
+    """PATCH /api/inbound-webhooks/<id> — admin-only, body: {enabled: bool}."""
+    actor = require_admin_auth()
+    if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    enabled = bool(body.get('enabled', True))
+    found = False
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            for t in store.get('tokens', []):
+                if t.get('id') == token_id:
+                    t['enabled'] = enabled
+                    found = True
+                    break
+    except Exception as e:
+        respond(500, {'error': str(e)})
+    if not found:
+        respond(404, {'error': 'token not found'})
+    audit_log(actor, 'inbound_webhook_toggle',
+              f'id={token_id} enabled={enabled}')
+    respond(200, {'ok': True})
+
+
+# ── v3.2.0 (A1): MCP Stage 4 — write tools + confirmation flow ──────────────
+
+def _prune_confirmations(store):
+    """Drop expired pending confirmations from the ledger in-place."""
+    now = int(time.time())
+    arr = store.get('confirmations', [])
+    keep = []
+    for c in arr:
+        if c.get('status') == 'pending' and now - c.get('requested_at', 0) > CONFIRMATION_TTL_SEC:
+            c['status'] = 'expired'
+            c['decided_at'] = now
+        keep.append(c)
+    # Count-bound trim
+    if len(keep) > MAX_CONFIRMATIONS:
+        keep = keep[-MAX_CONFIRMATIONS:]
+    store['confirmations'] = keep
+
+
+def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
+    """Append a pending confirmation; return its id. Locks the file."""
+    conf_id = 'cf_' + os.urandom(6).hex()
+    entry = {
+        'id':            conf_id,
+        'action':        action,
+        'device_id':     device_id,
+        'params':        params or {},
+        'requested_by':  actor,
+        'requested_at':  int(time.time()),
+        'ai_host':       ai_host,
+        'ai_prompt':     ai_prompt,
+        'status':        'pending',
+        'decided_by':    None,
+        'decided_at':    None,
+    }
+    with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+        _prune_confirmations(store)
+        store.setdefault('confirmations', []).append(entry)
+    audit_log(actor, 'mcp_confirmation_requested',
+              f'action={action} device={device_id} id={conf_id}',
+              ai_host=ai_host, ai_prompt=ai_prompt)
+    return conf_id
+
+
+def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
+    """Run the MCP action immediately. Does NOT call respond() — caller does."""
+    devs = load(DEVICES_FILE)
+    dev = devs.get(device_id) or {}
+    dev_name = dev.get('name', device_id)
+
+    if action == 'reboot_device':
+        cmds = load(CMDS_FILE)
+        cmds.setdefault(device_id, [])
+        if 'reboot' not in cmds[device_id]:
+            cmds[device_id].append('reboot')
+        save(CMDS_FILE, cmds)
+        log_command(actor, device_id, dev_name, 'reboot')
+        fire_webhook('command_queued', {
+            'device_id': device_id, 'name': dev_name,
+            'command': 'reboot', 'actor': actor,
+        })
+
+    elif action == 'run_saved_script':
+        script_id = (params or {}).get('script_id') or ''
+        scripts = load(SCRIPTS_FILE)
+        # scripts.json is a dict keyed by script id
+        script = scripts.get(script_id)
+        if not script:
+            return {'ok': False, 'error': f'script_id "{script_id}" not found'}
+        body = script.get('body') or ''
+        if not body.strip():
+            return {'ok': False, 'error': 'script has empty body'}
+        # Queue as an exec command — same shape as the dashboard's "Run script"
+        cmd_str = 'exec:' + body
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            cmds.setdefault(device_id, []).append(cmd_str)
+        log_command(actor, device_id, dev_name,
+                    f'exec(script:{script.get("name") or script_id})')
+        fire_webhook('command_queued', {
+            'device_id': device_id, 'name': dev_name,
+            'command': f'exec:script:{script.get("name") or script_id}',
+            'actor': actor,
+        })
+
+    elif action == 'force_package_scan':
+        with _LockedUpdate(DEVICES_FILE) as d:
+            if device_id in d:
+                d[device_id]['force_package_scan'] = True
+
+    elif action == 'force_acme_rescan':
+        with _LockedUpdate(DEVICES_FILE) as d:
+            if device_id in d:
+                d[device_id]['force_acme_rescan'] = True
+
+    else:
+        return {'ok': False, 'error': f'unknown action "{action}"'}
+
+    # Audit log with MCP attribution
+    audit_log(actor, f'mcp_{action}',
+              f'device={device_id} name={dev_name}',
+              ai_host=ai_host, ai_prompt=ai_prompt)
+    return {'ok': True, 'action': action, 'device_id': device_id}
+
+
+def _mcp_handle(action, destructive):
+    """Common entry for all 4 MCP write tools.
+
+    destructive=True → respect device.require_confirmation; may return 202.
+    destructive=False → always execute immediately.
+    """
+    user = require_mcp_action(action)
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    device_id = (body.get('device_id') or '').strip()
+    if not device_id or not _validate_id(device_id):
+        respond(400, {'error': 'valid device_id required'})
+    devs = load(DEVICES_FILE)
+    if device_id not in devs:
+        respond(404, {'error': 'device not found'})
+    ai_host, ai_prompt = get_mcp_attribution()
+
+    params = {k: v for k, v in body.items() if k != 'device_id'}
+
+    if destructive and devs[device_id].get('require_confirmation', True):
+        conf_id = _create_confirmation(action, device_id, params, user,
+                                       ai_host, ai_prompt)
+        respond(202, {
+            'ok': True,
+            'status': 'pending_confirmation',
+            'confirmation_id': conf_id,
+            'message': ('Operator approval required. The action is queued '
+                        'but will not run until an admin approves it in '
+                        'the dashboard (Confirmations).'),
+        })
+
+    # Immediate execution path
+    result = _mcp_execute(action, device_id, params, user, ai_host, ai_prompt)
+    if result.get('ok'):
+        respond(200, result)
+    else:
+        respond(400, result)
+
+
+def handle_mcp_reboot_device():
+    _mcp_handle('reboot_device', destructive=True)
+
+
+def handle_mcp_run_saved_script():
+    _mcp_handle('run_saved_script', destructive=True)
+
+
+def handle_mcp_force_package_scan():
+    _mcp_handle('force_package_scan', destructive=False)
+
+
+def handle_mcp_force_acme_rescan():
+    _mcp_handle('force_acme_rescan', destructive=False)
+
+
+# ── Confirmation queue endpoints (admin-only, called from the dashboard) ────
+
+def handle_confirmations_list():
+    """GET /api/confirmations — admin sees pending MCP confirmations."""
+    require_admin_auth()
+    # Prune expired while we read
+    with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+        _prune_confirmations(store)
+        arr = list(store.get('confirmations', []))
+    arr.reverse()
+    # Add device_name + script_name for display
+    devs = load(DEVICES_FILE)
+    scripts = load(SCRIPTS_FILE)
+    out = []
+    for c in arr:
+        d = devs.get(c.get('device_id'), {}) or {}
+        c2 = dict(c)
+        c2['device_name'] = d.get('name', '')
+        sid = (c.get('params') or {}).get('script_id')
+        if sid and sid in scripts:
+            c2['script_name'] = scripts[sid].get('name', sid)
+        out.append(c2)
+    respond(200, {'confirmations': out})
+
+
+def handle_confirmation_approve(conf_id):
+    """POST /api/confirmations/<id>/approve — admin runs the action."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    entry = None
+    with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+        _prune_confirmations(store)
+        for c in store.get('confirmations', []):
+            if c.get('id') == conf_id:
+                entry = c
+                break
+        if not entry:
+            respond(404, {'error': 'confirmation not found'})
+        if entry.get('status') != 'pending':
+            respond(409, {'error': f'confirmation already {entry.get("status")}'})
+        entry['status'] = 'approved'
+        entry['decided_by'] = actor
+        entry['decided_at'] = int(time.time())
+    # Execute outside the lock
+    result = _mcp_execute(
+        entry['action'], entry['device_id'], entry.get('params') or {},
+        actor=f'mcp:{entry["requested_by"]} (approved by {actor})',
+        ai_host=entry.get('ai_host'),
+        ai_prompt=entry.get('ai_prompt'),
+    )
+    if not result.get('ok'):
+        # Roll back the status flag so the operator can see what failed
+        with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+            for c in store.get('confirmations', []):
+                if c.get('id') == conf_id:
+                    c['status'] = 'failed'
+                    c['error'] = result.get('error', '')
+                    break
+        respond(500, {'ok': False, 'error': result.get('error', 'execution failed')})
+    respond(200, {'ok': True, 'result': result})
+
+
+def handle_confirmation_reject(conf_id):
+    """POST /api/confirmations/<id>/reject — admin declines the action."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    note = _sanitize_str(body.get('note', ''), 256)
+    found = False
+    with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+        for c in store.get('confirmations', []):
+            if c.get('id') == conf_id:
+                if c.get('status') != 'pending':
+                    respond(409, {'error': f'confirmation already {c.get("status")}'})
+                c['status'] = 'rejected'
+                c['decided_by'] = actor
+                c['decided_at'] = int(time.time())
+                if note:
+                    c['reject_note'] = note
+                found = True
+                break
+    if not found:
+        respond(404, {'error': 'confirmation not found'})
+    audit_log(actor, 'mcp_confirmation_rejected',
+              f'id={conf_id}' + (f' note={note[:80]}' if note else ''))
+    respond(200, {'ok': True})
+
+
+# ── v3.2.0 (B3): OIDC SSO ──────────────────────────────────────────────────
+
+_OIDC_STATE_TTL = 600   # 10 minutes
+_OIDC_METADATA_CACHE = {}  # issuer → (expiry_ts, metadata_dict)
+
+
+def _b64url_decode(s):
+    """Decode a JWT-style base64url (no padding) chunk to bytes."""
+    s = s.replace('-', '+').replace('_', '/')
+    s += '=' * (-len(s) % 4)
+    import base64
+    return base64.b64decode(s)
+
+
+def _decode_id_token(id_token):
+    """Parse a JWT payload without signature verification.
+
+    The id_token arrives over a back-channel HTTPS POST to the IdP's token
+    endpoint that we authenticated with our client_secret — the channel
+    integrity is what we trust. This matches RFC 6749 §10.12 and is the
+    same posture every confidential-client OIDC library takes by default.
+    For tighter posture (front-channel id_tokens or implicit flow), a
+    JWKS-based signature check would be required; we explicitly do not
+    support those flows.
+    """
+    parts = id_token.split('.')
+    if len(parts) != 3:
+        raise ValueError('malformed id_token')
+    payload = json.loads(_b64url_decode(parts[1]).decode('utf-8'))
+    return payload
+
+
+def _oidc_discover(issuer):
+    """Fetch + cache the IdP's /.well-known/openid-configuration."""
+    now = int(time.time())
+    cached = _OIDC_METADATA_CACHE.get(issuer)
+    if cached and cached[0] > now:
+        return cached[1]
+    url = issuer.rstrip('/') + '/.well-known/openid-configuration'
+    req = urllib.request.Request(url, headers={'Accept': 'application/json'})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        meta = json.loads(resp.read().decode('utf-8'))
+    _OIDC_METADATA_CACHE[issuer] = (now + 3600, meta)
+    return meta
+
+
+def _oidc_redirect_uri():
+    """Build the public callback URL from the current request context."""
+    host = os.environ.get('HTTP_HOST', '').strip()
+    scheme = 'https' if os.environ.get('HTTPS', 'on') in ('on', '1', 'true') else 'http'
+    fwd_scheme = os.environ.get('HTTP_X_FORWARDED_PROTO', '').strip().lower()
+    if fwd_scheme in ('http', 'https'):
+        scheme = fwd_scheme
+    return f'{scheme}://{host}/api/auth/oidc/callback'
+
+
+def _prune_oidc_states(store):
+    now = int(time.time())
+    keep = {k: v for k, v in store.items()
+            if isinstance(v, dict) and v.get('expires_at', 0) > now}
+    return keep
+
+
+def handle_oidc_start():
+    """GET /api/auth/oidc/start — initiate the OIDC authorization code flow.
+
+    Generates state + nonce, stores them server-side, then 302-redirects
+    the user to the IdP's authorize endpoint. Returns 503 if OIDC is not
+    configured.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    if not (cfg.get('oidc_enabled') and cfg.get('oidc_issuer') and cfg.get('oidc_client_id')):
+        respond(503, {'error': 'OIDC is not configured on this server'})
+
+    try:
+        meta = _oidc_discover(cfg['oidc_issuer'])
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] OIDC discovery failed: {e}\n')
+        respond(502, {'error': 'OIDC issuer unreachable',
+                      'detail': str(e)[:240]})
+    authorize_url = meta.get('authorization_endpoint')
+    if not authorize_url:
+        respond(502, {'error': 'OIDC issuer metadata missing authorization_endpoint'})
+
+    state = secrets.token_urlsafe(32)
+    nonce = secrets.token_urlsafe(32)
+    expires_at = int(time.time()) + _OIDC_STATE_TTL
+    redirect_uri = _oidc_redirect_uri()
+    # Persist the state → nonce + redirect_uri mapping
+    try:
+        with _LockedUpdate(OIDC_STATES_FILE) as store:
+            for k in list(store.keys()):
+                if not isinstance(store[k], dict) or store[k].get('expires_at', 0) <= int(time.time()):
+                    del store[k]
+            store[state] = {
+                'nonce':        nonce,
+                'redirect_uri': redirect_uri,
+                'expires_at':   expires_at,
+            }
+    except Exception as e:
+        respond(500, {'error': f'state store failed: {e}'})
+
+    scopes = (cfg.get('oidc_scopes') or 'openid profile email groups').strip()
+    params = {
+        'response_type': 'code',
+        'client_id':     cfg['oidc_client_id'],
+        'redirect_uri':  redirect_uri,
+        'scope':         scopes,
+        'state':         state,
+        'nonce':         nonce,
+    }
+    full_url = authorize_url + '?' + urllib.parse.urlencode(params)
+    print('Status: 302 Found')
+    print(f'Location: {full_url}')
+    print('Cache-Control: no-store')
+    print()
+    sys.exit(0)
+
+
+def _oidc_role_for(claims, cfg):
+    """Map an id_token claim set to a RemotePower role."""
+    admin_group = (cfg.get('oidc_admin_group') or '').strip()
+    if not admin_group:
+        return 'viewer'   # No mapping → safest default
+    groups = claims.get('groups') or claims.get('roles') or []
+    if isinstance(groups, str):
+        groups = [groups]
+    return 'admin' if admin_group in groups else 'viewer'
+
+
+def _oidc_username_for(claims):
+    """Pick a stable username from id_token claims."""
+    for key in ('preferred_username', 'email', 'sub'):
+        v = claims.get(key)
+        if v:
+            return _sanitize_str(str(v), 64)
+    return ''
+
+
+def handle_oidc_callback():
+    """GET /api/auth/oidc/callback?code=...&state=...
+
+    Validates state, exchanges the code at the token endpoint, decodes
+    the id_token, looks up or creates the local user, mints a session
+    token, and redirects to the dashboard with the token in the URL hash.
+    """
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    err = (qs.get('error', [''])[0] or '').strip()
+    if err:
+        desc = (qs.get('error_description', [''])[0] or '')[:240]
+        sys.stderr.write(f'[remotepower] OIDC IdP returned error={err} desc={desc}\n')
+        # Redirect back to login with an error message
+        print('Status: 302 Found')
+        print(f'Location: /?oidc_error={urllib.parse.quote(err)}')
+        print()
+        sys.exit(0)
+
+    code = (qs.get('code', [''])[0] or '').strip()
+    state = (qs.get('state', [''])[0] or '').strip()
+    if not code or not state:
+        respond(400, {'error': 'code and state are required'})
+
+    # Validate state
+    stored = None
+    try:
+        with _LockedUpdate(OIDC_STATES_FILE) as store:
+            for k in list(store.keys()):
+                if not isinstance(store[k], dict) or store[k].get('expires_at', 0) <= int(time.time()):
+                    del store[k]
+            if state in store:
+                stored = store.pop(state)
+    except Exception as e:
+        respond(500, {'error': f'state lookup failed: {e}'})
+    if not stored:
+        respond(400, {'error': 'invalid or expired state'})
+
+    cfg = load(CONFIG_FILE) or {}
+    if not (cfg.get('oidc_enabled') and cfg.get('oidc_issuer') and
+            cfg.get('oidc_client_id') and cfg.get('oidc_client_secret')):
+        respond(503, {'error': 'OIDC is not configured on this server'})
+
+    try:
+        meta = _oidc_discover(cfg['oidc_issuer'])
+    except Exception as e:
+        respond(502, {'error': 'OIDC issuer unreachable', 'detail': str(e)[:240]})
+
+    token_endpoint = meta.get('token_endpoint')
+    if not token_endpoint:
+        respond(502, {'error': 'OIDC issuer metadata missing token_endpoint'})
+
+    # Exchange code for tokens
+    data = urllib.parse.urlencode({
+        'grant_type':    'authorization_code',
+        'code':          code,
+        'redirect_uri':  stored.get('redirect_uri') or _oidc_redirect_uri(),
+        'client_id':     cfg['oidc_client_id'],
+        'client_secret': cfg['oidc_client_secret'],
+    }).encode('utf-8')
+    req = urllib.request.Request(token_endpoint, data=data,
+                                  headers={
+                                      'Content-Type': 'application/x-www-form-urlencoded',
+                                      'Accept':       'application/json',
+                                  })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            token_resp = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        body_text = ''
+        try:
+            body_text = e.read().decode('utf-8', errors='replace')[:240]
+        except Exception:
+            pass
+        sys.stderr.write(f'[remotepower] OIDC token exchange failed: HTTP {e.code}: {body_text}\n')
+        respond(502, {'error': f'token exchange failed: HTTP {e.code}',
+                      'detail': body_text})
+    except Exception as e:
+        respond(502, {'error': f'token exchange failed: {e}'})
+
+    id_token = token_resp.get('id_token')
+    if not id_token:
+        respond(502, {'error': 'IdP did not return id_token'})
+
+    try:
+        claims = _decode_id_token(id_token)
+    except Exception as e:
+        respond(502, {'error': f'id_token decode failed: {e}'})
+
+    if claims.get('nonce') != stored.get('nonce'):
+        respond(400, {'error': 'nonce mismatch — possible replay attack'})
+
+    username = _oidc_username_for(claims)
+    if not username:
+        respond(400, {'error': 'id_token has no usable username claim'})
+
+    role = _oidc_role_for(claims, cfg)
+
+    # Provision or update the local user record
+    users = load(USERS_FILE)
+    user = users.get(username)
+    if not user:
+        users[username] = {
+            'role':           role,
+            'password_hash':  '!' + secrets.token_hex(32),  # never matches
+            'created':        int(time.time()),
+            'oidc_subject':   _sanitize_str(str(claims.get('sub') or ''), 128),
+            'oidc_email':     _sanitize_str(str(claims.get('email') or ''), 128),
+        }
+        save(USERS_FILE, users)
+        user = users[username]
+        audit_log(username, 'oidc_auto_provision',
+                  f'created from OIDC, role={role}, sub={claims.get("sub", "?")[:64]}')
+    else:
+        # Promote viewers→admins on group match (never auto-demote — operator
+        # may have manually changed role for cause).
+        if role == 'admin' and user.get('role') != 'admin':
+            user['role'] = 'admin'
+            users[username] = user
+            save(USERS_FILE, users)
+            audit_log(username, 'oidc_role_promoted', 'matched admin group')
+
+    # Mint a session token. Use the normal session TTL.
+    token = make_token()
+    ttl = get_session_ttl(remember_me=False)
+    tokens = load(TOKENS_FILE)
+    tokens[token] = {
+        'user':    username,
+        'created': int(time.time()),
+        'ttl':     ttl,
+        'oidc':    True,
+    }
+    save(TOKENS_FILE, tokens)
+    audit_log(username, 'login_oidc',
+              f'authenticated via OIDC (sub={claims.get("sub", "?")[:64]})')
+
+    # Redirect to the dashboard with the token in the URL hash so the
+    # SPA can pick it up. Hash fragments are NOT sent to the server,
+    # so the token never lands in nginx logs.
+    safe_token = urllib.parse.quote(token, safe='')
+    print('Status: 302 Found')
+    print(f'Location: /#oidc_token={safe_token}&role={user.get("role", "viewer")}&username={urllib.parse.quote(username)}')
+    print('Cache-Control: no-store')
+    print()
+    sys.exit(0)
+
+
 def handle_webhook_test():
     """Send a test webhook.
 
@@ -14950,7 +16210,15 @@ _PWCHG_ALLOWED_PATHS = frozenset({
     '/api/public-info',
     '/api/health',
     '/api/csp-report',
+    # v3.2.0 (B3): OIDC flow runs before any session exists
+    '/api/auth/oidc/start',
+    '/api/auth/oidc/callback',
 })
+
+# v3.2.0 (B2): inbound webhook URLs use a prefix /api/webhook/in/<token>;
+# they don't carry a session, so the password-change gate must pass them
+# through (each request has its own per-token auth).
+_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/',)
 
 
 def _enforce_password_change():
@@ -14974,6 +16242,8 @@ def _enforce_password_change():
     """
     pi = path_info()
     if pi in _PWCHG_ALLOWED_PATHS:
+        return
+    if any(pi.startswith(p) for p in _PWCHG_ALLOWED_PREFIXES):
         return
 
     token = get_token_from_request()
@@ -15063,6 +16333,9 @@ def main():
     pi = path_info(); m = method()
 
     if pi == '/api/login': handle_login()
+    # v3.2.0 (B3): OIDC SSO endpoints — must come before public-info
+    elif pi == '/api/auth/oidc/start' and m == 'GET':    handle_oidc_start()
+    elif pi == '/api/auth/oidc/callback' and m == 'GET': handle_oidc_callback()
     elif pi == '/api/public-info' and m == 'GET': handle_public_info()
     elif pi == '/api/health' and m == 'GET': handle_health()
     elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()
@@ -15304,6 +16577,35 @@ def main():
     elif pi == '/api/patch-report/xml' and m == 'GET': handle_patch_report_xml()
     elif pi == '/api/audit-log' and m == 'GET': handle_audit_log()
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
+    # v3.2.0 (B1): alerts inbox
+    elif pi == '/api/alerts' and m == 'GET': handle_alerts_list()
+    elif pi == '/api/alerts/summary' and m == 'GET': handle_alerts_summary()
+    elif pi == '/api/alerts/bulk-resolve' and m == 'POST': handle_alerts_bulk_resolve()
+    elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
+        handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
+    elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':
+        handle_alert_unack(pi[len('/api/alerts/'):-len('/unack')])
+    elif pi.startswith('/api/alerts/') and pi.endswith('/resolve') and m == 'POST':
+        handle_alert_resolve(pi[len('/api/alerts/'):-len('/resolve')])
+    # v3.2.0 (B2): inbound webhooks
+    elif pi.startswith('/api/webhook/in/'):
+        handle_inbound_webhook(pi[len('/api/webhook/in/'):])
+    elif pi == '/api/inbound-webhooks' and m == 'GET': handle_inbound_webhooks_list()
+    elif pi == '/api/inbound-webhooks' and m == 'POST': handle_inbound_webhooks_create()
+    elif pi.startswith('/api/inbound-webhooks/') and m == 'DELETE':
+        handle_inbound_webhook_revoke(pi[len('/api/inbound-webhooks/'):])
+    elif pi.startswith('/api/inbound-webhooks/') and m == 'PATCH':
+        handle_inbound_webhook_toggle(pi[len('/api/inbound-webhooks/'):])
+    # v3.2.0 (A1): MCP Stage 4 — write tools + confirmation queue
+    elif pi == '/api/mcp/reboot_device' and m == 'POST': handle_mcp_reboot_device()
+    elif pi == '/api/mcp/run_saved_script' and m == 'POST': handle_mcp_run_saved_script()
+    elif pi == '/api/mcp/force_package_scan' and m == 'POST': handle_mcp_force_package_scan()
+    elif pi == '/api/mcp/force_acme_rescan' and m == 'POST': handle_mcp_force_acme_rescan()
+    elif pi == '/api/confirmations' and m == 'GET': handle_confirmations_list()
+    elif pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST':
+        handle_confirmation_approve(pi[len('/api/confirmations/'):-len('/approve')])
+    elif pi.startswith('/api/confirmations/') and pi.endswith('/reject') and m == 'POST':
+        handle_confirmation_reject(pi[len('/api/confirmations/'):-len('/reject')])
     elif pi == '/api/webhook/test' and m == 'POST': handle_webhook_test()
     elif pi == '/api/webhook/log' and m == 'GET': handle_webhook_log()
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()

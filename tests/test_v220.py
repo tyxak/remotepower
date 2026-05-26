@@ -357,18 +357,20 @@ class TestMcpProtocol(unittest.TestCase):
                          'search_devices', 'get_runbook'):
             self.assertIn(required, tools, f'tool {required} missing')
 
-    def test_tools_list_no_write_tools(self):
-        """MCP v1 is read-only by design. Verify nothing that names a
-        write/mutate operation slipped in."""
+    def test_tools_list_no_arbitrary_exec_tools(self):
+        """v3.2.0 introduced a narrow set of write tools — reboot_device,
+        run_saved_script, force_package_scan, force_acme_rescan. The
+        critical security property is now that no *arbitrary* exec tool
+        leaked in: an LLM still cannot supply free-form bash."""
         responses, _ = _mcp_call([
             {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list', 'params': {}},
         ])
         tools = {t['name'] for t in responses[0]['result']['tools']}
-        forbidden = {'run_command', 'exec_command', 'run_script',
-                     'restart_service', 'reboot_device', 'edit_device',
-                     'delete_device', 'set_threshold'}
+        forbidden = {'run_command', 'exec_command', 'run_arbitrary_script',
+                     'restart_service', 'edit_device', 'delete_device',
+                     'set_threshold'}
         for f in forbidden:
-            self.assertNotIn(f, tools, f'write tool {f} should not be exposed')
+            self.assertNotIn(f, tools, f'arbitrary-exec tool {f} must not be exposed')
 
     def test_unknown_method_returns_error(self):
         responses, _ = _mcp_call([

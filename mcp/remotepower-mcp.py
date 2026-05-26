@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RemotePower MCP server — v2.2.0
+RemotePower MCP server — v3.2.0 (Stage 4: write tools)
 
 Implements the Model Context Protocol (Anthropic, Nov 2024; Linux
 Foundation stewardship 2025) so AI tools like Claude Desktop, Cursor,
@@ -47,13 +47,16 @@ Example Claude Desktop config (claude_desktop_config.json):
       }
     }
 
-Security note: this server exposes READ-ONLY tools. Mutating
-operations (run command, run script, edit device) are deliberately
-NOT exposed via MCP in v1 of this server. An LLM running with
-unconstrained shell access to a fleet is a real risk; the AI host's
-own consent/approval flow does not substitute for a server-side
-allow-list, which we'll add in a future release before unlocking
-write surfaces.
+Security note: v3.2.0 introduces a tight set of write tools, each
+gated server-side by MCP_ACTION_ALLOWLIST and (for destructive ones)
+the per-device require_confirmation flag. The MCP key must hold the
+'mcp' role — admin/viewer cannot call these endpoints. Destructive
+actions (reboot, run_saved_script) against confirmation-required
+devices return 202 with a confirmation_id; an operator approves in
+the dashboard before the action executes. Non-destructive helpers
+(force_package_scan, force_acme_rescan) run immediately. Every call
+is audit-logged with the originating AI host name and natural-
+language prompt.
 
 Pure stdlib — no pip dependencies. Tested against Python 3.10+.
 
@@ -75,8 +78,14 @@ import urllib.request
 # ── Configuration ──────────────────────────────────────────────────────────
 
 SERVER_NAME    = "remotepower"
-SERVER_VERSION = "2.2.0"
+SERVER_VERSION = "3.2.0"
 PROTOCOL_VER   = "2024-11-05"
+
+# v3.2.0: attribution for audit log. The AI host name lands in the
+# X-MCP-Client header; the natural-language prompt (set via env at spawn
+# time, or rotated by the host if it supports per-call attribution) lands
+# in X-MCP-Prompt. Both are stripped to safe ASCII before transmission.
+MCP_CLIENT_NAME = os.environ.get("MCP_CLIENT_NAME", "mcp-client").strip()
 
 API_URL    = (os.environ.get("REMOTEPOWER_URL") or "").rstrip("/")
 API_TOKEN  = os.environ.get("REMOTEPOWER_TOKEN") or ""
@@ -96,7 +105,14 @@ def _ssl_ctx():
     return ctx
 
 
-def _api(method, path, body=None):
+def _safe_ascii(s, limit=2048):
+    """Strip non-ASCII (header-unsafe) characters and cap length."""
+    if not s:
+        return ""
+    return ''.join(c for c in str(s) if 32 <= ord(c) < 127)[:limit]
+
+
+def _api(method, path, body=None, mcp_prompt=None):
     """Make an authenticated request to RemotePower's REST API. Returns
     the parsed JSON response. Raises on HTTP error.
 
@@ -113,7 +129,16 @@ def _api(method, path, body=None):
     if data is not None:
         req.add_header("Content-Type", "application/json")
     if API_TOKEN:
+        # v3.2.0: send both headers. X-Token is the dashboard's primary
+        # auth header; we keep Authorization Bearer too for backward
+        # compatibility with the original MCP client implementation.
+        req.add_header("X-Token", API_TOKEN)
         req.add_header("Authorization", f"Bearer {API_TOKEN}")
+    # v3.2.0: MCP attribution headers — populated for write tools so the
+    # server's audit log records who triggered the action.
+    req.add_header("X-MCP-Client", _safe_ascii(MCP_CLIENT_NAME, 128))
+    if mcp_prompt:
+        req.add_header("X-MCP-Prompt", _safe_ascii(mcp_prompt, 2048))
     try:
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_ctx()) as resp:
             raw = resp.read()
@@ -348,6 +373,99 @@ def tool_search_devices(args):
     return {"query": query, "matches": matched, "count": len(matched)}
 
 
+# ── Write tools (v3.2.0 Stage 4) ──────────────────────────────────────────
+# Server-side gates:
+#   * Token must hold the 'mcp' role.
+#   * Action name must be in MCP_ACTION_ALLOWLIST.
+#   * For destructive actions (reboot, run_saved_script), if the target
+#     device has require_confirmation=True (default for new devices),
+#     the server returns 202 with a confirmation_id. The operator must
+#     approve via the dashboard before anything runs.
+
+def _resolve_device_id(name_or_id):
+    """Resolve a device name (or ID) to a device id. Uses the same
+    auto-disambiguation rules as the read tools: exact > prefix > substring."""
+    devs = _api("GET", "/api/devices") or []
+    if isinstance(devs, dict) and 'devices' in devs:
+        devs = devs['devices']
+    # Try exact id first
+    for d in devs:
+        if d.get('id') == name_or_id:
+            return d['id']
+    # Exact name
+    matches = [d for d in devs if d.get('name') == name_or_id]
+    if len(matches) == 1:
+        return matches[0]['id']
+    # Prefix
+    matches = [d for d in devs if (d.get('name') or '').startswith(name_or_id)]
+    if len(matches) == 1:
+        return matches[0]['id']
+    # Substring
+    matches = [d for d in devs if name_or_id in (d.get('name') or '')]
+    if len(matches) == 1:
+        return matches[0]['id']
+    if not matches:
+        raise RuntimeError(f"No device matching '{name_or_id}'")
+    names = ', '.join((d.get('name') or d.get('id') or '?') for d in matches[:5])
+    raise RuntimeError(f"Ambiguous device '{name_or_id}' — matches: {names}")
+
+
+def tool_reboot_device(args):
+    """Queue a reboot on a device. If the device has require_confirmation
+    set (default for new devices), returns a confirmation_id and the
+    operator must approve in the dashboard. Otherwise reboots on the
+    device's next heartbeat (~60s)."""
+    name = (args or {}).get('name') or (args or {}).get('device')
+    if not name:
+        raise RuntimeError("'name' argument required")
+    reason = (args or {}).get('reason') or ''
+    dev_id = _resolve_device_id(name)
+    return _api("POST", "/api/mcp/reboot_device",
+                {'device_id': dev_id},
+                mcp_prompt=reason or f'reboot {name}')
+
+
+def tool_run_saved_script(args):
+    """Run a server-side pre-vetted script on a device. The script must
+    exist in the dashboard's Scripts library (Settings → Scripts) —
+    MCP cannot supply arbitrary bash. Subject to require_confirmation."""
+    name      = (args or {}).get('name') or (args or {}).get('device')
+    script_id = (args or {}).get('script_id')
+    if not name or not script_id:
+        raise RuntimeError("'name' and 'script_id' arguments required")
+    reason = (args or {}).get('reason') or ''
+    dev_id = _resolve_device_id(name)
+    return _api("POST", "/api/mcp/run_saved_script",
+                {'device_id': dev_id, 'script_id': script_id},
+                mcp_prompt=reason or f'run script {script_id} on {name}')
+
+
+def tool_force_package_scan(args):
+    """Trigger a one-shot fresh package inventory + patch count from a
+    device. Non-destructive — same effect as the dashboard's
+    'Scan now' button. Runs immediately (no confirmation gate)."""
+    name = (args or {}).get('name') or (args or {}).get('device')
+    if not name:
+        raise RuntimeError("'name' argument required")
+    dev_id = _resolve_device_id(name)
+    return _api("POST", "/api/mcp/force_package_scan",
+                {'device_id': dev_id},
+                mcp_prompt=f'force_package_scan {name}')
+
+
+def tool_force_acme_rescan(args):
+    """Trigger a one-shot ACME inventory refresh from a device. Non-
+    destructive — same effect as the per-device 'Force ACME rescan'
+    button. Runs immediately."""
+    name = (args or {}).get('name') or (args or {}).get('device')
+    if not name:
+        raise RuntimeError("'name' argument required")
+    dev_id = _resolve_device_id(name)
+    return _api("POST", "/api/mcp/force_acme_rescan",
+                {'device_id': dev_id},
+                mcp_prompt=f'force_acme_rescan {name}')
+
+
 # ── Tool registry ──────────────────────────────────────────────────────────
 
 TOOLS = {
@@ -494,6 +612,63 @@ TOOLS = {
             "required": ["query"],
         },
         "handler": tool_search_devices,
+    },
+    # ── v3.2.0 Stage 4: write tools ──────────────────────────────────────
+    "reboot_device": {
+        "description":
+            "Queue a reboot on a device. If the device has require_confirmation "
+            "set (default for new devices), returns a confirmation_id; the "
+            "operator must approve in the dashboard before anything runs. "
+            "Otherwise the reboot happens on the device's next heartbeat (~60s).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name":   {"type": "string", "description": "Device name (prefix/substring OK)"},
+                "reason": {"type": "string", "description": "Why — recorded in the audit log"},
+            },
+            "required": ["name"],
+        },
+        "handler": tool_reboot_device,
+    },
+    "run_saved_script": {
+        "description":
+            "Run a pre-vetted script from the RemotePower script library on "
+            "a device. The script must already exist in Settings → Scripts; "
+            "MCP cannot supply arbitrary bash. Subject to require_confirmation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name":      {"type": "string"},
+                "script_id": {"type": "string", "description": "ID of the saved script"},
+                "reason":    {"type": "string"},
+            },
+            "required": ["name", "script_id"],
+        },
+        "handler": tool_run_saved_script,
+    },
+    "force_package_scan": {
+        "description":
+            "Trigger a one-shot fresh package inventory + patch-count refresh "
+            "on a device. Non-destructive — the device sends new data within "
+            "a minute or two. Runs immediately (no confirmation gate).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+        "handler": tool_force_package_scan,
+    },
+    "force_acme_rescan": {
+        "description":
+            "Trigger a one-shot ACME inventory refresh on a device. Non-"
+            "destructive — same effect as the per-device 'Force ACME rescan' "
+            "button. Runs immediately.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
+        "handler": tool_force_acme_rescan,
     },
 }
 

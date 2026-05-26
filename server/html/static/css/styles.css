@@ -3723,3 +3723,57 @@ button, a, [role="button"],
 /* Anything with data-color is coloured at runtime by JS that walks the
    tree and applies element.style.color via the CSP-safe IDL setter
    (see _applyDataColors in app.js). Same for data-bg / data-bd. */
+
+/* v3.2.0 (B2): Inbound webhook show-once modal — code blocks */
+.inbound-wh-url-pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 12px;
+  margin: 12px 0;
+}
+.inbound-wh-example-pre {
+  padding: 12px;
+  margin: 12px 0;
+  white-space: pre;
+}
+
+/* v3.2.0 (B3): OIDC sign-in button on the login page */
+.login-btn-oidc {
+  display: block;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  text-align: center;
+  margin-top: 8px;
+}
+
+/* v3.2.0 (B1): Alerts inbox — sidebar badge + severity pills */
+.nav-badge {
+  display: inline-block;
+  margin-left: auto;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+.sev-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sev-pill.sev-critical { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+.sev-pill.sev-high     { background: rgba(255,140,0,0.15); color: #ff8c00; border: 1px solid #ff8c00; }
+.sev-pill.sev-medium   { background: rgba(255,193,7,0.15); color: #d4a017; border: 1px solid #d4a017; }
+.sev-pill.sev-low      { background: rgba(108,117,125,0.15); color: var(--muted); border: 1px solid var(--muted); }
+.sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
+.alerts-row.resolved   { opacity: 0.55; }
+.alerts-summary-pill   { display: inline-block; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; font-size: 13px; }

@@ -2,6 +2,68 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.2.0 — 2026-05-26
+
+Feature release: alert inbox with ack/resolve lifecycle, inbound
+webhooks from external systems, MCP Stage 4 write tools, and OpenID
+Connect SSO. No schema migrations.
+
+### Added
+
+- **Alert inbox (B1).** Every actionable webhook event (`device_offline`,
+  `cve_found`, `service_down`, `tls_expiring`, `custom_script_fail`, …)
+  now writes a row to a mutable ledger at `alerts.json`. Sidebar gets
+  a top-level **Alerts** entry with a count badge. Recover events
+  (`device_online`, `service_recover`, `custom_script_recover`)
+  auto-resolve the matching open alert. Filter views: Open /
+  Acknowledged / Resolved / All. Bulk-resolve via checkbox column.
+- **Inbound webhooks (B2).** New Settings → Integrations pane creates
+  long-secret receive tokens. `POST /api/webhook/in/<token>` accepts a
+  small JSON shape (`severity`, `title`, optional `device`, `body`,
+  `links`) and routes the alert into the Alerts inbox (B1). Tested
+  shapes: Grafana, Alertmanager, Authelia/Authentik, Home Assistant,
+  n8n. No outbound fan-out by default.
+- **MCP write tools — Stage 4 (A1).** `MCP_ACTION_ALLOWLIST` populated
+  with: `reboot_device`, `run_saved_script`, `force_package_scan`,
+  `force_acme_rescan`. Destructive tools against devices with
+  `require_confirmation=true` return 202 with a `confirmation_id`;
+  admin approves at **Admin → MCP Confirmations** before anything
+  runs. Audit log records `ai_host` (X-MCP-Client header) and
+  `ai_prompt` (X-MCP-Prompt header) on every call. MCP server
+  (`mcp/remotepower-mcp.py`) bumped to v3.2.0 with the four write
+  tools exposed.
+- **OIDC SSO (B3).** Standard confidential-client authorization code
+  flow. Configure in Settings → Integrations → OIDC: issuer, client
+  ID/secret, scopes, optional admin group. Login page picks up
+  `oidc_enabled` from `/api/public-info` and shows a "Sign in with
+  SSO" button. Auto-provisions local user on first sign-in with role
+  mapped from group membership. Promotes viewer→admin on subsequent
+  logins; never auto-demotes. Tested against Authelia, Authentik,
+  Keycloak.
+- **Bearer auth everywhere.** `get_token_from_request()` now accepts
+  `Authorization: Bearer <token>` in addition to `X-Token`. The MCP
+  client sends both for compatibility.
+
+### Changed
+
+- `/api/public-info` adds `oidc_enabled` so the login page can render
+  the SSO button without authenticated access.
+- New audit-log actions across all four features (full list in
+  `docs/v3.2.0.md`).
+
+### Security
+
+- OIDC: id_token signature is not verified — we rely on the
+  back-channel HTTPS POST + client_secret authentication to the token
+  endpoint (RFC 6749 confidential-client posture). State + nonce are
+  both validated. State storage TTL is 10 minutes.
+- MCP: all destructive write tools gate through `require_mcp_action()`
+  + per-device `require_confirmation`. Admins explicitly cannot call
+  the MCP write endpoints — separation keeps the audit log unambiguous.
+- Inbound webhook tokens are 32-byte hex secrets with `rpwi_` prefix
+  for grep-ability; never reshown after creation.
+- Service-worker cache bumped to `remotepower-shell-v3.2.0`.
+
 ## v3.1.0 — 2026-05-26
 
 Major UX release: focused sidebar subcategory views, collapsible Help

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.1.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.2.0">
 
 </head>
 <body>
@@ -53,6 +53,9 @@
       Remember me on this device
     </label>
     <button type="submit" class="login-btn" >Sign in</button>
+    <!-- v3.2.0 (B3): OIDC SSO button — shown only if oidc_enabled returns from /api/public-info -->
+    <a href="/api/auth/oidc/start" id="login-oidc-btn" class="login-btn login-btn-oidc d-none">Sign in with SSO</a>
+    <div id="login-oidc-error" class="login-error d-none">SSO sign-in failed. Try local credentials.</div>
     <div id="login-error" class="login-error">Invalid username or password</div>
   </form>
 </div>
@@ -119,6 +122,11 @@
     <button class="nav-btn active" data-page="home" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Home</span>
+    </button>
+    <button class="nav-btn" data-page="alerts" >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span>Alerts</span>
+      <span id="alerts-badge" class="nav-badge d-none">0</span>
     </button>
     <button class="nav-btn" data-page="links" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -293,6 +301,11 @@
         <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           <span>IaC Generator</span>
+        </button>
+        <button class="nav-btn" data-page="confirmations" title="Pending MCP write actions awaiting approval">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>MCP Confirmations</span>
+          <span id="confirmations-badge" class="nav-badge d-none">0</span>
         </button>
         <button class="nav-btn" data-page="self" title="RemotePower watching itself: disk, webhooks, audit, backups">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -624,6 +637,7 @@
         <div class="settings-tabs">
           <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
           <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
+          <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
           <button class="settings-tab"        data-tab="security" data-action="switchSettingsTab" data-arg="security" >Security</button>
           <button class="settings-tab"        data-tab="ai"       data-action="switchSettingsTab" data-arg="ai" >AI assistant</button>
           <button class="settings-tab"        data-tab="proxmox"  data-action="switchSettingsTab" data-arg="proxmox" >Proxmox</button>
@@ -829,6 +843,58 @@
               <table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th><th></th></tr></thead>
               <tbody id="webhook-log-tbody"><tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet.</td></tr></tbody></table>
             </div>
+          </div>
+        </div>
+
+        <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-integrations">
+          <div class="settings-section">
+            <h3>Inbound webhooks</h3>
+            <p class="hint">Receive alerts from external systems — Grafana, Alertmanager, Authentik, n8n, Home Assistant. Each token is a long random secret embedded in the receive URL. POST a JSON body to <code>https://&lt;your-server&gt;/api/webhook/in/&lt;token&gt;</code> with at minimum <code>{severity, title}</code>. Optional fields: <code>source, body, device, device_id, links</code>. Alerts land in the Alerts inbox.</p>
+            <div class="section-header">
+              <div class="section-title">Tokens</div>
+              <button class="enroll-btn" data-action="openInboundWebhookCreate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New token
+              </button>
+            </div>
+            <div class="table-card">
+              <table>
+                <thead><tr><th>Label</th><th>Scope</th><th>Token</th><th>Hits</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+                <tbody id="inbound-webhooks-tbody"><tr><td colspan="7" class="empty-state">No inbound webhook tokens yet.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3>OIDC / OpenID Connect</h3>
+            <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel.</p>
+            <form id="oidc-config-form" data-submit="saveOidcConfig" data-prevent-default="1" class="form-stack">
+              <label class="form-label">
+                <input type="checkbox" id="oidc-enabled" data-config="oidc_enabled">
+                Enable OIDC sign-in
+              </label>
+              <label class="form-label">Issuer URL
+                <input type="text" id="oidc-issuer" class="form-input" data-config="oidc_issuer" placeholder="https://auth.example.com/application/o/remotepower/">
+              </label>
+              <label class="form-label">Client ID
+                <input type="text" id="oidc-client-id" class="form-input" data-config="oidc_client_id">
+              </label>
+              <label class="form-label">Client Secret
+                <input type="password" id="oidc-client-secret" class="form-input" data-config="oidc_client_secret" placeholder="(unchanged — leave blank to keep current)">
+              </label>
+              <label class="form-label">Scopes
+                <input type="text" id="oidc-scopes" class="form-input" data-config="oidc_scopes" placeholder="openid profile email groups">
+              </label>
+              <label class="form-label">Admin group (optional)
+                <input type="text" id="oidc-admin-group" class="form-input" data-config="oidc_admin_group" placeholder="remotepower-admins">
+                <span class="hint">Members of this group get admin role on first login; everyone else gets viewer.</span>
+              </label>
+              <div id="oidc-redirect-hint" class="hint mt-12"></div>
+              <div class="mt-12">
+                <button type="submit" class="btn-primary">Save OIDC config</button>
+              </div>
+            </form>
           </div>
         </div>
 
@@ -2934,6 +3000,67 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <datalist id="links-category-datalist"></datalist>
       </div>
 
+      <!-- v3.2.0 (B1): Alerts inbox -->
+      <div id="page-alerts" class="page">
+        <div class="page-title">Alerts</div>
+        <div class="page-subtitle">Operational alert inbox — acknowledge, resolve, and track every fired event. Recover events (device_online, service_recover, custom_script_recover) auto-resolve their matching open alert.</div>
+        <div class="isl-186">
+          <select id="alerts-filter-status" class="form-input isl-68" data-change="loadAlerts">
+            <option value="open" selected>Open</option>
+            <option value="ack">Acknowledged</option>
+            <option value="resolved">Resolved</option>
+            <option value="all">All</option>
+          </select>
+          <input type="text" id="alerts-filter-text" class="form-input isl-170" placeholder="Filter by device, event, or title…" data-input="renderAlerts">
+          <button class="btn-icon" data-action="loadAlerts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="btn-icon c-danger-outline d-none" id="alerts-bulk-resolve-btn" data-action="bulkResolveAlerts">Resolve selected</button>
+        </div>
+        <div id="alerts-summary" class="isl-186 mb-16"></div>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th class="isl-187"><input type="checkbox" id="alerts-select-all" data-action="toggleAllAlerts"></th>
+                <th data-col="severity">Severity</th>
+                <th data-col="ts">Time</th>
+                <th data-col="title">Title</th>
+                <th data-col="device_name">Device</th>
+                <th data-col="acknowledged_by">Ack by</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody">
+              <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- v3.2.0 (A1): MCP Confirmations queue -->
+      <div id="page-confirmations" class="page">
+        <div class="page-title">MCP Confirmations</div>
+        <div class="page-subtitle">Pending write actions queued by MCP clients against devices with <code>require_confirmation=true</code>. Each entry shows the originating AI host and the natural-language prompt that led to the action. Approve to run, reject to discard. Pending entries expire after 1 hour.</div>
+        <div class="isl-186">
+          <button class="btn-icon" data-action="loadConfirmations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div class="table-card">
+          <table>
+            <thead><tr>
+              <th>Status</th>
+              <th>Requested</th>
+              <th>Action</th>
+              <th>Device</th>
+              <th>AI host</th>
+              <th>Prompt</th>
+              <th></th>
+            </tr></thead>
+            <tbody id="confirmations-tbody">
+              <tr><td colspan="7" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div id="page-audit" class="page">
         <div class="page-title">Audit Log</div><div class="page-subtitle">Security audit trail — logins, commands, session revocations</div>
         <div class="isl-186">
@@ -3168,6 +3295,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
 <div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
 <div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
+<!-- v3.2.0 (B2): inbound webhook create modal -->
+<div class="modal-overlay" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title">New inbound webhook token</div>
+  <div class="form-group"><label class="form-label">Label</label><input type="text" id="inbound-wh-label" class="form-input" placeholder="grafana-prod, alertmanager, n8n, …"></div>
+  <div class="form-group"><label class="form-label">Pin to device (optional)</label><select id="inbound-wh-device" class="form-input"><option value="">(any — match by body.device)</option></select><span class="hint">If set, alerts received on this token always attach to that device — body.device is ignored.</span></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="inbound-webhook-create-modal">Cancel</button><button class="btn-primary" data-action="createInboundWebhook">Create</button></div>
+</div></div>
+
+<!-- v3.2.0 (B2): inbound webhook token-display modal (shown ONCE after create) -->
+<div class="modal-overlay" id="inbound-webhook-show-modal"><div class="modal">
+  <div class="modal-title">Inbound webhook token created</div>
+  <p class="hint">Copy this URL now — the secret is shown only once. Use it to POST alerts:</p>
+  <pre id="inbound-wh-url" class="code-pill ff-mono inbound-wh-url-pre"></pre>
+  <p class="hint">Example payload:</p>
+  <pre class="code-pill ff-mono fs-12 inbound-wh-example-pre">curl -X POST '&lt;url-above&gt;' \
+  -H 'Content-Type: application/json' \
+  -d '{"severity":"high","title":"CPU 95% on web01","device":"web01","source":"grafana"}'</pre>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="copyInboundWebhookUrl">Copy URL</button>
+    <button class="btn-primary" data-action="closeModal" data-arg="inbound-webhook-show-modal">Close</button>
+  </div>
+</div></div>
+
 <div class="modal-overlay" id="cmdlib-add-modal"><div class="modal"><div class="modal-title">Add command snippet</div><div class="form-group"><label class="form-label">Name</label><input type="text" id="cmdlib-name" class="form-input" placeholder="Clear apt cache"></div><div class="form-group"><label class="form-label">Command</label><input type="text" id="cmdlib-cmd" class="form-input ff-mono" placeholder="apt-get clean"></div><div class="form-group"><label class="form-label">Description (optional)</label><input type="text" id="cmdlib-desc" class="form-input" placeholder="Clears the apt package cache"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="cmdlib-add-modal" >Cancel</button><button class="btn-primary" data-action="addCmdSnippet" >Add</button></div></div></div>
 
 <!-- v2.1.0: script editor modal (handles both add + edit; mode flag in script-edit-id) -->
@@ -4194,8 +4343,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.1.0"></script>
+<script src="static/js/app.js?v=3.2.0"></script>
 
-<script src="static/js/sw-register.js?v=3.1.0"></script>
+<script src="static/js/sw-register.js?v=3.2.0"></script>
 </body>
 </html>

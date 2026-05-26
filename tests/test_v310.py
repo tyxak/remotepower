@@ -84,12 +84,14 @@ class TestRoleConstants(_ApiTestBase):
         self.assertEqual(self.api.APIKEY_ROLES,
                           frozenset({'admin', 'viewer', 'mcp'}))
 
-    def test_mcp_action_allowlist_empty_in_stage_1(self):
-        """Stage 1 ships infra only. The allowlist must remain empty until
-        Stage 4 lands the actual write tools. If this test fails because
-        the allowlist gained entries without the tools landing first,
-        that's the bug — not the test."""
-        self.assertEqual(self.api.MCP_ACTION_ALLOWLIST, frozenset())
+    def test_mcp_action_allowlist_populated_in_stage_4(self):
+        """v3.2.0 Stage 4 landed the initial set of write tools. The
+        allowlist must now contain at least the four documented ones.
+        See test_v320.TestMcpWriteTools for full end-to-end coverage."""
+        self.assertIn('reboot_device', self.api.MCP_ACTION_ALLOWLIST)
+        self.assertIn('run_saved_script', self.api.MCP_ACTION_ALLOWLIST)
+        self.assertIn('force_package_scan', self.api.MCP_ACTION_ALLOWLIST)
+        self.assertIn('force_acme_rescan', self.api.MCP_ACTION_ALLOWLIST)
 
 
 # ─── User vs API-key role assignment ───────────────────────────────────────
@@ -242,16 +244,16 @@ class TestMcpRoleGating(_ApiTestBase):
             self.api.require_mcp_action('run_saved_script')
         self.assertEqual(ctx.exception.status, 403)
 
-    def test_require_mcp_action_mcp_token_but_action_not_in_allowlist(self):
-        """Stage 1: the allowlist is empty, so even a valid mcp token gets
-        403 for any action name. Stage 4 fills the allowlist and this
-        behaviour changes for allowlisted actions."""
+    def test_require_mcp_action_mcp_token_action_not_in_allowlist(self):
+        """v3.2.0: allowlist is populated but only with the 4 documented
+        actions. An action name outside that set still 403s."""
         self._set_token('mcp')
         with self.assertRaises(self.api.HTTPError) as ctx:
-            self.api.require_mcp_action('run_saved_script')
+            self.api.require_mcp_action('drop_database')
         self.assertEqual(ctx.exception.status, 403)
         self.assertIn('allowed_actions', ctx.exception.body)
-        self.assertEqual(ctx.exception.body['allowed_actions'], [])
+        # All four Stage-4 actions are in the response
+        self.assertIn('reboot_device', ctx.exception.body['allowed_actions'])
 
 
 # ─── audit_log() shape ──────────────────────────────────────────────────────
@@ -425,20 +427,17 @@ class TestDeviceRequireConfirmation(_ApiTestBase):
 # ─── v3.1.0 strict version pins ─────────────────────────────────────────────
 
 class TestVersionBumps(unittest.TestCase):
-    """v3.1.0 takes the strict version pin (following prior convention)."""
-    EXPECTED = '3.1.0'
+    """Loosened to regex — v3.2.0 now holds the strict pin (see test_v320.py)."""
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^SERVER_VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        m = re.search(r"^VERSION\s*=\s*'(3\.\d+\.\d+)'", text, re.MULTILINE)
         self.assertIsNotNone(m, 'VERSION line missing from agent')
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -448,28 +447,27 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
-            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'",
+            'sw.js CACHE_NAME must carry a v3.x.x marker')
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertIn(f'?v={self.EXPECTED}', html,
-            f'index.html cache-bust ?v= must be {self.EXPECTED}')
+        self.assertRegex(html, r'\?v=3\.\d+\.\d+',
+            'index.html cache-bust ?v= must be a 3.x.x version')
 
     def test_readme_badge(self):
         text = (REPO_ROOT / 'README.md').read_text()
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
-            'README.md version badge not bumped')
+        self.assertRegex(text, r'version-3\.\d+\.\d+-blue\.svg',
+            'README.md version badge missing 3.x.x marker')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
-        self.assertEqual(m.group(1), self.EXPECTED,
-            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
     def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
-        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
-        self.assertIn(self.EXPECTED, path.read_text())
+        # v3.1.0 docs must stay present (we shipped a GitHub release for it)
+        path = REPO_ROOT / 'docs' / 'v3.1.0.md'
+        self.assertTrue(path.exists(), 'docs/v3.1.0.md is missing')
+        self.assertIn('3.1.0', path.read_text())
 

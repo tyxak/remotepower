@@ -760,6 +760,8 @@ function showPage(name, btn) {
   if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
+  if (name === 'alerts')   loadAlerts();
+  if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
 }
 
@@ -3705,6 +3707,394 @@ function renderAuditLog() {
 async function revokeAllSessions() { if (!confirm('Revoke ALL sessions? Everyone (including you) will need to log in again.')) return; const data = await api('POST', '/sessions/revoke', {}); if (data?.ok) { toast(`${data.revoked} sessions revoked — logging out`, 'success'); setTimeout(doLogout, 1500); } else toast(data?.error || 'Failed', 'error'); }
 async function clearAuditLog() { if (!confirm('Clear the entire audit log? This cannot be undone.')) return; const data = await api('DELETE', '/audit-log'); if (data?.ok) { toast('Audit log cleared', 'success'); loadAuditLog(); } else toast(data?.error || 'Failed', 'error'); }
 
+// ─── v3.2.0 (B1): Alerts inbox ──────────────────────────────────────────────
+
+let _alertsCache = [];
+
+async function loadAlerts() {
+  const statusEl = document.getElementById('alerts-filter-status');
+  const status = (statusEl && statusEl.value) || 'open';
+  try {
+    const data = await api('GET', `/alerts?status=${encodeURIComponent(status)}&limit=500`);
+    _alertsCache = (data && data.alerts) || [];
+    _renderAlertsSummary(data && data.summary);
+    renderAlerts();
+  } catch (e) {
+    toast('Failed to load alerts', 'error');
+  }
+}
+
+function _renderAlertsSummary(summary) {
+  const el = document.getElementById('alerts-summary');
+  if (!el) return;
+  if (!summary) { el.innerHTML = ''; return; }
+  const bs = summary.by_severity || {};
+  el.innerHTML =
+    `<span class="alerts-summary-pill">Open: <strong>${summary.open || 0}</strong></span>` +
+    `<span class="alerts-summary-pill">Acknowledged: <strong>${summary.acknowledged || 0}</strong></span>` +
+    `<span class="alerts-summary-pill">Resolved: <strong>${summary.resolved || 0}</strong></span>` +
+    (bs.critical ? `<span class="alerts-summary-pill sev-pill sev-critical">Critical: ${bs.critical}</span>` : '') +
+    (bs.high ? `<span class="alerts-summary-pill sev-pill sev-high">High: ${bs.high}</span>` : '');
+}
+
+function renderAlerts() {
+  const filterEl = document.getElementById('alerts-filter-text');
+  const q = ((filterEl && filterEl.value) || '').trim().toLowerCase();
+  let rows = _alertsCache;
+  if (q) {
+    rows = rows.filter(a =>
+      (a.title || '').toLowerCase().includes(q) ||
+      (a.device_name || '').toLowerCase().includes(q) ||
+      (a.event || '').toLowerCase().includes(q));
+  }
+  const tbody = document.getElementById('alerts-tbody');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No alerts in this view.</td></tr>';
+    _updateBulkResolveBtn();
+    return;
+  }
+  tbody.innerHTML = rows.map(a => {
+    const isResolved = !!a.resolved_at;
+    const ackBy = a.acknowledged_by ? _escapeHtml(a.acknowledged_by) : '—';
+    const sev = (a.severity || 'medium');
+    const sevPill = `<span class="sev-pill sev-${sev}">${sev}</span>`;
+    const dev = a.device_name || a.device_id || '—';
+    const ts = _formatTs(a.ts);
+    let actions = '';
+    if (!isResolved) {
+      if (!a.acknowledged_at) {
+        actions += `<button class="btn-icon btn-xs" data-action="ackAlert" data-arg="${a.id}">Ack</button> `;
+      } else {
+        actions += `<button class="btn-icon btn-xs" data-action="unackAlert" data-arg="${a.id}">Un-ack</button> `;
+      }
+      actions += `<button class="btn-icon btn-xs c-success" data-action="resolveAlert" data-arg="${a.id}">Resolve</button>`;
+    } else {
+      const byWho = a.resolved_by === 'auto' ? 'auto' : _escapeHtml(a.resolved_by || '');
+      actions = `<span class="c-muted">resolved by ${byWho}</span>`;
+    }
+    const cb = isResolved ? '' :
+      `<input type="checkbox" class="alerts-row-cb" data-id="${a.id}" data-action="updateBulkResolveBtn">`;
+    return `<tr class="alerts-row${isResolved ? ' resolved' : ''}">
+      <td>${cb}</td>
+      <td>${sevPill}</td>
+      <td class="nowrap">${ts}</td>
+      <td>${_escapeHtml(a.title || a.event || '')}</td>
+      <td>${_escapeHtml(dev)}</td>
+      <td>${ackBy}</td>
+      <td class="nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
+  _updateBulkResolveBtn();
+}
+
+function _formatTs(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleString();
+}
+
+function _escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function ackAlert(id) {
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/ack`, {});
+  if (r && r.ok) { toast('Alert acknowledged', 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function unackAlert(id) {
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/unack`, {});
+  if (r && r.ok) { loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function resolveAlert(id) {
+  if (!confirm('Mark this alert resolved?')) return;
+  const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
+  if (r && r.ok) { toast('Alert resolved', 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+function toggleAllAlerts(_arg, btn) {
+  const checked = btn.checked;
+  document.querySelectorAll('.alerts-row-cb').forEach(cb => { cb.checked = checked; });
+  _updateBulkResolveBtn();
+}
+
+function updateBulkResolveBtn() { _updateBulkResolveBtn(); }
+function _updateBulkResolveBtn() {
+  const cbs = document.querySelectorAll('.alerts-row-cb:checked');
+  const btn = document.getElementById('alerts-bulk-resolve-btn');
+  if (!btn) return;
+  if (cbs.length > 0) btn.classList.remove('d-none');
+  else btn.classList.add('d-none');
+}
+
+async function bulkResolveAlerts() {
+  const ids = Array.from(document.querySelectorAll('.alerts-row-cb:checked'))
+    .map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  if (!confirm(`Resolve ${ids.length} alert(s)?`)) return;
+  const r = await api('POST', '/alerts/bulk-resolve', { ids });
+  if (r && r.ok) { toast(`Resolved ${r.resolved}`, 'success'); loadAlerts(); refreshAlertsBadge(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function refreshAlertsBadge() {
+  try {
+    const s = await api('GET', '/alerts/summary');
+    const badge = document.getElementById('alerts-badge');
+    if (!badge || !s) return;
+    const n = s.open || 0;
+    if (n > 0) {
+      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.classList.remove('d-none');
+    } else {
+      badge.classList.add('d-none');
+    }
+  } catch (_) { /* non-fatal */ }
+}
+
+// ─── v3.2.0 (A1): MCP Confirmations queue ──────────────────────────────────
+
+async function loadConfirmations() {
+  try {
+    const data = await api('GET', '/confirmations');
+    _renderConfirmations((data && data.confirmations) || []);
+    refreshConfirmationsBadge();
+  } catch (e) {
+    toast('Failed to load confirmations', 'error');
+  }
+}
+
+function _renderConfirmations(arr) {
+  const tbody = document.getElementById('confirmations-tbody');
+  if (!tbody) return;
+  if (!arr.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No pending or recent MCP confirmations.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = arr.map(c => {
+    const status = c.status || 'pending';
+    const statusPill =
+      status === 'pending'  ? '<span class="sev-pill sev-medium">pending</span>' :
+      status === 'approved' ? '<span class="sev-pill sev-success">approved</span>' :
+      status === 'rejected' ? '<span class="sev-pill sev-low">rejected</span>' :
+      status === 'expired'  ? '<span class="sev-pill sev-low">expired</span>' :
+      status === 'failed'   ? '<span class="sev-pill sev-critical">failed</span>' :
+      `<span class="sev-pill sev-low">${_escapeHtml(status)}</span>`;
+    const actionLabel = c.action === 'run_saved_script' && c.script_name
+      ? `${_escapeHtml(c.action)} <span class="hint">(${_escapeHtml(c.script_name)})</span>`
+      : _escapeHtml(c.action || '');
+    let buttons = '';
+    if (status === 'pending') {
+      buttons = `<button class="btn-icon btn-xs c-success" data-action="approveConfirmation" data-arg="${c.id}">Approve</button> ` +
+                `<button class="btn-icon btn-xs c-danger-outline" data-action="rejectConfirmation" data-arg="${c.id}">Reject</button>`;
+    }
+    return `<tr>
+      <td>${statusPill}</td>
+      <td class="hint nowrap">${_formatTs(c.requested_at)}</td>
+      <td>${actionLabel}</td>
+      <td>${_escapeHtml(c.device_name || c.device_id || '')}</td>
+      <td><code>${_escapeHtml(c.ai_host || '—')}</code></td>
+      <td class="hint">${_escapeHtml(c.ai_prompt || '')}</td>
+      <td class="nowrap">${buttons}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function approveConfirmation(id) {
+  if (!confirm('Approve this MCP write action? The server will execute it now.')) return;
+  const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/approve`, {});
+  if (r && r.ok) { toast('Approved — action queued', 'success'); loadConfirmations(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function rejectConfirmation(id) {
+  const note = prompt('Reject this MCP write action. Optional note:') || '';
+  const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/reject`, { note });
+  if (r && r.ok) { toast('Rejected', 'success'); loadConfirmations(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function refreshConfirmationsBadge() {
+  try {
+    const data = await api('GET', '/confirmations');
+    const arr = (data && data.confirmations) || [];
+    const pending = arr.filter(c => c.status === 'pending').length;
+    const badge = document.getElementById('confirmations-badge');
+    if (!badge) return;
+    if (pending > 0) {
+      badge.textContent = pending > 99 ? '99+' : String(pending);
+      badge.classList.remove('d-none');
+    } else {
+      badge.classList.add('d-none');
+    }
+  } catch (_) { /* viewers get 403 here — that's fine, badge stays hidden */ }
+}
+
+// ─── v3.2.0 (B2): inbound webhooks (Settings → Integrations) ────────────────
+
+let _lastCreatedInboundWebhookUrl = '';
+
+async function loadIntegrationsTab() {
+  await loadInboundWebhooks();
+  // Render OIDC redirect-URI hint based on current origin
+  const hintEl = document.getElementById('oidc-redirect-hint');
+  if (hintEl) {
+    hintEl.innerHTML = `<strong>Redirect URI</strong> to register with your IdP: <code>${location.origin}/api/auth/oidc/callback</code>`;
+  }
+  // Populate the existing OIDC fields from config
+  try {
+    const cfg = await api('GET', '/config');
+    if (cfg) {
+      const setIf = (id, key, isCheck) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (isCheck) el.checked = !!cfg[key];
+        else el.value = cfg[key] || '';
+      };
+      setIf('oidc-enabled', 'oidc_enabled', true);
+      setIf('oidc-issuer', 'oidc_issuer');
+      setIf('oidc-client-id', 'oidc_client_id');
+      setIf('oidc-scopes', 'oidc_scopes');
+      setIf('oidc-admin-group', 'oidc_admin_group');
+      // Don't populate the secret — it's stored hashed-server-side or simply
+      // never re-read by the UI. Leave blank means "keep current".
+    }
+  } catch (_) { /* non-fatal */ }
+}
+
+async function loadInboundWebhooks() {
+  try {
+    const data = await api('GET', '/inbound-webhooks');
+    _renderInboundWebhooks((data && data.tokens) || []);
+  } catch (e) {
+    toast('Failed to load inbound webhooks', 'error');
+  }
+}
+
+function _renderInboundWebhooks(tokens) {
+  const tbody = document.getElementById('inbound-webhooks-tbody');
+  if (!tbody) return;
+  if (!tokens.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No inbound webhook tokens yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = tokens.map(t => {
+    const scope = t.scope_device_id ? `device ${_escapeHtml(t.scope_device_id)}` :
+                  t.scope_tag ? `tag ${_escapeHtml(t.scope_tag)}` : 'any';
+    const lastSeen = t.last_seen ? _formatTs(t.last_seen) : '<span class="c-muted">—</span>';
+    const status = t.enabled ?
+      '<span class="sev-pill sev-success">enabled</span>' :
+      '<span class="sev-pill sev-low">disabled</span>';
+    const toggle = t.enabled ?
+      `<button class="btn-icon btn-xs" data-action="toggleInboundWebhook" data-arg="${t.id}" data-arg2="0">Disable</button>` :
+      `<button class="btn-icon btn-xs" data-action="toggleInboundWebhook" data-arg="${t.id}" data-arg2="1">Enable</button>`;
+    return `<tr>
+      <td><strong>${_escapeHtml(t.label || '')}</strong></td>
+      <td class="hint">${scope}</td>
+      <td class="ff-mono fs-12">${_escapeHtml(t.token_preview || '')}</td>
+      <td>${t.hit_count || 0}</td>
+      <td class="hint nowrap">${lastSeen}</td>
+      <td>${status}</td>
+      <td class="nowrap">${toggle} <button class="btn-icon btn-xs c-danger-outline" data-action="revokeInboundWebhook" data-arg="${t.id}" data-arg2="${_escapeHtml(t.label||'')}">Revoke</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function openInboundWebhookCreate() {
+  document.getElementById('inbound-wh-label').value = '';
+  // Populate the device dropdown
+  const sel = document.getElementById('inbound-wh-device');
+  if (sel) {
+    const opts = ['<option value="">(any — match by body.device)</option>'];
+    (window._devicesCache || devices || []).forEach(d => {
+      const id = d.id || d.device_id || '';
+      const nm = d.name || id;
+      opts.push(`<option value="${_escapeHtml(id)}">${_escapeHtml(nm)}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+  }
+  openModal('inbound-webhook-create-modal');
+}
+
+async function createInboundWebhook() {
+  const label = document.getElementById('inbound-wh-label').value.trim();
+  if (!label) { toast('Label required', 'error'); return; }
+  const scope_device_id = document.getElementById('inbound-wh-device').value || null;
+  const r = await api('POST', '/inbound-webhooks', { label, scope_device_id });
+  if (r && r.ok && r.token) {
+    closeModal('inbound-webhook-create-modal');
+    _lastCreatedInboundWebhookUrl = `${location.origin}/api/webhook/in/${r.token}`;
+    document.getElementById('inbound-wh-url').textContent = _lastCreatedInboundWebhookUrl;
+    openModal('inbound-webhook-show-modal');
+    loadInboundWebhooks();
+  } else {
+    toast((r && r.error) || 'Failed', 'error');
+  }
+}
+
+function copyInboundWebhookUrl() {
+  if (!_lastCreatedInboundWebhookUrl) return;
+  navigator.clipboard.writeText(_lastCreatedInboundWebhookUrl)
+    .then(() => toast('Copied', 'success'))
+    .catch(() => toast('Copy failed — select and copy manually', 'error'));
+}
+
+async function toggleInboundWebhook(id, enabledStr) {
+  const enabled = enabledStr === '1';
+  const r = await api('PATCH', `/inbound-webhooks/${encodeURIComponent(id)}`, { enabled });
+  if (r && r.ok) { toast(`Token ${enabled ? 'enabled' : 'disabled'}`, 'success'); loadInboundWebhooks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function revokeInboundWebhook(id, label) {
+  if (!confirm(`Revoke inbound webhook "${label}"? The URL will stop working immediately.`)) return;
+  const r = await api('DELETE', `/inbound-webhooks/${encodeURIComponent(id)}`);
+  if (r && r.ok) { toast('Token revoked', 'success'); loadInboundWebhooks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+// OIDC config save is wired here so the Integrations tab is self-contained
+async function saveOidcConfig() {
+  const payload = {
+    oidc_enabled:      document.getElementById('oidc-enabled').checked,
+    oidc_issuer:       document.getElementById('oidc-issuer').value.trim(),
+    oidc_client_id:    document.getElementById('oidc-client-id').value.trim(),
+    oidc_scopes:       document.getElementById('oidc-scopes').value.trim() || 'openid profile email groups',
+    oidc_admin_group:  document.getElementById('oidc-admin-group').value.trim(),
+  };
+  const secret = document.getElementById('oidc-client-secret').value;
+  if (secret) payload.oidc_client_secret = secret;
+  const r = await api('POST', '/config', payload);
+  if (r && r.ok !== false) {
+    toast('OIDC config saved', 'success');
+    document.getElementById('oidc-client-secret').value = '';
+  } else {
+    toast((r && r.error) || 'Failed', 'error');
+  }
+}
+
+// Refresh alert + confirmation badges on load and every 60s after
+function _refreshTopBadges() {
+  refreshAlertsBadge();
+  refreshConfirmationsBadge();
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    _refreshTopBadges();
+    setInterval(_refreshTopBadges, 60000);
+  });
+} else {
+  _refreshTopBadges();
+  setInterval(_refreshTopBadges, 60000);
+}
+
 // ─── v1.8.3: Calendar ────────────────────────────────────────────────────────
 let calCurrentMonth = null;   // Date object pinned to the first of the displayed month
 let calCurrentEvents = [];    // events fetched for the displayed range
@@ -4155,8 +4545,48 @@ async function loadPublicInfo() {
       const banner = document.getElementById('demo-banner');
       if (banner) banner.style.display = 'block';
     }
+    // v3.2.0 (B3): reveal the OIDC sign-in button if configured
+    if (info.oidc_enabled) {
+      const btn = document.getElementById('login-oidc-btn');
+      if (btn) btn.classList.remove('d-none');
+    }
   } catch (e) { /* ignore */ }
 }
+
+// v3.2.0 (B3): pick up an OIDC redirect carrying a fresh session token in the
+// URL hash. Hash fragments never reach the server (no log exposure), the SPA
+// parses them on load and treats them like a normal post-login state.
+function _consumeOidcHashToken() {
+  if (!location.hash || location.hash.indexOf('oidc_token=') < 0) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  const token = params.get('oidc_token');
+  const role = params.get('role') || 'viewer';
+  const username = params.get('username') || '';
+  if (!token) return;
+  try {
+    localStorage.setItem('rp_token', token);
+    localStorage.setItem('rp_role', role);
+    localStorage.setItem('rp_username', username);
+  } catch (_) { /* private mode — non-fatal */ }
+  // Clean the hash so a refresh doesn't replay the token
+  history.replaceState(null, '', location.pathname);
+  location.reload();
+}
+_consumeOidcHashToken();
+
+// Surface an OIDC error returned in the query string (?oidc_error=...)
+(function() {
+  const qs = new URLSearchParams(location.search);
+  const err = qs.get('oidc_error');
+  if (!err) return;
+  const target = document.getElementById('login-oidc-error');
+  if (target) {
+    target.textContent = 'SSO sign-in failed: ' + err;
+    target.classList.remove('d-none');
+  }
+  // Clean the URL
+  history.replaceState(null, '', location.pathname);
+})();
 
 // v2.0: read-only mode flag — set from /api/public-info on load. The
 // API client uses this to surface a nicer error toast on 403 instead
