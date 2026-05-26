@@ -59,6 +59,14 @@ RATELIMIT_FILE   = DATA_DIR / 'ratelimit.json'
 AUDIT_LOG_FILE   = DATA_DIR / 'audit_log.json'
 SESSIONS_META_FILE = DATA_DIR / 'sessions_meta.json'
 WEBHOOK_LOG_FILE = DATA_DIR / 'webhook_log.json'
+# v3.2.0 follow-up: separate log for INBOUND webhook + syslog hits.
+# Symmetry with the outbound log — operators want to see "we received N
+# inbound events today, M were rejected" on Server Status the same way
+# they see outbound delivery stats. Keeping these in a separate file
+# rather than tagging direction on the existing log avoids breaking
+# every downstream consumer of webhook_log.json.
+INBOUND_WEBHOOK_LOG_FILE = DATA_DIR / 'inbound_webhook_log.json'
+MAX_INBOUND_WEBHOOK_LOG = 500
 # v2.2.4: dedicated fleet event log. The webhook log was always
 # delivery-attempt-only — if a `device_offline` fired but no webhook
 # URL was configured AND email wasn't enabled for the event, nothing
@@ -416,11 +424,18 @@ MAX_METRICS       = 1440
 MAX_SCHEDULE_JOBS = 200     # cap on total schedule entries
 PATCH_ALERT_KEY   = 'patch_alert_threshold'
 MAX_AUDIT_LOG     = 500
-MAX_WEBHOOK_LOG   = 100
+MAX_WEBHOOK_LOG   = 500    # v3.2.0: was 100 — too tight for the 24h-window
+                           # rate calc on fleets with frequent
+                           # suppressed/disabled entries (maintenance,
+                           # event filters). At 500 entries, ~24h of typical
+                           # traffic survives. Cheap — ~150 KB on disk worst
+                           # case (300 byte avg × 500 rows).
 MAX_ALERTS        = 5000   # v3.2.0 (B1): alerts ledger cap
 MAX_CONFIRMATIONS = 200    # v3.2.0 (A1): pending MCP confirmations cap
 CONFIRMATION_TTL_SEC = 3600  # v3.2.0 (A1): confirmations expire after 1h
 SNMP_POLL_INTERVAL  = 300  # v3.2.0 (B5): SNMP poll cadence (seconds)
+_SNMP_DEAD_THRESHOLD = 72  # consecutive fails before promoting to snmp_dead
+                           # (6h at the 5-minute cadence — sustained, not flaky)
 # v2.2.4: cap on the fleet event log (separate from webhook log).
 # 200 fits well into a few KB on disk and gives the Home dashboard
 # enough history to show meaningful activity even on quiet fleets
@@ -521,7 +536,12 @@ WEBHOOK_EVENTS = (
     ('backup_stale',          'Backup file is older than threshold',         True),
     # v3.2.0 (B5): SNMP polling state changes for agentless devices
     ('snmp_unreachable',      'SNMP poll failing for 2+ cycles',             True),
+    # v3.2.0 follow-up: severity escalation after sustained failure
+    ('snmp_dead',             'SNMP poll failing for 6+ hours (genuinely dead)', True),
     ('snmp_recover',          'SNMP polling recovered',                      True),
+    # v3.2.0 (A1 follow-up): MCP confirmation aged out without an admin
+    # decision. Surfaces the silent-timeout case to the operator.
+    ('mcp_confirmation_expired', 'MCP confirmation expired without operator decision', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1714,6 +1734,31 @@ def audit_log(actor, action, detail='', source_ip=None,
     al['entries'] = entries[-MAX_AUDIT_LOG:]
     save(AUDIT_LOG_FILE, al)
 
+# v3.2.0 (B-fix): inbound webhook + syslog hit log
+def _log_inbound(kind, token_id, label, status, detail=''):
+    """Append an entry to the inbound webhook log (last MAX_INBOUND_WEBHOOK_LOG).
+
+    kind:    'alert' | 'syslog'
+    status:  '200', '400', '401' (numeric HTTP status that we returned)
+    detail:  diagnostic — source label, lines_received, error reason
+    """
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOK_LOG_FILE) as store:
+            entries = store.setdefault('entries', [])
+            entries.append({
+                'ts':       int(time.time()),
+                'kind':     str(kind)[:16],
+                'token_id': str(token_id or '')[:32],
+                'label':    str(label or '')[:64],
+                'status':   str(status)[:16],
+                'detail':   str(detail)[:256],
+            })
+            if len(entries) > MAX_INBOUND_WEBHOOK_LOG:
+                del entries[:-MAX_INBOUND_WEBHOOK_LOG]
+    except Exception:
+        pass
+
+
 # ── Webhook ────────────────────────────────────────────────────────────────────
 def _log_webhook(event, url, status, detail=''):
     """Append an entry to the webhook log (last MAX_WEBHOOK_LOG entries)."""
@@ -1875,6 +1920,9 @@ _ALERT_RULES = {
     'metric_warning':         (None,       None),   # severity from payload.level
     # v3.2.0 (B5): SNMP polling for agentless devices
     'snmp_unreachable':       ('high',     None),
+    'snmp_dead':              ('critical', None),
+    # v3.2.0 (A1 follow-up): silent confirmation timeout
+    'mcp_confirmation_expired': ('medium', None),
 }
 
 # Map recover event → firing event it resolves
@@ -1883,6 +1931,15 @@ _ALERT_RECOVER = {
     'service_recover':         'service_down',
     'custom_script_recover':   'custom_script_fail',
     'snmp_recover':            'snmp_unreachable',
+    # snmp_recover also resolves any snmp_dead alert (same device).
+    # _auto_resolve_alerts walks once per recovered event, so we register
+    # both here. The trick: dict keys must be unique, so the second
+    # mapping is folded into the resolver function below as a special case.
+}
+# Compound recoveries: snmp_recover resolves BOTH snmp_unreachable AND
+# snmp_dead. Listed separately so the table stays a 1:1 dict.
+_ALERT_RECOVER_EXTRA = {
+    'snmp_recover':            ('snmp_dead',),
 }
 
 
@@ -1959,6 +2016,10 @@ def _alert_title(event, payload):
         return f'{p.get("metric", "metric")} {(p.get("level") or "warning")} on {name}: {p.get("value", "?")}'
     if event == 'snmp_unreachable':
         return f'SNMP unreachable: {name} ({p.get("host", "?")})'
+    if event == 'snmp_dead':
+        return f'SNMP DEAD ({p.get("hours", "?")}h silent): {name} ({p.get("host", "?")})'
+    if event == 'mcp_confirmation_expired':
+        return f'MCP confirmation expired: {p.get("action", "?")} on {name or "(no device)"}'
     return f'{event}: {name}'
 
 
@@ -2014,8 +2075,10 @@ def _record_alert(event, payload):
 
 def _auto_resolve_alerts(event, payload):
     """If `event` is a recover event, mark matching open alerts resolved."""
-    fired_event = _ALERT_RECOVER.get(event)
-    if not fired_event:
+    primary = _ALERT_RECOVER.get(event)
+    extra = _ALERT_RECOVER_EXTRA.get(event, ())
+    targets = tuple(filter(None, (primary,) + extra))
+    if not targets:
         return
     p = payload or {}
     dev_id = p.get('device_id')
@@ -2033,7 +2096,7 @@ def _auto_resolve_alerts(event, payload):
             for a in store.get('alerts', []):
                 if a.get('resolved_at'):
                     continue
-                if a.get('event') != fired_event:
+                if a.get('event') not in targets:
                     continue
                 if a.get('device_id') != dev_id:
                     continue
@@ -6372,6 +6435,34 @@ def handle_self_status():
         }
     except Exception as e:
         out['webhooks'] = {'error': str(e)}
+
+    # v3.2.0 (B-followup): inbound webhook + syslog hit rate. Mirrors the
+    # outbound shape so the dashboard can render them side-by-side.
+    try:
+        iwl = load(INBOUND_WEBHOOK_LOG_FILE)
+        ientries = iwl.get('entries') or []
+        def _inb_rate(window_s):
+            recent = [e for e in ientries if e.get('ts', 0) >= now - window_s]
+            if not recent:
+                return None
+            ok = sum(1 for e in recent if str(e.get('status', '')).startswith('2'))
+            by_kind = {}
+            for e in recent:
+                k = e.get('kind', 'alert')
+                by_kind[k] = by_kind.get(k, 0) + 1
+            return {
+                'attempts': len(recent),
+                'success':  ok,
+                'rate':     round(ok / len(recent), 3),
+                'by_kind':  by_kind,
+            }
+        out['inbound_webhooks'] = {
+            'last_24h':     _inb_rate(86400),
+            'last_7d':      _inb_rate(7 * 86400),
+            'total_logged': len(ientries),
+        }
+    except Exception as e:
+        out['inbound_webhooks'] = {'error': str(e)}
     # Audit log size
     try:
         al = load(AUDIT_LOG_FILE)
@@ -11988,6 +12079,7 @@ def handle_inbound_webhook(token_str):
     tokens = cfg.get('tokens', [])
     token_str = (token_str or '').strip()
     if not token_str or not token_str.startswith('rpwi_'):
+        _log_inbound('alert', '', '', '401', 'invalid token format')
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
@@ -11995,13 +12087,18 @@ def handle_inbound_webhook(token_str):
             match = t
             break
     if not match:
+        _log_inbound('alert', '', '', '401', 'invalid or disabled token')
         respond(401, {'error': 'invalid or disabled token'})
     # v3.2.0 (B6): a syslog-kind token must not be used at the alert URL
     if (match.get('kind') or 'alert') != 'alert':
+        _log_inbound('alert', match.get('id'), match.get('label'),
+                     '400', f'wrong url for {match.get("kind")} token')
         respond(400, {'error': f'this token is a {match.get("kind")} token — use the corresponding URL'})
 
     body = get_json_body() or {}
     if not isinstance(body, dict):
+        _log_inbound('alert', match.get('id'), match.get('label'),
+                     '400', 'body must be JSON object')
         respond(400, {'error': 'body must be a JSON object'})
 
     severity = (body.get('severity') or 'medium').lower()
@@ -12009,6 +12106,8 @@ def handle_inbound_webhook(token_str):
         severity = 'medium'
     title = _sanitize_str(body.get('title', ''), 256)
     if not title:
+        _log_inbound('alert', match.get('id'), match.get('label'),
+                     '400', 'title required')
         respond(400, {'error': 'title required'})
 
     dev_id, dev_name = _resolve_inbound_device(match, body)
@@ -12089,6 +12188,8 @@ def handle_inbound_webhook(token_str):
               'inbound_webhook',
               f'severity={severity} title={title[:80]} device={dev_name or "-"}')
 
+    _log_inbound('alert', match.get('id'), match.get('label'), '200',
+                 f'severity={severity} dev={dev_name or "-"}')
     respond(200, {'ok': True, 'alert_id': alert['id']})
 
 
@@ -12299,6 +12400,7 @@ def handle_syslog_in(token_str):
     tokens = cfg.get('tokens', [])
     token_str = (token_str or '').strip()
     if not token_str or not token_str.startswith('rpwi_'):
+        _log_inbound('syslog', '', '', '401', 'invalid token format')
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
@@ -12306,16 +12408,23 @@ def handle_syslog_in(token_str):
             match = t
             break
     if not match:
+        _log_inbound('syslog', '', '', '401', 'invalid or disabled token')
         respond(401, {'error': 'invalid or disabled token'})
     if (match.get('kind') or 'alert') != 'syslog':
+        _log_inbound('syslog', match.get('id'), match.get('label'),
+                     '400', f'wrong url for {match.get("kind", "alert")} token')
         respond(400, {'error': f'this token is a {match.get("kind", "alert")} token — use the corresponding URL'})
 
     dev_id = match.get('scope_device_id')
     if not dev_id:
+        _log_inbound('syslog', match.get('id'), match.get('label'),
+                     '400', 'token not pinned to device')
         respond(400, {'error': 'syslog tokens must be pinned to a device — recreate with scope_device_id'})
     devs = load(DEVICES_FILE)
     dev = devs.get(dev_id)
     if not dev:
+        _log_inbound('syslog', match.get('id'), match.get('label'),
+                     '404', 'target device deleted')
         respond(404, {'error': 'token target device no longer exists'})
 
     # Parse body: JSON first, then plain text fallback
@@ -12341,6 +12450,8 @@ def handle_syslog_in(token_str):
                     raw_lines.append(line)
 
     if not raw_lines:
+        _log_inbound('syslog', match.get('id'), match.get('label'),
+                     '400', 'no lines in body')
         respond(400, {'error': 'no lines provided'})
 
     # Parse + store
@@ -12386,25 +12497,53 @@ def handle_syslog_in(token_str):
     except Exception:
         pass
 
+    _log_inbound('syslog', match.get('id'), match.get('label'), '200',
+                 f'lines={len(new_entries)} dev={dev.get("name", dev_id)}')
     respond(200, {'ok': True, 'lines_received': len(new_entries)})
 
 
 # ── v3.2.0 (A1): MCP Stage 4 — write tools + confirmation flow ──────────────
 
 def _prune_confirmations(store):
-    """Drop expired pending confirmations from the ledger in-place."""
+    """Drop expired pending confirmations from the ledger in-place.
+
+    v3.2.0 follow-up: fires `mcp_confirmation_expired` for each transition
+    pending → expired so the operator sees the silent-timeout case in the
+    Alerts inbox / webhook destinations. Fires before the trim so we don't
+    miss expiries that immediately roll off the count cap.
+    """
     now = int(time.time())
     arr = store.get('confirmations', [])
+    expired_payloads = []
     keep = []
     for c in arr:
         if c.get('status') == 'pending' and now - c.get('requested_at', 0) > CONFIRMATION_TTL_SEC:
             c['status'] = 'expired'
             c['decided_at'] = now
+            expired_payloads.append({
+                'confirmation_id': c.get('id'),
+                'action':          c.get('action'),
+                'device_id':       c.get('device_id'),
+                'requested_by':    c.get('requested_by'),
+                'ai_host':         c.get('ai_host'),
+                'ai_prompt':       c.get('ai_prompt'),
+            })
         keep.append(c)
     # Count-bound trim
     if len(keep) > MAX_CONFIRMATIONS:
         keep = keep[-MAX_CONFIRMATIONS:]
     store['confirmations'] = keep
+    # Fire AFTER mutating in-place so the caller's _LockedUpdate write
+    # commits the status change atomically with the fire. Wrapped so a
+    # webhook hiccup can't block the prune.
+    for payload in expired_payloads:
+        try:
+            # Look up device_name for human-friendly title
+            d = (load(DEVICES_FILE).get(payload.get('device_id')) or {})
+            payload['device_name'] = d.get('name', '')
+            fire_webhook('mcp_confirmation_expired', payload)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] mcp_confirmation_expired fire failed: {e}\n')
 
 
 def _create_confirmation(action, device_id, params, actor, ai_host, ai_prompt):
@@ -13082,6 +13221,22 @@ def _do_snmp_poll(dev_id, dev):
                 })
             except Exception as ferr:
                 sys.stderr.write(f'[remotepower] snmp_unreachable fire failed: {ferr}\n')
+        # Dead transition: 6 hours of sustained failure (72 cycles at 5min
+        # cadence). The original `snmp_unreachable` alert is still in the
+        # inbox at severity=high; this one fires at severity=critical so
+        # silence at this stage is impossible to miss. Fires once at the
+        # crossing — _SNMP_DEAD_THRESHOLD = 72.
+        if is_monitored and prev_fails == _SNMP_DEAD_THRESHOLD - 1 \
+                and new_fails == _SNMP_DEAD_THRESHOLD:
+            hours = (new_fails * SNMP_POLL_INTERVAL) // 3600
+            try:
+                fire_webhook('snmp_dead', {
+                    'device_id': dev_id, 'device_name': name, 'host': host,
+                    'hours':     hours,
+                    'error':     entry['last_error'],
+                })
+            except Exception as ferr:
+                sys.stderr.write(f'[remotepower] snmp_dead fire failed: {ferr}\n')
     try:
         with _LockedUpdate(SNMP_DATA_FILE) as store:
             store[dev_id] = entry

@@ -88,6 +88,33 @@ ingestion. No schema migrations.
   signal was previously read as "nothing to look at" — the badge
   is now a present-tense status indicator.
 
+### v3.2.0 follow-up batch (operability hardening)
+
+- **Webhook log capacity** bumped from 100 → 500 entries. Tight cap was
+  flushing real deliveries out of the 24h rate window within hours on
+  fleets with frequent suppressed events.
+- **Inbound webhook + syslog hit log** added (`inbound_webhook_log.json`).
+  Every inbound POST is recorded with its HTTP status, token id, and
+  detail. Server Status grows a new "Inbound webhooks & syslog" card
+  showing 24h/7d hit rates split by kind.
+- **`mcp_confirmation_expired`** webhook event. When a pending MCP
+  confirmation ages out at the 1-hour TTL without an operator
+  decision, the prune sweep now fires this event (severity: medium)
+  so the silent-timeout case lands in the Alerts inbox.
+- **`snmp_dead` escalation event**. After 72 consecutive failed polls
+  (~6 hours at the 5-minute cadence), a second alert fires at
+  severity=critical alongside the original `snmp_unreachable` (high).
+  Both auto-resolve on `snmp_recover`.
+- **Devices page SNMP filter**. New "Any SNMP / Configured / OK / Failing"
+  dropdown next to the status filter — scope the device list to "show
+  me everything where SNMP is broken" in one click.
+- **Bearer auth security review**. `get_token_from_request()`'s Bearer
+  fallback (v3.2.0 initial) audited: token verification is uniform,
+  same-origin check still runs before dispatch, X-Token wins when both
+  headers are present. New regression suite confirms parity between
+  X-Token and Authorization Bearer auth across role gates. Notes
+  appended to docs/security.md.
+
 ### Webhook delivery rate accuracy
 
 - **Suppressed/disabled/filtered entries no longer count as failed

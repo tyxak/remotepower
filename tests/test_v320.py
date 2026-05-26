@@ -1273,6 +1273,75 @@ class TestSelfStatusWebhookRate(_ApiTestBase):
         self.assertEqual(w24['success'], 1)
 
 
+class TestBearerAuthParity(_ApiTestBase):
+    """v3.2.0 generalised Bearer auth to every endpoint (was /api/metrics only).
+    Confirm that `Authorization: Bearer <t>` is treated EXACTLY the same as
+    `X-Token: <t>` — same role, same admin gate, same TTL. Regression for
+    the security-review concern: no endpoint should treat the two headers
+    differently."""
+
+    def setUp(self):
+        # Two API keys: one viewer, one admin
+        apikeys = self.api.load(self.api.APIKEYS_FILE)
+        apikeys['v'] = {'name': 'v', 'key': 'rpk_v_test', 'user': 'v',
+                         'role': 'viewer', 'created': int(time.time()),
+                         'active': True, 'expires_at': None}
+        apikeys['a'] = {'name': 'a', 'key': 'rpk_a_test', 'user': 'a',
+                         'role': 'admin', 'created': int(time.time()),
+                         'active': True, 'expires_at': None}
+        self.api.save(self.api.APIKEYS_FILE, apikeys)
+        # Clear both headers between tests
+        for k in ('HTTP_X_TOKEN', 'HTTP_AUTHORIZATION'):
+            os.environ.pop(k, None)
+
+    def test_x_token_resolves(self):
+        os.environ['HTTP_X_TOKEN'] = 'rpk_v_test'
+        u, r = self.api.verify_token(self.api.get_token_from_request())
+        self.assertEqual(u, 'v')
+        self.assertEqual(r, 'viewer')
+
+    def test_bearer_resolves_identically(self):
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer rpk_v_test'
+        u, r = self.api.verify_token(self.api.get_token_from_request())
+        self.assertEqual(u, 'v')
+        self.assertEqual(r, 'viewer')
+
+    def test_bearer_case_insensitive(self):
+        # The RFC says the scheme name is case-insensitive
+        for prefix in ('Bearer ', 'BEARER ', 'bearer ', 'BeArEr '):
+            os.environ['HTTP_AUTHORIZATION'] = prefix + 'rpk_v_test'
+            u, r = self.api.verify_token(self.api.get_token_from_request())
+            self.assertEqual(u, 'v', f'Bearer prefix {prefix!r} failed')
+
+    def test_x_token_wins_when_both_set(self):
+        """Documented behaviour: X-Token has priority. Helps the dashboard
+        keep working when an external proxy injects a stray Authorization
+        header."""
+        os.environ['HTTP_X_TOKEN']      = 'rpk_v_test'
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer rpk_a_test'
+        u, r = self.api.verify_token(self.api.get_token_from_request())
+        self.assertEqual(u, 'v',  'X-Token must take priority')
+        self.assertEqual(r, 'viewer')
+
+    def test_admin_gate_applies_to_bearer(self):
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer rpk_v_test'
+        # Viewer can't pass admin gate regardless of header used
+        with self.assertRaises(self.api.HTTPError) as ctx:
+            self.api.require_admin_auth()
+        self.assertEqual(ctx.exception.status, 403)
+
+    def test_admin_via_bearer_succeeds(self):
+        os.environ['HTTP_AUTHORIZATION'] = 'Bearer rpk_a_test'
+        self.assertEqual(self.api.require_admin_auth(), 'a')
+
+    def test_malformed_authorization_falls_through_to_401(self):
+        for bad in ('Basic dXNlcjpwYXNz', 'rpk_v_test', 'Token rpk_v_test', ''):
+            os.environ['HTTP_AUTHORIZATION'] = bad
+            tok = self.api.get_token_from_request()
+            # No X-Token, malformed Authorization → empty token
+            self.assertEqual(tok, '', f'malformed {bad!r} should not auth')
+
+
 class TestSnmpAlertsMonitored(_ApiTestBase):
     """SNMP failure/recovery events must respect the monitored flag and
     fire exactly once on the transition."""

@@ -473,6 +473,12 @@
             <option value="online">Online only</option>
             <option value="offline">Offline only</option>
           </select>
+          <select id="device-snmp-filter" class="form-input input-auto" data-change="filterDevices" title="Filter by SNMP polling status (only meaningful for agentless devices with SNMP enabled)">
+            <option value="all">Any SNMP</option>
+            <option value="configured">SNMP configured</option>
+            <option value="ok">SNMP polling OK</option>
+            <option value="fail">SNMP failing</option>
+          </select>
           <select id="device-group-filter" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All groups</option>
           </select>

@@ -871,6 +871,11 @@ function renderDevices() {
   const deviceStatusFilter = document.getElementById('device-status-filter')?.value || 'all';
   if (deviceStatusFilter === 'online') filtered = filtered.filter(d => d.online);
   else if (deviceStatusFilter === 'offline') filtered = filtered.filter(d => !d.online);
+  // v3.2.0 follow-up: SNMP status filter for agentless devices
+  const snmpFilter = document.getElementById('device-snmp-filter')?.value || 'all';
+  if (snmpFilter === 'configured') filtered = filtered.filter(d => d.snmp_status && d.snmp_status.enabled);
+  else if (snmpFilter === 'ok')   filtered = filtered.filter(d => d.snmp_status && d.snmp_status.ok);
+  else if (snmpFilter === 'fail') filtered = filtered.filter(d => d.snmp_status && d.snmp_status.enabled && !d.snmp_status.ok);
   const deviceGroupFilter = document.getElementById('device-group-filter')?.value || 'all';
   if (deviceGroupFilter !== 'all') filtered = filtered.filter(d => d.group === deviceGroupFilter);
   if (filtered.length === 0) {
@@ -9107,7 +9112,9 @@ function _renderHomeActivity(fleetEvents) {
     'config_drift', 'tls_expiry', 'reboot_required', 'snapshot_old',
     'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
     // v3.2.0 (B5): SNMP polling state transitions
-    'snmp_unreachable', 'snmp_recover',
+    'snmp_unreachable', 'snmp_dead', 'snmp_recover',
+    // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
+    'mcp_confirmation_expired',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -9232,10 +9239,14 @@ function _homeActivityAttrs(event, p) {
     case 'config_drift':   return `${base} data-home-act="devices"`;
     case 'tls_expiry':     return `${base} data-home-act="tls"`;
     case 'snapshot_old':   return `${base} data-home-act="virtualization"`;
-    case 'snmp_unreachable': case 'snmp_recover':
+    case 'snmp_unreachable': case 'snmp_dead': case 'snmp_recover':
       // SNMP events surface on agentless device cards; clicking opens the
       // device drawer if we have an id, else routes to Devices.
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    case 'mcp_confirmation_expired':
+      // Click → MCP Confirmations admin page so the operator can see
+      // what timed out
+      return `${base} data-home-act="confirmations"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -14086,13 +14097,36 @@ async function loadSelfStatus() {
     </div>
 
     <div class="card p-16">
-      <div class="fw-600-mb10">Webhook delivery</div>
+      <div class="fw-600-mb10">Webhook delivery — outbound</div>
       <table class="fs-13">
         <tr><td class="c-muted-padded">Last 24h</td><td>${_whHtml(w24)}</td></tr>
         <tr><td class="c-muted-padded">Last 7 days</td><td>${_whHtml(w7d)}</td></tr>
         <tr><td class="c-muted-padded">Logged total</td><td>${(s.webhooks || {}).total_logged ?? '—'}</td></tr>
       </table>
     </div>
+
+    ${(() => {
+      // v3.2.0 follow-up: inbound webhooks + syslog hit log
+      const iw = s.inbound_webhooks || {};
+      const i24 = iw.last_24h, i7d = iw.last_7d;
+      const _iwHtml = w => {
+        if (!w) return '<span class="c-muted">no inbound hits yet</span>';
+        const pct = (w.rate * 100).toFixed(1);
+        const pctCls = w.rate >= 0.95 ? 'c-green' : w.rate >= 0.8 ? 'c-amber' : 'c-red';
+        const kinds = w.by_kind || {};
+        const kindsTxt = Object.keys(kinds).map(k => `${escHtml(k)}:${kinds[k]}`).join(' · ');
+        return `<strong>${w.success}</strong> / ${w.attempts} <span class="${pctCls}">(${pct}%)</span>` +
+               (kindsTxt ? ` <span class="hint">[${kindsTxt}]</span>` : '');
+      };
+      return `<div class="card p-16">
+        <div class="fw-600-mb10">Inbound webhooks &amp; syslog</div>
+        <table class="fs-13">
+          <tr><td class="c-muted-padded">Last 24h</td><td>${_iwHtml(i24)}</td></tr>
+          <tr><td class="c-muted-padded">Last 7 days</td><td>${_iwHtml(i7d)}</td></tr>
+          <tr><td class="c-muted-padded">Logged total</td><td>${iw.total_logged ?? '—'}</td></tr>
+        </table>
+      </div>`;
+    })()}
 
     <div class="card p-16">
       <div class="fw-600-mb10">Disk — <code>${escHtml(dd.path || '/var/lib/remotepower')}</code></div>

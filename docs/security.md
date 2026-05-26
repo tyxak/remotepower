@@ -66,6 +66,16 @@ Summary of the defences in place:
   operator only at creation, support per-key expiry, capped at 50 per server.
 - **LDAP** binds use `CERT_REQUIRED` TLS verification by default; opt-out
   exists for self-signed CAs.
+- **`Authorization: Bearer`** is accepted alongside `X-Token` as of v3.2.0
+  (was previously only `/api/metrics`). The token verification path is
+  identical — same TTL, same role lookup, same admin gate. `X-Token`
+  takes priority when both headers are present, so a stray
+  `Authorization` header injected by a transparent proxy can't override
+  the dashboard's session token. Bearer was generalised for the bundled
+  MCP server, which sends it per RFC 6750. Operator note: `Authorization`
+  headers tend to be logged by more middleware than the non-standard
+  `X-Token` — if you suspect Bearer-bearing requests have been logged
+  upstream, rotate the affected API keys.
 
 ### CSRF / cross-origin
 
