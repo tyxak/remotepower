@@ -1394,6 +1394,38 @@ class TestSnmpAlertsMonitored(_ApiTestBase):
         alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
         self.assertEqual(len([a for a in alerts if a['event'] == 'snmp_unreachable']), 0,
                           'unmonitored devices must not page')
+        # But the failure DATA should be stored — operator can still see it
+        stored = self.api.load(self.api.SNMP_DATA_FILE).get('d-1', {})
+        self.assertEqual(stored.get('consecutive_fails'), 2,
+                          'unmonitored devices still collect data')
+        self.assertIsNotNone(stored.get('last_error'))
+
+    def test_unmonitored_device_polled_in_sweep(self):
+        """run_snmp_polls_if_due() must include unmonitored devices —
+        we collect data but skip the alert fire. Same posture as the
+        agent's metric pipeline."""
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-1': {'name': 'unmon', 'ip': '127.0.0.1', 'monitored': False,
+                    'snmp': {'enabled': True, 'community': 'public', 'port': 1}},
+        })
+        # Stub the SNMP module to count invocations
+        import snmp
+        calls = []
+        orig = snmp.poll_system
+        def counting_poll(*a, **kw):
+            calls.append((a, kw))
+            raise RuntimeError('simulated timeout')
+        snmp.poll_system = counting_poll
+        try:
+            # Force the sweep to run by clearing last_snmp_poll
+            cfg = self.api.load(self.api.CONFIG_FILE)
+            cfg['last_snmp_poll'] = 0
+            self.api.save(self.api.CONFIG_FILE, cfg)
+            self.api.run_snmp_polls_if_due()
+        finally:
+            snmp.poll_system = orig
+        self.assertEqual(len(calls), 1,
+                          'unmonitored device must still be polled')
 
     def test_recover_resolves_existing_alert(self):
         dev = {'name': 'sw', 'ip': '10.0.0.1', 'monitored': True,

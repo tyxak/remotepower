@@ -13258,13 +13258,14 @@ def run_snmp_polls_if_due():
     if (now - last) < SNMP_POLL_INTERVAL:
         return
     devs = load(DEVICES_FILE)
-    # v3.2.0: skip unmonitored devices — same posture as the device_offline
-    # detector (line ~2256). Operator-suppressed devices stay silent.
-    # We still poll on-demand via handle_device_snmp_poll() so admins can
-    # debug; this only skips the background sweep.
+    # v3.2.0 follow-up: poll EVERY device with SNMP enabled, including
+    # unmonitored ones. The alert-fire path inside _do_snmp_poll respects
+    # the monitored flag (no webhook fire for unmonitored), so the data
+    # still collects — operators get rolling uptime, sysName, last-poll
+    # status — but pages stay silent. Same posture the agent's metric
+    # pipeline takes for unmonitored hosts (collect data, skip thresholds).
     targets = [(did, d) for did, d in devs.items()
-               if _device_snmp_target(d) is not None
-               and d.get('monitored', True)]
+               if _device_snmp_target(d) is not None]
     if not targets:
         return
     # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
