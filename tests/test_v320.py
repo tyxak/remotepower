@@ -1405,6 +1405,77 @@ class TestBearerAuthParity(_ApiTestBase):
             self.assertEqual(tok, '', f'malformed {bad!r} should not auth')
 
 
+class TestUnmonitoredAlertSuppression(_ApiTestBase):
+    """Regression: alerts.json must not gain rows for unmonitored devices.
+
+    Reported on the live v3.2.0 deploy: a log_alert on host `jaove` showed
+    up in the Open inbox even though that device is monitored=false. The
+    fix puts the same monitored-gate inside _record_alert that fire_webhook
+    already has on its outbound fan-out path.
+
+    Suppression scope:
+      * device-scoped events on unmonitored devices → skip
+      * fleet-wide events (no device_id) → still record
+      * inbound webhooks / syslog (different code paths) → still record
+        (those have their own scope_device_id pinning but the alert
+        record itself doesn't go through _record_alert with device_id
+        from a monitored host)
+    """
+
+    def setUp(self):
+        self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+
+    def test_unmonitored_device_alert_skipped(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-unmon': {'name': 'jaove', 'monitored': False},
+        })
+        self.api.fire_webhook('log_alert', {
+            'device_id': 'd-unmon', 'device_name': 'jaove',
+            'unit':      'system',
+            'pattern':   'error',
+            'level':     'warning',
+            'count':     3,
+        })
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(rows, [],
+            'unmonitored device log_alert must not enter alerts inbox')
+
+    def test_monitored_device_alert_still_recorded(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-mon': {'name': 'web01', 'monitored': True},
+        })
+        self.api.fire_webhook('log_alert', {
+            'device_id': 'd-mon', 'device_name': 'web01',
+            'unit':      'nginx',
+            'pattern':   '5[0-9][0-9]',
+            'level':     'warning',
+            'count':     5,
+        })
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['event'], 'log_alert')
+
+    def test_fleetwide_event_still_recorded(self):
+        # No device_id → not a per-device event, must record
+        self.api.fire_webhook('cve_found', {
+            'critical': 0, 'high': 2,
+            # no device_id
+        })
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len(rows), 1)
+
+    def test_unknown_device_id_still_recorded(self):
+        # device_id present but devices.json doesn't have it (e.g. deleted)
+        # → fall through and record. Operators can still see orphan alerts.
+        self.api.save(self.api.DEVICES_FILE, {})
+        self.api.fire_webhook('log_alert', {
+            'device_id': 'd-ghost', 'device_name': 'gone',
+            'unit':      'x', 'pattern': 'y', 'level': 'warning', 'count': 1,
+        })
+        rows = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        self.assertEqual(len(rows), 1)
+
+
 class TestSnmpAlertsMonitored(_ApiTestBase):
     """SNMP failure/recovery events must respect the monitored flag and
     fire exactly once on the transition."""
@@ -1412,6 +1483,10 @@ class TestSnmpAlertsMonitored(_ApiTestBase):
     def setUp(self):
         self.api.save(self.api.SNMP_DATA_FILE, {})
         self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+        # v3.2.0 follow-up: _record_alert re-reads DEVICES_FILE to apply
+        # the monitored gate. Clear DEVICES_FILE per-test so prior tests
+        # that set monitored=False on the same dev_id can't leak through.
+        self.api.save(self.api.DEVICES_FILE, {})
 
     def _patch_poll(self, dev_id, dev, raises=None, sysname='sw'):
         """Stub the SNMP module to either return synthetic data or raise."""

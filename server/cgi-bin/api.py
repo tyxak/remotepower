@@ -2029,11 +2029,28 @@ def _record_alert(event, payload):
     v3.2.0 (B1): wired into fire_webhook() unconditionally — independent of
     whether any webhook destination is configured. Operators see alerts in
     the inbox even without external delivery.
+
+    v3.2.0 follow-up: if the source device is unmonitored, skip the alert.
+    Same posture as the downstream webhook fan-out: monitored=false means
+    "collect data, don't bother me". The Alerts inbox is the operator's
+    paging queue — a single unit on an unmonitored host fires log_alert
+    over and over and drowns the real signals otherwise. Fleet-wide
+    events (no device_id) and events from non-device sources (inbound
+    webhooks) still create alerts as before.
     """
     sev = _alert_severity(event, payload)
     if not sev:
         return None
     p = payload or {}
+    # Per-device suppression: identical check to fire_webhook's gate.
+    dev_id = p.get('device_id') if isinstance(p, dict) else None
+    if dev_id:
+        try:
+            dev = load(DEVICES_FILE).get(dev_id) or {}
+            if dev and not dev.get('monitored', True):
+                return None
+        except Exception:
+            pass    # If devices.json read fails, fall through and record
     summary = {}
     if isinstance(p, dict):
         for key in ('device_id', 'device_name', 'name', 'host', 'path',

@@ -355,7 +355,11 @@
     left: 0;
     top: 0;
     bottom: 0;
-    width: 200px;
+    /* v3.2.0: widened 200 → 220 — "MCP Confirmations" + green/red count
+       badge was clipping at 200px. Two extra rem of breathing room
+       accommodates the longest visible label without crowding the
+       chevrons on group toggles. */
+    width: 220px;
     background: var(--surface);
     border-right: 1px solid var(--border);
     padding: 72px 12px 16px;
@@ -526,7 +530,8 @@
     min-height: calc(100vh - 60px);
   }
   .app-content {
-    margin-left: 200px;
+    /* v3.2.0: keep in lockstep with .sidebar width (220px) */
+    margin-left: 220px;
     flex: 1;
     min-width: 0;
   }
