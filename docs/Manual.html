@@ -2,18 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual — v3.0.6</title>
+<title>RemotePower Manual — v3.0.7</title>
 <link rel="stylesheet" href="/static/css/manual.css">
 </head>
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 3.0.6 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
+<p><em>Version 3.0.7 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
 
 <div class="note"><strong>How this doc fits together.</strong> The in-app Documentation page (sidebar → Help → Documentation) covers common tasks with substring search across topics; this Manual.html is the long-form reference; the dedicated <code>docs/&lt;feature&gt;.md</code> files are the source of truth for each subsystem. Where a section here is intentionally brief, follow the link to the matching <code>docs/*.md</code>.</div>
 
 <div class="note"><strong>What's new in v3.0.x:</strong>
 <ul class="manual-changelog-list">
+  <li><strong>v3.0.7:</strong> UX overhaul — grouped sidebar navigation and calendar recurring events. The sidebar is now organised into five collapsible groups: <strong>Fleet</strong> (Devices, CMDB, Containers, Virtualization, Network), <strong>Monitoring</strong> (Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs — each item deep-links directly to its section with smooth scroll), <strong>Security</strong> (TLS/DNS, Patches, CVEs, Drift, Audit — Audit moved here from Admin), <strong>Planning</strong> (Schedule, Calendar, Tasks, Maintenance, History), <strong>Admin</strong> (Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status). Links promoted to a standalone top-level item. Calendar events can now recur daily / weekly / monthly / yearly; the backend expands occurrences per query window; Schedule's "Add to calendar" produces recurring calendar events for recurring schedules. Filter boxes on Listening Ports and ACME certificates. "Clear backup archives" button on Server Status. Quick Links dashboard widget on Home. Fixed: delete buttons invisible in task / calendar event / custom script modals (<code>style.display='block'</code> vs <code>''</code>).</li>
   <li><strong>v3.0.6:</strong> production-readiness polish on top of v3.0.5. New <code>/api/health</code> liveness endpoint (unauthenticated, used by the Docker <code>HEALTHCHECK</code> and any reverse-proxy probe). CSP violation reporter at <code>/api/csp-report</code> with <code>report-uri</code> wired into the policy in both nginx configs — any future regression that reintroduces inline code logs to the audit log instead of becoming a silent visual bug. Subresource-Integrity (SHA-384) hashes pinned on every <code>/static/vendor/</code> script and stylesheet — if an operator (or attacker) ever overwrites a vendor file on disk, the browser refuses to execute it. GitHub Actions workflow runs the full test suite + <code>make dist</code> on every push to <code>main</code>; the test suite already includes the <code>TestCSPMigrationFidelity</code> guardrail from v3.0.5.</li>
   <li><strong>v3.0.5:</strong> strict Content-Security-Policy — <code>'unsafe-inline'</code> removed from <code>script-src</code> and <code>style-src</code>, closing the L1 finding from the v2.3.2 security review. All inline event handlers (~210 <code>onclick=</code>, ~470 <code>style=</code>, inline <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code>) migrated to <code>data-action</code> event delegation + external CSS/JS. Five vendor libraries (Inter + JetBrains Mono fonts, xterm.js, qrcode-generator, Swagger UI) self-hosted under <code>/static/vendor/</code>. Per-file content-hash cache-busting in <code>deploy-server.sh</code>. AI Assistant page, Audit tab, Host Config tabs, mobile sidebar, PWA install button all hardened against follow-up regressions. <code>TestCSPMigrationFidelity</code> codifies the manual sweep as 16 unit tests.</li>
   <li><strong>v3.0.4:</strong> bug-fix release. Fixed: AI chat 500 (latent <code>cfg</code> NameError in <code>_http_post_json</code>); Monitor row "OK" badge while Needs Attention showed warnings (<code>metric_state</code> missing from <code>/api/devices</code>); no 🩺 Investigate button on memory/swap/CPU alerts (playbooks added); device-drawer Save settings 404 (new bulk handler); empty AI summary on "Re-run AI" for mitigation playbooks (argument-shape bug); mobile/PWA sidebar drawer wouldn't collapse (strict <code>e.target === document.body</code> check + scrim-over-burger z-order — also added a dedicated ✕ button inside the sidebar on mobile); "✨ AI Prioritise Updates" button felt unresponsive (now shows ⏳ during the API call) and auto-queues the right per-package-manager listing command (<code>apt list --upgradable</code> / <code>dnf check-update</code> / <code>pacman -Qu</code>) when <code>patch_history</code> doesn't yet contain one. Heartbeat path's <code>process_metric_thresholds</code> now logs exceptions to stderr instead of silently swallowing them. Service worker cache bumped to <code>remotepower-shell-v3.0.4</code>.</li>
@@ -50,7 +51,7 @@
   <li><a href="#iac">18. IaC Generator</a></li>
   <li><a href="#selfmon">19. Server self-monitoring &amp; scheduled backup</a></li>
   <li><a href="#security">20. Security &amp; authentication</a></li>
-  <li><a href="#ui">21. Dashboard UI: drawer, palette, shortcuts, density</a></li>
+  <li><a href="#ui">21. Dashboard UI: sidebar groups, drawer, palette, shortcuts, density</a></li>
   <li><a href="#troubleshooting">22. Troubleshooting</a></li>
 </ul>
 </div>
@@ -205,7 +206,7 @@ sudo systemctl enable --now remotepower-agent
 
 <h2 id="monitor">6. External monitors (ping/TCP/HTTP)</h2>
 
-<p>The Monitor page lets you configure ICMP / TCP / HTTP probes that the <em>server</em> runs against external targets — not the same as the agent-side metrics or service watches. Useful for:</p>
+<p>The <strong>Monitoring page → Targets section</strong> lets you configure ICMP / TCP / HTTP probes that the <em>server</em> runs against external targets — not the same as the agent-side metrics or service watches. Useful for:</p>
 <ul>
   <li>Checking your ISP's gateway is up (ping)</li>
   <li>Verifying a web service still responds (HTTP HEAD)</li>
@@ -512,13 +513,26 @@ Environment=RP_LDAP_BIND_PASSWORD=…
 
 <h2 id="ui">21. Dashboard UI</h2>
 
-<h3>21.1 Device Drawer (v2.9.0)</h3>
+<h3>21.1 Sidebar navigation groups (v3.0.7)</h3>
+<p>The sidebar is organised into five collapsible sections. Each group's open/closed state persists in <code>localStorage</code>. Fleet and Monitoring are open by default; Admin is collapsed. Home and Links are standalone items above the groups, always visible.</p>
+<table>
+  <tr><th>Group</th><th>Pages</th></tr>
+  <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Containers, Virtualization, Network</td></tr>
+  <tr><td><strong>Monitoring</strong></td><td>Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs</td></tr>
+  <tr><td><strong>Security</strong></td><td>TLS/DNS, Patches, CVEs, Drift, Audit</td></tr>
+  <tr><td><strong>Planning</strong></td><td>Schedule, Calendar, Tasks, Maintenance, History</td></tr>
+  <tr><td><strong>Admin</strong></td><td>Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status</td></tr>
+</table>
+<p>The six items in the <strong>Monitoring</strong> group are section deep-links rather than separate pages. Clicking one calls <code>showMonitorSection(sectionId, btn)</code>, which navigates to the Monitoring page and then <code>scrollIntoView</code>s the target section. The active sidebar button is set correctly and the group auto-expands if it was collapsed.</p>
+<p>Keyboard shortcut <kbd>g m</kbd> and the command palette entry "Monitoring" both navigate to the top of the Monitoring page (Targets section).</p>
+
+<h3>21.3 Device Drawer (v2.9.0)</h3>
 <p>Clicking a device name or the ⋮ button on Devices / Dashboard opens a full-screen slide-in drawer with two tabs. <strong>Actions &amp; Settings</strong> has the quick-action grid (run command, reboot, shutdown, WoL, upgrade packages, scan, web terminal, run script, update agent, docker compose, host config, CMDB, runbook, maintenance, adjust poll, delete) plus inline-editable device settings (group, tags, icon, monitored, poll interval, watched services, log rules, drift files, command allowlist) — all behind a single Save button. <strong>Audit</strong> has 11 collapsible sections, lazy-loaded on first open: system info, listening ports, packages, logs (filterable by unit), command history, fleet events, drift state, CVE summary, containers, metrics, host config.</p>
 
-<h3>21.2 Command palette (v3.0.2)</h3>
-<p><kbd>/</kbd> or <kbd>Ctrl-K</kbd> opens the global palette. Indexes pages, devices and quick actions. Arrow keys to navigate, Enter to activate, Esc to close. <kbd>?</kbd> opens the keyboard shortcut cheat sheet. <code>g</code>-prefix navigation: <kbd>g h</kbd> / <kbd>d</kbd> / <kbd>l</kbd> / <kbd>s</kbd> / <kbd>c</kbd> / <kbd>m</kbd> / <kbd>a</kbd> / <kbd>v</kbd> for Home / Devices / Logs / Settings / CVE / Monitor / Audit / serVer.</p>
+<h3>21.4 Command palette (v3.0.2)</h3>
+<p><kbd>/</kbd> or <kbd>Ctrl-K</kbd> opens the global palette. Indexes pages, devices and quick actions. Arrow keys to navigate, Enter to activate, Esc to close. <kbd>?</kbd> opens the keyboard shortcut cheat sheet. <code>g</code>-prefix navigation: <kbd>g h</kbd> / <kbd>d</kbd> / <kbd>l</kbd> / <kbd>s</kbd> / <kbd>c</kbd> / <kbd>m</kbd> / <kbd>a</kbd> / <kbd>v</kbd> for Home / Devices / Logs / Settings / CVE / Monitoring / Audit / serVer.</p>
 
-<h3>21.3 Filter, sort, density</h3>
+<h3>21.5 Filter, sort, density</h3>
 <p>Every fleet table — Devices, Services, CVE Findings, Containers, Monitor, TLS, Patches, Audit Log, Command History, Schedule, Maintenance, plus the admin tables — has a substring filter input and clickable column headers.</p>
 <ul>
   <li>First click sorts ascending</li>
@@ -527,7 +541,7 @@ Environment=RP_LDAP_BIND_PASSWORD=…
   <li>Hold <kbd>Shift</kbd> while clicking a second header to add a secondary sort key (small superscript shows the priority)</li>
 </ul>
 
-<h3>21.4 Density</h3>
+<h3>21.6 Density</h3>
 <p>The Devices grid has four density modes: Minimal (table layout, one device per row, sortable), Compact, Comfortable (default), Spacious. Selection persists per user.</p>
 
 <p>Filter / sort / density preferences are stored under <code>users[username].ui_prefs</code> server-side, so they follow you across browsers and devices. Sanitised: 256-char filter cap, 5-key sort cap, 16 KB total per user.</p>

@@ -1720,12 +1720,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="monitor probe ping tcp http external check uptime metrics">
-            <summary><strong>Monitor page</strong> — external probes + live device metrics</summary>
+          <details class="doc-card" data-keywords="monitor monitoring probe ping tcp http external check uptime metrics ports scripts services subcategory deep-link">
+            <summary><strong>Monitoring page</strong> — probes, metrics, ports, scripts, services, logs</summary>
             <div class="doc-body">
-              <p><strong>Top section: external probes.</strong> ICMP ping, TCP port, HTTP HEAD checks that the server runs against any target (your ISP gateway, an external website, a remote SSH port). Add via "Add target". Probes run on schedule (default 300s, min 60s); state transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks. Each row shows current state, last check, response detail.</p>
-              <p><strong>Bottom section: live device metrics (v1.12.0).</strong> Every enrolled device's current memory / swap / CPU / per-mount disk values, color-coded by alert level. Filter by name, group, tag, or mount path. Sort by any column.</p>
-              <p><strong>Trend button (v2.0):</strong> next to the per-device thresholds button, opens the time-series chart modal — same chart you'd get from the Devices page metrics action, just one click away from the fleet view.</p>
+              <p>The <strong>Monitoring</strong> sidebar group has six items that each deep-link to a section of this page and smooth-scroll to it on arrival:</p>
+              <ul>
+                <li><strong>Targets</strong> — ICMP ping, TCP port, HTTP HEAD probes the server runs against external targets. State transitions fire <code>monitor_down</code> / <code>monitor_up</code> webhooks.</li>
+                <li><strong>Device Metrics</strong> (v1.12.0) — fleet-wide memory / swap / CPU / disk view, color-coded by alert level. Filter by name, group, mount path.</li>
+                <li><strong>Listening Ports</strong> (v2.8.1) — all open ports across monitored devices, grouped by port number with process name and device list. Live filter by port, process, or device.</li>
+                <li><strong>Custom Scripts</strong> — fleet-wide results table for your bash health-check scripts. Filter by name or status.</li>
+                <li><strong>Services</strong> — systemd unit health matrix for watched services.</li>
+                <li><strong>Logs</strong> — fleet log tail with regex pattern-alert rules.</li>
+              </ul>
+              <p><strong>Trend button (v2.0):</strong> next to each device in Device Metrics, opens the time-series chart modal for that device.</p>
             </div>
           </details>
 
@@ -1824,16 +1831,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p>Per-device, per-group, or fleet-global. Two optional checkboxes on create:</p>
               <ul>
                 <li><strong>Maintenance window:</strong> auto-checked for disruptive commands (reboot, upgrade); suppresses all suppressible alerts for 1 hour around the scheduled time.</li>
-                <li><strong>Add to calendar:</strong> creates a calendar entry at the next computed occurrence so it shows up in the Calendar page.</li>
+                <li><strong>Add to calendar:</strong> creates a calendar entry at the next computed occurrence. For recurring schedules (daily, weekly, monthly), the calendar event inherits the same recurrence so all future runs appear in the calendar automatically.</li>
               </ul>
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="calendar event timeline maintenance plan">
+          <details class="doc-card" data-keywords="calendar event timeline maintenance plan recurring repeat daily weekly monthly yearly">
             <summary><strong>Calendar page</strong> — visual timeline of scheduled events</summary>
             <div class="doc-body">
-              <p>Calendar view of upcoming scheduled commands and maintenance windows. Useful for "what's planned this week?" and avoiding accidentally double-booking maintenance.</p>
-              <p>Read-only here — to add events, use the Schedule page (for scheduled commands) or Maintenance page (for maintenance windows).</p>
+              <p>Month-view calendar of upcoming scheduled commands and maintenance windows. Useful for "what's planned this week?" and avoiding accidentally double-booking maintenance.</p>
+              <p><strong>Create events:</strong> click any day cell to create a one-off event. The event modal has a Recurrence dropdown: None, Daily, Weekly, Monthly, or Yearly. Recurring events are stored once on the server and expanded into occurrences within the displayed window (cap: 500). They appear with a ↻ glyph in the grid.</p>
+              <p><strong>Delete recurring events:</strong> opening a recurring event shows a "Delete all occurrences" confirmation so a single click removes the entire series.</p>
+              <p><strong>Schedule integration:</strong> the "Add to calendar" checkbox on the Schedule form creates a recurring event automatically when the schedule itself is recurring — daily/weekly/monthly schedules produce matching calendar recurrence.</p>
             </div>
           </details>
 
@@ -1906,12 +1915,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="audit log events actor changes admin actions">
-            <summary><strong>Audit page</strong> (Admin) — admin event log</summary>
+          <details class="doc-card" data-keywords="audit log events actor changes admin actions security compliance">
+            <summary><strong>Audit page</strong> (Security) — admin event log</summary>
             <div class="doc-body">
               <p>Every administrative action: user created/modified/deleted, password changed, settings changed, API key minted/revoked, enrollment token created, vault unlocked, credentials revealed.</p>
               <p>Each entry: timestamp, actor (user), action, detail string, source IP. Filter by actor, action, or substring; sort by any column.</p>
-              <p>For command execution, see the History page (separate). The Audit log is for "who changed what configuration" rather than "who ran what command".</p>
+              <p>For command execution, see the History page (separate). The Audit log is for "who changed what configuration" rather than "who ran what command". Now in the Security sidebar group alongside TLS/DNS, Patches, CVEs, and Drift.</p>
             </div>
           </details>
 
@@ -1920,8 +1929,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="doc-body">
               <p>Card grid grouped by category. Click any card to open the link in a new tab. Group links by category — useful for "Monitoring", "Infrastructure", "Vendor portals", etc.</p>
               <p><strong>Scope:</strong> mark a link as <em>Internal</em> (LAN-only, behind VPN, etc.) or <em>External</em>. Internal links get an amber dashed border; external links get an accent (blue) solid border — so it's visually obvious at a glance which links require VPN.</p>
-              <p><strong>Dashboard widget:</strong> once at least one link is saved, a "Quick links" card automatically appears on the Dashboard showing all links as a compact grid. Click "Manage →" to jump to the full Links page.</p>
+              <p><strong>Dashboard widget:</strong> once at least one link is saved, a "Quick links" card automatically appears on the Home dashboard showing all links as a compact grid. Click "Manage →" to jump to the full Links page.</p>
               <p>Display-only — RemotePower doesn't proxy or health-check these URLs.</p>
+              <p><strong>Navigation:</strong> Links is a standalone top-level item in the sidebar, directly below Home — accessible to all users regardless of role.</p>
             </div>
           </details>
 
@@ -2291,10 +2301,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="sidebar collapse expand navigation">
-            <summary><strong>Collapsible sidebar</strong> — more room for the main pane</summary>
+          <details class="doc-card" data-keywords="sidebar collapse expand navigation groups fleet monitoring security planning admin">
+            <summary><strong>Sidebar navigation</strong> — collapsible groups and section deep-links</summary>
             <div class="doc-body">
-              <p>Click ◀ at the top of the sidebar to shrink it to a 56-px icon strip. Click ▶ to expand. Preference saved in <code>localStorage.rp_sidebar_collapsed</code> and applied before first paint, so reloads don't flash the wide layout. Mobile (≤768px) ignores this — the slide-in drawer is unchanged.</p>
+              <p><strong>Grouped layout:</strong> the sidebar organises all pages into five collapsible sections. Each group opens and closes independently; state persists in <code>localStorage</code>. Fleet and Monitoring are expanded by default; Admin is collapsed.</p>
+              <table class="isl-104" style="width:100%">
+                <tr><th>Group</th><th>Pages</th></tr>
+                <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Containers, Virtualization, Network</td></tr>
+                <tr><td><strong>Monitoring</strong></td><td>Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs</td></tr>
+                <tr><td><strong>Security</strong></td><td>TLS/DNS, Patches, CVEs, Drift, Audit</td></tr>
+                <tr><td><strong>Planning</strong></td><td>Schedule, Calendar, Tasks, Maintenance, History</td></tr>
+                <tr><td><strong>Admin</strong></td><td>Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status</td></tr>
+              </table>
+              <p><strong>Monitoring deep-links:</strong> each item in the Monitoring group navigates to the Monitoring page and smooth-scrolls to its section — so clicking "Listening Ports" skips straight to that section without manual scrolling.</p>
+              <p><strong>Narrow mode:</strong> click ◀ at the top to shrink the sidebar to a 56-px icon strip. Click ▶ to expand. Preference saved in <code>localStorage</code> and applied before first paint. Mobile ignores this — the slide-in drawer is unchanged.</p>
+              <p><strong>Standalone items:</strong> Home and Links sit above the groups as always-visible direct links (no group required to reach them).</p>
             </div>
           </details>
 

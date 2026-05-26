@@ -2,6 +2,102 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.0.7 — 2026-05-26
+
+UX overhaul: grouped sidebar navigation, calendar recurring events, and
+quality-of-life improvements across monitoring and server management. No
+schema changes; no migrations required. Drop in the new tarball, reload
+nginx, hard-reload the browser once to pick up the updated service
+worker cache (`remotepower-shell-v3.0.7`).
+
+### Added
+
+- **Grouped sidebar navigation.** The flat list of links is now organised
+  into five collapsible sections that open and close independently, with
+  state persisted in `localStorage`:
+
+  | Group | Pages |
+  |-------|-------|
+  | **Fleet** | Devices, CMDB, Containers, Virtualization, Network |
+  | **Monitoring** | Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs |
+  | **Security** | TLS/DNS, Patches, CVEs, Drift, Audit |
+  | **Planning** | Schedule, Calendar, Tasks, Maintenance, History |
+  | **Admin** | Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status |
+
+  Fleet and Monitoring are open by default. Admin is collapsed. Home and
+  Links remain standalone top-level items above all groups.
+
+- **Monitoring section deep-links.** Each of the six items in the
+  Monitoring sidebar group navigates to the Monitoring page *and*
+  smooth-scrolls directly to its section (`Targets`, `Device Metrics`,
+  `Listening Ports`, `Custom Scripts`, `Services`, `Logs`). No manual
+  scrolling required.
+
+- **Calendar recurring events.** Events now support recurrence:
+  **Daily**, **Weekly**, **Monthly**, or **Yearly**. The recurrence
+  field is stored on the base event; the backend expands occurrences
+  into any requested window (capped at 500 per query). Recurring events
+  display a ↻ glyph in the calendar grid. Opening a recurring event
+  shows a **"Delete all occurrences"** confirmation so the entire series
+  can be removed in one click.
+
+- **Schedule → Calendar recurring integration.** The "Add to calendar"
+  checkbox on the Schedule form now propagates the schedule's recurrence
+  to the created calendar event: daily / n-hour schedules → daily,
+  weekly → weekly, monthly → monthly. One-shot and custom schedules
+  still produce a single calendar entry.
+
+- **Filter box on Listening Ports.** Live substring filter on the
+  Monitoring → Listening Ports section; matches port number, process
+  name, or device hostname.
+
+- **Filter box on ACME certificates.** Live substring filter on the
+  TLS/DNS → ACME section; matches domain or status.
+
+- **"Clear backup archives" button.** Server Status → Backup section now
+  has a **✕ Clear backup archives** button. Requires confirmation; calls
+  `DELETE /api/self/backup-state`, which removes all `.tar.gz` archives
+  from the backup path and resets the backup-state JSON. The action is
+  audit-logged under `backup_clear`.
+
+- **Quick Links dashboard widget.** When at least one link is saved, a
+  "Quick links" card appears on the Home dashboard — compact category
+  grid with amber/accent borders matching the Links page. A "Manage →"
+  button navigates directly to the Links page.
+
+### Changed
+
+- **Audit moved to the Security group.** The Audit log is a
+  compliance/security tool and now lives alongside TLS/DNS, Patches,
+  CVEs, and Drift — not buried in Admin.
+
+- **Links promoted to a standalone sidebar item.** Quick links is
+  user-facing (it drives the Home dashboard widget) and should not
+  require opening the Admin group. It now sits directly below Home.
+
+- Command palette page label: **"Monitor" → "Monitoring"**.
+
+- `g m` keyboard shortcut label updated to match.
+
+### Fixed
+
+- **Delete buttons invisible in task, calendar-event, and custom-script
+  modals** when opening an existing record. `style.display = ''` removes
+  the inline override and lets the element's `d-none` class silently win.
+  All three modals now set `style.display = 'block'` explicitly
+  (`task-delete-btn`, `event-delete-btn`, `cs-modal-delete-btn`).
+
+### Internals
+
+- `showMonitorSection(sectionId, btn)` — new JS function; wraps
+  `showPage('monitor', btn)` + `requestAnimationFrame → scrollIntoView`.
+- `_expand_event(ev, from_ts, to_ts)` — new Python generator in
+  `api.py`; handles all recurrence rules with proper calendar-aware
+  monthly arithmetic (`calendar.monthrange`).
+- `handle_backup_clear()` — new `DELETE /api/self/backup-state` handler.
+- `_renderHomeLinks(links)` / `loadHome()` extended to fetch and render
+  the links widget.
+
 ## v3.0.6 — 2026-05-25
 
 Production-readiness polish on top of v3.0.5. **Recommended for any
