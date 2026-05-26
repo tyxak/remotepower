@@ -2977,8 +2977,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-tls" class="page">
-        <div class="page-title">TLS / DNS</div>
+        <!-- v3.2.0 follow-up: page-title moved inside the expiry panel so
+             it disappears when viewing the ACME panel (which has its own
+             page-title). Keeping it at the page level made "TLS / DNS"
+             show above "ACME certificates", which read as a duplicate
+             header. -->
         <div id="tls-panel-expiry">
+          <div class="page-title">TLS / DNS</div>
           <div class="page-subtitle">Server-side cert and DNS watchlist. Probes run from the RemotePower server. Defaults: warn at 14 days, critical at 3 days.</div>
           <div class="toolbar">
             <button class="btn-icon" data-action="tlsAddOpen" >+ Add target</button>
