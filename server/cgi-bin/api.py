@@ -12774,6 +12774,28 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
     return {'ok': True, 'action': action, 'device_id': device_id}
 
 
+def _mcp_validate_params(action, params):
+    """Pre-execution parameter validation for MCP write tools.
+
+    Returns an error string if params are invalid, None if OK.
+
+    Runs BEFORE the confirmation queue branch so a bad script_id doesn't
+    park a doomed confirmation indefinitely (the operator approves, the
+    execution fails, the operator gets a useless error). Validation
+    failures should always be caller bugs returned immediately as 400.
+    """
+    if action == 'run_saved_script':
+        script_id = (params or {}).get('script_id') or ''
+        if not script_id:
+            return 'run_saved_script requires script_id'
+        scripts = load(SCRIPTS_FILE)
+        if script_id not in scripts:
+            return f'script_id "{script_id}" not found in library'
+    # Other actions have no pre-validation (just need device_id which
+    # is checked upstream).
+    return None
+
+
 def _mcp_handle(action, destructive):
     """Common entry for all 4 MCP write tools.
 
@@ -12792,6 +12814,14 @@ def _mcp_handle(action, destructive):
     ai_host, ai_prompt = get_mcp_attribution()
 
     params = {k: v for k, v in body.items() if k != 'device_id'}
+
+    # v3.2.0 follow-up: validate action-specific params BEFORE deciding
+    # whether to queue a confirmation. Found via live testing — bogus
+    # script_id used to return 202 with a confirmation_id, then fail
+    # silently when the operator approved.
+    param_err = _mcp_validate_params(action, params)
+    if param_err:
+        respond(400, {'ok': False, 'error': param_err})
 
     if destructive and devs[device_id].get('require_confirmation', True):
         conf_id = _create_confirmation(action, device_id, params, user,

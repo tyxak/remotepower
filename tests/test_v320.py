@@ -471,6 +471,28 @@ class TestMcpWriteTools(_ApiTestBase):
                         {'device_id': 'd-auto', 'script_id': 'nonexistent'})
         self.assertEqual(r['status'], 400)
 
+    def test_run_saved_script_missing_script_id(self):
+        # v3.2.0 follow-up: pre-validation rejects missing script_id BEFORE
+        # queuing a confirmation (regression from live MCP test session)
+        self._as_mcp()
+        r = self._call(self.api.handle_mcp_run_saved_script,
+                        {'device_id': 'd-confirm'})   # no script_id
+        self.assertEqual(r['status'], 400)
+        self.assertIn('script_id', r['body']['error'])
+
+    def test_run_saved_script_bogus_script_id_rejected_before_confirmation(self):
+        # Even when require_confirmation=true, bogus script_id should NOT
+        # queue a doomed confirmation — 400 fires immediately.
+        self._as_mcp()
+        r = self._call(self.api.handle_mcp_run_saved_script,
+                        {'device_id': 'd-confirm', 'script_id': 'nope'})
+        self.assertEqual(r['status'], 400)
+        # No confirmation should have been created
+        confs = self.api.load(self.api.CONFIRMATIONS_FILE).get('confirmations', [])
+        bogus = [c for c in confs if c.get('params', {}).get('script_id') == 'nope']
+        self.assertEqual(bogus, [],
+            'bogus script_id must not park a confirmation')
+
     def test_run_saved_script_queues_exec(self):
         self._as_mcp()
         r = self._call(self.api.handle_mcp_run_saved_script,
