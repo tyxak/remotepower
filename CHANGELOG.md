@@ -2,6 +2,108 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.2.1 — 2026-05-26
+
+Follow-up release on top of v3.2.0. Same big features (alerts inbox,
+inbound webhooks, MCP write tools, OIDC SSO, SNMP polling, syslog
+ingestion) plus a substantial operability pass driven by real-world
+testing on the deployed v3.2.0. No schema migrations.
+
+### Added
+
+- **SNMP integration into the rest of the dashboard.** Beyond the
+  initial sys-group poll, every 5-minute sweep now also walks
+  `hrProcessorTable` (per-core CPU %), `hrStorageTable` (memory +
+  filesystems with used %), the UCD-SNMP-MIB (load averages + raw
+  CPU ticks + UCD memory totals), and vendor MIBs (Mikrotik temp /
+  voltage / CPU MHz, Ubiquiti UAP/UDM/USW model + firmware + radio
+  client counts).
+- **SNMP threshold pipeline.** SNMP-derived metrics now fire the same
+  `metric_warning` / `metric_critical` / `metric_recovered` events
+  as the agent path. Two new metric kinds (`snmp_cpu`, `temp_board`/
+  `temp_cpu`); disk/memory percent share the agent's thresholds.
+  Defaults: SNMP CPU warn 75 / crit 90 ; temperature warn 70 / crit 85.
+- **`snmp_unreachable` / `snmp_dead` / `snmp_recover` events.**
+  Unreachable fires at the 2nd consecutive poll failure (single-packet
+  UDP loss never alerts); `snmp_dead` escalates at the 72nd
+  consecutive failure (~6 hours) at severity=critical; `snmp_recover`
+  auto-resolves both rows in the Alerts inbox.
+- **`mcp_confirmation_expired` event.** When a pending MCP write
+  confirmation ages out at the 1-hour TTL without an operator
+  decision, the prune sweep now fires this event into the Alerts
+  inbox so silent timeouts don't disappear.
+- **MCP write-tool pre-validation.** `run_saved_script` now validates
+  the `script_id` BEFORE queuing a confirmation. Bogus IDs return
+  400 immediately rather than parking a doomed confirmation.
+- **Device Metrics split** — Monitoring → Device Metrics now renders
+  agent and SNMP devices in separate tables with appropriate columns
+  each. SNMP table has CPU%, Memory%, Storage, Temperature, Uptime;
+  agent table is unchanged.
+- **Devices page SNMP filter.** Dropdown: Any SNMP / Configured / OK
+  / Failing. Quick way to scope to broken SNMP without scanning every
+  card.
+- **Inbound webhook + syslog hit log** (`inbound_webhook_log.json`).
+  Server Status grows a separate "Inbound webhooks & syslog" card
+  alongside outbound delivery stats. Both 24h/7d rates with by-kind
+  breakdown.
+- **Site health card on Server Status.** Load average (1/5/15 min
+  from `/proc/loadavg`), system memory % (from `/proc/meminfo`),
+  active session count, devices-online %, plus an `ok`/`warn` rollup
+  with reason flags.
+- **Clear-alerts endpoints + UI.** `DELETE /api/alerts?scope=resolved`
+  purges every resolved row; `?scope=all` wipes everything. Toolbar
+  buttons "Clear resolved" and "Clear all" on the Alerts page.
+- **OIDC test endpoint.** `POST /api/auth/oidc/test` (admin) probes
+  the configured issuer, returns the discovered endpoints + warnings
+  for common misconfigs. "Test discovery" button on the OIDC pane.
+- **Alerts + MCP Confirmations green-at-zero badges.** Always
+  visible: green at 0, red at >0. Replaces the disappear-when-empty
+  state that operators read as "no inbox exists".
+- **README gallery.** Click-through screenshot gallery via GitHub
+  `<details>` accordion. Index.png remains the hero.
+
+### Fixed
+
+- **Unmonitored devices polluted the Alerts inbox.** `_record_alert`
+  ran BEFORE `fire_webhook`'s monitored-gate. Now mirrors the same
+  check — unmonitored devices skip the inbox write too, matching the
+  webhook fan-out posture. Fleet-wide events and orphan-device events
+  still record.
+- **Webhook delivery rate misreported as ~10%.** Server Status
+  treated `disabled` / `suppressed` / `filtered` log entries as
+  failed delivery attempts. They're decisions to skip, not failures.
+  Rate now computed over true attempts only; `skipped` reported
+  separately. Site-health flag ignores the all-skipped case.
+- **`metric_critical` never landed in the Alerts inbox.** Event was
+  absent from `_ALERT_RULES` so 90%+ disk/memory/CPU events fired the
+  webhook but never created an inbox row. Now severity=critical in
+  the inbox.
+- **`_fire_metric_webhook` payload.** Used `kind` while the alert
+  inbox expected `metric`. Added `metric` + `level` aliases so titles
+  and severity classification work for both threshold paths.
+- **MCP write tools — bogus `script_id`.** Used to return 202 +
+  confirmation_id even when the referenced script didn't exist.
+  Approval would have failed silently. Pre-validation in
+  `_mcp_validate_params` fires 400 before the confirmation queue.
+- **Sidebar 200 → 220 px.** "MCP Confirmations" + count badge clipped
+  at 200 px. Bumped width and matching `.app-content` margin.
+- **Duplicate "TLS / DNS" title above ACME Certificates.** Moved
+  the title inside the expiry panel so it disappears when viewing
+  the ACME panel (which has its own title).
+
+### Security
+
+- **Bearer auth parity audit.** v3.2.0 generalized
+  `Authorization: Bearer` to every endpoint (was previously only
+  `/api/metrics`). Audit completed: token verification is uniform,
+  `X-Token` wins when both headers are present, same-origin check
+  runs before dispatch. Notes in `docs/security.md`.
+- **Webhook log capacity** bumped 100 → 500 entries so the 24h-window
+  rate calc survives a noisy day.
+- **MCP confirmations TTL** unchanged at 1 hour; expired rows now
+  also fire `mcp_confirmation_expired` so silent ageing is visible.
+- Service-worker cache name bumped to `remotepower-shell-v3.2.1`.
+
 ## v3.2.0 — 2026-05-26
 
 Feature release: alert inbox with ack/resolve lifecycle, inbound

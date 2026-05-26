@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.2.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.2.1">
 
 </head>
 <body>
@@ -1603,38 +1603,67 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" data-keywords="release notes changelog v3.2.0 alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations">
-            <summary><strong>v3.2.0 release notes</strong> — alerts inbox, inbound webhooks, syslog, MCP write tools, OIDC, SNMP</summary>
+          <details class="doc-card" data-keywords="release notes changelog v3.2.1 v3.2.0 v3.1.0 v3.0.7 v3.0.6 features alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations csp focused subcategory sidebar groups grouped navigation health check service worker">
+            <summary><strong>What's new — v3.0.6 → v3.2.1</strong> — every feature in the current release arc</summary>
             <div class="doc-body">
-              <p>A six-feature release. Drop in the new tarball, reload nginx, hard-reload once to refresh the service worker cache (<code>remotepower-shell-v3.2.0</code>).</p>
-              <ul>
-                <li><strong>Alerts inbox</strong> (top-level sidebar entry with green/red count badge): every actionable webhook event lands in a mutable ledger at <code>alerts.json</code>. Filter views: Open / Acknowledged / Resolved / All. Bulk-resolve via checkboxes. Recover events auto-resolve the matching open row.</li>
-                <li><strong>Inbound webhooks</strong> (Settings → Integrations): create a long-secret token, <code>POST /api/webhook/in/&lt;token&gt;</code> with <code>{severity, title, …}</code>, lands in the Alerts inbox. Works with Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
-                <li><strong>Syslog HTTP ingestion</strong> (Settings → Integrations, same table): kind=syslog tokens accept rsyslog <code>omhttp</code> / fluent-bit / curl POSTs at <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to <code>log_watch</code> under unit <code>syslog</code>; existing log_alert rules fire as if from the agent.</li>
-                <li><strong>MCP write tools (Stage 4)</strong>: <code>reboot_device</code>, <code>run_saved_script</code>, <code>force_package_scan</code>, <code>force_acme_rescan</code>. Destructive tools against <code>require_confirmation=true</code> devices return 202 with a confirmation_id — admin approves at Admin → MCP Confirmations. Audit log records AI host + prompt.</li>
-                <li><strong>OIDC SSO</strong> (Settings → Integrations → OIDC): Authelia / Authentik / Keycloak / Pocket-ID / Google. "Test discovery" button shows the redirect URI to register and lists the IdP endpoints + warnings.</li>
-                <li><strong>SNMPv2c polling</strong> for agentless devices (switches, APs, IPMI, printers): per-device config in the CMDB SNMP tab. 5-minute background sweep + on-demand "Poll now". Devices page cards show a 📡 SNMP green/red pill + "up Nd" meta. New <code>snmp_unreachable</code> / <code>snmp_recover</code> events feed the alerts inbox (fires only after 2nd consecutive failure; respects <code>monitored=false</code>).</li>
-                <li><strong>Site health card</strong> on Server Status: load average, system memory %, active sessions, devices online %, plus a derived <code>ok|warn</code> rollup with reason flags.</li>
-                <li><strong>Webhook delivery rate fix</strong>: dashboards that suppressed every event used to read "1/10 = 10%". Now suppressed/disabled/filtered entries are reported as <code>skipped</code> separately from delivery attempts.</li>
-              </ul>
-              <p>Full reference: <code>CHANGELOG.md</code> and <code>docs/v3.2.0.md</code>.</p>
-            </div>
-          </details>
+              <p>This card covers everything added since the last LTS-ish baseline (v3.0.6). The release-by-release breakdown lives in <code>CHANGELOG.md</code>; below is what you can actually <em>do</em> now that you couldn't in v3.0.6. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.2.1</code>).</p>
 
-          <details class="doc-card" data-keywords="release notes changelog v3.0.4 bug fixes ai monitor save mitigation mobile pwa sidebar drawer prioritise patches">
-            <summary><strong>v3.0.4 release notes</strong> — eight bug fixes, no schema changes</summary>
-            <div class="doc-body">
-              <p>A bug-fix release on top of v3.0.3. Drop in the new tarball, reload nginx, hard-reload the browser once for the service worker to pick up the new cache (<code>remotepower-shell-v3.0.4</code>).</p>
+              <h4>Alerts &amp; notifications</h4>
               <ul>
-                <li><strong>AI chat returned 500 on every request.</strong> <code>_http_post_json</code> referenced an unbound <code>cfg</code> name. Latent in v3.0.2; triggered the first time anyone exercised the chat path.</li>
-                <li><strong>Monitor page showed "OK" badge while Needs Attention flagged a swap/memory/CPU warning on the same host.</strong> <code>/api/devices</code> wasn't including <code>metric_state</code>; the row aggregator iterated an empty dict.</li>
-                <li><strong>No 🩺 Investigate button on memory/swap/CPU alerts.</strong> Three new playbooks added with read-only diagnostics (free, top consumers, OOM events, PSI pressure files).</li>
-                <li><strong>Device drawer "Save settings" 404'd.</strong> New <code>POST /api/devices/&lt;id&gt;</code> bulk handler that validates and atomically writes the bundle.</li>
-                <li><strong>"Re-run AI" on a mitigation playbook returned an empty summary.</strong> Argument-shape bug in <code>_call_ai_with_prompts</code> — provider received the system prompt as a string in place of the messages list.</li>
-                <li><strong>Mobile / PWA sidebar drawer wouldn't collapse.</strong> Tap-outside-to-close required <code>e.target === document.body</code>, but real browsers report the target as the underlying <code>&lt;div id="app"&gt;</code>. Burger-to-close also broken because the burger sat behind the z-index 800 scrim. New handler uses <code>closest()</code> guards + a dedicated ✕ button inside the sidebar header on mobile.</li>
-                <li><strong>"✨ AI Prioritise Updates" felt unresponsive.</strong> Button now visibly disables and shows ⏳ during the API call. When <code>patch_history</code> has no listing yet, ✨ auto-queues the right per-package-manager command (<code>apt list --upgradable</code> / <code>dnf check-update</code> / <code>pacman -Qu</code>) via <code>POST /api/exec</code> after a confirmation prompt — instead of telling the operator to dig elsewhere.</li>
+                <li><strong>Alerts inbox</strong> (top-level sidebar with green-at-zero count badge): every actionable event lands in a mutable ledger at <code>alerts.json</code> with acknowledge / resolve / auto-resolve lifecycle. Filter views: Open / Acknowledged / Resolved / All. Bulk-resolve via checkboxes. Recover events (device_online, service_recover, snmp_recover, custom_script_recover) auto-resolve the matching open row.</li>
+                <li><strong>Clear-alerts buttons</strong> on the inbox toolbar: "Clear resolved" or "Clear all".</li>
+                <li><strong>Webhook delivery rate</strong> on Server Status now correctly excludes <code>disabled</code>/<code>suppressed</code>/<code>filtered</code> entries from the failure count. Suppressed deliveries are reported separately as <code>skipped</code>.</li>
+                <li><strong>Inbound webhooks</strong> (Settings → Integrations): create a long-secret token, <code>POST /api/webhook/in/&lt;token&gt;</code> with <code>{severity, title, source, device, …}</code>. Works with Grafana, Alertmanager, Authelia/Authentik, n8n, Home Assistant.</li>
+                <li><strong>Syslog HTTP ingestion</strong> (same Settings pane, kind=syslog): rsyslog <code>omhttp</code> / fluent-bit / curl POSTs to <code>/api/syslog/in/&lt;token&gt;</code>; lines append to <code>log_watch</code> under unit <code>syslog</code>; existing log_alert rules fire as if from an agent.</li>
+                <li><strong>`mcp_confirmation_expired`</strong> event fires when a pending MCP confirmation ages out at the 1-hour TTL.</li>
               </ul>
-              <p>Full forensic detail in <code>CHANGELOG.md</code> and <code>docs/v3.0.4.md</code>.</p>
+
+              <h4>SNMP for agentless devices</h4>
+              <ul>
+                <li><strong>Pure-stdlib SNMPv2c client</strong> in <code>server/cgi-bin/snmp.py</code>. No pysnmp dependency. Per-device config in the device drawer Settings tab (enable / community / port / Poll now).</li>
+                <li><strong>5-minute background sweep</strong> polls: sys-group (RFC 3418), hrProcessorTable (per-core CPU %), hrStorageTable (memory + filesystems), UCD-SNMP-MIB (load averages + raw CPU ticks), vendor MIBs (Mikrotik temp/voltage/CPU MHz, Ubiquiti UAP/UDM/USW model + firmware + radio clients).</li>
+                <li><strong>Deep poll on demand</strong> (drawer Audit → SNMP) adds an interface-table walk: per-port admin/oper/speed/octets/errors.</li>
+                <li><strong>Threshold alerts</strong>: SNMP CPU % and Temperature °C in the metric-threshold modal (defaults warn 75/70, crit 90/85). Disk/memory share the agent thresholds. Fires <code>metric_warning</code>/<code>metric_critical</code>/<code>metric_recovered</code> through the regular event pipeline.</li>
+                <li><strong>`snmp_unreachable` / `snmp_dead` / `snmp_recover`</strong> events. Unreachable at 2nd consecutive failure (single-packet UDP loss never alerts); <code>snmp_dead</code> escalates at 72nd failure (~6h, severity critical); recovery auto-resolves both rows.</li>
+                <li><strong>Devices page SNMP filter</strong> dropdown: Any SNMP / Configured / OK / Failing. Devices page row pill <code>📡</code> green/red.</li>
+                <li><strong>Monitoring → Device Metrics</strong> shows a separate SNMP table (CPU / Memory / Storage / Temperature / Uptime) below the agent table.</li>
+                <li><strong>MCP read tool</strong> <code>get_snmp_data(name)</code> exposes the full data set to AI hosts.</li>
+              </ul>
+
+              <h4>MCP server — write tools (Stage 4)</h4>
+              <ul>
+                <li>Four write tools: <code>reboot_device</code>, <code>run_saved_script</code>, <code>force_package_scan</code>, <code>force_acme_rescan</code>.</li>
+                <li>Destructive tools (reboot, script) against a device with <code>require_confirmation=true</code> return 202 + <code>confirmation_id</code>; admin approves at <strong>Admin → MCP Confirmations</strong>. Pre-validation rejects bogus script IDs at 400 before queuing.</li>
+                <li>Every call is audit-logged with <code>ai_host</code> (X-MCP-Client header) and <code>ai_prompt</code> (X-MCP-Prompt header).</li>
+                <li>Admin tokens cannot call MCP write endpoints — mcp role only. Bearer auth accepted alongside X-Token on every endpoint.</li>
+              </ul>
+
+              <h4>Authentication</h4>
+              <ul>
+                <li><strong>OIDC SSO</strong> (Settings → Integrations → OIDC): standard confidential-client authorization code flow. Tested against Authelia / Authentik / Keycloak / Pocket-ID / Google. "Test discovery" button reports the parsed endpoints + warnings (missing secret, no openid scope, etc.) and shows the redirect URI to register with your IdP.</li>
+                <li><strong>Auto-provision + group-based role mapping</strong>. First login creates the user; subsequent logins promote viewer → admin if the user is in the configured <code>oidc_admin_group</code>. Never auto-demotes.</li>
+              </ul>
+
+              <h4>Dashboard polish (v3.0.7 / v3.1.0 / v3.2.x)</h4>
+              <ul>
+                <li><strong>Grouped sidebar</strong> with six collapsible sections — Fleet, Monitoring, Security, Planning, Admin, Help — plus standalone Home, Alerts, Links. Per-group expand/collapse persisted in <code>localStorage</code>.</li>
+                <li><strong>Focused subcategory views</strong>: clicking a Monitoring / Containers / TLS sub-item shows only that panel. Keyboard shortcuts + command palette open the full top-level view.</li>
+                <li><strong>ACME Certificates split</strong> from TLS / DNS Expiry into separate sidebar entries.</li>
+                <li><strong>Site Health card</strong> on Server Status: load average, system memory %, active sessions, devices-online %, ok/warn rollup with reason flags.</li>
+                <li><strong>Calendar recurring events</strong>: daily / weekly / monthly / yearly. Schedule's "Add to calendar" emits recurring entries for recurring schedules.</li>
+                <li><strong>Filters everywhere</strong>: Listening Ports + ACME Certificates filter boxes; "Clear backup archives" on Server Status; Quick Links widget on Home.</li>
+                <li><strong>Sidebar widened 200 → 220 px</strong> so the MCP Confirmations badge fits cleanly.</li>
+              </ul>
+
+              <h4>Production-readiness baseline (v3.0.6)</h4>
+              <ul>
+                <li><strong>/api/health</strong> — unauthenticated liveness endpoint used by Docker HEALTHCHECK and any reverse-proxy probe.</li>
+                <li><strong>/api/csp-report</strong> — CSP violation reporter logged to the audit log so future regressions reintroducing inline code surface as records, not silent visual bugs.</li>
+                <li><strong>Subresource Integrity (SHA-384)</strong> on every <code>/static/vendor/</code> bundle. Browser refuses any vendor file that doesn't match the on-disk hash.</li>
+                <li><strong>GitHub Actions CI</strong> runs the full test suite + <code>make dist</code> on every push to <code>main</code>.</li>
+              </ul>
+
+              <p>Forensic per-release detail: <code>CHANGELOG.md</code> and the individual <code>docs/v3.x.y.md</code> files.</p>
             </div>
           </details>
 
@@ -2148,7 +2177,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="mcp model context protocol claude desktop cursor vscode copilot natural language fleet query stdio anthropic">
             <summary><strong>MCP server</strong> — natural-language fleet queries from Claude Desktop, Cursor, VS Code (v2.2.0)</summary>
             <div class="doc-body">
-              <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" class="c-accent">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for pmg01 from the last hour"</em> in plain English.</p>
+              <p><strong>What it is:</strong> RemotePower ships an <a href="https://modelcontextprotocol.io" class="c-accent">MCP</a> (Model Context Protocol) server at <code>mcp/remotepower-mcp.py</code>. Connect it to an MCP-compatible AI host and you can ask things like <em>"Which devices have pending security updates?"</em> or <em>"Show me the journal for mail01 from the last hour"</em> in plain English.</p>
               <p><strong>Architecture:</strong> the MCP server runs on the <strong>operator's laptop</strong>, not on the RemotePower server. The AI host (Claude Desktop, Cursor, etc.) spawns it as a stdio subprocess. The MCP server makes HTTPS calls to RemotePower's REST API on behalf of the AI using an API token you provision. Credentials live in the host's config file and never reach the AI provider.</p>
               <p><strong>Read-only, by design.</strong> 12 tools: <code>list_devices</code>, <code>get_device</code>, <code>get_journal</code>, <code>get_services</code>, <code>get_containers</code>, <code>get_cves</code>, <code>get_drift</code>, <code>get_recent_commands</code>, <code>get_runbook</code>, <code>get_patches</code>, <code>get_tls</code>, <code>search_devices</code>. <strong>No write tools.</strong> No <code>run_command</code>, no <code>run_script</code>, no <code>reboot_device</code>. The test suite asserts no write-shaped names slipped in. Write tools land in a future release once a server-side allow-list, per-MCP-token role, and confirmation flags are in place — not before.</p>
               <p><strong>Setup</strong> (Claude Desktop):</p>
@@ -2158,7 +2187,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) — add an <code>mcpServers.remotepower</code> entry with the command, args, and env (URL + token).</li>
                 <li>Restart Claude Desktop. The 🔨 tool indicator should show <strong>remotepower</strong>.</li>
               </ol>
-              <p><strong>Device-name resolution</strong>: exact → prefix → substring → ambiguity error. You can pass <code>web01</code> and the server finds <code>tviweb01.tvipper.com</code> automatically (as long as there's exactly one match).</p>
+              <p><strong>Device-name resolution</strong>: exact → prefix → substring → ambiguity error. You can pass <code>web01</code> and the server finds <code>web01.example.com</code> automatically (as long as there's exactly one match).</p>
               <p><strong>Pure stdlib Python.</strong> No pip install. Single 470-line file.</p>
               <p>Full reference: <a href="/docs/mcp.md" class="c-accent">docs/mcp.md</a>.</p>
             </div>
@@ -2176,7 +2205,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </ol>
               <p><strong>Per-event toggles:</strong> each webhook URL has independent toggles for every event type. The "Send test event" button fires a sample payload so you can verify the integration works before relying on it.</p>
               <p><strong>Maintenance windows</strong> suppress alerts during planned downtime. Suppressed alerts are still logged — you can see what would have fired in the audit log. So if something unexpected happens during maintenance, you can find it after.</p>
-              <p><strong>✨ Explain on alerts</strong>: each webhook log row has a ✨ Explain button that asks the AI to rewrite the raw alert into a single short paragraph ("postfix on pmg01 stopped at 14:32 after matching <code>connection refused</code> 3 times — likely upstream MX is unreachable; check DNS and try a manual delivery"). Useful during on-call when you're seeing a wall of cryptic alerts at 3am.</p>
+              <p><strong>✨ Explain on alerts</strong>: each webhook log row has a ✨ Explain button that asks the AI to rewrite the raw alert into a single short paragraph ("postfix on mail01 stopped at 14:32 after matching <code>connection refused</code> 3 times — likely upstream MX is unreachable; check DNS and try a manual delivery"). Useful during on-call when you're seeing a wall of cryptic alerts at 3am.</p>
             </div>
           </details>
 
@@ -4457,8 +4486,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.2.0"></script>
+<script src="static/js/app.js?v=3.2.1"></script>
 
-<script src="static/js/sw-register.js?v=3.2.0"></script>
+<script src="static/js/sw-register.js?v=3.2.1"></script>
 </body>
 </html>
