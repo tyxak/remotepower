@@ -4715,6 +4715,27 @@ _UPGRADE_CMD = (
     'fi'
 )
 
+# Scheduled upgrade: same logic as _UPGRADE_CMD but all output goes to the
+# persistent log file; last 5 lines echoed to the exec channel for visibility.
+_SCHED_UPGRADE_CMD = (
+    'L=/var/log/remotepower/remotepower_update.log; '
+    'mkdir -p /var/log/remotepower; '
+    'echo "=== $(date +%Y-%m-%d_%H:%M:%S) upgrade-packages ===" >> "$L"; '
+    '( ' + _UPGRADE_CMD + ' ) >> "$L" 2>&1; RC=$?; '
+    'echo "=== exit $RC ===" >> "$L"; '
+    'tail -n 5 "$L"; exit $RC'
+)
+
+# Upgrade then reboot — for patch-window schedules.
+_SCHED_UPGRADE_REBOOT_CMD = (
+    'L=/var/log/remotepower/remotepower_update.log; '
+    'mkdir -p /var/log/remotepower; '
+    'echo "=== $(date +%Y-%m-%d_%H:%M:%S) upgrade-packages+reboot ===" >> "$L"; '
+    '( ' + _UPGRADE_CMD + ' ) >> "$L" 2>&1; RC=$?; '
+    'echo "=== exit $RC — rebooting ===" >> "$L"; '
+    'systemctl reboot'
+)
+
 
 def handle_upgrade_device():
     """
@@ -6014,7 +6035,7 @@ def handle_self_status():
         pass
     # Backup state
     try:
-        bs_file = DATA_DIR / 'backup_state.json'
+        bs_file = DATA_DIR / 'self_backup_state.json'
         if bs_file.exists():
             out['backup'] = load(bs_file)
     except Exception:
@@ -6352,7 +6373,8 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    if command not in ('shutdown', 'reboot'): respond(400, {'error': 'command must be shutdown or reboot'})
+    if command not in ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot'):
+        respond(400, {'error': 'command must be shutdown, reboot, upgrade_packages, or upgrade_and_reboot'})
 
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
@@ -6407,7 +6429,8 @@ def process_schedule():
         if due:
             dev_id  = job['device_id']
             command = job['command']
-            if command not in ('shutdown', 'reboot'):  # extra safety
+            _ALLOWED_SCHED = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+            if command not in _ALLOWED_SCHED:  # extra safety
                 if job.get('recurring'):
                     remaining.append(job)
                 changed = True
@@ -6417,7 +6440,14 @@ def process_schedule():
                 if dev_id in devices:
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
-                    if command not in cmds[dev_id]: cmds[dev_id].append(command)
+                    # Upgrade commands translate to exec: strings; simple commands go as-is.
+                    if command == 'upgrade_packages':
+                        queued = f'exec:{_SCHED_UPGRADE_CMD}'
+                    elif command == 'upgrade_and_reboot':
+                        queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
+                    else:
+                        queued = command
+                    if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
                     save(CMDS_FILE, cmds)
                     log_command(f"scheduler({job['actor']})", dev_id, job['device_name'], command)
             if job.get('recurring'):
@@ -9137,6 +9167,7 @@ CUSTOM_SCRIPT_TIMEOUT   = 30          # seconds; hard cap, not configurable
 # Sections the server can push to agents and agents report current state of.
 HOST_CONFIG_TEXT_SECTIONS = [
     'repos', 'netplan', 'nmcli', 'resolv_conf', 'hosts', 'sudoers', 'motd',
+    'logrotate', 'cron',
 ]
 HOST_CONFIG_STRUCT_SECTIONS = ['services', 'users', 'groups']
 HOST_CONFIG_ALL_SECTIONS    = HOST_CONFIG_TEXT_SECTIONS + HOST_CONFIG_STRUCT_SECTIONS
@@ -10778,8 +10809,17 @@ def handle_export():
     secret, the SMTP password, and the LDAP bind password. Before
     v2.3.1 config.json went into the ZIP verbatim, so a backup file
     carried live credentials; that's the leak this closes.
+
+    Also triggers _run_data_backup(triggered_by='export') so the
+    server-status backup state is updated and a tar.gz snapshot is
+    written to the backup directory on every manual export.
     """
-    require_admin_auth()
+    actor = require_admin_auth()
+    try:
+        _run_data_backup(triggered_by='export')
+    except Exception:
+        pass  # export itself must not fail if backup path is misconfigured
+    audit_log(actor, 'backup_export')
     import zipfile, io
     buf = io.BytesIO()
     exclude = {'tokens.json', 'longpoll.json', 'ratelimit.json'}

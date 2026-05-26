@@ -2441,6 +2441,13 @@ def collect_host_config():
     # ── motd ─────────────────────────────────────────────────────────────────
     current['motd'] = _read('/etc/motd')
 
+    # ── logrotate ────────────────────────────────────────────────────────────
+    lr_path = Path('/etc/logrotate.d/remotepower')
+    current['logrotate'] = _read(str(lr_path)) if lr_path.exists() else ''
+
+    # ── cron (root crontab) ──────────────────────────────────────────────────
+    current['cron'] = _run(['crontab', '-l', '-u', 'root'])
+
     return current
 
 
@@ -2624,6 +2631,39 @@ def apply_host_config(desired):
         ok = _write('/etc/motd', desired['motd'])
         results['motd'] = 'ok' if ok else 'write_error'
         log.info(f'apply_host_config motd: {results["motd"]}')
+
+    # ── logrotate ────────────────────────────────────────────────────────────
+    if 'logrotate' in desired:
+        content = desired['logrotate']
+        if content.strip():
+            ok = _write('/etc/logrotate.d/remotepower', content, 0o644)
+            results['logrotate'] = 'ok' if ok else 'write_error'
+        else:
+            try:
+                Path('/etc/logrotate.d/remotepower').unlink(missing_ok=True)
+                results['logrotate'] = 'removed'
+            except OSError as e:
+                results['logrotate'] = f'remove_error: {e}'
+        log.info(f'apply_host_config logrotate: {results["logrotate"]}')
+
+    # ── cron (root crontab) ──────────────────────────────────────────────────
+    if 'cron' in desired:
+        content = desired['cron']
+        if content.strip():
+            import tempfile as _tf
+            try:
+                with _tf.NamedTemporaryFile(mode='w', suffix='.crontab', delete=False) as f:
+                    f.write(content if content.endswith('\n') else content + '\n')
+                    tmp_path = f.name
+                ok, out = _run(['crontab', '-u', 'root', tmp_path])
+                Path(tmp_path).unlink(missing_ok=True)
+                results['cron'] = 'ok' if ok else f'crontab_error: {out[:200]}'
+            except Exception as e:
+                results['cron'] = f'error: {e}'
+        else:
+            ok, out = _run(['crontab', '-r', '-u', 'root'])
+            results['cron'] = 'removed' if ok else f'remove_error: {out[:100]}'
+        log.info(f'apply_host_config cron: {results["cron"]}')
 
     return results
 

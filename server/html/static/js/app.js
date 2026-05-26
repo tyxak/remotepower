@@ -8160,6 +8160,18 @@ async function ignoreAttention(key, label) {
   }
 }
 
+let _activityClearedAt = 0;
+
+function clearHomeActivity() {
+  _activityClearedAt = Math.floor(Date.now() / 1000);
+  const target = document.getElementById('home-activity');
+  if (target) target.innerHTML = `<div class="empty-state isl-553">
+    <div class="empty-state-icon">○</div>
+    <div class="empty-state-title">Activity cleared</div>
+    <div class="empty-state-body">New fleet events will appear here as they fire.</div>
+  </div>`;
+}
+
 function _renderHomeActivity(fleetEvents) {
   const target = document.getElementById('home-activity');
   if (!target) return;
@@ -8202,6 +8214,7 @@ function _renderHomeActivity(fleetEvents) {
   //  - slice last, so the feed shows 8 *distinct* recent things.
   const _seenActivity = new Set();
   entries = entries
+    .filter(e => !_activityClearedAt || (e.ts || 0) > _activityClearedAt)
     .filter(e => FLEET_EVENTS.has(e.event))
     .filter(e => {
       const p = e.payload || {};
@@ -9751,7 +9764,7 @@ function _reltime(ts) {
 let _hcData    = null;   // {desired, current, drift, desired_at, current_collected_at}
 let _hcDevId   = null;
 let _hcDevName = null;
-const HC_TEXT_SECTIONS    = ['repos','netplan','nmcli','resolv_conf','hosts','sudoers','motd'];
+const HC_TEXT_SECTIONS    = ['repos','netplan','nmcli','resolv_conf','hosts','sudoers','motd','logrotate','cron'];
 const HC_SPECIAL_SECTIONS = ['services','users','groups'];
 
 // ── Open modal ─────────────────────────────────────────────────────────────
@@ -9778,7 +9791,7 @@ async function openHostConfigModal(devId, devName) {
   // so the editor is always pre-filled if we have any data at all.
   const merged = {};
   const ALL_SECTIONS = ['repos','netplan','nmcli','resolv_conf','hosts',
-                        'sudoers','motd','services','users','groups'];
+                        'sudoers','motd','logrotate','cron','services','users','groups'];
   ALL_SECTIONS.forEach(s => {
     const d = desired[s];
     const c = current[s];
