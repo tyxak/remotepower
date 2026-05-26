@@ -3762,7 +3762,7 @@ function renderCalendarGrid() {
 function openEventModal(eventId) {
   calEditingId = eventId || null;
   document.getElementById('event-modal-title').textContent = eventId ? 'Edit event' : 'New event';
-  document.getElementById('event-delete-btn').style.display = eventId ? '' : 'none';
+  document.getElementById('event-delete-btn').style.display = eventId ? 'block' : 'none';
   // Wire the color swatches (idempotent)
   document.querySelectorAll('#event-color-picker .ev-color').forEach(el => {
     el.onclick = () => {
@@ -3993,7 +3993,7 @@ async function onKanbanDrop(e, newState) {
 async function openTaskModal(taskId) {
   taskEditingId = taskId || null;
   document.getElementById('task-modal-title').textContent = taskId ? 'Edit task' : 'New task';
-  document.getElementById('task-delete-btn').style.display = taskId ? '' : 'none';
+  document.getElementById('task-delete-btn').style.display = taskId ? 'block' : 'none';
 
   // Populate device dropdown
   const devSel = document.getElementById('task-device');
@@ -5713,6 +5713,8 @@ async function agentlessSave() {
 
 let _linksData = {links: [], categories: []};
 let _linksEditMode = false;
+
+function showLinksPage() { showPage('links'); }
 
 async function enterLinks() {
   await loadLinks();
@@ -8072,13 +8074,14 @@ async function loadHome() {
   // got logged anywhere and the activity panel showed empty even
   // when devices were going offline. /fleet/events records every
   // fired event regardless of destinations.
-  const [devs, drift, cves, fleetEvents, mailwatch, cfg] = await Promise.all([
+  const [devs, drift, cves, fleetEvents, mailwatch, cfg, linksResp] = await Promise.all([
     api('GET', '/devices').catch(() => null),
     api('GET', '/drift').catch(() => null),
     api('GET', '/cve/findings').catch(() => null),
     api('GET', '/fleet/events?limit=50').catch(() => null),
     api('GET', '/mailwatch').catch(() => null),
     api('GET', '/config').catch(() => ({})),
+    api('GET', '/links').catch(() => null),
   ]);
 
   // v2.8.1: filter hidden activity events before rendering
@@ -8095,6 +8098,51 @@ async function loadHome() {
   _renderHomeAttention();
   _renderHomeActivity(filteredEvents);
   _renderHomeFleet(devs || []);
+  _renderHomeLinks(linksResp?.links || []);
+}
+
+function _renderHomeLinks(links) {
+  const card = document.getElementById('home-links');
+  const body = document.getElementById('home-links-body');
+  if (!card || !body) return;
+  if (!links.length) {
+    card.classList.add('d-none');
+    return;
+  }
+  card.classList.remove('d-none');
+
+  // Compact grid: group by category, show title + hostname
+  const byCat = {};
+  for (const l of links) {
+    const cat = l.category || 'Other';
+    (byCat[cat] = byCat[cat] || []).push(l);
+  }
+  const cats = Object.keys(byCat).sort((a, b) => {
+    if (a === 'Uncategorised') return 1;
+    if (b === 'Uncategorised') return -1;
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  });
+
+  body.innerHTML = cats.map(cat => {
+    const items = byCat[cat];
+    const cards = items.map(l => {
+      const isInternal = l.scope === 'internal';
+      const borderColor = isInternal ? 'var(--amber)' : 'var(--accent)';
+      const borderStyle = isInternal ? 'dashed' : 'solid';
+      let displayHost = l.url;
+      try { displayHost = new URL(l.url).hostname; } catch (e) { /* keep full url */ }
+      return `<a href="${escHtml(l.url)}" target="_blank" rel="noopener noreferrer" class="isl-763">
+        <div class="isl-764" data-bd-style="${borderStyle}" data-bd-color="${borderColor}" title="${escHtml(l.description || l.url)}">
+          <div class="isl-765">${escHtml(l.title)}</div>
+          <div class="isl-766">${escHtml(displayHost)}</div>
+        </div>
+      </a>`;
+    }).join('');
+    return `<div class="isl-767">
+      <div class="isl-768">${escHtml(cat)}</div>
+      <div class="isl-769">${cards}</div>
+    </div>`;
+  }).join('');
 }
 
 function _renderHomeTiles(devs, drift, cves, mailwatch) {
@@ -9738,7 +9786,7 @@ async function openCustomScriptModal(scriptId) {
   document.getElementById('cs-modal-body').value  = '';
   document.getElementById('cs-ai-prompt').value   = '';
   document.getElementById('cs-ai-status').textContent = '';
-  document.getElementById('cs-modal-delete-btn').style.display = scriptId ? '' : 'none';
+  document.getElementById('cs-modal-delete-btn').style.display = scriptId ? 'block' : 'none';
 
   // If editing, fetch the script body (list view omits it)
   if (scriptId) {
@@ -10234,6 +10282,8 @@ async function hcFetchAllCurrent() {
 
 // ── v2.8.1: Listening Ports — Monitor page ───────────────────────────────────
 
+let _portsGrouped = [];
+
 async function loadListeningPorts() {
   const el = document.getElementById('ports-container');
   if (!el) return;
@@ -10243,6 +10293,7 @@ async function loadListeningPorts() {
 
   const monitored = devs.filter(d => d.monitored !== false && !d.agentless && d.online);
   if (!monitored.length) {
+    _portsGrouped = [];
     el.textContent = 'No online monitored devices.';
     return;
   }
@@ -10261,6 +10312,7 @@ async function loadListeningPorts() {
   ).sort((a,b) => a.port - b.port || a.device.localeCompare(b.device));
 
   if (!rows.length) {
+    _portsGrouped = [];
     el.textContent = 'No listening port data yet — agent reports ports with sysinfo (every ~10 min).';
     return;
   }
@@ -10273,9 +10325,27 @@ async function loadListeningPorts() {
     byPort[key].hosts.push({ device: r.device, process: r.process });
   }
 
-  const sorted = Object.values(byPort).sort((a,b) => a.port - b.port);
-  const visible = sorted.slice(0, 10);
-  const hidden  = sorted.slice(10);
+  _portsGrouped = Object.values(byPort).sort((a,b) => a.port - b.port);
+  _renderPortsFiltered();
+}
+
+function _renderPortsFiltered() {
+  const el = document.getElementById('ports-container');
+  if (!el || !_portsGrouped.length) return;
+  const q = (document.getElementById('ports-filter')?.value || '').trim().toLowerCase();
+  const filtered = q ? _portsGrouped.filter(e => {
+    const procs = e.hosts.map(h => h.process).join(' ').toLowerCase();
+    const devs  = e.hosts.map(h => h.device).join(' ').toLowerCase();
+    return `${e.proto}/${e.port}`.includes(q) || procs.includes(q) || devs.includes(q);
+  }) : _portsGrouped;
+
+  if (!filtered.length) {
+    el.innerHTML = '<span class="c-muted-fs13">No ports match filter.</span>';
+    return;
+  }
+
+  const visible = filtered.slice(0, 10);
+  const hidden  = filtered.slice(10);
   el.innerHTML = `
     <div class="table-card">
       <table>
@@ -12077,6 +12147,7 @@ function _acmeRenderTable() {
   // cert managers don't need to see one row per such device. The "no
   // certs yet" case (acme.sh present but no certs issued) is still shown
   // because that's actionable — operator can click "+ Issue" right there.
+  const q = (document.getElementById('acme-filter')?.value || '').trim().toLowerCase();
   const rows = [];
   let suppressed_unavailable = 0;
   for (const dev of (_acmeData.devices || [])) {
@@ -12085,10 +12156,16 @@ function _acmeRenderTable() {
       continue;
     }
     if (!dev.certs || !dev.certs.length) {
-      rows.push({ _kind: 'no-certs', device_id: dev.device_id, device_name: dev.device_name, home: dev.home, version: dev.version });
+      if (!q || dev.device_name.toLowerCase().includes(q)) {
+        rows.push({ _kind: 'no-certs', device_id: dev.device_id, device_name: dev.device_name, home: dev.home, version: dev.version });
+      }
       continue;
     }
     for (const cert of dev.certs) {
+      if (q) {
+        const hay = `${dev.device_name} ${cert.domain || ''} ${cert.challenge || ''} ${cert.dns_provider_label || cert.dns_provider || ''}`.toLowerCase();
+        if (!hay.includes(q)) continue;
+      }
       rows.push({ _kind: 'cert', device_id: dev.device_id, device_name: dev.device_name, ...cert });
     }
   }
@@ -13300,6 +13377,17 @@ async function runBackupNow() {
   if (!r || r.error) { toast('Backup failed: ' + (r?.error || 'unknown'), 'error'); return; }
   if (r.skipped) { toast('Skipped: ' + (r.reason || ''), 'warning'); return; }
   toast(`Backup written: ${_selfFmtBytes(r.bytes)} (${r.pruned || 0} old files pruned)`, 'success');
+  loadSelfStatus();
+}
+
+async function clearBackupState() {
+  const btn = document.getElementById('self-backup-clear-btn');
+  if (!confirm('Delete all backup archives (remotepower_data_*.tar.gz) and reset backup state?\n\nThis cannot be undone. The next scheduled or manual backup will create a fresh archive.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
+  const r = await api('DELETE', '/self/backup-state');
+  if (btn) { btn.disabled = false; btn.textContent = '✕ Clear backup archives'; }
+  if (!r || r.error) { toast('Clear failed: ' + (r?.error || 'unknown'), 'error'); return; }
+  toast(`Cleared ${r.deleted ?? 0} archive${r.deleted === 1 ? '' : 's'}`, 'success');
   loadSelfStatus();
 }
 

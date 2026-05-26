@@ -1775,6 +1775,28 @@ input.form-input[type="text"][data-token],
 .isl-757 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .isl-758 { margin-bottom: 10px; }
 .isl-759 { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 16px; cursor: pointer; }
+/* isl-760: danger-toned clear button */
+.isl-760 { color: var(--red) !important; border-color: rgba(239,68,68,0.35) !important; }
+.isl-760:hover { background: rgba(239,68,68,0.08) !important; }
+/* isl-761: manage link in dash-card header */
+.isl-761 { font-size: 12px; }
+/* isl-762: links widget body */
+.isl-762 { display: flex; flex-direction: column; gap: 12px; }
+/* isl-763: link card anchor wrapper */
+.isl-763 { text-decoration: none; color: inherit; }
+/* isl-764: compact link card */
+.isl-764 { border-radius: 6px; padding: 8px 10px; border-width: 1px; border-style: solid; border-color: var(--border); transition: background 0.15s; cursor: pointer; }
+.isl-764:hover { background: var(--surface); }
+/* isl-765: link card title */
+.isl-765 { font-size: 13px; font-weight: 500; }
+/* isl-766: link card hostname */
+.isl-766 { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* isl-767: category group */
+.isl-767 { display: flex; flex-direction: column; gap: 6px; }
+/* isl-768: category label */
+.isl-768 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+/* isl-769: card grid within category */
+.isl-769 { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
 .cmd-badge.script { background: rgba(124,58,237,0.1); color: #a78bfa; }
 .dash-feed-item .ts {
   font-size: 11px;

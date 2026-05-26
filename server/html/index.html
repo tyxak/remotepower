@@ -338,6 +338,12 @@
             <div class="skeleton skeleton-line short"></div>
           </div>
         </div>
+
+        <!-- Links widget — hidden until at least one link is saved -->
+        <div class="dash-card d-none" id="home-links">
+          <div class="isl-750"><h3>Quick links</h3><button class="btn-icon isl-761" data-action="showLinksPage" title="Manage links">Manage →</button></div>
+          <div id="home-links-body" class="isl-762"></div>
+        </div>
       </div>
 
       <!-- ── Devices page ─────────────────────────────────────────────────── -->
@@ -482,7 +488,13 @@
 
         <!-- v2.8.1: Listening Ports section -->
         <div class="section-header mt-32">
-          <div class="section-title">Listening Ports</div>
+          <div class="row-8-center">
+            <div class="section-title">Listening Ports</div>
+            <div class="isl-14">
+              <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="ports-filter" class="form-input isl-15" placeholder="Filter port, process, device…" data-input="_renderPortsFiltered">
+            </div>
+          </div>
           <button class="btn-icon" data-action="loadListeningPorts" >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh
           </button>
@@ -1778,13 +1790,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="schedule cron one-shot recurring datetime job">
+          <details class="doc-card" data-keywords="schedule cron one-shot recurring datetime job script maintenance calendar upgrade reboot">
             <summary><strong>Schedule page</strong> — one-shot &amp; recurring commands</summary>
             <div class="doc-body">
               <p>Schedule reboots, shutdowns, package upgrades, or arbitrary commands. Two modes:</p>
-              <p><strong>One-shot:</strong> pick a date+time, RemotePower fires the command then. Useful for "reboot tonight at 2 AM".</p>
-              <p><strong>Recurring:</strong> standard 5-field cron expression (<code>min hour dom mon dow</code>). Useful for "reboot every Sunday at 3 AM" or "run cleanup every weekday at midnight".</p>
-              <p>Per-device, per-group, or fleet-global. Combine with maintenance windows to suppress alerts during the planned action.</p>
+              <p><strong>One-shot:</strong> pick a date+time, RemotePower fires the command once then discards the job.</p>
+              <p><strong>Recurring:</strong> choose a friendly preset (every hour, every N hours, daily at HH:MM, weekly on day+time, monthly on day+time) or enter a custom 5-field cron expression. DOW follows cron convention (0 = Sunday).</p>
+              <p><strong>Run a script:</strong> select "Run script…" in the command picker to choose any saved script from the Scripts library. The body is resolved at fire time so editing the script updates all pending recurring jobs.</p>
+              <p>Per-device, per-group, or fleet-global. Two optional checkboxes on create:</p>
+              <ul>
+                <li><strong>Maintenance window:</strong> auto-checked for disruptive commands (reboot, upgrade); suppresses all suppressible alerts for 1 hour around the scheduled time.</li>
+                <li><strong>Add to calendar:</strong> creates a calendar entry at the next computed occurrence so it shows up in the Calendar page.</li>
+              </ul>
             </div>
           </details>
 
@@ -1874,11 +1891,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="links external bookmarks quick access urls">
-            <summary><strong>Links page</strong> — external bookmark grid</summary>
+          <details class="doc-card" data-keywords="links external bookmarks quick access urls internal lan vpn dashboard widget amber">
+            <summary><strong>Links page</strong> — shared bookmark dashboard</summary>
             <div class="doc-body">
-              <p>Per-fleet bookmark grid. Add URLs for the things you reach for during operations: your monitoring stack, your wiki, your status page, your IPMI portal, your DNS provider's dashboard.</p>
-              <p>Group links by category. Each link gets a name, URL, and optional icon. Display-only — RemotePower doesn't proxy or check these.</p>
+              <p>Card grid grouped by category. Click any card to open the link in a new tab. Group links by category — useful for "Monitoring", "Infrastructure", "Vendor portals", etc.</p>
+              <p><strong>Scope:</strong> mark a link as <em>Internal</em> (LAN-only, behind VPN, etc.) or <em>External</em>. Internal links get an amber dashed border; external links get an accent (blue) solid border — so it's visually obvious at a glance which links require VPN.</p>
+              <p><strong>Dashboard widget:</strong> once at least one link is saved, a "Quick links" card automatically appears on the Dashboard showing all links as a compact grid. Click "Manage →" to jump to the full Links page.</p>
+              <p>Display-only — RemotePower doesn't proxy or health-check these URLs.</p>
             </div>
           </details>
 
@@ -2144,12 +2163,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="host config desired state apt yum kernel package modules sysctl systemd enforce drift">
+          <details class="doc-card" data-keywords="host config desired state apt yum kernel package modules sysctl systemd enforce drift logrotate cron crontab">
             <summary><strong>Host configuration management</strong> (v2.6.0)</summary>
             <div class="doc-body">
               <p>Per-device Host Configuration captures a <em>desired state</em> for a small set of system attributes; the agent reconciles on every poll.</p>
               <p><strong>Where:</strong> Device Drawer → ⚙ Host config.</p>
-              <p><strong>Attributes:</strong> APT/YUM packages to ensure installed, sysctl values to set, systemd units to enable, kernel modules to load. Each is optional.</p>
+              <p><strong>Tabs:</strong></p>
+              <ul>
+                <li><strong>Packages / Sysctl / Units / Modules</strong> — structured fields. Each reconciled by the agent on every poll.</li>
+                <li><strong>Logrotate</strong> — free-text content for <code>/etc/logrotate.d/remotepower</code>. The agent writes this file verbatim; useful for adding custom log rotation without SSH.</li>
+                <li><strong>Cron (root)</strong> — free-text content for root's crontab (<code>crontab -u root</code>). The agent applies via a temp file on each poll; useful for device-specific jobs you want managed centrally.</li>
+              </ul>
               <p><strong>Reconciliation:</strong> agent reports the <em>current</em> state alongside the desired state. A diff is visible in the UI. Drift events are surfaced under the device's Drift tab.</p>
               <p><strong>Files:</strong> server keeps <code>host_config_current/&lt;dev_id&gt;.json</code> for each device's reported state.</p>
             </div>
@@ -2205,11 +2229,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="needs attention recent activity alerts critical fix now">
+          <details class="doc-card" data-keywords="needs attention recent activity alerts critical fix now clear session">
             <summary><strong>Needs Attention vs Recent Activity</strong> — what goes where</summary>
             <div class="doc-body">
               <p><strong>Needs Attention</strong> = "fix this NOW". Only items whose underlying state is <em>currently broken</em>: a service that's down right now, a probe that's failing right now, pending patches that still need to be applied, etc.</p>
-              <p><strong>Recent Activity</strong> = event log of things that happened in the past — transitions, dispatches, ACK'd alerts. A service that went down at 14:30 and came back up at 14:35 shows in Recent Activity but disappears from Needs Attention once it's healthy again.</p>
+              <p><strong>Recent Activity</strong> = event log of things that happened in the past — transitions, dispatches, ACK'd alerts. A service that went down at 14:30 and came back up at 14:35 shows in Recent Activity but disappears from Needs Attention once it's healthy again. Click the <strong>✕ Clear</strong> button in the Recent Activity header to hide all current entries; this lasts for the browser session (persisted via <code>sessionStorage</code>) and resets when you close the tab.</p>
               <p><strong>v3.0.1 audit (attention coverage):</strong> these state-derived kinds now appear in NA whenever the condition is active:</p>
               <ul>
                 <li><code>service_down</code> — any watched systemd unit in <code>failed</code> (critical) or <code>inactive</code>/<code>deactivating</code> (warning). Carries the unit name as <code>target</code> so the 🩺 button can run <code>systemctl status</code> + <code>journalctl -u &lt;unit&gt;</code> automatically.</li>
@@ -2286,11 +2310,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </div>
           </details>
 
-          <details class="doc-card" data-keywords="backup scheduled tarball restore retention disaster recovery">
+          <details class="doc-card" data-keywords="backup scheduled tarball restore retention disaster recovery clear export">
             <summary><strong>Scheduled backup</strong> — daily snapshot of <code>/var/lib/remotepower</code> (v3.0.2)</summary>
             <div class="doc-body">
-              <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery. Manual "Run backup now" button on the Server status page.</p>
-              <p><strong>Excluded</strong>: the backups directory itself, in-flight <code>.tmp.*</code> files, existing <code>.gz</code> archives. Owner/group stripped so restoring on a different host doesn't fail.</p>
+              <p>Daily gzipped tarball, 14-day retention (both configurable in <strong>Settings → Advanced → Scheduled backup</strong>). Triggered via the heartbeat hook with a 24h sentinel and stale-lock recovery.</p>
+              <p><strong>Manual triggers (Server status page):</strong></p>
+              <ul>
+                <li><strong>Run backup now</strong> — immediately snapshots <code>/var/lib/remotepower</code> regardless of the 24h cadence.</li>
+                <li><strong>Export backup</strong> — also triggers a snapshot before streaming the ZIP download.</li>
+                <li><strong>Clear backup archives</strong> — deletes all <code>remotepower_data_*.tar.gz</code> from the backup directory and resets the backup state. Useful before a migration or to reclaim disk space. Requires confirmation.</li>
+              </ul>
+              <p><strong>Excluded from tarball</strong>: the backups directory itself, in-flight <code>.tmp.*</code> files, existing <code>.gz</code> archives. Owner/group stripped so restoring on a different host doesn't fail.</p>
               <p><strong>No in-UI restore</strong> — backups are tarballs you extract yourself. Procedure in <a href="docs/self-monitoring.md#restoring-from-a-backup" class="c-accent">docs/self-monitoring.md</a>.</p>
             </div>
           </details>
@@ -2406,6 +2436,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="isl-122">
           <button class="btn-secondary" data-action="loadSelfStatus" >↻ Refresh</button>
           <button class="btn-secondary" data-action="runBackupNow" id="self-backup-btn">↓ Run backup now</button>
+          <button class="btn-secondary isl-760" data-action="clearBackupState" id="self-backup-clear-btn">✕ Clear backup archives</button>
         </div>
         <div id="self-status-body" class="isl-123"><div class="c-muted">Loading…</div></div>
       </div>
@@ -2775,6 +2806,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </div>
             </div>
             <div class="isl-181">
+              <div class="isl-14">
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="acme-filter" class="form-input isl-15" placeholder="Filter domain, device…" data-input="_acmeRenderTable">
+              </div>
               <button class="btn-icon isl-182" data-action="acmeOpenIssue">+ Issue new cert</button>
               <button class="btn-icon" data-action="loadAcme" >↻ Refresh</button>
             </div>

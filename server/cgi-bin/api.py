@@ -6117,6 +6117,31 @@ def _run_data_backup(triggered_by='scheduled'):
             'bytes': out_path.stat().st_size, 'pruned': pruned}
 
 
+def handle_backup_clear():
+    """DELETE /api/self/backup-state — delete all backup archives + reset state."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'}); return
+    cfg = load(CONFIG_FILE) or {}
+    bcfg = cfg.get('backup') or {}
+    base = bcfg.get('path') or '/var/lib/remotepower/backups'
+    p_base = Path(base)
+    deleted = 0
+    if p_base.exists():
+        for f in p_base.glob('remotepower_data_*.tar.gz'):
+            try:
+                f.unlink()
+                deleted += 1
+            except OSError:
+                pass
+    bs_file = DATA_DIR / 'self_backup_state.json'
+    if bs_file.exists():
+        try: bs_file.unlink()
+        except OSError: pass
+    audit_log(actor, 'backup_clear', detail=f'deleted={deleted} path={base}')
+    respond(200, {'ok': True, 'deleted': deleted})
+
+
 def _maybe_run_scheduled_backup():
     """Daily scheduled backup. Called from the heartbeat hot path with
     a poll-rate gate so the check itself is cheap.
@@ -15133,6 +15158,7 @@ def main():
     elif pi == '/api/version' and m == 'GET': handle_version_check()
     elif pi == '/api/self/status' and m == 'GET': handle_self_status()
     elif pi == '/api/self/backup-now' and m == 'POST': handle_backup_run()
+    elif pi == '/api/self/backup-state' and m == 'DELETE': handle_backup_clear()
     elif pi == '/api/schedule' and m == 'GET': handle_schedule_list()
     elif pi == '/api/schedule' and m == 'POST': handle_schedule_add()
     elif pi.startswith('/api/schedule/') and m == 'DELETE':
