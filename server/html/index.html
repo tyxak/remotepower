@@ -116,58 +116,78 @@
       <span class="sidebar-collapse-btn-text">Collapse</span>
     </button>
     <div class="sidebar-label"><span>Main</span></div>
-    <!-- v2.2.1: Home dashboard — fleet-at-a-glance summary. New default
-         landing page; Devices still reachable just below. -->
     <button class="nav-btn active" data-page="home" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
       <span>Home</span>
     </button>
-    <button class="nav-btn" data-page="devices" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-      <span>Devices</span>
-    </button>
-    <button class="nav-btn" data-page="cmdb" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
-      <span>CMDB</span>
-    </button>
-    <button class="nav-btn" data-page="containers" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
-      <span>Containers</span>
-    </button>
-    <button class="nav-btn" id="nav-virtualization" data-page="virtualization" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-      <span>Virtualization</span>
-    </button>
-    <button class="nav-btn" data-page="netmap" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
-      <span>Network</span>
-    </button>
-    <button class="nav-btn" data-page="monitor" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      <span>Monitor</span>
-    </button>
-    <!-- v2.3.4: Services and Logs moved from the Security group up to
-         Main. They're routine operational views (is the service up,
-         what's in the logs) rather than security-specific tooling, so
-         Main is the more natural home. -->
-    <button class="nav-btn" data-page="services" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <span>Services</span>
-    </button>
-    <button class="nav-btn" data-page="logs" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
-      <span>Logs</span>
-    </button>
-    <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-      <span>IaC Generator</span>
-    </button>
 
-    <!-- v2.0: collapsible Security group. Was 4 separate top-level items
-         (TLS, Patches, CVEs, Services) — now grouped behind a chevron
-         that expands on click. State persists per-user via the same
-         ui_prefs mechanism the table sort/filter prefs use.
-         v2.3.4: Services and Logs moved out to Main. -->
+    <!-- Fleet group: all device / inventory views -->
+    <div class="sidebar-group" data-group="fleet">
+      <button class="sidebar-group-toggle" >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <span>Fleet</span>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="sidebar-group-items">
+        <button class="nav-btn" data-page="devices" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>Devices</span>
+        </button>
+        <button class="nav-btn" data-page="cmdb" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
+          <span>CMDB</span>
+        </button>
+        <button class="nav-btn" data-page="containers" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
+          <span>Containers</span>
+        </button>
+        <button class="nav-btn" id="nav-virtualization" data-page="virtualization" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          <span>Virtualization</span>
+        </button>
+        <button class="nav-btn" data-page="netmap" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
+          <span>Network</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Monitoring group: probes, metrics, ports, scripts, services, logs -->
+    <div class="sidebar-group" data-group="monitoring">
+      <button class="sidebar-group-toggle" >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Monitoring</span>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="sidebar-group-items">
+        <button class="nav-btn" data-action="showMonitorSection" data-arg="section-targets" data-pass-btn="1" data-section-page="monitor" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M2 12h3m14 0h3M12 2v3m0 14v3"/></svg>
+          <span>Targets</span>
+        </button>
+        <button class="nav-btn" data-action="showMonitorSection" data-arg="section-metrics" data-pass-btn="1" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="7 10 10 13 13 9 16 12"/></svg>
+          <span>Device Metrics</span>
+        </button>
+        <button class="nav-btn" data-action="showMonitorSection" data-arg="section-ports" data-pass-btn="1" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
+          <span>Listening Ports</span>
+        </button>
+        <button class="nav-btn" data-action="showMonitorSection" data-arg="section-scripts" data-pass-btn="1" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>Custom Scripts</span>
+        </button>
+        <button class="nav-btn" data-page="services" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Services</span>
+        </button>
+        <button class="nav-btn" data-page="logs" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="8" y1="9" x2="10" y2="9"/></svg>
+          <span>Logs</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Security group -->
     <div class="sidebar-group" data-group="security">
       <button class="sidebar-group-toggle" >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/></svg>
@@ -253,6 +273,10 @@
         <button class="nav-btn" data-page="scripts" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Scripts</span>
+        </button>
+        <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+          <span>IaC Generator</span>
         </button>
         <button class="nav-btn" data-page="audit" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -434,9 +458,9 @@
 
       <!-- ── Monitor page (unchanged) ─────────────────────────────────────── -->
       <div id="page-monitor" class="page">
-        <div class="page-title">Monitor</div>
-        <div class="page-subtitle">Ping, TCP, and HTTP checks run from the server</div>
-        <div class="section-header">
+        <div class="page-title">Monitoring</div>
+        <div class="page-subtitle">Probes, device metrics, ports, and custom health checks</div>
+        <div id="section-targets" class="section-header">
           <div class="section-title">Targets</div>
           <div class="row-8">
             <button class="btn-icon" data-action="runMonitor" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Check now</button>
@@ -459,7 +483,7 @@
              to populate the Devices grid). No new endpoint needed; the
              metric_state field on each device tells us whether anything's
              firing right now. -->
-        <div class="section-header mt-32">
+        <div id="section-metrics" class="section-header mt-32">
           <div class="section-title">Device metrics</div>
           <div class="row-8-center">
             <span id="device-metrics-summary" class="hint"></span>
@@ -487,7 +511,7 @@
         </div>
 
         <!-- v2.8.1: Listening Ports section -->
-        <div class="section-header mt-32">
+        <div id="section-ports" class="section-header mt-32">
           <div class="row-8-center">
             <div class="section-title">Listening Ports</div>
             <div class="isl-14">
@@ -504,7 +528,7 @@
         </div>
 
         <!-- v2.6.0: Custom monitoring scripts section -->
-        <div class="section-header mt-32">
+        <div id="section-scripts" class="section-header mt-32">
           <div class="row-8-center">
             <div class="isl-14">
               <svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" class="icon-search-abs-sm"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

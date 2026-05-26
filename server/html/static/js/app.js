@@ -659,9 +659,8 @@ function _restoreSidebarGroups() {
     try {
       collapsed = localStorage.getItem(`sidebar.${name}.collapsed`);
     } catch (_) { collapsed = null; }
-    // Default state per group: Security and Planning expanded (most-used);
-    // Admin collapsed (admins know where it is, regular users don't need
-    // it cluttering the view).
+    // Default state: Fleet and Monitoring expanded (primary navigation);
+    // Security and Planning expanded; Admin collapsed.
     if (collapsed === null) {
       collapsed = (name === 'admin') ? '1' : '0';
     }
@@ -764,6 +763,15 @@ function showPage(name, btn) {
   if (name === 'audit')    loadAuditLog();
   if (name === 'self')     loadSelfStatus();
 }
+
+function showMonitorSection(sectionId, btn) {
+  showPage('monitor', btn);
+  if (sectionId) requestAnimationFrame(() => {
+    const el = document.getElementById(sectionId);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 async function loadDevices() {
   try {
     const data = await api('GET', '/devices');
@@ -13069,7 +13077,7 @@ function _homeNavAction(btn) {
       break;
     case 'cve':      showPage('cve',            document.querySelector('.nav-btn[data-page="cve"]')); break;
     case 'patches':  showPage('patches',         document.querySelector('.nav-btn[data-page="patches"]')); break;
-    case 'monitor':  showPage('monitor',         document.querySelector('.nav-btn[data-page="monitor"]')); break;
+    case 'monitor':  showPage('monitor',         document.querySelector('.nav-btn[data-section-page="monitor"]')); break;
     case 'services': showPage('services',        document.querySelector('.nav-btn[data-page="services"]')); break;
     case 'containers': showPage('containers',    document.querySelector('.nav-btn[data-page="containers"]')); break;
     case 'logs':     showPage('logs',            document.querySelector('.nav-btn[data-page="logs"]')); break;
@@ -13426,7 +13434,7 @@ function _palBuildIndex() {
   // Static pages (sidebar destinations)
   const pages = [
     ['Home', 'home'], ['Devices', 'devices'], ['Containers', 'containers'],
-    ['Virtualization', 'virtualization'], ['Monitor', 'monitor'],
+    ['Virtualization', 'virtualization'], ['Monitoring', 'monitor'],
     ['History', 'history'], ['Schedule', 'schedule'], ['Calendar', 'calendar'],
     ['Tasks', 'tasks'], ['CMDB', 'cmdb'], ['Logs', 'logs'], ['CVEs', 'cve'],
     ['Patches', 'patches'], ['Drift', 'drift'], ['TLS', 'tls'],
