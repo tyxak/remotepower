@@ -5,8 +5,9 @@ All notable changes to RemotePower. Newest first.
 ## v3.2.0 — 2026-05-26
 
 Feature release: alert inbox with ack/resolve lifecycle, inbound
-webhooks from external systems, MCP Stage 4 write tools, and OpenID
-Connect SSO. No schema migrations.
+webhooks from external systems, MCP Stage 4 write tools, OpenID
+Connect SSO, SNMPv2c polling for agentless devices, and syslog HTTP
+ingestion. No schema migrations.
 
 ### Added
 
@@ -43,6 +44,24 @@ Connect SSO. No schema migrations.
 - **Bearer auth everywhere.** `get_token_from_request()` now accepts
   `Authorization: Bearer <token>` in addition to `X-Token`. The MCP
   client sends both for compatibility.
+- **SNMPv2c polling for agentless devices (B5).** New `server/cgi-bin/snmp.py`
+  ships a pure-stdlib SNMPv2c GET client (~300 lines, no pip deps).
+  Agentless devices gain a "SNMP" tab in the CMDB asset modal where
+  admins enable polling and provide a community string + port. The
+  server runs a 5-minute background sweep collecting the sys-group
+  OIDs (`sysDescr`, `sysObjectID`, `sysUpTime`, `sysContact`, `sysName`,
+  `sysLocation`); operators can "Poll now" from the SNMP tab. Latest
+  result lands in `snmp_data.json` and renders in the same tab.
+  Community strings are write-only via the API — GET responses redact
+  to a preview only.
+- **Syslog HTTP ingestion (B6).** Settings → Integrations now creates
+  two kinds of inbound tokens — alert webhooks and syslog. Syslog
+  tokens accept JSON (`{lines:[...]}`) or plain text at
+  `/api/syslog/in/<token>`; RFC 3164/5424 `<PRI>` prefixes are
+  parsed for severity. Lines append to the device's `log_watch` under
+  unit `syslog`, and existing per-device + global log_alert rules
+  fire as if they came from the agent. Suits rsyslog `omhttp`,
+  fluent-bit HTTP output, or any tool that can POST.
 
 ### Changed
 

@@ -3986,6 +3986,10 @@ function _renderInboundWebhooks(tokens) {
     return;
   }
   tbody.innerHTML = tokens.map(t => {
+    const kind = t.kind || 'alert';
+    const kindPill = kind === 'syslog'
+      ? '<span class="sev-pill sev-medium">syslog</span>'
+      : '<span class="sev-pill sev-low">alert</span>';
     const scope = t.scope_device_id ? `device ${_escapeHtml(t.scope_device_id)}` :
                   t.scope_tag ? `tag ${_escapeHtml(t.scope_tag)}` : 'any';
     const lastSeen = t.last_seen ? _formatTs(t.last_seen) : '<span class="c-muted">—</span>';
@@ -3997,6 +4001,7 @@ function _renderInboundWebhooks(tokens) {
       `<button class="btn-icon btn-xs" data-action="toggleInboundWebhook" data-arg="${t.id}" data-arg2="1">Enable</button>`;
     return `<tr>
       <td><strong>${_escapeHtml(t.label || '')}</strong></td>
+      <td>${kindPill}</td>
       <td class="hint">${scope}</td>
       <td class="ff-mono fs-12">${_escapeHtml(t.token_preview || '')}</td>
       <td>${t.hit_count || 0}</td>
@@ -4009,6 +4014,7 @@ function _renderInboundWebhooks(tokens) {
 
 function openInboundWebhookCreate() {
   document.getElementById('inbound-wh-label').value = '';
+  document.getElementById('inbound-wh-kind').value = 'alert';
   // Populate the device dropdown
   const sel = document.getElementById('inbound-wh-device');
   if (sel) {
@@ -4020,18 +4026,60 @@ function openInboundWebhookCreate() {
     });
     sel.innerHTML = opts.join('');
   }
+  updateInboundWebhookKindHint();
   openModal('inbound-webhook-create-modal');
+}
+
+function updateInboundWebhookKindHint() {
+  const kind = document.getElementById('inbound-wh-kind').value;
+  const hint = document.getElementById('inbound-wh-kind-hint');
+  const req = document.getElementById('inbound-wh-device-required');
+  const devOpt = document.querySelector('#inbound-wh-device option[value=""]');
+  if (kind === 'syslog') {
+    if (hint) hint.textContent = 'Syslog tokens receive RFC 3164/5424 lines (JSON {lines:[...]} or plain text) and append to the device\'s log_watch under unit="syslog".';
+    if (req) req.classList.remove('d-none');
+    if (devOpt) devOpt.textContent = '— select device —';
+  } else {
+    if (hint) hint.textContent = 'Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.';
+    if (req) req.classList.add('d-none');
+    if (devOpt) devOpt.textContent = '(any — match by body.device)';
+  }
 }
 
 async function createInboundWebhook() {
   const label = document.getElementById('inbound-wh-label').value.trim();
   if (!label) { toast('Label required', 'error'); return; }
+  const kind = document.getElementById('inbound-wh-kind').value;
   const scope_device_id = document.getElementById('inbound-wh-device').value || null;
-  const r = await api('POST', '/inbound-webhooks', { label, scope_device_id });
+  if (kind === 'syslog' && !scope_device_id) {
+    toast('Syslog tokens must be pinned to a device', 'error');
+    return;
+  }
+  const r = await api('POST', '/inbound-webhooks', { label, scope_device_id, kind });
   if (r && r.ok && r.token) {
     closeModal('inbound-webhook-create-modal');
-    _lastCreatedInboundWebhookUrl = `${location.origin}/api/webhook/in/${r.token}`;
+    const path = kind === 'syslog' ? '/api/syslog/in/' : '/api/webhook/in/';
+    _lastCreatedInboundWebhookUrl = `${location.origin}${path}${r.token}`;
     document.getElementById('inbound-wh-url').textContent = _lastCreatedInboundWebhookUrl;
+    document.getElementById('inbound-wh-show-title').textContent =
+      kind === 'syslog' ? 'Syslog ingestion token created' : 'Alert webhook token created';
+    const ex = document.getElementById('inbound-wh-example');
+    if (kind === 'syslog') {
+      ex.textContent =
+        '# JSON form\n' +
+        `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
+        '  -H \'Content-Type: application/json\' \\\n' +
+        '  -d \'{"lines":["<11>kernel: ERROR disk full","<14>sshd: Accepted root"]}\'\n\n' +
+        '# Plain text — one syslog line per row (rsyslog omhttp default)\n' +
+        `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
+        '  -H \'Content-Type: text/plain\' \\\n' +
+        '  --data-binary $\'<14>foo bar\\n<11>err line\\n\'';
+    } else {
+      ex.textContent =
+        `curl -X POST '${_lastCreatedInboundWebhookUrl}' \\\n` +
+        '  -H \'Content-Type: application/json\' \\\n' +
+        '  -d \'{"severity":"high","title":"CPU 95% on web01","device":"web01","source":"grafana"}\'';
+    }
     openModal('inbound-webhook-show-modal');
     loadInboundWebhooks();
   } else {
@@ -4831,7 +4879,83 @@ function cmdbSwitchTab(tab) {
   document.getElementById('cmdb-tab-props').style.display = tab === 'props' ? 'block' : 'none';
   document.getElementById('cmdb-tab-docs').style.display  = tab === 'docs'  ? 'block' : 'none';
   document.getElementById('cmdb-tab-creds').style.display = tab === 'creds' ? 'block' : 'none';
+  const snmpPane = document.getElementById('cmdb-tab-snmp');
+  if (snmpPane) snmpPane.style.display = tab === 'snmp' ? 'block' : 'none';
   if (tab === 'creds') cmdbLoadCreds(_cmdbCurrent ? _cmdbCurrent.device_id : null);
+  if (tab === 'snmp')  cmdbLoadSnmp(_cmdbCurrent ? _cmdbCurrent.device_id : null);
+}
+
+// v3.2.0 (B5): SNMP config + latest poll for the asset modal
+async function cmdbLoadSnmp(deviceId) {
+  if (!deviceId) return;
+  try {
+    const r = await api('GET', `/devices/${encodeURIComponent(deviceId)}/snmp`);
+    if (!r) return;
+    const cfg = r.config || {};
+    document.getElementById('cmdb-snmp-enabled').checked = !!cfg.enabled;
+    document.getElementById('cmdb-snmp-port').value = cfg.port || 161;
+    document.getElementById('cmdb-snmp-community').value = '';
+    document.getElementById('cmdb-snmp-community').placeholder =
+      cfg.has_community ? `(keep current — preview: ${cfg.community_preview || '…'})` : 'public';
+    _renderCmdbSnmpData(r.data);
+  } catch (e) {
+    toast('Failed to load SNMP config', 'error');
+  }
+}
+
+function _renderCmdbSnmpData(data) {
+  const el = document.getElementById('cmdb-snmp-data');
+  if (!el) return;
+  if (!data || (!data.last_ok && !data.last_error)) {
+    el.innerHTML = '<span class="c-muted">No data yet — save the config and click "Poll now".</span>';
+    return;
+  }
+  if (data.last_error && !data.last_ok) {
+    el.innerHTML = `<div class="sev-pill sev-critical">poll failed</div> <code>${_escapeHtml(data.last_error)}</code>`;
+    return;
+  }
+  const upDays = data.sysUpTime ? Math.floor(data.sysUpTime / 100 / 86400) : '?';
+  el.innerHTML =
+    `<div><strong>Last successful poll:</strong> ${_formatTs(data.last_ok)}</div>` +
+    `<div><strong>sysDescr:</strong> ${_escapeHtml(data.sysDescr || '—')}</div>` +
+    `<div><strong>sysName:</strong> ${_escapeHtml(data.sysName || '—')}</div>` +
+    `<div><strong>sysLocation:</strong> ${_escapeHtml(data.sysLocation || '—')}</div>` +
+    `<div><strong>sysContact:</strong> ${_escapeHtml(data.sysContact || '—')}</div>` +
+    `<div><strong>sysObjectID:</strong> <code>${_escapeHtml(data.sysObjectID || '—')}</code></div>` +
+    `<div><strong>sysUpTime:</strong> ${data.sysUpTime || '?'} (≈ ${upDays}d)</div>` +
+    (data.last_error ? `<div class="c-muted mt-12"><em>Note: most recent error — ${_escapeHtml(data.last_error)}</em></div>` : '');
+}
+
+async function saveCmdbSnmp() {
+  const deviceId = document.getElementById('cmdb-asset-deviceid').value;
+  if (!deviceId) return;
+  const body = {
+    enabled:    document.getElementById('cmdb-snmp-enabled').checked,
+    port:       parseInt(document.getElementById('cmdb-snmp-port').value, 10) || 161,
+  };
+  const comm = document.getElementById('cmdb-snmp-community').value;
+  if (comm) body.community = comm;   // blank = keep current
+  const r = await api('PATCH', `/devices/${encodeURIComponent(deviceId)}/snmp`, body);
+  if (r && r.ok) {
+    toast('SNMP config saved', 'success');
+    document.getElementById('cmdb-snmp-community').value = '';
+    cmdbLoadSnmp(deviceId);
+  } else {
+    toast((r && r.error) || 'Save failed', 'error');
+  }
+}
+
+async function pollCmdbSnmp() {
+  const deviceId = document.getElementById('cmdb-asset-deviceid').value;
+  if (!deviceId) return;
+  toast('Polling…', 'info');
+  const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/snmp/poll`, {});
+  if (r && r.ok) {
+    _renderCmdbSnmpData(r.data);
+    toast(r.data.last_ok ? 'Polled OK' : 'Poll error', r.data.last_ok ? 'success' : 'error');
+  } else {
+    toast((r && r.error) || 'Poll failed', 'error');
+  }
 }
 
 // ── v2.0: multi-doc list ─────────────────────────────────────────────────────

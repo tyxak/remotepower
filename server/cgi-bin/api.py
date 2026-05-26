@@ -92,6 +92,12 @@ CONFIRMATIONS_FILE = DATA_DIR / 'pending_confirmations.json'
 # and consumed by /api/auth/oidc/callback. TTL is short (10 minutes).
 OIDC_STATES_FILE = DATA_DIR / 'oidc_states.json'
 
+# v3.2.0 (B5): SNMP polling results for agentless devices. Keyed by
+# device_id with the latest sys-group fields, last_ok timestamp, and
+# last_error if the most recent poll failed. The actual SNMP work lives
+# in snmp.py (pure-stdlib SNMPv2c).
+SNMP_DATA_FILE = DATA_DIR / 'snmp_data.json'
+
 # ── v2.1.0: multi-line script library (separate from one-liner cmd_library) ───
 # cmd_library is for single-line snippets the operator picks from the exec
 # modal. Scripts are full multi-line bash that gets queued as an exec: body
@@ -414,6 +420,7 @@ MAX_WEBHOOK_LOG   = 100
 MAX_ALERTS        = 5000   # v3.2.0 (B1): alerts ledger cap
 MAX_CONFIRMATIONS = 200    # v3.2.0 (A1): pending MCP confirmations cap
 CONFIRMATION_TTL_SEC = 3600  # v3.2.0 (A1): confirmations expire after 1h
+SNMP_POLL_INTERVAL  = 300  # v3.2.0 (B5): SNMP poll cadence (seconds)
 # v2.2.4: cap on the fleet event log (separate from webhook log).
 # 200 fits well into a few KB on disk and gives the Home dashboard
 # enough history to show meaningful activity even on quiet fleets
@@ -11841,6 +11848,9 @@ def handle_inbound_webhook(token_str):
             break
     if not match:
         respond(401, {'error': 'invalid or disabled token'})
+    # v3.2.0 (B6): a syslog-kind token must not be used at the alert URL
+    if (match.get('kind') or 'alert') != 'alert':
+        respond(400, {'error': f'this token is a {match.get("kind")} token — use the corresponding URL'})
 
     body = get_json_body() or {}
     if not isinstance(body, dict):
@@ -11947,7 +11957,12 @@ def handle_inbound_webhooks_list():
 
 
 def handle_inbound_webhooks_create():
-    """POST /api/inbound-webhooks — admin-only. Returns token ONCE."""
+    """POST /api/inbound-webhooks — admin-only. Returns token ONCE.
+
+    Body: {label, scope_device_id?, scope_tag?, kind?}
+      kind='alert' (default) → receive URL is /api/webhook/in/<token>
+      kind='syslog' (v3.2.0 B6) → receive URL is /api/syslog/in/<token>
+    """
     actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body() or {}
@@ -11956,11 +11971,15 @@ def handle_inbound_webhooks_create():
         respond(400, {'error': 'label required'})
     scope_dev = _sanitize_str(body.get('scope_device_id', ''), 64) or None
     scope_tag = _sanitize_str(body.get('scope_tag', ''), 64) or None
+    kind = _sanitize_str(body.get('kind', 'alert'), 16) or 'alert'
+    if kind not in ('alert', 'syslog'):
+        respond(400, {'error': 'kind must be "alert" or "syslog"'})
     token = _generate_inbound_token()
     entry = {
         'id':                'iwh_' + os.urandom(4).hex(),
         'label':             label,
         'token':             token,
+        'kind':              kind,
         'scope_device_id':   scope_dev,
         'scope_tag':         scope_tag,
         'enabled':           True,
@@ -11975,9 +11994,9 @@ def handle_inbound_webhooks_create():
     except Exception as e:
         respond(500, {'error': str(e)})
     audit_log(actor, 'inbound_webhook_create',
-              f'id={entry["id"]} label={label}')
+              f'id={entry["id"]} label={label} kind={kind}')
     # Returned ONCE — store it now or you lose it.
-    respond(200, {'ok': True, 'token': token, 'id': entry['id']})
+    respond(200, {'ok': True, 'token': token, 'id': entry['id'], 'kind': kind})
 
 
 def handle_inbound_webhook_revoke(token_id):
@@ -12022,6 +12041,199 @@ def handle_inbound_webhook_toggle(token_id):
     audit_log(actor, 'inbound_webhook_toggle',
               f'id={token_id} enabled={enabled}')
     respond(200, {'ok': True})
+
+
+# ── v3.2.0 (B6): syslog HTTP ingestion ──────────────────────────────────────
+# rsyslog-omhttp or fluent-bit or curl can POST log lines here. Token
+# scope determines the target device. Lines append to log_watch.json
+# under the synthetic 'syslog' unit and run through the existing
+# per-device + global log_alert rule engine.
+
+_SYSLOG_PRI_RE = re.compile(r'^<(\d+)>')
+_SYSLOG_MAX_LINE = 2048
+_SYSLOG_MAX_LINES_PER_POST = 200
+
+
+def _parse_syslog_line(raw):
+    """Extract (severity_level, message) from a syslog line.
+
+    Accepts RFC 3164 and RFC 5424 prefixes — the <PRI> facility*8+severity
+    number at the start. Returns severity 0..7 (emerg..debug) and the
+    remainder of the line. If no <PRI>, severity defaults to 6 (info)
+    and the whole line is the message.
+    """
+    s = raw.rstrip('\r\n')[:_SYSLOG_MAX_LINE]
+    m = _SYSLOG_PRI_RE.match(s)
+    if not m:
+        return 6, s
+    try:
+        pri = int(m.group(1))
+        sev = pri & 0x07
+    except ValueError:
+        sev = 6
+    return sev, s[m.end():].lstrip()
+
+
+def _eval_syslog_rules(dev_id, dev, new_lines):
+    """Run new_lines through per-device + global log_watch rules under
+    unit='syslog' and fire log_alert for any that cross threshold.
+
+    Mirrors handle_log_submit's _eval_rules but inline + scoped to the
+    'syslog' unit so we don't drag the journal-specific virtual-unit
+    logic into syslog ingestion.
+    """
+    per_device_rules = dev.get('log_watch') or []
+    global_rules = (load(LOG_RULES_GLOBAL_FILE).get('rules') or [])
+
+    fired_keys = set()
+    name = dev.get('name', dev_id)
+
+    def _eval(rules, scope):
+        for rule in rules:
+            rule_unit = rule.get('unit', '')
+            # Wildcards skip — same as journal path (would generate noise)
+            if rule_unit not in ('syslog',):
+                continue
+            pattern = rule.get('pattern', '')
+            key = (scope, 'syslog', pattern)
+            if key in fired_keys:
+                continue
+            try:
+                rx = re.compile(pattern)
+            except re.error:
+                continue
+            matches = [ln for ln in new_lines if rx.search(ln)]
+            try:
+                threshold = int(rule.get('threshold', 1))
+            except (TypeError, ValueError):
+                threshold = 1
+            severity = str(rule.get('severity', 'WARN')).upper()
+            if severity not in ('OK', 'WARN', 'CRIT'):
+                severity = 'WARN'
+            if len(matches) >= threshold:
+                fired_keys.add(key)
+                if severity != 'OK':
+                    fire_webhook('log_alert', {
+                        'device_id': dev_id,
+                        'name':      name,
+                        'unit':      'syslog',
+                        'pattern':   pattern,
+                        'count':     len(matches),
+                        'sample':    matches[:3],
+                        'scope':     scope,
+                        'severity':  severity,
+                    })
+
+    _eval(per_device_rules, 'device')
+    _eval(global_rules, 'global')
+
+
+def handle_syslog_in(token_str):
+    """POST /api/syslog/in/<token>
+
+    Accepts either:
+      Content-Type: application/json     → body {"lines": ["...", ...]}
+      Content-Type: text/plain (default) → newline-separated lines
+
+    Both are appended to log_watch.json under unit='syslog' for the
+    device the token scopes to. Existing log_watch rules with
+    unit='syslog' will fire log_alert just like journal-derived rules.
+    """
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+
+    cfg = load(INBOUND_WEBHOOKS_FILE)
+    tokens = cfg.get('tokens', [])
+    token_str = (token_str or '').strip()
+    if not token_str or not token_str.startswith('rpwi_'):
+        respond(401, {'error': 'invalid token'})
+    match = None
+    for t in tokens:
+        if t.get('token') == token_str and t.get('enabled', True):
+            match = t
+            break
+    if not match:
+        respond(401, {'error': 'invalid or disabled token'})
+    if (match.get('kind') or 'alert') != 'syslog':
+        respond(400, {'error': f'this token is a {match.get("kind", "alert")} token — use the corresponding URL'})
+
+    dev_id = match.get('scope_device_id')
+    if not dev_id:
+        respond(400, {'error': 'syslog tokens must be pinned to a device — recreate with scope_device_id'})
+    devs = load(DEVICES_FILE)
+    dev = devs.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'token target device no longer exists'})
+
+    # Parse body: JSON first, then plain text fallback
+    raw_lines = []
+    content_type = (os.environ.get('CONTENT_TYPE', '') or '').lower()
+    if 'json' in content_type:
+        body = get_json_body() or {}
+        if isinstance(body, dict) and isinstance(body.get('lines'), list):
+            raw_lines = [str(x) for x in body['lines'][:_SYSLOG_MAX_LINES_PER_POST]]
+        elif isinstance(body, list):
+            raw_lines = [str(x) for x in body[:_SYSLOG_MAX_LINES_PER_POST]]
+    if not raw_lines:
+        # Plain-text fallback — read stdin directly
+        try:
+            content_length = int(os.environ.get('CONTENT_LENGTH', '0') or 0)
+        except ValueError:
+            content_length = 0
+        if content_length > 0:
+            raw = sys.stdin.read(min(content_length, 256 * 1024))
+            for line in raw.split('\n')[:_SYSLOG_MAX_LINES_PER_POST]:
+                line = line.strip()
+                if line:
+                    raw_lines.append(line)
+
+    if not raw_lines:
+        respond(400, {'error': 'no lines provided'})
+
+    # Parse + store
+    now = int(time.time())
+    new_entries = []
+    new_msgs = []
+    for raw in raw_lines:
+        sev, msg = _parse_syslog_line(raw)
+        if not msg:
+            continue
+        new_entries.append({'ts': now, 'line': msg, 'sev': sev,
+                             'source': 'syslog'})
+        new_msgs.append(msg)
+
+    if new_entries:
+        try:
+            with _LockedUpdate(LOG_WATCH_FILE) as store:
+                dev_buf = store.setdefault(dev_id, {'units': {}, 'updated_at': now})
+                units_buf = dev_buf.setdefault('units', {})
+                syslog_buf = units_buf.setdefault('syslog', [])
+                syslog_buf.extend(new_entries)
+                # Age-bound: drop entries older than LOG_BUFFER_TTL
+                cutoff = now - LOG_BUFFER_TTL
+                syslog_buf[:] = [e for e in syslog_buf if e.get('ts', 0) >= cutoff]
+                dev_buf['updated_at'] = now
+        except Exception as e:
+            respond(500, {'error': f'log buffer write failed: {e}'})
+
+    # Run rules on the new lines
+    try:
+        _eval_syslog_rules(dev_id, dev, new_msgs)
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] syslog rule eval failed: {e}\n')
+
+    # Bump token stats
+    try:
+        with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
+            for t in store.get('tokens', []):
+                if t.get('token') == token_str:
+                    t['last_seen'] = now
+                    t['hit_count'] = int(t.get('hit_count', 0)) + 1
+                    break
+    except Exception:
+        pass
+
+    respond(200, {'ok': True, 'lines_received': len(new_entries)})
 
 
 # ── v3.2.0 (A1): MCP Stage 4 — write tools + confirmation flow ──────────────
@@ -12553,6 +12765,164 @@ def handle_oidc_callback():
     print('Cache-Control: no-store')
     print()
     sys.exit(0)
+
+
+# ── v3.2.0 (B5): SNMPv2c polling for agentless devices ─────────────────────
+
+def _device_snmp_target(dev):
+    """Return (host, community, port) for an agentless device with SNMP
+    configured, or None if it's missing fields / not enabled."""
+    snmp_cfg = dev.get('snmp') or {}
+    if not snmp_cfg.get('enabled'):
+        return None
+    host = dev.get('ip') or dev.get('hostname') or dev.get('host')
+    community = snmp_cfg.get('community') or ''
+    try:
+        port = int(snmp_cfg.get('port') or 161)
+    except (TypeError, ValueError):
+        port = 161
+    if not host or not community:
+        return None
+    return (host, community, port)
+
+
+def _do_snmp_poll(dev_id, dev):
+    """Poll one device and update SNMP_DATA_FILE. Returns the per-device
+    result dict that was stored (or the error record on failure).
+
+    Doesn't raise — failures are recorded in the same dict under
+    `last_error` so the UI can display them and the operator can debug
+    without watching nginx logs.
+    """
+    target = _device_snmp_target(dev)
+    if not target:
+        return None
+    host, community, port = target
+    try:
+        import snmp as snmp_mod
+        result = snmp_mod.poll_system(host, community, port=port, timeout=2.0)
+        entry = {
+            'host':         host,
+            'port':         port,
+            'last_ok':      int(time.time()),
+            'last_error':   None,
+            'sysDescr':     result.get('sysDescr'),
+            'sysObjectID':  result.get('sysObjectID'),
+            'sysUpTime':    result.get('sysUpTime'),
+            'sysContact':   result.get('sysContact'),
+            'sysName':      result.get('sysName'),
+            'sysLocation':  result.get('sysLocation'),
+        }
+    except Exception as e:
+        entry = {
+            'host':       host,
+            'port':       port,
+            'last_ok':    None,
+            'last_error': f'{e.__class__.__name__}: {e}'[:240],
+        }
+    try:
+        with _LockedUpdate(SNMP_DATA_FILE) as store:
+            store[dev_id] = entry
+    except Exception:
+        pass
+    return entry
+
+
+def run_snmp_polls_if_due():
+    """Poll every SNMP-enabled agentless device once per SNMP_POLL_INTERVAL.
+
+    Called from main() on every CGI request, same cheap-when-not-due
+    pattern as run_monitors_if_due. The next-due timestamp lives in
+    CONFIG_FILE under `last_snmp_poll`.
+    """
+    cfg = load(CONFIG_FILE)
+    now = int(time.time())
+    last = int(cfg.get('last_snmp_poll', 0))
+    if (now - last) < SNMP_POLL_INTERVAL:
+        return
+    devs = load(DEVICES_FILE)
+    targets = [(did, d) for did, d in devs.items()
+               if _device_snmp_target(d) is not None]
+    if not targets:
+        return
+    # Bump the marker BEFORE polling so a parallel CGI doesn't double-fire
+    cfg['last_snmp_poll'] = now
+    save(CONFIG_FILE, cfg)
+    for dev_id, dev in targets:
+        try:
+            _do_snmp_poll(dev_id, dev)
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] snmp poll failed for {dev_id}: {e}\n')
+
+
+def handle_device_snmp(dev_id):
+    """GET/PATCH /api/devices/<id>/snmp
+
+    GET   → returns the device's SNMP config + latest polled data.
+    PATCH → admin-only; saves SNMP config (community, port, enabled).
+    """
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    devs = load(DEVICES_FILE)
+    if dev_id not in devs:
+        respond(404, {'error': 'device not found'})
+    m = method()
+    if m == 'GET':
+        require_auth()
+        snmp_cfg = devs[dev_id].get('snmp') or {}
+        # Redact community for the GET — show prefix only
+        community = snmp_cfg.get('community') or ''
+        redacted_cfg = {
+            'enabled':            bool(snmp_cfg.get('enabled')),
+            'port':               int(snmp_cfg.get('port') or 161),
+            'community_preview':  (community[:3] + '…') if community else '',
+            'has_community':      bool(community),
+        }
+        data = load(SNMP_DATA_FILE).get(dev_id) or {}
+        respond(200, {'config': redacted_cfg, 'data': data})
+    elif m == 'PATCH':
+        actor = require_admin_auth()
+        body = get_json_body() or {}
+        with _LockedUpdate(DEVICES_FILE) as store:
+            dev = store.get(dev_id) or {}
+            snmp_cfg = dict(dev.get('snmp') or {})
+            if 'enabled' in body:
+                snmp_cfg['enabled'] = bool(body['enabled'])
+            if 'community' in body:
+                snmp_cfg['community'] = _sanitize_str(str(body['community']), 128)
+            if 'port' in body:
+                try:
+                    p = int(body['port'])
+                    if not (1 <= p <= 65535):
+                        respond(400, {'error': 'port must be 1..65535'})
+                    snmp_cfg['port'] = p
+                except (TypeError, ValueError):
+                    respond(400, {'error': 'port must be an integer'})
+            dev['snmp'] = snmp_cfg
+            store[dev_id] = dev
+        audit_log(actor, 'device_snmp_config',
+                  f'device={dev_id} enabled={snmp_cfg.get("enabled")} port={snmp_cfg.get("port")}')
+        respond(200, {'ok': True})
+    else:
+        respond(405, {'error': 'Method not allowed'})
+
+
+def handle_device_snmp_poll(dev_id):
+    """POST /api/devices/<id>/snmp/poll — trigger an immediate SNMP poll."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    devs = load(DEVICES_FILE)
+    dev = devs.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    target = _device_snmp_target(dev)
+    if not target:
+        respond(400, {'error': 'SNMP not configured/enabled on this device'})
+    entry = _do_snmp_poll(dev_id, dev)
+    audit_log(actor, 'device_snmp_poll', f'device={dev_id} ok={entry.get("last_ok") is not None}')
+    respond(200, {'ok': True, 'data': entry})
 
 
 def handle_webhook_test():
@@ -16217,8 +16587,8 @@ _PWCHG_ALLOWED_PATHS = frozenset({
 
 # v3.2.0 (B2): inbound webhook URLs use a prefix /api/webhook/in/<token>;
 # they don't carry a session, so the password-change gate must pass them
-# through (each request has its own per-token auth).
-_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/',)
+# through (each request has its own per-token auth). Same for syslog (B6).
+_PWCHG_ALLOWED_PREFIXES = ('/api/webhook/in/', '/api/syslog/in/')
 
 
 def _enforce_password_change():
@@ -16302,6 +16672,10 @@ def main():
     # heartbeats — typically every 60s, so the gate kicks in and the
     # actual checks happen every interval.
     _safe(run_monitors_if_due, 'run_monitors_if_due')
+    # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
+    # when-not-due pattern as run_monitors_if_due; the work itself is
+    # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
+    _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
     _safe(process_schedule,    'process_schedule')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
@@ -16352,7 +16726,9 @@ def main():
                                      '/services/config','/logs','/update-logs',
                                      '/containers','/connected-to',
                                      # v1.11.10
-                                     '/metric-thresholds')):
+                                     '/metric-thresholds',
+                                     # v3.2.0 (B5)
+                                     '/snmp', '/snmp/poll')):
         handle_device_delete(pi[len('/api/devices/'):])
     # v3.0.4: bulk device settings save from the device drawer.
     # Matches POST /api/devices/<id> exactly — no further slashes.
@@ -16382,6 +16758,11 @@ def main():
     elif pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH':
         handle_device_require_confirmation(
             pi[len('/api/devices/'):-len('/require_confirmation')])
+    # v3.2.0 (B5): SNMP per-device config + on-demand poll
+    elif pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST':
+        handle_device_snmp_poll(pi[len('/api/devices/'):-len('/snmp/poll')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
+        handle_device_snmp(pi[len('/api/devices/'):-len('/snmp')])
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
     elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
@@ -16590,6 +16971,9 @@ def main():
     # v3.2.0 (B2): inbound webhooks
     elif pi.startswith('/api/webhook/in/'):
         handle_inbound_webhook(pi[len('/api/webhook/in/'):])
+    # v3.2.0 (B6): syslog HTTP ingestion
+    elif pi.startswith('/api/syslog/in/'):
+        handle_syslog_in(pi[len('/api/syslog/in/'):])
     elif pi == '/api/inbound-webhooks' and m == 'GET': handle_inbound_webhooks_list()
     elif pi == '/api/inbound-webhooks' and m == 'POST': handle_inbound_webhooks_create()
     elif pi.startswith('/api/inbound-webhooks/') and m == 'DELETE':

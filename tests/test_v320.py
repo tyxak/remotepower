@@ -660,6 +660,283 @@ class TestOidcStart(_ApiTestBase):
                           'https://remote.example.com/api/auth/oidc/callback')
 
 
+# ─── B6: syslog HTTP ingestion ──────────────────────────────────────────────
+
+class TestSyslogIngestion(_ApiTestBase):
+    def setUp(self):
+        # Reset state
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-sw': {'name': 'switch01', 'log_watch': [
+                {'unit': 'syslog', 'pattern': 'ERROR', 'threshold': 2, 'severity': 'CRIT'},
+            ]},
+        })
+        self.api.save(self.api.LOG_WATCH_FILE, {})
+        self.api.save(self.api.ALERTS_FILE, {'alerts': []})
+        self.api.save(self.api.INBOUND_WEBHOOKS_FILE, {'tokens': [{
+            'id': 'iwh_sl', 'label': 'sw01-syslog', 'token': 'rpwi_' + 'c' * 32,
+            'kind': 'syslog', 'scope_device_id': 'd-sw', 'enabled': True,
+            'created_at': 0, 'hit_count': 0,
+        }]})
+
+    def _respond_stub(self):
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        return captured, orig
+
+    def _call_syslog(self, token, body, content_type='application/json'):
+        os.environ['REQUEST_METHOD'] = 'POST'
+        os.environ['CONTENT_TYPE'] = content_type
+        self.api.get_json_body = lambda: body
+        captured, orig = self._respond_stub()
+        try:
+            self.api.handle_syslog_in(token)
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        return captured
+
+    def test_json_lines_stored_with_severity(self):
+        r = self._call_syslog('rpwi_' + 'c' * 32, {'lines': [
+            '<14>2026-05-26 sshd: Accepted publickey',
+            '<11>2026-05-26 kernel: ERROR disk',
+        ]})
+        self.assertEqual(r['status'], 200)
+        self.assertEqual(r['body']['lines_received'], 2)
+        buf = self.api.load(self.api.LOG_WATCH_FILE)['d-sw']['units']['syslog']
+        self.assertEqual(len(buf), 2)
+        # <14> = facility 1, severity 6 (info); <11> = facility 1, severity 3 (err)
+        self.assertEqual(buf[0]['sev'], 6)
+        self.assertEqual(buf[1]['sev'], 3)
+        # PRI stripped from message
+        self.assertNotIn('<14>', buf[0]['line'])
+
+    def test_log_alert_fires_when_threshold_crossed(self):
+        # 2 matching ERROR lines → threshold=2 fires
+        self._call_syslog('rpwi_' + 'c' * 32, {'lines': [
+            '<11>kernel: ERROR a',
+            '<11>kernel: ERROR b',
+            '<14>noise: ok',
+        ]})
+        alerts = self.api.load(self.api.ALERTS_FILE).get('alerts', [])
+        log_alerts = [a for a in alerts if a['event'] == 'log_alert']
+        self.assertEqual(len(log_alerts), 1)
+        self.assertEqual(log_alerts[0]['payload']['unit'], 'syslog')
+
+    def test_wrong_kind_token_rejected(self):
+        # An alert-kind token cannot post to /api/syslog/in/
+        self.api.save(self.api.INBOUND_WEBHOOKS_FILE, {'tokens': [{
+            'id': 'iwh_a', 'label': 'alert-token', 'token': 'rpwi_' + 'd' * 32,
+            'kind': 'alert', 'scope_device_id': 'd-sw', 'enabled': True,
+            'created_at': 0, 'hit_count': 0,
+        }]})
+        r = self._call_syslog('rpwi_' + 'd' * 32, {'lines': ['<11>x']})
+        self.assertEqual(r['status'], 400)
+        self.assertIn('token', r['body']['error'])
+
+    def test_syslog_requires_pinned_device(self):
+        self.api.save(self.api.INBOUND_WEBHOOKS_FILE, {'tokens': [{
+            'id': 'iwh_unpinned', 'label': 'unpinned', 'token': 'rpwi_' + 'e' * 32,
+            'kind': 'syslog', 'scope_device_id': None, 'enabled': True,
+            'created_at': 0, 'hit_count': 0,
+        }]})
+        r = self._call_syslog('rpwi_' + 'e' * 32, {'lines': ['<11>x']})
+        self.assertEqual(r['status'], 400)
+
+
+# ─── B5: SNMP module + integration ──────────────────────────────────────────
+
+class TestSnmpModule(unittest.TestCase):
+    """Pure-Python BER encoder/decoder + message construction round trip."""
+
+    def setUp(self):
+        import importlib, sys
+        sys.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        if 'snmp' in sys.modules:
+            del sys.modules['snmp']
+        self.snmp = importlib.import_module('snmp')
+
+    def test_oid_round_trip(self):
+        for oid in ['1.3.6.1.2.1.1.5.0', '1.3.6.1.4.1.99.1', '1.3']:
+            enc = self.snmp._encode_oid(oid)
+            tag, body, _ = self.snmp._decode_tlv(enc, 0)
+            self.assertEqual(self.snmp._decode_oid(body), oid)
+
+    def test_integer_signed_round_trip(self):
+        for n in [0, 1, 127, 128, 255, 256, 65535, -1, -128, -65535]:
+            enc = self.snmp._encode_integer(n)
+            tag, body, _ = self.snmp._decode_tlv(enc, 0)
+            self.assertEqual(self.snmp._decode_integer(body), n)
+
+    def test_get_request_response_parse(self):
+        msg = self.snmp._build_get_request('public', 42,
+            ['1.3.6.1.2.1.1.5.0', '1.3.6.1.2.1.1.1.0'])
+        # Construct a matching response
+        vbs = (
+            self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+                self.snmp._encode_oid('1.3.6.1.2.1.1.5.0') +
+                self.snmp._encode_octet_string('sw-test')) +
+            self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+                self.snmp._encode_oid('1.3.6.1.2.1.1.1.0') +
+                self.snmp._encode_octet_string('Test Switch'))
+        )
+        pdu = self.snmp._encode_tlv(self.snmp.PDU_GET_RESPONSE,
+            self.snmp._encode_integer(42) +
+            self.snmp._encode_integer(0) +
+            self.snmp._encode_integer(0) +
+            self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE, vbs))
+        resp = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+            self.snmp._encode_integer(self.snmp.SNMP_V2C) +
+            self.snmp._encode_octet_string('public') + pdu)
+        parsed = self.snmp._parse_response(resp, 42)
+        self.assertEqual(parsed['1.3.6.1.2.1.1.5.0'], 'sw-test')
+        self.assertEqual(parsed['1.3.6.1.2.1.1.1.0'], 'Test Switch')
+
+    def test_request_id_mismatch_raises(self):
+        # Build a response for a different request_id
+        vbs = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+            self.snmp._encode_oid('1.3.6.1.2.1.1.5.0') +
+            self.snmp._encode_null())
+        pdu = self.snmp._encode_tlv(self.snmp.PDU_GET_RESPONSE,
+            self.snmp._encode_integer(999) +
+            self.snmp._encode_integer(0) + self.snmp._encode_integer(0) +
+            self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE, vbs))
+        resp = self.snmp._encode_tlv(self.snmp.TAG_SEQUENCE,
+            self.snmp._encode_integer(self.snmp.SNMP_V2C) +
+            self.snmp._encode_octet_string('public') + pdu)
+        with self.assertRaises(self.snmp.SnmpError):
+            self.snmp._parse_response(resp, expected_request_id=42)
+
+
+class TestSnmpIntegration(_ApiTestBase):
+    """SNMP polling integration with api.py — uses a fake in-process UDP server."""
+
+    def _start_fake_snmp(self, response_overrides=None):
+        """Return (port, thread). The fake responds to one request then exits."""
+        import socket, threading
+        port_box = []
+        ready = threading.Event()
+        def serve():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('127.0.0.1', 0))
+            port_box.append(sock.getsockname()[1])
+            ready.set()
+            sock.settimeout(5)
+            try:
+                data, addr = sock.recvfrom(65536)
+                import snmp as s
+                tag, body, _ = s._decode_tlv(data, 0)
+                off = 0
+                _, _, off = s._decode_tlv(body, off)    # version
+                _, _, off = s._decode_tlv(body, off)    # community
+                pdu_tag, pdu_body, _ = s._decode_tlv(body, off)
+                _, rid_bytes, _ = s._decode_tlv(pdu_body, 0)
+                rid = s._decode_integer(rid_bytes)
+                values = response_overrides or {
+                    '1.3.6.1.2.1.1.1.0': ('octet', 'Test Switch v1'),
+                    '1.3.6.1.2.1.1.5.0': ('octet', 'sw-fake'),
+                }
+                vbs = b''
+                for oid, (typ, val) in values.items():
+                    if typ == 'octet':
+                        v_bytes = s._encode_octet_string(val)
+                    else:
+                        v_bytes = s._encode_null()
+                    vbs += s._encode_tlv(s.TAG_SEQUENCE, s._encode_oid(oid) + v_bytes)
+                pdu = s._encode_tlv(s.PDU_GET_RESPONSE,
+                    s._encode_integer(rid) + s._encode_integer(0) +
+                    s._encode_integer(0) + s._encode_tlv(s.TAG_SEQUENCE, vbs))
+                msg = s._encode_tlv(s.TAG_SEQUENCE,
+                    s._encode_integer(s.SNMP_V2C) +
+                    s._encode_octet_string('public') + pdu)
+                sock.sendto(msg, addr)
+            except Exception:
+                pass
+            finally:
+                sock.close()
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready.wait(timeout=2)
+        return port_box[0], t
+
+    def setUp(self):
+        self.api.save(self.api.SNMP_DATA_FILE, {})
+
+    def test_poll_stores_sysname_and_descr(self):
+        port, t = self._start_fake_snmp()
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-1': {'name': 'fake', 'ip': '127.0.0.1', 'agentless': True,
+                     'snmp': {'enabled': True, 'community': 'public', 'port': port}},
+        })
+        dev = self.api.load(self.api.DEVICES_FILE)['d-1']
+        entry = self.api._do_snmp_poll('d-1', dev)
+        t.join(timeout=3)
+        self.assertEqual(entry['sysDescr'], 'Test Switch v1')
+        self.assertEqual(entry['sysName'], 'sw-fake')
+        self.assertIsNone(entry['last_error'])
+        stored = self.api.load(self.api.SNMP_DATA_FILE)['d-1']
+        self.assertEqual(stored['sysName'], 'sw-fake')
+
+    def test_poll_timeout_records_error(self):
+        # Device IP that won't respond
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-2': {'name': 'no-host', 'ip': '127.0.0.1',
+                     'snmp': {'enabled': True, 'community': 'public', 'port': 1}},
+        })
+        # Point at an unused port and 0.5s timeout via direct call
+        import snmp
+        with self.assertRaises(snmp.SnmpError):
+            snmp.snmp_get('127.0.0.1', 'public', ['1.3.6.1.2.1.1.5.0'],
+                          port=1, timeout=0.5, retries=0)
+
+    def test_target_helper_rejects_missing_community(self):
+        dev = {'name': 'x', 'ip': '1.2.3.4',
+               'snmp': {'enabled': True, 'community': '', 'port': 161}}
+        self.assertIsNone(self.api._device_snmp_target(dev))
+
+    def test_target_helper_rejects_disabled(self):
+        dev = {'name': 'x', 'ip': '1.2.3.4',
+               'snmp': {'enabled': False, 'community': 'public'}}
+        self.assertIsNone(self.api._device_snmp_target(dev))
+
+    def test_get_endpoint_redacts_community(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-1': {'name': 'x', 'ip': '1.2.3.4',
+                     'snmp': {'enabled': True, 'community': 'secretpub', 'port': 161}},
+        })
+        # Seed an admin session
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        tok = 'admin_' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[tok] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = tok
+        os.environ['REQUEST_METHOD'] = 'GET'
+        captured = {}
+        orig = self.api.respond
+        def cap(s, b=None):
+            captured['status'] = s; captured['body'] = b
+            raise self.api.HTTPError(s, b or {})
+        self.api.respond = cap
+        try:
+            self.api.handle_device_snmp('d-1')
+        except self.api.HTTPError:
+            pass
+        finally:
+            self.api.respond = orig
+        self.assertEqual(captured['status'], 200)
+        cfg = captured['body']['config']
+        self.assertNotIn('community', cfg, 'raw community must not leak')
+        self.assertIn('community_preview', cfg)
+        self.assertTrue(cfg['has_community'])
+
+
 # ─── v3.2.0 strict version pins ─────────────────────────────────────────────
 
 class TestVersionBumps(unittest.TestCase):

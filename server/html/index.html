@@ -849,8 +849,12 @@
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-integrations">
           <div class="settings-section">
-            <h3>Inbound webhooks</h3>
-            <p class="hint">Receive alerts from external systems — Grafana, Alertmanager, Authentik, n8n, Home Assistant. Each token is a long random secret embedded in the receive URL. POST a JSON body to <code>https://&lt;your-server&gt;/api/webhook/in/&lt;token&gt;</code> with at minimum <code>{severity, title}</code>. Optional fields: <code>source, body, device, device_id, links</code>. Alerts land in the Alerts inbox.</p>
+            <h3>Inbound webhooks &amp; syslog</h3>
+            <p class="hint">Two token types share this table:</p>
+            <ul class="hint">
+              <li><strong>Alert webhook</strong> — POST JSON <code>{severity, title, …}</code> to <code>/api/webhook/in/&lt;token&gt;</code>. Lands in the Alerts inbox. For Grafana, Alertmanager, Authentik, n8n, Home Assistant.</li>
+              <li><strong>Syslog ingestion</strong> — POST RFC 3164/5424 lines (JSON <code>{lines:[…]}</code> or plain text) to <code>/api/syslog/in/&lt;token&gt;</code>. Lines append to the device's log_watch under unit <code>syslog</code>; existing log_alert rules fire as normal. For rsyslog (<code>omhttp</code>), fluent-bit (HTTP output), or any tool that can POST. Must be pinned to a device.</li>
+            </ul>
             <div class="section-header">
               <div class="section-title">Tokens</div>
               <button class="enroll-btn" data-action="openInboundWebhookCreate">
@@ -860,8 +864,8 @@
             </div>
             <div class="table-card">
               <table>
-                <thead><tr><th>Label</th><th>Scope</th><th>Token</th><th>Hits</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
-                <tbody id="inbound-webhooks-tbody"><tr><td colspan="7" class="empty-state">No inbound webhook tokens yet.</td></tr></tbody>
+                <thead><tr><th>Label</th><th>Type</th><th>Scope</th><th>Token</th><th>Hits</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+                <tbody id="inbound-webhooks-tbody"><tr><td colspan="8" class="empty-state">No inbound tokens yet.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -3295,22 +3299,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
 <div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
 <div class="modal-overlay" id="apikey-create-modal"><div class="modal"><div class="modal-title">Create API key</div><div class="modal-subtitle">Named, non-expiring keys for scripts and CI. The key is shown once — save it now.</div><div class="form-group"><label class="form-label">Key name</label><input type="text" id="apikey-name" class="form-input" placeholder="deploy-script"></div><div class="form-group"><label class="form-label">Role</label><select id="apikey-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only)</option></select></div><div id="apikey-result" class="isl-212"><div class="form-label mb-6">API Key (save this — shown once)</div><div class="apikey-value" id="apikey-value-display"></div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="apikey-create-modal" >Close</button><button class="btn-primary" id="apikey-create-btn" data-action="createApiKey" >Create</button></div></div></div>
-<!-- v3.2.0 (B2): inbound webhook create modal -->
-<div class="modal-overlay" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title">New inbound webhook token</div>
-  <div class="form-group"><label class="form-label">Label</label><input type="text" id="inbound-wh-label" class="form-input" placeholder="grafana-prod, alertmanager, n8n, …"></div>
-  <div class="form-group"><label class="form-label">Pin to device (optional)</label><select id="inbound-wh-device" class="form-input"><option value="">(any — match by body.device)</option></select><span class="hint">If set, alerts received on this token always attach to that device — body.device is ignored.</span></div>
+<!-- v3.2.0 (B2/B6): inbound webhook create modal -->
+<div class="modal-overlay" id="inbound-webhook-create-modal"><div class="modal"><div class="modal-title">New inbound token</div>
+  <div class="form-group"><label class="form-label">Type</label><select id="inbound-wh-kind" class="form-input" data-change="updateInboundWebhookKindHint">
+    <option value="alert">Alert webhook (Grafana, Alertmanager, n8n, …)</option>
+    <option value="syslog">Syslog ingestion (rsyslog omhttp, fluent-bit, curl)</option>
+  </select><span class="hint" id="inbound-wh-kind-hint">Alert tokens receive JSON {severity,title,...} and land in the Alerts inbox.</span></div>
+  <div class="form-group"><label class="form-label">Label</label><input type="text" id="inbound-wh-label" class="form-input" placeholder="grafana-prod, alertmanager, switch01-syslog, …"></div>
+  <div class="form-group"><label class="form-label">Pin to device <span id="inbound-wh-device-required" class="d-none">(required for syslog)</span></label><select id="inbound-wh-device" class="form-input"><option value="">(any — match by body.device)</option></select><span class="hint">If set, every message on this token attaches to that device. <strong>Syslog tokens must be pinned</strong> — the receiver has no way to disambiguate otherwise.</span></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="inbound-webhook-create-modal">Cancel</button><button class="btn-primary" data-action="createInboundWebhook">Create</button></div>
 </div></div>
 
-<!-- v3.2.0 (B2): inbound webhook token-display modal (shown ONCE after create) -->
+<!-- v3.2.0 (B2/B6): inbound token display modal (shown ONCE after create) -->
 <div class="modal-overlay" id="inbound-webhook-show-modal"><div class="modal">
-  <div class="modal-title">Inbound webhook token created</div>
-  <p class="hint">Copy this URL now — the secret is shown only once. Use it to POST alerts:</p>
+  <div class="modal-title" id="inbound-wh-show-title">Inbound token created</div>
+  <p class="hint">Copy this URL now — the secret is shown only once.</p>
   <pre id="inbound-wh-url" class="code-pill ff-mono inbound-wh-url-pre"></pre>
   <p class="hint">Example payload:</p>
-  <pre class="code-pill ff-mono fs-12 inbound-wh-example-pre">curl -X POST '&lt;url-above&gt;' \
-  -H 'Content-Type: application/json' \
-  -d '{"severity":"high","title":"CPU 95% on web01","device":"web01","source":"grafana"}'</pre>
+  <pre id="inbound-wh-example" class="code-pill ff-mono fs-12 inbound-wh-example-pre"></pre>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="copyInboundWebhookUrl">Copy URL</button>
     <button class="btn-primary" data-action="closeModal" data-arg="inbound-webhook-show-modal">Close</button>
@@ -3491,6 +3497,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp" >SNMP</button>
   </div>
 
   <div id="cmdb-tab-props">
@@ -3556,6 +3563,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div id="cmdb-creds-list">
       <div class="isl-232">No credentials yet.</div>
     </div>
+  </div>
+
+  <!-- v3.2.0 (B5): SNMP polling for agentless devices -->
+  <div id="cmdb-tab-snmp" class="d-none">
+    <p class="hint">Pure SNMPv2c (community string) polling of the standard <code>sys*</code> group. The server runs a sweep every 5 minutes — switches, APs, IPMI cards, and printers all use the same protocol. Use "Poll now" after editing to verify.</p>
+    <div class="form-group">
+      <label class="form-label">
+        <input type="checkbox" id="cmdb-snmp-enabled">
+        Enable SNMP polling
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Community string</label>
+      <input type="password" id="cmdb-snmp-community" class="form-input" placeholder="public" maxlength="128" autocomplete="off">
+      <div class="meta-sm">Treated as a secret — never displayed after save; leave blank to keep current.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">UDP port</label>
+      <input type="number" id="cmdb-snmp-port" class="form-input mw-160" min="1" max="65535" placeholder="161">
+    </div>
+    <div class="form-group">
+      <button class="btn-primary" data-action="saveCmdbSnmp">Save SNMP config</button>
+      <button class="btn-secondary" data-action="pollCmdbSnmp">Poll now</button>
+    </div>
+    <hr class="mt-12">
+    <h4 class="mt-12">Latest poll</h4>
+    <div id="cmdb-snmp-data" class="hint">No data yet — save the config and click "Poll now".</div>
   </div>
 
   <div class="modal-actions">
