@@ -141,9 +141,13 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 11v6c0 1.66 4 3 9 3s9-1.34 9-3v-6"/></svg>
           <span>CMDB</span>
         </button>
-        <button class="nav-btn" data-page="containers" >
+        <button class="nav-btn" data-action="showContainerSection" data-arg="containers-panel-agent" data-pass-btn="1" data-section-page="containers" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/></svg>
-          <span>Containers</span>
+          <span>Agent Containers</span>
+        </button>
+        <button class="nav-btn" data-action="showContainerSection" data-arg="containers-panel-lxc" data-pass-btn="1" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="14" y1="6" x2="14" y2="18"/><line x1="5" y1="9" x2="5" y2="15"/><line x1="11" y1="9" x2="11" y2="15"/><line x1="17" y1="9" x2="17" y2="15"/></svg>
+          <span>Proxmox LXC</span>
         </button>
         <button class="nav-btn" id="nav-virtualization" data-page="virtualization" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -460,6 +464,7 @@
       <div id="page-monitor" class="page">
         <div class="page-title">Monitoring</div>
         <div class="page-subtitle">Probes, device metrics, ports, and custom health checks</div>
+        <div id="mon-panel-targets">
         <div id="section-targets" class="section-header">
           <div class="section-title">Targets</div>
           <div class="row-8">
@@ -472,6 +477,8 @@
         <div class="mb-16"><input type="text" id="monitor-filter" class="form-input input-wide" placeholder="Filter by label, type, target, status…"></div>
         <div class="table-card"><table><thead id="monitor-thead"><tr><th data-col="label">Label</th><th data-col="type">Type</th><th data-col="target">Target</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th data-col="checked">Checked</th><th></th></tr></thead><tbody id="monitor-tbody"><tr><td colspan="7" class="empty-state">No monitors configured.</td></tr></tbody></table></div>
 
+        </div><!-- /mon-panel-targets -->
+        <div id="mon-panel-metrics">
         <!-- v1.12.0: live device metrics. The Monitor page used to only
              show external probes (ping/tcp/http). Now also surfaces the
              current sysinfo state of every enrolled device — disk, memory,
@@ -510,6 +517,8 @@
           </table>
         </div>
 
+        </div><!-- /mon-panel-metrics -->
+        <div id="mon-panel-ports">
         <!-- v2.8.1: Listening Ports section -->
         <div id="section-ports" class="section-header mt-32">
           <div class="row-8-center">
@@ -527,6 +536,8 @@
           Loading…
         </div>
 
+        </div><!-- /mon-panel-ports -->
+        <div id="mon-panel-scripts">
         <!-- v2.6.0: Custom monitoring scripts section -->
         <div id="section-scripts" class="section-header mt-32">
           <div class="row-8-center">
@@ -573,6 +584,7 @@
             </tbody>
           </table>
         </div>
+        </div><!-- /mon-panel-scripts -->
       </div>
 
       <!-- ── Users page (unchanged) ───────────────────────────────────────── -->
@@ -2752,24 +2764,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── v1.11.0: Containers ────────────────────────────────────────── -->
       <div id="page-containers" class="page">
         <div class="page-title">Containers</div>
-        <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
-        <div class="toolbar">
-          <input type="text" id="containers-search" class="form-input isl-170" placeholder="Filter by device or container name…">
-          <button class="btn-icon" data-action="loadContainersOverview" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-        </div>
-        <div class="table-card">
-          <table>
-            <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
-            <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
-          </table>
-        </div>
+        <div id="containers-panel-agent">
+          <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
+          <div class="toolbar">
+            <input type="text" id="containers-search" class="form-input isl-170" placeholder="Filter by device or container name…">
+            <button class="btn-icon" data-action="loadContainersOverview" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
+              <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div><!-- /containers-panel-agent -->
 
         <!-- ── v2.3.0: Proxmox LXC containers ──────────────────────────── -->
-        <div id="containers-lxc-section" class="isl-171">
-          <div class="page-title isl-172">Proxmox LXC containers</div>
-          <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
-          <div id="containers-lxc-body"></div>
-        </div>
+        <div id="containers-panel-lxc">
+          <div id="containers-lxc-section" class="isl-171">
+            <div class="page-title isl-172">Proxmox LXC containers</div>
+            <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
+            <div id="containers-lxc-body"></div>
+          </div>
+        </div><!-- /containers-panel-lxc -->
       </div>
 
       <!-- ── v2.3.0: Virtualization (Proxmox QEMU VMs) ──────────────────── -->

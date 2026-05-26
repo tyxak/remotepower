@@ -734,7 +734,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
-  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); }
+  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
@@ -754,7 +754,7 @@ function showPage(name, btn) {
   if (name === 'calendar') loadCalendar();
   if (name === 'tasks')    loadTasks();
   if (name === 'cmdb')     enterCMDB();
-  if (name === 'containers') enterContainers();
+  if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
   if (name === 'virtualization') loadVirtualization();
   if (name === 'netmap')   enterNetmap();
   if (name === 'tls')      enterTLS();
@@ -764,12 +764,37 @@ function showPage(name, btn) {
   if (name === 'self')     loadSelfStatus();
 }
 
+const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts'];
+function _showAllMonPanels() {
+  _MON_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
+}
 function showMonitorSection(sectionId, btn) {
+  // sectionId is e.g. 'section-targets' → panel is 'mon-panel-targets'
+  const panelId = 'mon-panel-' + sectionId.replace('section-', '');
   showPage('monitor', btn);
-  if (sectionId) requestAnimationFrame(() => {
-    const el = document.getElementById(sectionId);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  _MON_PANELS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === panelId) ? 'block' : 'none';
   });
+}
+
+const _CONTAINER_PANELS = ['containers-panel-agent', 'containers-panel-lxc'];
+function _showAllContainerPanels() {
+  _CONTAINER_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
+}
+function showContainerSection(sectionId, btn) {
+  showPage('containers', btn);
+  _CONTAINER_PANELS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
+  });
+  if (sectionId === 'containers-panel-lxc') {
+    // When navigating directly to LXC, always show the section and load with
+    // focused=true so a "not configured" hint is shown instead of hiding.
+    const sec = document.getElementById('containers-lxc-section');
+    if (sec) sec.style.display = 'block';
+    loadProxmoxLXC(true);
+  }
 }
 
 async function loadDevices() {
@@ -9176,7 +9201,8 @@ function filterVirtualization() {
 }
 
 // Load + render the LXC section on the Containers page.
-async function loadProxmoxLXC() {
+// focused=true: user navigated directly here — show a hint instead of hiding.
+async function loadProxmoxLXC(focused = false) {
   const section = document.getElementById('containers-lxc-section');
   const body = document.getElementById('containers-lxc-body');
   if (!section || !body) return;
@@ -9184,12 +9210,16 @@ async function loadProxmoxLXC() {
   try {
     data = await api('GET', '/proxmox/lxc');
   } catch (_) {
-    section.style.display = 'none';
+    if (!focused) section.style.display = 'none';
+    else body.innerHTML = '<p class="hint">Unable to reach the Proxmox API. Check <strong>Admin → Settings → Proxmox</strong>.</p>';
     return;
   }
   if (!data || !data.enabled || !data.configured) {
-    // Proxmox not set up — hide the section entirely.
-    section.style.display = 'none';
+    if (!focused) {
+      section.style.display = 'none';
+    } else {
+      body.innerHTML = '<p class="hint">Proxmox is not configured. Go to <strong>Admin → Settings → Proxmox</strong> to connect your node.</p>';
+    }
     return;
   }
   section.style.display = 'block';
@@ -13079,7 +13109,7 @@ function _homeNavAction(btn) {
     case 'patches':  showPage('patches',         document.querySelector('.nav-btn[data-page="patches"]')); break;
     case 'monitor':  showPage('monitor',         document.querySelector('.nav-btn[data-section-page="monitor"]')); break;
     case 'services': showPage('services',        document.querySelector('.nav-btn[data-page="services"]')); break;
-    case 'containers': showPage('containers',    document.querySelector('.nav-btn[data-page="containers"]')); break;
+    case 'containers': showPage('containers',    document.querySelector('.nav-btn[data-section-page="containers"]')); break;
     case 'logs':     showPage('logs',            document.querySelector('.nav-btn[data-page="logs"]')); break;
     case 'history':  showPage('history',         document.querySelector('.nav-btn[data-page="history"]')); break;
     case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-page="tls"]')); break;
