@@ -13420,7 +13420,23 @@ def handle_device_snmp_deep(dev_id):
     except Exception as e:
         out['errors']['storage'] = f'{type(e).__name__}: {e}'
 
-    # 5. Vendor-specific (only if sysObjectID indicates a known vendor)
+    # 5. hrProcessorTable — per-CPU load %. Standard MIB-2, works on
+    #    Mikrotik + Linux + BSD + most enterprise gear.
+    try:
+        out['processors'] = snmp_mod.poll_processors(host, community,
+                                                      port=port, timeout=2.5)
+    except Exception as e:
+        out['errors']['processors'] = f'{type(e).__name__}: {e}'
+
+    # 6. UCD-SNMP-MIB — load averages + raw CPU ticks + UCD memory totals.
+    #    Empty on devices that don't run net-snmp (Mikrotik, most switches).
+    try:
+        out['ucd_snmp'] = snmp_mod.poll_ucd_snmp(host, community,
+                                                  port=port, timeout=2.5)
+    except Exception as e:
+        out['errors']['ucd_snmp'] = f'{type(e).__name__}: {e}'
+
+    # 7. Vendor-specific (gated by sysObjectID prefix)
     sys_obj = (out.get('system') or {}).get('sysObjectID') or ''
     if sys_obj.startswith('1.3.6.1.4.1.14988'):
         try:
@@ -13428,6 +13444,12 @@ def handle_device_snmp_deep(dev_id):
                                                      port=port, timeout=2.5)
         except Exception as e:
             out['errors']['mikrotik'] = f'{type(e).__name__}: {e}'
+    if sys_obj.startswith('1.3.6.1.4.1.41112'):
+        try:
+            out['ubnt'] = snmp_mod.poll_ubnt(host, community,
+                                              port=port, timeout=2.5)
+        except Exception as e:
+            out['errors']['ubnt'] = f'{type(e).__name__}: {e}'
 
     out['polled_at'] = int(time.time())
     respond(200, out)

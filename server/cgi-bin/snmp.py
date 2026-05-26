@@ -622,3 +622,145 @@ def poll_mikrotik(host, community, port=161, timeout=2.0):
         if v is not None:
             out[name] = v
     return out
+
+
+# ── UCD-SNMP-MIB (1.3.6.1.4.1.2021) — standardized on net-snmp ─────────────
+# Works on every device that runs net-snmp (Linux, FreeBSD/OPNsense, Solaris,
+# Windows snmp-service via NET-SNMP extension). Mikrotik does NOT expose this.
+
+UCD_SNMP_OIDS = {
+    'laLoad_1m':       '1.3.6.1.4.1.2021.10.1.3.1',   # Returns OCTET STRING "0.42"
+    'laLoad_5m':       '1.3.6.1.4.1.2021.10.1.3.2',
+    'laLoad_15m':      '1.3.6.1.4.1.2021.10.1.3.3',
+    'ssCpuRawUser':    '1.3.6.1.4.1.2021.11.50.0',    # Cumulative ticks
+    'ssCpuRawNice':    '1.3.6.1.4.1.2021.11.51.0',
+    'ssCpuRawSystem':  '1.3.6.1.4.1.2021.11.52.0',
+    'ssCpuRawIdle':    '1.3.6.1.4.1.2021.11.53.0',
+    'ssCpuRawWait':    '1.3.6.1.4.1.2021.11.54.0',
+    'memTotalReal':    '1.3.6.1.4.1.2021.4.5.0',      # kB
+    'memAvailReal':    '1.3.6.1.4.1.2021.4.6.0',      # kB
+    'memTotalSwap':    '1.3.6.1.4.1.2021.4.3.0',
+    'memAvailSwap':    '1.3.6.1.4.1.2021.4.4.0',
+}
+
+
+def poll_ucd_snmp(host, community, port=161, timeout=2.0):
+    """UCD-SNMP-MIB load averages + raw CPU ticks + memory totals.
+
+    Best effort — devices that don't expose net-snmp's enterprise OIDs
+    (Mikrotik, most enterprise switches) return nothing. Load averages
+    are returned as float-as-string by net-snmp ("0.42") — we parse them
+    here so the caller gets floats.
+    """
+    out = {}
+    try:
+        raw = snmp_get(host, community, list(UCD_SNMP_OIDS.values()),
+                       port=port, timeout=timeout)
+    except SnmpError:
+        return out
+    for name, oid in UCD_SNMP_OIDS.items():
+        v = raw.get(oid)
+        if v is None:
+            continue
+        # Load averages arrive as octet strings — convert to float
+        if name.startswith('laLoad_') and isinstance(v, str):
+            try:
+                v = float(v)
+            except ValueError:
+                continue
+        out[name] = v
+    return out
+
+
+# ── hrProcessorTable (RFC 2790) — per-CPU load % ──────────────────────────
+# Works on most devices that expose Host Resources MIB. Mikrotik supports
+# it. OPNsense exposes a single aggregate entry. Linux net-snmp gives
+# one entry per logical CPU.
+
+def poll_processors(host, community, port=161, timeout=2.0, max_cpus=64):
+    """Walk hrProcessorTable. Returns [{index, load_pct}, ...] for every
+    advertised CPU. The MIB itself gives per-CPU load already as a
+    percentage, so no client-side delta computation needed."""
+    cols = {
+        'load_pct': '1.3.6.1.2.1.25.3.3.1.2',
+    }
+    rows = {}
+    for key, oid in cols.items():
+        try:
+            walked = snmp_walk(host, community, oid, port=port,
+                                timeout=timeout, retries=1,
+                                max_results=max_cpus)
+        except SnmpError:
+            continue
+        for found_oid, value in walked.items():
+            idx_str = found_oid[len(oid) + 1:]
+            if not idx_str.isdigit():
+                continue
+            rows.setdefault(int(idx_str), {})[key] = value
+    out = []
+    for idx in sorted(rows.keys()):
+        out.append({'index': idx, 'load_pct': rows[idx].get('load_pct')})
+    return out
+
+
+# ── Ubiquiti UniFi vendor MIB (1.3.6.1.4.1.41112) ─────────────────────────
+# Common in homelabs — UAP-AC family, UDM, USW switches. The MIB is more
+# narrowly populated than Mikrotik's; most useful data lives on APs.
+
+UBNT_OIDS = {
+    # System (works across UAP/UDM/USW)
+    'unifiApSystemModel':      '1.3.6.1.4.1.41112.1.6.3.3.0',
+    'unifiApSystemVersion':    '1.3.6.1.4.1.41112.1.6.3.4.0',
+    # AirOS / older Ubiquiti devices also expose:
+    'airosVersion':            '1.3.6.1.4.1.41112.1.4.5.1.4.1',
+    # AP-only — radios at 1.3.6.1.4.1.41112.1.6.1.2 (table walked separately)
+}
+
+
+def poll_ubnt(host, community, port=161, timeout=2.0):
+    """Best-effort fetch of Ubiquiti scalars + radio summary.
+
+    Detected by sysObjectID prefix 1.3.6.1.4.1.41112. Different UniFi
+    product lines populate different subsets — UDM/USW returns very
+    little here, APs return model/version. The radio walk gives
+    per-radio client counts for APs.
+    """
+    out = {}
+    try:
+        raw = snmp_get(host, community, list(UBNT_OIDS.values()),
+                       port=port, timeout=timeout)
+    except SnmpError:
+        return out
+    for name, oid in UBNT_OIDS.items():
+        v = raw.get(oid)
+        if v is not None:
+            out[name] = v
+    # AP radio table — best effort walk. Each entry: radio name + clients.
+    try:
+        radio_clients = snmp_walk(host, community,
+            '1.3.6.1.4.1.41112.1.6.1.2.1.8',   # unifiRadioNumStations
+            port=port, timeout=timeout, retries=0, max_results=8)
+        radio_names = snmp_walk(host, community,
+            '1.3.6.1.4.1.41112.1.6.1.2.1.2',   # unifiRadioName
+            port=port, timeout=timeout, retries=0, max_results=8)
+    except SnmpError:
+        radio_clients = {}
+        radio_names = {}
+    if radio_clients:
+        # Map suffix → row
+        rows = {}
+        clients_prefix = '1.3.6.1.4.1.41112.1.6.1.2.1.8'
+        names_prefix   = '1.3.6.1.4.1.41112.1.6.1.2.1.2'
+        for oid, val in radio_clients.items():
+            idx = oid[len(clients_prefix) + 1:]
+            if idx:
+                rows.setdefault(idx, {})['clients'] = val
+        for oid, val in radio_names.items():
+            idx = oid[len(names_prefix) + 1:]
+            if idx:
+                rows.setdefault(idx, {})['name'] = val
+        out['radios'] = [
+            {'index': idx, 'name': r.get('name'), 'clients': r.get('clients')}
+            for idx, r in sorted(rows.items())
+        ]
+    return out

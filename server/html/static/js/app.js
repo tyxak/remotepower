@@ -12104,7 +12104,47 @@ async function _loadAuditSection(key) {
           }
           h += '</table>';
         }
-        // Vendor-specific
+        // Per-CPU load (hrProcessorTable — Mikrotik + Linux + BSD)
+        if (Array.isArray(data.processors) && data.processors.length) {
+          h += '<h4 class="mt-12">CPU load (per core)</h4>';
+          h += '<div class="sysinfo-row">';
+          for (const p of data.processors) {
+            const v = p.load_pct;
+            const col = (v ?? 0) > 80 ? 'var(--red)' : (v ?? 0) > 50 ? 'var(--amber)' : 'var(--green)';
+            h += `<div class="sysinfo-pill">
+              <div class="label">CPU ${p.index}</div>
+              <div class="value isl-348" data-color="${col}">${v != null ? v + '%' : '—'}</div>
+            </div>`;
+          }
+          h += '</div>';
+        }
+        // UCD-SNMP load averages + memory (net-snmp boxes)
+        if (data.ucd_snmp && Object.keys(data.ucd_snmp).length) {
+          const u = data.ucd_snmp;
+          h += '<h4 class="mt-12">Load &amp; memory (UCD-SNMP)</h4>';
+          if (u.laLoad_1m != null) {
+            h += '<div class="sysinfo-row">' +
+              `<div class="sysinfo-pill"><div class="label">Load 1m</div><div class="value">${u.laLoad_1m.toFixed(2)}</div></div>` +
+              `<div class="sysinfo-pill"><div class="label">Load 5m</div><div class="value">${(u.laLoad_5m ?? 0).toFixed(2)}</div></div>` +
+              `<div class="sysinfo-pill"><div class="label">Load 15m</div><div class="value">${(u.laLoad_15m ?? 0).toFixed(2)}</div></div>` +
+              '</div>';
+          }
+          if (u.memTotalReal && u.memAvailReal) {
+            const usedKb = u.memTotalReal - u.memAvailReal;
+            const usedPct = (usedKb / u.memTotalReal * 100).toFixed(1);
+            const col = usedPct > 90 ? 'var(--red)' : usedPct > 75 ? 'var(--amber)' : 'inherit';
+            h += `<div class="mt-8 fs-13"><strong>Real memory:</strong> <span data-color="${col}">${(usedKb/1024).toFixed(0)} / ${(u.memTotalReal/1024).toFixed(0)} MB (${usedPct}%)</span></div>`;
+          }
+          if (u.memTotalSwap && u.memAvailSwap != null) {
+            const swapUsedKb = u.memTotalSwap - u.memAvailSwap;
+            const swapPct = u.memTotalSwap > 0 ? (swapUsedKb / u.memTotalSwap * 100).toFixed(1) : '0.0';
+            h += `<div class="fs-13"><strong>Swap:</strong> ${(swapUsedKb/1024).toFixed(0)} / ${(u.memTotalSwap/1024).toFixed(0)} MB (${swapPct}%)</div>`;
+          }
+          if (u.ssCpuRawUser != null) {
+            h += `<div class="hint mt-4">Raw CPU ticks (deltas tell you %): user=${u.ssCpuRawUser} system=${u.ssCpuRawSystem ?? '?'} idle=${u.ssCpuRawIdle ?? '?'} wait=${u.ssCpuRawWait ?? '?'}</div>`;
+          }
+        }
+        // Vendor-specific — Mikrotik
         if (data.mikrotik && Object.keys(data.mikrotik).length) {
           h += '<h4 class="mt-12">Mikrotik vendor</h4><table class="fs-13">';
           const labels = {
@@ -12116,9 +12156,33 @@ async function _loadAuditSection(key) {
             mtxrHlCpuFrequency: 'CPU frequency (MHz)',
           };
           for (const [k, v] of Object.entries(data.mikrotik)) {
+            let display = String(v ?? '—');
+            if (k === 'mtxrHlBoardTemp' && typeof v === 'number') display = (v / 10).toFixed(1) + ' °C';
+            if (k === 'mtxrHlTemperature' && typeof v === 'number') display = (v / 10).toFixed(1) + ' °C';
+            h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(display)}</td></tr>`;
+          }
+          h += '</table>';
+        }
+        // Vendor-specific — Ubiquiti UniFi
+        if (data.ubnt && Object.keys(data.ubnt).length) {
+          h += '<h4 class="mt-12">Ubiquiti UniFi</h4><table class="fs-13">';
+          const labels = {
+            unifiApSystemModel:   'Model',
+            unifiApSystemVersion: 'Firmware',
+            airosVersion:         'AirOS version',
+          };
+          for (const [k, v] of Object.entries(data.ubnt)) {
+            if (k === 'radios') continue;   // rendered separately
             h += `<tr><td class="c-muted-padded">${escHtml(labels[k] || k)}</td><td>${escHtml(String(v ?? '—'))}</td></tr>`;
           }
           h += '</table>';
+          if (Array.isArray(data.ubnt.radios) && data.ubnt.radios.length) {
+            h += '<table class="fs-13 mt-8"><thead><tr><th>Radio</th><th class="ta-right">Clients</th></tr></thead><tbody>';
+            for (const r of data.ubnt.radios) {
+              h += `<tr><td>${escHtml(r.name || `radio${r.index}`)}</td><td class="ta-right">${r.clients ?? 0}</td></tr>`;
+            }
+            h += '</tbody></table>';
+          }
         }
         // Host Resources MIB
         if (data.host_resources && Object.keys(data.host_resources).length) {
@@ -12175,8 +12239,11 @@ async function _loadAuditSection(key) {
         }
         const counts = [];
         if (data.interfaces?.length) counts.push(`${data.interfaces.length} if`);
+        if (data.processors?.length) counts.push(`${data.processors.length} cpu`);
         if (data.storage?.length)    counts.push(`${data.storage.length} stor`);
-        if (isMikrotik) counts.push('mikrotik');
+        if (data.ucd_snmp && Object.keys(data.ucd_snmp).length) counts.push('ucd');
+        if (data.mikrotik && Object.keys(data.mikrotik).length) counts.push('mikrotik');
+        if (data.ubnt && Object.keys(data.ubnt).length) counts.push('ubnt');
         badge.textContent = counts.join(' · ') || 'loaded';
         body.innerHTML = h || '<div class="c-muted">No SNMP data returned.</div>';
         break;
