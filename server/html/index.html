@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.0.6">
+<link rel="stylesheet" href="static/css/styles.css?v=3.1.0">
 
 </head>
 <body>
@@ -203,9 +203,13 @@
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="sidebar-group-items">
-        <button class="nav-btn" data-page="tls" >
+        <button class="nav-btn" data-action="showTLSSection" data-arg="tls-panel-expiry" data-pass-btn="1" data-section-page="tls" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-          <span>TLS / DNS</span>
+          <span>TLS / DNS Expiry</span>
+        </button>
+        <button class="nav-btn" data-action="showTLSSection" data-arg="tls-panel-acme" data-pass-btn="1" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg>
+          <span>ACME Certificates</span>
         </button>
         <button class="nav-btn" data-page="patches" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -298,23 +302,31 @@
     </div>
 
     <!-- Help group at bottom — Docs, API Docs, AI Assistant, About -->
-    <div class="sidebar-label"><span>Help</span></div>
-    <button class="nav-btn" data-page="docs" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-      <span>Documentation</span>
-    </button>
-    <button class="nav-btn" data-page="ai" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
-      <span>AI Assistant</span>
-    </button>
-    <button class="nav-btn" data-open-href="/swagger.html" title="Open the OpenAPI / Swagger UI documentation in a new tab">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
-      <span>API Reference</span>
-    </button>
-    <button class="nav-btn" data-page="about" >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      <span>About</span>
-    </button>
+    <div class="sidebar-group" data-group="help">
+      <button class="sidebar-group-toggle" >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Help</span>
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="sidebar-group-items">
+        <button class="nav-btn" data-page="docs" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <span>Documentation</span>
+        </button>
+        <button class="nav-btn" data-page="ai" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L13.5 7L18 8.5L13.5 10L12 15L10.5 10L6 8.5L10.5 7L12 2z"/><path d="M19 14L20 16.5L22.5 17L20 18L19 20.5L18 18L15.5 17L18 16.5L19 14z" fill="currentColor"/></svg>
+          <span>AI Assistant</span>
+        </button>
+        <button class="nav-btn" data-open-href="/swagger.html" title="Open the OpenAPI / Swagger UI documentation in a new tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/><path d="M15 5h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/><polyline points="13 9 11 9 11 15"/></svg>
+          <span>API Reference</span>
+        </button>
+        <button class="nav-btn" data-page="about" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>About</span>
+        </button>
+      </div>
+    </div>
   </nav>
 
   <div class="app-layout">
@@ -2317,7 +2329,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Sidebar navigation</strong> — collapsible groups and section deep-links</summary>
             <div class="doc-body">
               <p><strong>Grouped layout:</strong> the sidebar organises all pages into five collapsible sections. Each group opens and closes independently; state persists in <code>localStorage</code>. Fleet and Monitoring are expanded by default; Admin is collapsed.</p>
-              <table class="isl-104" style="width:100%">
+              <table class="isl-104 isl-770">
                 <tr><th>Group</th><th>Pages</th></tr>
                 <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Containers, Virtualization, Network</td></tr>
                 <tr><td><strong>Monitoring</strong></td><td>Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs</td></tr>
@@ -2838,23 +2850,26 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-tls" class="page">
-        <div class="page-title">TLS / DNS expiry</div>
-        <div class="page-subtitle">Server-side cert and DNS watchlist. Probes run from the RemotePower server. Defaults: warn at 14 days, critical at 3 days.</div>
-        <div class="toolbar">
-          <button class="btn-icon" data-action="tlsAddOpen" >+ Add target</button>
-          <button class="btn-icon" data-action="tlsScanNow" >Scan now</button>
-          <button class="btn-icon" data-action="loadTLS" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
-          <input type="text" id="tls-filter" class="form-input isl-177" placeholder="Filter by host, issuer, status…">
-          <span id="tls-status-summary" class="isl-100"></span>
-        </div>
-        <div class="table-card">
-          <table>
-            <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
-            <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
-          </table>
-        </div>
+        <div class="page-title">TLS / DNS</div>
+        <div id="tls-panel-expiry">
+          <div class="page-subtitle">Server-side cert and DNS watchlist. Probes run from the RemotePower server. Defaults: warn at 14 days, critical at 3 days.</div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="tlsAddOpen" >+ Add target</button>
+            <button class="btn-icon" data-action="tlsScanNow" >Scan now</button>
+            <button class="btn-icon" data-action="loadTLS" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <input type="text" id="tls-filter" class="form-input isl-177" placeholder="Filter by host, issuer, status…">
+            <span id="tls-status-summary" class="isl-100"></span>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead id="tls-thead"><tr><th data-col="status">Status</th><th data-col="host">Host</th><th data-col="port">Port</th><th data-col="days_left">Days left</th><th data-col="expires_at">Expires</th><th data-col="issuer">Issuer</th><th data-col="last_check">Last check</th><th></th></tr></thead>
+              <tbody id="tls-tbody"><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="8"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+            </table>
+          </div>
+        </div><!-- /tls-panel-expiry -->
 
         <!-- ── v3.0.1: ACME / acme.sh integration ─────────────────────────── -->
+        <div id="tls-panel-acme">
         <div class="mt-32">
           <div class="isl-178">
             <div>
@@ -2897,6 +2912,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </table>
           </div>
         </div>
+        </div><!-- /tls-panel-acme -->
       </div>
 
       <!-- ── v1.11.2: Links dashboard ────────────────────────────────────── -->
@@ -4178,8 +4194,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.0.6"></script>
+<script src="static/js/app.js?v=3.1.0"></script>
 
-<script src="static/js/sw-register.js?v=3.0.6"></script>
+<script src="static/js/sw-register.js?v=3.1.0"></script>
 </body>
 </html>

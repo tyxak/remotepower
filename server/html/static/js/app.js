@@ -659,8 +659,7 @@ function _restoreSidebarGroups() {
     try {
       collapsed = localStorage.getItem(`sidebar.${name}.collapsed`);
     } catch (_) { collapsed = null; }
-    // Default state: Fleet and Monitoring expanded (primary navigation);
-    // Security and Planning expanded; Admin collapsed.
+    // Default state: Fleet, Monitoring, Security, Planning, Help expanded; Admin collapsed.
     if (collapsed === null) {
       collapsed = (name === 'admin') ? '1' : '0';
     }
@@ -757,7 +756,7 @@ function showPage(name, btn) {
   if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
   if (name === 'virtualization') loadVirtualization();
   if (name === 'netmap')   enterNetmap();
-  if (name === 'tls')      enterTLS();
+  if (name === 'tls')      { enterTLS(); _showAllTLSPanels(); }
   if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
   if (name === 'audit')    loadAuditLog();
@@ -795,6 +794,19 @@ function showContainerSection(sectionId, btn) {
     if (sec) sec.style.display = 'block';
     loadProxmoxLXC(true);
   }
+}
+
+const _TLS_PANELS = ['tls-panel-expiry', 'tls-panel-acme'];
+function _showAllTLSPanels() {
+  _TLS_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
+}
+function showTLSSection(sectionId, btn) {
+  showPage('tls', btn);
+  _TLS_PANELS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
+  });
+  if (sectionId === 'tls-panel-acme') loadAcme();
 }
 
 async function loadDevices() {
@@ -13112,7 +13124,7 @@ function _homeNavAction(btn) {
     case 'containers': showPage('containers',    document.querySelector('.nav-btn[data-section-page="containers"]')); break;
     case 'logs':     showPage('logs',            document.querySelector('.nav-btn[data-page="logs"]')); break;
     case 'history':  showPage('history',         document.querySelector('.nav-btn[data-page="history"]')); break;
-    case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-page="tls"]')); break;
+    case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-section-page="tls"]')); break;
     case 'virtualization': showPage('virtualization', document.querySelector('.nav-btn[data-page="virtualization"]')); break;
     case 'self':     showPage('self',            document.querySelector('.nav-btn[data-page="self"]')); break;
     default:

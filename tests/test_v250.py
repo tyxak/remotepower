@@ -310,8 +310,10 @@ class TestFrontend(unittest.TestCase):
 
     def test_sidebar_nav_entry(self):
         # Custom Scripts is embedded in the Monitor page — no separate nav entry.
-        # CSP L1 (v3.0.4): the inline onclick became data-page="monitor".
-        self.assertIn('data-page="monitor"', self.html)
+        # v3.0.4: inline onclick → data-page="monitor". v3.1.0: sidebar uses
+        # focused sub-items via data-section-page="monitor" / data-action.
+        self.assertRegex(self.html,
+            r'data-(section-page|page)="monitor"')
 
     def test_custom_scripts_section_in_monitor_page(self):
         """Custom Scripts section must be inside page-monitor."""

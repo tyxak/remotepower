@@ -2,6 +2,63 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.1.0 — 2026-05-26
+
+Major UX release: focused sidebar subcategory views, collapsible Help
+group, TLS/DNS Expiry split from ACME Certificates, and the full
+grouped-navigation overhaul from v3.0.7. No schema changes; no
+migrations required. Drop in the new tarball, reload nginx, hard-reload
+the browser once to pick up the updated service worker cache
+(`remotepower-shell-v3.1.0`).
+
+### Added
+
+- **Focused sidebar subcategory views.** Each sidebar sub-item now shows
+  only its own content section when clicked, keeping the page uncluttered:
+  - **Monitoring** sub-items: Targets, Device Metrics, Listening Ports,
+    Custom Scripts — each shows only that section.
+  - **Containers** sub-items: Docker/Podman/K8s and Proxmox LXC — each
+    shows only that panel. When navigating directly to Proxmox LXC on an
+    unconfigured node a helpful hint is shown instead of a blank screen.
+  - **Security → TLS** sub-items: TLS/DNS Expiry and ACME Certificates
+    are now separate sidebar entries showing only their respective panel.
+  - Navigating to the group's top-level page (keyboard shortcut, command
+    palette) still shows all panels together.
+
+- **Collapsible Help group.** Documentation, AI Assistant, API Reference,
+  and About are now inside a collapsible sidebar group (`data-group="help"`)
+  with state persisted in `localStorage`. Expanded by default.
+
+- **Grouped sidebar navigation** (carried from v3.0.7 dev branch):
+  Five collapsible groups — Fleet, Monitoring, Security, Planning, Admin —
+  plus standalone Home and Links entries. Admin collapses by default; all
+  others expand by default. State persisted in `localStorage`.
+
+- **Links moved to top level.** Links page promoted from Admin to a
+  standalone sidebar entry above the Fleet group for faster access.
+
+- **Audit Log moved to Security group.** Contextually placed next to CVEs,
+  Patches, and Drift.
+
+- **Calendar recurring events** (carried from v3.0.7).
+
+### Fixed
+
+- **CSP `style-src-attr` violation.** An inline `style="width:100%"` on
+  the sidebar documentation table was blocked by the strict CSP policy.
+  Replaced with utility class `isl-770` and a corresponding CSS rule.
+
+- **Modal delete buttons invisible.** `element.style.display = ''` cleared
+  the inline override but allowed a `d-none` class to silently win. Fixed
+  by explicitly setting `'block'`.
+
+### Security
+
+- All pages continue to carry the same strict Content-Security-Policy
+  (`default-src 'self'`, no `unsafe-inline`, `unsafe-eval`).
+- Service-worker cache name bumped to `remotepower-shell-v3.1.0` so
+  stale caches are evicted on first activation.
+
 ## v3.0.7 — 2026-05-26
 
 UX overhaul: grouped sidebar navigation, calendar recurring events, and

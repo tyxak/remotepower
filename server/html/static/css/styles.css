@@ -1797,6 +1797,7 @@ input.form-input[type="text"][data-token],
 .isl-768 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 /* isl-769: card grid within category */
 .isl-769 { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.isl-770 { width: 100%; }
 /* recurring event glyph on calendar chips */
 .cal-recur-glyph { font-size: 9px; opacity: 0.75; margin-right: 2px; vertical-align: middle; }
 .cmd-badge.script { background: rgba(124,58,237,0.1); color: #a78bfa; }

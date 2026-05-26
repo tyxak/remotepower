@@ -2,18 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual — v3.0.7</title>
+<title>RemotePower Manual — v3.1.0</title>
 <link rel="stylesheet" href="/static/css/manual.css">
 </head>
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 3.0.7 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
+<p><em>Version 3.1.0 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server, and the security model.</em></p>
 
 <div class="note"><strong>How this doc fits together.</strong> The in-app Documentation page (sidebar → Help → Documentation) covers common tasks with substring search across topics; this Manual.html is the long-form reference; the dedicated <code>docs/&lt;feature&gt;.md</code> files are the source of truth for each subsystem. Where a section here is intentionally brief, follow the link to the matching <code>docs/*.md</code>.</div>
 
-<div class="note"><strong>What's new in v3.0.x:</strong>
+<div class="note"><strong>What's new in v3.1.x / v3.0.x:</strong>
 <ul class="manual-changelog-list">
+  <li><strong>v3.1.0:</strong> Focused sidebar subcategory views — clicking a sub-item now shows <em>only</em> its own content panel instead of the full page. Affected: Monitoring (Targets, Device Metrics, Listening Ports, Custom Scripts), Containers (Docker/Podman/K8s, Proxmox LXC), Security TLS (TLS/DNS Expiry and ACME Certificates now separate sidebar entries). Collapsible Help group added (Documentation, AI Assistant, API Reference, About — expanded by default, state in <code>localStorage</code>). CSP <code>style-src-attr</code> violation fixed (inline <code>style="width:100%"</code> replaced with utility class). Service worker cache bumped to <code>remotepower-shell-v3.1.0</code>.</li>
   <li><strong>v3.0.7:</strong> UX overhaul — grouped sidebar navigation and calendar recurring events. The sidebar is now organised into five collapsible groups: <strong>Fleet</strong> (Devices, CMDB, Containers, Virtualization, Network), <strong>Monitoring</strong> (Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs — each item deep-links directly to its section with smooth scroll), <strong>Security</strong> (TLS/DNS, Patches, CVEs, Drift, Audit — Audit moved here from Admin), <strong>Planning</strong> (Schedule, Calendar, Tasks, Maintenance, History), <strong>Admin</strong> (Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status). Links promoted to a standalone top-level item. Calendar events can now recur daily / weekly / monthly / yearly; the backend expands occurrences per query window; Schedule's "Add to calendar" produces recurring calendar events for recurring schedules. Filter boxes on Listening Ports and ACME certificates. "Clear backup archives" button on Server Status. Quick Links dashboard widget on Home. Fixed: delete buttons invisible in task / calendar event / custom script modals (<code>style.display='block'</code> vs <code>''</code>).</li>
   <li><strong>v3.0.6:</strong> production-readiness polish on top of v3.0.5. New <code>/api/health</code> liveness endpoint (unauthenticated, used by the Docker <code>HEALTHCHECK</code> and any reverse-proxy probe). CSP violation reporter at <code>/api/csp-report</code> with <code>report-uri</code> wired into the policy in both nginx configs — any future regression that reintroduces inline code logs to the audit log instead of becoming a silent visual bug. Subresource-Integrity (SHA-384) hashes pinned on every <code>/static/vendor/</code> script and stylesheet — if an operator (or attacker) ever overwrites a vendor file on disk, the browser refuses to execute it. GitHub Actions workflow runs the full test suite + <code>make dist</code> on every push to <code>main</code>; the test suite already includes the <code>TestCSPMigrationFidelity</code> guardrail from v3.0.5.</li>
   <li><strong>v3.0.5:</strong> strict Content-Security-Policy — <code>'unsafe-inline'</code> removed from <code>script-src</code> and <code>style-src</code>, closing the L1 finding from the v2.3.2 security review. All inline event handlers (~210 <code>onclick=</code>, ~470 <code>style=</code>, inline <code>&lt;script&gt;</code>/<code>&lt;style&gt;</code>) migrated to <code>data-action</code> event delegation + external CSS/JS. Five vendor libraries (Inter + JetBrains Mono fonts, xterm.js, qrcode-generator, Swagger UI) self-hosted under <code>/static/vendor/</code>. Per-file content-hash cache-busting in <code>deploy-server.sh</code>. AI Assistant page, Audit tab, Host Config tabs, mobile sidebar, PWA install button all hardened against follow-up regressions. <code>TestCSPMigrationFidelity</code> codifies the manual sweep as 16 unit tests.</li>
@@ -513,18 +514,19 @@ Environment=RP_LDAP_BIND_PASSWORD=…
 
 <h2 id="ui">21. Dashboard UI</h2>
 
-<h3>21.1 Sidebar navigation groups (v3.0.7)</h3>
-<p>The sidebar is organised into five collapsible sections. Each group's open/closed state persists in <code>localStorage</code>. Fleet and Monitoring are open by default; Admin is collapsed. Home and Links are standalone items above the groups, always visible.</p>
+<h3>21.1 Sidebar navigation groups (v3.0.7 / v3.1.0)</h3>
+<p>The sidebar is organised into six collapsible groups. Each group's open/closed state persists in <code>localStorage</code>. All groups except Admin are expanded by default. Home and Links are standalone items above the groups, always visible.</p>
 <table>
-  <tr><th>Group</th><th>Pages</th></tr>
-  <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Containers, Virtualization, Network</td></tr>
-  <tr><td><strong>Monitoring</strong></td><td>Targets, Device Metrics, Listening Ports, Custom Scripts, Services, Logs</td></tr>
-  <tr><td><strong>Security</strong></td><td>TLS/DNS, Patches, CVEs, Drift, Audit</td></tr>
+  <tr><th>Group</th><th>Pages / Sub-items</th></tr>
+  <tr><td><strong>Fleet</strong></td><td>Devices, CMDB, Agent Containers, Proxmox LXC, Virtualization, Network</td></tr>
+  <tr><td><strong>Monitoring</strong></td><td>Targets · Device Metrics · Listening Ports · Custom Scripts</td></tr>
+  <tr><td><strong>Security</strong></td><td>TLS/DNS Expiry · ACME Certificates · Patches · CVEs · Drift · Audit</td></tr>
   <tr><td><strong>Planning</strong></td><td>Schedule, Calendar, Tasks, Maintenance, History</td></tr>
   <tr><td><strong>Admin</strong></td><td>Settings, Users, API Keys, Library, Scripts, IaC Generator, Server Status</td></tr>
+  <tr><td><strong>Help</strong></td><td>Documentation, AI Assistant, API Reference, About</td></tr>
 </table>
-<p>The six items in the <strong>Monitoring</strong> group are section deep-links rather than separate pages. Clicking one calls <code>showMonitorSection(sectionId, btn)</code>, which navigates to the Monitoring page and then <code>scrollIntoView</code>s the target section. The active sidebar button is set correctly and the group auto-expands if it was collapsed.</p>
-<p>Keyboard shortcut <kbd>g m</kbd> and the command palette entry "Monitoring" both navigate to the top of the Monitoring page (Targets section).</p>
+<p>Sub-items (Monitoring, Containers under Fleet, TLS under Security) use <strong>focused views</strong> (v3.1.0): clicking one shows only that panel. Keyboard shortcuts and the command palette navigate to the top-level page and show all panels.</p>
+<p><code>showMonitorSection(sectionId, btn)</code> — navigates to Monitoring and hides all panels except the requested one. <code>showContainerSection(panelId, btn)</code> and <code>showTLSSection(panelId, btn)</code> follow the same pattern.</p>
 
 <h3>21.3 Device Drawer (v2.9.0)</h3>
 <p>Clicking a device name or the ⋮ button on Devices / Dashboard opens a full-screen slide-in drawer with two tabs. <strong>Actions &amp; Settings</strong> has the quick-action grid (run command, reboot, shutdown, WoL, upgrade packages, scan, web terminal, run script, update agent, docker compose, host config, CMDB, runbook, maintenance, adjust poll, delete) plus inline-editable device settings (group, tags, icon, monitored, poll interval, watched services, log rules, drift files, command allowlist) — all behind a single Save button. <strong>Audit</strong> has 11 collapsible sections, lazy-loaded on first open: system info, listening ports, packages, logs (filterable by unit), command history, fleet events, drift state, CVE summary, containers, metrics, host config.</p>
