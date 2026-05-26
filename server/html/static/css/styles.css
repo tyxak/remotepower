@@ -1769,6 +1769,13 @@ input.form-input[type="text"][data-token],
 .isl-750 h3 { margin: 0; }
 .isl-751 { font-size: 11px; padding: 2px 8px; opacity: 0.7; }
 .isl-751:hover { opacity: 1; }
+.isl-754 { width: 64px !important; text-align: center; }
+.isl-755 { width: 120px !important; }
+.isl-756 { flex: 1; min-width: 0; }
+.isl-757 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.isl-758 { margin-bottom: 10px; }
+.isl-759 { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 16px; cursor: pointer; }
+.cmd-badge.script { background: rgba(124,58,237,0.1); color: #a78bfa; }
 .dash-feed-item .ts {
   font-size: 11px;
   color: var(--muted);

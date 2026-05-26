@@ -2889,7 +2889,72 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" id="monitor-add-modal"><div class="modal"><div class="modal-title">Add monitor target</div><div class="form-group"><label class="form-label">Label</label><input type="text" id="mon-label" class="form-input" placeholder="My Router"></div><div class="form-group"><label class="form-label">Type</label><select id="mon-type" class="form-input"><option value="ping">Ping (ICMP)</option><option value="tcp">TCP port</option><option value="http">HTTP / HTTPS</option></select></div><div class="form-group"><label class="form-label">Target</label><input type="text" id="mon-target" class="form-input" placeholder="192.168.1.1  /  host:22  /  https://…"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="monitor-add-modal" >Cancel</button><button class="btn-primary" data-action="addMonitor" >Add</button></div></div></div>
 <div class="modal-overlay" id="user-add-modal"><form class="modal" id="user-add-form" autocomplete="on"><div class="modal-title">Add admin user</div><div class="form-group"><label class="form-label" for="new-username">Username</label><input type="text" id="new-username" name="username" class="form-input" autocomplete="username"></div><div class="form-group"><label class="form-label" for="new-password">Password</label><input type="password" id="new-password" name="new_password" class="form-input" autocomplete="new-password"></div><div class="form-group"><label class="form-label" for="new-role">Role</label><select id="new-role" class="form-input"><option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option></select></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="user-add-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="createUser" >Create</button></div></form></div>
 <div class="modal-overlay" id="passwd-modal"><form class="modal" id="passwd-form" autocomplete="on"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username" autocomplete="username"><div class="form-group" id="passwd-old-wrap"><label class="form-label" for="passwd-old">Current password</label><input type="password" id="passwd-old" name="current_password" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label" for="passwd-new">New password</label><input type="password" id="passwd-new" name="new_password" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="submitPasswd" >Update</button></div></form></div>
-<div class="modal-overlay" id="schedule-add-modal"><div class="modal"><div class="modal-title">Schedule command</div><div class="form-group"><label class="form-label">Device</label><select id="sched-device" class="form-input"></select></div><div class="form-group"><label class="form-label">Command</label><select id="sched-command" class="form-input"><option value="shutdown">Shut down</option><option value="reboot">Reboot</option><option value="upgrade_packages">Upgrade packages (apt / dnf / pacman + cleanup)</option><option value="upgrade_and_reboot">Upgrade packages + reboot</option></select></div><div class="form-group"><label class="form-label">Date &amp; time (one-shot)</label><input type="datetime-local" id="sched-datetime" class="form-input"></div><div class="form-group"><label class="form-label">— or — Cron expression (recurring)</label><input type="text" id="sched-cron" class="form-input ff-mono" placeholder="0 3 * * 0  (every Sunday 03:00)"><div class="meta-sm">5 fields: min hour dom mon dow — leave blank for one-shot. Upgrade output is appended to <code>/var/log/remotepower/remotepower_update.log</code> on each device.</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="schedule-add-modal" >Cancel</button><button class="btn-primary" data-action="addScheduleJob" >Schedule</button></div></div></div>
+<div class="modal-overlay" id="schedule-add-modal">
+  <div class="modal">
+    <div class="modal-title">Schedule command</div>
+    <div class="form-group">
+      <label class="form-label">Device</label>
+      <select id="sched-device" class="form-input"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Command</label>
+      <select id="sched-command" class="form-input" data-change="onSchedCommandChange" >
+        <option value="shutdown">Shut down</option>
+        <option value="reboot">Reboot</option>
+        <option value="upgrade_packages">Upgrade packages (apt / dnf / pacman + cleanup)</option>
+        <option value="upgrade_and_reboot">Upgrade packages + reboot</option>
+        <option value="script">Run script…</option>
+      </select>
+    </div>
+    <div class="form-group d-none" id="sched-script-row">
+      <label class="form-label">Script</label>
+      <select id="sched-script-id" class="form-input"><option value="">Loading…</option></select>
+    </div>
+    <div class="meta-sm d-none isl-758" id="sched-upgrade-note">Output appended to <code>/var/log/remotepower/remotepower_update.log</code> on each device.</div>
+    <div class="form-group">
+      <label class="form-label">When</label>
+      <select id="sched-recur-type" class="form-input" data-change="onSchedTypeChange" >
+        <option value="once">One-shot</option>
+        <option value="hourly">Every hour (:00)</option>
+        <option value="nhours">Every N hours</option>
+        <option value="daily">Daily</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+        <option value="custom">Custom cron</option>
+      </select>
+    </div>
+    <div class="form-group" id="sched-once-row">
+      <label class="form-label">Date &amp; time</label>
+      <input type="datetime-local" id="sched-datetime" class="form-input">
+    </div>
+    <div class="form-group d-none" id="sched-nhours-row">
+      <label class="form-label">Interval</label>
+      <div class="isl-757">Every <input type="number" id="sched-nhours" class="form-input isl-754" value="4" min="1" max="23"> hours</div>
+    </div>
+    <div class="form-group d-none" id="sched-daily-row">
+      <label class="form-label">Time</label>
+      <input type="time" id="sched-daily-time" class="form-input isl-755" value="03:00">
+    </div>
+    <div class="form-group d-none" id="sched-weekly-row">
+      <label class="form-label">Day &amp; time</label>
+      <div class="isl-757"><select id="sched-weekly-day" class="form-input isl-756"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option></select> at <input type="time" id="sched-weekly-time" class="form-input isl-755" value="03:00"></div>
+    </div>
+    <div class="form-group d-none" id="sched-monthly-row">
+      <label class="form-label">Day &amp; time</label>
+      <div class="isl-757">Day <input type="number" id="sched-monthly-day" class="form-input isl-754" value="1" min="1" max="28"> of month, at <input type="time" id="sched-monthly-time" class="form-input isl-755" value="03:00"></div>
+    </div>
+    <div class="form-group d-none" id="sched-custom-row">
+      <label class="form-label">Cron expression</label>
+      <input type="text" id="sched-cron" class="form-input ff-mono" placeholder="0 3 * * 0  (every Sunday 03:00)">
+      <div class="meta-sm">5 fields: min hour dom mon dow</div>
+    </div>
+    <label class="isl-759"><input type="checkbox" id="sched-maint-cb"> Suppress alerts for 1h (maintenance window)</label>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-action="closeModal" data-arg="schedule-add-modal" >Cancel</button>
+      <button class="btn-primary" data-action="addScheduleJob" >Schedule</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="exec-modal"><div class="modal"><div class="modal-title">Run command</div><div class="modal-subtitle">Command runs as root on the client machine. Output returned on next heartbeat (~60s).</div><input type="hidden" id="exec-device-id"><div class="form-group"><label class="form-label">Shell command</label><input type="text" id="exec-cmd" class="form-input" placeholder="systemctl status nginx" maxlength="512"></div><div class="form-group"><label class="form-label">Or pick from library</label><select id="exec-library-pick" class="form-input" data-change="pickFromLibrary" ><option value="">— Command library —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="exec-modal" >Cancel</button><button class="btn-primary" data-action="sendExecCmd" >Run</button></div></div></div>
 
 <!-- v1.12.0: per-device metric thresholds editor -->

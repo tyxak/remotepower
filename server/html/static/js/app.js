@@ -1774,7 +1774,12 @@ function _registerScheduleTable() {
       run_at:      j.run_at || 0,
       actor:       j.actor || '',
     }),
-    row: (j) => `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(j.command)}">${escHtml(j.command)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`,
+    row: (j) => {
+      const isScript = j.command.startsWith('script:');
+      const cmdCls   = isScript ? 'script' : j.command;
+      const cmdLabel = isScript ? 'run script' : j.command;
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`;
+    },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
   });
@@ -1814,11 +1819,97 @@ async function loadHistory() {
   const data = await api('GET', '/history');
   tableCtl.render('history', data || []);
 }
-async function addScheduleJob() { const dev_id = document.getElementById('sched-device').value; const command = document.getElementById('sched-command').value; const dt = document.getElementById('sched-datetime').value; const cron = document.getElementById('sched-cron').value.trim(); if (!dt && !cron) { toast('Provide a date/time or cron expression', 'error'); return; } const payload = {device_id: dev_id, command}; if (cron) payload.cron = cron; else payload.run_at = Math.floor(new Date(dt).getTime() / 1000); const data = await api('POST', '/schedule', payload); if (data?.ok) { toast(cron ? `Recurring ${command} scheduled (${cron})` : `${command} scheduled`, 'success'); closeModal('schedule-add-modal'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
+function _buildSchedCron() {
+  const type = document.getElementById('sched-recur-type').value;
+  if (type === 'once')   return null;
+  if (type === 'hourly') return '0 * * * *';
+  if (type === 'nhours') {
+    const n = Math.max(1, Math.min(23, parseInt(document.getElementById('sched-nhours').value) || 4));
+    return `0 */${n} * * *`;
+  }
+  const timeId = type === 'daily' ? 'sched-daily-time' : type === 'weekly' ? 'sched-weekly-time' : 'sched-monthly-time';
+  const [hh, mm] = (document.getElementById(timeId)?.value || '03:00').split(':');
+  const H = parseInt(hh) || 3, M = parseInt(mm) || 0;
+  if (type === 'daily')   return `${M} ${H} * * *`;
+  if (type === 'weekly')  return `${M} ${H} * * ${document.getElementById('sched-weekly-day').value}`;
+  if (type === 'monthly') { const dom = Math.max(1, Math.min(28, parseInt(document.getElementById('sched-monthly-day').value) || 1)); return `${M} ${H} ${dom} * *`; }
+  if (type === 'custom')  return document.getElementById('sched-cron').value.trim() || null;
+  return null;
+}
+async function _schedLoadScripts() {
+  const sel = document.getElementById('sched-script-id');
+  if (!sel || sel.dataset.loaded) return;
+  sel.dataset.loaded = '1';
+  const data = await api('GET', '/scripts');
+  if (!data || !data.length) { sel.innerHTML = '<option value="">No scripts available</option>'; return; }
+  sel.innerHTML = data.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+}
+function onSchedCommandChange() {
+  const cmd = document.getElementById('sched-command').value;
+  document.getElementById('sched-script-row').classList.toggle('d-none', cmd !== 'script');
+  document.getElementById('sched-upgrade-note').classList.toggle('d-none', !cmd.startsWith('upgrade'));
+  if (cmd === 'script') _schedLoadScripts();
+  // Auto-suggest maintenance window for disruptive commands
+  const cb = document.getElementById('sched-maint-cb');
+  if (cb) cb.checked = (cmd === 'reboot' || cmd.startsWith('upgrade'));
+}
+function onSchedTypeChange() {
+  const type = document.getElementById('sched-recur-type').value;
+  ['once','nhours','daily','weekly','monthly','custom'].forEach(t =>
+    document.getElementById(`sched-${t}-row`)?.classList.toggle('d-none', t !== type));
+}
+async function addScheduleJob() {
+  const dev_id = document.getElementById('sched-device').value;
+  let command = document.getElementById('sched-command').value;
+  if (command === 'script') {
+    const sid = document.getElementById('sched-script-id').value;
+    if (!sid) { toast('Select a script', 'error'); return; }
+    command = `script:${sid}`;
+  }
+  const cron = _buildSchedCron();
+  const payload = {device_id: dev_id, command};
+  if (cron) {
+    payload.cron = cron;
+  } else {
+    const dt = document.getElementById('sched-datetime').value;
+    if (!dt) { toast('Select a date and time', 'error'); return; }
+    payload.run_at = Math.floor(new Date(dt).getTime() / 1000);
+  }
+  const data = await api('POST', '/schedule', payload);
+  const label = command.startsWith('script:') ? 'Script' : command;
+  if (data?.ok) {
+    if (document.getElementById('sched-maint-cb')?.checked) {
+      const maintBody = {scope: 'device', target: dev_id, reason: `Scheduled: ${label}`, events: []};
+      if (cron) { maintBody.cron = cron; maintBody.duration = 3600; }
+      else { maintBody.start = new Date(payload.run_at * 1000).toISOString(); maintBody.end = new Date((payload.run_at + 3600) * 1000).toISOString(); }
+      await api('POST', '/maintenance', maintBody).catch(() => {});
+    }
+    toast(cron ? `Recurring "${label}" scheduled (${cron})` : `"${label}" scheduled`, 'success');
+    closeModal('schedule-add-modal'); loadSchedule();
+  } else toast(data?.error || 'Failed', 'error');
+}
 async function deleteJob(id) { const data = await api('DELETE', '/schedule/' + id); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
 function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
-function openScheduleAdd() { const sel = document.getElementById('sched-device'); sel.innerHTML = devices.map(d => `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`).join(''); const dt = new Date(Date.now() + 3600000); const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16); document.getElementById('sched-datetime').value = local; document.getElementById('sched-cron').value = ''; openModal('schedule-add-modal'); }
+function openScheduleAdd() {
+  const sel = document.getElementById('sched-device');
+  sel.innerHTML = devices.map(d => `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`).join('');
+  document.getElementById('sched-command').value = 'shutdown';
+  document.getElementById('sched-script-row').classList.add('d-none');
+  document.getElementById('sched-upgrade-note').classList.add('d-none');
+  const maintCb = document.getElementById('sched-maint-cb');
+  if (maintCb) maintCb.checked = false;
+  const scriptSel = document.getElementById('sched-script-id');
+  scriptSel.innerHTML = '<option value="">Loading…</option>';
+  delete scriptSel.dataset.loaded;
+  document.getElementById('sched-recur-type').value = 'once';
+  onSchedTypeChange();
+  const dt = new Date(Date.now() + 3600000);
+  const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('sched-datetime').value = local;
+  document.getElementById('sched-cron').value = '';
+  openModal('schedule-add-modal');
+}
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 async function loadAbout() { try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' ⚡ update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }

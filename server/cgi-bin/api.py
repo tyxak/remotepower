@@ -4684,9 +4684,9 @@ _UPGRADE_CMD = (
     '  export APT_CONFIG DEBIAN_FRONTEND=noninteractive; '
     '  apt-get update && apt-get -y upgrade && apt-get -y autoremove && apt-get clean; '
     'elif command -v dnf >/dev/null 2>&1; then '
-    '  dnf -y upgrade; '
+    '  dnf -y upgrade && dnf autoremove -y && dnf clean packages; '
     'elif command -v yum >/dev/null 2>&1; then '
-    '  yum -y update; '
+    '  yum -y update && yum autoremove -y && yum clean packages; '
     'elif command -v pacman >/dev/null 2>&1; then '
     # v3.0.1: pacman 7+ uses an unprivileged "alpm" sandbox user for
     # downloads. On hosts where that user isn't usable (CachyOS, some
@@ -4708,7 +4708,7 @@ _UPGRADE_CMD = (
     '  elif pacman --version 2>&1 | head -1 | grep -qE "v[7-9][0-9]*\\."; then '
     '    PACMAN_FLAGS="--disable-sandbox"; '
     '  fi; '
-    '  pacman -Syu --noconfirm $PACMAN_FLAGS; '
+    '  pacman -Syu --noconfirm $PACMAN_FLAGS && pacman -Sc --noconfirm $PACMAN_FLAGS; '
     'else '
     '  echo "No supported package manager (apt-get/dnf/yum/pacman) found" >&2; '
     '  exit 2; '
@@ -6358,7 +6358,7 @@ def _cron_matches(cron, ts):
         try: return int(field) == val
         except: return False
     return (_match(minute, dt.minute) and _match(hour, dt.hour) and
-            _match(dom, dt.day) and _match(month, dt.month) and _match(dow, dt.weekday()))
+            _match(dom, dt.day) and _match(month, dt.month) and _match(dow, dt.isoweekday() % 7))
 
 
 def handle_schedule_add():
@@ -6373,8 +6373,14 @@ def handle_schedule_add():
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
-    if command not in ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot'):
-        respond(400, {'error': 'command must be shutdown, reboot, upgrade_packages, or upgrade_and_reboot'})
+    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+    if command not in _SCHED_STATIC:
+        if not (command.startswith('script:') and _validate_id(command[7:])):
+            respond(400, {'error': 'Invalid command'})
+        sid = command[7:]
+        scripts_data = load(SCRIPTS_FILE)
+        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
+            respond(404, {'error': 'Script not found'})
 
     if cron:
         if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
@@ -6430,7 +6436,8 @@ def process_schedule():
             dev_id  = job['device_id']
             command = job['command']
             _ALLOWED_SCHED = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
-            if command not in _ALLOWED_SCHED:  # extra safety
+            is_script = command.startswith('script:') and _validate_id(command[7:])
+            if command not in _ALLOWED_SCHED and not is_script:  # extra safety
                 if job.get('recurring'):
                     remaining.append(job)
                 changed = True
@@ -6440,11 +6447,21 @@ def process_schedule():
                 if dev_id in devices:
                     cmds = load(CMDS_FILE)
                     if dev_id not in cmds: cmds[dev_id] = []
-                    # Upgrade commands translate to exec: strings; simple commands go as-is.
+                    # Translate named commands to exec: strings.
                     if command == 'upgrade_packages':
                         queued = f'exec:{_SCHED_UPGRADE_CMD}'
                     elif command == 'upgrade_and_reboot':
                         queued = f'exec:{_SCHED_UPGRADE_REBOOT_CMD}'
+                    elif is_script:
+                        sid = command[7:]
+                        scripts_data = load(SCRIPTS_FILE)
+                        body = next((s.get('body', '') for s in scripts_data.get('scripts', [])
+                                     if s.get('id') == sid), None)
+                        if not body:
+                            # Script deleted — skip this firing but keep recurring job
+                            if job.get('recurring'): remaining.append(job)
+                            changed = True; continue
+                        queued = f'exec:{body}'
                     else:
                         queued = command
                     if queued not in cmds[dev_id]: cmds[dev_id].append(queued)
