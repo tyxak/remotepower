@@ -609,17 +609,20 @@ function toggleUpdateSteps() {
   const s = document.getElementById('update-steps');
   if (s) s.style.display = s.style.display === 'none' ? 'block' : 'none';
 }
+// v3.3.0: theme toggle uses Lucide moon/sun SVGs instead of emoji
+const _THEME_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const _THEME_SUN  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
 function applyTheme() {
   const theme = localStorage.getItem('rp_theme') || 'dark';
   document.body.classList.toggle('light', theme === 'light');
   const btn = document.querySelector('.theme-btn');
-  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  if (btn) btn.innerHTML = theme === 'light' ? _THEME_MOON : _THEME_SUN;
 }
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
   localStorage.setItem('rp_theme', isLight ? 'light' : 'dark');
   const btn = document.querySelector('.theme-btn');
-  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
+  if (btn) btn.innerHTML = isLight ? _THEME_MOON : _THEME_SUN;
 }
 async function api(method, path, body, extra) {
   const opts = {method, headers: {'X-Token': getToken()}};
@@ -3454,7 +3457,7 @@ function _registerMaintTable() {
                           : `${escHtml(w.start||'?')} → ${escHtml(w.end||'?')}`;
       const events = (w.events && w.events.length) ? w.events.join(', ') : '<em class="c-muted">all</em>';
       const status = w.active
-        ? '<span class="c-amber-bold">🔧 ACTIVE</span>'
+        ? '<span class="c-amber-bold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> ACTIVE</span>'
         : '<span class="c-muted">scheduled</span>';
       const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
       const winKey = _storeEvtData(w);
@@ -9644,15 +9647,18 @@ async function _renderHomeAttention(preloaded) {
       const sampleList = i.samples.map((s, n) => `${n + 1}. ${s}`).join('\n');
       cardTitle = `Pattern: ${i.pattern || '(unknown)'}\n\nMatches:\n${sampleList}`;
     }
-    // v3.2.3 (#4): inline actions. 🔕 snooze for 24h (vs. × which is
-    // permanent until manually restored); 📋 jumps to Logs filtered to
-    // the device+unit that fired the rule. log_alert-only items get
-    // both; everything else gets just 🔕 + ×.
+    // v3.2.3 (#4) / v3.3.0 icon refresh: inline actions are SVG now
+    // — the prior emoji set looked AI-ratchet next to the sidebar
+    // SVGs. snoozeBtn = bell-off (Lucide); logsBtn = file-text. ×
+    // remains text for the permanent-ignore button (different
+    // weight, intentional).
+    const snoozeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    const logsIcon   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
     const snoozeBtn = key
-      ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >🔕</button>`
+      ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >${snoozeIcon}</button>`
       : '';
     const logsBtn = (i.kind === 'log_alert' && i.device_id)
-      ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >📋</button>`
+      ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >${logsIcon}</button>`
       : '';
     return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div
@@ -12130,43 +12136,78 @@ function switchDrawerTab(tab) {
 
 // ── Actions tab ───────────────────────────────────────────────────────────────
 
+// v3.3.0: inline Lucide-style SVG icons (matches the left sidebar).
+// Replaces the prior emoji set in the drawer + everywhere else. Each
+// entry is just the inner <path>/<circle>/<line>/<polyline>/<rect>
+// markup — the outer <svg> wrapper with currentColor stroke is
+// applied by _icon() below. New icons should be added with body-only
+// markup from https://lucide.dev/icons/.
+const _ICONS = {
+  terminal:    '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  refresh:     '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  power:       '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+  radio:       '<circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>',
+  package:     '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+  search:      '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  monitor:     '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  fileCode:    '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/><path d="m9 18-2-2 2-2"/><path d="m13 18 2-2-2-2"/>',
+  download:    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  zap:         '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  unplug:      '<path d="m19 5 3-3"/><path d="m2 22 3-3"/><path d="M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z"/><path d="m7.5 13.5 2.5-2.5"/><path d="m10.5 16.5 2.5-2.5"/><path d="m12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>',
+  ship:        '<path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1s1.2 1 2.5 1c2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.34 2.81 7.76"/><path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/>',
+  settings:    '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  sparkles:    '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+  clipboard:   '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/>',
+  bookOpen:    '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+  wrench:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  clock:       '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  trash:       '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+};
+
+function _icon(name, size) {
+  const body = _ICONS[name];
+  if (!body) return '';
+  const sz = size || 16;
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="${sz}" height="${sz}" aria-hidden="true">${body}</svg>`;
+}
+
 function _renderDrawerActions() {
   const id   = _drawerDeviceId;
   const name = _drawerDeviceName;
   const d    = _drawerDeviceData || {};
   const agentless = d.agentless;
 
-  // Icon, label, fn (closure), danger flag, hidden flag
+  // Icon name (Lucide), label, fn (closure), danger flag, hidden flag
   const actions = [
-    ['💻', 'Run command',       () => { closeDeviceDrawer(); openExecModal(id, name); },                      false, agentless],
-    ['🔄', 'Reboot',           () => { rebootTarget = id; closeDeviceDrawer(); openModal('reboot-modal'); document.getElementById('reboot-name').textContent = name; }, false, agentless],
-    ['⏻',  'Shut down',        () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
-    ['📡', 'Wake on LAN',      () => _wolWithMacCheck(id, name),                                              false, false],
-    ['📦', 'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                     false, agentless],
-    ['🔍', 'Scan packages',    () => forcePackageScan(id, name, null),                                        false, agentless],
-    ['🖥',  'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                         false, agentless],
-    ['📜', 'Run script',       () => { closeDeviceDrawer(); openScriptRunForDevice(id, name); },              false, agentless],
-    ['🔧', 'Update agent',     () => { closeDeviceDrawer(); sendUpdate(id, name); },                          false, agentless],
-    ['⚡', 'Force-upgrade',    () => { closeDeviceDrawer(); forceAgentUpgrade(id, name); },                   true,  agentless],
-    ['🧹', 'Uninstall agent',  () => { closeDeviceDrawer(); uninstallAgent(id, name); },                      true,  agentless],
-    ['🐳', 'Docker compose',   () => { closeDeviceDrawer(); openComposeModal(id, name); },                    false, agentless],
-    ['⚙',  'Host config',     () => { closeDeviceDrawer(); openHostConfigModal(id, name); },                 false, agentless],
-    ['✨', 'AI Investigate',   () => aiInvestigateDevice(id, name),                                           false, false],
-    ['📋', 'CMDB',             () => { closeDeviceDrawer(); cmdbOpenAsset(id); },                             false, false],
-    ['📖', 'Runbook',          () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                       false, false],
-    ['🔧', 'Maintenance',      () => { closeDeviceDrawer(); openNewMaintModal(); },                           false, false],
-    ['⏱',  'Adjust poll',     () => _drawerAdjustPoll(),                                                     false, agentless],
-    ['🗑',  'Remove device',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                        true,  false],
+    ['terminal',  'Run command',     () => { closeDeviceDrawer(); openExecModal(id, name); },                                                                                    false, agentless],
+    ['refresh',   'Reboot',          () => { rebootTarget = id; closeDeviceDrawer(); openModal('reboot-modal'); document.getElementById('reboot-name').textContent = name; },    false, agentless],
+    ['power',     'Shut down',       () => { shutdownTarget = id; closeDeviceDrawer(); openModal('shutdown-modal'); document.getElementById('shutdown-name').textContent = name; }, false, agentless],
+    ['radio',     'Wake on LAN',     () => _wolWithMacCheck(id, name),                                                                                                            false, false],
+    ['package',   'Upgrade packages', () => { closeDeviceDrawer(); upgradePackages(id, name); },                                                                                  false, agentless],
+    ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
+    ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
+    ['fileCode',  'Run script',      () => { closeDeviceDrawer(); openScriptRunForDevice(id, name); },                                                                            false, agentless],
+    ['download',  'Update agent',    () => { closeDeviceDrawer(); sendUpdate(id, name); },                                                                                        false, agentless],
+    ['zap',       'Force-upgrade',   () => { closeDeviceDrawer(); forceAgentUpgrade(id, name); },                                                                                 true,  agentless],
+    ['unplug',    'Uninstall agent', () => { closeDeviceDrawer(); uninstallAgent(id, name); },                                                                                    true,  agentless],
+    ['ship',      'Docker compose',  () => { closeDeviceDrawer(); openComposeModal(id, name); },                                                                                  false, agentless],
+    ['settings',  'Host config',     () => { closeDeviceDrawer(); openHostConfigModal(id, name); },                                                                               false, agentless],
+    ['sparkles',  'AI Investigate',  () => aiInvestigateDevice(id, name),                                                                                                         false, false],
+    ['clipboard', 'CMDB',            () => { closeDeviceDrawer(); cmdbOpenAsset(id); },                                                                                           false, false],
+    ['bookOpen',  'Runbook',         () => { closeDeviceDrawer(); aiViewRunbook(id, name); },                                                                                     false, false],
+    ['wrench',    'Maintenance',     () => { closeDeviceDrawer(); openNewMaintModal(); },                                                                                         false, false],
+    ['clock',     'Adjust poll',     () => _drawerAdjustPoll(),                                                                                                                   false, agentless],
+    ['trash',     'Remove device',   () => { closeDeviceDrawer(); deleteDevice(id, name); },                                                                                      true,  false],
   ];
 
   _drawerActMap.clear();
   document.getElementById('drawer-actions-grid').innerHTML = actions
     .filter(([,,,, hidden]) => !hidden)
-    .map(([icon, label, fn, danger]) => {
+    .map(([iconName, label, fn, danger]) => {
       const key = `da_${Math.random().toString(36).slice(2)}`;
       _drawerActMap.set(key, fn);
       return `<button class="drawer-action-btn${danger ? ' danger' : ''}" data-drawer-act="${key}">
-        <span class="fs-15">${icon}</span>
+        <span class="drawer-action-icon">${_icon(iconName, 18)}</span>
         <span>${escHtml(label)}</span>
       </button>`;
     }).join('');
