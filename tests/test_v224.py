@@ -237,12 +237,19 @@ class TestFrontendChanges(unittest.TestCase):
         cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
 
     def test_loadhome_uses_fleet_events(self):
-        # 2.2.3 used /webhook/log; 2.2.4 switches to /fleet/events
+        # v2.2.4 introduced /fleet/events for the activity panel.
+        # v3.3.0 consolidates loadHome into a single /api/home round-trip
+        # — that endpoint bundles fleet_events (the activity feed source)
+        # inside its response. Either the legacy direct call or the
+        # consolidated endpoint is acceptable.
         load_home_start = self.js.find('async function loadHome')
         self.assertGreater(load_home_start, 0)
         chunk = self.js[load_home_start:load_home_start + 2000]
-        self.assertIn("'/fleet/events?limit=50'", chunk,
-                      "loadHome must call /fleet/events endpoint")
+        uses_direct  = "'/fleet/events?limit=50'" in chunk
+        uses_bundled = "'/home'" in chunk and 'fleet_events' in chunk
+        self.assertTrue(uses_direct or uses_bundled,
+            'loadHome must source fleet events either directly via '
+            "'/fleet/events?limit=50' or bundled inside '/api/home'")
         # Confirm /webhook/log is NOT in loadHome anymore
         self.assertNotIn("'/webhook/log'", chunk,
                          "loadHome must no longer call /webhook/log")

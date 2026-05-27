@@ -3543,12 +3543,20 @@ def handle_devices_list():
     require_auth()
     devices  = load(DEVICES_FILE)
     now      = int(time.time())
-    bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
-    pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
-    # v3.2.0 (B5): attach a compact SNMP-status summary to each device. Just
-    # the fields the Devices page card actually shows — operators looking
-    # for full data still click into the CMDB SNMP tab.
-    snmp_store = load(SNMP_DATA_FILE) if SNMP_DATA_FILE.exists() else {}
+    # v3.3.0: ?slim=1 omits the heavy fields (sysinfo, listening_ports,
+    # snmp metrics, brute_force_active). Used by Home + nav loaders that
+    # only need ID/name/online/group — saves ~1.5 MB JSON per Home
+    # refresh on a 50-device fleet. Default behaviour unchanged.
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    slim = (qs.get('slim') or [''])[0] == '1'
+    bf_data, pb_data, snmp_store = {}, {}, {}
+    if not slim:
+        bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
+        pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+        # v3.2.0 (B5): attach a compact SNMP-status summary to each device. Just
+        # the fields the Devices page card actually shows — operators looking
+        # for full data still click into the CMDB SNMP tab.
+        snmp_store = load(SNMP_DATA_FILE) if SNMP_DATA_FILE.exists() else {}
     _, _bf_thresh, _bf_window = _brute_config()
     bf_cutoff = now - _bf_window
     result = []
@@ -3567,7 +3575,7 @@ def handle_devices_list():
             offline_reason = None
             if not is_online and last_ping:
                 offline_reason = 'missed_polls' if (now - last_ping) < 300 else 'offline'
-        result.append({
+        row = {
             'id': dev_id, 'name': dev.get('name', dev_id), 'hostname': dev.get('hostname', ''),
             'os': dev.get('os', ''), 'ip': dev.get('ip', ''), 'mac': dev.get('mac', ''),
             'version': dev.get('version', ''), 'tags': dev.get('tags', []),
@@ -3576,40 +3584,33 @@ def handle_devices_list():
             # v3.0.4: ship metric_state with the device list. Without this,
             # the Monitor page row aggregator iterates an empty dict for
             # every device and shows "OK" even when /api/attention is
-            # screaming about a swap warning on the same host. The state
-            # dict is small (one entry per active alert) and cheap to
-            # serialise — there's no good reason to hide it.
+            # screaming about a swap warning on the same host.
             'metric_state': dev.get('metric_state') or {},
-            # v3.1.0: per-device MCP confirmation gate. When true, any
-            # write tool invoked through an MCP API key against this device
-            # returns a pending-confirmation handle the operator clears
-            # from the dashboard before the action actually runs. Default
-            # true on every existing device because the conservative
-            # behaviour is "ask first." Operators can flip it off per-host
-            # via the device drawer once they trust a given AI workflow.
             'require_confirmation': dev.get('require_confirmation', True),
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
-            'poll_interval': dev.get('poll_interval', 60), 'sysinfo': dev.get('sysinfo', {}),
-            # v1.11.0: agentless flag + network-map link
+            'poll_interval': dev.get('poll_interval', 60),
             'agentless':    agentless,
             'connected_to': dev.get('connected_to', ''),
             'device_type':  dev.get('device_type', ''),
-            # v2.1.0: surface compose project count + reported_at so the
-            # dropdown on the device card knows whether to render. Full
-            # project list comes from GET /api/devices/<id>/compose.
             'compose_projects_count': len(dev.get('compose_projects', []) or []),
             'compose_projects_ts':    dev.get('compose_projects_ts', 0),
-            # v2.8.1: security — brute force active IPs + listening ports
-            'brute_force_active': _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh),
-            'listening_ports':    pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or [],
-        })
+        }
+        if not slim:
+            # v3.3.0: heavy fields only when ?slim=1 is NOT set. Home + nav
+            # loaders skip them; the Devices page + CMDB modal opt in by
+            # not passing the flag.
+            row['sysinfo']            = dev.get('sysinfo', {})
+            row['brute_force_active'] = _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh)
+            row['listening_ports']    = pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or []
+        result.append(row)
+        if slim:
+            # v3.3.0: skip the SNMP-status block in slim mode. Home + nav
+            # consumers don't render this data anyway.
+            continue
         # v3.2.0 (B5): SNMP status summary for the devices page card. The full
         # data + community config still live behind GET /api/devices/<id>/snmp;
         # this is the at-a-glance snapshot the cards/table need.
-        # v3.2.0 follow-up: also surface derived metrics (cpu%, mem%, top
-        # storage %, temperature, load avg) so the SNMP Device Metrics
-        # table has values to render without a second round trip.
         snmp_cfg = dev.get('snmp') or {}
         if snmp_cfg.get('enabled'):
             sd = snmp_store.get(dev_id) or {}
@@ -5568,6 +5569,39 @@ def handle_sysinfo(dev_id):
     devices = load(DEVICES_FILE); dev = devices.get(dev_id)
     if not dev: respond(404, {'error': 'Device not found'})
     respond(200, {'sysinfo': dev.get('sysinfo', {}), 'journal': dev.get('journal', [])})
+
+
+def handle_sysinfo_batch():
+    """GET /api/devices/sysinfo?ids=id1,id2,...
+
+    v3.3.0: replaces the N+1 pattern the Monitoring page used. Both
+    loadListeningPorts and loadProcesses (and any future fleet-wide
+    sysinfo aggregator) previously fired one /api/devices/<id>/sysinfo
+    per monitored device — 1 + N CGI processes per page load. This
+    bundles them into one process.
+
+    The journal field is intentionally NOT included; it's only used by
+    the per-device drawer.
+    """
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    ids_raw = (qs.get('ids') or [''])[0]
+    # Cap at 200 ids per request so a malicious or buggy client can't
+    # ask the server to serialise every device's sysinfo (some entries
+    # are ~50 KB).
+    requested = [i.strip() for i in ids_raw.split(',') if i.strip()][:200]
+    if not requested:
+        respond(200, {'sysinfo': {}})
+    devices = load(DEVICES_FILE) or {}
+    out = {}
+    for dev_id in requested:
+        if not _validate_id(dev_id):
+            continue
+        dev = devices.get(dev_id)
+        if not dev:
+            continue
+        out[dev_id] = dev.get('sysinfo', {})
+    respond(200, {'sysinfo': out})
 
 
 def handle_metrics(dev_id):
@@ -7728,6 +7762,21 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
     elif unit in _WEB_UNITS:
         patterns = _BRUTE_PATTERNS['web']
     else:
+        return
+
+    # v3.3.0: short-circuit before the file load if there are no lines
+    # to scan or no patterns matched lines, so an idle device with
+    # nothing to detect doesn't churn BRUTE_FORCE_FILE I/O on every
+    # heartbeat. Scan first; only load + persist when we actually need
+    # to record a hit.
+    if not lines:
+        return
+    any_match = any(
+        pat.search(line_entry if isinstance(line_entry, str)
+                   else line_entry.get('line', ''))
+        for line_entry in lines for pat in patterns
+    )
+    if not any_match:
         return
 
     bf = load(BRUTE_FORCE_FILE) or {} if BRUTE_FORCE_FILE.exists() else {}
@@ -11219,15 +11268,220 @@ def _compute_attention():
     return items
 
 
-def handle_attention():
-    """GET /api/attention — the unified Needs Attention digest."""
-    require_auth()
+_ATTENTION_CACHE_TTL = 10
+
+
+def _attention_cache_file():
+    # Computed lazily so tests that patch DATA_DIR see the right path.
+    return DATA_DIR / 'attention_cache.json'
+
+
+def _attention_payload(use_cache=True):
+    """Build the {items, counts, total} payload, optionally from a 10s
+    file-backed cache. CGI = no in-process cache, so the cache file's
+    mtime is the only way to share work across requests. Falls back to
+    a fresh compute if the cache file is missing, stale, or corrupt.
+
+    The cache is busted when devices.json or alerts-affecting state
+    files are newer than the cache — any heartbeat that wrote new
+    sysinfo or transitioned a service updates devices.json, so the NA
+    digest must recompute. This also makes tests deterministic without
+    every test fixture having to clear an implementation-specific
+    cache file."""
+    cache_file = _attention_cache_file()
+    if use_cache:
+        try:
+            if cache_file.exists():
+                cache_mtime = cache_file.stat().st_mtime
+                age = time.time() - cache_mtime
+                if age < _ATTENTION_CACHE_TTL:
+                    # Bust the cache if any underlying data file has been
+                    # written more recently than the cache.
+                    fresher = False
+                    for src in (DEVICES_FILE, FLEET_EVENTS_FILE,
+                                CVE_FINDINGS_FILE, DRIFT_STATE_FILE,
+                                IGNORED_ITEMS_FILE):
+                        try:
+                            if src.exists() and src.stat().st_mtime > cache_mtime:
+                                fresher = True
+                                break
+                        except Exception:
+                            pass
+                    if not fresher:
+                        cached = load(cache_file)
+                        if isinstance(cached, dict) and 'items' in cached:
+                            return cached
+        except Exception:
+            pass
     items = _compute_attention()
     counts = {'critical': 0, 'warning': 0, 'info': 0}
     for i in items:
         counts[i['severity']] = counts.get(i['severity'], 0) + 1
-    respond(200, {'items': items, 'counts': counts,
-                  'total': len(items)})
+    payload = {'items': items, 'counts': counts, 'total': len(items)}
+    try:
+        save(cache_file, payload)
+    except Exception:
+        pass
+    return payload
+
+
+def handle_attention():
+    """GET /api/attention — the unified Needs Attention digest."""
+    require_auth()
+    respond(200, _attention_payload())
+
+
+def handle_home():
+    """GET /api/home — single round-trip for the Home dashboard.
+
+    v3.3.0 consolidation: the dashboard previously fired 7 parallel
+    requests on every 60s refresh (devices, drift, cves, fleet_events,
+    mailwatch, config, links) plus a separate attention call. Under CGI,
+    each request is a fresh Python process (~100–200 ms startup), so a
+    50-device fleet with 5 operators on the Home page generated ~35
+    CGI spawns per minute just for the dashboard. /api/home bundles
+    everything into one process and trims devices to the slim shape
+    Home actually renders.
+    """
+    require_auth()
+    # Slim devices: omit sysinfo + listening_ports + brute_force_active
+    # + snmp_status. Home only renders id/name/online/group/icon.
+    # Inline the slim flag the same way ?slim=1 does in handle_devices_list,
+    # but we can't call that handler directly (it calls respond() which
+    # exits). Reproduce the slim path here.
+    devices_raw = load(DEVICES_FILE)
+    now = int(time.time())
+    devices = []
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    for dev_id, dev in devices_raw.items():
+        last_ping = dev.get('last_seen', 0)
+        agentless = bool(dev.get('agentless', False))
+        if agentless:
+            is_online = bool(dev.get('manual_status', True))
+            missed = None
+            offline_reason = None
+        else:
+            is_online = (now - last_ping) < ttl
+            missed = max(0, (now - last_ping) // 60) if last_ping else None
+            offline_reason = None
+            if not is_online and last_ping:
+                offline_reason = 'missed_polls' if (now - last_ping) < 300 else 'offline'
+        # Home tile renderer reads d.sysinfo.packages.upgradable for the
+        # pending-updates count. Include only that nested field; skip the
+        # heavyweight rest (listening_ports, top_processes, etc.).
+        pkgs = (dev.get('sysinfo') or {}).get('packages') or {}
+        upgradable = pkgs.get('upgradable', 0)
+        devices.append({
+            'id': dev_id, 'name': dev.get('name', dev_id),
+            'hostname': dev.get('hostname', ''),
+            'os': dev.get('os', ''), 'ip': dev.get('ip', ''),
+            'version': dev.get('version', ''), 'tags': dev.get('tags', []),
+            'group': dev.get('group', ''), 'icon': dev.get('icon', ''),
+            'monitored': dev.get('monitored', True),
+            'metric_state': dev.get('metric_state') or {},
+            'last_seen': last_ping, 'online': is_online,
+            'offline_reason': offline_reason, 'missed_polls': missed,
+            'agentless': agentless, 'device_type': dev.get('device_type', ''),
+            'sysinfo': {'packages': {'upgradable': upgradable}},
+        })
+
+    # Fleet events (already small, server filters unmonitored + routing)
+    try:
+        store = load(FLEET_EVENTS_FILE) or {}
+        events = (store.get('events') or [])
+        unmonitored = {dev_id for dev_id, d in devices_raw.items()
+                       if isinstance(d, dict) and d.get('monitored') is False}
+        if unmonitored:
+            events = [e for e in events
+                      if (e.get('payload') or {}).get('device_id') not in unmonitored]
+        events = [e for e in events
+                  if _channel_allowed(e.get('event', ''), 'recent_activity')]
+        fleet_events = list(reversed(events))[:50]
+    except Exception:
+        fleet_events = []
+
+    # Drift summary — only the per-device drift count the Home tile
+    # renderer reads. Mirror handle_drift_overview's row shape minimally.
+    drift_rows = []
+    try:
+        drift_state = load(DRIFT_STATE_FILE) or {}
+        for ddev_id, dev_state in drift_state.items():
+            files = (dev_state or {}).get('files') or {}
+            n_drifted = sum(1 for f in files.values()
+                            if not f.get('dormant') and not f.get('ignored')
+                            and f.get('exists', True)
+                            and f.get('current_hash') != f.get('baseline_hash'))
+            drift_rows.append({'device_id': ddev_id, 'drifted': n_drifted})
+    except Exception:
+        pass
+    drift = {'devices': drift_rows}
+
+    # CVE summary — Home only reads per-device counts (critical/high/medium/low).
+    cve_devs = []
+    try:
+        findings_all = load(CVE_FINDINGS_FILE) or {}
+        for cdev_id, entry in findings_all.items():
+            findings = (entry or {}).get('findings') or []
+            counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
+            for f in findings:
+                sev = (f.get('severity') or '').lower()
+                if sev in counts:
+                    counts[sev] += 1
+            cve_devs.append({'device_id': cdev_id, 'counts': counts})
+    except Exception:
+        pass
+    cves = {'devices': cve_devs}
+
+    # Mailwatch overview — derived from devices_raw (same shape as
+    # handle_mailwatch_overview returns), inlined to avoid a second
+    # DEVICES_FILE read.
+    mailwatch_rows = []
+    for dev_id, dev in (devices_raw or {}).items():
+        paths = dev.get('mailbox_paths') or []
+        if not paths:
+            continue
+        state = dev.get('mailbox_state') or {}
+        mailwatch_rows.append({
+            'device_id':   dev_id,
+            'device_name': dev.get('name', dev_id),
+            'paths':       paths,
+            'dashboard':   bool(dev.get('mailbox_dashboard')),
+            'threshold':   dev.get('mailbox_threshold') or 0,
+            'counts':      state.get('counts') or {},
+            'reported_at': state.get('reported_at', 0),
+        })
+    mailwatch_rows.sort(key=lambda r: r['device_name'].lower())
+    mailwatch = {'devices': mailwatch_rows}
+
+    # Config (full — Home only reads a handful of keys but cost is
+    # negligible vs. shipping 7 parallel CGI requests)
+    cfg = load(CONFIG_FILE) or {}
+
+    # Links — operator-curated bookmarks
+    links = (cfg.get('links') or [])
+
+    respond(200, {
+        'devices':      devices,
+        'drift':        drift,
+        'cves':         cves,
+        'fleet_events': fleet_events,
+        'mailwatch':    mailwatch,
+        'links':        links,
+        'attention':    _attention_payload(),
+        # Echo the few config flags the Home renderer reads, so the page
+        # doesn't need a separate /api/config round-trip.
+        'config': {
+            'brute_force_threshold': cfg.get('brute_force_threshold', 20),
+            'dashboard_hidden_attention_kinds':
+                cfg.get('dashboard_hidden_attention_kinds') or [],
+            'dashboard_hidden_activity_events':
+                cfg.get('dashboard_hidden_activity_events') or [],
+            'channel_routing':       cfg.get('channel_routing') or {},
+        },
+    })
 
 
 def handle_dashboard_kinds():
@@ -18144,6 +18398,8 @@ def main():
         handle_device_snmp_deep(pi[len('/api/devices/'):-len('/snmp/deep')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
         handle_device_snmp(pi[len('/api/devices/'):-len('/snmp')])
+    elif pi == '/api/devices/sysinfo' and m == 'GET':
+        handle_sysinfo_batch()
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
     elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
@@ -18319,6 +18575,8 @@ def main():
     # v2.4.7: needs-attention digest + machine-readable status endpoint
     elif pi == '/api/attention' and m == 'GET':
         handle_attention()
+    elif pi == '/api/home' and m == 'GET':
+        handle_home()
     elif pi == '/api/dashboard/kinds' and m == 'GET':
         handle_dashboard_kinds()
     elif pi == '/api/dashboard/kinds' and m == 'POST':

@@ -9162,33 +9162,29 @@ const EVENT_CLASS = {
 };
 
 async function loadHome() {
-  // Fetch in parallel — independent endpoints. If any fail we still
-  // render the rest with placeholder text rather than blocking the
-  // whole dashboard.
-  // v2.2.4: activity panel now reads from /fleet/events (the dedicated
-  // fleet event log added in 2.2.4) instead of /webhook/log. The
-  // webhook log was always delivery-attempts-only — if no webhook URL
-  // was configured AND email wasn't enabled for the event, nothing
-  // got logged anywhere and the activity panel showed empty even
-  // when devices were going offline. /fleet/events records every
-  // fired event regardless of destinations.
-  const [devs, drift, cves, fleetEvents, mailwatch, cfg, linksResp] = await Promise.all([
-    api('GET', '/devices').catch(() => null),
-    api('GET', '/drift').catch(() => null),
-    api('GET', '/cve/findings').catch(() => null),
-    api('GET', '/fleet/events?limit=50').catch(() => null),
-    api('GET', '/mailwatch').catch(() => null),
-    api('GET', '/config').catch(() => ({})),
-    api('GET', '/links').catch(() => null),
-  ]);
-
-  // v3.2.3: routing matrix filter is enforced server-side in
-  // handle_fleet_events — no need to re-filter client-side.
-  _renderHomeTiles(devs || [], drift || {}, cves || {}, mailwatch || {});
-  _renderHomeAttention();
+  // v3.3.0: was 7 parallel /api/* requests per 60s refresh — under CGI
+  // that's 7 fresh Python processes per dashboard tick per operator.
+  // /api/home bundles devices (slim), drift summary, CVE counts, fleet
+  // events, mailwatch, links, attention digest, and the handful of
+  // config flags Home actually reads, into one round-trip.
+  const home = await api('GET', '/home').catch(() => null);
+  if (!home) {
+    _renderHomeTiles([], {}, {}, {});
+    return;
+  }
+  const devs        = home.devices      || [];
+  const drift       = home.drift        || {};
+  const cves        = home.cves         || {};
+  const fleetEvents = home.fleet_events || [];
+  const mailwatch   = home.mailwatch    || {};
+  const linksResp   = {links: home.links || []};
+  // The attention payload is embedded so _renderHomeAttention can use
+  // it directly without re-fetching /api/attention.
+  _renderHomeTiles(devs, drift, cves, mailwatch);
+  _renderHomeAttention(home.attention);
   _renderHomeActivity(fleetEvents);
-  _renderHomeFleet(devs || []);
-  _renderHomeLinks(linksResp?.links || []);
+  _renderHomeFleet(devs);
+  _renderHomeLinks(linksResp.links);
 }
 
 function _renderHomeLinks(links) {
@@ -9355,16 +9351,20 @@ function _renderHomeTiles(devs, drift, cves, mailwatch) {
 // /api/attention — one source of truth, and it includes signals the
 // old client-side version missed (CVE findings, mailbox threshold
 // breaches) on top of offline devices, patch pileups and drift.
-async function _renderHomeAttention() {
+async function _renderHomeAttention(preloaded) {
   const target = document.getElementById('home-attention');
   if (!target) return;
-  let data;
-  try {
-    data = await api('GET', '/attention');
-  } catch (e) {
-    target.innerHTML = '<div class="empty-state isl-553">'
-      + '<div class="empty-state-body">Could not load the digest.</div></div>';
-    return;
+  // v3.3.0: when loadHome() passes the attention payload in directly
+  // (bundled with /api/home), skip the extra /api/attention round-trip.
+  let data = preloaded;
+  if (!data) {
+    try {
+      data = await api('GET', '/attention');
+    } catch (e) {
+      target.innerHTML = '<div class="empty-state isl-553">'
+        + '<div class="empty-state-body">Could not load the digest.</div></div>';
+      return;
+    }
   }
   const items = (data && data.items) || [];
   if (!items.length) {
@@ -11482,14 +11482,17 @@ async function loadListeningPorts() {
     return;
   }
 
-  // v2.9.0: fetch sysinfo per device to get persisted listening_ports
-  const portData = await Promise.all(
-    monitored.map(d =>
-      api('GET', `/devices/${d.id}/sysinfo`)
-        .then(r => ({ id: d.id, name: d.name, ports: r?.sysinfo?.listening_ports || [] }))
-        .catch(() => ({ id: d.id, name: d.name, ports: [] }))
-    )
-  );
+  // v3.3.0: batch sysinfo fetch via /api/devices/sysinfo?ids=… (one
+  // CGI process instead of N+1). Falls back to empty ports per device
+  // if a particular id is missing from the response.
+  const idsParam = monitored.map(d => encodeURIComponent(d.id)).join(',');
+  const batch = await api('GET', `/devices/sysinfo?ids=${idsParam}`)
+    .catch(() => ({ sysinfo: {} }));
+  const sysmap = (batch && batch.sysinfo) || {};
+  const portData = monitored.map(d => ({
+    id: d.id, name: d.name,
+    ports: (sysmap[d.id] && sysmap[d.id].listening_ports) || [],
+  }));
 
   const rows = portData.flatMap(d =>
     d.ports.map(p => ({ device: d.name, dev_id: d.id, proto: p.proto||'tcp', port: p.port||0, process: p.process||'' }))
@@ -11585,13 +11588,15 @@ async function loadProcesses() {
     return;
   }
 
-  const procData = await Promise.all(
-    monitored.map(d =>
-      api('GET', `/devices/${d.id}/sysinfo`)
-        .then(r => ({ id: d.id, name: d.name, procs: r?.sysinfo?.top_processes || [] }))
-        .catch(() => ({ id: d.id, name: d.name, procs: [] }))
-    )
-  );
+  // v3.3.0: batch sysinfo fetch (one CGI process for N devices).
+  const idsParam = monitored.map(d => encodeURIComponent(d.id)).join(',');
+  const batch = await api('GET', `/devices/sysinfo?ids=${idsParam}`)
+    .catch(() => ({ sysinfo: {} }));
+  const sysmap = (batch && batch.sysinfo) || {};
+  const procData = monitored.map(d => ({
+    id: d.id, name: d.name,
+    procs: (sysmap[d.id] && sysmap[d.id].top_processes) || [],
+  }));
 
   _processRows = procData.flatMap(d =>
     d.procs.map(p => ({ device: d.name, dev_id: d.id, name: p.name || '', pid: p.pid || 0, cpu: p.cpu || 0, mem: p.mem || 0 }))
