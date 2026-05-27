@@ -14270,6 +14270,98 @@ function toggleSidebarCollapse() {
 
 let _acmeData = { devices: [], providers: {} };
 
+// v3.3.0: DNS provider credential management. The Settings UI surfaces
+// per-provider form cards; the server stores values under
+// config.acme_dns_credentials[provider] and injects them as env vars
+// when issuing certs. Blank input fields = "leave unchanged" (the
+// server preserves existing values), so secrets never have to be
+// re-entered to make a different change.
+async function openAcmeDnsCreds() {
+  openModal('acme-dns-creds-modal');
+  const body = document.getElementById('acme-dns-creds-body');
+  if (body) body.innerHTML = '<div class="isl-78">Loading…</div>';
+  const data = await api('GET', '/acme/dns-credentials').catch(() => null);
+  if (!data || !data.providers) {
+    if (body) body.innerHTML = '<div class="hint">Failed to load credentials.</div>';
+    return;
+  }
+  _renderAcmeDnsCreds(data.providers);
+}
+
+function _renderAcmeDnsCreds(providers) {
+  const body = document.getElementById('acme-dns-creds-body');
+  if (!body) return;
+  // Sort: any provider with at least one field set first, then alphabetical.
+  providers.sort((a, b) => {
+    const aSet = (a.fields || []).some(f => f.set) ? 0 : 1;
+    const bSet = (b.fields || []).some(f => f.set) ? 0 : 1;
+    if (aSet !== bSet) return aSet - bSet;
+    return a.label.localeCompare(b.label);
+  });
+  body.innerHTML = providers.map(p => {
+    const anySet = (p.fields || []).some(f => f.set);
+    const fields = (p.fields || []).map(f => `
+      <div class="form-group">
+        <label class="form-label">${escHtml(f.label)}${f.required ? ' <span class="c-red">*</span>' : ''}${f.set ? ' <span class="meta-sm c-green">(set)</span>' : ''}</label>
+        <input type="${f.secret ? 'password' : 'text'}" class="form-input ff-mono"
+               data-cred-field="${escAttr(f.name)}"
+               placeholder="${f.set ? '••••••• (leave blank to keep)' : (f.hint || '')}"
+               autocomplete="off">
+        ${f.hint && !f.set ? `<div class="meta-sm c-muted">${escHtml(f.hint)}</div>` : ''}
+      </div>
+    `).join('');
+    return `
+      <details class="settings-section" ${anySet ? 'open' : ''} data-provider="${escAttr(p.provider)}">
+        <summary><strong>${escHtml(p.label)}</strong>${anySet ? ' <span class="meta-sm c-green">(configured)</span>' : ''} <span class="meta-sm c-muted">${escHtml(p.provider)}</span></summary>
+        ${fields}
+        <div class="row-6">
+          <button class="btn-primary" data-action="saveAcmeDnsCreds" data-arg="${escAttr(p.provider)}">Save</button>
+          ${anySet ? `<button class="btn-secondary c-danger-outline" data-action="clearAcmeDnsCreds" data-arg="${escAttr(p.provider)}">Clear all</button>` : ''}
+        </div>
+      </details>
+    `;
+  }).join('');
+}
+
+async function saveAcmeDnsCreds(providerKey) {
+  const block = document.querySelector(`[data-provider="${providerKey}"]`);
+  if (!block) return;
+  const creds = {};
+  block.querySelectorAll('[data-cred-field]').forEach(inp => {
+    const name = inp.dataset.credField;
+    const v = (inp.value || '').trim();
+    if (v) creds[name] = v;  // blank = leave unchanged
+  });
+  const r = await api('POST', '/acme/dns-credentials', {
+    provider:    providerKey,
+    credentials: creds,
+  });
+  if (r?.ok) {
+    toast(`${providerKey} credentials saved`, 'success');
+    openAcmeDnsCreds();  // refresh to pick up "set" flags
+  } else {
+    toast(r?.error || 'Failed to save', 'error');
+  }
+}
+
+async function clearAcmeDnsCreds(providerKey) {
+  if (!confirm(`Clear ALL stored credentials for ${providerKey}?\n\nFuture issuances/renewals will fall back to whatever the agent has in ~/.acme.sh/account.conf.`)) return;
+  // Send explicit nulls for every field this provider declares so the
+  // server clears them all in one call.
+  const block = document.querySelector(`[data-provider="${providerKey}"]`);
+  if (!block) return;
+  const creds = {};
+  block.querySelectorAll('[data-cred-field]').forEach(inp => {
+    creds[inp.dataset.credField] = null;
+  });
+  const r = await api('POST', '/acme/dns-credentials', {
+    provider:    providerKey,
+    credentials: creds,
+  });
+  if (r?.ok) { toast(`${providerKey} credentials cleared`, 'info'); openAcmeDnsCreds(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
 async function loadAcme() {
   const tbody = document.getElementById('acme-tbody');
   if (!tbody) return;

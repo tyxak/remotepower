@@ -19249,6 +19249,8 @@ def main():
     elif pi == '/api/ai/params' and m == 'GET':  handle_ai_params_get()
     elif pi == '/api/ai/params' and m == 'POST': handle_ai_params_save()
     elif pi == '/api/acme' and m == 'GET':                       handle_acme_list()
+    elif pi == '/api/acme/dns-credentials' and m == 'GET':       handle_acme_dns_credentials_get()
+    elif pi == '/api/acme/dns-credentials' and m == 'POST':      handle_acme_dns_credentials_set()
     elif pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST':
         handle_acme_issue(pi[len('/api/acme/'):-len('/issue')])
     elif pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET':
@@ -20772,6 +20774,128 @@ ACME_DNS_PROVIDERS = {
     'dns_porkbun':  'Porkbun',
 }
 
+# v3.3.0: per-provider credential metadata. Each entry lists the env
+# vars acme.sh expects. The Settings UI iterates this to render input
+# fields; the issue/renew handlers iterate it to build the
+# `export X=... Y=...` prefix injected into the queued acme.sh command.
+# Values stored under config['acme_dns_credentials'][<provider>][<key>].
+#
+# Reference: https://github.com/acmesh-official/acme.sh/wiki/dnsapi
+ACME_DNS_CREDENTIAL_FIELDS = {
+    'dns_cf': [
+        {'name': 'CF_Token',      'label': 'API Token (recommended)', 'required': False,
+         'hint': 'Scoped Cloudflare API Token with Zone:DNS:Edit. Preferred over the legacy Global API Key.'},
+        {'name': 'CF_Account_ID', 'label': 'Account ID',              'required': False,
+         'hint': 'Required when using CF_Token. Find under "Account ID" on the Cloudflare dashboard.'},
+        {'name': 'CF_Key',        'label': 'Global API Key (legacy)', 'required': False, 'secret': True,
+         'hint': 'Only if you cannot use a scoped Token.'},
+        {'name': 'CF_Email',      'label': 'Account email (legacy)',  'required': False},
+    ],
+    'dns_hetzner': [
+        {'name': 'HETZNER_Token', 'label': 'API Token', 'required': True, 'secret': True,
+         'hint': 'Hetzner DNS Console → API Tokens → create new.'},
+    ],
+    'dns_aws': [
+        {'name': 'AWS_ACCESS_KEY_ID',     'label': 'Access Key ID',     'required': True},
+        {'name': 'AWS_SECRET_ACCESS_KEY', 'label': 'Secret Access Key', 'required': True, 'secret': True},
+    ],
+    'dns_dgon': [
+        {'name': 'DO_API_KEY', 'label': 'DigitalOcean API Token', 'required': True, 'secret': True},
+    ],
+    'dns_gandi_livedns': [
+        {'name': 'GANDI_LIVEDNS_KEY', 'label': 'Gandi LiveDNS API Key', 'required': True, 'secret': True},
+    ],
+    'dns_he': [
+        {'name': 'HE_Username', 'label': 'Hurricane Electric username', 'required': True},
+        {'name': 'HE_Password', 'label': 'Password',                    'required': True, 'secret': True},
+    ],
+    'dns_desec': [
+        {'name': 'DEDYN_TOKEN', 'label': 'deSEC API Token', 'required': True, 'secret': True},
+        {'name': 'DEDYN_NAME',  'label': 'deSEC dyndns hostname', 'required': False},
+    ],
+    'dns_namecheap': [
+        {'name': 'NAMECHEAP_USERNAME', 'label': 'Username',  'required': True},
+        {'name': 'NAMECHEAP_API_KEY',  'label': 'API Key',   'required': True, 'secret': True},
+        {'name': 'NAMECHEAP_SOURCEIP', 'label': 'Source IP', 'required': False,
+         'hint': 'Public IP allowed by your Namecheap API Access whitelist.'},
+    ],
+    'dns_namesilo': [
+        {'name': 'NameSilo_Key', 'label': 'NameSilo API Key', 'required': True, 'secret': True},
+    ],
+    'dns_ovh': [
+        {'name': 'OVH_AK',         'label': 'Application Key',    'required': True},
+        {'name': 'OVH_AS',         'label': 'Application Secret', 'required': True, 'secret': True},
+        {'name': 'OVH_CK',         'label': 'Consumer Key',       'required': True, 'secret': True},
+        {'name': 'OVH_END_POINT',  'label': 'Endpoint',           'required': False,
+         'hint': 'ovh-eu / ovh-ca / ovh-us / kimsufi-eu / soyoustart-eu (default: ovh-eu).'},
+    ],
+    'dns_porkbun': [
+        {'name': 'PORKBUN_API_KEY',         'label': 'API Key',        'required': True, 'secret': True},
+        {'name': 'PORKBUN_SECRET_API_KEY',  'label': 'Secret API Key', 'required': True, 'secret': True},
+    ],
+    'dns_rfc2136': [
+        {'name': 'NSUPDATE_KEY',    'label': 'TSIG keyfile path on the agent', 'required': True,
+         'hint': 'Absolute path to a keyfile on the device — secret stays on-host.'},
+        {'name': 'NSUPDATE_SERVER', 'label': 'Nameserver',                     'required': True,
+         'hint': 'Authoritative DNS server that accepts dynamic updates.'},
+    ],
+    'dns_acmedns': [
+        {'name': 'ACMEDNS_USERNAME',    'label': 'acme-dns username',  'required': True},
+        {'name': 'ACMEDNS_PASSWORD',    'label': 'acme-dns password',  'required': True, 'secret': True},
+        {'name': 'ACMEDNS_SUBDOMAIN',   'label': 'acme-dns subdomain', 'required': True},
+        {'name': 'ACMEDNS_BASE_URL',    'label': 'acme-dns base URL',  'required': True,
+         'hint': 'e.g. https://auth.acme-dns.io'},
+    ],
+}
+
+
+def _acme_credential_env_prefix(provider: str) -> str:
+    """Return the `export X=... Y=...` prefix for a given provider, or
+    empty string if no credentials are stored. The prefix is injected
+    into the queued acme.sh command so the agent sees the secrets in
+    the spawned shell only — not as persistent env. Values are
+    single-quoted; embedded single quotes are escaped.
+
+    v3.3.0: lets RemotePower centrally manage DNS-01 credentials
+    instead of asking the operator to edit ~/.acme.sh/account.conf
+    on every device.
+    """
+    if provider not in ACME_DNS_CREDENTIAL_FIELDS:
+        return ''
+    cfg = load(CONFIG_FILE) or {}
+    creds = (cfg.get('acme_dns_credentials') or {}).get(provider) or {}
+    parts = []
+    for field in ACME_DNS_CREDENTIAL_FIELDS[provider]:
+        name = field['name']
+        val = creds.get(name)
+        if not val:
+            continue
+        # Single-quote and escape any embedded quotes
+        escaped = str(val).replace("'", "'\"'\"'")
+        parts.append(f"{name}='{escaped}'")
+    if not parts:
+        return ''
+    return 'export ' + ' '.join(parts) + ' && '
+
+
+def _scrub_acme_credentials(cmd: str) -> str:
+    """Replace credential values in a queued acme.sh command with
+    `***REDACTED***` for audit-log + UI display. Operators see the
+    structure of the command but not the secret material."""
+    if 'export ' not in cmd:
+        return cmd
+    out = cmd
+    for provider, fields in ACME_DNS_CREDENTIAL_FIELDS.items():
+        for f in fields:
+            name = f['name']
+            # Match: NAME='anything-up-to-trailing-quote'
+            out = re.sub(
+                rf"({re.escape(name)})='[^']*'",
+                r"\1='***REDACTED***'",
+                out,
+            )
+    return out
+
 
 def _ingest_acme_state(dev_id, acme):
     """Persist the latest per-device acme.sh scan. acme is whatever the
@@ -20873,6 +20997,87 @@ def handle_acme_list():
         })
     out.sort(key=lambda r: r['device_name'].lower())
     respond(200, {'devices': out, 'providers': ACME_DNS_PROVIDERS})
+
+
+def handle_acme_dns_credentials_get():
+    """GET /api/acme/dns-credentials — list providers with credential
+    metadata + which fields are currently set (boolean only, never
+    the secret value).
+
+    v3.3.0: centrally-managed DNS-01 credentials so the operator
+    doesn't have to ssh into each device and edit
+    ~/.acme.sh/account.conf.
+    """
+    require_admin_auth()
+    cfg = load(CONFIG_FILE) or {}
+    saved = cfg.get('acme_dns_credentials') or {}
+    out = []
+    for pkey, plabel in ACME_DNS_PROVIDERS.items():
+        fields = ACME_DNS_CREDENTIAL_FIELDS.get(pkey)
+        if not fields:
+            continue
+        provider_saved = saved.get(pkey) or {}
+        ui_fields = []
+        for f in fields:
+            ui_fields.append({
+                'name':     f['name'],
+                'label':    f['label'],
+                'required': bool(f.get('required')),
+                'secret':   bool(f.get('secret')),
+                'hint':     f.get('hint', ''),
+                'set':      bool(provider_saved.get(f['name'])),
+            })
+        out.append({
+            'provider': pkey,
+            'label':    plabel,
+            'fields':   ui_fields,
+        })
+    respond(200, {'providers': out})
+
+
+def handle_acme_dns_credentials_set():
+    """POST /api/acme/dns-credentials — save credentials for a single
+    provider. Empty/missing string for a field means "leave
+    unchanged" (so the UI can render masked placeholders without
+    forcing re-entry on every save).
+
+    Body: {provider: "dns_cf", credentials: {CF_Token: "...", ...}}.
+    Sending an explicit null value clears the field.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    provider = str(body.get('provider', '')).strip()
+    if provider not in ACME_DNS_CREDENTIAL_FIELDS:
+        respond(400, {'error': f'unknown provider {provider!r}'})
+    new_creds = body.get('credentials') or {}
+    if not isinstance(new_creds, dict):
+        respond(400, {'error': 'credentials must be an object'})
+    allowed_fields = {f['name']: f for f in ACME_DNS_CREDENTIAL_FIELDS[provider]}
+    changed = []
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        store = cfg.setdefault('acme_dns_credentials', {})
+        provider_store = store.setdefault(provider, {})
+        for fname, val in new_creds.items():
+            if fname not in allowed_fields:
+                continue  # silently drop unknown keys
+            if val is None:
+                if fname in provider_store:
+                    del provider_store[fname]
+                    changed.append(fname)
+                continue
+            sval = _sanitize_str(str(val), 1024, allow_empty=True).strip()
+            if not sval:
+                continue  # blank = leave unchanged
+            provider_store[fname] = sval
+            changed.append(fname)
+        # Prune the provider entry if all fields ended up empty
+        if not provider_store:
+            store.pop(provider, None)
+    audit_log(actor, 'acme_dns_credentials_set',
+              detail=f'provider={provider} fields={",".join(changed) or "(none)"}')
+    respond(200, {'ok': True, 'updated_fields': changed})
 
 
 def handle_acme_detail(dev_id, domain):
@@ -21173,8 +21378,14 @@ def handle_acme_issue(dev_id):
     home = rec.get('home') or '/root/.acme.sh'
     # Build the acme.sh command. acme.sh accepts multiple -d for SAN.
     d_args = [f"-d '{d}'" for d in [domain, *alt_names]]
-    cmd = (f"'{home}/acme.sh' --issue --dns {dns_provider} "
-           f"{' '.join(d_args)} --keylength {key_length}")
+    # v3.3.0: inject DNS-provider credentials from the server's central
+    # store so the operator doesn't have to edit ~/.acme.sh/account.conf
+    # on every device. Empty prefix when no creds are stored — the agent
+    # falls back to acme.sh's normal env/config-file lookup.
+    cred_prefix = _acme_credential_env_prefix(dns_provider)
+    cmd = (cred_prefix
+           + f"'{home}/acme.sh' --issue --dns {dns_provider} "
+           + f"{' '.join(d_args)} --keylength {key_length}")
     result = _acme_queue_command(dev_id, 'issue', domain, cmd)
     if result:
         respond(200, result)

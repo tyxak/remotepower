@@ -3109,6 +3109,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <input type="text" id="acme-filter" class="form-input isl-15" placeholder="Filter domain, device…" data-input="_acmeRenderTable">
               </div>
               <button class="btn-icon isl-182" data-action="acmeOpenIssue">+ Issue new cert</button>
+              <button class="btn-icon" data-action="openAcmeDnsCreds">DNS provider credentials</button>
               <button class="btn-icon" data-action="loadAcme" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh</button>
             </div>
           </div>
@@ -3926,6 +3927,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v3.0.1: ACME — Issue new cert wizard (3 steps) ───────────────────── -->
+<div class="modal-overlay" id="acme-dns-creds-modal"><div class="modal modal-wide">
+  <div class="modal-title">DNS provider credentials</div>
+  <div class="modal-subtitle">Centrally-managed API tokens for ACME DNS-01 challenges. Stored in <code>config.json</code> on the server (admin-only readable, redacted from backup exports); injected into the queued <code>acme.sh</code> command at issuance time so the agent doesn't need its own <code>account.conf</code>. Blank values leave the existing token unchanged.</div>
+  <div id="acme-dns-creds-body" class="isl-87"><div class="isl-78">Loading…</div></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="acme-dns-creds-modal">Close</button>
+  </div>
+</div></div>
+
 <div class="modal-overlay" id="acme-issue-modal"><div class="modal modal-wide">
   <div class="modal-title">Issue new Let's Encrypt cert</div>
   <div class="modal-subtitle" id="acme-issue-subtitle">acme.sh with DNS-01 challenge. Wildcards supported.</div>
