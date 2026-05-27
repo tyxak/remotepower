@@ -148,6 +148,22 @@ const tableCtl = (() => {
   function _wireHeaders(opts) {
     const thead = document.getElementById(opts.sortHeaders);
     if (!thead) return;
+    // v3.3.0 freeze fix: wireSortOnly used to call addEventListener
+    // on every invocation. For tables whose <thead> is static markup
+    // (Monitoring → Processes is the canonical example), each call
+    // STACKED another click handler — N handlers per th after N
+    // wire calls. Every handler fires on click, each one re-renders
+    // (which re-wires), so handler count doubles per click. Browser
+    // freezes within a few clicks.
+    //
+    // Tables that re-render their thead via innerHTML (e.g. the
+    // ports table) get a fresh element without our flag and wire
+    // normally. So this guard is safe for both shapes.
+    if (thead.dataset.sortWired === '1') {
+      _renderSortIndicators(opts);
+      return;
+    }
+    thead.dataset.sortWired = '1';
     thead.querySelectorAll('th[data-col]').forEach(th => {
       th.style.cursor = 'pointer';
       th.style.userSelect = 'none';
@@ -1282,7 +1298,7 @@ function _registerMonitorTable() {
     }),
     row: (m) => {
       const i = (window.monitorTargets || []).indexOf(m);
-      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" data-action="removeMonitor" data-arg="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(m.label)}</td><td><span class="isl-327">${escHtml(m.type)}</span></td><td class="isl-328">${escHtml(m.target)}</td><td><span class="mon-status ${m.ok ? 'up' : 'down'}">${m.ok ? '↑ up' : '↓ down'}</span></td><td class="hint">${escHtml(m.detail || '—')}</td><td class="hint">${m.checked ? timeAgo(m.checked) : '—'}</td><td class="row-6"><button class="btn-icon isl-44" title="History" data-action="openMonitorHistory" data-arg="${escAttr(m.label)}" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button><button class="btn-icon isl-44" title="Edit" data-action="editMonitor" data-arg="${i}">${_icon('edit',14)}</button><button class="btn-icon isl-44" title="Delete" data-action="removeMonitor" data-arg="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></td></tr>`;
     },
     emptyMsg: 'No monitors configured.',
     emptyMsgFiltered: 'No monitors match the filter.',
@@ -1301,8 +1317,52 @@ async function runMonitor() {
   window.monitorTargets = results;
   tableCtl.render('monitor', results);
 }
-function openMonitorAdd() { document.getElementById('mon-label').value = ''; document.getElementById('mon-type').value = 'ping'; document.getElementById('mon-target').value = ''; openModal('monitor-add-modal'); }
-async function addMonitor() { const label = document.getElementById('mon-label').value.trim(); const type = document.getElementById('mon-type').value; const target = document.getElementById('mon-target').value.trim(); if (!target) { toast('Target is required', 'error'); return; } const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = [...(cfg.monitors || []), {label: label || target, type, target}]; const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Monitor added', 'success'); closeModal('monitor-add-modal'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
+// v3.3.0: Monitor add/edit share a single modal. _monitorEditIdx is the
+// array index of the monitor being edited, or -1 for "add new".
+let _monitorEditIdx = -1;
+function openMonitorAdd() {
+  _monitorEditIdx = -1;
+  const t = document.querySelector('#monitor-add-modal .modal-title');
+  if (t) t.textContent = 'Add monitor target';
+  document.getElementById('mon-label').value = '';
+  document.getElementById('mon-type').value = 'ping';
+  document.getElementById('mon-target').value = '';
+  openModal('monitor-add-modal');
+}
+function editMonitor(idx) {
+  const m = (window.monitorTargets || [])[idx];
+  if (!m) return;
+  _monitorEditIdx = idx;
+  const t = document.querySelector('#monitor-add-modal .modal-title');
+  if (t) t.textContent = 'Edit monitor target';
+  document.getElementById('mon-label').value  = m.label  || '';
+  document.getElementById('mon-type').value   = m.type   || 'ping';
+  document.getElementById('mon-target').value = m.target || '';
+  openModal('monitor-add-modal');
+}
+async function addMonitor() {
+  const label  = document.getElementById('mon-label').value.trim();
+  const type   = document.getElementById('mon-type').value;
+  const target = document.getElementById('mon-target').value.trim();
+  if (!target) { toast('Target is required', 'error'); return; }
+  const cfg = await api('GET', '/config');
+  if (!cfg) return;
+  const monitors = [...(cfg.monitors || [])];
+  const entry = {label: label || target, type, target};
+  if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
+    monitors[_monitorEditIdx] = entry;
+  } else {
+    monitors.push(entry);
+  }
+  const wasEdit = _monitorEditIdx >= 0;
+  const res = await api('POST', '/config', {monitors});
+  if (res?.ok) {
+    toast(wasEdit ? 'Monitor updated' : 'Monitor added', 'success');
+    _monitorEditIdx = -1;
+    closeModal('monitor-add-modal');
+    runMonitor();
+  } else toast(res?.error || 'Failed', 'error');
+}
 async function removeMonitor(idx) { const cfg = await api('GET', '/config'); if (!cfg) return; const monitors = (cfg.monitors || []).filter((_, i) => i !== idx); const res = await api('POST', '/config', {monitors}); if (res?.ok) { toast('Removed', 'info'); runMonitor(); } else toast(res?.error || 'Failed', 'error'); }
 async function openMonitorHistory(label) { document.getElementById('mon-history-title').textContent = `History: ${label}`; document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('mon-history-modal'); const data = await api('GET', `/monitor/history?label=${encodeURIComponent(label)}`); if (!data) return; const history = data.history || []; if (!history.length) { document.getElementById('mon-history-body').innerHTML = '<div class="empty-state">No history yet — run a check first.</div>'; return; } const recent = history.slice(-20); const dots = recent.map(h => `<span title="${new Date(h.ts*1000).toLocaleString()} — ${h.detail||''}" class="isl-329 ${h.ok ? 'ok' : 'bad'}"></span>`).join(''); const upCount = history.filter(h => h.ok).length; const pct = Math.round(upCount / history.length * 100); const lastCheck = history[history.length - 1]; document.getElementById('mon-history-body').innerHTML = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Checks</div><div class="value">${history.length}</div></div><div class="sysinfo-pill"><div class="label">Uptime</div><div class="value isl-330 ${pct>=90?'c-green': pct>=70?'c-amber': 'c-red'}">${pct}%</div></div><div class="sysinfo-pill"><div class="label">Last status</div><div class="value isl-331 ${lastCheck.ok?'c-green': 'c-red'}">${lastCheck.ok ? '↑ up' : '↓ down'}</div></div></div><div class="hint-mb">Last ${recent.length} checks (newest right)</div><div class="isl-332">${dots}</div><div class="table-card isl-333"><table><thead><tr><th>Time</th><th>Status</th><th>Detail</th></tr></thead><tbody>${[...history].reverse().slice(0,50).map(h => `<tr><td class="hint">${new Date(h.ts*1000).toLocaleString()}</td><td><span class="mon-status ${h.ok?'up':'down'}">${h.ok?'↑ up':'↓ down'}</span></td><td class="hint">${escHtml(h.detail||'—')}</td></tr>`).join('')}</tbody></table></div>`; }
 // v1.11.6: users page gets filter+sort
@@ -5468,8 +5528,10 @@ function cmdbRenderTable(rows) {
     const fn = r.server_function
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
       : '<span class="hint">—</span>';
+    // v3.3.0: clicking the Name cell opens the asset (same as the Open
+    // button). The button stays in the actions column for discoverability.
     return `<tr>
-      <td class="fw-500">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
+      <td class="fw-500 pointer" data-action="cmdbOpenAsset" data-arg="${_cmdbEsc(r.device_id)}">${osIcon(r.os, 14)} ${_cmdbEsc(r.name)}</td>
       <td class="mono-12">${_cmdbEsc(r.asset_id) || '<span class="c-muted">—</span>'}</td>
       <td>${fn}</td>
       <td class="hint">${_cmdbEsc(r.os) || '—'}</td>
@@ -6779,7 +6841,7 @@ function _registerTlsTable() {
         <td class="hint">${expires}</td>
         <td class="hint">${escHtml(issuer.slice(0,30))}</td>
         <td class="hint-nowrap">${lastChk}</td>
-        <td data-stop-prop="1" >${aiBtn}<button class="btn-icon c-danger-outline" data-action="tlsDelete" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.host)}" >✕</button></td>
+        <td data-stop-prop="1" >${aiBtn}<button class="btn-icon" title="Edit" data-action="tlsEditOpen" data-arg="${escAttr(t.id)}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete" data-action="tlsDelete" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.host)}" >×</button></td>
       </tr>`;
     },
     emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
@@ -6807,7 +6869,13 @@ function renderTLS() {
   tableCtl.render('tls', _tlsTargets);
 }
 
+// v3.3.0: TLS modal shared between Add and Edit. _tlsEditId holds the
+// target id when editing, or null for a new target.
+let _tlsEditId = null;
 function tlsAddOpen() {
+  _tlsEditId = null;
+  const t = document.querySelector('#tls-add-modal .modal-title');
+  if (t) t.textContent = 'Add TLS target';
   document.getElementById('tls-add-host').value = '';
   document.getElementById('tls-add-connect-addr').value = '';
   document.getElementById('tls-add-starttls').value = 'auto';
@@ -6818,6 +6886,23 @@ function tlsAddOpen() {
   document.getElementById('tls-add-dane').checked = false;
   openModal('tls-add-modal');
   setTimeout(() => document.getElementById('tls-add-host').focus(), 50);
+}
+
+function tlsEditOpen(id) {
+  const target = _tlsTargets.find(x => x.id === id);
+  if (!target) { toast('Target not found', 'error'); return; }
+  _tlsEditId = id;
+  const t = document.querySelector('#tls-add-modal .modal-title');
+  if (t) t.textContent = 'Edit TLS target';
+  document.getElementById('tls-add-host').value          = target.host || '';
+  document.getElementById('tls-add-connect-addr').value  = target.connect_address || '';
+  document.getElementById('tls-add-starttls').value      = target.starttls || 'auto';
+  document.getElementById('tls-add-port').value          = String(target.port || 443);
+  document.getElementById('tls-add-warn').value          = String(target.warn_days ?? 14);
+  document.getElementById('tls-add-crit').value          = String(target.crit_days ?? 3);
+  document.getElementById('tls-add-label').value         = target.label || '';
+  document.getElementById('tls-add-dane').checked        = !!target.dane_check;
+  openModal('tls-add-modal');
 }
 
 async function tlsAddSave() {
@@ -6832,10 +6917,13 @@ async function tlsAddSave() {
     dane_check:      document.getElementById('tls-add-dane').checked,
   };
   if (!body.host) { toast('Host required', 'error'); return; }
-  const r = await api('POST', '/tls/targets', body);
-  if (!r || !r.ok) { toast(r?.error || 'Add failed', 'error'); return; }
+  const r = _tlsEditId
+    ? await api('PUT',  '/tls/targets/' + encodeURIComponent(_tlsEditId), body)
+    : await api('POST', '/tls/targets', body);
+  if (!r || !r.ok) { toast(r?.error || 'Save failed', 'error'); return; }
   closeModal('tls-add-modal');
-  toast('Target added — click "Scan now" to probe it', 'success');
+  toast(_tlsEditId ? 'Target updated' : 'Target added — click "Scan now" to probe it', 'success');
+  _tlsEditId = null;
   loadTLS();
 }
 

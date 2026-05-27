@@ -8753,6 +8753,38 @@ def handle_tls_internal_webhook() -> None:
     respond(200, {'ok': True})
 
 
+def handle_tls_update(target_id: str) -> None:
+    """``PUT /api/tls/targets/{id}`` — edit an existing target.
+
+    v3.3.0: same validation as POST; id stays the same so previous
+    scan results stay attached. last_check / status / days_left are
+    preserved so the edit doesn't reset the row to "never scanned".
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not target_id.startswith('tls_'):
+        respond(404, {'error': 'target not found'})
+    body = get_json_body()
+    parsed = tls_monitor.parse_target(body)
+    if parsed is None:
+        respond(400, {'error': 'invalid target — host required, port 1-65535'})
+    with _LockedUpdate(TLS_TARGETS_FILE) as targets:
+        if target_id not in targets:
+            respond(404, {'error': 'target not found'})
+        existing = targets[target_id]
+        # Preserve scan-result fields the operator can't edit.
+        for k in ('last_check', 'status', 'days_left', 'expires_at',
+                  'issuer', 'tls_error', 'dns_error',
+                  'dane_status', 'tls_chain'):
+            if k in existing and k not in parsed:
+                parsed[k] = existing[k]
+        targets[target_id] = parsed
+    audit_log(actor, 'tls_target_update',
+              detail=f'id={target_id} host={parsed["host"]}:{parsed["port"]}')
+    respond(200, {'ok': True, 'id': target_id})
+
+
 def handle_tls_delete(target_id: str) -> None:
     """``DELETE /api/tls/targets/{id}`` — remove from watchlist."""
     actor = require_admin_auth()
@@ -19295,6 +19327,8 @@ def main():
     # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
     elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()
     elif pi == '/api/tls/targets' and m == 'POST': handle_tls_add()
+    elif pi.startswith('/api/tls/targets/') and m == 'PUT':
+        handle_tls_update(pi[len('/api/tls/targets/'):])
     elif pi == '/api/internal/tls-webhook' and m == 'POST': handle_tls_internal_webhook()
     elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
         handle_tls_delete(pi[len('/api/tls/targets/'):])
