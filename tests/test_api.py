@@ -360,6 +360,47 @@ class TestChannelRouting(ApiTestBase):
         self.assertEqual(api_module.NA_KIND_ALIAS.get('monitor_down'), 'monitor')
         self.assertEqual(api_module.NA_KIND_ALIAS.get('custom_script_fail'), 'script')
 
+    def test_newly_wired_events_create_alerts(self):
+        """v3.2.3: previously these events fired webhooks but were absent
+        from _ALERT_RULES, so they never landed in the Alerts inbox.
+        Each call below should produce one open alert entry."""
+        cases = [
+            ('monitor_down',         {'label': 'web1', 'target': 'https://x'}),
+            ('brute_force_detected', {'device_id': 'd', 'name': 'h',
+                                      'source_ip': '1.2.3.4', 'count': 25,
+                                      'unit': 'sshd'}),
+            ('ssh_key_added',        {'device_id': 'd', 'name': 'h',
+                                      'user': 'root', 'fingerprint': 'SHA256:abc'}),
+            ('backup_stale',         {'device_id': 'd', 'name': 'h',
+                                      'path': '/var/backups/db.sql',
+                                      'label': 'nightly db', 'age_hours': 26}),
+            ('snapshot_old',         {'vm_name': 'vm1', 'snap_name': 'pre-upgrade',
+                                      'days_old': 90}),
+            ('reboot_required',      {'device_id': 'd', 'name': 'h'}),
+            ('new_port_detected',    {'device_id': 'd', 'name': 'h',
+                                      'proto': 'tcp', 'port': 9999, 'process': 'foo'}),
+        ]
+        for event, payload in cases:
+            result = api_module._record_alert(event, payload)
+            self.assertIsNotNone(result,
+                f'{event} should now create an alert (was None)')
+            self.assertIn('title', result)
+            self.assertTrue(result['title'].strip(),
+                f'{event} alert title must not be empty')
+
+    def test_monitor_up_resolves_monitor_down(self):
+        """monitor_up has no device_id but should still resolve the
+        matching monitor_down alert via label+target sub-match."""
+        api_module._record_alert('monitor_down',
+            {'label': 'web1', 'target': 'https://x', 'detail': 'timeout'})
+        api_module._auto_resolve_alerts('monitor_up',
+            {'label': 'web1', 'target': 'https://x'})
+        alerts = api_module.load(api_module.ALERTS_FILE).get('alerts', [])
+        self.assertTrue(alerts, 'monitor_down should have produced an alert')
+        self.assertTrue(alerts[0].get('resolved_at'),
+            'monitor_up should have auto-resolved the monitor_down alert')
+        self.assertEqual(alerts[0].get('resolved_by'), 'auto')
+
     def test_state_derived_kinds_present(self):
         """NA-only kinds emitted from device state (no firing event)
         must have matrix rows so operators can silence them. Without

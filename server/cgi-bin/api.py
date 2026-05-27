@@ -1937,6 +1937,18 @@ _ALERT_RULES = {
     'snmp_dead':              ('critical', None),
     # v3.2.0 (A1 follow-up): silent confirmation timeout
     'mcp_confirmation_expired': ('medium', None),
+    # v3.2.3: these events fire webhooks + land in fleet_events.json
+    # already, but were never routed to the Alerts inbox. Wiring them
+    # in makes the channel-routing matrix's `alerts` toggle meaningful
+    # for the corresponding kinds. Severities follow the existing
+    # convention (security signals → high; threshold/state → medium).
+    'monitor_down':           ('high',     None),
+    'brute_force_detected':   ('high',     None),
+    'ssh_key_added':          ('high',     None),
+    'backup_stale':           ('medium',   None),
+    'snapshot_old':           ('medium',   None),
+    'reboot_required':        ('medium',   None),
+    'new_port_detected':      ('medium',   None),
 }
 
 # Map recover event → firing event it resolves
@@ -1945,6 +1957,9 @@ _ALERT_RECOVER = {
     'service_recover':         'service_down',
     'custom_script_recover':   'custom_script_fail',
     'snmp_recover':            'snmp_unreachable',
+    # v3.2.3: monitor_up auto-resolves the matching monitor_down alert
+    # so the inbox stays clean when an external target recovers.
+    'monitor_up':              'monitor_down',
     # snmp_recover also resolves any snmp_dead alert (same device).
     # _auto_resolve_alerts walks once per recovered event, so we register
     # both here. The trick: dict keys must be unique, so the second
@@ -2212,14 +2227,40 @@ def _alert_title(event, payload):
             first = str(samples[0])[:160]
             return f'Log alert on {name} ({unit}): {first}'
         return f'Log alert on {name}: {p.get("pattern") or p.get("unit", "")}'
-    if event == 'metric_warning':
-        return f'{p.get("metric", "metric")} {(p.get("level") or "warning")} on {name}: {p.get("value", "?")}'
+    if event in ('metric_warning', 'metric_critical'):
+        lvl = (p.get('level') or ('critical' if event == 'metric_critical' else 'warning')).upper()
+        return f'{p.get("metric", "metric")} {lvl} on {name}: {p.get("value", "?")}'
     if event == 'snmp_unreachable':
         return f'SNMP unreachable: {name} ({p.get("host", "?")})'
     if event == 'snmp_dead':
         return f'SNMP DEAD ({p.get("hours", "?")}h silent): {name} ({p.get("host", "?")})'
     if event == 'mcp_confirmation_expired':
         return f'MCP confirmation expired: {p.get("action", "?")} on {name or "(no device)"}'
+    # v3.2.3: titles for the newly-wired alerts. Use the most
+    # operator-relevant fields from each event's payload.
+    if event == 'monitor_down':
+        label = p.get('label') or p.get('target', '?')
+        target = p.get('target', '?')
+        return f'Monitor down: {label} ({target})'
+    if event == 'brute_force_detected':
+        return (f'Brute-force on {name}: {p.get("count", "?")} attempts '
+                f'from {p.get("source_ip", "?")} on {p.get("unit", "ssh")}')
+    if event == 'ssh_key_added':
+        return f'New SSH key on {name}: {p.get("user", "?")} ({p.get("fingerprint", "?")})'
+    if event == 'new_port_detected':
+        proc = p.get('process') or '?'
+        return (f'New listening port on {name}: '
+                f'{p.get("proto", "tcp")}/{p.get("port", "?")} ({proc})')
+    if event == 'backup_stale':
+        identifier = p.get('label') or p.get('path', '?')
+        age = p.get('age_hours')
+        age_part = f'{age}h old' if age is not None else 'missing'
+        return f'Stale backup on {name}: {identifier} ({age_part})'
+    if event == 'snapshot_old':
+        return (f'Old snapshot on {p.get("vm_name", "?")}: '
+                f'"{p.get("snap_name", "?")}" {p.get("days_old", "?")}d old')
+    if event == 'reboot_required':
+        return f'Reboot required: {name}'
     return f'{event}: {name}'
 
 
@@ -2263,7 +2304,15 @@ def _record_alert(event, payload):
                     'high', 'upgradable', 'pattern', 'level', 'days',
                     'container', 'script_name', 'value', 'source',
                     # B2: inbound webhooks set these
-                    'inbound_token_id', 'inbound_source'):
+                    'inbound_token_id', 'inbound_source',
+                    # v3.2.3: payload keys for the newly-wired alerts —
+                    # monitor (label/target), brute_force (source_ip/
+                    # count), ssh_key (user/fingerprint), new_port
+                    # (proto/port/process), backup (label/age_hours),
+                    # snapshot (vm_name/snap_name/days_old).
+                    'label', 'target', 'source_ip', 'count',
+                    'user', 'fingerprint', 'proto', 'port', 'process',
+                    'age_hours', 'vm_name', 'snap_name', 'days_old'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -2304,14 +2353,20 @@ def _auto_resolve_alerts(event, payload):
         return
     p = payload or {}
     dev_id = p.get('device_id')
-    if not dev_id:
-        return
     # Optional sub-keys to disambiguate (e.g. service unit, script name)
     sub_match = {}
     if event == 'service_recover':
         sub_match['unit'] = p.get('unit')
     elif event == 'custom_script_recover':
         sub_match['script_name'] = p.get('script_name')
+    elif event == 'monitor_up':
+        # Monitor events have no device_id — match by label+target instead
+        sub_match['label']  = p.get('label')
+        sub_match['target'] = p.get('target')
+    # Require either a device_id OR enough sub_match keys to identify
+    # which alert this recovery resolves. Without either, bail.
+    if not dev_id and not any(v for v in sub_match.values()):
+        return
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             now = int(time.time())
@@ -2320,9 +2375,12 @@ def _auto_resolve_alerts(event, payload):
                     continue
                 if a.get('event') not in targets:
                     continue
-                if a.get('device_id') != dev_id:
+                # Device-id match required only when the recovery event
+                # provided one; sub_match-only events (monitor_up) skip
+                # this and rely entirely on label/target.
+                if dev_id and a.get('device_id') != dev_id:
                     continue
-                # Sub-key match for service/script events
+                # Sub-key match for service/script/monitor events
                 ok = True
                 for k, v in sub_match.items():
                     if v is None:
