@@ -11774,13 +11774,24 @@ def handle_home():
     drift = {'devices': drift_rows}
 
     # CVE summary — Home only reads per-device counts (critical/high/medium/low).
+    # v3.3.0 bugfix: apply the CVE ignore filter so the dashboard tile
+    # matches the CVE page exactly. Previously this loop counted raw
+    # findings — operators who'd silenced 3 critical CVEs saw "3
+    # critical" on the dashboard tile while the CVE page (which does
+    # filter ignores) correctly showed 0. Same `cve_ignore.json` source
+    # of truth as handle_cve_findings + _detect_new_cve_and_fire_webhook.
     cve_devs = []
     try:
         findings_all = load(CVE_FINDINGS_FILE) or {}
+        ignore_data  = load(CVE_IGNORE_FILE) or {}
         for cdev_id, entry in findings_all.items():
             findings = (entry or {}).get('findings') or []
             counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
             for f in findings:
+                vid = f.get('vuln_id')
+                ig = ignore_data.get(vid) if vid else None
+                if ig and (ig.get('scope') == 'global' or ig.get('scope') == cdev_id):
+                    continue
                 sev = (f.get('severity') or '').lower()
                 if sev in counts:
                     counts[sev] += 1
