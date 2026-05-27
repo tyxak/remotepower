@@ -2828,8 +2828,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             Fleet-wide rules apply to every device that submits logs for the named unit. Use <code>*</code> for the unit to match any unit on any device.
           </div>
           <table>
-            <thead id="logs-rules-global-thead"><tr><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th data-col="created">Created</th><th></th></tr></thead>
-            <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+            <thead id="logs-rules-global-thead"><tr><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="exclude_pattern">Exclude pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th data-col="created">Created</th><th></th></tr></thead>
+            <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -4300,6 +4300,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </select>
     <div class="meta-sm">CheckMK-style: WARN/CRIT fire webhooks; OK rules are noise-suppressors that confirm an expected pattern is still present.</div>
   </div>
+  <div class="form-group"><label>Exclude pattern (optional)</label><input type="text" id="log-rule-exclude" placeholder="postfix/" maxlength="128" class="ff-mono"><div class="meta-sm">Lines matching this regex are ignored even if they match the pattern above.</div></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="log-rule-modal" >Cancel</button><button class="btn-primary" data-action="saveLogRule" >Add</button></div>
 </div></div>
 <div class="modal-overlay" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>

@@ -12529,7 +12529,15 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
                 rx = re.compile(pattern)
             except re.error:
                 continue
-            matches = [ln for ln in new_lines if rx.search(ln)]
+            ex_pat = rule.get('exclude_pattern', '')
+            ex_rx = None
+            if ex_pat:
+                try:
+                    ex_rx = re.compile(ex_pat)
+                except re.error:
+                    pass
+            matches = [ln for ln in new_lines
+                       if rx.search(ln) and (not ex_rx or not ex_rx.search(ln))]
             try:
                 threshold = int(rule.get('threshold', 1))
             except (TypeError, ValueError):
@@ -15477,16 +15485,24 @@ def handle_services_config(dev_id):
             sev = str(r.get('severity', 'WARN')).upper()
             if sev not in ('OK', 'WARN', 'CRIT'):
                 sev = 'WARN'
+            ex_pat = _sanitize_str(r.get('exclude_pattern', ''), 128, allow_empty=True)
             if unit and pat and 1 <= thr <= 100:
                 # Sanity-check the regex compiles
                 try:
                     re.compile(pat)
                 except re.error:
                     continue
+                if ex_pat:
+                    try:
+                        re.compile(ex_pat)
+                    except re.error:
+                        ex_pat = ''
                 rule_clean = {'unit': unit, 'pattern': pat,
                               'threshold': thr, 'severity': sev}
                 if file_path:
                     rule_clean['path'] = file_path
+                if ex_pat:
+                    rule_clean['exclude_pattern'] = ex_pat
                 log_rules.append(rule_clean)
 
     devices[dev_id]['services_watched'] = watched
@@ -15632,7 +15648,15 @@ def handle_log_submit():
                     rx = re.compile(pattern)
                 except re.error:
                     continue
-                matches = [e['line'] for e in clean_lines if rx.search(e['line'])]
+                ex_pat = rule.get('exclude_pattern', '')
+                ex_rx = None
+                if ex_pat:
+                    try:
+                        ex_rx = re.compile(ex_pat)
+                    except re.error:
+                        pass
+                matches = [e['line'] for e in clean_lines
+                           if rx.search(e['line']) and (not ex_rx or not ex_rx.search(e['line']))]
                 threshold = rule.get('threshold', 1)
                 try:
                     threshold = int(threshold)
@@ -15819,10 +15843,18 @@ def _validate_global_rule(body):
         re.compile(pattern)
     except re.error as e:
         return None, f'invalid regex: {e}'
+    exclude_pattern = _sanitize_str(body.get('exclude_pattern', ''), 128, allow_empty=True)
+    if exclude_pattern:
+        try:
+            re.compile(exclude_pattern)
+        except re.error as e:
+            return None, f'invalid exclude regex: {e}'
     clean = {'unit': unit, 'pattern': pattern,
              'threshold': threshold, 'severity': severity}
     if file_path:
         clean['path'] = file_path
+    if exclude_pattern:
+        clean['exclude_pattern'] = exclude_pattern
     return clean, None
 
 

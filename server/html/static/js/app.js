@@ -3753,7 +3753,7 @@ async function loadGlobalLogRules() {
   document.getElementById('logs-stat-rules').textContent = deviceCount + data.rules.length;
   document.getElementById('logs-stat-rules').dataset.globalCount = data.rules.length;
   if (!data.rules.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
     return;
   }
   tbody.innerHTML = data.rules.map(r => {
@@ -3761,9 +3761,13 @@ async function loadGlobalLogRules() {
     const unitDisplay = r.unit === '*'
       ? '<code class="isl-426">* (any unit)</code>'
       : `<code class="fs-12">${escHtml(r.unit)}</code>`;
+    const excludeCell = r.exclude_pattern
+      ? `<code class="isl-425 c-muted" title="Excluded">≠ ${escHtml(r.exclude_pattern)}</code>`
+      : '<span class="c-muted">—</span>';
     return `<tr>
       <td>${unitDisplay}</td>
       <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
+      <td>${excludeCell}</td>
       <td class="ta-center">≥ ${r.threshold}</td>
       <td class="meta-sm-nm">${created} <span class="opacity-60">by ${escHtml(r.created_by || '?')}</span></td>
       <td><button class="btn-icon isl-416" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >Delete</button></td>
@@ -3787,6 +3791,7 @@ async function openAddRuleModal() {
   document.getElementById('log-rule-unit').placeholder = isGlobal ? 'sshd.service  (or *)' : 'nginx.service';
   document.getElementById('log-rule-pattern').value = '';
   document.getElementById('log-rule-threshold').value = '1';
+  document.getElementById('log-rule-exclude').value = '';
   openModal('log-rule-modal');
 }
 
@@ -3801,13 +3806,18 @@ async function saveLogRule() {
   if (sourceType === 'path' && !path) { toast('File path is required', 'error'); return; }
   if (sourceType === 'path' && !path.startsWith('/')) { toast('File path must be absolute (start with /)', 'error'); return; }
   if (!pattern) { toast('Pattern is required', 'error'); return; }
+  const excludePattern = document.getElementById('log-rule-exclude').value.trim();
   // Validate regex client-side
   try { new RegExp(pattern); } catch(e) { toast('Invalid regex: '+e.message, 'error'); return; }
+  if (excludePattern) {
+    try { new RegExp(excludePattern); } catch(e) { toast('Invalid exclude regex: '+e.message, 'error'); return; }
+  }
 
   // Build the rule payload. Server validates either unit OR path.
   const rulePayload = sourceType === 'path'
     ? { path, pattern, threshold, severity }
     : { unit, pattern, threshold, severity };
+  if (excludePattern) rulePayload.exclude_pattern = excludePattern;
 
   if (logsRulesTab === 'global') {
     // Fleet-wide rule
