@@ -39,12 +39,30 @@ corrections surfaced by real-fleet debugging on a v3.2.1 deployment.
   NAT address, that rate is exceeded by normal heartbeat + browser polling
   traffic. Comment updated to `10r/s` with an explanatory note.
 
+- **Scheduler cron jobs fired dozens of times per minute.** `process_schedule()`
+  runs on every CGI request. `_cron_matches()` returns `True` for the entire
+  60-second window of the matching minute, so every heartbeat and browser poll
+  within that window fired the job again — producing 20+ duplicate
+  `upgrade_packages` dispatches per scheduled run. Fixed by stamping
+  `last_fired_minute` (epoch // 60) on each recurring job when it fires and
+  skipping cron evaluation if the minute has not advanced.
+- **Alerts "Mark all" checkbox threw `TypeError: btn is undefined`.** The
+  select-all checkbox used `data-action="toggleAllAlerts"` which calls
+  `fn()` with no arguments; the function then read `btn.checked` on
+  `undefined`. Fixed by switching to `data-change` dispatch which passes the
+  checkbox's checked state directly, and updating the function signature to
+  match.
+- **Monitoring → Custom Scripts sort buttons missing.** The results table
+  (`Script / Device / Group / Status / Last output / Last run / Duration`)
+  had no `wireSortOnly` wiring, so headers were never made clickable. Fixed
+  by adding `wireSortOnly` + `sortRows` to `renderCustomScriptsPage`.
+
 ### Changed
 
 - **Sortable tables** — Alerts inbox, CMDB, Drift, ACME certificates,
-  Webhook log, Confirmations, Inbound webhooks, Scripts, Listening Ports now
-  support click-to-sort column headers (shift-click for multi-column). Sort
-  state is persisted in UI prefs.
+  Webhook log, Confirmations, Inbound webhooks, Scripts, Listening Ports,
+  and Monitoring Custom Scripts results now support click-to-sort column
+  headers (shift-click for multi-column). Sort state is persisted in UI prefs.
 - **Drift table header corrected.** The thead previously had 4 columns
   (Drift, Missing, Last check, actions) while the tbody rendered 7; Device
   and Group columns were present in rows but had no corresponding headers.
