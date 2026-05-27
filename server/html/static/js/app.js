@@ -9370,7 +9370,16 @@ async function _renderHomeAttention() {
     const mitBtn = (i.mitigation_kind && i.device_id) ?
       `<button class="btn-icon isl-554" title="Investigate with diagnostic + AI suggestion"
          data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">🩺</button>` : '';
-    return `<div class="dash-feed-item isl-156">
+    // v3.2.3: for log_alert cards, expose all captured sample lines +
+    // the rule pattern in a hover tooltip. The summary itself already
+    // shows sample[0] truncated; the tooltip lets the operator see the
+    // full match set without leaving the dashboard.
+    let cardTitle = 'Click for details';
+    if (i.kind === 'log_alert' && Array.isArray(i.samples) && i.samples.length) {
+      const sampleList = i.samples.map((s, n) => `${n + 1}. ${s}`).join('\n');
+      cardTitle = `Pattern: ${i.pattern || '(unknown)'}\n\nMatches:\n${sampleList}`;
+    }
+    return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div
            data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
         <span class="status-pill ${pill}">${escHtml(i.kind)}</span>

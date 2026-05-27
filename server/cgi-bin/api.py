@@ -2117,6 +2117,15 @@ def _alert_title(event, payload):
     if event == 'custom_script_fail':
         return f'Custom script failed on {name}: {p.get("script_name", "")}'
     if event == 'log_alert':
+        # v3.2.3: show the actual matched line in the alert title, not
+        # just the rule regex. Title goes to Alerts inbox, audit log,
+        # webhook/email subjects — every reader benefits from seeing
+        # what triggered the rule, not what the rule is looking for.
+        samples = p.get('sample') or []
+        unit = p.get('unit', '')
+        if samples:
+            first = str(samples[0])[:160]
+            return f'Log alert on {name} ({unit}): {first}'
         return f'Log alert on {name}: {p.get("pattern") or p.get("unit", "")}'
     if event == 'metric_warning':
         return f'{p.get("metric", "metric")} {(p.get("level") or "warning")} on {name}: {p.get("value", "?")}'
@@ -10962,11 +10971,25 @@ def _compute_attention():
             dedup_key = f'log_alert|{did}|{unit}|{pattern[:60]}'
             if dedup_key in seen_event_keys: continue
             seen_event_keys.add(dedup_key)
+            # v3.2.3: surface the actual matched line, not the rule regex.
+            # Previously the card showed `matched 'warning|error|FATAL'`
+            # which is useless — the operator already knows the rule.
+            # They need to see WHAT MATCHED. Sample comes from the
+            # webhook payload (first 3 matches captured at fire time).
+            samples = payload.get('sample') or []
+            count = payload.get('count', '?')
+            count_label = f'{count} hit{"s" if count != 1 else ""}'
+            if samples:
+                first = str(samples[0])[:140]
+                summary_text = f'{unit} matched ({count_label}): {first}'
+            else:
+                summary_text = f'{unit} matched pattern {pattern!r} ({count_label})'
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
-                'summary':  f'{unit} — matched {payload.get("pattern","?")!r} '
-                            f'({payload.get("count","?")} hit{"s" if payload.get("count") != 1 else ""})',
+                'summary':  summary_text,
+                'samples':  [str(s)[:200] for s in samples[:3]],
+                'pattern':  pattern,
             })
         elif ev_type == 'new_port_detected':
             # Security signal — surface as warning. User dismisses to
