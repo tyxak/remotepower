@@ -1530,6 +1530,46 @@ def get_json_body():
     except Exception:
         return {}
 
+
+def _peek_heartbeat_dev_id():
+    """If the current request is POST /api/heartbeat, return the device_id
+    from the body (validated). Otherwise return None.
+
+    v3.3.0: lets check_offline_webhooks know which device is currently
+    proving it's alive so the same-request false-positive flap is
+    avoided. The body is read from stdin once and stdin is replaced
+    with a BytesIO containing the same bytes so the route dispatcher's
+    subsequent get_body() call sees the same payload.
+    """
+    try:
+        if os.environ.get('REQUEST_METHOD', '').upper() != 'POST':
+            return None
+        if (os.environ.get('PATH_INFO', '') or '') != '/api/heartbeat':
+            return None
+        length = int(os.environ.get('CONTENT_LENGTH', 0) or 0)
+        if length <= 0 or length > MAX_BODY_BYTES:
+            return None
+        raw = sys.stdin.buffer.read(length)
+        # Replace stdin with a buffer holding the same bytes. The
+        # heartbeat handler's get_body() then re-reads from the
+        # replacement and sees the same payload. tests that swap
+        # sys.stdin themselves never call _peek_heartbeat_dev_id
+        # (it only fires when PATH_INFO == /api/heartbeat AND main()
+        # entered the dispatcher loop) so test fixtures are unaffected.
+        import io as _io
+        sys.stdin = _io.TextIOWrapper(_io.BytesIO(raw),
+                                      encoding='utf-8', errors='replace')
+        try:
+            data = json.loads(raw) if raw else {}
+        except Exception:
+            return None
+        dev_id = str((data or {}).get('device_id', '') or '').strip()
+        if not dev_id or not _validate_id(dev_id):
+            return None
+        return dev_id
+    except Exception:
+        return None
+
 def get_token_from_request():
     """Extract the auth token from the request.
 
@@ -3270,12 +3310,20 @@ def _ts_fmt(ts):
         return str(ts)
 
 
-def check_offline_webhooks():
+def check_offline_webhooks(skip_dev_id=None):
     """Per-request sweep: walk every monitored device, flip the on/off
     sticky bit, fire device_offline / device_online webhooks on edge.
 
     v2.1.1: every state change now logs to stderr regardless of webhook
     config.
+
+    v3.3.0 flap-fix: optional `skip_dev_id` exempts one device from the
+    offline check. Used by main() during a heartbeat request — the
+    request itself is proof the device is alive, even though
+    handle_heartbeat hasn't yet committed the new last_seen. Without
+    this, a device polling every 60s with ttl=180s would falsely
+    flap OFFLINE → ONLINE on the 4th heartbeat whenever clock drift
+    or fcgi startup pushed delta from 180 to 181s.
 
     Race-fix: previously used bare load()+save() so two concurrent CGI
     processes (e.g. two agent heartbeats arriving simultaneously) could
@@ -3302,6 +3350,17 @@ def check_offline_webhooks():
             if dev.get('agentless'):
                 continue
             if not dev.get('monitored', True):
+                continue
+            if skip_dev_id and dev_id == skip_dev_id:
+                # v3.3.0: this device is actively heartbeating right
+                # now — the request itself is proof it's alive. Mark
+                # it online if a stale offline-notified flag is set
+                # (recover from a transient flap) but never flip it
+                # to offline based on the pre-update last_seen.
+                if notified.get(dev_id):
+                    notified[dev_id] = False
+                    online_fires.append((dev_id, dev.get('name', dev_id),
+                                         dev.get('last_seen', 0), 0))
                 continue
             last = dev.get('last_seen', 0)
             if not last:
@@ -19084,14 +19143,19 @@ def main():
     # it lands in nginx's error log, but still doesn't propagate (the
     # CGI response itself must complete regardless of a maintenance
     # task failing).
-    def _safe(fn, label):
+    def _safe(fn, label, *args):
         try:
-            fn()
+            fn(*args)
         except Exception as exc:
             sys.stderr.write(
                 f"[remotepower] {label} failed: {exc.__class__.__name__}: {exc}\n")
             traceback.print_exc(file=sys.stderr)
-    _safe(check_offline_webhooks, 'check_offline_webhooks')
+    # v3.3.0 flap-fix: peek at the request body if this is a heartbeat,
+    # so check_offline_webhooks can exempt the device that's actively
+    # proving it's alive. _peek_heartbeat_dev_id() reads the body
+    # cached so the actual handler doesn't have to re-read.
+    _hb_skip = _peek_heartbeat_dev_id()
+    _safe(check_offline_webhooks, 'check_offline_webhooks', _hb_skip)
     # v1.11.4: container-data-stale sweep, mirroring the offline check.
     # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
     _safe(check_container_webhooks, 'check_container_webhooks')
