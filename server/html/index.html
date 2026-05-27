@@ -798,6 +798,23 @@
 
         <!-- ── Notifications ────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-notifs">
+          <div class="settings-section">
+            <h3>Healthchecks.io watchdog</h3>
+            <p class="hint">RemotePower pings this URL on a fixed interval so an external watchdog (Healthchecks.io, BetterStack, your own) flips red when the server stops serving requests. Off by default. Cadence defaults to 60 s, minimum 30 s.</p>
+            <div class="settings-row">
+              <div class="form-group flex-1">
+                <label class="form-label">Ping URL</label>
+                <input type="url" id="cfg-healthchecks-url" class="form-input ff-mono" placeholder="https://hc-ping.com/00000000-0000-0000-0000-000000000000">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">Interval (seconds)</label>
+                <input type="number" id="cfg-healthchecks-interval" class="form-input" min="30" max="3600" value="60">
+              </div>
+            </div>
+            <button class="btn-primary" data-action="saveHealthchecks">Save watchdog settings</button>
+            <button class="btn-secondary" data-action="testHealthchecks">Send test ping</button>
+          </div>
+
           <!-- v3.0.2: multi-webhook destinations -->
           <div class="settings-section">
             <h3>Webhook destinations</h3>

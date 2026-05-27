@@ -1491,6 +1491,12 @@ async function loadSettings() {
   document.getElementById('cfg-wol-bcast').value = data.wol_broadcast || '255.255.255.255';
   document.getElementById('cfg-wol-port').value  = data.wol_port || '9';
 
+  // v3.3.0: Healthchecks.io watchdog
+  const hcUrl = document.getElementById('cfg-healthchecks-url');
+  if (hcUrl) hcUrl.value = data.healthchecks_url || '';
+  const hcInt = document.getElementById('cfg-healthchecks-interval');
+  if (hcInt) hcInt.value = data.healthchecks_interval_seconds || 60;
+
   // v3.0.2: multi-webhook destinations editor
   _webhookDests = Array.isArray(data.webhook_urls) ? data.webhook_urls.map(d => ({...d})) : [];
   renderWebhookDests();
@@ -11014,6 +11020,35 @@ function loadSshUsername() {
 // v3.3.0: save IP allowlist + enabled flag in one POST. Server-side
 // guard refuses to enable the allowlist if the caller's own IP would
 // be excluded.
+// v3.3.0: save Healthchecks.io watchdog config. Empty URL disables.
+async function saveHealthchecks() {
+  const url      = document.getElementById('cfg-healthchecks-url').value.trim();
+  const interval = parseInt(document.getElementById('cfg-healthchecks-interval').value, 10) || 60;
+  const r = await api('POST', '/config', {
+    healthchecks_url: url,
+    healthchecks_interval_seconds: interval,
+  });
+  if (r?.ok) {
+    toast(url ? `Healthchecks watchdog enabled (every ${interval}s)` : 'Healthchecks watchdog disabled', 'success');
+  } else {
+    toast(r?.error || 'Failed', 'error');
+  }
+}
+
+async function testHealthchecks() {
+  const url = document.getElementById('cfg-healthchecks-url').value.trim();
+  if (!url) { toast('Enter a URL first', 'error'); return; }
+  // The server will fire the ping the next time the periodic check is
+  // due. For an immediate test, fire it client-side as the operator —
+  // confirms the URL is reachable from this browser at least.
+  try {
+    const r = await fetch(url, { method: 'GET', mode: 'no-cors' });
+    toast('Test ping sent — check your Healthchecks.io dashboard', 'success');
+  } catch (e) {
+    toast('Test ping failed: ' + e.message, 'error');
+  }
+}
+
 async function saveIpAllowlist() {
   const enabled = document.getElementById('cfg-ipal-enabled').checked;
   const raw     = document.getElementById('cfg-ipal-list').value || '';
@@ -16063,6 +16098,7 @@ const _WEBHOOK_FORMATS = [
   ['pushover',  'Pushover',       'https://api.pushover.net/1/messages.json'],
   ['ntfy',      'ntfy.sh',        'https://ntfy.sh/your-topic'],
   ['teams',     'Microsoft Teams','https://outlook.office.com/webhook/...'],
+  ['github',    'GitHub issues',  'https://api.github.com/repos/<owner>/<repo>/issues'],
   ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
 ];
 function renderWebhookDests() {
@@ -16076,8 +16112,10 @@ function renderWebhookDests() {
     const fmtOpts = _WEBHOOK_FORMATS.map(([v, lbl]) =>
       `<option value="${v}" ${d.format === v ? 'selected' : ''}>${lbl}</option>`).join('');
     const isPushover = d.format === 'pushover';
+    const isGithub   = d.format === 'github';
     const tokenSet = d.pushover_token_set;
     const userSet  = d.pushover_user_set;
+    const githubTokenSet = d.token_set;
     return `
       <div class="webhook-dest-card isl-736" data-idx="${idx}">
         <div class="isl-737">
@@ -16098,6 +16136,11 @@ function renderWebhookDests() {
             <input type="text" data-field="pushover_token" class="form-input isl-743" placeholder="${tokenSet ? '••••••••••• (set — leave blank to keep)' : 'App token (apXXX...)'}">
             <input type="text" data-field="pushover_user"  class="form-input isl-743" placeholder="${userSet  ? '••••••••••• (set — leave blank to keep)' : 'User/group key (uXXX...)'}">
           </div>` : ''}
+        ${isGithub ? `
+          <div class="isl-741">
+            <input type="text" data-field="token" class="form-input isl-743" placeholder="${githubTokenSet ? '••••••••••• (PAT set — leave blank to keep)' : 'GitHub PAT (fine-grained, issues:write)'}">
+          </div>
+          <div class="meta-sm-nm">Create a fine-grained PAT scoped to your target repo with <code>issues:write</code>. The URL is <code>https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/issues</code>.</div>` : ''}
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">

@@ -1439,6 +1439,11 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     '/api/csp-report',
     '/api/health',
     '/api/public-info',
+    # v3.3.0: /api/metrics + /api/status both have their own
+    # token-in-query-string auth so external monitors can scrape
+    # without being on the operator's IP allowlist.
+    '/api/metrics',
+    '/api/status',
 )
 
 
@@ -2818,7 +2823,7 @@ def _auto_detect_format(url):
 
 
 # Allowed format adapters — anything else falls back to generic.
-_WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams')
+_WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams', 'github')
 
 
 def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
@@ -2871,6 +2876,13 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
     elif fmt == 'ntfy':
         body, headers, content_type = _build_ntfy_body(
             event, title, message, priority)
+    elif fmt == 'github':
+        body, headers, content_type = _build_github_body(
+            event, title, message, dest, safe_payload)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'GitHub destination missing token — set it in Settings → Notifications')
+            return
     else:
         body, headers, content_type = _build_generic_body(
             event, title, message, priority, safe_payload)
@@ -2959,6 +2971,59 @@ def _build_ntfy_body(event, title, message, priority):
         'Tags':     _webhook_tags(event),
     }
     return body, headers, 'text/plain; charset=utf-8'
+
+
+def _build_github_body(event, title, message, dest, safe_payload):
+    """Create a GitHub issue for the alert.
+
+    v3.3.0: target the GitHub REST API at the URL the operator
+    configures (https://api.github.com/repos/<owner>/<repo>/issues).
+    Auth uses a fine-grained Personal Access Token stored in the
+    destination's `token` field. Returns (None, None, None) when
+    the token is missing — caller logs an error.
+
+    The PAT scope needs: `issues:write` on the target repo. Operators
+    typically create a fine-grained PAT scoped to one repo.
+
+    Body shape (POST application/json):
+      {
+        "title":  "<event title>",
+        "body":   "<details + JSON payload>",
+        "labels": ["remotepower", "<event>", "<severity if set>"]
+      }
+    """
+    pat = (dest.get('token') or '').strip()
+    if not pat:
+        return None, None, None
+    labels = ['remotepower', str(event)[:32]]
+    sev = (safe_payload or {}).get('severity')
+    if isinstance(sev, str) and sev:
+        labels.append(sev[:32])
+    # Compose the issue body — operator-readable details on top, then
+    # the raw payload in a fenced JSON block for grep/parse downstream.
+    body_md  = (message or '').strip()
+    body_md += '\n\n---\n\n'
+    body_md += 'Raised by RemotePower v' + SERVER_VERSION + '\n\n'
+    body_md += '<details><summary>Payload</summary>\n\n```json\n'
+    try:
+        body_md += json.dumps(safe_payload or {}, indent=2, sort_keys=True)[:8000]
+    except Exception:
+        body_md += '(payload not serialisable)'
+    body_md += '\n```\n\n</details>'
+    payload = {
+        'title':  (title or str(event))[:240],
+        'body':   body_md[:60000],
+        'labels': labels,
+    }
+    return (
+        json.dumps(payload).encode(),
+        {
+            'Authorization': f'Bearer {pat}',
+            'Accept':        'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        },
+        'application/json',
+    )
 
 
 def _build_pushover_body(event, title, message, priority, dest):
@@ -5959,6 +6024,53 @@ def _persist_monitor_results(results):
         pass
 
 
+def ping_healthchecks_if_due():
+    """v3.3.0: GET the configured Healthchecks.io URL on a fixed
+    interval (default 60 s) so an external watchdog sees the server
+    is alive. Off by default.
+
+    Config:
+      - `healthchecks_url`: full hc.io ping URL
+        (e.g. https://hc-ping.com/<uuid>). Empty disables.
+      - `healthchecks_interval_seconds`: cadence (min 30, default 60).
+
+    Cheap when not due (one CONFIG_FILE read + timestamp compare).
+    The HTTP call has a 5 s timeout and never raises — a hc.io
+    outage must not break RemotePower's request pipeline.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    url = (cfg.get('healthchecks_url') or '').strip()
+    if not url:
+        return
+    if not (url.startswith('http://') or url.startswith('https://')):
+        return  # malformed config — silently skip
+    try:
+        interval = max(30, int(cfg.get('healthchecks_interval_seconds', 60)))
+    except (TypeError, ValueError):
+        interval = 60
+    last = int(cfg.get('last_healthchecks_ping', 0))
+    now = int(time.time())
+    if (now - last) < interval:
+        return
+    # Stamp BEFORE the network call to avoid concurrent CGI workers
+    # both pinging if the request takes a while.
+    try:
+        with _LockedUpdate(CONFIG_FILE) as cfg_locked:
+            cfg_locked['last_healthchecks_ping'] = now
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request(url, method='GET', headers={
+            'User-Agent': f'remotepower/{SERVER_VERSION}',
+        })
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+    except Exception:
+        # External dependency — never let a hc.io blip break the
+        # CGI request. The next request will retry.
+        pass
+
+
 def run_monitors_if_due():
     """Run all configured monitors if it's been longer than monitor_interval
     since the last run.
@@ -6068,10 +6180,12 @@ def handle_config_get():
         for e in safe['webhook_urls']:
             if not isinstance(e, dict):
                 continue
+            # v3.3.0: also redact the github `token` field (PAT).
             r = {k: v for k, v in e.items()
-                 if k not in ('pushover_token', 'pushover_user')}
+                 if k not in ('pushover_token', 'pushover_user', 'token')}
             r['pushover_token_set'] = bool(e.get('pushover_token'))
             r['pushover_user_set']  = bool(e.get('pushover_user'))
+            r['token_set']          = bool(e.get('token'))
             redacted.append(r)
         safe['webhook_urls'] = redacted
 
@@ -6216,6 +6330,18 @@ def handle_config_save():
                     clean_entry['pushover_user'] = _sanitize_str(user, 64)
                 elif existing and existing.get('pushover_user'):
                     clean_entry['pushover_user'] = existing['pushover_user']
+            # v3.3.0: GitHub PAT for the github format. Same
+            # leave-unchanged-on-blank semantics as Pushover above.
+            if fmt == 'github':
+                existing = next(
+                    (e for e in (cfg.get('webhook_urls') or [])
+                     if isinstance(e, dict) and e.get('id') == clean_entry['id']),
+                    None)
+                pat = (entry.get('token') or '').strip()
+                if pat:
+                    clean_entry['token'] = _sanitize_str(pat, 256)
+                elif existing and existing.get('token'):
+                    clean_entry['token'] = existing['token']
             clean.append(clean_entry)
         cfg['webhook_urls'] = clean
 
@@ -6585,6 +6711,19 @@ def handle_config_save():
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
+
+    # v3.3.0: Healthchecks.io / generic watchdog ping
+    if 'healthchecks_url' in body:
+        raw_url = (str(body.get('healthchecks_url') or '')).strip()
+        if raw_url and not (raw_url.startswith('http://') or raw_url.startswith('https://')):
+            respond(400, {'error': 'healthchecks_url must be http(s)://'})
+        cfg['healthchecks_url'] = raw_url[:512]
+    if 'healthchecks_interval_seconds' in body:
+        try:
+            v = int(body['healthchecks_interval_seconds'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'healthchecks_interval_seconds must be an integer'})
+        cfg['healthchecks_interval_seconds'] = max(30, min(3600, v))
 
     # v3.3.0: IP allowlist (off by default). When enabled, only requests
     # from listed IPs/CIDRs (plus loopback + agent paths) reach the UI/API.
@@ -12078,6 +12217,8 @@ def handle_status():
     })
 
 
+
+
 def handle_status_token():
     """POST /api/status-token — generate (or rotate) the status token.
     Body {"enabled": false} clears it, disabling the status endpoint."""
@@ -15417,22 +15558,53 @@ def handle_cve_ignore_list():
 def handle_prometheus_metrics():
     """
     GET /api/metrics — Prometheus text exposition.
-    Auth: X-Token header OR Authorization: Bearer <key> (Prometheus-native).
+
+    Auth (any one of these works):
+      • X-Token header — a logged-in operator scraping from their browser.
+      • Authorization: Bearer <session-key> — same as X-Token.
+      • ?token=<status_token> — the dedicated long-lived token shared
+        with /api/status. Generated in Settings. The standard pattern
+        for a Prometheus scrape config:
+
+          scrape_configs:
+            - job_name: 'remotepower'
+              metrics_path: /api/metrics
+              params:
+                token: ['<status token>']
+              static_configs:
+                - targets: ['remote.example.com']
+              scheme: https
     """
-    token = get_token_from_request()
-    if not token:
-        auth = os.environ.get('HTTP_AUTHORIZATION', '')
-        if auth.lower().startswith('bearer '):
-            token = auth[7:].strip()
-    username, _role = verify_token(token)
-    if not username:
-        print('Status: 401 Unauthorized')
-        print('Content-Type: text/plain; charset=utf-8')
-        print('WWW-Authenticate: Bearer realm="remotepower"')
-        print('Cache-Control: no-store')
-        print()
-        print('Unauthorized')
-        sys.exit(0)
+    # v3.3.0: accept the status_token via query string for Prometheus
+    # scrape configs. Falls through to session-token auth otherwise.
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs_token = (qs.get('token') or [''])[0]
+    if qs_token:
+        cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
+        if cfg_token and hmac.compare_digest(qs_token, cfg_token):
+            pass  # authenticated via status token, fall through to body
+        else:
+            print('Status: 401 Unauthorized')
+            print('Content-Type: text/plain; charset=utf-8')
+            print('Cache-Control: no-store')
+            print()
+            print('invalid status token')
+            sys.exit(0)
+    else:
+        token = get_token_from_request()
+        if not token:
+            auth = os.environ.get('HTTP_AUTHORIZATION', '')
+            if auth.lower().startswith('bearer '):
+                token = auth[7:].strip()
+        username, _role = verify_token(token)
+        if not username:
+            print('Status: 401 Unauthorized')
+            print('Content-Type: text/plain; charset=utf-8')
+            print('WWW-Authenticate: Bearer realm="remotepower"')
+            print('Cache-Control: no-store')
+            print()
+            print('Unauthorized')
+            sys.exit(0)
 
     now = int(time.time())
     devices = load(DEVICES_FILE)
@@ -18935,6 +19107,10 @@ def main():
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
     _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
     _safe(process_schedule,    'process_schedule')
+    # v3.3.0: ping Healthchecks.io (or compatible) when configured.
+    # External watchdog over the server itself — if RemotePower stops
+    # serving requests, hc.io flips to red and pages someone.
+    _safe(ping_healthchecks_if_due, 'ping_healthchecks_if_due')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch
