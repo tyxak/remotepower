@@ -770,7 +770,7 @@ function showPage(name, btn) {
     }
   }
   if (name === 'home')     loadHome();
-  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); _showAllMonPanels(); }
+  if (name === 'monitor')  { runMonitor(); loadDeviceMetrics(); loadCustomScripts(); loadListeningPorts(); loadProcesses(); _showAllMonPanels(); }
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
@@ -802,7 +802,7 @@ function showPage(name, btn) {
   if (name === 'self')     loadSelfStatus();
 }
 
-const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts'];
+const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
 function _showAllMonPanels() {
   _MON_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
 }
@@ -4209,6 +4209,13 @@ async function rejectConfirmation(id) {
   const note = prompt('Reject this MCP write action. Optional note:') || '';
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/reject`, { note });
   if (r && r.ok) { toast('Rejected', 'success'); loadConfirmations(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function clearConfirmations() {
+  if (!confirm('Clear all resolved (approved / rejected / expired) entries? Pending entries are kept.')) return;
+  const r = await api('DELETE', '/confirmations', {});
+  if (r && r.ok) { toast(`Cleared ${r.removed} entr${r.removed === 1 ? 'y' : 'ies'}`, 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');
 }
 
@@ -11444,6 +11451,60 @@ function _renderPortsFiltered() {
   tableCtl.wireSortOnly('ports-thead', 'ports', _renderPortsFiltered);
 }
 
+
+// ── Top Processes fleet view ──────────────────────────────────────────────────
+
+let _processRows = [];
+
+async function loadProcesses() {
+  const tbody = document.getElementById('processes-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="c-muted-padded">Loading…</td></tr>';
+  const devs = await api('GET', '/devices');
+  if (!Array.isArray(devs)) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load.</td></tr>'; return; }
+
+  const monitored = devs.filter(d => d.monitored !== false && !d.agentless && d.online);
+  if (!monitored.length) {
+    _processRows = [];
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No online monitored devices.</td></tr>';
+    return;
+  }
+
+  const procData = await Promise.all(
+    monitored.map(d =>
+      api('GET', `/devices/${d.id}/sysinfo`)
+        .then(r => ({ id: d.id, name: d.name, procs: r?.sysinfo?.top_processes || [] }))
+        .catch(() => ({ id: d.id, name: d.name, procs: [] }))
+    )
+  );
+
+  _processRows = procData.flatMap(d =>
+    d.procs.map(p => ({ device: d.name, dev_id: d.id, name: p.name || '', pid: p.pid || 0, cpu: p.cpu || 0, mem: p.mem || 0 }))
+  );
+
+  if (!_processRows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No process data yet — requires psutil on the agent. Updates every ~60 s.</td></tr>';
+    return;
+  }
+  _renderProcessesFiltered();
+}
+
+function _renderProcessesFiltered() {
+  const tbody = document.getElementById('processes-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('processes-thead', 'processes', _renderProcessesFiltered);
+  const q = (document.getElementById('processes-filter')?.value || '').toLowerCase();
+  let rows = q ? _processRows.filter(r => r.name.toLowerCase().includes(q) || r.device.toLowerCase().includes(q)) : _processRows;
+  rows = tableCtl.sortRows('processes', rows, r => ({ name: r.name.toLowerCase(), pid: r.pid, device: r.device.toLowerCase(), cpu: r.cpu, mem: r.mem }));
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matches.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="fw-500">${escHtml(r.name)}</td>
+    <td class="hint">${r.pid}</td>
+    <td>${escHtml(r.device)}</td>
+    <td class="ta-right">${r.cpu > 0 ? `<span class="${r.cpu > 50 ? 'c-red-bold' : r.cpu > 20 ? 'c-amber' : ''}">${r.cpu.toFixed(1)}%</span>` : '<span class="c-muted">—</span>'}</td>
+    <td class="ta-right">${r.mem > 0 ? `<span class="${r.mem > 20 ? 'c-amber' : ''}">${r.mem.toFixed(1)}%</span>` : '<span class="c-muted">—</span>'}</td>
+  </tr>`).join('');
+}
 
 // ── v2.8.1: Settings → Dashboard personalisation ─────────────────────────────
 

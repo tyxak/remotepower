@@ -1710,12 +1710,13 @@ def get_host_health():
         pass
 
     # ── listening ports ──────────────────────────────────────────────
-    # `ss -tulnH` — TCP+UDP, listening only, numeric, no header. The
-    # process column needs root for full detail; without it we still
-    # get proto+port which is the useful part.
+    # `ss -tulnHp` — TCP+UDP, listening only, numeric, no header, with
+    # process info. The -p flag shows process names when the agent runs
+    # as root; without root it still shows ports (process field empty).
+    # psutil fills in names for any port still missing one.
     try:
         if _which('ss'):
-            r = subprocess.run(['ss', '-tulnH'], capture_output=True,
+            r = subprocess.run(['ss', '-tulnHp'], capture_output=True,
                                text=True, timeout=5)
             if r.returncode == 0:
                 ports = []
@@ -1726,7 +1727,6 @@ def get_host_health():
                         continue
                     proto = parts[0]
                     local = parts[4]      # e.g. 0.0.0.0:22  or  [::]:443
-                    # Port is whatever follows the last ':'
                     if ':' not in local:
                         continue
                     port = local.rsplit(':', 1)[1]
@@ -1736,7 +1736,6 @@ def get_host_health():
                     if key in seen:
                         continue
                     seen.add(key)
-                    # Process name, if ss could see it (root)
                     proc = ''
                     if 'users:' in ln:
                         m = re.search(r'\(\("([^"]+)"', ln)
@@ -1745,6 +1744,26 @@ def get_host_health():
                     ports.append({'proto': proto, 'port': int(port),
                                   'process': proc})
                 ports.sort(key=lambda p: p['port'])
+
+                # psutil fallback: fill process names for any port ss
+                # couldn't name (e.g. agent not running as root).
+                if _PSUTIL:
+                    missing = {p['port'] for p in ports if not p['process']}
+                    if missing:
+                        port_name = {}
+                        try:
+                            for c in _psutil.net_connections('inet'):
+                                if c.status == 'LISTEN' and c.laddr and c.laddr.port in missing and c.pid:
+                                    try:
+                                        port_name[c.laddr.port] = _psutil.Process(c.pid).name()
+                                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                                        pass
+                        except (_psutil.AccessDenied, Exception):
+                            pass
+                        for p in ports:
+                            if not p['process'] and p['port'] in port_name:
+                                p['process'] = port_name[p['port']]
+
                 out['listening_ports'] = ports[:80]
     except Exception:
         pass
@@ -1849,6 +1868,34 @@ def get_metrics():
     # Sanity cap: if a host somehow has thousands of mounts (NFS automount
     # going wild), don't dump them all into every heartbeat.
     out['mounts'] = mounts[:50]
+
+    # Top processes by CPU and memory. cpu_percent() returns 0.0 on the
+    # first call (needs two samples); values are meaningful from the second
+    # heartbeat onward. Memory percent is always accurate.
+    try:
+        procs = []
+        for p in _psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            try:
+                info = p.info
+                procs.append({
+                    'pid':  info['pid'],
+                    'name': (info['name'] or '')[:60],
+                    'cpu':  round(info['cpu_percent'] or 0, 1),
+                    'mem':  round(info['memory_percent'] or 0, 2),
+                })
+            except (_psutil.NoSuchProcess, _psutil.AccessDenied, _psutil.ZombieProcess):
+                pass
+        by_cpu = sorted(procs, key=lambda x: x['cpu'], reverse=True)[:10]
+        by_mem = sorted(procs, key=lambda x: x['mem'], reverse=True)[:10]
+        seen_pids = set()
+        top = []
+        for p in by_cpu + by_mem:
+            if p['pid'] not in seen_pids:
+                seen_pids.add(p['pid'])
+                top.append(p)
+        out['top_processes'] = top
+    except Exception:
+        pass
 
     return out
 

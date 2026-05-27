@@ -4510,6 +4510,22 @@ def handle_heartbeat():
                         'process': _sanitize_str(p.get('process', ''), 64),
                     })
                 safe_si['listening_ports'] = safe_ports
+            # top processes (CPU + memory leaders, up to ~20 per device)
+            if isinstance(si.get('top_processes'), list):
+                safe_procs = []
+                for p in si['top_processes'][:25]:
+                    if not isinstance(p, dict):
+                        continue
+                    pid = p.get('pid')
+                    if not isinstance(pid, int):
+                        continue
+                    safe_procs.append({
+                        'pid':  pid,
+                        'name': _sanitize_str(p.get('name', ''), 64),
+                        'cpu':  round(float(p.get('cpu') or 0), 1),
+                        'mem':  round(float(p.get('mem') or 0), 2),
+                    })
+                safe_si['top_processes'] = safe_procs
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
@@ -12935,6 +12951,20 @@ def handle_confirmation_approve(conf_id):
     respond(200, {'ok': True, 'result': result})
 
 
+def handle_confirmations_clear():
+    """DELETE /api/confirmations — remove all resolved (non-pending) entries."""
+    actor = require_admin_auth()
+    if method() != 'DELETE': respond(405, {'error': 'Method not allowed'})
+    removed = 0
+    with _LockedUpdate(CONFIRMATIONS_FILE) as store:
+        before = store.get('confirmations', [])
+        kept = [c for c in before if c.get('status') == 'pending']
+        removed = len(before) - len(kept)
+        store['confirmations'] = kept
+    audit_log(actor, 'mcp_confirmations_cleared', f'removed={removed}')
+    respond(200, {'ok': True, 'removed': removed})
+
+
 def handle_confirmation_reject(conf_id):
     """POST /api/confirmations/<id>/reject — admin declines the action."""
     actor = require_admin_auth()
@@ -17927,6 +17957,7 @@ def main():
     elif pi == '/api/mcp/force_package_scan' and m == 'POST': handle_mcp_force_package_scan()
     elif pi == '/api/mcp/force_acme_rescan' and m == 'POST': handle_mcp_force_acme_rescan()
     elif pi == '/api/confirmations' and m == 'GET': handle_confirmations_list()
+    elif pi == '/api/confirmations' and m == 'DELETE': handle_confirmations_clear()
     elif pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST':
         handle_confirmation_approve(pi[len('/api/confirmations/'):-len('/approve')])
     elif pi.startswith('/api/confirmations/') and pi.endswith('/reject') and m == 'POST':
