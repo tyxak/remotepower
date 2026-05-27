@@ -12,14 +12,14 @@ SSH, no Ansible, no separate monitoring stack.
 
 1. An admin creates a script in the **Custom Scripts** page (sidebar).
 2. The server pushes the script body to assigned devices via their
-   regular heartbeat response.
+ regular heartbeat response.
 3. The agent runs each assigned script every **5 minutes** using
-   `/bin/bash`, captures stdout + stderr (merged), and reports results
-   in the next heartbeat.
+ `/bin/bash`, captures stdout + stderr (merged), and reports results
+ in the next heartbeat.
 4. The server stores the latest result per device per script and shows
-   it on the Custom Scripts page.
+ it on the Custom Scripts page.
 5. Status changes fire **edge-triggered webhooks** — once on
-   OK → FAIL, once on FAIL → OK.
+ OK → FAIL, once on FAIL → OK.
 
 No new network connections are opened. Scripts travel over the same
 HTTPS channel the agent already uses.
@@ -30,8 +30,8 @@ HTTPS channel the agent already uses.
 
 | Exit code | Meaning |
 |-----------|---------|
-| **0** | ✅ OK — check passed |
-| **non-zero** | ❌ FAIL — check failed |
+| **0** | OK — check passed |
+| **non-zero** | FAIL — check failed |
 
 This is a binary signal, not MRPE's four-level severity. Keep your
 scripts simple: succeed or fail.
@@ -57,7 +57,7 @@ If RemotePower's AI assistant is configured (Settings → AI assistant),
 the modal has a **Generate with AI** row:
 
 1. Type a plain-English description of what to check.
-2. Click **✨ Generate**.
+2. Click ** Generate**.
 3. Review the generated script — always read it before saving.
 4. Edit if needed, then Save.
 
@@ -116,13 +116,13 @@ failing run):
 
 ```json
 { "event": "custom_script_fail",
-  "device_id": "dev_abc123", "name": "web01",
-  "script_id": "cs_a1b2c3d4", "script_name": "Check nginx",
-  "output": "curl: (7) Failed to connect", "rc": 7 }
+ "device_id": "dev_abc123", "name": "web01",
+ "script_id": "cs_a1b2c3d4", "script_name": "Check nginx",
+ "output": "curl: (7) Failed to connect", "rc": 7 }
 
 { "event": "custom_script_recover",
-  "device_id": "dev_abc123", "name": "web01",
-  "script_id": "cs_a1b2c3d4", "script_name": "Check nginx" }
+ "device_id": "dev_abc123", "name": "web01",
+ "script_id": "cs_a1b2c3d4", "script_name": "Check nginx" }
 ```
 
 Configure delivery under **Settings → Webhooks**. Both events are
@@ -169,13 +169,13 @@ echo "HTTP OK"
 #!/bin/bash
 BACKUP=/var/backups/db.dump
 if [[ ! -f "$BACKUP" ]]; then
-    echo "FAIL: backup file missing"
-    exit 1
+ echo "FAIL: backup file missing"
+ exit 1
 fi
 AGE=$(( $(date +%s) - $(stat -c %Y "$BACKUP") ))
-if (( AGE > 90000 )); then   # > 25 hours
-    echo "FAIL: backup is ${AGE}s old"
-    exit 1
+if (( AGE > 90000 )); then # > 25 hours
+ echo "FAIL: backup is ${AGE}s old"
+ exit 1
 fi
 echo "OK: backup is ${AGE}s old"
 ```
@@ -186,8 +186,8 @@ echo "OK: backup is ${AGE}s old"
 #!/bin/bash
 HOST=localhost PORT=5432
 timeout 5 bash -c "echo > /dev/tcp/$HOST/$PORT" 2>/dev/null \
-    && echo "OK: $HOST:$PORT is open" \
-    || { echo "FAIL: $HOST:$PORT not reachable"; exit 1; }
+ && echo "OK: $HOST:$PORT is open" \
+ || { echo "FAIL: $HOST:$PORT not reachable"; exit 1; }
 ```
 
 ### Confirm a cron sentinel file exists
@@ -195,15 +195,15 @@ timeout 5 bash -c "echo > /dev/tcp/$HOST/$PORT" 2>/dev/null \
 ```bash
 #!/bin/bash
 SENTINEL=/var/run/my-cron-ran
-MAX_AGE=7200   # 2 hours
+MAX_AGE=7200 # 2 hours
 if [[ ! -f "$SENTINEL" ]]; then
-    echo "FAIL: sentinel missing — cron may not have run"
-    exit 1
+ echo "FAIL: sentinel missing — cron may not have run"
+ exit 1
 fi
 AGE=$(( $(date +%s) - $(stat -c %Y "$SENTINEL") ))
 if (( AGE > MAX_AGE )); then
-    echo "FAIL: sentinel is ${AGE}s old (max ${MAX_AGE}s)"
-    exit 1
+ echo "FAIL: sentinel is ${AGE}s old (max ${MAX_AGE}s)"
+ exit 1
 fi
 echo "OK: sentinel is ${AGE}s old"
 ```
@@ -215,12 +215,12 @@ echo "OK: sentinel is ${AGE}s old"
 MOUNT=/data THRESHOLD=90
 PCT=$(df --output=pcent "$MOUNT" 2>/dev/null | tail -1 | tr -d ' %')
 if [[ -z "$PCT" ]]; then
-    echo "FAIL: cannot read disk usage for $MOUNT"
-    exit 1
+ echo "FAIL: cannot read disk usage for $MOUNT"
+ exit 1
 fi
 if (( PCT >= THRESHOLD )); then
-    echo "FAIL: $MOUNT is ${PCT}% full (threshold: ${THRESHOLD}%)"
-    exit 1
+ echo "FAIL: $MOUNT is ${PCT}% full (threshold: ${THRESHOLD}%)"
+ exit 1
 fi
 echo "OK: $MOUNT is ${PCT}% full"
 ```
@@ -230,20 +230,20 @@ echo "OK: $MOUNT is ${PCT}% full"
 ## Security considerations
 
 - Scripts run as the **agent user** (root by default). Treat script
-  creation as a privileged admin operation — only admins can create,
-  edit, or delete scripts.
+ creation as a privileged admin operation — only admins can create,
+ edit, or delete scripts.
 - The script body is transmitted over the same HTTPS channel as all
-  other RemotePower data. It is stored in `custom_scripts.json` on the
-  server (mode 0600, owned by the CGI user).
+ other RemotePower data. It is stored in `custom_scripts.json` on the
+ server (mode 0600, owned by the CGI user).
 - Scripts are written to a private temp file (mode 0700) before
-  execution and deleted immediately after. They do not persist on the
-  agent host between runs.
+ execution and deleted immediately after. They do not persist on the
+ agent host between runs.
 - The trust boundary is identical to the existing `exec:` command
-  channel. If you trust an operator to run arbitrary shell commands
-  via RemotePower, they can already run arbitrary shell as root. Script
-  creation does not expand that boundary.
+ channel. If you trust an operator to run arbitrary shell commands
+ via RemotePower, they can already run arbitrary shell as root. Script
+ creation does not expand that boundary.
 - Output is captured and capped at 4 KB. Scripts cannot exfiltrate
-  large files through the output channel.
+ large files through the output channel.
 
 ---
 
@@ -252,22 +252,22 @@ echo "OK: $MOUNT is ${PCT}% full"
 All endpoints require authentication (`X-Token` header).
 
 ```
-GET    /api/custom-scripts            List all script definitions (name, desc, assignments; no body)
-POST   /api/custom-scripts            Create a script (admin)
-GET    /api/custom-scripts/:id        Full script detail including body
-PUT    /api/custom-scripts/:id        Update name, description, body, or assignments (admin)
-DELETE /api/custom-scripts/:id        Delete script and clear all stored results (admin)
-GET    /api/custom-scripts/results    Fleet-wide current results (all devices × all scripts)
+GET /api/custom-scripts List all script definitions (name, desc, assignments; no body)
+POST /api/custom-scripts Create a script (admin)
+GET /api/custom-scripts/:id Full script detail including body
+PUT /api/custom-scripts/:id Update name, description, body, or assignments (admin)
+DELETE /api/custom-scripts/:id Delete script and clear all stored results (admin)
+GET /api/custom-scripts/results Fleet-wide current results (all devices × all scripts)
 ```
 
 ### POST /api/custom-scripts — body shape
 
 ```json
 {
-  "name":             "Check nginx",
-  "description":      "Verifies nginx is responding on localhost",
-  "body":             "#!/bin/bash\ncurl -sf http://localhost/ > /dev/null && echo OK",
-  "assigned_devices": ["dev_abc123", "dev_def456"]
+ "name": "Check nginx",
+ "description": "Verifies nginx is responding on localhost",
+ "body": "#!/bin/bash\ncurl -sf http://localhost/ > /dev/null && echo OK",
+ "assigned_devices": ["dev_abc123", "dev_def456"]
 }
 ```
 
@@ -275,26 +275,26 @@ GET    /api/custom-scripts/results    Fleet-wide current results (all devices ×
 
 ```json
 {
-  "results": [
-    {
-      "device_id":   "dev_abc123",
-      "device_name": "web01",
-      "group":       "prod",
-      "online":      true,
-      "script_id":   "cs_a1b2c3d4",
-      "script_name": "Check nginx",
-      "description": "Verifies nginx is responding on localhost",
-      "ok":          true,
-      "output":      "OK",
-      "rc":          0,
-      "ran_at":      1716124800,
-      "duration_ms": 43,
-      "changed_at":  1716100000
-    }
-  ],
-  "scripts": [
-    { "id": "cs_a1b2c3d4", "name": "Check nginx", "description": "..." }
-  ]
+ "results": [
+ {
+ "device_id": "dev_abc123",
+ "device_name": "web01",
+ "group": "prod",
+ "online": true,
+ "script_id": "cs_a1b2c3d4",
+ "script_name": "Check nginx",
+ "description": "Verifies nginx is responding on localhost",
+ "ok": true,
+ "output": "OK",
+ "rc": 0,
+ "ran_at": 1716124800,
+ "duration_ms": 43,
+ "changed_at": 1716100000
+ }
+ ],
+ "scripts": [
+ { "id": "cs_a1b2c3d4", "name": "Check nginx", "description": "..." }
+ ]
 }
 ```
 

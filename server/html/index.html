@@ -1664,6 +1664,75 @@
         </div>
 
         <div id="docs-container" class="isl-102">
+          <details class="doc-card" open data-keywords="release notes changelog v3.3.0 v3.3 channel routing matrix hash agent self-update ip allowlist healthchecks github issues acme dns credentials cloudflare hetzner route53 prometheus status token edit buttons emoji mobile uninstall agent log alert sample exclude pattern display template offline flap">
+            <summary><strong>What's new — v3.3.0</strong> — audit follow-up, integrations, edit buttons, mobile polish</summary>
+            <div class="doc-body">
+              <p>Substantial release. The audit-driven correctness + perf work, plus four new integrations and the long-overdue edit-button sweep across every operator-managed list. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.0</code>).</p>
+
+              <h4>Channel routing matrix (Settings → Dashboard)</h4>
+              <ul>
+                <li>One matrix per <em>kind</em> (offline, log_alert, cve, &hellip;) × four surfaces (Needs Attention, Recent Activity, Alerts inbox, Webhook). Replaces the prior scattered hide-this-kind toggles plus implicit per-event webhook gating.</li>
+                <li>Legacy <code>dashboard_hidden_*</code> config auto-migrates on first read; nothing operator-side to do.</li>
+                <li>Events that previously never reached the Alerts inbox — <code>brute_force_detected</code>, <code>backup_stale</code>, <code>snapshot_old</code>, <code>reboot_required</code>, <code>new_port_detected</code>, <code>ssh_key_added</code>, <code>monitor_down</code> — now do. <code>monitor_up</code> auto-resolves the matching <code>monitor_down</code> row.</li>
+              </ul>
+
+              <h4>Hash-driven agent self-update</h4>
+              <p>Agents compare their own binary <code>sha256</code> against the server's canonical hash. Mismatch in either direction triggers a download. Replaces version-string comparison which silently skipped same-version rebuilds and operator re-pushes. Server caches the canonical hash to a sidecar <code>.sha256</code> file so CGI requests don't re-hash per poll.</p>
+
+              <h4>Log alert improvements</h4>
+              <ul>
+                <li><strong>Sample in summary</strong> — Needs Attention cards, Alerts-inbox titles, and webhook subjects for <code>log_alert</code> show the matched log line (truncated) instead of just the rule regex. Hover the NA card to see the full pattern + up to three captured matches.</li>
+                <li><strong>Per-rule display template</strong> — optional <code>display_template</code> field on each rule with <code>{device}</code>, <code>{unit}</code>, <code>{pattern}</code>, <code>{count}</code>, <code>{sample}</code>, <code>{sample0..2}</code> placeholders. Live preview in the rule modal.</li>
+                <li><strong>Per-rule exclude pattern</strong> — regex; lines matching the include pattern AND the exclude pattern are skipped before the threshold count. Stops Postfix-style warning noise without disabling the rule.</li>
+                <li><strong>Inline NA card actions</strong> — 24h snooze (auto-returns) and "Open in Logs" (deep-link to the device + unit) alongside the existing × permanent-ignore.</li>
+              </ul>
+
+              <h4>Security</h4>
+              <ul>
+                <li><strong>Per-IP rate limits</strong> on <code>POST /api/enroll/register</code> (10/min/IP — the 10⁶ PIN namespace was brute-forceable from one IP) and <code>POST /api/login</code> (20/min/IP, layered on the existing per-username lockout).</li>
+                <li><strong>SSRF default flipped</strong> — <code>webhook_block_local</code> defaults to true; blocks link-local (cloud metadata at <code>169.254.169.254</code>) and unspecified targets. Loopback still allowed by default via <code>webhook_allow_loopback</code> so homelab Gotify/ntfy keeps working.</li>
+                <li><strong>IP allowlist</strong> (Settings → Security) — optional CIDR allowlist for the UI/API. Loopback always allowed (MCP-safe). Agent paths exempted. The save handler refuses to enable the gate if the caller's IP isn't already in the list.</li>
+                <li><strong>Re-enrollment hardening</strong> — device token rotates on successful re-enrollment so a one-time leak is self-limiting; <code>reenroll</code> and <code>reenroll_denied</code> both audit-logged.</li>
+                <li><strong>Optional admin-only alert mutation</strong> — <code>viewers_can_ack_alerts</code> (default true). When false, alert ack/unack/resolve require admin role.</li>
+              </ul>
+
+              <h4>Integrations</h4>
+              <ul>
+                <li><strong>Healthchecks.io watchdog</strong> (Settings → Notifications) — RemotePower pings a configurable URL every 60 s so an external monitor flips red when the server itself stops responding.</li>
+                <li><strong>Prometheus metrics with status-token auth</strong> — <code>/api/metrics</code> now accepts <code>?token=&lt;status_token&gt;</code> in addition to session bearer. Standard Prometheus scrape config works without renewing tokens.</li>
+                <li><strong>GitHub issues as a webhook destination</strong> — new <code>github</code> format adapter. Issue title from the alert title, body shows the human-readable message + raw payload in a fenced JSON <code>&lt;details&gt;</code> block, labels = <code>[remotepower, &lt;event&gt;, &lt;severity&gt;]</code>. Fine-grained PAT with <code>issues:write</code> required.</li>
+                <li><strong>Central ACME DNS-01 credentials</strong> (TLS / DNS page → "DNS provider credentials") — operator stores Cloudflare / Hetzner / Route 53 / DigitalOcean / Gandi / OVH / Porkbun / Hurricane Electric / deSEC / Namecheap / NameSilo / RFC 2136 / acme-dns API tokens once on the server. Values inject as env vars into the queued <code>acme.sh --issue</code> command — no more editing <code>~/.acme.sh/account.conf</code> on every device.</li>
+              </ul>
+
+              <h4>Uninstall agent</h4>
+              <p>Devices drawer → "Uninstall agent" queues an <code>uninstall</code> command. On next heartbeat the agent stops + disables its systemd unit, deletes credentials + state + log + the binary, and exits via a detached trampoline. The device record stays so history / tags / groups / alerts survive. A re-heartbeat from the same host clears the "agent uninstalled" badge automatically (operator re-installed; the existing device token still works).</p>
+
+              <h4>Edit buttons everywhere</h4>
+              <p>Log alert rules (per-device + global), maintenance windows, monitors, TLS targets, backup monitors, command snippets, scheduled jobs, inbound webhook tokens (label + scope), users (role), log-ignore patterns — every operator-managed list now supports Edit alongside Add and Delete. Rotate-only surfaces (MCP API keys, status token, the opaque secret inside an inbound webhook token) stay rotate-only by design.</p>
+
+              <h4>Mobile UX polish</h4>
+              <ul>
+                <li>Touch targets ~44 px on icon buttons and form inputs.</li>
+                <li>Modals go full-viewport with a sticky action row on phones.</li>
+                <li>Device drawer action grid becomes 2-up (1-up under 480 px).</li>
+                <li>Settings tabs wrap into a 3-up grid.</li>
+                <li>All <code>.table-card</code> tables get horizontal scroll.</li>
+                <li>Form inputs use 16 px font size so iOS Safari doesn't zoom on focus.</li>
+              </ul>
+
+              <h4>Performance + correctness fixes</h4>
+              <ul>
+                <li><strong><code>/api/home</code></strong> — one round-trip serves the whole dashboard payload (slim devices, drift summary, CVE counts, fleet events, mailwatch, links, attention, config flags). Replaces seven parallel <code>/api/*</code> calls.</li>
+                <li><strong><code>?slim=1</code> on <code>/api/devices</code></strong> — omits sysinfo, listening_ports, SNMP metrics, brute_force_active. ~1.5 MB → ~50 KB per response on a 50-device fleet.</li>
+                <li><strong><code>/api/devices/sysinfo?ids=a,b,c</code></strong> — batches the Monitoring page's per-device sysinfo pulls (was 1 + N requests).</li>
+                <li><strong>File-backed attention cache</strong> (10 s TTL) shared across CGI workers; busts when any underlying state file is newer than the cache.</li>
+                <li>Several race-condition + correctness fixes — see <code>CHANGELOG.md</code> for the audit-driven list.</li>
+              </ul>
+
+              <p>Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.0.md</code>.</p>
+            </div>
+          </details>
+
           <details class="doc-card" data-keywords="release notes changelog v3.2.2 v3.2.1 v3.2.0 v3.1.0 v3.0.7 v3.0.6 features alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations csp focused subcategory sidebar groups grouped navigation health check service worker">
             <summary><strong>What's new — v3.0.6 → v3.2.2</strong> — every feature in the current release arc</summary>
             <div class="doc-body">

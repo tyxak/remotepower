@@ -19,7 +19,7 @@ RemotePower visualises and orchestrates `acme.sh`-managed certificates across th
 
 Lives at **Security → TLS / DNS expiry**, below the existing watchlist.
 
-- **Table view** — device, domain (with ★ for wildcards, +N SAN count), challenge type, DNS provider, created date, next renewal, status pill (green ≥14d, amber ≤14d, red ≤3d or overdue), per-row ↻ Force-renew and ✗ Revoke buttons.
+- **Table view** — device, domain (with for wildcards, +N SAN count), challenge type, DNS provider, created date, next renewal, status pill (green ≥14d, amber ≤14d, red ≤3d or overdue), per-row ↻ Force-renew and Revoke buttons.
 - **Issue wizard** — 3-step modal: domain (with wildcard checkbox and live `*.<domain>` preview) → DNS provider (with credential-location hints) → confirm (shows the exact `acme.sh --issue --dns dns_cf -d ...` command before queueing).
 - **Per-cert detail modal** — Overview tab (status pills, SAN list, decoded `Le_ReloadCmd`, file paths), Timeline tab (issued + runs + next renewal, sorted desc, "View log" jump), Logs tab (recent captures with rc + size, click to view; pending actions get a Cancel button).
 

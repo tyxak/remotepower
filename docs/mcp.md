@@ -22,14 +22,14 @@ required.
 ## The architecture
 
 ```
-+---------------+         +----------------------+
-| AI host (this |         |   RemotePower server |
-| runs on op's  |◀───────▶|   (HTTPS / API)      |
-| laptop)       |  HTTPS  |                      |
-+---------------+         +----------------------+
-        ▲
-        │ stdio JSON-RPC 2.0
-        ▼
++---------------+ +----------------------+
+| AI host (this | | RemotePower server |
+| runs on op's |◀───────▶| (HTTPS / API) |
+| laptop) | HTTPS | |
++---------------+ +----------------------+
+ ▲
+ │ stdio JSON-RPC 2.0
+ ▼
 +-----------------+
 | This MCP server |
 | (stdlib Python) |
@@ -45,11 +45,11 @@ REST API on behalf of the AI, using a token you provision.
 This split is important for the security story:
 
 - Credentials live on **your** laptop, in your AI host's config
-  (a plain JSON file).
+ (a plain JSON file).
 - They never travel to the AI provider — only the tool *results*
-  do.
+ do.
 - The MCP server speaks to your RemotePower instance over HTTPS
-  with normal token auth — no special privileges.
+ with normal token auth — no special privileges.
 
 ## Setup
 
@@ -65,7 +65,7 @@ new one.
 
 ```bash
 scp remotepower-server:/var/www/remotepower/mcp/remotepower-mcp.py \
-    ~/remotepower-mcp.py
+ ~/remotepower-mcp.py
 chmod +x ~/remotepower-mcp.py
 ```
 
@@ -82,16 +82,16 @@ Windows (create the file if it doesn't exist):
 
 ```json
 {
-  "mcpServers": {
-    "remotepower": {
-      "command": "python3",
-      "args": ["/Users/you/remotepower-mcp.py"],
-      "env": {
-        "REMOTEPOWER_URL":   "https://remote.tvipper.com",
-        "REMOTEPOWER_TOKEN": "rpk_xxxxxxxxxxxxxxxxxxxx"
-      }
-    }
-  }
+ "mcpServers": {
+ "remotepower": {
+ "command": "python3",
+ "args": ["/Users/you/remotepower-mcp.py"],
+ "env": {
+ "REMOTEPOWER_URL": "https://remote.tvipper.com",
+ "REMOTEPOWER_TOKEN": "rpk_xxxxxxxxxxxxxxxxxxxx"
+ }
+ }
+ }
 }
 ```
 
@@ -110,7 +110,7 @@ supports the same `command + args + env` setup.
 Open a chat and ask: *"What devices are in my RemotePower fleet?"*
 
 The host should show a "tool use" indicator (Claude Desktop calls
-it 🔨) and return a list of your devices.
+it ) and return a list of your devices.
 
 ## Available tools
 
@@ -138,11 +138,11 @@ The tools accept friendly names. The MCP server does:
 
 1. **Exact match** — `pmg01` matches a device named `pmg01`.
 2. **Prefix match** — `tviweb01` matches `tviweb01.tvipper.com`
-   if there's only one device starting with it.
+ if there's only one device starting with it.
 3. **Substring match** — `web` matches `tviweb01.tvipper.com`
-   if there's only one device containing it.
+ if there's only one device containing it.
 4. **Ambiguous** — `web` raises an error if it matches multiple
-   devices; the model is told to ask for more specifics.
+ devices; the model is told to ask for more specifics.
 
 You can also pass full names. The matching is conservative — it
 only auto-disambiguates when there's exactly one match.
@@ -159,13 +159,13 @@ run? [y/n]") does **not** substitute for a server-side allow-list.
 Write tools will land in a future release with:
 
 - A server-side allow-list of safe operations (`run_script
-  <library-id>` rather than `run_command <arbitrary>`).
+ <library-id>` rather than `run_command <arbitrary>`).
 - A separate per-MCP-token role (`mcp` instead of `viewer` /
-  `admin`).
+ `admin`).
 - An optional "require confirmation" flag per device, defaulting
-  to on for prod devices.
+ to on for prod devices.
 - Audit log entries that record both the AI host name and the
-  natural-language prompt that led to the action.
+ natural-language prompt that led to the action.
 
 Until those are in place, write tools are not a feature this
 server should have. The whole point of v1 is that the worst
@@ -212,9 +212,9 @@ Try running it manually to verify it starts:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  | REMOTEPOWER_URL=https://remote.tvipper.com \
-    REMOTEPOWER_TOKEN=rpk_test \
-    python3 ~/remotepower-mcp.py
+ | REMOTEPOWER_URL=https://remote.tvipper.com \
+ REMOTEPOWER_TOKEN=rpk_test \
+ python3 ~/remotepower-mcp.py
 ```
 
 You should get a JSON response on stdout within a second. If you
@@ -246,4 +246,4 @@ fleet queries. We'll bump when there's a concrete reason.
 - [MCP Linux Foundation governance](https://modelcontextprotocol.io/community/governance)
 - [Claude Desktop MCP docs](https://docs.claude.com/claude/desktop)
 - [ai.md](ai.md) — the existing in-RemotePower AI assistant
-  (different feature: dashboard ✨ buttons + AI page chat).
+ (different feature: dashboard buttons + AI page chat).

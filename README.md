@@ -19,7 +19,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 ![RemotePower dashboard](docs/screenshots/Index.png)
 
 <details>
-<summary><b>📸 Click-through gallery — more screenshots</b></summary>
+<summary><b>Click-through gallery — more screenshots</b></summary>
 
 <br>
 
@@ -105,7 +105,7 @@ seeded with synthetic devices, alerts, CVE findings, and metrics so
 you can poke around without installing anything.
 
 ```
-URL:      https://demoremote.tvipper.com
+URL: https://demoremote.tvipper.com
 Username: demo
 Password: demo
 ```
@@ -114,27 +114,30 @@ The demo is reset every few hours, so feel free to break things.
 
 ## What you can do with it
 
-- 🟢 **See what's up** — Live status every 60 s. CPU / RAM / disk sparklines. Service matrix. Containers. CVE findings.
-- ⚡ **Run commands** — Shutdown, reboot, WoL, arbitrary shell, multi-line scripts with dry-run lint, batch across many devices, scheduled (cron) and one-shot.
-- 🌐 **Browser SSH** — Real xterm.js terminal proxied through a hardened daemon. asciinema session recordings.
-- 🐳 **docker compose** — Up / down / restart / pull / logs on projects the agent discovered under `/opt /home /docker /srv`.
-- 🖥️ **Proxmox** — Connect a Proxmox VE node — start/stop QEMU VMs and LXC containers, manage snapshots, all server-to-API.
-- 🔍 **Configuration drift** — Hashes `sshd_config`, `sudoers` and friends against a baseline; diff, accept, or ignore changes.
-- 🚨 **Alerts inbox** *(v3.2)* — Every fired event lands in a mutable ledger with acknowledge / resolve / auto-resolve lifecycle. Recover events (device_online, service_recover, snmp_recover) clear the matching open row automatically. Per-event filter, bulk-resolve, clear-resolved.
-- 🔔 **Outbound notifications** — Discord / ntfy / Slack / Pushover / Teams / Gotify / generic JSON webhooks, multi-destination with per-event filters. Email too. Skipped/disabled deliveries reported separately so quiet fleets don't show a phantom failure rate.
-- 📥 **Inbound webhooks & syslog** *(v3.2)* — Receive alerts from Grafana, Alertmanager, Authelia/Authentik, n8n, Home Assistant. Ingest syslog from rsyslog `omhttp` / fluent-bit / curl. Both feed the same Alerts inbox.
-- 📦 **CMDB built in** — Asset metadata, encrypted credentials vault (AES-GCM + PBKDF2), Markdown docs per asset, network topology map, agentless devices.
-- 🛡️ **CVE scanning** — OSV.dev-backed, CVSS v3.1-scored, severity-ranked, per-CVE ignore list.
-- 📡 **SNMPv2c polling** *(v3.2)* — Pure-stdlib client polls every 5 min: sys-group, hrProcessorTable per-CPU load, hrStorageTable filesystems, UCD-SNMP load averages, vendor MIBs (Mikrotik temp/voltage/CPU MHz, Ubiquiti UAP/UDM/USW model+firmware). Threshold-driven `metric_warning` / `metric_critical` / `snmp_unreachable` / `snmp_dead` events for agentless devices alongside agented hosts.
-- 🔑 **Auth that scales** — bcrypt + TOTP 2FA. LDAP/AD. **OIDC / OpenID Connect** *(v3.2)* — Authelia, Authentik, Keycloak, Pocket-ID, Google. Named API keys (admin/viewer/mcp roles). Enrolment tokens for cloud-init / Ansible.
-- ✨ **AI assistant** — Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain output, triage CVEs, prioritise patches, generate scripts — all with regex-based secret redaction. Disabled by default.
-- 🤖 **MCP server with write tools** *(v3.2 Stage 4)* — 12 read tools + 4 write tools (`reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan`). Per-device `require_confirmation` queues destructive actions for human approval; audit log records the AI host name and natural-language prompt that triggered each call.
-- 📈 **Metrics & integrations** — Prometheus `/api/metrics` for Grafana. `/api/status` for Uptime Kuma / Homepage. `/api/digest` for cron-driven email summaries.
-- 📲 **Installable PWA** — Chrome install prompt in the header. Service worker pre-caches the app shell; API calls are always network-only. Works on desktop and mobile.
-- 🔬 **Custom monitoring scripts** — Define bash health checks server-side, assign to devices — agent runs them every 5 minutes. Exit 0 = OK. Fleet results page, edge-triggered alerts, inline AI generation.
-- 🗓️ **Calendar, schedule, maintenance windows** — Cron + one-shot scheduled commands, recurring calendar events (daily/weekly/monthly/yearly), maintenance windows that suppress webhook alerts globally or per-device.
-- 📝 **IaC generator** — Terraform / Ansible / Pulumi / cloud-init / Salt from live host inventory across 18 categories. AI renders the output.
-- 🩺 **Server self-monitoring** — Site-health card (load avg, memory %, sessions, devices-online %), disk usage breakdown, audit log size, scheduled backup state, webhook delivery rate (inbound + outbound, separate), MCP confirmation queue.
+- **See what's up** — Live status every 60 s. CPU / RAM / disk sparklines. Service matrix. Containers. CVE findings.
+- **Run commands** — Shutdown, reboot, WoL, arbitrary shell, multi-line scripts with dry-run lint, batch across many devices, scheduled (cron) and one-shot.
+- **Browser SSH** — Real xterm.js terminal proxied through a hardened daemon. asciinema session recordings.
+- **docker compose** — Up / down / restart / pull / logs on projects the agent discovered under `/opt /home /docker /srv`.
+- **Proxmox** — Connect a Proxmox VE node — start/stop QEMU VMs and LXC containers, manage snapshots, all server-to-API.
+- **Configuration drift** — Hashes `sshd_config`, `sudoers` and friends against a baseline; diff, accept, or ignore changes.
+- **Alerts inbox** *(v3.2)* — Every fired event lands in a mutable ledger with acknowledge / resolve / auto-resolve lifecycle. Recover events (device_online, service_recover, snmp_recover) clear the matching open row automatically. Per-event filter, bulk-resolve, clear-resolved.
+- **Channel routing matrix** *(v3.3)* — Per-kind toggles for Needs Attention / Recent Activity / Alerts inbox / external webhook. One matrix replaces the prior scattered hide-this-kind toggles; lazy-migrates legacy `dashboard_hidden_*` config.
+- **Outbound notifications** — Discord / ntfy / Slack / Pushover / Teams / Gotify / generic JSON / **GitHub issues** *(v3.3)* webhooks, multi-destination with per-event filters. Email too. Skipped/disabled deliveries reported separately so quiet fleets don't show a phantom failure rate.
+- **Inbound webhooks & syslog** *(v3.2)* — Receive alerts from Grafana, Alertmanager, Authelia/Authentik, n8n, Home Assistant. Ingest syslog from rsyslog `omhttp` / fluent-bit / curl. Both feed the same Alerts inbox.
+- **CMDB built in** — Asset metadata, encrypted credentials vault (AES-GCM + PBKDF2), Markdown docs per asset, network topology map, agentless devices.
+- **CVE scanning** — OSV.dev-backed, CVSS v3.1-scored, severity-ranked, per-CVE ignore list.
+- **SNMPv2c polling** *(v3.2)* — Pure-stdlib client polls every 5 min: sys-group, hrProcessorTable per-CPU load, hrStorageTable filesystems, UCD-SNMP load averages, vendor MIBs (Mikrotik temp/voltage/CPU MHz, Ubiquiti UAP/UDM/USW model+firmware). Threshold-driven `metric_warning` / `metric_critical` / `snmp_unreachable` / `snmp_dead` events for agentless devices alongside agented hosts.
+- **Auth that scales** — bcrypt + TOTP 2FA. LDAP/AD. **OIDC / OpenID Connect** *(v3.2)* — Authelia, Authentik, Keycloak, Pocket-ID, Google. Named API keys (admin/viewer/mcp roles). Enrolment tokens for cloud-init / Ansible. **IP allowlist** *(v3.3)* gates UI/API behind CIDR ranges while exempting agent paths.
+- **AI assistant** — Optional LLM integration (Ollama, LocalAI, Anthropic, OpenAI, DeepSeek). Explain output, triage CVEs, prioritise patches, generate scripts — all with regex-based secret redaction. Disabled by default.
+- **MCP server with write tools** *(v3.2 Stage 4)* — 12 read tools + 4 write tools (`reboot_device`, `run_saved_script`, `force_package_scan`, `force_acme_rescan`). Per-device `require_confirmation` queues destructive actions for human approval; audit log records the AI host name and natural-language prompt that triggered each call.
+- **Metrics & integrations** — Prometheus `/api/metrics` for Grafana (status-token authenticated for stable scrape configs, v3.3). `/api/status` for Uptime Kuma / Homepage. **Healthchecks.io watchdog** *(v3.3)* — server pings hc.io on a fixed interval so an external monitor flips red when RemotePower itself stops responding.
+- **Installable PWA** — Chrome install prompt in the header. Service worker pre-caches the app shell; API calls are always network-only. Works on desktop and mobile.
+- **Custom monitoring scripts** — Define bash health checks server-side, assign to devices — agent runs them every 5 minutes. Exit 0 = OK. Fleet results page, edge-triggered alerts, inline AI generation.
+- **Calendar, schedule, maintenance windows** — Cron + one-shot scheduled commands, recurring calendar events (daily/weekly/monthly/yearly), maintenance windows that suppress webhook alerts globally or per-device.
+- **ACME / Let's Encrypt** — Per-device issuance, force-renew, revoke. **Central DNS-01 credentials** *(v3.3)* — operator stores Cloudflare/Hetzner/Route 53/etc. API tokens once on the server; injected into the queued `acme.sh` command at issue time, so device-side `account.conf` editing is no longer required.
+- **IaC generator** — Terraform / Ansible / Pulumi / cloud-init / Salt from live host inventory across 18 categories. AI renders the output.
+- **Server self-monitoring** — Site-health card (load avg, memory %, sessions, devices-online %), disk usage breakdown, audit log size, scheduled backup state, webhook delivery rate (inbound + outbound, separate), MCP confirmation queue.
+- **Hash-driven agent self-update** *(v3.3)* — agents compare their own binary sha256 against the server's canonical hash; mismatch in either direction triggers a download. Replaces version-string comparison (which silently skipped same-version rebuilds and operator-initiated re-pushes).
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
@@ -186,4 +189,4 @@ of it: heavily connected to your own local AI (Ollama, LocalAI) or online AI
 
 MIT — see [LICENSE](LICENSE).
 
-<div align="center"><sub>Made with ☕ and vi</sub></div>
+<div align="center"><sub>Made with care and vi</sub></div>

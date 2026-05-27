@@ -39,17 +39,17 @@ moot is to run the model locally.
 
 1. **Settings → AI assistant** → toggle **Enabled** to On.
 2. Pick a **Provider**, optionally enter a **Model** name (leave
-   blank for the provider's default).
+ blank for the provider's default).
 3. For cloud providers, paste your **API key**. For Ollama or
-   LocalAI, leave it blank.
+ LocalAI, leave it blank.
 4. Optionally override the **Base URL** if you're running Ollama
-   at a non-default address (e.g. `http://10.0.0.2:11434/v1`).
+ at a non-default address (e.g. `http://10.0.0.2:11434/v1`).
 5. Set **Privacy** toggles (see below) and **Limits**.
-6. Click **✨ Test connection** to verify. A success message means
-   the provider responded with a tiny 8-token reply. A failure
-   message names the problem.
-7. Save settings. The ✨ buttons across the dashboard are now
-   active for every authenticated user.
+6. Click ** Test connection** to verify. A success message means
+ the provider responded with a tiny 8-token reply. A failure
+ message names the problem.
+7. Save settings. The buttons across the dashboard are now
+ active for every authenticated user.
 
 ### Default models per provider
 
@@ -77,12 +77,12 @@ you must add a per-location block:
 
 ```nginx
 location /api/ai/ {
-    include fastcgi_params;
-    fastcgi_pass unix:/var/run/fcgiwrap.socket;
-    fastcgi_read_timeout 300s;
-    fastcgi_send_timeout 300s;
-    fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api.py;
-    fastcgi_param PATH_INFO $uri;
+ include fastcgi_params;
+ fastcgi_pass unix:/var/run/fcgiwrap.socket;
+ fastcgi_read_timeout 300s;
+ fastcgi_send_timeout 300s;
+ fastcgi_param SCRIPT_FILENAME /var/www/remotepower/cgi-bin/api.py;
+ fastcgi_param PATH_INFO $uri;
 }
 ```
 
@@ -121,11 +121,11 @@ Two limits, both per user, both in Settings → AI assistant →
 **Limits**:
 
 - **Max tokens per response** — caps the model's output length
-  (default 4000; max 16000). Lower = faster + cheaper but may
-  truncate long responses.
+ (default 4000; max 16000). Lower = faster + cheaper but may
+ truncate long responses.
 - **Daily requests per user** — caps the number of `/api/ai/chat`
-  calls per UTC day per username (default 100). Set to **0** for
-  unlimited.
+ calls per UTC day per username (default 100). Set to **0** for
+ unlimited.
 
 The daily counter resets at midnight UTC. The bookkeeping lives in
 `ai_usage.json`; the file is GC'd nightly so it doesn't grow.
@@ -144,26 +144,26 @@ Per-button max_tokens overrides are also applied client-side so a
 The server still respects your configured global cap — the
 per-button value is a *floor*, not a *raise*.
 
-## ✨ button inventory
+## button inventory
 
 | Location | Label | What gets sent |
 |---|---|---|
-| Device dropdown (⋯ menu) | **✨ Investigate** | sysinfo + last 30 journal lines + last 10 commands |
-| Device detail → Command output | **✨ Explain** | command + output + device name |
-| Device detail → Journal panel | **✨ Find the problem** | error/warning lines with 2-line context, or last 50 lines |
-| Services → service detail | **✨ Diagnose** *(failed services only)* | unit name + state + last 30 log lines |
-| TLS → table row | **✨ Triage** *(warning/critical/error only)* | host + port + expiry + issuer + starttls type |
-| Patches → table row | **✨ Prioritise** *(devices with pending updates only)* | upgradable package list from latest apt/dnf check |
-| CVEs → finding row | **✨ Triage** | CVE id + package + version + summary + device |
-| Notifications → webhook log row | **✨ Explain** | event type + raw detail |
-| Scripts → edit modal | **✨ Generate from prompt** | natural-language description |
-| Scripts → edit modal | **✨ Explain** | the script body |
-| Scripts → edit modal | **✨ Audit for risks** | the script body |
+| Device dropdown (⋯ menu) | ** Investigate** | sysinfo + last 30 journal lines + last 10 commands |
+| Device detail → Command output | ** Explain** | command + output + device name |
+| Device detail → Journal panel | ** Find the problem** | error/warning lines with 2-line context, or last 50 lines |
+| Services → service detail | ** Diagnose** *(failed services only)* | unit name + state + last 30 log lines |
+| TLS → table row | ** Triage** *(warning/critical/error only)* | host + port + expiry + issuer + starttls type |
+| Patches → table row | ** Prioritise** *(devices with pending updates only)* | upgradable package list from latest apt/dnf check |
+| CVEs → finding row | ** Triage** | CVE id + package + version + summary + device |
+| Notifications → webhook log row | ** Explain** | event type + raw detail |
+| Scripts → edit modal | ** Generate from prompt** | natural-language description |
+| Scripts → edit modal | ** Explain** | the script body |
+| Scripts → edit modal | ** Audit for risks** | the script body |
 | Help → AI Assistant page | (free-form chat) | full conversation history (local to browser) |
 
 Generated scripts go through the same dry-run + dangerous-pattern
 detection as a human-written one — there's no special AI-trusted
-path. The ✨ buttons are visible to every authenticated user once
+path. The buttons are visible to every authenticated user once
 the feature is enabled; rate limits apply per-user.
 
 ## The AI Assistant page (Help → AI Assistant)
@@ -178,7 +178,7 @@ For Ollama and LocalAI ("local providers"), shows:
 - Reachability indicator (● Reachable / ● Unreachable / ● Error)
 - Server version (Ollama: from `/api/version`)
 - **Currently-loaded models** with VRAM use + expiry time (Ollama:
-  from `/api/ps`)
+ from `/api/ps`)
 
 For cloud providers (Anthropic, OpenAI, DeepSeek), shows the
 configured provider + base URL + a "reachable" indicator that's
@@ -203,7 +203,7 @@ loaded into Ollama at the same time.
 
 ### Free-form chat
 
-Multi-turn, Ctrl/⌘+Enter to send. Conversation history persists in
+Multi-turn, Ctrl/+Enter to send. Conversation history persists in
 **localStorage** in your browser — last 40 messages, capped to keep
 request size bounded. Clearing the conversation wipes the local
 history; the server-side audit log of individual requests is
@@ -221,23 +221,23 @@ All require authentication (any logged-in user — except config
 which is admin-only).
 
 ```
-GET  /api/ai/config       — current config, api_key masked
-POST /api/ai/config       — admin, validated, audit-logged
-POST /api/ai/chat         — main chat endpoint
-POST /api/ai/test         — admin, "say OK" smoke test
-GET  /api/ai/models       — list available models from the provider
-GET  /api/ai/stats        — provider info, version, loaded models
+GET /api/ai/config — current config, api_key masked
+POST /api/ai/config — admin, validated, audit-logged
+POST /api/ai/chat — main chat endpoint
+POST /api/ai/test — admin, "say OK" smoke test
+GET /api/ai/models — list available models from the provider
+GET /api/ai/stats — provider info, version, loaded models
 ```
 
 ### POST /api/ai/chat — body shape
 
 ```json
 {
-  "messages":   [{"role": "user|assistant|system", "content": "..."}, ...],
-  "system":     "explain_output | find_problem | ... | <literal>",
-  "context":    "optional free-form label for audit log",
-  "max_tokens": 1500,
-  "model":      "optional override of the configured model"
+ "messages": [{"role": "user|assistant|system", "content": "..."}, ...],
+ "system": "explain_output | find_problem | ... | <literal>",
+ "context": "optional free-form label for audit log",
+ "max_tokens": 1500,
+ "model": "optional override of the configured model"
 }
 ```
 
@@ -256,33 +256,33 @@ limit; a client can request less but not more.
 Keys live in `server/cgi-bin/ai_provider.py::SYSTEM_PROMPTS`:
 
 ```
-explain_output         — command output
-find_problem           — journal slice
-explain_script         — script body
-audit_script           — script body, security focus
-generate_script        — natural language → bash
-triage_cve             — CVE id + package context
-investigate_device     — device snapshot
-explain_alert          — webhook payload
-free_form              — generic, used by the AI page
-diagnose_service       — failed systemd unit + logs        (v2.1.5)
-explain_tls            — certificate expiry / renewal      (v2.1.5)
-prioritise_patches     — pending updates list              (v2.1.5)
-explain_container_logs — docker / podman logs              (v2.1.5)
+explain_output — command output
+find_problem — journal slice
+explain_script — script body
+audit_script — script body, security focus
+generate_script — natural language → bash
+triage_cve — CVE id + package context
+investigate_device — device snapshot
+explain_alert — webhook payload
+free_form — generic, used by the AI page
+diagnose_service — failed systemd unit + logs (v2.1.5)
+explain_tls — certificate expiry / renewal (v2.1.5)
+prioritise_patches — pending updates list (v2.1.5)
+explain_container_logs — docker / podman logs (v2.1.5)
 ```
 
 ## Storage
 
 - **API key**: cleartext in `config.json` under `cfg['ai']['api_key']`.
-  The file is mode 0600 owned by the CGI user. Operators who need
-  stronger storage can swap in `cmdb_vault` later — there's a hook
-  point in `_ai_cfg()`.
+ The file is mode 0600 owned by the CGI user. Operators who need
+ stronger storage can swap in `cmdb_vault` later — there's a hook
+ point in `_ai_cfg()`.
 - **Rate-limit counters**: `ai_usage.json`, one key per `<date>:<user>`,
-  garbage-collected daily.
+ garbage-collected daily.
 - **Audit log**: every `/api/ai/chat` call appends an entry to the
-  audit log with provider, model, token counts, elapsed time,
-  context label, and rate-limit position. **Content is not logged**
-  — neither the prompt nor the response. That's deliberate.
+ audit log with provider, model, token counts, elapsed time,
+ context label, and rate-limit position. **Content is not logged**
+ — neither the prompt nor the response. That's deliberate.
 
 ## Troubleshooting
 
@@ -342,20 +342,20 @@ These are deliberately deferred. Each one is a real feature, none
 of them are in this release:
 
 - **Tool calls / agent mode.** Letting the model query
-  `/api/devices` etc. is interesting but needs a separate
-  Settings toggle and a read-only action allowlist. Queued.
+ `/api/devices` etc. is interesting but needs a separate
+ Settings toggle and a read-only action allowlist. Queued.
 - **Streaming responses.** Visible benefit small for 1–30s
-  requests; complications with CGI buffering and nginx
-  buffering large. Sync request/response only.
+ requests; complications with CGI buffering and nginx
+ buffering large. Sync request/response only.
 - **Saved prompts / templates.** The inline buttons cover the
-  bulk of use. A library of named prompts could come later.
+ bulk of use. A library of named prompts could come later.
 - **Cross-user conversation sync.** AI page conversations are
-  per-browser by design — keeps the privacy surface clean. If
-  you want a shared scratchpad, that's a different feature.
+ per-browser by design — keeps the privacy surface clean. If
+ you want a shared scratchpad, that's a different feature.
 - **Token cost tracking.** Audit log captures `tokens_in` and
-  `tokens_out` per call; a dashboard summary across them would
-  be nice but isn't here yet.
+ `tokens_out` per call; a dashboard summary across them would
+ be nice but isn't here yet.
 - **cmdb_vault integration for the API key.** Mode-0600
-  `config.json` is good enough for a self-hosted single-tenant
-  box. Vault makes sense once you want per-user key scoping or
-  rotation.
+ `config.json` is good enough for a self-hosted single-tenant
+ box. Vault makes sense once you want per-user key scoping or
+ rotation.
