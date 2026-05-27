@@ -9379,6 +9379,16 @@ async function _renderHomeAttention() {
       const sampleList = i.samples.map((s, n) => `${n + 1}. ${s}`).join('\n');
       cardTitle = `Pattern: ${i.pattern || '(unknown)'}\n\nMatches:\n${sampleList}`;
     }
+    // v3.2.3 (#4): inline actions. 🔕 snooze for 24h (vs. × which is
+    // permanent until manually restored); 📋 jumps to Logs filtered to
+    // the device+unit that fired the rule. log_alert-only items get
+    // both; everything else gets just 🔕 + ×.
+    const snoozeBtn = key
+      ? `<button class="btn-icon isl-556" title="Snooze for 24h (returns automatically)" data-stop-prop="1" data-action="snoozeAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >🔕</button>`
+      : '';
+    const logsBtn = (i.kind === 'log_alert' && i.device_id)
+      ? `<button class="btn-icon isl-556" title="Open Logs filtered to this device + unit" data-stop-prop="1" data-action="openLogsForLogAlert" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.unit || '')}" >📋</button>`
+      : '';
     return `<div class="dash-feed-item isl-156" title="${escAttr(cardTitle)}">
       <div
            data-action-btn="_showPageBtn" data-page="${page}" class="isl-555">
@@ -9386,7 +9396,9 @@ async function _renderHomeAttention() {
         <strong>${escHtml(i.device)}</strong> — ${escHtml(i.summary)}
       </div>
       ${mitBtn}
-      <button class="btn-icon isl-556" title="Ignore this alert (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >×</button>
+      ${logsBtn}
+      ${snoozeBtn}
+      <button class="btn-icon isl-556" title="Ignore this alert permanently (review later in Settings → Ignored items)" data-stop-prop="1" data-action="ignoreAttention" data-arg="${escAttr(key)}" data-arg2="${escAttr(lbl)}" >×</button>
     </div>`;
   }).join('');
 }
@@ -9400,6 +9412,51 @@ async function ignoreAttention(key, label) {
   } else {
     toast(r?.error || 'Failed', 'error');
   }
+}
+
+// v3.2.3 (#4): snooze for 24h — server stores expires_at, the alert
+// returns automatically when the snooze expires. Same endpoint as
+// permanent ignore; the absence of expires_at is what makes × permanent.
+async function snoozeAttention(key, label) {
+  if (!key) return;
+  const expires_at = Math.floor(Date.now() / 1000) + 86400;
+  const r = await api('POST', '/ignored', {
+    category: 'needs_attention', key, label, expires_at,
+  });
+  if (r?.ok) {
+    toast('Snoozed for 24h', 'success');
+    _renderHomeAttention();
+  } else {
+    toast(r?.error || 'Failed', 'error');
+  }
+}
+
+// v3.2.3 (#4): jump to Logs page with device + unit filters pre-set.
+// Builds on openLogsForDevice() — same poll-for-options pattern.
+function openLogsForLogAlert(devId, unit) {
+  const navBtn = document.querySelector('.nav-btn[data-page="logs"]');
+  if (navBtn) showPage('logs', navBtn); else return;
+  setTimeout(() => {
+    const devSel = document.getElementById('logs-device-filter');
+    const unitSel = document.getElementById('logs-unit-filter');
+    if (!devSel) return;
+    let attempts = 0;
+    const tryApply = () => {
+      attempts++;
+      const devOpt = Array.from(devSel.options).find(o => o.value === devId);
+      if (devOpt) {
+        devSel.value = devId;
+        if (unitSel && unit) {
+          const unitOpt = Array.from(unitSel.options).find(o => o.value === unit);
+          if (unitOpt) unitSel.value = unit;
+        }
+        if (typeof onLogFilterChange === 'function') onLogFilterChange();
+      } else if (attempts < 12) {
+        setTimeout(tryApply, 150);
+      }
+    };
+    tryApply();
+  }, 100);
 }
 
 let _activityClearedAt = parseInt(sessionStorage.getItem('rp_activity_cleared') || '0', 10);

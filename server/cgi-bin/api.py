@@ -10987,6 +10987,7 @@ def _compute_attention():
             items.append({
                 'severity': sev, 'kind': 'log_alert',
                 'device':   dev_name,
+                'unit':     unit,
                 'summary':  summary_text,
                 'samples':  [str(s)[:200] for s in samples[:3]],
                 'pattern':  pattern,
@@ -19198,6 +19199,17 @@ def _ignored_load():
     for k in ('needs_attention', 'stale_containers', 'devices'):
         if not isinstance(data.get(k), list):
             data[k] = []
+    # v3.2.3: drop expired snoozes. needs_attention entries may carry
+    # an `expires_at` epoch — when past, they vanish so the alert
+    # comes back into view. Pure read-time filter; we never write
+    # back here (a CGI request shouldn't take a file lock just to
+    # clean up; the next /api/ignored POST or its own GET path
+    # tolerates expired entries).
+    now = int(time.time())
+    data['needs_attention'] = [
+        e for e in data['needs_attention']
+        if not e.get('expires_at') or e['expires_at'] > now
+    ]
     return data
 
 
@@ -19237,12 +19249,42 @@ def handle_ignored_add():
             key = _sanitize_str(str(body.get('key', '')), 32)
             if not key:
                 respond(400, {'error': 'key required'}); return
-            if not any(e.get('key') == key for e in data['needs_attention']):
-                data['needs_attention'].append({
+            # v3.2.3: optional `expires_at` (epoch seconds) for snoozes.
+            # When set, the entry auto-disappears from the ignore list
+            # after that time and the alert returns to Needs Attention.
+            # Clamp to ≤ 30 days so a misclick can't bury an alert
+            # forever — operators who really want permanent should use
+            # the existing × ignore (no expires_at field).
+            raw_exp = body.get('expires_at')
+            expires_at = None
+            if raw_exp is not None and raw_exp != '':
+                try:
+                    expires_at = int(raw_exp)
+                except (TypeError, ValueError):
+                    expires_at = None
+                if expires_at is not None:
+                    expires_at = min(expires_at, now + 30 * 86400)
+                    if expires_at <= now:
+                        expires_at = None
+            existing = next((e for e in data['needs_attention']
+                             if e.get('key') == key), None)
+            if existing:
+                # Re-snoozing extends or shortens; permanent ignore
+                # (no expires_at posted) clears the snooze.
+                if expires_at is None:
+                    existing.pop('expires_at', None)
+                else:
+                    existing['expires_at'] = expires_at
+                existing['ts'] = now
+            else:
+                entry = {
                     'key':   key,
                     'ts':    now,
                     'label': _sanitize_str(str(body.get('label', '')), 200),
-                })
+                }
+                if expires_at:
+                    entry['expires_at'] = expires_at
+                data['needs_attention'].append(entry)
         elif cat == 'stale_containers':
             did = _sanitize_str(str(body.get('device_id', '')), 64)
             ctr = _sanitize_str(str(body.get('container', '')), 200)
