@@ -77,6 +77,13 @@ class TestVersionBumps(unittest.TestCase):
             self.assertNotEqual(size, '64k',
                 f'{conf}: client_max_body_size still 64k — must be raised')
 
+    def test_scheduler_dedup_guard(self):
+        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn('last_fired_minute', text,
+            'process_schedule must stamp last_fired_minute to prevent duplicate firings')
+        self.assertIn('current_minute = now // 60', text,
+            'process_schedule must compute current_minute for the dedup guard')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -7104,10 +7104,14 @@ def process_schedule():
     now      = int(time.time())
     remaining = []
     changed = False
+    current_minute = now // 60
     for job in jobs:
         due = False
         if job.get('recurring') and job.get('cron'):
-            due = _cron_matches(job['cron'], now)
+            # Guard: fire at most once per minute even if process_schedule()
+            # is invoked many times per minute (once per CGI request).
+            if job.get('last_fired_minute') != current_minute:
+                due = _cron_matches(job['cron'], now)
         elif job.get('run_at') and job['run_at'] <= now:
             due = True
         if due:
@@ -7146,6 +7150,7 @@ def process_schedule():
                     save(CMDS_FILE, cmds)
                     log_command(f"scheduler({job['actor']})", dev_id, job['device_name'], command)
             if job.get('recurring'):
+                job['last_fired_minute'] = current_minute
                 remaining.append(job)
             changed = True
         else:
