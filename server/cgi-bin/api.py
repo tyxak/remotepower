@@ -15136,6 +15136,15 @@ def handle_fleet_events():
         limit = 50
     limit = max(1, min(MAX_FLEET_EVENTS, limit))
 
+    # v3.3.0: optional ?event=<name> filter — lets the timeline UI and any
+    # external scraper narrow to a single event kind (log_alert,
+    # cve_found, ...) instead of paging through everything. Honour
+    # multiple ?event= params as an OR.
+    name_filter = qs.get('event') or []
+    if name_filter:
+        wanted = {n for n in name_filter if n}
+        events = [e for e in events if e.get('event') in wanted]
+
     # v2.3.4: exclude events belonging to unmonitored devices. A device
     # the operator has explicitly set monitored=false should not appear
     # in the activity feed, timelines, or any aggregation. Filtered at

@@ -226,6 +226,34 @@ class TestHandleFleetEvents(_Base):
         except _Captured as c: pass
         # If we got here without AssertionError, the test passes
 
+    def test_event_name_filter(self):
+        # v3.3.0: ?event=<name> narrows the response to events of that
+        # kind only. Multiple ?event= params OR together.
+        api._record_fleet_event('device_offline', {'device_id': 'a'})
+        api._record_fleet_event('log_alert',      {'device_id': 'b'})
+        api._record_fleet_event('cve_found',      {'device_id': 'c'})
+        api._record_fleet_event('log_alert',      {'device_id': 'd'})
+
+        _set_method('GET', 'event=log_alert')
+        try: api.handle_fleet_events()
+        except _Captured as c: r = c
+        self.assertEqual(r.status, 200)
+        self.assertEqual(len(r.body), 2)
+        self.assertTrue(all(e['event'] == 'log_alert' for e in r.body))
+
+        _set_method('GET', 'event=log_alert&event=cve_found')
+        try: api.handle_fleet_events()
+        except _Captured as c: r = c
+        self.assertEqual(len(r.body), 3)
+        self.assertEqual({e['event'] for e in r.body},
+                         {'log_alert', 'cve_found'})
+
+        # Unknown event name yields zero rows (no implicit pass-through)
+        _set_method('GET', 'event=does_not_exist')
+        try: api.handle_fleet_events()
+        except _Captured as c: r = c
+        self.assertEqual(r.body, [])
+
 
 # ─── Frontend changes ───────────────────────────────────────────────────
 
