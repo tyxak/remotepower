@@ -3691,12 +3691,14 @@ def handle_device_delete(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    devices = load(DEVICES_FILE)
-    if dev_id not in devices:
-        respond(404, {'error': 'Device not found'})
-    del devices[dev_id]
-    save(DEVICES_FILE, devices)
-    cmds = load(CMDS_FILE); cmds.pop(dev_id, None); save(CMDS_FILE, cmds)
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        del devices[dev_id]
+    # v3.3.0: was bare load/save — racing with a concurrent heartbeat
+    # could lose the new command queued just after delete.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        cmds.pop(dev_id, None)
 
     # v2.6.0: comprehensive orphan cleanup — remove the device's data from
     # every per-device store so deleted devices don't ghost in the UI.
@@ -3708,35 +3710,29 @@ def handle_device_delete(dev_id):
     try:
         for store_path in _SIMPLE_STORES:
             try:
-                data = load(store_path)
-                if isinstance(data, dict) and dev_id in data:
-                    data.pop(dev_id)
-                    save(store_path, data)
+                with _LockedUpdate(store_path) as data:
+                    if isinstance(data, dict) and dev_id in data:
+                        data.pop(dev_id)
             except Exception:
                 pass
 
         # fleet_events: filter out events for this device
         try:
-            fe = load(FLEET_EVENTS_FILE)
-            if isinstance(fe, dict):
-                fe['events'] = [
-                    e for e in (fe.get('events') or [])
-                    if e.get('device_id') != dev_id
-                ]
-                save(FLEET_EVENTS_FILE, fe)
+            with _LockedUpdate(FLEET_EVENTS_FILE) as fe:
+                if isinstance(fe, dict):
+                    fe['events'] = [
+                        e for e in (fe.get('events') or [])
+                        if e.get('device_id') != dev_id
+                    ]
         except Exception:
             pass
 
         # config: stale-notified flags keyed by dev_id
         try:
-            cfg = load(CONFIG_FILE)
-            changed = False
-            for key in ('containers_stale_notified', 'metric_notified'):
-                if isinstance(cfg.get(key), dict) and dev_id in cfg[key]:
-                    cfg[key].pop(dev_id)
-                    changed = True
-            if changed:
-                save(CONFIG_FILE, cfg)
+            with _LockedUpdate(CONFIG_FILE) as cfg:
+                for key in ('containers_stale_notified', 'metric_notified'):
+                    if isinstance(cfg.get(key), dict) and dev_id in cfg[key]:
+                        cfg[key].pop(dev_id)
         except Exception:
             pass
 
@@ -3750,13 +3746,10 @@ def handle_device_delete(dev_id):
 
         # service_history: keys are dev_id:service_name
         try:
-            sh = load(DATA_DIR / 'service_history.json')
-            if isinstance(sh, dict):
-                keys = [k for k in sh if k.startswith(f'{dev_id}:')]
-                if keys:
-                    for k in keys:
+            with _LockedUpdate(DATA_DIR / 'service_history.json') as sh:
+                if isinstance(sh, dict):
+                    for k in [k for k in sh if k.startswith(f'{dev_id}:')]:
                         sh.pop(k)
-                    save(DATA_DIR / 'service_history.json', sh)
         except Exception:
             pass
 
@@ -6945,7 +6938,13 @@ def handle_self_status():
         perf['devices_online_pct'] = round((mon - off) * 100.0 / mon, 1)
     # Site health: 'ok' if no scary signals, otherwise list the reasons
     flags = []
-    if perf.get('load_avg', {}).get('5m', 0) > os.cpu_count() * 2 if os.cpu_count() else 999:
+    # v3.3.0: was `> os.cpu_count() * 2 if os.cpu_count() else 999` —
+    # Python parsed that as `(x > y) if cpu_count else 999`, so when
+    # os.cpu_count() returned None/0 the whole expression evaluated to
+    # 999 (truthy) and 'high load' fired on every status response.
+    _cpu_n = os.cpu_count() or 0
+    _load_5m = perf.get('load_avg', {}).get('5m', 0)
+    if _cpu_n and _load_5m > _cpu_n * 2:
         flags.append('high load')
     if perf.get('memory', {}).get('used_pct', 0) > 90:
         flags.append('memory > 90%')
@@ -10643,6 +10642,9 @@ def _compute_attention():
     """
     items = []
     devices = load(DEVICES_FILE) or {}
+    # v3.3.0: load CONFIG_FILE once here and pass through. Previously
+    # this function loaded it 4× during a single call.
+    cfg = load(CONFIG_FILE) or {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -10748,8 +10750,7 @@ def _compute_attention():
     if bak_state_file.exists():
         try:
             bak_state = load(bak_state_file) or {}
-            cfg_bak   = load(CONFIG_FILE) or {}
-            bak_mons  = {m['path']: m for m in (cfg_bak.get('backup_monitors') or []) if m.get('path')}
+            bak_mons  = {m['path']: m for m in (cfg.get('backup_monitors') or []) if m.get('path')}
             for state_key, entry in bak_state.items():
                 if ':' not in state_key:
                     continue
@@ -10768,9 +10769,8 @@ def _compute_attention():
             pass
 
     # v2.8.0: disk space threshold breaches (reads from sysinfo stored in devices.json).
-    cfg_disk = load(CONFIG_FILE) or {}
-    default_warn = cfg_disk.get('disk_warn_percent', 80)
-    default_crit = cfg_disk.get('disk_crit_percent', 90)
+    default_warn = cfg.get('disk_warn_percent', 80)
+    default_crit = cfg.get('disk_crit_percent', 90)
     for dev_id, dev in monitored.items():
         si = dev.get('sysinfo') or {}
         mounts = si.get('mounts') or []
@@ -10935,8 +10935,7 @@ def _compute_attention():
     if PROXMOX_SNAPSHOT_CACHE.exists():
         try:
             snap_cache = load(PROXMOX_SNAPSHOT_CACHE) or {}
-            cfg_snap   = load(CONFIG_FILE) or {}
-            warn_days  = int(cfg_snap.get('proxmox_snapshot_warn_days', 7))
+            warn_days  = int(cfg.get('proxmox_snapshot_warn_days', 7))
             for key, entry in snap_cache.items():
                 snaps = entry.get('snapshots') or []
                 vm    = entry.get('vm_name', key)
@@ -11033,11 +11032,10 @@ def _compute_attention():
     # behind a check that stayed down between dashboard loads would only be
     # noticed via webhook alerts.
     try:
-        cfg_for_mon = load(CONFIG_FILE) or {}
         mon_hist = load(MON_HIST_FILE) or {}
     except Exception:
-        cfg_for_mon = {}; mon_hist = {}
-    for mon in (cfg_for_mon.get('monitors') or []):
+        mon_hist = {}
+    for mon in (cfg.get('monitors') or []):
         label = mon.get('label') or mon.get('target') or ''
         if not label:
             continue
@@ -15012,14 +15010,17 @@ def _sanitize_service_entry(entry):
 
 
 def _record_service_transition(dev_id, unit, old_active, new_active, ts):
-    """Append a transition to service_history.json keyed by (device,unit)."""
-    hist = load(SERVICE_HIST_FILE)
+    """Append a transition to service_history.json keyed by (device,unit).
+
+    v3.3.0: now under _LockedUpdate — concurrent heartbeats from different
+    devices would otherwise stomp each other (last writer wins, transitions
+    lost from disk)."""
     key = f'{dev_id}:{unit}'
-    entries = hist.get(key) or []
-    entries.append({'ts': ts, 'from': old_active, 'to': new_active})
-    entries = entries[-MAX_SERVICE_HIST:]
-    hist[key] = entries
-    save(SERVICE_HIST_FILE, hist)
+    with _LockedUpdate(SERVICE_HIST_FILE) as hist:
+        entries = hist.get(key) or []
+        entries.append({'ts': ts, 'from': old_active, 'to': new_active})
+        entries = entries[-MAX_SERVICE_HIST:]
+        hist[key] = entries
 
 
 def _fire_service_webhook(event, dev_id, unit, payload_extra=None):
@@ -15056,31 +15057,39 @@ def process_service_report(dev_id, services_payload):
     if not clean:
         return
 
-    store = load(SERVICES_FILE)
-    prev_dev = store.get(dev_id) or {}
-    prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
+    # v3.3.0: was bare load/save — two agents heartbeating concurrently
+    # would race and one of the writes was lost. _LockedUpdate scopes the
+    # mutation under the file lock. Webhooks fire AFTER the lock releases
+    # so a slow webhook destination can't hold the services.json lock
+    # against subsequent heartbeats.
+    transitions = []
+    with _LockedUpdate(SERVICES_FILE) as store:
+        prev_dev = store.get(dev_id) or {}
+        prev_by_unit = {s['unit']: s for s in (prev_dev.get('services') or [])}
 
-    for entry in clean:
-        prev = prev_by_unit.get(entry['unit'])
-        if not prev:
-            continue  # first time we see this unit; no transition yet
-        # Normalize: treat anything other than 'active' as "down" for alerting
-        was_up = (prev.get('active') == 'active')
-        is_up  = (entry['active'] == 'active')
-        if was_up != is_up:
-            _record_service_transition(
-                dev_id, entry['unit'], prev.get('active'), entry['active'], now
-            )
-            # fire_webhook() respects per-event toggles (v1.8.4)
-            event = 'service_up' if is_up else 'service_down'
-            _fire_service_webhook(event, dev_id, entry['unit'], {
-                'active':    entry['active'],
-                'sub':       entry['sub'],
-                'previous':  prev.get('active'),
-            })
+        for entry in clean:
+            prev = prev_by_unit.get(entry['unit'])
+            if not prev:
+                continue  # first time we see this unit; no transition yet
+            # Normalize: treat anything other than 'active' as "down" for alerting
+            was_up = (prev.get('active') == 'active')
+            is_up  = (entry['active'] == 'active')
+            if was_up != is_up:
+                transitions.append((entry, prev, is_up))
 
-    store[dev_id] = {'updated_at': now, 'services': clean}
-    save(SERVICES_FILE, store)
+        store[dev_id] = {'updated_at': now, 'services': clean}
+
+    # Fire transitions outside the lock to keep the hot path short.
+    for entry, prev, is_up in transitions:
+        _record_service_transition(
+            dev_id, entry['unit'], prev.get('active'), entry['active'], now
+        )
+        event = 'service_up' if is_up else 'service_down'
+        _fire_service_webhook(event, dev_id, entry['unit'], {
+            'active':    entry['active'],
+            'sub':       entry['sub'],
+            'previous':  prev.get('active'),
+        })
 
 
 # ─── v1.11.4: container alerting ────────────────────────────────────────────
