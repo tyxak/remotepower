@@ -1922,7 +1922,7 @@ _ALERT_RULES = {
     'cve_found':              (None,       None),   # severity from payload
     'drift_detected':         ('medium',   None),
     'config_drift':           ('medium',   None),
-    'tls_expiring':           (None,       None),   # severity from payload.days
+    'tls_expiry':             (None,       None),   # severity from payload.days
     'mailbox_threshold':      ('medium',   None),
     'custom_script_fail':     ('high',     None),
     'log_alert':              (None,       None),   # severity from payload.level
@@ -1982,14 +1982,24 @@ CHANNEL_KINDS = [
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
     ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
     ('backup',      'Stale backups',            'operational',   ['backup_stale']),
-    ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry', 'tls_expiring']),
+    ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry']),
+    ('acme',        'ACME certificate issuance','operational',   []),   # NA-only — surfaced from acme.sh state
     ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
     ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
     ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
     ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
     ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover']),
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
-    ('metric',      'Metric thresholds',        'informational', ['metric_warning', 'metric_critical', 'metric_recovered']),
+    # Informational + state-derived. The metric_* events fire to Recent
+    # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
+    # surface state-derived NA cards (thresholds breached). Operators
+    # who want "no swap warnings" check the row they care about.
+    ('metric',      'Metric event firings',     'informational', ['metric_warning', 'metric_critical', 'metric_recovered']),
+    ('disk',        'Disk space (NA)',          'informational', []),
+    ('memory',      'Memory pressure (NA)',     'informational', []),
+    ('swap',        'Swap pressure (NA)',       'informational', []),
+    ('cpu',         'CPU loadavg (NA)',         'informational', []),
+    ('agent_version', 'Stale agent version (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
     ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
 ]
@@ -1998,6 +2008,19 @@ EVENT_KIND_MAP = {
     evt: kind
     for kind, _label, _group, events in CHANNEL_KINDS
     for evt in events
+}
+
+# Alias map for the NA filter: _compute_attention emits some items
+# with kinds that don't match the routing kind. Without aliasing, the
+# matrix toggle for `service` wouldn't actually hide items with
+# kind=`service_down`. Kept narrow — only entries that genuinely
+# diverge; everything else maps identity in the lookup.
+NA_KIND_ALIAS = {
+    'service_down':       'service',
+    'monitor_down':       'monitor',
+    'custom_script_fail': 'script',
+    # disk/memory/swap/cpu/agent_version/acme map identity (their NA
+    # kind matches the matrix kind directly).
 }
 
 CHANNELS = ('needs_attention', 'recent_activity', 'alerts', 'webhook')
@@ -2123,7 +2146,7 @@ def _alert_severity(event, payload):
         if int(p.get('high') or 0) > 0:
             return 'high'
         return 'medium'
-    if event == 'tls_expiring':
+    if event == 'tls_expiry':
         days = p.get('days')
         try:
             days = int(days)
@@ -2167,7 +2190,7 @@ def _alert_title(event, payload):
         return f'CVEs on {name}: {c} critical, {h} high'
     if event in ('drift_detected', 'config_drift'):
         return f'Config drift on {name}: {p.get("files", "?")} file(s)'
-    if event == 'tls_expiring':
+    if event == 'tls_expiry':
         host = p.get('host') or name
         return f'TLS expires in {p.get("days", "?")}d: {host}'
     if event == 'mailbox_threshold':
@@ -11093,9 +11116,15 @@ def _compute_attention():
     # needs_attention channel is enabled. Legacy
     # dashboard_hidden_attention_kinds is migrated into channel_routing
     # by _channel_routing() so both old and new configs work.
+    # NA_KIND_ALIAS resolves the few cases where _compute_attention's
+    # emitted kind name diverges from the routing kind name
+    # (service_down → service, etc.) so the matrix toggle actually
+    # silences the items the operator expects.
     routing = _channel_routing()
+    def _na_routing_key(item_kind):
+        return NA_KIND_ALIAS.get(item_kind, item_kind)
     items = [i for i in items
-             if (routing.get(i.get('kind')) or CHANNEL_DEFAULT).get('needs_attention', True)]
+             if (routing.get(_na_routing_key(i.get('kind'))) or CHANNEL_DEFAULT).get('needs_attention', True)]
 
     # v3.0.1: filter per-item ignores. Annotate each surviving item with
     # its stable key so the frontend can render an × button.

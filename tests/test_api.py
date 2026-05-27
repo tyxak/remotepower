@@ -347,9 +347,29 @@ class TestChannelRouting(ApiTestBase):
             'tls': {'needs_attention': False, 'recent_activity': True,
                     'alerts': True, 'webhook': True}}}
         api_module.save(api_module.CONFIG_FILE, cfg)
-        # tls_expiring → kind 'tls' → needs_attention=false
-        self.assertFalse(api_module._channel_allowed('tls_expiring', 'needs_attention'))
+        # tls_expiry → kind 'tls' → needs_attention=false
         self.assertFalse(api_module._channel_allowed('tls_expiry', 'needs_attention'))
+
+    def test_na_kind_alias(self):
+        """_compute_attention emits NA items with kinds like service_down,
+        monitor_down, custom_script_fail — the matrix uses shorter
+        names (service, monitor, script). The NA_KIND_ALIAS table maps
+        the former onto the latter so toggling 'service' in the matrix
+        actually silences service_down NA cards."""
+        self.assertEqual(api_module.NA_KIND_ALIAS.get('service_down'), 'service')
+        self.assertEqual(api_module.NA_KIND_ALIAS.get('monitor_down'), 'monitor')
+        self.assertEqual(api_module.NA_KIND_ALIAS.get('custom_script_fail'), 'script')
+
+    def test_state_derived_kinds_present(self):
+        """NA-only kinds emitted from device state (no firing event)
+        must have matrix rows so operators can silence them. Without
+        these, disk/memory/swap/cpu/agent_version/acme cards would be
+        unsilenceable."""
+        matrix_keys = {k for k, *_ in api_module.CHANNEL_KINDS}
+        for needed in ('disk', 'memory', 'swap', 'cpu',
+                       'agent_version', 'acme'):
+            self.assertIn(needed, matrix_keys,
+                f'state-derived NA kind {needed!r} missing from CHANNEL_KINDS')
 
     def test_record_alert_honours_routing(self):
         """A kind with alerts=false must not append to alerts.json."""

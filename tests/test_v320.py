@@ -114,15 +114,15 @@ class TestAlertsLedger(_ApiTestBase):
         self.assertEqual(sevs, ['critical', 'high', 'medium'])
 
     def test_tls_severity_from_days(self):
-        self.api.fire_webhook('tls_expiring',
+        self.api.fire_webhook('tls_expiry',
             {'host': 'a.example.com', 'days': 2})
-        self.api.fire_webhook('tls_expiring',
+        self.api.fire_webhook('tls_expiry',
             {'host': 'b.example.com', 'days': 10})
-        self.api.fire_webhook('tls_expiring',
+        self.api.fire_webhook('tls_expiry',
             {'host': 'c.example.com', 'days': 25})
         sevs = [a['severity'] for a in
                 self.api.load(self.api.ALERTS_FILE).get('alerts', [])
-                if a['event'] == 'tls_expiring']
+                if a['event'] == 'tls_expiry']
         self.assertEqual(sevs, ['critical', 'high', 'medium'])
 
     def test_service_recover_only_resolves_matching_unit(self):
