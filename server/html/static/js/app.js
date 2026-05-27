@@ -1384,7 +1384,7 @@ function _registerUsersTable() {
     }),
     row: (u) => {
       const me = getMe();
-      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
+      return `<tr class="user-row"><td class="fw-600">${escHtml(u.username)}${u.username === me ? ' <span class="meta-sm-nm">(you)</span>' : ''}</td><td class="hint">${u.created ? new Date(u.created * 1000).toLocaleDateString() : '—'}</td><td><span class="patch-badge ${u.role==='viewer'?'ok':'warn'} fs-11">${escHtml(u.role||'admin')}</span></td><td><div class="user-actions"><button class="btn-icon" data-action="openPasswd" data-arg="${escAttr(u.username)}" >Change pw</button><button class="btn-icon" data-action="editUserRole" data-arg="${escAttr(u.username)}" data-arg2="${escAttr(u.role||'admin')}">Edit role</button><button class="btn-icon c-danger-outline" data-action="deleteUser" data-arg="${escAttr(u.username)}" >Delete</button></div></td></tr>`;
     },
     emptyMsg: 'No users.',
     emptyMsgFiltered: 'No users match the filter.',
@@ -1399,6 +1399,19 @@ async function loadUsers() {
 function openUserAdd() { document.getElementById('new-username').value = ''; document.getElementById('new-password').value = ''; openModal('user-add-modal'); }
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
+
+// v3.3.0: flip a user between admin and viewer without delete+recreate.
+// Server refuses to demote the last admin.
+async function editUserRole(username, currentRole) {
+  const newRole = currentRole === 'admin' ? 'viewer' : 'admin';
+  const msg = currentRole === 'admin'
+    ? `Demote "${username}" from admin to viewer?\n\nViewers can read everything but cannot mutate.`
+    : `Promote "${username}" from viewer to admin?\n\nAdmins can run commands, delete devices, and change settings.`;
+  if (!confirm(msg)) return;
+  const data = await api('PATCH', '/users/' + username, { role: newRole });
+  if (data?.ok) { toast(`${username} is now ${newRole}`, 'success'); loadUsers(); }
+  else toast(data?.error || 'Failed', 'error');
+}
 function openPasswd(username) { document.getElementById('passwd-username').value = username; document.getElementById('passwd-old').value = ''; document.getElementById('passwd-new').value = ''; document.getElementById('passwd-old-wrap').style.display = 'block'; openModal('passwd-modal'); }
 async function submitPasswd() { const username = document.getElementById('passwd-username').value; const old_pw = document.getElementById('passwd-old').value; const new_pw = document.getElementById('passwd-new').value; if (!new_pw) { toast('New password required', 'error'); return; } const data = await api('POST', '/users/passwd', {username, old_password: old_pw, new_password: new_pw}); if (data?.ok) { toast('Password updated', 'success'); closeModal('passwd-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── v1.8.4: Settings tabs + new fields ─────────────────────────────────────
@@ -2021,7 +2034,8 @@ function _registerScheduleTable() {
       const isScript = j.command.startsWith('script:');
       const cmdCls   = isScript ? 'script' : j.command;
       const cmdLabel = isScript ? 'run script' : j.command;
-      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`;
+      const jKey = _storeEvtData(j);
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon isl-45" title="Delete" data-action="deleteJob" data-arg="${escAttr(j.id)}" >×</button></td></tr>`;
     },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
@@ -2151,8 +2165,18 @@ async function addScheduleJob() {
     if (!dt) { toast('Select a date and time', 'error'); return; }
     payload.run_at = Math.floor(new Date(dt).getTime() / 1000);
   }
-  const data = await api('POST', '/schedule', payload);
+  const wasEdit = !!_scheduleEditId;
+  const data = wasEdit
+    ? await api('PUT',  '/schedule/' + _scheduleEditId, payload)
+    : await api('POST', '/schedule', payload);
   const label = command.startsWith('script:') ? 'Script' : command;
+  if (data?.ok && wasEdit) {
+    toast(cron ? `Recurring "${label}" updated (${cron})` : `"${label}" updated`, 'success');
+    _scheduleEditId = null;
+    closeModal('schedule-add-modal');
+    loadSchedule();
+    return;
+  }
   if (data?.ok) {
     if (document.getElementById('sched-maint-cb')?.checked) {
       const maintBody = {scope: 'device', target: dev_id, reason: `Scheduled: ${label}`, events: []};
@@ -2187,7 +2211,12 @@ async function addScheduleJob() {
 async function deleteJob(id) { const data = await api('DELETE', '/schedule/' + id); if (data?.ok) { toast('Job cancelled', 'info'); loadSchedule(); } else toast(data?.error || 'Failed', 'error'); }
 function openExecModal(id, name) { document.getElementById('exec-device-id').value = id; document.getElementById('exec-cmd').value = ''; document.querySelector('#exec-modal .modal-title').textContent = `Run command on ${name}`; api('GET', '/cmd-library').then(data => { const sel = document.getElementById('exec-library-pick'); sel.innerHTML = '<option value="">— Command library —</option>'; (data || []).forEach(s => { const opt = document.createElement('option'); opt.value = s.cmd; opt.textContent = s.name; sel.appendChild(opt); }); }).catch(() => {}); openModal('exec-modal'); }
 function pickFromLibrary() { const val = document.getElementById('exec-library-pick').value; if (val) document.getElementById('exec-cmd').value = val; }
+// v3.3.0: schedule modal carries an editing id for in-place updates.
+let _scheduleEditId = null;
 function openScheduleAdd() {
+  _scheduleEditId = null;
+  const titleEl = document.querySelector('#schedule-add-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'Schedule a job';
   const sel = document.getElementById('sched-device');
   sel.innerHTML = devices.map(d => `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`).join('');
   document.getElementById('sched-command').value = 'shutdown';
@@ -2206,6 +2235,46 @@ function openScheduleAdd() {
   const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
   document.getElementById('sched-datetime').value = local;
   document.getElementById('sched-cron').value = '';
+  openModal('schedule-add-modal');
+}
+
+async function _editScheduleBtn(btn) {
+  const j = _evtData.get(btn.dataset.storeKey);
+  if (!j) return;
+  _scheduleEditId = j.id;
+  const titleEl = document.querySelector('#schedule-add-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'Edit scheduled job';
+  const sel = document.getElementById('sched-device');
+  sel.innerHTML = devices.map(d => `<option value="${escHtml(d.id)}">${escHtml(d.name)}${d.online ? '' : ' (offline)'}</option>`).join('');
+  sel.value = j.device_id || '';
+  // Detect script vs static command
+  const isScript = (j.command || '').startsWith('script:');
+  document.getElementById('sched-command').value = isScript ? 'script' : j.command;
+  document.getElementById('sched-script-row').classList.toggle('d-none', !isScript);
+  const scriptSel = document.getElementById('sched-script-id');
+  scriptSel.innerHTML = '<option value="">Loading…</option>';
+  delete scriptSel.dataset.loaded;
+  // Mark the modal so onSchedCommandChange (if present) can read this
+  scriptSel.dataset.preselect = isScript ? (j.command.slice(7)) : '';
+  document.getElementById('sched-upgrade-note').classList.toggle('d-none', !(j.command || '').startsWith('upgrade'));
+  // One-shot vs cron
+  const recurType = j.recurring ? (j.cron ? 'custom' : 'daily') : 'once';
+  document.getElementById('sched-recur-type').value = recurType;
+  onSchedTypeChange();
+  if (j.cron) {
+    document.getElementById('sched-cron').value = j.cron || '';
+  } else if (j.run_at) {
+    const dt = new Date(j.run_at * 1000);
+    const local = new Date(dt - dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    document.getElementById('sched-datetime').value = local;
+  }
+  // The maintenance + calendar tickboxes are post-create side-effects
+  // that don't apply on edit — uncheck them so a re-save doesn't try
+  // to create duplicates.
+  const maintCb = document.getElementById('sched-maint-cb');
+  if (maintCb) maintCb.checked = false;
+  const calCb = document.getElementById('sched-cal-cb');
+  if (calCb) calCb.checked = false;
   openModal('schedule-add-modal');
 }
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
@@ -4676,9 +4745,39 @@ function _renderInboundWebhooks(tokens) {
       <td>${t.hit_count || 0}</td>
       <td class="hint nowrap">${lastSeen}</td>
       <td>${status}</td>
-      <td class="nowrap">${toggle} <button class="btn-icon btn-xs c-danger-outline" data-action="revokeInboundWebhook" data-arg="${t.id}" data-arg2="${_escapeHtml(t.label||'')}">Revoke</button></td>
+      <td class="nowrap">${toggle} <button class="btn-icon btn-xs" data-action-btn="_editInboundWebhookBtn" data-store-key="${_storeEvtData(t)}">Edit</button> <button class="btn-icon btn-xs c-danger-outline" data-action="revokeInboundWebhook" data-arg="${t.id}" data-arg2="${_escapeHtml(t.label||'')}">Revoke</button></td>
     </tr>`;
   }).join('');
+}
+
+// v3.3.0: edit an existing inbound token's label / scope / enabled.
+// The token secret itself is immutable (rotate via revoke + create).
+async function _editInboundWebhookBtn(btn) {
+  const t = _evtData.get(btn.dataset.storeKey);
+  if (!t) return;
+  const curLabel  = t.label || '';
+  const curScopeD = t.scope_device_id || '';
+  const curScopeT = t.scope_tag || '';
+  const newLabel = prompt(
+    `Edit label for inbound webhook "${curLabel}"\n\n` +
+    `(Leave blank to keep current.)`, curLabel);
+  if (newLabel === null) return;  // operator cancelled
+  const newScopeD = prompt(
+    `Restrict to device_id? (current: ${curScopeD || '(any)'})\n\n` +
+    `Blank = any device.`, curScopeD);
+  if (newScopeD === null) return;
+  const newScopeT = prompt(
+    `Restrict to tag? (current: ${curScopeT || '(any)'})\n\n` +
+    `Blank = any tag.`, curScopeT);
+  if (newScopeT === null) return;
+  const body = {
+    label:           newLabel.trim(),
+    scope_device_id: newScopeD.trim(),
+    scope_tag:       newScopeT.trim(),
+  };
+  const r = await api('PATCH', '/inbound-webhooks/' + t.id, body);
+  if (r?.ok) { toast('Inbound webhook updated', 'success'); loadInboundWebhooks(); }
+  else { toast(r?.error || 'Failed', 'error'); }
 }
 
 function openInboundWebhookCreate() {
@@ -13249,20 +13348,37 @@ async function _wolWithMacCheck(id, name, btn) {
 // ── v2.9.1: Log ignore patterns ───────────────────────────────────────────────
 
 let _logIgnorePatterns = [];
+// v3.3.0: -1 = adding; ≥0 = editing the pattern at that index. When
+// editing, the input shows the existing pattern and Add becomes Save.
+let _logIgnoreEditIdx = -1;
 
 function _renderLogIgnoreList() {
   const el = document.getElementById('log-ignore-list');
   if (!el) return;
   if (!_logIgnorePatterns.length) {
     el.innerHTML = '<span class="c-muted">No patterns configured.</span>';
+    const addBtn = document.querySelector('[data-action="addLogIgnorePattern"]');
+    if (addBtn) addBtn.textContent = _logIgnoreEditIdx >= 0 ? 'Save' : 'Add';
     return;
   }
   el.innerHTML = _logIgnorePatterns.map((p, i) =>
     `<div class="isl-655">
        <code class="isl-656">${escHtml(p)}</code>
-       <button class="btn-icon isl-657" data-action="removeLogIgnorePattern" data-arg="${i}">✕</button>
+       <button class="btn-icon" data-action="editLogIgnorePattern" data-arg="${i}">Edit</button>
+       <button class="btn-icon isl-657" data-action="removeLogIgnorePattern" data-arg="${i}">×</button>
      </div>`
   ).join('');
+  const addBtn = document.querySelector('[data-action="addLogIgnorePattern"]');
+  if (addBtn) addBtn.textContent = _logIgnoreEditIdx >= 0 ? 'Save' : 'Add';
+}
+
+function editLogIgnorePattern(idx) {
+  const input = document.getElementById('log-ignore-input');
+  if (!input) return;
+  input.value = _logIgnorePatterns[idx] || '';
+  _logIgnoreEditIdx = idx;
+  _renderLogIgnoreList();
+  input.focus();
 }
 
 async function addLogIgnorePattern() {
@@ -13271,14 +13387,31 @@ async function addLogIgnorePattern() {
   if (!pat) return;
   // Validate regex client-side
   try { new RegExp(pat); } catch(e) { toast('Invalid regex: ' + e.message, 'error'); return; }
-  _logIgnorePatterns.push(pat);
+  const wasEdit = _logIgnoreEditIdx >= 0;
+  const prev    = wasEdit ? _logIgnorePatterns[_logIgnoreEditIdx] : null;
+  if (wasEdit && _logIgnoreEditIdx < _logIgnorePatterns.length) {
+    _logIgnorePatterns[_logIgnoreEditIdx] = pat;
+  } else {
+    _logIgnorePatterns.push(pat);
+  }
   const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
-  if (r?.ok) { toast('Pattern added', 'success'); if (input) input.value = ''; _renderLogIgnoreList(); }
-  else { _logIgnorePatterns.pop(); toast(r?.error || 'Failed', 'error'); }
+  if (r?.ok) {
+    toast(wasEdit ? 'Pattern updated' : 'Pattern added', 'success');
+    if (input) input.value = '';
+    _logIgnoreEditIdx = -1;
+    _renderLogIgnoreList();
+  } else {
+    // Roll back the mutation
+    if (wasEdit) _logIgnorePatterns[_logIgnoreEditIdx] = prev;
+    else _logIgnorePatterns.pop();
+    toast(r?.error || 'Failed', 'error');
+  }
 }
 
 async function removeLogIgnorePattern(idx) {
   _logIgnorePatterns.splice(idx, 1);
+  if (_logIgnoreEditIdx === idx) _logIgnoreEditIdx = -1;
+  else if (_logIgnoreEditIdx > idx) _logIgnoreEditIdx -= 1;
   const r = await api('POST', '/config', { log_ignore_patterns: _logIgnorePatterns });
   if (r?.ok) { _renderLogIgnoreList(); toast('Removed', 'info'); }
   else toast('Failed', 'error');

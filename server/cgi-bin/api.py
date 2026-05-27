@@ -6755,6 +6755,37 @@ def handle_user_delete(username):
     respond(200, {'ok': True})
 
 
+def handle_user_update(username):
+    """PATCH /api/users/<username> — admin-only role update.
+
+    v3.3.0: lets operators flip an existing user between admin and
+    viewer without delete+recreate. Refuses to demote the last admin.
+    Body: {role: "admin"|"viewer"}.
+    """
+    requester = require_admin_auth()
+    if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
+    if not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
+        respond(404, {'error': 'User not found'})
+    body = get_json_body() or {}
+    new_role = (body.get('role') or '').strip().lower()
+    if new_role not in ('admin', 'viewer'):
+        respond(400, {'error': 'role must be admin or viewer'})
+    with _LockedUpdate(USERS_FILE) as users:
+        if username not in users:
+            respond(404, {'error': 'User not found'})
+        cur_role = users[username].get('role', 'admin')
+        # Self-protection: refuse to demote the last admin.
+        if cur_role == 'admin' and new_role != 'admin':
+            other_admins = [u for u, d in users.items()
+                            if u != username and d.get('role', 'admin') == 'admin']
+            if not other_admins:
+                respond(400, {'error': 'Cannot demote the last admin'})
+        users[username]['role'] = new_role
+    audit_log(requester, 'user_role_update',
+              detail=f'username={username} {cur_role}→{new_role}')
+    respond(200, {'ok': True, 'username': username, 'role': new_role})
+
+
 def handle_user_passwd():
     requester = require_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
@@ -7725,6 +7756,57 @@ def handle_schedule_add():
     schedule['jobs'] = jobs
     save(SCHEDULE_FILE, schedule)
     respond(201, {'ok': True, 'job': job})
+
+
+def handle_schedule_update(job_id):
+    """PUT /api/schedule/<id> — edit an existing job.
+
+    v3.3.0: same validation as POST; id + actor + created preserved.
+    Switching between one-shot and recurring is allowed (sends either
+    run_at or cron, exclusively).
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(job_id): respond(404, {'error': 'Job not found'})
+    body    = get_json_body()
+    dev_id  = str(body.get('device_id', '')).strip()
+    command = str(body.get('command', '')).strip()
+    run_at  = body.get('run_at', 0)
+    cron    = _sanitize_str(body.get('cron', ''), 64)
+    if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices: respond(404, {'error': 'Device not found'})
+    _SCHED_STATIC = ('shutdown', 'reboot', 'upgrade_packages', 'upgrade_and_reboot')
+    if command not in _SCHED_STATIC:
+        if not (command.startswith('script:') and _validate_id(command[7:])):
+            respond(400, {'error': 'Invalid command'})
+        sid = command[7:]
+        scripts_data = load(SCRIPTS_FILE)
+        if not any(s.get('id') == sid for s in scripts_data.get('scripts', [])):
+            respond(404, {'error': 'Script not found'})
+    if cron:
+        if not _valid_cron(cron): respond(400, {'error': 'Invalid cron expression'})
+    elif not isinstance(run_at, (int, float)) or run_at <= int(time.time()):
+        respond(400, {'error': 'run_at must be a future unix timestamp'})
+    with _LockedUpdate(SCHEDULE_FILE) as schedule:
+        jobs = schedule.get('jobs', [])
+        target = next((j for j in jobs if j.get('id') == job_id), None)
+        if not target: respond(404, {'error': 'Job not found'})
+        target.update({
+            'device_id':   dev_id,
+            'device_name': devices[dev_id].get('name', dev_id),
+            'command':     command,
+            'run_at':      int(run_at) if not cron else None,
+            'cron':        cron or None,
+            'recurring':   bool(cron),
+            'updated_by':  actor,
+            'updated':     int(time.time()),
+            # Reset edge-trigger guard so an edit to cron takes effect
+            # on the next minute boundary, not the next next-minute.
+            'last_fired_minute': None,
+        })
+        schedule['jobs'] = jobs
+    respond(200, {'ok': True, 'job': target})
 
 
 def handle_schedule_delete(job_id):
@@ -13447,25 +13529,46 @@ def handle_inbound_webhook_revoke(token_id):
 
 
 def handle_inbound_webhook_toggle(token_id):
-    """PATCH /api/inbound-webhooks/<id> — admin-only, body: {enabled: bool}."""
+    """PATCH /api/inbound-webhooks/<id> — admin-only.
+
+    v3.3.0: accepts `enabled`, `label`, `scope_device_id`, `scope_tag`.
+    Any field omitted from the body is left unchanged. The opaque
+    token secret cannot be edited — operators revoke + create new
+    when they need to rotate.
+    """
     actor = require_admin_auth()
     if method() != 'PATCH': respond(405, {'error': 'Method not allowed'})
     body = get_json_body() or {}
-    enabled = bool(body.get('enabled', True))
     found = False
+    changes = []
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
                 if t.get('id') == token_id:
-                    t['enabled'] = enabled
+                    if 'enabled' in body:
+                        t['enabled'] = bool(body['enabled'])
+                        changes.append(f'enabled={t["enabled"]}')
+                    if 'label' in body:
+                        t['label'] = _sanitize_str(str(body.get('label', '')), 64)
+                        changes.append(f'label={t["label"][:40]}')
+                    if 'scope_device_id' in body:
+                        sd = str(body['scope_device_id'] or '').strip()
+                        if sd and not _validate_id(sd):
+                            respond(400, {'error': 'invalid scope_device_id'})
+                        t['scope_device_id'] = sd
+                        changes.append(f'scope_device_id={sd}')
+                    if 'scope_tag' in body:
+                        st = _sanitize_str(str(body.get('scope_tag', '')), 64)
+                        t['scope_tag'] = st
+                        changes.append(f'scope_tag={st}')
                     found = True
                     break
     except Exception as e:
         respond(500, {'error': str(e)})
     if not found:
         respond(404, {'error': 'token not found'})
-    audit_log(actor, 'inbound_webhook_toggle',
-              f'id={token_id} enabled={enabled}')
+    audit_log(actor, 'inbound_webhook_edit',
+              f'id={token_id} ' + ' '.join(changes))
     respond(200, {'ok': True})
 
 
@@ -19010,6 +19113,8 @@ def main():
     elif pi == '/api/users' and m == 'POST': handle_user_create()
     elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE':
         handle_user_delete(pi[len('/api/users/'):])
+    elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH':
+        handle_user_update(pi[len('/api/users/'):])
     elif pi == '/api/users/passwd' and m == 'POST': handle_user_passwd()
     # v1.11.5: per-user UI preferences (density / filter / sort persistence)
     elif pi == '/api/ui-prefs' and m == 'GET':    handle_ui_prefs_get()
@@ -19031,6 +19136,8 @@ def main():
     elif pi == '/api/self/backup-state' and m == 'DELETE': handle_backup_clear()
     elif pi == '/api/schedule' and m == 'GET': handle_schedule_list()
     elif pi == '/api/schedule' and m == 'POST': handle_schedule_add()
+    elif pi.startswith('/api/schedule/') and m == 'PUT':
+        handle_schedule_update(pi[len('/api/schedule/'):])
     elif pi.startswith('/api/schedule/') and m == 'DELETE':
         handle_schedule_delete(pi[len('/api/schedule/'):])
     elif pi == '/api/exec' and m == 'POST': handle_custom_cmd()
