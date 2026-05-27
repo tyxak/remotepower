@@ -2,6 +2,119 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.3.0 — 2026-05-27
+
+Audit follow-up release. Three Explore agents swept the code for bugs,
+performance issues, and security weaknesses; this release ships the
+agreed plan (Phases A–D) end-to-end plus a hash-driven agent self-
+update mechanism. No breaking changes; defaults that previously
+prioritised compatibility now prioritise safety where it doesn't cost
+operator UX.
+
+### Correctness (Phase A)
+
+- **process_service_report and _record_service_transition no longer
+  race on concurrent heartbeats.** Both used bare `load()` + `save()`
+  on `services.json` / `service_history.json`. Two agents reporting
+  at the same time could lose transitions or fire duplicate webhooks.
+  Both now use `_LockedUpdate`; transition fires happen after the
+  lock releases so slow webhook destinations can't hold the file.
+- **`/api/status` `'high load'` flag fixed.** The Python expression
+  was `... > os.cpu_count() * 2 if os.cpu_count() else 999` —
+  parsed as `(compare) if cpu_count else 999`, so when `os.cpu_count()`
+  returned None/0 the entire expression evaluated to 999 (truthy)
+  and `'high load'` fired on every status response.
+- **`handle_device_delete` cleanup serialised.** All per-device store
+  cleanups (CMDS, CONTAINERS, PACKAGES, SERVICES, LOG_WATCH,
+  CMD_OUTPUT, UPDATE_LOGS, METRICS, UPTIME, DRIFT_STATE,
+  FLEET_EVENTS, service_history, config stale-notified flags) now
+  go through `_LockedUpdate` so a concurrent heartbeat can't re-add
+  data we just removed.
+- **`_compute_attention` loaded `CONFIG_FILE` four times per call.**
+  Now loaded once at function top. Saves ~3 disk reads on every
+  Home refresh + every badge tick.
+
+### Performance (Phase B)
+
+- **`GET /api/devices?slim=1`** omits the heavy fields (`sysinfo`,
+  `listening_ports`, `brute_force_active`, full SNMP metrics). The
+  Devices page and CMDB modal opt out by not passing the flag.
+- **`GET /api/home`** — one round-trip serves the entire Home
+  dashboard. Replaces the 7 parallel `/api/*` calls `loadHome()`
+  used to fire on every 60s refresh. CGI = a fresh Python process
+  per request, so this cuts dashboard refresh cost by 7×.
+- **`GET /api/devices/sysinfo?ids=a,b,c`** — batch endpoint for the
+  Monitoring page. `loadListeningPorts` and `loadProcesses`
+  previously made 1 + N requests per page load; now one CGI process.
+- **File-backed 10s cache for `/api/attention`.** Cache busts when
+  any of `devices.json`, `fleet_events.json`, `cve_findings.json`,
+  `drift_state.json`, or `ignored_items.json` is newer than the
+  cache — heartbeats, scans, and ignore-toggles all show up
+  immediately.
+- **`_detect_brute_force` short-circuits before loading
+  `BRUTE_FORCE_FILE`** when there are no lines to scan or no
+  patterns match. An idle host with logs that never trip an SSH
+  brute-force signature no longer churns the state file.
+
+### Security (Phase C)
+
+- **Per-IP rate limit on `POST /api/enroll/register`** (10/min/IP).
+  The PIN namespace is 10⁶ with a 10-minute window; without
+  throttling, brute-forcing the whole PIN space from one IP took
+  minutes. Shared helper `_ip_ratelimit()` backs this.
+- **Per-IP rate limit on `POST /api/login`** (20/min/IP) layered on
+  top of the existing per-username lockout. The username gate
+  stops single-account brute-force; the IP gate stops credential-
+  stuffing across thousands of usernames from one source.
+- **SSRF default flipped.** `webhook_block_local` now defaults to
+  `True`, blocking link-local targets (cloud metadata services at
+  169.254.169.254) and unspecified addresses. Loopback
+  (127.0.0.1, ::1) is still allowed by default via a new
+  `webhook_allow_loopback` flag so homelab Gotify/ntfy sidecars
+  keep working.
+- **Optional admin-only alert mutation** via `viewers_can_ack_alerts`
+  (default True for back-compat). When set to False, ack/unack/
+  resolve require admin role.
+- **Re-enrollment hardening.** The existing gate (existing
+  device_id requires current device token via `hmac.compare_digest`)
+  is already sound; v3.3.0 adds two things: token rotation on
+  successful re-enrollment (so a one-time leak is self-limiting)
+  and audit-log entries for both `reenroll` and `reenroll_denied`.
+
+### Agent self-update (Phase D / hash-driven)
+
+- **`check_for_update` is now hash-driven, not version-driven.** The
+  agent computes its own binary's sha256, fetches the server's
+  canonical sha256 from `/api/agent/version`, and updates on
+  mismatch in either direction. Same-version rebuilds, downgrades
+  to a known-good binary, and operator-initiated re-pushes all
+  trigger the update reliably. Version strings remain in the
+  response and the logs for human context but are not the decision
+  signal.
+- **Server caches the agent sha256** to a sidecar `.sha256` file
+  next to the binary so CGI requests don't re-hash every poll.
+- Downloaded bytes still verified against the advertised sha256
+  before swapping the binary — same constant-time check as before.
+
+### Reliability
+
+- **`_record_fleet_event` archive write moved outside the flock.**
+  The gzip append previously held the FLEET_EVENTS_FILE lock
+  during decompress-trailing-block + write + flush — serialising
+  every concurrent heartbeat behind one slow archive write. Lock
+  now scopes the append + trim only.
+- **`GET /api/devices?limit=N&offset=N`** — optional pagination
+  for very large fleets. No-op by default; stable sort order so a
+  paged client walking with increasing offset is deterministic.
+
+### Tests
+
+- 1753 unit tests, all passing.
+- New `tests/test_v330.py` strict-pin file with regression tests
+  for every Phase A–D fix.
+- `tests/test_v322.py` strict pins loosened to regex
+  (per the standard release convention).
+
 ## v3.2.2 — 2026-05-27
 
 Hotfix release. No new features; all changes are bug fixes and configuration
