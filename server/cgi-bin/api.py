@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.2.1'
+SERVER_VERSION = '3.2.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -420,7 +420,7 @@ PIN_TTL                  = 600
 # reports of "device went offline" turning out to be brief network blips
 # or load spikes the agent recovered from on its own; 5 missed polls is
 # the new bar. Operators who want the old behaviour can lower it via the
-# Settings → Webhooks page or POST /api/config {"online_ttl": 180}.
+# Settings → Webhooks page or POST /api/config {"online_ttl": 300}.
 DEFAULT_ONLINE_TTL       = 300
 MIN_ONLINE_TTL           = 150          # don't allow flapping under <2.5 poll intervals
 DEFAULT_POLL_INTERVAL    = 60
@@ -449,7 +449,7 @@ _SNMP_DEAD_THRESHOLD = 72  # consecutive fails before promoting to snmp_dead
 # 200 fits well into a few KB on disk and gives the Home dashboard
 # enough history to show meaningful activity even on quiet fleets
 # where events arrive sparsely.
-MAX_FLEET_EVENTS = 200
+MAX_FLEET_EVENTS = 1000
 
 # v3.1.0: role enum. Three roles total:
 #
@@ -2812,99 +2812,108 @@ def check_offline_webhooks():
     sticky bit, fire device_offline / device_online webhooks on edge.
 
     v2.1.1: every state change now logs to stderr regardless of webhook
-    config. Previous versions only logged if a webhook fired, and only
-    inside the fire_webhook() path — so an operator who hadn't configured
-    webhooks had no way to tell from server logs why a device showed as
-    offline. The dashboard would just flip the badge silently and the
-    only artifact was 'last_seen' getting old in devices.json.
+    config.
+
+    Race-fix: previously used bare load()+save() so two concurrent CGI
+    processes (e.g. two agent heartbeats arriving simultaneously) could
+    both read offline_notified={} before either wrote the True bit back,
+    causing duplicate device_offline / patch_alert events. Now the entire
+    read-check-write is serialised under _LockedUpdate(CONFIG_FILE).
+    Webhooks and uptime writes happen after the lock releases so a slow
+    webhook call never blocks the next heartbeat's config access.
     """
-    cfg = load(CONFIG_FILE)
     devices = load(DEVICES_FILE)
     now = int(time.time())
     ttl = get_online_ttl()
-    notified = cfg.get('offline_notified', {})
     webhook_enabled = is_webhook_event_enabled('device_offline')
-    changed = False
-    for dev_id, dev in devices.items():
-        if dev.get('agentless'):
-            continue
-        if not dev.get('monitored', True):
-            continue
-        last = dev.get('last_seen', 0)
-        if not last:
-            continue  # never heartbeated, don't claim it went offline
-        delta = now - last
-        is_offline = delta > ttl
-        already = notified.get(dev_id, False)
-        if is_offline and not already:
-            # ALWAYS log the transition, regardless of webhook config. This
-            # is the single most useful diagnostic for the "why is X
-            # offline?" question — it tells the operator exactly when the
-            # server flipped state and what last_seen was at the time.
-            sys.stderr.write(
-                f"[remotepower] OFFLINE dev={dev_id} name={dev.get('name','?')!r} "
-                f"last_seen={last} delta={delta}s ttl={ttl}s "
-                f"poll_interval={dev.get('poll_interval', 60)}s\n")
-            if webhook_enabled:
-                fire_webhook('device_offline', {
-                    'device_id': dev_id, 'name': dev.get('name', dev_id),
-                    'hostname': dev.get('hostname', ''), 'last_seen': last,
-                    'delta_seconds': delta, 'ttl_seconds': ttl,
-                })
-            # v2.4.10: record the OFFLINE transition in uptime.json.
-            # Previously _record_uptime was only ever called with
-            # online=True (from the heartbeat), so uptime.json only
-            # ever held a single online event per device and the
-            # 7-day status stripe had no real history to draw on.
-            try:
-                _record_uptime(dev_id, dev.get('name', dev_id), False)
-            except Exception:
-                pass
-            notified[dev_id] = True
-            changed = True
-        elif not is_offline and already:
-            sys.stderr.write(
-                f"[remotepower] ONLINE dev={dev_id} name={dev.get('name','?')!r} "
-                f"last_seen={last} delta={delta}s\n")
-            if webhook_enabled:
-                fire_webhook('device_online', {'device_id': dev_id,
-                                               'name': dev.get('name', dev_id)})
-            try:
-                _record_uptime(dev_id, dev.get('name', dev_id), True)
-            except Exception:
-                pass
-            notified[dev_id] = False
-            changed = True
-    if changed:
-        cfg['offline_notified'] = notified
-        save(CONFIG_FILE, cfg)
 
-    threshold = cfg.get(PATCH_ALERT_KEY)
-    if threshold is not None:
+    # Transitions to fire after the config lock is released.
+    offline_fires = []   # (dev_id, name, hostname, last_seen, delta)
+    online_fires  = []   # (dev_id, name)
+    patch_fires   = []   # (dev_id, name, hostname, count)
+    patch_threshold = None
+
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        notified = cfg.setdefault('offline_notified', {})
+        for dev_id, dev in devices.items():
+            if dev.get('agentless'):
+                continue
+            if not dev.get('monitored', True):
+                continue
+            last = dev.get('last_seen', 0)
+            if not last:
+                continue  # never heartbeated, don't claim it went offline
+            delta = now - last
+            is_offline = delta > ttl
+            already = notified.get(dev_id, False)
+            if is_offline and not already:
+                notified[dev_id] = True
+                offline_fires.append((
+                    dev_id, dev.get('name', dev_id),
+                    dev.get('hostname', ''), last, delta,
+                    dev.get('poll_interval', 60),
+                ))
+            elif not is_offline and already:
+                notified[dev_id] = False
+                online_fires.append((dev_id, dev.get('name', dev_id), last, delta))
+
+        raw_threshold = cfg.get(PATCH_ALERT_KEY)
+        if raw_threshold is not None:
+            try:
+                patch_threshold = int(raw_threshold)
+                alerted = cfg.setdefault('patch_alerted', {})
+                for dev_id, dev in devices.items():
+                    count = dev.get('sysinfo', {}).get('packages', {}).get('upgradable')
+                    if not isinstance(count, int):
+                        continue
+                    over = count >= patch_threshold
+                    was = alerted.get(dev_id, False)
+                    if over and not was:
+                        alerted[dev_id] = True
+                        patch_fires.append((
+                            dev_id, dev.get('name', dev_id),
+                            dev.get('hostname', ''), count,
+                        ))
+                    elif not over and was:
+                        alerted[dev_id] = False
+            except Exception:
+                pass
+
+    # Fire events outside the config lock.
+    for dev_id, name, hostname, last_seen, delta, poll_interval in offline_fires:
+        sys.stderr.write(
+            f"[remotepower] OFFLINE dev={dev_id} name={name!r} "
+            f"last_seen={last_seen} delta={delta}s ttl={ttl}s "
+            f"poll_interval={poll_interval}s\n")
+        if webhook_enabled:
+            fire_webhook('device_offline', {
+                'device_id': dev_id, 'name': name,
+                'hostname': hostname, 'last_seen': last_seen,
+                'delta_seconds': delta, 'ttl_seconds': ttl,
+            })
+        # v2.4.10: record the OFFLINE transition in uptime.json.
         try:
-            threshold = int(threshold)
-            alerted = cfg.get('patch_alerted', {})
-            patch_changed = False
-            for dev_id, dev in devices.items():
-                count = dev.get('sysinfo', {}).get('packages', {}).get('upgradable')
-                if not isinstance(count, int):
-                    continue
-                over = count >= threshold
-                was = alerted.get(dev_id, False)
-                if over and not was:
-                    fire_webhook('patch_alert', {
-                        'device_id': dev_id, 'name': dev.get('name', dev_id),
-                        'hostname': dev.get('hostname', ''), 'upgradable': count,
-                        'threshold': threshold,
-                    })
-                    alerted[dev_id] = True; patch_changed = True
-                elif not over and was:
-                    alerted[dev_id] = False; patch_changed = True
-            if patch_changed:
-                cfg['patch_alerted'] = alerted
-                save(CONFIG_FILE, cfg)
+            _record_uptime(dev_id, name, False)
         except Exception:
             pass
+
+    for dev_id, name, last_seen, delta in online_fires:
+        sys.stderr.write(
+            f"[remotepower] ONLINE dev={dev_id} name={name!r} "
+            f"last_seen={last_seen} delta={delta}s\n")
+        if webhook_enabled:
+            fire_webhook('device_online', {'device_id': dev_id, 'name': name})
+        try:
+            _record_uptime(dev_id, name, True)
+        except Exception:
+            pass
+
+    for dev_id, name, hostname, count in patch_fires:
+        fire_webhook('patch_alert', {
+            'device_id': dev_id, 'name': name,
+            'hostname': hostname, 'upgradable': count,
+            'threshold': patch_threshold,
+        })
 
 # ─── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -4355,7 +4364,7 @@ def handle_heartbeat():
         _dcfg = load(CONFIG_FILE) or {}
         if _dcfg.get('debug_logging') or os.environ.get('RP_LOG_HEARTBEATS') == '1':
             import datetime as _dt
-            _dbg = (f"[{_dt.datetime.now().isoformat(timespec='seconds')}] "
+            _dbg = (f"[{_dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}] "
                     f"heartbeat dev={dev_id} ver={body.get('version','?')}\n")
             with open(DEBUG_LOG_FILE, 'a') as _df:
                 _df.write(_dbg)
@@ -18401,7 +18410,7 @@ def handle_debug_log_post():
                 tag = _sanitize_str(str(entry.get('tag', 'ui'))[:32], 32)
                 msg = _sanitize_str(str(entry.get('msg', ''))[:1024], 1024)
                 if not ts:
-                    ts = _dt.datetime.now().isoformat(timespec='seconds')
+                    ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
                 f.write(f"[{ts}] {tag} {msg}\n")
                 logged += 1
     except Exception as e:

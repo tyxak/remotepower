@@ -311,7 +311,36 @@ const tableCtl = (() => {
     return (getTablePrefs(name).filter) || '';
   }
 
-  return { register, render, getStoredFilter };
+  // v3.2.1: lightweight sort wiring for tables with custom HTML renderers
+  // that don't fit the register/render contract. Some pages (ACME, CMDB
+  // asset list, Listening Ports, etc.) build their own intricate row HTML
+  // and have for years; rewriting them all to fit tableCtl's `row:`
+  // callback is a wide change. Instead, those renderers can just call
+  //
+  //   tableCtl.wireSortOnly('acme-thead', 'acme', () => _acmeRenderTable());
+  //   const sorted = tableCtl.sortRows('acme', rowsArr, getColumnsFn);
+  //
+  // wireSortOnly() handles click handlers + sort indicators; sortRows()
+  // is a one-shot apply for the renderer to use before building HTML.
+  function wireSortOnly(theadId, prefsName, rerender) {
+    const thead = document.getElementById(theadId);
+    if (!thead) return;
+    const opts = { name: prefsName, sortHeaders: theadId, refresh: rerender };
+    // Keep a registry entry so sort indicators render correctly even when
+    // the renderer is custom. Filter is not wired (the renderer handles it).
+    if (!_registry[prefsName]) {
+      _registry[prefsName] = opts;
+    }
+    // Re-wire on every call (safe — addEventListener on new th elements).
+    _wireHeaders(opts);
+  }
+
+  function sortRows(prefsName, rows, getColumns) {
+    const prefs = getTablePrefs(prefsName);
+    return _applySort(rows, prefs.sort || [], getColumns);
+  }
+
+  return { register, render, getStoredFilter, wireSortOnly, sortRows };
 })();
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1000,10 +1029,19 @@ function renderDevices() {
 // v1.11.7: render Devices as an aligned, sortable table. This is the new
 // 'minimal' density layout — replaces the old flex-row hacky one that
 // couldn't keep columns aligned when cell contents had different widths.
-let _devicesMinimalRegistered = false;
+//
+// v3.2.1 fix: the previous one-shot _devicesMinimalRegistered guard meant
+// the click handlers on the column headers got wired ONCE on the very
+// first render, then renderDevices() rebuilt `container.innerHTML` on
+// every subsequent refresh — destroying the thead and its listeners
+// with no re-wire. Result: sort indicators (↕ / ▲ / ▼) still rendered
+// but clicking them did nothing. We now call tableCtl.register() on
+// every render. Safe because devices_minimal has no filterInput, so
+// the only side effect is re-wiring sort header click handlers — and
+// the previous thead's th nodes have been garbage-collected along
+// with their listeners by the innerHTML replacement, so there's no
+// double-fire either.
 function _registerDevicesMinimalTable() {
-  if (_devicesMinimalRegistered) return;
-  _devicesMinimalRegistered = true;
   // Filter is already applied upstream by the existing devices-search /
   // status / group / tag filter chain, so we tell tableCtl `match: () => true`.
   // Sort is handled here. We use a separate prefs key ('devices_minimal')
@@ -1725,7 +1763,25 @@ async function runLdapTestUser() {
   }
 }
 async function testWebhook() { const btn = document.getElementById('btn-webhook-test'); btn.disabled = true; btn.style.opacity = '0.5'; try { const data = await api('POST', '/webhook/test'); if (!data) { toast('Request failed', 'error'); return; } if (data.error) { toast(data.error, 'error'); return; } const r = data.result; if (r && (r.status === '200' || String(r.status).startsWith('2') || r.status === 200)) toast('Test webhook sent successfully!', 'success'); else if (r) toast(`Webhook failed: ${r.detail || r.status}`, 'error'); else toast('Test sent — check the log below', 'info'); loadWebhookLog(); } finally { btn.disabled = false; btn.style.opacity = '1'; } }
-async function loadWebhookLog() { const tbody = document.getElementById('webhook-log-tbody'); const data = await api('GET', '/webhook/log'); if (!data) return; const entries = Array.isArray(data) ? data : []; if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet. </td></tr>'; return; } tbody.innerHTML = entries.slice(0, 50).map(e => { const isOk = String(e.status).startsWith('2') || e.status === 200; const statusColor = isOk ? 'var(--green)' : 'var(--red)'; return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`; }).join(''); }
+async function loadWebhookLog() {
+  const tbody = document.getElementById('webhook-log-tbody');
+  const data = await api('GET', '/webhook/log');
+  if (!data) return;
+  let entries = Array.isArray(data) ? data : [];
+  if (!entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet. </td></tr>'; return; }
+  // v3.2.1: sortable. Default = chronological (ts desc).
+  tableCtl.wireSortOnly('webhook-log-thead', 'webhook_log', loadWebhookLog);
+  entries = tableCtl.sortRows('webhook_log', entries, (e) => ({
+    ts:     e.ts || 0,
+    event:  e.event || '',
+    status: String(e.status || ''),
+    detail: e.detail || '',
+  }));
+  tbody.innerHTML = entries.slice(0, 50).map(e => {
+    const isOk = String(e.status).startsWith('2') || e.status === 200;
+    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`;
+  }).join('');
+}
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
 // the background. The "auto-refresh closes browser window" bug had two
 // independent triggers in 2.0.0:
@@ -3938,6 +3994,17 @@ function renderAlerts() {
       (a.device_name || '').toLowerCase().includes(q) ||
       (a.event || '').toLowerCase().includes(q));
   }
+  // v3.2.1: sortable. Default = ts desc (newest first), handled by inbox
+  // ordering server-side, but operator can override.
+  tableCtl.wireSortOnly('alerts-thead', 'alerts', renderAlerts);
+  const _sevRank = { critical: 0, high: 1, medium: 2, low: 3 };
+  rows = tableCtl.sortRows('alerts', rows, (a) => ({
+    severity:        _sevRank[a.severity] ?? 99,
+    ts:              a.ts || 0,
+    title:           (a.title || '').toLowerCase(),
+    device_name:     (a.device_name || '').toLowerCase(),
+    acknowledged_by: a.acknowledged_by || '',
+  }));
   const tbody = document.getElementById('alerts-tbody');
   if (!tbody) return;
   if (!rows.length) {
@@ -4088,6 +4155,17 @@ async function loadConfirmations() {
 function _renderConfirmations(arr) {
   const tbody = document.getElementById('confirmations-tbody');
   if (!tbody) return;
+  // v3.2.1: wire sort + apply current sort order
+  tableCtl.wireSortOnly('confirmations-thead', 'confirmations', () => loadConfirmations());
+  const _statusRank = {pending: 0, approved: 1, rejected: 2, failed: 3, expired: 4};
+  arr = tableCtl.sortRows('confirmations', arr, (c) => ({
+    status:        _statusRank[c.status] ?? 99,
+    requested_at:  c.requested_at || 0,
+    action:        c.action || '',
+    device_name:   c.device_name || c.device_id || '',
+    ai_host:       c.ai_host || '',
+    ai_prompt:     c.ai_prompt || '',
+  }));
   if (!arr.length) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No pending or recent MCP confirmations.</td></tr>';
     return;
@@ -4202,8 +4280,18 @@ async function loadInboundWebhooks() {
 function _renderInboundWebhooks(tokens) {
   const tbody = document.getElementById('inbound-webhooks-tbody');
   if (!tbody) return;
+  // v3.2.1: wire sort
+  tableCtl.wireSortOnly('inbound-webhooks-thead', 'inbound_webhooks', () => loadInboundWebhooks());
+  tokens = tableCtl.sortRows('inbound_webhooks', tokens, (t) => ({
+    label:      t.label || '',
+    kind:       t.kind || 'alert',
+    scope:      t.scope_device_id || t.scope_tag || 'any',
+    hit_count:  t.hit_count || 0,
+    last_seen:  t.last_seen || 0,
+    enabled:    t.enabled ? 1 : 0,
+  }));
   if (!tokens.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No inbound webhook tokens yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No inbound tokens yet.</td></tr>';
     return;
   }
   tbody.innerHTML = tokens.map(t => {
@@ -5057,6 +5145,18 @@ async function cmdbReloadList() {
 
 function cmdbRenderTable(rows) {
   const tbody = document.getElementById('cmdb-tbody');
+  // v3.2.1: sortable
+  tableCtl.wireSortOnly('cmdb-thead', 'cmdb', () => cmdbRenderTable(_cmdbAssetCache || rows));
+  rows = tableCtl.sortRows('cmdb', rows || [], (r) => ({
+    name:            (r.name || '').toLowerCase(),
+    asset_id:        r.asset_id || '',
+    server_function: r.server_function || '',
+    os:              r.os || '',
+    ip:              r.ip || '',
+    hypervisor_url:  r.hypervisor_url || '',
+    docs_count:      r.has_documentation ? 1 : 0,
+    creds_count:     r.credential_count || 0,
+  }));
   if (!rows || rows.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No matching assets.</td></tr>';
     return;
@@ -6873,6 +6973,15 @@ function renderScriptsList() {
     rows = rows.filter(s => (s.name||'').toLowerCase().includes(term) ||
                             (s.description||'').toLowerCase().includes(term));
   }
+  // v3.2.1: sortable
+  tableCtl.wireSortOnly('scripts-thead', 'scripts', renderScriptsList);
+  rows = tableCtl.sortRows('scripts', rows, (s) => ({
+    name:        (s.name || '').toLowerCase(),
+    description: (s.description || '').toLowerCase(),
+    size:        s.body_len || 0,
+    updated:     s.updated || 0,
+    flags:       s.dangerous ? 1 : 0,
+  }));
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${_scriptsCache.length ? 'No matches' : 'No scripts yet. Click <b>New script</b> to create one.'}</td></tr>`;
     return;
@@ -8417,11 +8526,21 @@ async function loadDrift() {
 function _renderDrift(rows) {
   const tbody = document.getElementById('drift-tbody');
   const filter = (document.getElementById('drift-filter')?.value || '').toLowerCase().trim();
-  const visible = rows.filter(r =>
+  let visible = rows.filter(r =>
     !filter ||
     (r.device_name || '').toLowerCase().includes(filter) ||
     (r.group || '').toLowerCase().includes(filter)
   );
+  // v3.2.1: sortable
+  tableCtl.wireSortOnly('drift-thead', 'drift', () => _renderDrift(_driftLastResponse?.devices || []));
+  visible = tableCtl.sortRows('drift', visible, (r) => ({
+    name:       (r.device_name || '').toLowerCase(),
+    group:      r.group || '',
+    watched:    r.total || 0,
+    drift:      r.drifted || 0,
+    missing:    r.missing || 0,
+    last_check: r.last_check || 0,
+  }));
   if (visible.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" class="isl-534">No drift data yet. Wait for the first agent heartbeat with v2.2.0+ and drift enabled.</td></tr>';
     return;
@@ -11277,13 +11396,22 @@ function _renderPortsFiltered() {
     return;
   }
 
-  const visible = filtered.slice(0, 10);
-  const hidden  = filtered.slice(10);
+  // v3.2.1: sortable
+  const _sortedFiltered = tableCtl.sortRows('ports', filtered, (e) => {
+    const procs = [...new Set(e.hosts.map(h => h.process).filter(Boolean))].join(', ');
+    return {
+      port: e.port || 0,                            // numeric — sorts by port number
+      process: (procs || '').toLowerCase(),
+      devices: e.hosts.length,
+    };
+  });
+  const visible = _sortedFiltered.slice(0, 10);
+  const hidden  = _sortedFiltered.slice(10);
   el.innerHTML = `
     <div class="table-card">
       <table>
-        <thead><tr>
-          <th>Port</th><th>Process</th><th>Devices</th>
+        <thead id="ports-thead"><tr>
+          <th data-col="port">Port</th><th data-col="process">Process</th><th data-col="devices">Devices</th>
         </tr></thead>
         <tbody id="ports-table-body">
           ${visible.map(e => {
@@ -11302,6 +11430,8 @@ function _renderPortsFiltered() {
     </div>` +
     (hidden.length ? `<button class="btn-secondary isl-55"
        data-action-btn="_expandPortsFromStore" data-store-key="${_storeEvtData(hidden)}">Show ${hidden.length} more ports</button>` : '');
+  // Wire after the DOM is in place — thead is built by innerHTML above
+  tableCtl.wireSortOnly('ports-thead', 'ports', _renderPortsFiltered);
 }
 
 
@@ -13353,6 +13483,10 @@ function _acmeRenderTable() {
   const empty = document.getElementById('acme-empty');
   const card  = document.getElementById('acme-table-card');
   if (!tbody) return;
+  // v3.2.1: wire sort. The thead is static (in index.html), so we
+  // re-wire on every render just in case the table-card was toggled
+  // hidden + back. _wireHeaders is idempotent on a given DOM node.
+  tableCtl.wireSortOnly('acme-thead', 'acme', _acmeRenderTable);
 
   // Flatten devices → one row per cert. Devices without acme.sh installed
   // are skipped entirely (v3.0.2) — they were rendered as "acme.sh not
@@ -13402,8 +13536,23 @@ function _acmeRenderTable() {
   if (card)  card.style.display = 'block';
   if (empty) empty.style.display = 'none';
 
-  const now = Math.floor(Date.now() / 1000);
-  const html = rows.map(r => {
+  // v3.2.1: apply user's chosen sort order. getColumns maps each row
+  // (cert or no-certs placeholder) into comparable values so device
+  // rows without certs still sort by name alongside real cert rows.
+  const _now = Math.floor(Date.now() / 1000);
+  const sortedRows = tableCtl.sortRows('acme', rows, (r) => ({
+    device_name: r.device_name || '',
+    domain:      r.domain || '',
+    challenge:   r.is_dns_challenge ? 'DNS-01' : (r.challenge || ''),
+    provider:    r.dns_provider_label || r.dns_provider || '',
+    created:     r.created_ts || 0,
+    renew:       r.next_renew_ts || Infinity,
+    // "status" sort key = days until renewal (negative = overdue)
+    status:      r.next_renew_ts ? Math.round((r.next_renew_ts - _now) / 86400) : Infinity,
+  }));
+
+  const now = _now;
+  const html = sortedRows.map(r => {
     if (r._kind === 'unavailable') {
       return `<tr class="isl-671">
         <td>${escHtml(r.device_name)}</td>

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.2.1">
+<link rel="stylesheet" href="static/css/styles.css?v=3.2.2">
 
 </head>
 <body>
@@ -877,7 +877,7 @@
               </div>
             </div>
             <div class="table-card isl-46">
-              <table><thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Detail</th><th></th></tr></thead>
+              <table><thead id="webhook-log-thead"><tr><th data-col="ts">Time</th><th data-col="event">Event</th><th data-col="status">Status</th><th data-col="detail">Detail</th><th></th></tr></thead>
               <tbody id="webhook-log-tbody"><tr><td colspan="5" class="empty-state-sm">No webhook deliveries yet.</td></tr></tbody></table>
             </div>
           </div>
@@ -901,7 +901,7 @@
             </div>
             <div class="table-card">
               <table>
-                <thead><tr><th>Label</th><th>Type</th><th>Scope</th><th>Token</th><th>Hits</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+                <thead id="inbound-webhooks-thead"><tr><th data-col="label">Label</th><th data-col="kind">Type</th><th data-col="scope">Scope</th><th>Token</th><th data-col="hit_count">Hits</th><th data-col="last_seen">Last seen</th><th data-col="enabled">Status</th><th></th></tr></thead>
                 <tbody id="inbound-webhooks-tbody"><tr><td colspan="8" class="empty-state">No inbound tokens yet.</td></tr></tbody>
               </table>
             </div>
@@ -1603,10 +1603,10 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" data-keywords="release notes changelog v3.2.1 v3.2.0 v3.1.0 v3.0.7 v3.0.6 features alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations csp focused subcategory sidebar groups grouped navigation health check service worker">
-            <summary><strong>What's new — v3.0.6 → v3.2.1</strong> — every feature in the current release arc</summary>
+          <details class="doc-card" data-keywords="release notes changelog v3.2.2 v3.2.1 v3.2.0 v3.1.0 v3.0.7 v3.0.6 features alerts inbox inbound webhooks mcp write tools oidc sso snmp syslog confirmations csp focused subcategory sidebar groups grouped navigation health check service worker">
+            <summary><strong>What's new — v3.0.6 → v3.2.2</strong> — every feature in the current release arc</summary>
             <div class="doc-body">
-              <p>This card covers everything added since the last LTS-ish baseline (v3.0.6). The release-by-release breakdown lives in <code>CHANGELOG.md</code>; below is what you can actually <em>do</em> now that you couldn't in v3.0.6. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.2.1</code>).</p>
+              <p>This card covers everything added since the last LTS-ish baseline (v3.0.6). The release-by-release breakdown lives in <code>CHANGELOG.md</code>; below is what you can actually <em>do</em> now that you couldn't in v3.0.6. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.2.2</code>).</p>
 
               <h4>Alerts &amp; notifications</h4>
               <ul>
@@ -2784,7 +2784,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="table-card" id="logs-rules-device-wrap">
           <table>
-            <thead><tr><th>Device</th><th>Group</th><th>Unit</th><th>Pattern</th><th class="ta-center">Threshold</th><th></th></tr></thead>
+            <thead id="logs-rules-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th></th></tr></thead>
             <tbody id="logs-rules-tbody"><tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr></tbody>
           </table>
         </div>
@@ -2793,7 +2793,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             Fleet-wide rules apply to every device that submits logs for the named unit. Use <code>*</code> for the unit to match any unit on any device.
           </div>
           <table>
-            <thead><tr><th>Unit</th><th>Pattern</th><th class="ta-center">Threshold</th><th>Created</th><th></th></tr></thead>
+            <thead id="logs-rules-global-thead"><tr><th data-col="unit">Unit</th><th data-col="pattern">Pattern</th><th data-col="threshold" class="ta-center">Threshold</th><th data-col="created">Created</th><th></th></tr></thead>
             <tbody id="logs-rules-global-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
         </div>
@@ -2813,7 +2813,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card"><table><thead id="maint-thead"><tr><th data-col="reason">Reason</th><th data-col="scope">Scope</th><th data-col="target">Target</th><th data-col="when">When</th><th data-col="events">Events</th><th data-col="status" class="ta-center">Status</th><th></th></tr></thead><tbody id="maint-tbody"><tr><td colspan="7" class="empty-state">Click Refresh. </td></tr></tbody></table></div>
         <div id="maint-suppressions" class="isl-153">
           <div class="page-title isl-154">Recent Suppressions</div>
-          <div class="table-card"><table><thead><tr><th>When</th><th>Event</th><th>Device</th><th>Window</th><th>Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
+          <div class="table-card"><table><thead id="maint-supp-thead"><tr><th data-col="ts">When</th><th data-col="event">Event</th><th data-col="device">Device</th><th data-col="window">Window</th><th data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
         </div>
       </div>
 
@@ -2908,16 +2908,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div class="table-card">
           <table>
-            <thead>
+            <thead id="cmdb-thead">
               <tr>
-                <th>Name</th>
-                <th>Asset ID</th>
-                <th>Function</th>
-                <th>OS</th>
-                <th>IP</th>
-                <th>Hypervisor</th>
-                <th>Docs</th>
-                <th>Creds</th>
+                <th data-col="name">Name</th>
+                <th data-col="asset_id">Asset ID</th>
+                <th data-col="server_function">Function</th>
+                <th data-col="os">OS</th>
+                <th data-col="ip">IP</th>
+                <th data-col="hypervisor_url">Hypervisor</th>
+                <th data-col="docs_count">Docs</th>
+                <th data-col="creds_count">Creds</th>
                 <th></th>
               </tr>
             </thead>
@@ -2995,9 +2995,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card">
           <table class="data-table w-full">
-            <thead><tr>
-              <th>Device</th><th>Group</th><th>Files watched</th>
-              <th>Drift</th><th>Missing</th><th>Last check</th><th></th>
+            <thead id="drift-thead"><tr>
+              <th data-col="name">Device</th><th data-col="group">Group</th><th data-col="watched">Files watched</th>
+              <th data-col="drift">Drift</th><th data-col="missing">Missing</th><th data-col="last_check">Last check</th><th></th>
             </tr></thead>
             <tbody id="drift-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
           </table>
@@ -3059,14 +3059,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="table-card" id="acme-table-card">
             <div id="acme-suppressed-hint" class="isl-184"></div>
             <table>
-              <thead><tr>
-                <th>Device</th>
-                <th>Domain</th>
-                <th>Challenge</th>
-                <th>Provider</th>
-                <th>Created</th>
-                <th>Next renewal</th>
-                <th>Status</th>
+              <thead id="acme-thead"><tr>
+                <th data-col="device_name">Device</th>
+                <th data-col="domain">Domain</th>
+                <th data-col="challenge">Challenge</th>
+                <th data-col="provider">Provider</th>
+                <th data-col="created">Created</th>
+                <th data-col="renew">Next renewal</th>
+                <th data-col="status">Status</th>
                 <th>Actions</th>
               </tr></thead>
               <tbody id="acme-tbody"><tr><td colspan="8" class="empty-state-sm">Loading…</td></tr></tbody>
@@ -3115,7 +3115,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div id="alerts-summary" class="isl-186 mb-16"></div>
         <div class="table-card">
           <table>
-            <thead>
+            <thead id="alerts-thead">
               <tr>
                 <th class="isl-187"><input type="checkbox" id="alerts-select-all" data-action="toggleAllAlerts"></th>
                 <th data-col="severity">Severity</th>
@@ -3142,13 +3142,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card">
           <table>
-            <thead><tr>
-              <th>Status</th>
-              <th>Requested</th>
-              <th>Action</th>
-              <th>Device</th>
-              <th>AI host</th>
-              <th>Prompt</th>
+            <thead id="confirmations-thead"><tr>
+              <th data-col="status">Status</th>
+              <th data-col="requested_at">Requested</th>
+              <th data-col="action">Action</th>
+              <th data-col="device_name">Device</th>
+              <th data-col="ai_host">AI host</th>
+              <th data-col="ai_prompt">Prompt</th>
               <th></th>
             </tr></thead>
             <tbody id="confirmations-tbody">
@@ -3190,12 +3190,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="mb-16"><input type="text" id="scripts-filter" class="form-input input-wide-sm" placeholder="Filter by name or description…" data-input="renderScriptsList" ></div>
         <div class="table-card"><table>
-          <thead><tr>
-            <th class="isl-187">Name</th>
-            <th>Description</th>
-            <th class="isl-188">Size</th>
-            <th class="isl-189">Updated</th>
-            <th class="isl-188">Flags</th>
+          <thead id="scripts-thead"><tr>
+            <th data-col="name" class="isl-187">Name</th>
+            <th data-col="description">Description</th>
+            <th data-col="size" class="isl-188">Size</th>
+            <th data-col="updated" class="isl-189">Updated</th>
+            <th data-col="flags" class="isl-188">Flags</th>
             <th class="isl-190"></th>
           </tr></thead>
           <tbody id="scripts-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
@@ -4486,8 +4486,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.2.1"></script>
+<script src="static/js/app.js?v=3.2.2"></script>
 
-<script src="static/js/sw-register.js?v=3.2.1"></script>
+<script src="static/js/sw-register.js?v=3.2.2"></script>
 </body>
 </html>

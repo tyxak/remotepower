@@ -56,12 +56,21 @@ class TestUptimeRecording(unittest.TestCase):
         cls.src = (_CGI_BIN / 'api.py').read_text()
 
     def test_offline_transition_recorded(self):
-        # Both an offline (False) and a recovery (True) record call
-        # must exist in the offline-detection sweep.
-        self.assertIn('_record_uptime(dev_id, dev.get(\'name\', dev_id), False)',
-                      self.src)
-        self.assertIn('_record_uptime(dev_id, dev.get(\'name\', dev_id), True)',
-                      self.src)
+        # Both an offline (False) and a recovery (True) _record_uptime call
+        # must exist in the offline-detection sweep. The sweep may extract
+        # name into a local before calling, so accept either form.
+        offline_forms = (
+            '_record_uptime(dev_id, dev.get(\'name\', dev_id), False)',
+            '_record_uptime(dev_id, name, False)',
+        )
+        online_forms = (
+            '_record_uptime(dev_id, dev.get(\'name\', dev_id), True)',
+            '_record_uptime(dev_id, name, True)',
+        )
+        self.assertTrue(any(f in self.src for f in offline_forms),
+                        'No _record_uptime(..., False) call found in offline sweep')
+        self.assertTrue(any(f in self.src for f in online_forms),
+                        'No _record_uptime(..., True) call found in offline sweep')
 
 
 class TestFleetUptime7d(unittest.TestCase):

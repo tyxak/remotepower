@@ -2,6 +2,53 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.2.2 — 2026-05-27
+
+Hotfix release. No new features; all changes are bug fixes and configuration
+corrections surfaced by real-fleet debugging on a v3.2.1 deployment.
+
+### Fixed
+
+- **Race condition in offline/online detection** (`check_offline_webhooks`).
+  Two or more concurrent CGI processes could both observe `offline_notified={}`,
+  each fire `device_offline`, and write duplicate alerts and fleet events. The
+  read-check-write sequence is now serialised under `_LockedUpdate(CONFIG_FILE)`;
+  webhooks and uptime recording fire outside the lock. Same fix covers the
+  `patch_alerted` deduplication dict.
+- **Debug log timestamps were local time instead of UTC.** Heartbeat entries
+  used `datetime.now()` (server local time, CEST) while browser-side entries
+  use `toISOString()` (UTC), making the unified debug.log timeline unreadable
+  across a 2-hour gap. Both server-side write sites now emit UTC.
+- **`online_ttl` example value in source comment was 180.** That value was
+  taken as gospel by at least one deployment. `MIN_ONLINE_TTL` dropped from
+  300 → 150 in v3.2.1, making a previously-clamped 180 s setting take effect
+  and flip devices offline after just 3 missed heartbeats. Comment now shows
+  the default (300 s).
+- **`MAX_FLEET_EVENTS` raised from 200 → 1000.** The previous cap was sized
+  for quiet fleets; active fleets (or fleets with the above race condition
+  firing duplicate events) rolled over the Home dashboard activity log in
+  under an hour.
+- **nginx `client_max_body_size` raised from 64 KB → 2 MB** in both
+  `server/conf/remotepower.conf` and `docker/nginx-docker.conf`. The
+  server-side limit was raised to 50 MB in v1.7.0 for package-list uploads
+  but the nginx configs were not updated. Systems with ≥ ~850 installed
+  packages were silently receiving HTTP 413 on every `/api/packages` POST,
+  leaving the CVE scanner with a stale or empty package list.
+- **nginx rate-limit comment corrected.** The example zone used `rate=30r/m`
+  (30 requests per minute per IP). On a LAN where all fleet devices share one
+  NAT address, that rate is exceeded by normal heartbeat + browser polling
+  traffic. Comment updated to `10r/s` with an explanatory note.
+
+### Changed
+
+- **Sortable tables** — Alerts inbox, CMDB, Drift, ACME certificates,
+  Webhook log, Confirmations, Inbound webhooks, Scripts, Listening Ports now
+  support click-to-sort column headers (shift-click for multi-column). Sort
+  state is persisted in UI prefs.
+- **Drift table header corrected.** The thead previously had 4 columns
+  (Drift, Missing, Last check, actions) while the tbody rendered 7; Device
+  and Group columns were present in rows but had no corresponding headers.
+
 ## v3.2.1 — 2026-05-26
 
 Follow-up release on top of v3.2.0. Same big features (alerts inbox,
