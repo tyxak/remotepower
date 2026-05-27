@@ -107,9 +107,129 @@ operator UX.
   for very large fleets. No-op by default; stable sort order so a
   paged client walking with increasing offset is deterministic.
 
+### Follow-up additions (still under v3.3.0)
+
+After the initial Phase A–D ship, the rest of the release picks up
+the operator-feedback items, the four integrations the user named,
+and the documentation refresh.
+
+**Channel routing matrix** (Settings → Dashboard). One matrix per
+event kind × four surfaces (Needs Attention, Recent Activity,
+Alerts inbox, Webhook). Replaces the prior scattered hide-this-kind
+toggles plus the implicit per-event webhook gate. Legacy
+`dashboard_hidden_*` config auto-migrates on first read.
+
+`_ALERT_RULES` extended so events that fired webhooks but never
+reached the Alerts inbox — `brute_force_detected`, `backup_stale`,
+`snapshot_old`, `reboot_required`, `new_port_detected`,
+`ssh_key_added`, `monitor_down` — now do. `monitor_up`
+auto-resolves the matching `monitor_down` via label+target
+sub-match (no device_id needed).
+
+**Log alert improvements**:
+- Sample-in-summary: Needs Attention cards, Alerts-inbox titles, and
+  webhook subjects show the matched log line (truncated) rather than
+  the rule regex. NA card hover tooltip exposes the full pattern + up
+  to three captured matches.
+- Per-rule `display_template` field with `{device}`, `{unit}`,
+  `{pattern}`, `{count}`, `{sample}`, `{sample0..2}` placeholders.
+  Live preview in the rule modal.
+- Per-rule `exclude_pattern` (regex) skips matching lines before the
+  threshold count. Stops Postfix-style warning noise without
+  disabling the rule.
+- Inline NA card actions: 24h snooze (auto-returns) and "Open in
+  Logs" deep-link to the device + unit.
+
+**Uninstall agent** action in the device drawer. Server queues an
+`uninstall` command; on next heartbeat the agent stops + disables
+its systemd unit, deletes credentials + state + binary, exits via a
+detached trampoline. Device record stays so history / tags / groups
+survive. Re-heartbeat from the same host clears the badge.
+
+**Integrations**:
+- **Healthchecks.io watchdog** — server pings a configurable URL
+  every 60 s so an external monitor flips red when RemotePower
+  itself stops responding. Settings → Notifications. 5 s timeout;
+  failures never propagate into the request pipeline.
+- **Prometheus `/api/metrics` status-token auth** — the existing
+  endpoint now accepts the status token via `?token=…` in addition
+  to session bearer. Standard Prometheus scrape configs work
+  without renewing session tokens.
+- **GitHub issues** as a webhook destination format. Fine-grained
+  PAT with `issues:write` scope. Issue body: human-readable message
+  + raw payload in a fenced JSON `<details>`. Labels =
+  `["remotepower", "<event>", "<severity if known>"]`.
+- **Central ACME DNS-01 credentials** (TLS / DNS page → "DNS
+  provider credentials"). 12 providers: Cloudflare, Hetzner,
+  Route 53, DigitalOcean, Gandi, OVH, Porkbun, Hurricane Electric,
+  deSEC, Namecheap, NameSilo, RFC 2136, acme-dns. Values inject as
+  env vars into the queued `acme.sh --issue` command at issuance
+  time, so the operator no longer has to hand-edit
+  `~/.acme.sh/account.conf` on each device.
+  `_scrub_acme_credentials()` redacts secrets from the audit log
+  and any UI surface that displays the queued command.
+
+**Edit buttons across operator-managed lists**. Every list that
+had Add + Delete now has Edit: log alert rules (per-device +
+global), maintenance windows, monitors, TLS targets, backup
+monitors, command snippets, scheduled jobs, inbound webhook tokens
+(label + scope), users (role), log-ignore patterns. Rotate-only
+surfaces (MCP API keys, status token, the opaque secret inside an
+inbound webhook token) stay rotate-only by design.
+
+**Emoji-free UI**. The dashboard previously mixed colourful emoji
+glyphs with crisp Lucide-style SVGs in the sidebar; replaced every
+visible emoji with an SVG via a new `_icon()` helper + the `_ICONS`
+dictionary, plain ASCII where decoration was redundant, or removed
+where the icon added nothing. Device-icon palette migrated from
+emoji to 22 Lucide SVG names; legacy emoji values still render via
+fallback. The `applyAiIdentity()` AI-button class stamping now
+matches by `data-action` regex instead of sniffing for `✨` in
+button text. README + features.md + in-app help-card emoji-free.
+
+**Mobile UX polish**. Two media-query blocks (≤ 720 px and ≤ 480 px)
+bring touch targets up to ~44 px, modals go full-viewport with a
+sticky action row on phones, device drawer action grid becomes 2-up
+(1-up under 480 px), settings tabs wrap into a 3-up grid, all
+`.table-card` tables get horizontal scroll with
+`-webkit-overflow-scrolling: touch`, form inputs use 16 px font
+size so iOS Safari doesn't zoom on focus.
+
+**Operator-reported bug fixes**:
+- Dashboard "Critical CVEs" tile honoured the operator's
+  `cve_ignore.json` — was showing 3 critical when the CVE page (which
+  applies the filter) correctly showed 0.
+- Monitoring → Processes sort no longer freezes the browser. The
+  static `<thead>` was accumulating click handlers exponentially
+  because `_wireHeaders` called `addEventListener` on every
+  `wireSortOnly` invocation. The wiring is now idempotent via a
+  `dataset.sortWired` flag.
+- Monitor targets and TLS / DNS expiry targets gain Edit buttons
+  (was Add + Delete only). TLS update preserves the cert's last_check
+  / status / days_left / issuer / chain so editing doesn't reset
+  the row to "never scanned".
+- CMDB device-name cell is now clickable (opens the asset, same as
+  the Open button — operators kept trying to click the name).
+- Offline check exempts the device that's currently heartbeating
+  via `_peek_heartbeat_dev_id()`. Kills the false-positive
+  `OFFLINE → ONLINE` flap that fired at the TTL boundary when one
+  heartbeat landed at 181 s after the previous commit.
+- IP allowlist save handler refuses to enable the gate if the
+  caller's IP isn't already in the list — operators can't lock
+  themselves out with one click.
+
+**Documentation refresh**. README rewritten without emoji, feature
+list extended for v3.3.0. `docs/features.md` gains a "v3.3.0
+additions" section covering every operator-visible change.
+`docs/README.md`, `docs/api.md`, `docs/ai.md`, `docs/mcp.md`,
+`docs/scripts.md`, `docs/custom-scripts.md`, `docs/acme.md` all
+have emoji stripped. In-app help / "What's new" doc-card added at
+the top of `#docs-container` (defaults to open) so operators see
+the v3.3.0 surface without leaving the dashboard.
+
 ### Tests
 
-- 1753 unit tests, all passing.
+- 1774 unit tests, all passing.
 - New `tests/test_v330.py` strict-pin file with regression tests
   for every Phase A–D fix.
 - `tests/test_v322.py` strict pins loosened to regex
