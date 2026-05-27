@@ -1710,17 +1710,22 @@ def get_host_health():
         pass
 
     # ── listening ports ──────────────────────────────────────────────
-    # `ss -tulnHp` — TCP+UDP, listening only, numeric, no header, with
-    # process info. The -p flag shows process names when the agent runs
-    # as root; without root it still shows ports (process field empty).
-    # psutil fills in names for any port still missing one.
+    # Two complementary sources: `ss -tulnHp` (iproute2, ubiquitous on
+    # mainstream Linux) and psutil.net_connections (portable, works on
+    # any distro that has psutil). Each fills gaps in the other so the
+    # process column stays populated across:
+    #   • mainstream Linux as root: ss alone provides names
+    #   • mainstream Linux as non-root with psutil: ss for ports,
+    #     psutil for any missing names
+    #   • minimal images (Alpine, distroless): no ss → psutil-only
+    #   • host with neither: empty list (no regression vs prior behavior)
+    ports = []
+    seen = set()
     try:
         if _which('ss'):
             r = subprocess.run(['ss', '-tulnHp'], capture_output=True,
                                text=True, timeout=5)
             if r.returncode == 0:
-                ports = []
-                seen = set()
                 for ln in r.stdout.splitlines():
                     parts = ln.split()
                     if len(parts) < 5:
@@ -1732,7 +1737,8 @@ def get_host_health():
                     port = local.rsplit(':', 1)[1]
                     if not port.isdigit():
                         continue
-                    key = (proto, port)
+                    port_n = int(port)
+                    key = (proto, port_n)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -1741,32 +1747,53 @@ def get_host_health():
                         m = re.search(r'\(\("([^"]+)"', ln)
                         if m:
                             proc = m.group(1)
-                    ports.append({'proto': proto, 'port': int(port),
+                    ports.append({'proto': proto, 'port': port_n,
                                   'process': proc})
-                ports.sort(key=lambda p: p['port'])
-
-                # psutil fallback: fill process names for any port ss
-                # couldn't name (e.g. agent not running as root).
-                if _PSUTIL:
-                    missing = {p['port'] for p in ports if not p['process']}
-                    if missing:
-                        port_name = {}
-                        try:
-                            for c in _psutil.net_connections('inet'):
-                                if c.status == 'LISTEN' and c.laddr and c.laddr.port in missing and c.pid:
-                                    try:
-                                        port_name[c.laddr.port] = _psutil.Process(c.pid).name()
-                                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
-                                        pass
-                        except (_psutil.AccessDenied, Exception):
-                            pass
-                        for p in ports:
-                            if not p['process'] and p['port'] in port_name:
-                                p['process'] = port_name[p['port']]
-
-                out['listening_ports'] = ports[:80]
     except Exception:
         pass
+
+    # psutil supplements ss: adds entries ss missed (or runs solo when
+    # ss isn't installed) and fills in process names ss left blank.
+    # UDP listening sockets have status='NONE' in psutil (UDP is
+    # connectionless), so accept both LISTEN and NONE for UDP.
+    if _PSUTIL:
+        try:
+            for c in _psutil.net_connections('inet'):
+                if not c.laddr:
+                    continue
+                is_tcp = (c.type == socket.SOCK_STREAM)
+                is_udp = (c.type == socket.SOCK_DGRAM)
+                if not (is_tcp or is_udp):
+                    continue
+                if is_tcp and c.status != 'LISTEN':
+                    continue
+                # UDP entries also include connected sockets (status='ESTABLISHED'
+                # on a few kernels); restrict to true listeners.
+                if is_udp and c.status not in ('NONE', 'LISTEN'):
+                    continue
+                proto = 'tcp' if is_tcp else 'udp'
+                key = (proto, c.laddr.port)
+                proc = ''
+                if c.pid:
+                    try:
+                        proc = _psutil.Process(c.pid).name()
+                    except (_psutil.NoSuchProcess, _psutil.AccessDenied):
+                        pass
+                existing = next((p for p in ports
+                                 if (p['proto'], p['port']) == key), None)
+                if existing:
+                    if not existing['process'] and proc:
+                        existing['process'] = proc
+                elif key not in seen:
+                    seen.add(key)
+                    ports.append({'proto': proto, 'port': c.laddr.port,
+                                  'process': proc})
+        except Exception:
+            pass
+
+    if ports:
+        ports.sort(key=lambda p: p['port'])
+        out['listening_ports'] = ports[:80]
 
     # ── last boot time ───────────────────────────────────────────────
     try:
