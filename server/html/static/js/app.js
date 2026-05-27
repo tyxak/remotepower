@@ -9135,19 +9135,11 @@ async function loadHome() {
     api('GET', '/links').catch(() => null),
   ]);
 
-  // v2.8.1: filter hidden activity events before rendering
-  let filteredEvents = fleetEvents;
-  const hiddenEvtSet = new Set((cfg || {}).dashboard_hidden_activity_events || []);
-  if (hiddenEvtSet.size && filteredEvents) {
-    const evArr = Array.isArray(filteredEvents) ? filteredEvents
-      : (filteredEvents?.events || filteredEvents?.items || []);
-    const filtered = evArr.filter(e => !hiddenEvtSet.has(e.event));
-    filteredEvents = Array.isArray(fleetEvents) ? filtered : {...fleetEvents, events: filtered};
-  }
-
+  // v3.2.3: routing matrix filter is enforced server-side in
+  // handle_fleet_events — no need to re-filter client-side.
   _renderHomeTiles(devs || [], drift || {}, cves || {}, mailwatch || {});
   _renderHomeAttention();
-  _renderHomeActivity(filteredEvents);
+  _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs || []);
   _renderHomeLinks(linksResp?.links || []);
 }
@@ -11518,39 +11510,8 @@ function _renderProcessesFiltered() {
 
 // ── v2.8.1: Settings → Dashboard personalisation ─────────────────────────────
 
-// Attention kinds — each toggle suppresses the kind from Needs Attention
-// AND its linked events from Recent Activity (one toggle, two effects).
-const ATTENTION_KINDS = [
-  // ── Operational alerts ────────────────────────────────────────────
-  ['offline',      'Device offline',          ['device_offline']],
-  ['patches',      'Pending patches',         ['patch_alert']],
-  ['cve',          'CVE findings',            ['cve_found']],
-  ['service',      'Service down/up',         ['service_down', 'service_up']],
-  ['container',    'Container alerts',        ['container_stopped', 'container_restarting', 'containers_stale']],
-  ['script',       'Script failures',         ['custom_script_fail', 'custom_script_recover']],
-  ['log_alert',    'Log alerts',              ['log_alert']],
-  ['drift',        'Config drift',            ['drift_detected', 'config_drift']],
-  ['brute_force',  'Brute-force attacks',     ['brute_force_detected']],
-  ['backup',       'Stale backups',           ['backup_stale']],
-  ['tls',          'TLS/cert expiry',         ['tls_expiry']],
-  ['snapshot',     'Old snapshots',           ['snapshot_old']],
-  ['reboot',       'Pending reboot',          ['reboot_required']],
-  ['new_port',     'New listening ports',     ['new_port_detected']],
-  ['ssh_key',      'SSH key changes',         ['ssh_key_added']],
-  // ── Informational ─────────────────────────────────────────────────
-  ['metric',       'Metric alerts',           ['metric_warning', 'metric_critical', 'metric_recovered']],
-  ['mailbox',      'Mailbox threshold',       ['mailbox_threshold']],
-  ['disk',         'Disk space',              []],
-  ['agent_version','Stale agent version',     []],
-];
-
-// Activity-only events — informational/audit events not covered by attention kinds above.
-// Critical operational events are controlled through the Needs Attention toggles above.
-const ACTIVITY_EVENTS = [
-  ['device_online',    'Device came online'],
-  ['command_queued',   'Command queued'],
-  ['command_executed', 'Command executed'],
-];
+// v3.2.3: canonical kind list moved server-side (CHANNEL_KINDS in api.py).
+// The matrix UI reads /api/dashboard/kinds — no more duplicated arrays here.
 
 async function loadDashboardSettings() {
   const cfg = await api('GET', '/config');
@@ -11568,58 +11529,84 @@ async function loadDashboardSettings() {
   document.getElementById('dash-bf-threshold').value  = bfThreshold;
   document.getElementById('dash-bf-window').value     = bfWindow;
 
-  // Attention kind toggles — each also controls its linked activity events
-  const attnEl = document.getElementById('dash-attn-kinds');
-  if (attnEl) attnEl.innerHTML = ATTENTION_KINDS.map(([kind, label]) =>
-    `<label class="isl-615">
-       <input type="checkbox" ${hiddenAttn.has(kind) ? '' : 'checked'}
-              data-change="dashToggleAttn" data-change-arg="${kind}">
-       <span>${escHtml(label)}</span>
-     </label>`
-  ).join('');
-
-  // Activity event toggles (informational-only events)
-  const actEl = document.getElementById('dash-act-events');
-  if (actEl) actEl.innerHTML = ACTIVITY_EVENTS.map(([ev, label]) =>
-    `<label class="isl-615">
-       <input type="checkbox" ${hiddenAct.has(ev) ? '' : 'checked'}
-              data-change="dashToggleAct" data-change-arg="${ev}">
-       <span>${escHtml(label)}</span>
-     </label>`
-  ).join('');
+  // v3.2.3: channel routing matrix — replaces the two legacy
+  // kind/activity panes. Server is the source of truth for the kind
+  // roster; we just render the table and POST diffs back.
+  loadChannelMatrix();
 
   // Backup monitors
   renderBackupMonitors(cfg.backup_monitors || []);
 }
 
-let _dashHiddenAttn = null;
-let _dashHiddenAct  = null;
+// v3.2.3: channel routing matrix. The server is canonical for the kind
+// roster (CHANNEL_KINDS in api.py) and the labels for each channel —
+// frontend just renders the table and POSTs a single-row diff per click.
+const CHANNEL_LABELS = {
+  needs_attention: 'Needs Attention',
+  recent_activity: 'Recent Activity',
+  alerts:          'Alerts',
+  webhook:         'Webhook',
+};
+let _channelMatrixCache = null;
 
-async function _initDashSets() {
-  if (_dashHiddenAttn !== null) return;
-  const cfg = await api('GET', '/config') || {};
-  _dashHiddenAttn = new Set(cfg.dashboard_hidden_attention_kinds || []);
-  _dashHiddenAct  = new Set(cfg.dashboard_hidden_activity_events  || []);
-}
-
-async function dashToggleAttn(kind, show) {
-  await _initDashSets();
-  if (show) _dashHiddenAttn.delete(kind); else _dashHiddenAttn.add(kind);
-  // Also suppress/restore the linked activity events for this kind
-  const entry = ATTENTION_KINDS.find(([k]) => k === kind);
-  const linked = entry ? entry[2] : [];
-  for (const ev of linked) {
-    if (show) _dashHiddenAct.delete(ev); else _dashHiddenAct.add(ev);
+async function loadChannelMatrix() {
+  const el = document.getElementById('dash-channel-matrix');
+  if (!el) return;
+  const data = await api('GET', '/dashboard/kinds');
+  if (!data || !data.kinds) {
+    el.innerHTML = '<div class="hint">Failed to load channel routing.</div>';
+    return;
   }
-  await api('POST', '/config', {
-    dashboard_hidden_attention_kinds:  [..._dashHiddenAttn],
-    dashboard_hidden_activity_events:  [..._dashHiddenAct],
-  });
+  _channelMatrixCache = data;
+  const channels = data.channels || ['needs_attention', 'recent_activity', 'alerts', 'webhook'];
+  // Header
+  const head = `<thead><tr>
+    <th class="ta-left">Kind</th>
+    ${channels.map(c => `<th class="ta-center">${escHtml(CHANNEL_LABELS[c] || c)}</th>`).join('')}
+  </tr></thead>`;
+  // Group by group field
+  const groups = {};
+  for (const k of data.kinds) {
+    (groups[k.group || 'other'] ||= []).push(k);
+  }
+  const groupOrder = ['operational', 'informational', 'other'];
+  const groupTitle = {operational: 'Operational alerts', informational: 'Informational', other: 'Other'};
+  let body = '';
+  let first = true;
+  for (const g of groupOrder) {
+    if (!groups[g]) continue;
+    if (!first) {
+      body += `<tr><td colspan="${channels.length + 1}">&nbsp;</td></tr>`;
+    }
+    first = false;
+    body += `<tr class="c-muted"><td colspan="${channels.length + 1}" class="fw-500">${escHtml(groupTitle[g] || g)}</td></tr>`;
+    for (const k of groups[g]) {
+      body += `<tr>
+        <td class="fw-500">${escHtml(k.label)}<div class="meta-sm c-muted">${escHtml((k.events || []).join(', '))}</div></td>
+        ${channels.map(c => `<td class="ta-center"><input type="checkbox" ${k.channels[c] ? 'checked' : ''} data-change="toggleChannelRoute" data-change-arg="${k.kind}|${c}"></td>`).join('')}
+      </tr>`;
+    }
+  }
+  el.innerHTML = `<div class="table-card"><table>${head}<tbody>${body}</tbody></table></div>`;
 }
-async function dashToggleAct(ev, show) {
-  await _initDashSets();
-  if (show) _dashHiddenAct.delete(ev); else _dashHiddenAct.add(ev);
-  await api('POST', '/config', {dashboard_hidden_activity_events: [..._dashHiddenAct]});
+
+async function toggleChannelRoute(arg, on) {
+  // Dispatcher only passes one custom arg, so kind+channel are joined
+  // with '|' in the data-change-arg attribute.
+  const [kind, channel] = String(arg).split('|');
+  if (!kind || !channel || !_channelMatrixCache) return;
+  // Optimistic update so the UI feels instant; rollback on failure.
+  const row = _channelMatrixCache.kinds.find(k => k.kind === kind);
+  if (!row) return;
+  const prev = row.channels[channel];
+  row.channels[channel] = !!on;
+  const payload = {channel_routing: {[kind]: {[channel]: !!on}}};
+  const r = await api('POST', '/dashboard/kinds', payload);
+  if (!r || !r.ok) {
+    row.channels[channel] = prev;
+    toast(r?.error || 'Failed to update routing', 'error');
+    loadChannelMatrix();
+  }
 }
 
 async function saveBruteForceSettings() {

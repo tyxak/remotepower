@@ -1957,6 +1957,98 @@ _ALERT_RECOVER_EXTRA = {
 }
 
 
+# v3.2.3: Channel routing matrix — single source of truth for "which
+# dashboard surfaces and downstream channels each event reaches". Replaces
+# the legacy pairing of dashboard_hidden_attention_kinds /
+# dashboard_hidden_activity_events. Each event maps to a *kind*; each kind
+# has four toggleable channels: needs_attention (NA card on home),
+# recent_activity (home feed), alerts (the inbox), webhook (external
+# delivery). Operators see one matrix in Settings instead of two scattered
+# kind lists and an implicit per-event-webhook toggle.
+#
+# Adding a new event? Map it here and the matrix UI picks up a row
+# automatically (frontend reads /api/dashboard/kinds).
+CHANNEL_KINDS = [
+    # (kind, label, group, [event types])
+    ('offline',     'Device offline',           'operational',   ['device_offline']),
+    ('online',      'Device came online',       'operational',   ['device_online']),
+    ('monitor',     'Monitor target up/down',   'operational',   ['monitor_down', 'monitor_up']),
+    ('patches',     'Pending patches',          'operational',   ['patch_alert']),
+    ('cve',         'CVE findings',             'operational',   ['cve_found']),
+    ('service',     'Service down/up',          'operational',   ['service_down', 'service_up', 'service_recover']),
+    ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_restarting', 'containers_stale']),
+    ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
+    ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
+    ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
+    ('brute_force', 'Brute-force attacks',      'operational',   ['brute_force_detected']),
+    ('backup',      'Stale backups',            'operational',   ['backup_stale']),
+    ('tls',         'TLS/cert expiry',          'operational',   ['tls_expiry', 'tls_expiring']),
+    ('snapshot',    'Old snapshots',            'operational',   ['snapshot_old']),
+    ('reboot',      'Pending reboot',           'operational',   ['reboot_required']),
+    ('new_port',    'New listening ports',      'operational',   ['new_port_detected']),
+    ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
+    ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover']),
+    ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
+    ('metric',      'Metric thresholds',        'informational', ['metric_warning', 'metric_critical', 'metric_recovered']),
+    ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
+    ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
+]
+
+EVENT_KIND_MAP = {
+    evt: kind
+    for kind, _label, _group, events in CHANNEL_KINDS
+    for evt in events
+}
+
+CHANNELS = ('needs_attention', 'recent_activity', 'alerts', 'webhook')
+CHANNEL_DEFAULT = {c: True for c in CHANNELS}
+
+
+def _channel_routing():
+    """Load the channel routing matrix, lazy-migrating from legacy
+    config fields if `channel_routing` is absent. Returns
+    {kind: {channel: bool}} populated for every known kind."""
+    cfg = load(CONFIG_FILE) or {}
+    routing = cfg.get('channel_routing')
+    if isinstance(routing, dict) and routing:
+        # Backfill any kinds that exist in code but not in the saved map
+        # (new event type shipped in a release — defaults until operator
+        # touches the matrix).
+        out = {}
+        for kind, _label, _group, _events in CHANNEL_KINDS:
+            saved = routing.get(kind)
+            if isinstance(saved, dict):
+                out[kind] = {c: bool(saved.get(c, True)) for c in CHANNELS}
+            else:
+                out[kind] = dict(CHANNEL_DEFAULT)
+        return out
+    # Migration: no channel_routing yet — translate legacy fields.
+    hidden_attn = set(cfg.get('dashboard_hidden_attention_kinds') or [])
+    hidden_act_events = set(cfg.get('dashboard_hidden_activity_events') or [])
+    migrated = {}
+    for kind, _label, _group, events in CHANNEL_KINDS:
+        slot = dict(CHANNEL_DEFAULT)
+        if kind in hidden_attn:
+            slot['needs_attention'] = False
+            slot['recent_activity'] = False
+        if events and all(e in hidden_act_events for e in events):
+            slot['recent_activity'] = False
+        migrated[kind] = slot
+    return migrated
+
+
+def _channel_allowed(event_or_kind, channel):
+    """True if this event (or kind) should reach the channel. Unknown
+    event types route as if allowed — better to over-report than to
+    silently drop a brand-new event we haven't mapped yet."""
+    kind = EVENT_KIND_MAP.get(event_or_kind, event_or_kind)
+    routing = _channel_routing()
+    slot = routing.get(kind)
+    if not isinstance(slot, dict):
+        return True
+    return bool(slot.get(channel, True))
+
+
 def _alert_severity(event, payload):
     """Return severity string for this firing event, or None to skip."""
     rule = _ALERT_RULES.get(event)
@@ -2054,6 +2146,11 @@ def _record_alert(event, payload):
     """
     sev = _alert_severity(event, payload)
     if not sev:
+        return None
+    # v3.2.3: routing matrix gate — if the operator has disabled the
+    # `alerts` channel for this kind, skip recording. The event still
+    # lands in fleet_events.json (history is independent of routing).
+    if not _channel_allowed(event, 'alerts'):
         return None
     p = payload or {}
     # Per-device suppression: identical check to fire_webhook's gate.
@@ -2235,6 +2332,16 @@ def fire_webhook(event, payload):
         u = _suppression_log_url()
         if u:
             _log_webhook(event, u, 'disabled', f'event "{event}" disabled in settings')
+        return
+
+    # v3.2.3: routing matrix — kind-level webhook channel gate layered on
+    # top of per-event toggle. Logged separately so the operator can tell
+    # routing-matrix suppression apart from the older toggle.
+    if not _channel_allowed(event, 'webhook'):
+        u = _suppression_log_url()
+        if u:
+            _log_webhook(event, u, 'disabled',
+                         f'kind "{EVENT_KIND_MAP.get(event, event)}" webhook channel disabled')
         return
 
     # v1.8.4: cve_found severity filter
@@ -10889,10 +10996,13 @@ def _compute_attention():
 
     items.sort(key=lambda i: _ATTN_RANK.get(i['severity'], 0), reverse=True)
 
-    # v2.8.1: filter out kinds the admin has hidden in Settings → Dashboard
-    hidden_kinds = (load(CONFIG_FILE) or {}).get('dashboard_hidden_attention_kinds') or []
-    if hidden_kinds:
-        items = [i for i in items if i.get('kind') not in hidden_kinds]
+    # v3.2.3: routing matrix gate — NA shows only kinds whose
+    # needs_attention channel is enabled. Legacy
+    # dashboard_hidden_attention_kinds is migrated into channel_routing
+    # by _channel_routing() so both old and new configs work.
+    routing = _channel_routing()
+    items = [i for i in items
+             if (routing.get(i.get('kind')) or CHANNEL_DEFAULT).get('needs_attention', True)]
 
     # v3.0.1: filter per-item ignores. Annotate each surviving item with
     # its stable key so the frontend can render an × button.
@@ -10940,6 +11050,54 @@ def handle_attention():
         counts[i['severity']] = counts.get(i['severity'], 0) + 1
     respond(200, {'items': items, 'counts': counts,
                   'total': len(items)})
+
+
+def handle_dashboard_kinds():
+    """GET /api/dashboard/kinds — canonical kind roster + current routing.
+
+    Powers the Settings → Dashboard matrix UI. Returns the static kind list
+    (kind, label, group, events) merged with the live channel_routing
+    config so the frontend can render a single source of truth without
+    duplicating ATTENTION_KINDS in JS."""
+    require_auth()
+    routing = _channel_routing()
+    items = []
+    for kind, label, group, events in CHANNEL_KINDS:
+        items.append({
+            'kind':     kind,
+            'label':    label,
+            'group':    group,
+            'events':   list(events),
+            'channels': routing.get(kind, dict(CHANNEL_DEFAULT)),
+        })
+    respond(200, {'kinds': items, 'channels': list(CHANNELS)})
+
+
+def handle_dashboard_kinds_set():
+    """POST /api/dashboard/kinds — update channel_routing.
+
+    Body: {channel_routing: {kind: {channel: bool, ...}, ...}}. Unknown
+    kinds and unknown channels are silently dropped. Missing kinds keep
+    their existing value (read-modify-write semantics, but a single POST
+    can replace a whole row by sending all 4 channels)."""
+    require_admin_auth()
+    body = get_json_body() or {}
+    incoming = body.get('channel_routing') or body
+    if not isinstance(incoming, dict):
+        respond(400, {'error': 'channel_routing must be a dict'})
+    valid_kinds = {k for k, *_ in CHANNEL_KINDS}
+    current = _channel_routing()
+    for kind, slot in incoming.items():
+        if kind not in valid_kinds or not isinstance(slot, dict):
+            continue
+        merged = dict(current.get(kind) or CHANNEL_DEFAULT)
+        for ch in CHANNELS:
+            if ch in slot:
+                merged[ch] = bool(slot[ch])
+        current[kind] = merged
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['channel_routing'] = current
+    respond(200, {'ok': True, 'channel_routing': current})
 
 
 def handle_status():
@@ -13819,6 +13977,13 @@ def handle_fleet_events():
     if unmonitored:
         events = [e for e in events
                   if (e.get('payload') or {}).get('device_id') not in unmonitored]
+
+    # v3.2.3: routing matrix filter — Recent Activity only shows events
+    # whose kind has recent_activity=true. Centralised here so the home
+    # feed, mobile app, and any other reader of /api/fleet/events all
+    # respect the same operator preferences.
+    events = [e for e in events
+              if _channel_allowed(e.get('event', ''), 'recent_activity')]
 
     # Newest first
     respond(200, list(reversed(events))[:limit])
@@ -17940,6 +18105,10 @@ def main():
     # v2.4.7: needs-attention digest + machine-readable status endpoint
     elif pi == '/api/attention' and m == 'GET':
         handle_attention()
+    elif pi == '/api/dashboard/kinds' and m == 'GET':
+        handle_dashboard_kinds()
+    elif pi == '/api/dashboard/kinds' and m == 'POST':
+        handle_dashboard_kinds_set()
     elif pi == '/api/status' and m == 'GET':
         handle_status()
     elif pi == '/api/status-token' and m == 'POST':

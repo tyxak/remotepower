@@ -289,5 +289,81 @@ class TestVersionComparison(ApiTestBase):
         self.assertFalse(self._vt('1.0.0') > self._vt('1.2.0'))
 
 
+class TestChannelRouting(ApiTestBase):
+    """v3.2.3: channel routing matrix — kind × channel toggling that
+    governs which surfaces (Needs Attention, Recent Activity, Alerts,
+    Webhook) each event reaches."""
+
+    def test_kind_map_covers_alert_rules(self):
+        """Every event in _ALERT_RULES must have a kind so _record_alert
+        can gate it. A missing entry means alerts for that event would
+        ignore the matrix and always flow through."""
+        missing = [e for e in api_module._ALERT_RULES
+                   if e not in api_module.EVENT_KIND_MAP]
+        self.assertEqual(missing, [],
+            f'_ALERT_RULES events without a kind: {missing}')
+
+    def test_default_routes_everywhere(self):
+        """No saved config → every kind, every channel, allowed."""
+        for kind, *_ in api_module.CHANNEL_KINDS:
+            for ch in api_module.CHANNELS:
+                self.assertTrue(
+                    api_module._channel_allowed(kind, ch),
+                    f'default routing for {kind}/{ch} should be allow')
+
+    def test_unknown_event_routes_through(self):
+        """Brand-new events that haven't been mapped yet must default to
+        delivery — otherwise a code change silently drops events."""
+        for ch in api_module.CHANNELS:
+            self.assertTrue(
+                api_module._channel_allowed('__never_seen__', ch))
+
+    def test_saved_routing_respected(self):
+        """Saving channel_routing in config silences the chosen surface."""
+        cfg = {'channel_routing': {
+            'log_alert': {'needs_attention': False, 'recent_activity': True,
+                          'alerts': True, 'webhook': True}}}
+        api_module.save(api_module.CONFIG_FILE, cfg)
+        self.assertFalse(api_module._channel_allowed('log_alert', 'needs_attention'))
+        self.assertTrue(api_module._channel_allowed('log_alert', 'webhook'))
+
+    def test_legacy_hidden_kinds_migrated(self):
+        """When channel_routing is absent but the legacy
+        dashboard_hidden_attention_kinds list is present, the migration
+        derives the matrix on-the-fly so behavior is preserved."""
+        cfg = {'dashboard_hidden_attention_kinds': ['log_alert']}
+        api_module.save(api_module.CONFIG_FILE, cfg)
+        # Hidden attention kind → NA and RA both silenced; alerts +
+        # webhook unaffected (legacy schema never controlled those).
+        self.assertFalse(api_module._channel_allowed('log_alert', 'needs_attention'))
+        self.assertFalse(api_module._channel_allowed('log_alert', 'recent_activity'))
+        self.assertTrue(api_module._channel_allowed('log_alert', 'alerts'))
+        self.assertTrue(api_module._channel_allowed('log_alert', 'webhook'))
+
+    def test_event_to_kind_resolution(self):
+        """_channel_allowed accepts a raw event type and resolves via
+        EVENT_KIND_MAP so callers don't need to look up the kind."""
+        cfg = {'channel_routing': {
+            'tls': {'needs_attention': False, 'recent_activity': True,
+                    'alerts': True, 'webhook': True}}}
+        api_module.save(api_module.CONFIG_FILE, cfg)
+        # tls_expiring → kind 'tls' → needs_attention=false
+        self.assertFalse(api_module._channel_allowed('tls_expiring', 'needs_attention'))
+        self.assertFalse(api_module._channel_allowed('tls_expiry', 'needs_attention'))
+
+    def test_record_alert_honours_routing(self):
+        """A kind with alerts=false must not append to alerts.json."""
+        cfg = {'channel_routing': {
+            'log_alert': {'needs_attention': True, 'recent_activity': True,
+                          'alerts': False, 'webhook': True}}}
+        api_module.save(api_module.CONFIG_FILE, cfg)
+        result = api_module._record_alert('log_alert', {
+            'device_id': 'dev1', 'name': 'host1',
+            'unit': 'nginx', 'pattern': 'error', 'count': 5,
+            'level': 'warning',
+        })
+        self.assertIsNone(result, 'alert should have been suppressed by routing')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
