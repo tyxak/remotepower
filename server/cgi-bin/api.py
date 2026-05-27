@@ -1388,6 +1388,41 @@ def _clear_login_failures(username: str):
         del rl[key]
         save(RATELIMIT_FILE, rl)
 
+
+def _ip_ratelimit(scope: str, ip: str, max_per_window: int, window: int = 60) -> bool:
+    """v3.3.0: per-IP sliding-window rate limit, shared across CGI processes.
+
+    Returns True if the request is allowed (and records it), False if the
+    caller has exceeded `max_per_window` hits in the last `window` seconds.
+
+    Bound to RATELIMIT_FILE under flock so concurrent CGI invocations
+    can't both squeak through with stale buckets. `scope` lets the same
+    file back multiple buckets (enroll, login_ip, etc.) without
+    collision."""
+    if max_per_window <= 0:
+        return True
+    if not ip or ip == '0.0.0.0':
+        # We can't track requests with no source IP; treat as a rejection
+        # would lock out users behind a misconfigured proxy. Allow but
+        # the existing per-username/per-PIN gates still apply.
+        return True
+    now = int(time.time())
+    key = f'iprl:{scope}:{ip}'
+    try:
+        with _LockedUpdate(RATELIMIT_FILE) as rl:
+            entry = rl.get(key) or {'hits': []}
+            entry['hits'] = [t for t in entry['hits'] if now - t < window]
+            if len(entry['hits']) >= max_per_window:
+                rl[key] = entry
+                return False
+            entry['hits'].append(now)
+            rl[key] = entry
+    except Exception:
+        # Fail-open on lock errors — better to admit one extra request
+        # than to lock out legitimate operators when the disk is wedged.
+        return True
+    return True
+
 # ── Request helpers ────────────────────────────────────────────────────────────
 def get_body():
     length = int(os.environ.get('CONTENT_LENGTH', 0) or 0)
@@ -2636,12 +2671,20 @@ def _webhook_title(event):
     return titles.get(event, f'RemotePower: {event}')
 
 
-def _url_targets_local_or_meta(parsed_url):
+def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
     """Return True if the URL resolves to a host class an SSRF attacker
-    would exploit: loopback, link-local (covers AWS/GCP/Azure metadata
-    services at 169.254.169.254), unspecified (0.0.0.0). RFC1918 private
-    networks are deliberately allowed since RemotePower targets the LAN
-    by design.
+    would exploit: link-local (covers AWS/GCP/Azure metadata services at
+    169.254.169.254), unspecified (0.0.0.0), and — when allow_loopback
+    is False — loopback (127.0.0.0/8, ::1).
+
+    RFC1918 private networks are deliberately allowed since RemotePower
+    targets the LAN by design.
+
+    v3.3.0 C3: loopback used to be unconditionally blocked, which broke
+    the legitimate ntfy / gotify / dev-instance use case. Now controlled
+    by allow_loopback so the safer default (block cloud metadata) ships
+    on by default while operators running a sidecar notifier on
+    127.0.0.1 keep working.
 
     Resolves the hostname via socket.getaddrinfo; on resolve failure
     returns False (don't block what we can't classify — handler will
@@ -2660,7 +2703,9 @@ def _url_targets_local_or_meta(parsed_url):
             ip = ipaddress.ip_address(sockaddr[0])
         except (ValueError, IndexError):
             continue
-        if ip.is_loopback or ip.is_link_local or ip.is_unspecified:
+        if ip.is_link_local or ip.is_unspecified:
+            return True
+        if ip.is_loopback and not allow_loopback:
             return True
     return False
 
@@ -2692,15 +2737,18 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
     if parsed.scheme not in ('http', 'https'):
         _log_webhook(event, url, 'error', 'invalid scheme (must be http or https)')
         return
-    # v3.0.2: SSRF defense-in-depth. Off by default because RemotePower
-    # legitimately fires to local services (Gotify, ntfy on the same
-    # host, dev instances). Enable with config flag `webhook_block_local`
-    # for deployments that should never POST to internal IPs.
+    # v3.0.2 + v3.3.0 C3: SSRF defense. Now ON by default so cloud
+    # metadata services (169.254.169.254 on AWS/GCP/Azure) and other
+    # link-local targets can't be reached even via misconfigured
+    # webhook URLs. Loopback (127.0.0.1, ::1) is still allowed by
+    # default — flip `webhook_allow_loopback` to false in deployments
+    # where sidecar notifiers on the same host should also be blocked.
     cfg = load(CONFIG_FILE)
-    if cfg.get('webhook_block_local'):
-        if _url_targets_local_or_meta(parsed):
+    if cfg.get('webhook_block_local', True):
+        allow_loopback = bool(cfg.get('webhook_allow_loopback', True))
+        if _url_targets_local_or_meta(parsed, allow_loopback=allow_loopback):
             _log_webhook(event, url, 'error',
-                         'blocked: webhook_block_local is on and target resolves to a local/meta address')
+                         'blocked: target resolves to a metadata or local address')
             return
     # Per-destination event filter (if specified)
     allowed_events = dest.get('events')
@@ -3407,6 +3455,14 @@ def handle_openapi_spec() -> None:
 def handle_login():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v3.3.0 C2: per-IP rate limit complements the existing per-username
+    # lockout. The username lockout protects a single account but lets a
+    # credential-stuffer cycle through thousands of usernames per minute
+    # from the same IP. 20/min/IP is well above any human login cadence
+    # and well below an automated attack.
+    client_ip = _get_client_ip()
+    if not _ip_ratelimit('login', client_ip, 20, window=60):
+        respond(429, {'error': 'Too many login attempts from this address'})
     body = get_json_body()
     username = _sanitize_str(body.get('username', ''), 32)
     password = body.get('password', '')
@@ -4513,6 +4569,13 @@ def handle_webterm_session_audit():
 def handle_enroll_register():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v3.3.0 C1: per-IP rate limit. PIN space is only 10^6 (six digits)
+    # and the TTL window is 10 min, so without throttling an attacker
+    # could brute-force the entire PIN space in a few minutes from a
+    # single IP. Cap at 10 attempts per minute per IP — a legitimate
+    # operator enrolling one device at a time never bumps this.
+    if not _ip_ratelimit('enroll', _get_client_ip(), 10, window=60):
+        respond(429, {'error': 'Too many enrollment attempts — retry in a minute'})
     body = get_json_body()
 
     # v1.11.10: enrollment can use either a 6-digit PIN (interactive) OR
@@ -4574,17 +4637,31 @@ def handle_enroll_register():
     devices = load(DEVICES_FILE)
     if existing_id and _validate_id(existing_id) and existing_id in devices:
         dev = devices[existing_id]
-        # Require the existing device token to authorize re-enrollment
+        # Require the existing device token to authorize re-enrollment.
+        # v3.3.0 C5: this gate already prevents takeover (an attacker
+        # who consumes the PIN still can't claim an existing device_id
+        # without that device's current token). Hardened with audit
+        # logging and a fresh token rotation so a one-time PIN/token
+        # leak doesn't yield a permanently usable device credential.
         provided_token = str(body.get('token', '')).strip()
         if not provided_token or not hmac.compare_digest(
                 dev.get('token', ''), provided_token):
+            audit_log('enroll', 'reenroll_denied',
+                      f'device={existing_id} ip={_get_client_ip()} reason=token_mismatch')
             respond(403, {'error': 'Existing device token required for re-enrollment'})
+        # Rotate the device token on re-enrollment so the previous token
+        # cannot continue heartbeating from a stale install.
+        new_token = secrets.token_urlsafe(32)
         dev.update({
             'hostname': hostname, 'name': name, 'os': os_str,
             'ip': ip, 'mac': mac, 'version': version, 'last_seen': now,
+            'token': new_token,
         })
         save(DEVICES_FILE, devices)
-        respond(200, {'ok': True, 'device_id': existing_id, 'token': dev['token'], 'reregistered': True})
+        audit_log('enroll', 'reenroll',
+                  f'device={existing_id} hostname={hostname} ip={_get_client_ip()}')
+        respond(200, {'ok': True, 'device_id': existing_id,
+                      'token': new_token, 'reregistered': True})
 
     dev_id = secrets.token_urlsafe(12)
     devices[dev_id] = {
@@ -6334,9 +6411,15 @@ def handle_config_save():
 
     # v3.0.2: SSRF defense-in-depth toggle. When on, webhook deliveries
     # whose URL resolves to a loopback / link-local / unspecified IP are
-    # blocked. Off by default (homelab Gotify on 127.0.0.1 is legitimate).
+    # blocked. v3.3.0: default flipped to True; loopback (127.0.0.1/::1)
+    # stays allowed via a separate flag so homelab Gotify keeps working.
     if 'webhook_block_local' in body:
         cfg['webhook_block_local'] = bool(body['webhook_block_local'])
+    if 'webhook_allow_loopback' in body:
+        cfg['webhook_allow_loopback'] = bool(body['webhook_allow_loopback'])
+    # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
+    if 'viewers_can_ack_alerts' in body:
+        cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
 
     # v3.0.2: scheduled backup config (nested dict)
     if 'backup' in body and isinstance(body['backup'], dict):
@@ -12620,9 +12703,26 @@ def _find_alert(alert_id):
     return alert_id
 
 
+def _check_alert_mutation_perm():
+    """v3.3.0 C4: gate alert ack/unack/resolve on a config flag.
+
+    Default behaviour (viewers_can_ack_alerts=True) is unchanged from
+    prior versions — any logged-in user may mutate alert state, which
+    matches how operators run noisy NA queues collaboratively. When
+    deployments want strict least-privilege (viewers genuinely read-
+    only), they set viewers_can_ack_alerts=false and these mutations
+    require admin.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    if cfg.get('viewers_can_ack_alerts', True):
+        return require_auth()
+    return require_admin_auth()
+
+
 def handle_alert_ack(alert_id):
-    """POST /api/alerts/<id>/ack — any logged-in user can acknowledge."""
-    user = require_auth()
+    """POST /api/alerts/<id>/ack — any logged-in user can acknowledge by
+    default. When viewers_can_ack_alerts is False this requires admin."""
+    user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body() or {}
     note = _sanitize_str(body.get('note', ''), 256)
@@ -12649,7 +12749,7 @@ def handle_alert_ack(alert_id):
 
 def handle_alert_unack(alert_id):
     """POST /api/alerts/<id>/unack — clear an accidental ack."""
-    user = require_auth()
+    user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     found = False
     try:
@@ -12673,7 +12773,7 @@ def handle_alert_unack(alert_id):
 
 def handle_alert_resolve(alert_id):
     """POST /api/alerts/<id>/resolve — manual close (auto-resolve runs via recover events)."""
-    user = require_auth()
+    user = _check_alert_mutation_perm()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body() or {}
     note = _sanitize_str(body.get('note', ''), 256)
