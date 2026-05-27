@@ -6231,6 +6231,19 @@ def handle_config_get():
     # is enforced at read time by get_container_stale_ttl().
     safe.setdefault('container_stale_ttl', containers_mod.DEFAULT_STALE_TTL)
 
+    # v3.3.0: surface the effective defaults so the Settings UI shows the
+    # right state for users who haven't explicitly set these. Without
+    # these setdefaults, the checkboxes render as "off" for an unconfigured
+    # server even though the runtime default is "on" — misleading for the
+    # SSRF block and the loopback-allow flag specifically.
+    safe.setdefault('webhook_block_local',    True)
+    safe.setdefault('webhook_allow_loopback', True)
+    safe.setdefault('viewers_can_ack_alerts', True)
+    safe.setdefault('ip_allowlist_enabled',   False)
+    safe.setdefault('ip_allowlist',           [])
+    safe.setdefault('healthchecks_url',       '')
+    safe.setdefault('healthchecks_interval_seconds', 60)
+
     # v3.0.2: redact secrets in webhook_urls before sending to the UI.
     # The UI can tell whether a secret is set (so it can mask the input
     # field) but never sees the actual value.
@@ -12071,11 +12084,15 @@ def handle_home():
 
     # Drift summary — only the per-device drift count the Home tile
     # renderer reads. Mirror handle_drift_overview's row shape minimally.
+    # v3.3.0 bugfix: iterate devices.json keys, not drift_state.json,
+    # so deleted devices' lingering drift records don't inflate the
+    # tile. handle_drift_overview already does it this way.
     drift_rows = []
     try:
         drift_state = load(DRIFT_STATE_FILE) or {}
-        for ddev_id, dev_state in drift_state.items():
-            files = (dev_state or {}).get('files') or {}
+        for ddev_id in devices_raw:
+            dev_state = drift_state.get(ddev_id) or {}
+            files = dev_state.get('files') or {}
             n_drifted = sum(1 for f in files.values()
                             if not f.get('dormant') and not f.get('ignored')
                             and f.get('exists', True)
@@ -12086,18 +12103,19 @@ def handle_home():
     drift = {'devices': drift_rows}
 
     # CVE summary — Home only reads per-device counts (critical/high/medium/low).
-    # v3.3.0 bugfix: apply the CVE ignore filter so the dashboard tile
-    # matches the CVE page exactly. Previously this loop counted raw
-    # findings — operators who'd silenced 3 critical CVEs saw "3
-    # critical" on the dashboard tile while the CVE page (which does
-    # filter ignores) correctly showed 0. Same `cve_ignore.json` source
-    # of truth as handle_cve_findings + _detect_new_cve_and_fire_webhook.
+    # v3.3.0 bugfix #1: apply the CVE ignore filter so the dashboard
+    # tile matches the CVE page exactly.
+    # v3.3.0 bugfix #2 (this commit): iterate devices.json keys, not
+    # cve_findings.json. Otherwise findings from deleted devices that
+    # still linger in the findings file inflate the tile. CVE page
+    # already iterates devices.items().
     cve_devs = []
     try:
         findings_all = load(CVE_FINDINGS_FILE) or {}
         ignore_data  = load(CVE_IGNORE_FILE) or {}
-        for cdev_id, entry in findings_all.items():
-            findings = (entry or {}).get('findings') or []
+        for cdev_id in devices_raw:
+            entry = findings_all.get(cdev_id) or {}
+            findings = entry.get('findings') or []
             counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
             for f in findings:
                 vid = f.get('vuln_id')
