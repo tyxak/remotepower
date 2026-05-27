@@ -1,5 +1,42 @@
 # RemotePower — project notes for Claude Code
 
+## Visual: no emoji in UI, use Lucide-style SVG
+
+Never reach for an emoji as an icon. The left sidebar uses inline
+SVG (Lucide-style strokes, `stroke="currentColor"`,
+`viewBox="0 0 24 24"`) — match that style everywhere:
+
+- Device drawer action buttons
+- Settings tabs / section headers
+- Table action buttons (Edit, Delete, Inspect, …)
+- README badges / headers — plain Markdown or shields.io only
+
+Bad (do not ship):
+
+```html
+<button>💻 Run command</button>
+<button>🧹 Uninstall agent</button>
+```
+
+Good:
+
+```html
+<button>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" width="14" height="14"
+       stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 3h7v7H3z"/>
+  </svg>
+  Run command
+</button>
+```
+
+CLI / agent log output (terminal-only) is allowed plain ASCII without
+icons at all. The rule applies to anything that renders in the
+browser or in the README.
+
+Reference: https://lucide.dev/icons/
+
 ## Sortable tables — ALWAYS wire on new tables
 
 Every new `<table>` added to the UI must wire up sort buttons. The

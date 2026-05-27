@@ -993,7 +993,7 @@ function renderDevices() {
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -1024,6 +1024,31 @@ function renderDevices() {
       if (h.cpu.length > 24) h.cpu.shift();
     }
   });
+}
+
+// v3.3.0: badge for devices whose agent has been queued for uninstall.
+// Two states:
+//   • pending     — uninstall queued, but the agent hasn't heartbeated
+//                   since (so the device might still be running it).
+//   • completed   — last heartbeat happened BEFORE the uninstall was
+//                   queued, OR the agent has been offline long enough
+//                   that we assume it executed and stopped reporting.
+function _uninstallBadge(d) {
+  if (!d.agent_uninstalled) return '';
+  const queuedAt = d.agent_uninstalled_at || 0;
+  const lastSeen = d.last_seen || 0;
+  // If the device has heartbeated AFTER the uninstall was queued and
+  // is still online, it hasn't picked up the command yet → "pending".
+  // Otherwise treat the uninstall as completed.
+  const stillRunning = d.online && lastSeen > queuedAt;
+  const cls   = stillRunning ? 'isl-315' : 'isl-315';
+  const label = stillRunning
+    ? 'agent uninstalling…'
+    : 'agent uninstalled';
+  const tip   = stillRunning
+    ? `Queued ${queuedAt ? timeAgo(queuedAt) : ''}; awaiting next heartbeat (~60 s).`
+    : `Agent has been removed from this host. Re-enroll to bring it back.`;
+  return ` <span class="${cls}" title="${escAttr(tip)}">${escHtml(label)}</span>`;
 }
 
 // v1.11.7: render Devices as an aligned, sortable table. This is the new
@@ -1094,7 +1119,7 @@ function _registerDevicesMinimalTable() {
       return `<tr class="dev-row ${isOnline ? 'online' : 'offline'} ${isSel ? 'selected' : ''}" data-dev-id="${d.id}">
         <td class="isl-317"><input type="checkbox" ${isSel ? 'checked' : ''} data-action="toggleSelect" data-arg="${d.id}" class="isl-42"></td>
         <td class="dev-status-cell"><span class="status-badge ${isOnline ? 'online' : 'offline'} isl-318"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}</span></td>
-        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}</td>
+        <td class="dev-name-cell"><a href="#" data-action="openDetail" data-arg="${d.id}" data-arg2="${escAttr(d.name)}" data-prevent-default class="isl-319">${getDistroIcon(d.os)}${escHtml(d.name)}</a>${isMonitored ? '' : ' <span class="isl-320">unmon</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</td>
         <td class="dev-host-cell hint">${escHtml(d.hostname || '—')}${sshLinkIcon(d)}</td>
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
@@ -2936,7 +2961,10 @@ function _registerCmdLibTable() {
       cmd:         s.cmd || '',
       description: s.description || '',
     }),
-    row: (s) => `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-45" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >✕</button></tr>`,
+    row: (s) => {
+      const sKey = _storeEvtData(s);
+      return `<tr><td class="fw-600">${escHtml(s.name)}</td><td class="isl-358">${escHtml(s.cmd)}</td><td class="hint">${escHtml(s.description||'—')}</td><td class="row-6"><button class="btn-icon isl-44" data-action="useCmdSnippet" data-arg="${escAttr(s.cmd)}" >Use</button><button class="btn-icon isl-44" data-action-btn="_editCmdSnippetBtn" data-store-key="${sKey}">Edit</button><button class="btn-icon isl-45" data-action="deleteCmdSnippet" data-arg="${escAttr(s.id)}" >✕</button></tr>`;
+    },
     emptyMsg: 'No snippets yet.',
     emptyMsgFiltered: 'No snippets match the filter.',
   });
@@ -2947,8 +2975,46 @@ async function loadCmdLib() {
   if (!data) return;
   tableCtl.render('cmdlib', data);
 }
-function openCmdLibAdd() { document.getElementById('cmdlib-name').value = ''; document.getElementById('cmdlib-cmd').value = ''; document.getElementById('cmdlib-desc').value = ''; openModal('cmdlib-add-modal'); }
-async function addCmdSnippet() { const name = document.getElementById('cmdlib-name').value.trim(); const cmd = document.getElementById('cmdlib-cmd').value.trim(); const desc = document.getElementById('cmdlib-desc').value.trim(); if (!name || !cmd) { toast('Name and command required', 'error'); return; } const data = await api('POST', '/cmd-library', {name, cmd, description: desc}); if (data?.ok) { toast('Snippet added', 'success'); closeModal('cmdlib-add-modal'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
+// v3.3.0: cmd snippet modal is shared between Add and Edit. _cmdLibEditId
+// is null when adding, the snippet id when editing — saveCmdSnippet
+// branches between POST and PUT on that.
+let _cmdLibEditId = null;
+function openCmdLibAdd() {
+  _cmdLibEditId = null;
+  const t = document.querySelector('#cmdlib-add-modal .modal-title');
+  if (t) t.textContent = 'Add command snippet';
+  document.getElementById('cmdlib-name').value = '';
+  document.getElementById('cmdlib-cmd').value = '';
+  document.getElementById('cmdlib-desc').value = '';
+  openModal('cmdlib-add-modal');
+}
+function _editCmdSnippetBtn(btn) {
+  const s = _evtData.get(btn.dataset.storeKey);
+  if (!s) return;
+  _cmdLibEditId = s.id;
+  const t = document.querySelector('#cmdlib-add-modal .modal-title');
+  if (t) t.textContent = 'Edit command snippet';
+  document.getElementById('cmdlib-name').value = s.name || '';
+  document.getElementById('cmdlib-cmd').value  = s.cmd  || '';
+  document.getElementById('cmdlib-desc').value = s.description || '';
+  openModal('cmdlib-add-modal');
+}
+async function addCmdSnippet() {
+  const name = document.getElementById('cmdlib-name').value.trim();
+  const cmd  = document.getElementById('cmdlib-cmd').value.trim();
+  const desc = document.getElementById('cmdlib-desc').value.trim();
+  if (!name || !cmd) { toast('Name and command required', 'error'); return; }
+  const body = {name, cmd, description: desc};
+  const data = _cmdLibEditId
+    ? await api('PUT',  '/cmd-library/' + _cmdLibEditId, body)
+    : await api('POST', '/cmd-library', body);
+  if (data?.ok) {
+    toast(_cmdLibEditId ? 'Snippet updated' : 'Snippet added', 'success');
+    _cmdLibEditId = null;
+    closeModal('cmdlib-add-modal');
+    loadCmdLib();
+  } else toast(data?.error || 'Failed', 'error');
+}
 async function deleteCmdSnippet(id) { const data = await api('DELETE', '/cmd-library/' + id); if (data?.ok) { toast('Removed', 'info'); loadCmdLib(); } else toast(data?.error || 'Failed', 'error'); }
 function useCmdSnippet(cmd) { document.getElementById('exec-cmd').value = cmd; closeModal('cmdlib-add-modal'); toast('Command pasted into exec modal', 'info'); }
 function generateQRCode(containerId, text) {
@@ -3391,6 +3457,7 @@ function _registerMaintTable() {
         ? '<span class="c-amber-bold">🔧 ACTIVE</span>'
         : '<span class="c-muted">scheduled</span>';
       const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
+      const winKey = _storeEvtData(w);
       return `<tr>
         <td class="fw-500">${escHtml(w.reason || '(no reason)')}</td>
         <td><span class="group-badge">${escHtml(w.scope)}</span></td>
@@ -3398,7 +3465,7 @@ function _registerMaintTable() {
         <td class="fs-12">${when}</td>
         <td class="meta-sm-nm">${events}</td>
         <td class="ta-center">${status}</td>
-        <td><button class="btn-icon isl-416" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >Delete</button></td>
+        <td><button class="btn-icon isl-416" data-action-btn="_editMaintenanceBtn" data-store-key="${winKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteMaintenance" data-arg="${escAttr(w.id)}" >Delete</button></td>
       </tr>`;
     },
     emptyMsg: 'No maintenance windows defined.',
@@ -3438,7 +3505,14 @@ async function deleteMaintenance(winId) {
   if (result && result.ok) { toast('Window deleted', 'success'); loadMaintenance(); }
 }
 
+// v3.3.0: maintenance modal carries an "editing" pointer so save can
+// PUT instead of POST. Null = Add mode; the window's id = Edit mode.
+let _maintEditingId = null;
+
 async function openNewMaintModal() {
+  _maintEditingId = null;
+  const titleEl = document.querySelector('#new-maint-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'New maintenance window';
   // Populate device dropdown
   const devs = await api('GET', '/devices');
   const sel = document.getElementById('maint-target-device');
@@ -3466,6 +3540,52 @@ async function openNewMaintModal() {
   const end = new Date(now.getTime() + 65*60000);
   document.getElementById('maint-start').value = toLocal(start);
   document.getElementById('maint-end').value = toLocal(end);
+  onMaintScopeChange(); onMaintTypeChange();
+  openModal('new-maint-modal');
+}
+
+async function _editMaintenanceBtn(btn) {
+  const w = _evtData.get(btn.dataset.storeKey);
+  if (!w) return;
+  // First populate the device dropdown so we can select the right one.
+  const devs = await api('GET', '/devices');
+  const sel = document.getElementById('maint-target-device');
+  sel.innerHTML = '';
+  if (devs) {
+    for (const d of (devs.devices || devs)) {
+      const opt = document.createElement('option');
+      opt.value = d.id || d.device_id;
+      opt.textContent = (d.name || d.id) + (d.group ? ' ['+d.group+']' : '');
+      sel.appendChild(opt);
+    }
+  }
+  _maintEditingId = w.id;
+  const titleEl = document.querySelector('#new-maint-modal .modal-title');
+  if (titleEl) titleEl.textContent = 'Edit maintenance window';
+  document.getElementById('maint-reason').value = w.reason || '';
+  document.getElementById('maint-scope').value  = w.scope  || 'device';
+  if (w.scope === 'device') sel.value = w.target || '';
+  else if (w.scope === 'group') document.getElementById('maint-target-group').value = w.target || '';
+  const isCron = !!(w.cron && w.duration);
+  document.getElementById('maint-type').value = isCron ? 'cron' : 'oneshot';
+  if (isCron) {
+    document.getElementById('maint-cron').value     = w.cron || '';
+    document.getElementById('maint-duration').value = String(Math.round((w.duration || 60) / 60));
+  } else {
+    const pad = n => n.toString().padStart(2,'0');
+    const toLocal = iso => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    document.getElementById('maint-start').value = toLocal(w.start);
+    document.getElementById('maint-end').value   = toLocal(w.end);
+  }
+  // Restore event-suppression tickboxes
+  const wantedEvents = new Set(w.events || []);
+  document.querySelectorAll('.maint-event-cb').forEach(cb => {
+    cb.checked = wantedEvents.has(cb.value);
+  });
   onMaintScopeChange(); onMaintTypeChange();
   openModal('new-maint-modal');
 }
@@ -3509,13 +3629,16 @@ async function saveMaintenance() {
     body.cron = document.getElementById('maint-cron').value.trim();
     body.duration = parseInt(document.getElementById('maint-duration').value) * 60;
   }
-  const result = await api('POST', '/maintenance', body);
+  const result = _maintEditingId
+    ? await api('PUT',  `/maintenance/${_maintEditingId}`, body)
+    : await api('POST', '/maintenance', body);
   if (result && result.ok) {
-    toast('Maintenance window created', 'success');
+    toast(_maintEditingId ? 'Maintenance window updated' : 'Maintenance window created', 'success');
+    _maintEditingId = null;
     closeModal('new-maint-modal');
     loadMaintenance();
   } else {
-    toast(result?.error || 'Failed to create window', 'error');
+    toast(result?.error || 'Failed to save window', 'error');
   }
 }
 
@@ -3766,14 +3889,20 @@ async function loadPerDeviceLogRules() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr>';
     return;
   }
-  tbody.innerHTML = data.rules.map(r => `<tr>
-    <td class="fw-500">${escHtml(r.device_name)}</td>
-    <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span class="c-muted">—</span>'}</td>
-    <td><code class="fs-12">${escHtml(r.unit)}</code></td>
-    <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
-    <td class="ta-center">≥ ${r.threshold}</td>
-    <td><button class="btn-icon isl-416" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >Delete</button></td>
-  </tr>`).join('');
+  tbody.innerHTML = data.rules.map(r => {
+    // Encode the rule's identifying fields into a single store key so
+    // the Edit button can rehydrate the rule into the modal without a
+    // second round-trip.
+    const ruleKey = _storeEvtData({scope: 'device', rule: r});
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device_name)}</td>
+      <td>${r.group ? `<span class="group-badge">${escHtml(r.group)}</span>` : '<span class="c-muted">—</span>'}</td>
+      <td><code class="fs-12">${escHtml(r.unit)}</code></td>
+      <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
+      <td class="ta-center">≥ ${r.threshold}</td>
+      <td><button class="btn-icon isl-416" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteLogRule" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.unit)}" data-arg3="${escAttr(r.pattern)}" >Delete</button></td>
+    </tr>`;
+  }).join('');
 }
 
 async function loadGlobalLogRules() {
@@ -3795,19 +3924,26 @@ async function loadGlobalLogRules() {
     const excludeCell = r.exclude_pattern
       ? `<code class="isl-425 c-muted" title="Excluded">≠ ${escHtml(r.exclude_pattern)}</code>`
       : '<span class="c-muted">—</span>';
+    const ruleKey = _storeEvtData({scope: 'global', rule: r});
     return `<tr>
       <td>${unitDisplay}</td>
       <td><code class="isl-425">${escHtml(r.pattern)}</code></td>
       <td>${excludeCell}</td>
       <td class="ta-center">≥ ${r.threshold}</td>
       <td class="meta-sm-nm">${created} <span class="opacity-60">by ${escHtml(r.created_by || '?')}</span></td>
-      <td><button class="btn-icon isl-416" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >Delete</button></td>
+      <td><button class="btn-icon isl-416" data-action-btn="_editLogRuleBtn" data-store-key="${ruleKey}">Edit</button> <button class="btn-icon isl-416" data-action="deleteGlobalLogRule" data-arg="${escAttr(r.id)}" >Delete</button></td>
     </tr>`;
   }).join('');
 }
 
+// v3.3.0: state carried by the log-rule modal across the
+// "Add" and "Edit" entry points. When editing, we remember the
+// scope + identifying fields so saveLogRule() can do a replace
+// instead of an append.
+let _logRuleEditing = null;
+
 async function openAddRuleModal() {
-  // Modal content depends on which tab is active
+  _logRuleEditing = null;
   const isGlobal = (logsRulesTab === 'global');
   document.getElementById('log-rule-modal-title').textContent =
     isGlobal ? 'Add fleet-wide log alert rule' : 'Add per-device log alert rule';
@@ -3824,6 +3960,42 @@ async function openAddRuleModal() {
   document.getElementById('log-rule-threshold').value = '1';
   document.getElementById('log-rule-exclude').value = '';
   document.getElementById('log-rule-template').value = '';
+  document.querySelector('input[name="log-rule-source"][value="unit"]').checked = true;
+  _toggleLogRuleSource();
+  _renderLogTemplatePreview();
+  openModal('log-rule-modal');
+}
+
+// Open the same modal pre-filled from an existing rule. Wired from the
+// Edit button next to each rule row.
+function _editLogRuleBtn(btn) {
+  const data = _evtData.get(btn.dataset.storeKey);
+  if (!data || !data.rule) return;
+  const r = data.rule;
+  const isGlobal = data.scope === 'global';
+  logsRulesTab = isGlobal ? 'global' : 'device';
+  _logRuleEditing = {scope: data.scope, rule: r};
+  document.getElementById('log-rule-modal-title').textContent =
+    isGlobal ? 'Edit fleet-wide log alert rule' : 'Edit per-device log alert rule';
+  document.getElementById('log-rule-device-row').style.display = isGlobal ? 'none' : '';
+  document.getElementById('log-rule-global-hint').style.display = isGlobal ? '' : 'none';
+  document.getElementById('log-rule-unit-hint').style.display = isGlobal ? '' : 'none';
+  // Source toggle (unit vs file path)
+  const isPath = !!r.path;
+  document.querySelector(`input[name="log-rule-source"][value="${isPath ? 'path' : 'unit'}"]`).checked = true;
+  _toggleLogRuleSource();
+  if (!isGlobal) {
+    const sel = document.getElementById('log-rule-device');
+    sel.innerHTML = logsState.devicesCache.map(d => `<option value="${escHtml(d.id || d.device_id)}">${escHtml(d.name || d.id)}</option>`).join('');
+    if (r.device_id) sel.value = r.device_id;
+  }
+  document.getElementById('log-rule-unit').value     = isPath ? '' : (r.unit || '');
+  document.getElementById('log-rule-path').value     = r.path || '';
+  document.getElementById('log-rule-pattern').value  = r.pattern || '';
+  document.getElementById('log-rule-threshold').value = String(r.threshold || 1);
+  document.getElementById('log-rule-severity').value = (r.severity || 'WARN');
+  document.getElementById('log-rule-exclude').value  = r.exclude_pattern || '';
+  document.getElementById('log-rule-template').value = r.display_template || '';
   _renderLogTemplatePreview();
   openModal('log-rule-modal');
 }
@@ -3863,10 +4035,17 @@ async function saveLogRule() {
   if (displayTemplate) rulePayload.display_template = displayTemplate;
 
   if (logsRulesTab === 'global') {
-    // Fleet-wide rule
-    const result = await api('POST', '/logs/rules/global', rulePayload);
+    // Fleet-wide rule. When editing, PUT against the rule's id;
+    // otherwise POST to create.
+    let result;
+    if (_logRuleEditing && _logRuleEditing.scope === 'global' && _logRuleEditing.rule.id) {
+      result = await api('PUT', `/logs/rules/global/${_logRuleEditing.rule.id}`, rulePayload);
+    } else {
+      result = await api('POST', '/logs/rules/global', rulePayload);
+    }
     if (result && result.ok) {
-      toast('Fleet-wide rule added', 'success');
+      toast(_logRuleEditing ? 'Fleet-wide rule updated' : 'Fleet-wide rule added', 'success');
+      _logRuleEditing = null;
       closeModal('log-rule-modal');
       loadGlobalLogRules();
     } else {
@@ -3875,22 +4054,29 @@ async function saveLogRule() {
     return;
   }
 
-  // Per-device rule (unchanged from 1.8.1)
+  // Per-device rule. For both add and edit, we POST the full
+  // services-config back to the server.
   const devId = document.getElementById('log-rule-device').value;
   if (!devId) { toast('Device is required', 'error'); return; }
   const existing = await api('GET', `/devices/${devId}/services/config`);
   if (!existing) return;
-  const log_watch = existing.log_watch || [];
-  // Effective unit name for dedupe — file-path rules use 'file:<path>' synthetic name
+  let log_watch = existing.log_watch || [];
   const effectiveUnit = sourceType === 'path' ? `file:${path}` : unit;
-  if (log_watch.some(r => (r.unit === effectiveUnit || (r.path && `file:${r.path}` === effectiveUnit)) && r.pattern === pattern)) {
+  const isEdit = !!(_logRuleEditing && _logRuleEditing.scope === 'device');
+  if (isEdit) {
+    // Replace the original rule by identifying-tuple match
+    const orig = _logRuleEditing.rule;
+    const origUnit    = orig.path ? `file:${orig.path}` : orig.unit;
+    const origPattern = orig.pattern;
+    log_watch = log_watch.filter(r => {
+      const rUnit = r.path ? `file:${r.path}` : r.unit;
+      return !(rUnit === origUnit && r.pattern === origPattern);
+    });
+  } else if (log_watch.some(r => (r.unit === effectiveUnit || (r.path && `file:${r.path}` === effectiveUnit)) && r.pattern === pattern)) {
     toast('Rule already exists', 'error');
     return;
   }
   log_watch.push(rulePayload);
-  // For systemd unit rules, also ensure the unit is in services_watched so the
-  // agent submits its logs. File-path rules don't need this — the agent
-  // discovers paths from the log_watch rules directly.
   const watched = existing.services_watched || [];
   if (sourceType === 'unit' && unit !== '*' && !watched.includes(unit)) watched.push(unit);
   const result = await api('POST', `/devices/${devId}/services/config`, {
@@ -3898,7 +4084,8 @@ async function saveLogRule() {
     log_watch,
   });
   if (result && result.ok) {
-    toast('Rule added', 'success');
+    toast(isEdit ? 'Rule updated' : 'Rule added', 'success');
+    _logRuleEditing = null;
     closeModal('log-rule-modal');
     loadPerDeviceLogRules();
   } else {
@@ -11801,10 +11988,18 @@ async function saveBruteForceSettings() {
 
 let _backupMonitors = [];
 
+// v3.3.0: backup monitor in-place edit. -1 = not editing (Add button
+// creates a new entry); ≥0 = the index in _backupMonitors being edited
+// (Add button morphs into Save and replaces the row at that index).
+let _backupEditIdx = -1;
+
 function renderBackupMonitors(monitors) {
   _backupMonitors = monitors || [];
   const el = document.getElementById('backup-monitors-list');
   if (!el) return;
+  // Refresh the Add/Save button label to reflect current mode
+  const addBtn = document.querySelector('[data-action="addBackupMonitor"]');
+  if (addBtn) addBtn.textContent = _backupEditIdx >= 0 ? 'Save' : 'Add';
   if (!_backupMonitors.length) {
     el.innerHTML = '<div class="isl-616">No backup monitors configured.</div>';
     return;
@@ -11814,8 +12009,20 @@ function renderBackupMonitors(monitors) {
       <span class="isl-618"><code>${escHtml(m.path)}</code></span>
       <span class="hint">${escHtml(m.label||m.path)}</span>
       <span class="cmd-badge">${m.max_age_hours}h</span>
+      <button class="btn-icon" data-action="editBackupMonitor" data-arg="${i}">Edit</button>
       <button class="btn-icon c-red" data-action="removeBackupMonitor" data-arg="${i}">✕</button>
     </div>`).join('');
+}
+
+function editBackupMonitor(idx) {
+  const m = _backupMonitors[idx];
+  if (!m) return;
+  document.getElementById('bm-path').value  = m.path  || '';
+  document.getElementById('bm-label').value = m.label || '';
+  document.getElementById('bm-hours').value = String(m.max_age_hours || 24);
+  _backupEditIdx = idx;
+  renderBackupMonitors(_backupMonitors);  // re-render so the button flips to "Save"
+  document.getElementById('bm-path').focus();
 }
 
 async function addBackupMonitor() {
@@ -11823,17 +12030,27 @@ async function addBackupMonitor() {
   const label = document.getElementById('bm-label').value.trim();
   const hours = parseInt(document.getElementById('bm-hours').value, 10) || 24;
   if (!path) { toast('Path required', 'error'); return; }
-  _backupMonitors.push({path, label: label || path, max_age_hours: hours});
+  const entry = {path, label: label || path, max_age_hours: hours};
+  if (_backupEditIdx >= 0 && _backupEditIdx < _backupMonitors.length) {
+    _backupMonitors[_backupEditIdx] = entry;
+  } else {
+    _backupMonitors.push(entry);
+  }
+  const wasEdit = _backupEditIdx >= 0;
   const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
   if (r?.ok) {
-    toast('Backup monitor added', 'success');
+    toast(wasEdit ? 'Backup monitor updated' : 'Backup monitor added', 'success');
     document.getElementById('bm-path').value = document.getElementById('bm-label').value = '';
+    document.getElementById('bm-hours').value = '24';
+    _backupEditIdx = -1;
     renderBackupMonitors(_backupMonitors);
   } else toast(r?.error || 'Failed', 'error');
 }
 
 async function removeBackupMonitor(idx) {
   _backupMonitors.splice(idx, 1);
+  if (_backupEditIdx === idx) _backupEditIdx = -1;
+  else if (_backupEditIdx > idx) _backupEditIdx -= 1;
   const r = await api('POST', '/config', {backup_monitors: _backupMonitors});
   if (r?.ok) { renderBackupMonitors(_backupMonitors); toast('Removed', 'info'); }
   else toast('Failed', 'error');

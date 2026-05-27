@@ -4862,6 +4862,17 @@ def handle_heartbeat():
         now = int(time.time())
         dev['last_seen'] = now
 
+        # v3.3.0: clear the agent-uninstalled mark if the device is
+        # heartbeating again. Means the operator re-installed the
+        # agent (existing token reused) — the badge on the Devices
+        # page disappears automatically.
+        if dev.get('agent_uninstalled'):
+            dev.pop('agent_uninstalled', None)
+            dev.pop('agent_uninstalled_at', None)
+            dev.pop('agent_uninstalled_by', None)
+            audit_log('agent', 'agent_reinstalled',
+                      f'device={dev_id} resumed heartbeating after uninstall')
+
         # Sanitize all fields coming from the agent
         dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
         dev['os']      = _sanitize_str(body.get('os', dev.get('os', '')), MAX_OS_LEN)
@@ -9332,6 +9343,28 @@ def handle_cmd_library_add():
                'description': desc, 'created': int(time.time())}
     snippets.append(snippet); lib['snippets'] = snippets; save(CMD_LIBRARY_FILE, lib)
     respond(201, {'ok': True, 'snippet': snippet})
+
+
+def handle_cmd_library_update(snippet_id):
+    """PUT /api/cmd-library/<id> — edit an existing snippet (v3.3.0)."""
+    require_admin_auth()
+    if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(snippet_id): respond(404, {'error': 'Snippet not found'})
+    body = get_json_body()
+    name = _sanitize_str(body.get('name', ''), 64)
+    cmd  = _sanitize_str(body.get('cmd', ''), 512)
+    desc = _sanitize_str(body.get('description', ''), 256)
+    if not name or not cmd: respond(400, {'error': 'name and cmd required'})
+    with _LockedUpdate(CMD_LIBRARY_FILE) as lib:
+        snippets = lib.get('snippets', [])
+        target = next((s for s in snippets if s.get('id') == snippet_id), None)
+        if not target: respond(404, {'error': 'Snippet not found'})
+        target['name'] = name
+        target['cmd'] = cmd
+        target['description'] = desc
+        target['updated'] = int(time.time())
+        lib['snippets'] = snippets
+    respond(200, {'ok': True, 'snippet': target})
 
 
 def handle_cmd_library_delete(snippet_id):
@@ -15551,6 +15584,80 @@ def handle_maintenance_add():
     respond(200, {'ok': True, 'window': window})
 
 
+def _validate_maintenance_body(body):
+    """Shared validation for maintenance add + update. Returns the
+    clean fields dict or calls respond() with an error."""
+    reason = _sanitize_str(body.get('reason', ''), 128)
+    scope  = _sanitize_str(body.get('scope', 'device'), 16).lower()
+    target = _sanitize_str(body.get('target', ''), 128)
+    start  = _sanitize_str(body.get('start', ''), 32)
+    end    = _sanitize_str(body.get('end', ''), 32)
+    cron   = _sanitize_str(body.get('cron', ''), 64)
+    try:
+        duration = int(body.get('duration', 0) or 0)
+    except (TypeError, ValueError):
+        duration = 0
+    events = body.get('events') or []
+    if not isinstance(events, list):
+        events = []
+    events = [e for e in events if e in SUPPRESSIBLE_EVENTS][:10]
+    if scope not in ('device', 'group', 'global'):
+        respond(400, {'error': 'scope must be device, group, or global'})
+    if scope == 'device' and not _validate_id(target):
+        respond(400, {'error': 'device-scoped window requires a valid target device_id'})
+    if scope == 'group' and not target:
+        respond(400, {'error': 'group-scoped window requires a target group name'})
+    has_oneshot = bool(start and end)
+    has_cron    = bool(cron and duration > 0)
+    if has_oneshot == has_cron:
+        respond(400, {'error': 'specify exactly one of (start+end) or (cron+duration)'})
+    if has_oneshot:
+        try:
+            s = _parse_iso(start); e = _parse_iso(end)
+            if e <= s:
+                respond(400, {'error': 'end must be after start'})
+        except ValueError:
+            respond(400, {'error': 'invalid ISO-8601 timestamp'})
+    if has_cron:
+        if _cron_match(cron, int(time.time())) is False and len(cron.split()) != 5:
+            respond(400, {'error': 'cron must have 5 space-separated fields'})
+        if duration < 60 or duration > 86400 * 7:
+            respond(400, {'error': 'duration must be 60..604800 seconds'})
+    return {
+        'reason': reason, 'scope': scope, 'target': target,
+        'start': start, 'end': end, 'cron': cron,
+        'duration': duration, 'events': events,
+    }
+
+
+def handle_maintenance_update(window_id):
+    """PUT /api/maintenance/{id} — replace an existing window.
+
+    v3.3.0: counterpart to POST/DELETE so the Maintenance Windows table
+    can offer an Edit button. created_by + created_at + id preserved;
+    every other field is overwritten by the validated payload.
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    clean = _validate_maintenance_body(body)
+    with _LockedUpdate(MAINT_FILE) as maint:
+        windows = maint.get('windows') or []
+        target_win = next((w for w in windows if w.get('id') == window_id), None)
+        if not target_win:
+            respond(404, {'error': 'maintenance window not found'})
+        new_win = dict(target_win)  # preserve id/created_by/created_at
+        new_win.update(clean)
+        new_win['updated_by'] = actor
+        new_win['updated_at'] = int(time.time())
+        maint['windows'] = [w if w.get('id') != window_id else new_win for w in windows]
+    audit_log(actor, 'maintenance_update',
+              detail=f'id={window_id} scope={clean["scope"]} target={clean["target"]} '
+                     f'reason={clean["reason"][:60]}')
+    respond(200, {'ok': True, 'window': new_win})
+
+
 def handle_maintenance_delete(window_id):
     """DELETE /api/maintenance/{id}"""
     actor = require_admin_auth()
@@ -16865,6 +16972,41 @@ def handle_log_rules_global_add():
     save(LOG_RULES_GLOBAL_FILE, store)
     audit_log(actor, 'log_rule_global_add',
               detail=f'id={rule["id"]} unit={rule["unit"]} pattern={rule["pattern"][:60]}')
+    respond(200, {'ok': True, 'rule': rule})
+
+
+def handle_log_rules_global_update(rule_id):
+    """PUT /api/logs/rules/global/{id} — replace an existing fleet-wide rule.
+
+    v3.3.0: counterpart to the existing POST/DELETE so the Settings UI
+    can offer an Edit button on each row. Body is the same shape as
+    POST; id stays the same, created_by/created_at preserved, every
+    other field is overwritten by the validated payload.
+    """
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    rule_id = _sanitize_str(rule_id, 32, allow_empty=False)
+    if not rule_id:
+        respond(400, {'error': 'invalid id'})
+    body = get_json_body()
+    rule, err = _validate_global_rule(body)
+    if err:
+        respond(400, {'error': err})
+    with _LockedUpdate(LOG_RULES_GLOBAL_FILE) as store:
+        rules = store.get('rules') or []
+        target = next((r for r in rules if r.get('id') == rule_id), None)
+        if not target:
+            respond(404, {'error': 'rule not found'})
+        # Preserve identity + provenance; overwrite everything else.
+        rule['id']         = rule_id
+        rule['created_by'] = target.get('created_by', actor)
+        rule['created_at'] = target.get('created_at', int(time.time()))
+        rule['updated_by'] = actor
+        rule['updated_at'] = int(time.time())
+        store['rules'] = [r if r.get('id') != rule_id else rule for r in rules]
+    audit_log(actor, 'log_rule_global_update',
+              detail=f'id={rule_id} unit={rule["unit"]} pattern={rule["pattern"][:60]}')
     respond(200, {'ok': True, 'rule': rule})
 
 
@@ -18864,6 +19006,8 @@ def main():
         handle_monitor_history(label)
     elif pi == '/api/cmd-library' and m == 'GET': handle_cmd_library_list()
     elif pi == '/api/cmd-library' and m == 'POST': handle_cmd_library_add()
+    elif pi.startswith('/api/cmd-library/') and m == 'PUT':
+        handle_cmd_library_update(pi[len('/api/cmd-library/'):])
     elif pi.startswith('/api/cmd-library/') and m == 'DELETE':
         handle_cmd_library_delete(pi[len('/api/cmd-library/'):])
     # ── v2.1.0: multi-line script library + batch exec ─────────────────────
@@ -19022,6 +19166,8 @@ def main():
     # ── v1.8.2: fleet-wide log alert rules ─────────────────────────────────────
     elif pi == '/api/logs/rules/global' and m == 'GET': handle_log_rules_global_list()
     elif pi == '/api/logs/rules/global' and m == 'POST': handle_log_rules_global_add()
+    elif pi.startswith('/api/logs/rules/global/') and m == 'PUT':
+        handle_log_rules_global_update(pi[len('/api/logs/rules/global/'):])
     elif pi.startswith('/api/logs/rules/global/') and m == 'DELETE':
         handle_log_rules_global_delete(pi[len('/api/logs/rules/global/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/logs') and m == 'GET':
@@ -19030,6 +19176,8 @@ def main():
     # ── v1.8.0: Maintenance windows ────────────────────────────────────────────
     elif pi == '/api/maintenance' and m == 'GET': handle_maintenance_list()
     elif pi == '/api/maintenance' and m == 'POST': handle_maintenance_add()
+    elif pi.startswith('/api/maintenance/') and m == 'PUT':
+        handle_maintenance_update(pi[len('/api/maintenance/'):])
     elif pi == '/api/maintenance/suppressions' and m == 'GET':
         handle_maintenance_suppressions()
     elif pi.startswith('/api/maintenance/') and m == 'DELETE':
