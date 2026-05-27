@@ -3815,3 +3815,133 @@ button, a, [role="button"],
 .sev-pill.sev-success  { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
 .alerts-row.resolved   { opacity: 0.55; }
 .alerts-summary-pill   { display: inline-block; padding: 4px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; font-size: 13px; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * v3.3.0 mobile polish
+ *
+ * Touch targets, full-screen modals, larger drawer actions, and
+ * better scrollable areas for phones. Apple HIG recommends 44pt
+ * minimum; Material recommends 48dp. We aim for ~44px on all
+ * interactive elements at ≤720px viewport.
+ * ──────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* Bigger tap targets for icon buttons (table actions, drawer
+   * chips, settings buttons). Desktop padding 8/12 → mobile 10/14
+   * lands ~40px tall + ~46px wide. */
+  .btn-icon {
+    padding: 10px 14px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  /* Inside table cells the .btn-icon override at line 2374 shrinks
+   * back to compact — explicitly preserve mobile size. */
+  td .btn-icon, td button.btn-icon {
+    padding: 10px 12px;
+    min-height: 40px;
+    font-size: 13px;
+  }
+  .btn-icon svg { width: 16px; height: 16px; }
+
+  /* Primary/secondary buttons get a mobile-friendly tap height. */
+  .btn-primary, .btn-secondary {
+    padding: 12px 18px;
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* Form inputs at iOS 16+ default font-size avoids the page
+   * zooming on focus. */
+  .form-input, input[type="text"], input[type="url"], input[type="number"],
+  input[type="password"], input[type="email"], select, textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+  textarea { min-height: 88px; }
+
+  /* Drawer action grid: cards become wider + taller so each
+   * action is unambiguously tappable. */
+  .drawer-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .drawer-action-btn {
+    padding: 14px 12px;
+    font-size: 14px;
+    min-height: 56px;
+    white-space: normal;
+  }
+
+  /* Modals: occupy the full viewport so operators don't lose
+   * context to the dimmed backdrop. Stays scrollable inside. */
+  .modal {
+    width: 100vw !important;
+    max-width: none !important;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+    padding: 16px;
+  }
+  .modal-overlay { padding: 0; }
+  .modal-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    padding-top: 12px;
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .modal-actions button { flex: 1; }
+
+  /* Device drawer: slide in from the right at full width. */
+  #device-drawer.open { width: 100vw; }
+
+  /* Settings tabs stack vertically — horizontal scroll feels weird
+   * on phones with a long tab list. */
+  .settings-tabs {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .settings-tab {
+    flex: 1 1 30%;
+    min-width: 100px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+
+  /* Wide tables: ensure they scroll horizontally rather than
+   * overflowing the viewport. Apply broadly — every .table-card
+   * gets the scrollable behaviour on mobile. */
+  .table-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-card table { min-width: 600px; }
+
+  /* The dashboard tile group is a tight horizontal row on desktop;
+   * stack as 2-up on phones so each tile stays readable. */
+  #home-tiles {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  /* Device drawer settings rows stack the label above the input. */
+  .drawer-setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 10px 0;
+  }
+  .drawer-setting-label {
+    min-width: 0;
+    font-size: 13px;
+  }
+}
+
+/* ── Narrower phones: portrait <= 480px ──────────────────────────── */
+@media (max-width: 480px) {
+  /* Drop the drawer grid to single-column on very small screens. */
+  .drawer-actions-grid { grid-template-columns: 1fr; }
+  /* Tighten modal padding so more vertical content shows. */
+  .modal { padding: 12px; }
+  .modal-title { font-size: 18px; }
+  /* Tiles stack vertically. */
+  #home-tiles { grid-template-columns: 1fr; }
+}
