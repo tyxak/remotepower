@@ -1946,41 +1946,71 @@ def hmac_compare(a, b):
 
 # ─── Self-update ───────────────────────────────────────────────────────────────
 def check_for_update(server_url, force=False):
-    """Poll server for newer agent; upgrade if available.
-    v3.0.1: when force=True, skip the version comparison and download/replace
-    the binary regardless of whether the server reports a newer version. Used
-    by the operator's 'Force-upgrade agent' button to push a rebuild over the
-    current binary."""
+    """Poll server for a fresh agent build and upgrade if our local
+    binary's sha256 differs from the server's canonical hash.
+
+    v3.3.0: the trigger is now HASH-based instead of version-string-
+    based. A re-build of the same version still has a different sha256
+    and SHOULD update — which version-comparison silently skipped.
+    Version is logged for human context but never used for the
+    decision. The download path still verifies the downloaded bytes
+    against the advertised sha256 before swapping the binary.
+
+    force=True bypasses the sha-match early-return so an operator can
+    push a re-download even when hashes match (useful when the local
+    binary is suspected of tampering).
+    """
     try:
         info = http_get(f"{server_url}/api/agent/version", timeout=10)
     except Exception as e:
         log.debug(f"Update check failed: {e}"); return False
-    remote_version = info.get('version'); remote_sha256 = info.get('sha256')
-    if not remote_version or not remote_sha256: return False
-    if not force:
-        if remote_version == VERSION: return False
-        def vt(v):
-            try: return tuple(int(x) for x in v.split('.'))
-            except: return (0,)
-        if vt(remote_version) <= vt(VERSION): return False
-        log.info(f"Update available: {VERSION} → {remote_version}. Downloading…")
+    remote_sha256  = (info.get('sha256') or '').strip().lower()
+    remote_version = info.get('version') or '?'
+    if not remote_sha256:
+        log.debug("server did not advertise an agent sha256 — skipping update")
+        return False
+
+    try:
+        local_sha256 = hashlib.sha256(AGENT_BINARY.read_bytes()).hexdigest().lower()
+    except Exception as e:
+        log.warning(f"can't read own binary for hash check: {e}")
+        local_sha256 = ''
+
+    import hmac as _hmac
+    matches = bool(local_sha256) and _hmac.compare_digest(local_sha256, remote_sha256)
+    if matches and not force:
+        return False
+
+    if force:
+        log.info(
+            f"Force-upgrade: re-downloading agent (server v{remote_version}, "
+            f"hash {remote_sha256[:12]}…, local hash {local_sha256[:12] or 'n/a'}…)"
+        )
     else:
-        log.info(f"Force-upgrade: re-downloading agent v{remote_version} (current v{VERSION})")
+        log.info(
+            f"Agent hash drift detected: local={local_sha256[:12] or 'n/a'}… "
+            f"server={remote_sha256[:12]}… (v{VERSION} → v{remote_version}). "
+            f"Downloading…"
+        )
+
     try:
         data = http_get_binary(f"{server_url}/agent/remotepower-agent", timeout=30)
     except Exception as e:
         log.error(f"Download failed: {e}"); return False
-    import hmac as _hmac
-    actual_sha = hashlib.sha256(data).hexdigest()
-    if not _hmac.compare_digest(actual_sha.lower(), remote_sha256.lower()):
-        log.error(f"SHA-256 mismatch: got {actual_sha}, expected {remote_sha256}"); return False
+    actual_sha = hashlib.sha256(data).hexdigest().lower()
+    if not _hmac.compare_digest(actual_sha, remote_sha256):
+        log.error(
+            f"Downloaded binary sha256 mismatch — got {actual_sha[:12]}…, "
+            f"expected {remote_sha256[:12]}…. Refusing to install."
+        )
+        return False
     try:
         fd, tmp_path = tempfile.mkstemp(dir=AGENT_BINARY.parent, prefix='.rp-update-')
         try: os.write(fd, data)
         finally: os.close(fd)
         os.chmod(tmp_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         shutil.move(tmp_path, str(AGENT_BINARY))
-        log.info(f"Agent updated to {remote_version}. Restarting service…")
+        log.info(f"Agent updated to v{remote_version} ({remote_sha256[:12]}…). Restarting service…")
     except Exception as e:
         log.error(f"Failed to write update: {e}"); return False
     try: subprocess.Popen(['systemctl', 'restart', 'remotepower-agent'])

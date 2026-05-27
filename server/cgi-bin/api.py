@@ -1912,31 +1912,37 @@ def _record_fleet_event(event, payload):
         'event':   str(event)[:64],
         'payload': summary,
     }
+    overflow = []
     try:
         with _LockedUpdate(FLEET_EVENTS_FILE) as store:
             events = store.setdefault('events', [])
             events.append(entry)
             if len(events) > MAX_FLEET_EVENTS:
-                # v3.0.2: archive the overflow before we drop it. The
-                # archive is a gzipped JSONL — one event per line — so
-                # appending is cheap and queries by time scan linearly
-                # without parsing the full file at once. Read by the
-                # self-monitoring page's "Events history" expander.
                 overflow = events[:-MAX_FLEET_EVENTS]
                 del events[:-MAX_FLEET_EVENTS]
-                try:
-                    import gzip
-                    arch = DATA_DIR / 'fleet_events_archive.jsonl.gz'
-                    with gzip.open(str(arch), 'at') as f:
-                        for ev in overflow:
-                            f.write(json.dumps(ev) + '\n')
-                except Exception as _arch_err:
-                    sys.stderr.write(
-                        f'[remotepower] fleet_events archive write failed: '
-                        f'{_arch_err}\n')
     except Exception:
         # Caller wraps us too, but be defensive
-        pass
+        return
+    # v3.3.0 D1: archive write moved OUT of the fleet-events flock. The
+    # gzip append can be slow (open + decompress trailing block + write
+    # + flush) and previously held the file lock during that I/O —
+    # serialising every concurrent agent's heartbeat-driven event fire
+    # behind one slow archive write. The new entry is already
+    # persisted; if the archive write fails, the worst case is some
+    # overflow events stay in memory but get dropped — no data loss
+    # vs prior behaviour (which also dropped them silently on archive
+    # failure).
+    if overflow:
+        try:
+            import gzip
+            arch = DATA_DIR / 'fleet_events_archive.jsonl.gz'
+            with gzip.open(str(arch), 'at') as f:
+                for ev in overflow:
+                    f.write(json.dumps(ev) + '\n')
+        except Exception as _arch_err:
+            sys.stderr.write(
+                f'[remotepower] fleet_events archive write failed: '
+                f'{_arch_err}\n')
 
 
 # ── v3.2.0 (B1): alerts inbox — acknowledgement ledger ──────────────────────
@@ -3603,8 +3609,22 @@ def handle_devices_list():
     # snmp metrics, brute_force_active). Used by Home + nav loaders that
     # only need ID/name/online/group — saves ~1.5 MB JSON per Home
     # refresh on a 50-device fleet. Default behaviour unchanged.
+    # ?limit=N&offset=N optionally paginates for very large fleets. Both
+    # are no-ops at default (limit=0 means unbounded). Order is stable:
+    # sorted by device name then id, so a paged client iterating with
+    # increasing offset gets a deterministic walk over the fleet.
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     slim = (qs.get('slim') or [''])[0] == '1'
+    try:
+        limit = int((qs.get('limit') or ['0'])[0])
+    except ValueError:
+        limit = 0
+    try:
+        offset = int((qs.get('offset') or ['0'])[0])
+    except ValueError:
+        offset = 0
+    limit = max(0, min(2000, limit))
+    offset = max(0, offset)
     bf_data, pb_data, snmp_store = {}, {}, {}
     if not slim:
         bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
@@ -3739,6 +3759,10 @@ def handle_devices_list():
                                  else ''),
             }
     result.sort(key=lambda x: (x.get('group', ''), x['name'].lower()))
+    # v3.3.0 D3: optional limit/offset pagination. Default returns
+    # the whole sorted list (back-compat with every existing caller).
+    if limit or offset:
+        result = result[offset:offset + limit] if limit else result[offset:]
     respond(200, result)
 
 
@@ -6809,13 +6833,58 @@ def handle_totp_status():
     respond(200, {'enabled': enabled, 'username': username})
 
 
+_AGENT_BINARY_PATH = Path('/var/www/remotepower/agent/remotepower-agent')
+
+
+def _get_agent_sha256():
+    """Return sha256 of the canonical agent binary, cached on disk.
+
+    v3.3.0: hash is the primary identity signal for agent updates (the
+    version string is informational only). Each CGI request would
+    otherwise re-hash the binary; cached to a sidecar file so the cost
+    is one mtime check per request after the first call following a
+    new agent push. Returns None if no agent binary is published."""
+    if not _AGENT_BINARY_PATH.exists():
+        return None
+    cache = _AGENT_BINARY_PATH.with_suffix(_AGENT_BINARY_PATH.suffix + '.sha256')
+    try:
+        if cache.exists() and cache.stat().st_mtime >= _AGENT_BINARY_PATH.stat().st_mtime:
+            sha = cache.read_text().strip()
+            # Sanity check — must be 64 hex chars
+            if len(sha) == 64 and all(c in '0123456789abcdef' for c in sha.lower()):
+                return sha.lower()
+    except Exception:
+        pass
+    sha = hashlib.sha256(_AGENT_BINARY_PATH.read_bytes()).hexdigest()
+    try:
+        cache.write_text(sha + '\n')
+    except Exception:
+        pass
+    return sha
+
+
 def handle_agent_version():
-    agent_path = Path('/var/www/remotepower/agent/remotepower-agent')
-    if not agent_path.exists():
-        respond(200, {'version': None, 'sha256': None})
+    """GET /api/agent/version — agent canonical identity.
+
+    Returns sha256 (primary), version string (informational), and size.
+    Agents compare their own sha256 against `sha256` here to decide
+    whether to self-update; version is logged but not used for the
+    decision (a re-build with the same version still has a different
+    hash and SHOULD trigger an update).
+    """
+    sha = _get_agent_sha256()
+    if sha is None:
+        respond(200, {'version': None, 'sha256': None, 'size': None})
     cfg = load(CONFIG_FILE)
-    sha = hashlib.sha256(agent_path.read_bytes()).hexdigest()
-    respond(200, {'version': cfg.get('agent_version', 'unknown'), 'sha256': sha})
+    try:
+        size = _AGENT_BINARY_PATH.stat().st_size
+    except OSError:
+        size = None
+    respond(200, {
+        'version': cfg.get('agent_version', 'unknown'),
+        'sha256':  sha,
+        'size':    size,
+    })
 
 
 def handle_agent_download():
