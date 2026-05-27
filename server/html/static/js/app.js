@@ -4077,8 +4077,7 @@ async function resolveAlert(id) {
   else toast((r && r.error) || 'Failed', 'error');
 }
 
-function toggleAllAlerts(_arg, btn) {
-  const checked = btn.checked;
+function toggleAllAlerts(checked) {
   document.querySelectorAll('.alerts-row-cb').forEach(cb => { cb.checked = checked; });
   _updateBulkResolveBtn();
 }
@@ -10738,6 +10737,17 @@ function renderCustomScriptsPage() {
   }
   if (statusFilter === 'fail') rows = rows.filter(r => !r.ok);
   if (statusFilter === 'ok')   rows = rows.filter(r => r.ok);
+
+  tableCtl.wireSortOnly('cs-results-thead', 'cs_results', renderCustomScriptsPage);
+  rows = tableCtl.sortRows('cs_results', rows, (r) => ({
+    script_name: (r.script_name || '').toLowerCase(),
+    device_name: (r.device_name || '').toLowerCase(),
+    group:       (r.group || '').toLowerCase(),
+    ok:          r.ok ? 1 : 0,
+    output:      (r.output || '').toLowerCase(),
+    ran_at:      r.ran_at || 0,
+    duration_ms: r.duration_ms || 0,
+  }));
 
   // Stats
   const allRows = _csData.results || [];
