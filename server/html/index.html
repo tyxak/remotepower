@@ -97,7 +97,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-noshrink"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Install app
         </button>
-        <button class="theme-btn" title="Toggle dark/light mode">🌙</button>
+        <button class="theme-btn" title="Toggle dark/light mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
         <button class="logout-btn" >Sign out</button>
       </div>
     </div>
@@ -1305,7 +1305,7 @@
         <div class="settings-pane" id="settings-pane-ai">
           <div class="settings-section">
             <h3>AI provider</h3>
-            <p class="hint">Wire in an LLM for the ✨ buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
+            <p class="hint">Wire in an LLM for the AI buttons on the command output, journal, scripts, CVE findings, devices, and notifications. Disabled by default. Cloud providers send the content of the request to a third party; pick a local provider (Ollama or LocalAI) if you don't want data to leave the building.</p>
             <div class="settings-row isl-57">
               <div class="form-group isl-60">
                 <label class="form-label">Enabled</label>
@@ -1375,9 +1375,9 @@
 
           <div class="settings-section">
             <h3>Test connection</h3>
-            <p class="hint">Round-trip a one-word "say hi" request against the configured provider. Saves a settings round-trip before you start using the ✨ buttons in anger.</p>
+            <p class="hint">Round-trip a one-word "say hi" request against the configured provider. Saves a settings round-trip before you start using the AI buttons in anger.</p>
             <div class="isl-75">
-              <button class="btn-icon" data-action="testAIConnection" >✨ Test connection</button>
+              <button class="btn-icon" data-action="testAIConnection" >Test connection</button>
               <span id="ai-test-result" class="isl-76"></span>
             </div>
           </div>
@@ -1465,7 +1465,7 @@
           <div id="ignored-items-list" class="isl-88">
             <div class="isl-78">Loading…</div>
           </div>
-          <button class="btn-secondary isl-89" data-action="loadIgnoredItems" >↻ Refresh</button>
+          <button class="btn-secondary isl-89" data-action="loadIgnoredItems" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh</button>
         </div>
       </div>
 
@@ -1495,9 +1495,9 @@
           <!-- Tabs -->
           <div class="drawer-tabs">
             <button class="drawer-tab-btn active" id="drawer-tab-btn-actions"
-                    data-action="switchDrawerTab" data-arg="actions" >⚡ Actions &amp; Settings</button>
+                    data-action="switchDrawerTab" data-arg="actions" >Actions &amp; Settings</button>
             <button class="drawer-tab-btn"         id="drawer-tab-btn-audit"
-                    data-action="switchDrawerTab" data-arg="audit" >🔍 Audit</button>
+                    data-action="switchDrawerTab" data-arg="audit" >Audit</button>
           </div>
 
           <!-- Content -->
@@ -1601,7 +1601,7 @@
             <div class="iac-output-header">
               <span id="iac-output-title" class="isl-100">Generated code will appear here</span>
               <div class="row-6-wrap">
-                <button id="iac-rerun-btn"    class="btn-secondary isl-101" data-action-btn="_iacRerunAi" disabled title="Re-prompt the LLM using the already-collected data (no agent wait)">↻ Re-run AI</button>
+                <button id="iac-rerun-btn"    class="btn-secondary isl-101" data-action-btn="_iacRerunAi" disabled title="Re-prompt the LLM using the already-collected data (no agent wait)">Re-run AI</button>
                 <button id="iac-json-btn"     class="btn-secondary isl-101" data-action="_iacDownloadJson" disabled title="Download the raw JSON state that was sent to the LLM">{ } JSON</button>
                 <button id="iac-copy-btn"     class="btn-secondary isl-101" data-action-btn="_iacCopy" disabled>Copy</button>
                 <button id="iac-download-btn" class="btn-secondary isl-101" data-action="_iacDownload" disabled>Download</button>
@@ -1669,7 +1669,7 @@
                 <li><strong>Deep poll on demand</strong> (drawer Audit → SNMP) adds an interface-table walk: per-port admin/oper/speed/octets/errors.</li>
                 <li><strong>Threshold alerts</strong>: SNMP CPU % and Temperature °C in the metric-threshold modal (defaults warn 75/70, crit 90/85). Disk/memory share the agent thresholds. Fires <code>metric_warning</code>/<code>metric_critical</code>/<code>metric_recovered</code> through the regular event pipeline.</li>
                 <li><strong>`snmp_unreachable` / `snmp_dead` / `snmp_recover`</strong> events. Unreachable at 2nd consecutive failure (single-packet UDP loss never alerts); <code>snmp_dead</code> escalates at 72nd failure (~6h, severity critical); recovery auto-resolves both rows.</li>
-                <li><strong>Devices page SNMP filter</strong> dropdown: Any SNMP / Configured / OK / Failing. Devices page row pill <code>📡</code> green/red.</li>
+                <li><strong>Devices page SNMP filter</strong> dropdown: Any SNMP / Configured / OK / Failing. Devices page row carries a green/red SNMP pill.</li>
                 <li><strong>Monitoring → Device Metrics</strong> shows a separate SNMP table (CPU / Memory / Storage / Temperature / Uptime) below the agent table.</li>
                 <li><strong>MCP read tool</strong> <code>get_snmp_data(name)</code> exposes the full data set to AI hosts.</li>
               </ul>
@@ -1984,7 +1984,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Custom Scripts</strong> — your own bash health checks on devices</summary>
             <div class="doc-body">
               <p>Define arbitrary bash scripts server-side and assign them to any set of enrolled devices. The agent runs each assigned script every 5 minutes with a 30-second timeout. Exit code 0 = <strong>OK</strong>; anything else = <strong>FAIL</strong>.</p>
-              <p><strong>Create a script:</strong> Custom Scripts → <em>New script</em>. Paste a body directly, or type a description and click ✨ Generate to have the AI draft one. Assign the script to one or more devices using the device picker. Save.</p>
+              <p><strong>Create a script:</strong> Custom Scripts → <em>New script</em>. Paste a body directly, or type a description and click AI Generate to have the AI draft one. Assign the script to one or more devices using the device picker. Save.</p>
               <p><strong>Results:</strong> The Custom Scripts page shows a fleet-wide table — script name, device, status badge, last output snippet, when it last ran, and how long it took. Click any output snippet to see the full stdout/stderr.</p>
               <p><strong>Alerts:</strong> Status changes fire webhooks — <code>custom_script_fail</code> when a script flips from OK to FAIL (includes the first line of output), <code>custom_script_recover</code> when it returns to OK. Both are edge-triggered: they fire once on the transition, not on every failing run.</p>
               <p><strong>Script execution:</strong> Scripts run as the agent user (root on most setups), with stdout and stderr merged, capped at 4 KB. The script body is written to a private temp file (chmod 700), executed by <code>/bin/bash</code>, then deleted. Scripts are pushed from the server — no SSH needed.</p>
@@ -2011,7 +2011,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li><strong>MOTD</strong> — login banner written to <code>/etc/motd</code></li>
               </ul>
               <p><strong>Fetch current:</strong> Each tab has a "⬇ Fetch current" button that loads the live state last reported by the agent. Use it to pre-fill a section before editing, or to inspect what's actually running.</p>
-              <p><strong>Drift detection:</strong> The agent reports current state every 15 minutes. The server compares it against the desired config. If any section diverges, an amber ⚠ banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every heartbeat. Drift is audit-only; the agent does not auto-remediate.</p>
+              <p><strong>Drift detection:</strong> The agent reports current state every 15 minutes. The server compares it against the desired config. If any section diverges, an amber banner appears on the modal and a <code>config_drift</code> webhook fires — once on first detection, not on every heartbeat. Drift is audit-only; the agent does not auto-remediate.</p>
               <p><strong>Security:</strong> Only admins can write host config. Sudoers content is syntax-checked before writing. authorized_keys are written with mode 0600 and correct ownership. No passwords are ever stored — SSH keys only.</p>
             </div>
           </details>
@@ -2064,7 +2064,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Calendar page</strong> — visual timeline of scheduled events</summary>
             <div class="doc-body">
               <p>Month-view calendar of upcoming scheduled commands and maintenance windows. Useful for "what's planned this week?" and avoiding accidentally double-booking maintenance.</p>
-              <p><strong>Create events:</strong> click any day cell to create a one-off event. The event modal has a Recurrence dropdown: None, Daily, Weekly, Monthly, or Yearly. Recurring events are stored once on the server and expanded into occurrences within the displayed window (cap: 500). They appear with a ↻ glyph in the grid.</p>
+              <p><strong>Create events:</strong> click any day cell to create a one-off event. The event modal has a Recurrence dropdown: None, Daily, Weekly, Monthly, or Yearly. Recurring events are stored once on the server and expanded into occurrences within the displayed window (cap: 500). They appear with a refresh icon in the grid.</p>
               <p><strong>Delete recurring events:</strong> opening a recurring event shows a "Delete all occurrences" confirmation so a single click removes the entire series.</p>
               <p><strong>Schedule integration:</strong> the "Add to calendar" checkbox on the Schedule form creates a recurring event automatically when the schedule itself is recurring — daily/weekly/monthly schedules produce matching calendar recurrence.</p>
             </div>
@@ -2172,10 +2172,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </details>
 
           <details class="doc-card" data-keywords="ai assistant claude anthropic openai chatgpt ollama deepseek localai sparkle">
-            <summary><strong>AI assistant</strong> — five providers, ✨ buttons across the dashboard (v2.1.3+)</summary>
+            <summary><strong>AI assistant</strong> — five providers, AI buttons across the dashboard (v2.1.3+)</summary>
             <div class="doc-body">
               <p><strong>Disabled by default.</strong> Enable in Settings → AI assistant. Five providers: Anthropic (Claude), OpenAI (ChatGPT), DeepSeek, Ollama (local), LocalAI (local). Pure stdlib — no extra pip deps. Pick a local provider (Ollama / LocalAI) if you don't want data leaving the building.</p>
-              <p><strong>Where the ✨ buttons appear:</strong></p>
+              <p><strong>Where the AI buttons appear:</strong></p>
               <ul>
                 <li>Device dropdown (⋯ menu) → <em>Investigate</em>, <em>Generate runbook</em>.</li>
                 <li>Device detail modal → <em>Explain</em> on each command output, <em>Find the problem</em> on the journal panel.</li>
@@ -2197,7 +2197,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Device runbooks</strong> — AI-generated, per device (v2.1.7)</summary>
             <div class="doc-body">
               <p><strong>What it is:</strong> a structured operations document for each device, generated by the AI from the device's current state (sysinfo, watched services, containers, recent commands, journal, CVE findings, patch status). Saved per-device; regenerable any time.</p>
-              <p><strong>How to generate:</strong> Devices page → ⋯ menu → Inspect → <em>✨ Generate runbook</em>. The AI gets the live snapshot of the device plus the fleet context (so it can say "this is your mail server" rather than just "this is a Linux box"). Takes 15–90 s depending on provider and model.</p>
+              <p><strong>How to generate:</strong> Devices page → ⋯ menu → Inspect → <em>Generate runbook</em>. The AI gets the live snapshot of the device plus the fleet context (so it can say "this is your mail server" rather than just "this is a Linux box"). Takes 15–90 s depending on provider and model.</p>
               <p><strong>What's in it:</strong> sections for purpose / role, installed stack, running services, listening ports, scheduled jobs, recent activity, "things to know," and known risks. Format is Markdown — rendered inline on the device detail modal under a Runbook section.</p>
               <p><strong>When it's worth re-running:</strong> after a major change to the device, before handover, when documenting a system for a colleague, after the OS upgrade. The data is current as of when it ran — the timestamp is shown alongside the runbook.</p>
               <p><strong>Privacy:</strong> runbooks contain hostnames and IPs by design (a redacted runbook is useless). The redaction toggles in Settings → AI assistant apply, but you'll want "Send hostnames" + "Send IP addresses" on for runbook generation specifically. Storing hostnames in a runbook that lives in your own JSON file isn't a privacy concern; what matters is whether they cross over to a cloud provider on generate.</p>
@@ -2229,7 +2229,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li>Settings → API keys → Generate a viewer token; copy the <code>rpk_...</code> value.</li>
                 <li>Copy <code>remotepower-mcp.py</code> to your laptop (<code>scp</code> works).</li>
                 <li>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows) — add an <code>mcpServers.remotepower</code> entry with the command, args, and env (URL + token).</li>
-                <li>Restart Claude Desktop. The 🔨 tool indicator should show <strong>remotepower</strong>.</li>
+                <li>Restart Claude Desktop. The tool indicator should show <strong>remotepower</strong>.</li>
               </ol>
               <p><strong>Device-name resolution</strong>: exact → prefix → substring → ambiguity error. You can pass <code>web01</code> and the server finds <code>web01.example.com</code> automatically (as long as there's exactly one match).</p>
               <p><strong>Pure stdlib Python.</strong> No pip install. Single 470-line file.</p>
@@ -2249,7 +2249,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </ol>
               <p><strong>Per-event toggles:</strong> each webhook URL has independent toggles for every event type. The "Send test event" button fires a sample payload so you can verify the integration works before relying on it.</p>
               <p><strong>Maintenance windows</strong> suppress alerts during planned downtime. Suppressed alerts are still logged — you can see what would have fired in the audit log. So if something unexpected happens during maintenance, you can find it after.</p>
-              <p><strong>✨ Explain on alerts</strong>: each webhook log row has a ✨ Explain button that asks the AI to rewrite the raw alert into a single short paragraph ("postfix on mail01 stopped at 14:32 after matching <code>connection refused</code> 3 times — likely upstream MX is unreachable; check DNS and try a manual delivery"). Useful during on-call when you're seeing a wall of cryptic alerts at 3am.</p>
+              <p><strong>Explain on alerts</strong>: each webhook log row has an "Explain" button that asks the AI to rewrite the raw alert into a single short paragraph ("postfix on mail01 stopped at 14:32 after matching <code>connection refused</code> 3 times — likely upstream MX is unreachable; check DNS and try a manual delivery"). Useful during on-call when you're seeing a wall of cryptic alerts at 3am.</p>
             </div>
           </details>
 
@@ -2322,7 +2322,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Categories</strong> (18): OS &amp; identity, installed packages, systemd services (enabled), local users (uid≥1000), groups (gid≥1000), SSH authorized_keys (LLM converts to variables), network configuration, mounts (fstab), containers (Docker/Podman), custom repos, firewall, cron jobs (incl. RemotePower scheduled), TLS certificates (paths only), system environment (non-default), snaps (Ubuntu), kernel modules (persistent), sysctl parameters (non-default), RemotePower-specific (tags, group, custom scripts, host-config desired state).</p>
               <p><strong>Output formats:</strong> Terraform (HCL), Ansible (YAML), Pulumi (Python), Pulumi (TypeScript), Cloud-init (YAML).</p>
               <p><strong>Output tabs:</strong> Generated Code | AI Conversation. The Conversation tab shows the full system+user prompt and the raw LLM response, so you can see exactly what the model produced before fence-stripping.</p>
-              <p><strong>Re-run AI / JSON download:</strong> After a successful generation, the <em>↻ Re-run AI</em> button re-prompts the LLM using the already-collected data (no second agent wait). The <em>{ } JSON</em> button downloads the masked state as a JSON file.</p>
+              <p><strong>Re-run AI / JSON download:</strong> After a successful generation, the <em>Re-run AI</em> button re-prompts the LLM using the already-collected data (no second agent wait). The <em>{ } JSON</em> button downloads the masked state as a JSON file.</p>
               <p><strong>Extra instructions:</strong> A textarea below the format dropdown lets you append custom guidance ("use Terraform 1.5+ syntax", "wrap in a reusable module"). Persisted in localStorage.</p>
               <p><strong>Reasoning-model safety net:</strong> The prompt instructs the LLM to wrap output between <code>&lt;&lt;&lt;BEGIN_IAC&gt;&gt;&gt;</code> and <code>&lt;&lt;&lt;END_IAC&gt;&gt;&gt;</code> markers. The stripper extracts only what's between them — so DeepSeek-R1-style reasoning prose gets discarded automatically.</p>
               <p><strong>Security:</strong> Before the payload leaves your server for the LLM, env vars whose name matches <code>PASSWORD|SECRET|TOKEN|KEY|PASS|AUTH|CRED|PRIVATE</code> are masked with <code>&lt;REDACTED_BY_REMOTEPOWER&gt;</code>. TLS certificate <em>paths</em> are sent but never the certificate contents. SSH authorized_keys are sent raw — the LLM is instructed to convert them to variables.</p>
@@ -2393,7 +2393,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="force upgrade agent re-deploy push bundled corrupt recovery">
             <summary><strong>Force-upgrade agent</strong> (v3.0.1) — re-deploy regardless of version</summary>
             <div class="doc-body">
-              <p>The Device Drawer's <strong>⚡ Force-upgrade</strong> button pushes the currently-bundled agent binary to a device, even if the agent already reports the same version.</p>
+              <p>The Device Drawer's <strong>Force-upgrade</strong> button pushes the currently-bundled agent binary to a device, even if the agent already reports the same version.</p>
               <p><strong>Use cases:</strong> recovery after a corrupt or truncated update, pushing a rebuilt binary at the same version, testing the self-update path.</p>
               <p><strong>How it works:</strong> the server sets <code>force_agent_upgrade: true</code> on the device record. The next heartbeat (within <code>online_ttl</code> seconds) delivers the flag and the server clears it. The agent calls <code>check_for_update(force=True)</code>, which skips the version comparison and re-downloads + replaces its binary. Systemd then respawns the agent with the new binary.</p>
               <p><strong>Endpoint:</strong> <code>POST /api/devices/&lt;id&gt;/agent/force-upgrade</code> (admin only)</p>
@@ -2520,7 +2520,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="force upgrade agent push deploy rebuild lightning">
             <summary><strong>Force-upgrade agent</strong> — push a fresh binary to a single device</summary>
             <div class="doc-body">
-              <p>Per-device drawer → ⚡ <strong>Force upgrade</strong> button. Sets a one-shot flag on the device record. On the next heartbeat (within 60s), the server includes the flag in the response; agent calls <code>check_for_update(force=True)</code>, which bypasses the version-compare check and re-downloads the binary regardless of "we're already at version X". Flag is cleared atomically inside the heartbeat lock so it fires exactly once.</p>
+              <p>Per-device drawer → <strong>Force upgrade</strong> button. Sets a one-shot flag on the device record. On the next heartbeat (within 60s), the server includes the flag in the response; agent calls <code>check_for_update(force=True)</code>, which bypasses the version-compare check and re-downloads the binary regardless of "we're already at version X". Flag is cleared atomically inside the heartbeat lock so it fires exactly once.</p>
               <p><strong>v3.0.1 fix:</strong> the flag had been silently dropped (copied to the wrong scope inside the heartbeat handler) so the operator got a success toast but nothing happened. Now wired through correctly, with a regression test. Use for re-deploys, recovery from corrupted binaries, or rolling out same-version rebuilds.</p>
             </div>
           </details>
@@ -2615,7 +2615,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="acme rescan force letsencrypt cert renewal scan">
             <summary><strong>Force ACME rescan</strong> — bypass the hourly scan cadence (v3.0.2)</summary>
             <div class="doc-body">
-              <p>When you've issued or renewed a cert via the acme.sh CLI on the host and don't want to wait up to an hour for RemotePower to catch up: from the ACME table, click ↻ Rescan on the device row.</p>
+              <p>When you've issued or renewed a cert via the acme.sh CLI on the host and don't want to wait up to an hour for RemotePower to catch up: from the ACME table, click Rescan on the device row.</p>
               <p>Sets a one-shot <code>force_acme_rescan</code> flag on the device. Next heartbeat (within 60s by default) carries the signal, agent re-walks <code>~/.acme.sh/</code> regardless of the <code>ACME_CHECK_EVERY</code> cadence. Same flag-on-heartbeat-lock pattern as force-upgrade and force-package-scan.</p>
             </div>
           </details>
@@ -2703,7 +2703,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-title">Server status</div>
         <div class="page-subtitle">RemotePower watching itself — disk, devices, webhooks, audit, backups. <a href="docs/self-monitoring.md" class="c-accent">Documentation</a>.</div>
         <div class="isl-122">
-          <button class="btn-secondary" data-action="loadSelfStatus" >↻ Refresh</button>
+          <button class="btn-secondary" data-action="loadSelfStatus" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh</button>
           <button class="btn-secondary" data-action="runBackupNow" id="self-backup-btn">↓ Run backup now</button>
           <button class="btn-secondary isl-760" data-action="clearBackupState" id="self-backup-clear-btn">✕ Clear backup archives</button>
         </div>
@@ -2757,7 +2757,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
       <!-- ── v1.8.0: Services page ───────────────────────────────────────────── -->
       <div id="page-services" class="page">
-        <div class="page-title">Services <span id="services-maint-badge" class="isl-138">🔧 <span id="services-maint-count">0</span> maintenance window(s) active</span></div>
+        <div class="page-title">Services <span id="services-maint-badge" class="isl-138"><span id="services-maint-count">0</span> maintenance window(s) active</span></div>
         <div class="page-subtitle">systemd units watched per device. Click a row to see history, logs, and configuration.</div>
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadServicesReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
@@ -2930,7 +2930,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
         <div id="cmdb-vault-bar" class="isl-166">
           <div class="isl-167">
-            <span id="cmdb-vault-icon">🔒</span>
+            <span id="cmdb-vault-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             <span id="cmdb-vault-state" class="c-muted">Checking vault status…</span>
           </div>
           <div class="row-8">
@@ -3092,7 +3092,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <input type="text" id="acme-filter" class="form-input isl-15" placeholder="Filter domain, device…" data-input="_acmeRenderTable">
               </div>
               <button class="btn-icon isl-182" data-action="acmeOpenIssue">+ Issue new cert</button>
-              <button class="btn-icon" data-action="loadAcme" >↻ Refresh</button>
+              <button class="btn-icon" data-action="loadAcme" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> Refresh</button>
             </div>
           </div>
           <div id="acme-empty" class="isl-183">
@@ -3496,9 +3496,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
        on whatever's currently in the body. All three respect the same
        admin/redaction/rate-limit machinery as everywhere else. -->
   <div class="isl-215">
-    <button class="btn-icon fs-12" data-action="scriptEditorAIGenerate" >✨ Generate from prompt…</button>
-    <button class="btn-icon fs-12" data-action="scriptEditorAIExplain" >✨ Explain</button>
-    <button class="btn-icon fs-12" data-action="scriptEditorAIAudit" >✨ Audit for risks</button>
+    <button class="btn-icon fs-12" data-action="scriptEditorAIGenerate" >Generate from prompt…</button>
+    <button class="btn-icon fs-12" data-action="scriptEditorAIExplain" >Explain</button>
+    <button class="btn-icon fs-12" data-action="scriptEditorAIAudit" >Audit for risks</button>
     <span class="isl-216">Output is reviewed + dry-run before save — same path as a human-written script.</span>
   </div>
   <div class="modal-actions">
@@ -3708,7 +3708,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
   <div id="cmdb-tab-creds" class="d-none">
     <div id="cmdb-creds-locked-warning" class="isl-231">
-      🔒 Vault is locked. Unlock from the CMDB page header to add or reveal credentials.
+      Vault is locked. Unlock from the CMDB page header to add or reveal credentials.
     </div>
     <div class="isl-228">
       <div class="isl-229">Credentials</div>
@@ -4023,7 +4023,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="mitigate-ai-fix-warning" class="isl-260"></div>
     </div>
     <div class="isl-261">
-      <button class="btn-icon" id="mitigate-ai-rerun" data-action="mitigateRerunAi" >↻ Re-run AI</button>
+      <button class="btn-icon" id="mitigate-ai-rerun" data-action="mitigateRerunAi" >Re-run AI</button>
       <button class="btn-icon d-none" id="mitigate-ai-use" data-action="mitigateUseAiFix" >Use this as fix command →</button>
     </div>
   </div>
@@ -4360,7 +4360,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-maint-modal" >Cancel</button><button class="btn-primary" data-action="saveMaintenance" >Create</button></div>
 </div></div>
-<div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an emoji to represent this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom emoji</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="🖥️" maxlength="4"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
+<div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
 
 <!-- v2.6.0: Custom script create / edit modal -->
 <div class="modal-overlay" id="custom-script-modal">
@@ -4382,7 +4382,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="form-label">Generate with AI</label>
       <div class="row-8">
         <input type="text" id="cs-ai-prompt" class="form-input flex-1" placeholder="e.g. check if nginx is accepting connections on port 80 and returns 200">
-        <button class="btn-icon isl-287" id="cs-ai-btn" data-action="csGenerateWithAI">✨ Generate</button>
+        <button class="btn-icon isl-287" id="cs-ai-btn" data-action="csGenerateWithAI">Generate</button>
       </div>
       <div class="meta-sm">Exit 0 = OK · non-zero = FAIL · runs as root · 30 s timeout · stdout captured</div>
       <div id="cs-ai-status" class="isl-288"></div>
@@ -4432,7 +4432,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 
     <!-- Drift banner: shown only when desired ≠ current -->
     <div id="hc-drift-banner" class="isl-296">
-      ⚠ Config drift detected in: <span id="hc-drift-sections"></span>
+      Config drift detected in: <span id="hc-drift-sections"></span>
     </div>
 
     <!-- Section tabs -->

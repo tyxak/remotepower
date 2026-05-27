@@ -372,7 +372,7 @@ const densityCtl = (() => {
     // can find it. Slightly hacky, but avoids needing a UUID per control.
     window['__densityCb_' + name] = onChange;
     return `<div class="isl-308">
-      ${btn('minimal', '☰', 'Minimal — one device per line')}
+      ${btn('minimal', '≡', 'Minimal — one device per line')}
       ${btn('compact', '▤', 'Compact — denser cards')}
       ${btn('comfortable', '⊞', 'Comfortable — default')}
       ${btn('spacious', '⊟', 'Spacious — larger, roomier')}
@@ -582,7 +582,7 @@ async function checkServerVersion() {
     // a release link — RemotePower never self-updates, so the operator
     // runs these by hand (see docs/admin-guide.md §7).
     banner.innerHTML = `
-      <span>⚡ RemotePower <strong>v${data.latest}</strong> is available
+      <span>${_icon('zap',14)} RemotePower <strong>v${data.latest}</strong> is available
       (you have v${data.current}).</span>
       <a href="${data.release_url}" target="_blank" rel="noopener">Release notes →</a>
       <button type="button" class="update-steps-btn" data-action="toggleUpdateSteps" >How to update</button>
@@ -985,7 +985,7 @@ function renderDevices() {
       const tip = ss.ok
         ? `SNMP polled OK · sysName ${ss.sys_name || '?'}${ss.last_ok ? ' · ' + timeAgo(ss.last_ok) : ''}`
         : `SNMP failing (${ss.fails || 1} cycle${(ss.fails || 1) > 1 ? 's' : ''})${ss.last_error ? ' — ' + ss.last_error : ''}`;
-      snmpPill = ` <span class="${cls}" title="${escAttr(tip)}">📡 ${ss.ok ? 'SNMP' : 'SNMP×'}</span>`;
+      snmpPill = ` <span class="${cls}" title="${escAttr(tip)}">${_icon('radio',12)} ${ss.ok ? 'SNMP' : 'SNMP×'}</span>`;
       if (ss.ok && ss.sys_uptime != null) {
         // sysUpTime is hundredths of a second (TimeTicks)
         const days = Math.floor(ss.sys_uptime / 100 / 86400);
@@ -996,7 +996,7 @@ function renderDevices() {
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >📝</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
@@ -1227,8 +1227,24 @@ function requestReboot(id, name) { rebootTarget = id; document.getElementById('r
 async function confirmReboot() { closeModal('reboot-modal'); const data = await api('POST', '/reboot', {device_id: rebootTarget}); if (data?.ok) { toast('Reboot queued', 'success'); setTimeout(loadDevices, 5000); } else toast(data?.error || 'Failed', 'error'); }
 async function sendWol(id, name) { const data = await api('POST', '/wol', {device_id: id}); if (data?.ok) toast(`Magic packet sent to ${name} (${data.mac})`, 'success'); else toast(data?.error || 'WoL failed', 'error'); }
 async function removeDevice(id) { if (!confirm('Remove this device from RemotePower?')) return; const data = await api('DELETE', '/devices/' + id); if (data?.ok) { toast('Device removed', 'info'); loadDevices(); } else toast(data?.error || 'Error', 'error'); }
-const deviceIcons = ['🖥️','💻','🖲️','📱','🖨️','📡','🌐','🗄️','🔌','💾','📟','🎮','📺','🏠','🏢','🏭','☁️','🐳','🐧','🪟','🍎','🔴','🟢','🔵','🟡','⚡','🛡️','🔒','📦','🧪'];
-function openIconModal(id, current) { document.getElementById('icon-device-id').value = id; document.getElementById('icon-custom').value = current || ''; const picker = document.getElementById('icon-picker'); picker.innerHTML = deviceIcons.map(e => `<button data-set-icon-val="${e}" class="isl-326">${e}</button>`).join(''); openModal('icon-modal'); }
+// v3.3.0: device-icon palette is now Lucide SVG names from _ICONS.
+// Legacy emoji values stored on devices still render — _renderDeviceIcon
+// returns the raw value when it's not a known icon name.
+const deviceIcons = ['monitor','laptop','smartphone','printer','radio','globe','server','hardDrive','gamepad','tv','home','building','factory','cloud','ship','shield','lock','zap','package','search','wrench','terminal'];
+function _renderDeviceIcon(val) {
+  if (!val) return '';
+  if (_ICONS[val]) return _icon(val, 16);
+  return escHtml(val);
+}
+function openIconModal(id, current) {
+  document.getElementById('icon-device-id').value = id;
+  document.getElementById('icon-custom').value = current || '';
+  const picker = document.getElementById('icon-picker');
+  picker.innerHTML = deviceIcons.map(name =>
+    `<button data-set-icon-val="${name}" class="isl-326" title="${escAttr(name)}">${_icon(name, 18)}</button>`
+  ).join('');
+  openModal('icon-modal');
+}
 async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -1581,7 +1597,7 @@ async function loadSecurityDiag() {
     if (sts) {
       hstsEl.innerHTML = `<span class="c-green">✓ HSTS enabled.</span> Header: <code>${escHtml(sts)}</code>`;
     } else {
-      hstsEl.innerHTML = '<span class="c-amber">⚠ HSTS is not currently being served.</span> Enable in nginx (see below) once your deployment is HTTPS-only.';
+      hstsEl.innerHTML = '<span class="c-amber">!HSTS is not currently being served.</span> Enable in nginx (see below) once your deployment is HTTPS-only.';
     }
   } catch (_) {
     hstsEl.textContent = 'Unable to probe HSTS — could not reach the server.';
@@ -1689,7 +1705,7 @@ async function saveSettings(btn) {
 
   const _btn = btn || document.getElementById('btn-save-settings');
   const _origText = _btn ? _btn.textContent : '';
-  if (_btn) { _btn.disabled = true; _btn.textContent = '⏳ Saving…'; }
+  if (_btn) { _btn.disabled = true; _btn.textContent = 'Saving…'; }
   const data = await api('POST', '/config', payload);
   if (data?.ok) {
     if (_btn) { _btn.textContent = '✓ Settings saved'; setTimeout(() => { _btn.textContent = _origText; _btn.disabled = false; }, 2000); }
@@ -1814,7 +1830,7 @@ async function loadWebhookLog() {
   }));
   tbody.innerHTML = entries.slice(0, 50).map(e => {
     const isOk = String(e.status).startsWith('2') || e.status === 200;
-    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">✨ Explain</button></td></tr>`;
+    return `<tr><td class="hint-nowrap">${new Date(e.ts * 1000).toLocaleString()}</td><td><span class="cmd-badge isl-342">${escHtml(e.event)}</span></td><td class="isl-343 ${isOk?'c-green':'c-red'}">${escHtml(e.status)}</td><td title="${escHtml(e.detail)}" class="isl-344">${escHtml(e.detail)}</td><td class="nowrap"><button class="btn-icon isl-238" data-action-btn="_aiExplainAlertWh" data-arg="${escAttr(e.event)}" data-arg2="" data-arg3="${escAttr(e.detail||'')}">${_icon('sparkles',14)} Explain</button></td></tr>`;
   }).join('');
 }
 // v2.1.0: refresh cycle pauses while a modal is open or the tab is in
@@ -1945,7 +1961,7 @@ function _registerScheduleTable() {
       const isScript = j.command.startsWith('script:');
       const cmdCls   = isScript ? 'script' : j.command;
       const cmdLabel = isScript ? 'run script' : j.command;
-      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">↻ ${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon isl-45" data-action="deleteJob" data-arg="${escAttr(j.id)}" >✕</button></td></tr>`;
     },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
@@ -2133,7 +2149,7 @@ function openScheduleAdd() {
   openModal('schedule-add-modal');
 }
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
-async function loadAbout() { try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' ⚡ update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
+async function loadAbout() { try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -2619,7 +2635,7 @@ async function loadDeviceMetrics() {
   const snmpSum = document.getElementById('snmp-metrics-summary');
   if (snmpSum) {
     const parts = [];
-    if (snmpOk)     parts.push(`📡 <span class="c-green">${snmpOk} ok</span>`);
+    if (snmpOk)     parts.push(`${_icon('radio',12)} <span class="c-green">${snmpOk} ok</span>`);
     if (snmpFail)   parts.push(`<span class="c-red">${snmpFail} failing</span>`);
     if (snmpSilent) parts.push(`<span class="c-muted">${snmpSilent} silent</span>`);
     if (!parts.length) parts.push('<span class="c-muted">no SNMP devices</span>');
@@ -3088,14 +3104,14 @@ function _registerPatchTable() {
       const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
       const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div title="${escHtml(c.output||'')}" class="isl-370">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
-      // v2.1.5: ✨ Prioritise only on devices with pending updates
+      // v2.1.5: AIPrioritise only on devices with pending updates
       // v3.0.4: pass the event so the handler can disable the button +
       // show a spinner during the API call (previously the button just
       // toasted silently — operators reported "I clicked it, nothing
       // happened" because the toast was easy to miss and there was no
       // in-place feedback).
       const aiBtn = d.upgradable > 0
-        ? `<button class="btn-icon isl-371" data-action-btn="_aiPrioritisePatchesBtn" data-dev-id="${d.device_id}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise these updates">✨</button>`
+        ? `<button class="btn-icon isl-371" data-action-btn="_aiPrioritisePatchesBtn" data-dev-id="${d.device_id}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise these updates">${_icon('sparkles',14)}</button>`
         : '';
       const rebootBadge = d.reboot_required
         ? `<span title="Pending reboot — /run/reboot-required exists on this host" class="isl-372"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="isl-373"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
@@ -3190,7 +3206,7 @@ async function loadCVEReport() {
 async function triggerCVEScan(devId, btn) {
   const label = devId ? 'device' : 'all devices';
   const origText = btn?.textContent || '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Scanning…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
   toast(`Scanning ${label}… may take a minute`, 'info');
   const body = devId ? {device_id: devId} : {};
   const result = await api('POST', '/cve/scan', body);
@@ -3216,13 +3232,13 @@ async function openDeviceCVE(devId, devName) {
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
   html += `<div class="mb-14"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
-  if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found. 🎉</div>'; }
+  if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
     html += data.findings.map(f => {
       const color = sevColor[f.severity] || 'var(--muted)';
       const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" class="c-accent">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
-      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">✨ Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
+      return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
   }
   document.getElementById('cve-detail-body').innerHTML = html;
@@ -3389,12 +3405,12 @@ async function openServiceDetail(devId, devName) {
       const histLabel = `State history (${histItems.length})`;
       const logLabel  = `Recent logs (${logItems.length})`;
 
-      // v2.1.5: ✨ Diagnose for units that aren't actively running.
+      // v2.1.5: AIDiagnose for units that aren't actively running.
       // Pure-prose summary "service is failed, here's what to check
       // next" — the operator still does the actual work.
       const isUnhealthy = s.active !== 'active' && s.active !== 'activating';
       const aiBtn = isUnhealthy
-        ? `<button class="btn-icon isl-406" data-action-btn="_aiDiagnoseServiceFromStore" data-store-key="${_storeEvtData([s.unit, devName, s.active||'', s.sub||'', (s.log_tail || []).slice(-30).map(l => l.line || '')])}" title="AI: diagnose this service">✨ Diagnose</button>`
+        ? `<button class="btn-icon isl-406" data-action-btn="_aiDiagnoseServiceFromStore" data-store-key="${_storeEvtData([s.unit, devName, s.active||'', s.sub||'', (s.log_tail || []).slice(-30).map(l => l.line || '')])}" title="AI: diagnose this service">${_icon('sparkles',14)} Diagnose</button>`
         : '';
 
       return `<div class="isl-379">
@@ -4854,7 +4870,7 @@ function renderCalendarGrid() {
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
     const events = byDay[key] || [];
     const eventsHtml = events.slice(0, 3).map(ev =>
-      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph">↻</span>' : ''}${escHtml(ev.title)}</div>`
+      `<div class="cal-event color-${escHtml(ev.color || 'blue')}" data-stop-prop="1" data-action="openEventModal" data-arg="${escAttr(ev.id)}" title="${escHtml(ev.title)}">${ev.is_recurring ? '<span class="cal-recur-glyph"></span>' : ''}${escHtml(ev.title)}</div>`
     ).join('');
     const more = events.length > 3 ? `<div class="isl-428">+${events.length - 3} more</div>` : '';
     const dayDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -5321,7 +5337,7 @@ function cmdbRenderVaultBar() {
     return;
   }
   if (!_cmdbVaultMeta.configured) {
-    iconEl.textContent  = '⚙';
+    iconEl.innerHTML = _icon('settings', 16);
     stateEl.textContent = 'Vault not yet configured. Set a passphrase to start storing credentials.';
     actionEl.style.display = 'inline-block';
     actionEl.textContent = 'Set up vault';
@@ -5331,13 +5347,13 @@ function cmdbRenderVaultBar() {
     return;
   }
   if (_cmdbVaultKey) {
-    iconEl.textContent  = '🔓';
+    iconEl.innerHTML = _icon('unlock', 16);
     stateEl.textContent = 'Vault unlocked. Credential operations enabled in this tab only.';
     actionEl.style.display = 'none';
     rotateEl.style.display = 'inline-block';
     lockEl.style.display = 'inline-block';
   } else {
-    iconEl.textContent  = '🔒';
+    iconEl.innerHTML = _icon('lock', 16);
     stateEl.textContent = 'Vault is configured but locked. Unlock to manage credentials.';
     actionEl.style.display = 'inline-block';
     actionEl.textContent = 'Unlock vault';
@@ -5606,7 +5622,7 @@ async function pollCmdbSnmp() {
   // Disable the button + show in-progress so the user knows we're working
   const btn = document.querySelector('[data-action="pollCmdbSnmp"]');
   const prevText = btn ? btn.textContent : 'Poll now';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Polling…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Polling…'; }
   _showSnmpInlineNotice('Polling SNMP target (up to 4 s)…');
   try {
     const r = await api('POST', `/devices/${encodeURIComponent(deviceId)}/snmp/poll`, {});
@@ -6213,7 +6229,7 @@ async function containersOpen(deviceId, name) {
   const reportedHuman = data.reported_at ? new Date(data.reported_at * 1000).toLocaleString() : 'never';
   const staleBanner = data.is_stale
     ? `<div class="isl-452">
-         ⚠ Container data is stale (last reported: ${escHtml(reportedHuman)}).
+         Container data is stale (last reported: ${escHtml(reportedHuman)}).
          Agent reports every ~5 min when a runtime is installed; check
          <code>journalctl -u remotepower-agent</code> on the device.
        </div>`
@@ -6750,10 +6766,10 @@ function _registerTlsTable() {
       const starttlsHtml = (t.starttls && t.starttls !== 'none')
         ? `<span class="isl-474">${escHtml(t.starttls)}</span>`
         : '';
-      // v2.1.5: ✨ Triage only on warning/critical/error — no point asking
+      // v2.1.5: AITriage only on warning/critical/error — no point asking
       // about cert lifecycle on a healthy 90-days-left target.
       const aiBtn = (t.status === 'warning' || t.status === 'critical' || t.status === 'error')
-        ? `<button class="btn-icon isl-475" data-action="aiExplainTls" data-stop-prop="1" data-arg="${escAttr(t.host)}" data-arg2="${t.port||443}" data-arg3="${t.expires_at||0}" data-arg4="${escAttr(t.issuer||'')}" data-arg5="starttls=${escAttr(t.starttls||'none')}" title="AI: triage this cert">✨</button>`
+        ? `<button class="btn-icon isl-475" data-action="aiExplainTls" data-stop-prop="1" data-arg="${escAttr(t.host)}" data-arg2="${t.port||443}" data-arg3="${t.expires_at||0}" data-arg4="${escAttr(t.issuer||'')}" data-arg5="starttls=${escAttr(t.starttls||'none')}" title="AI: triage this cert">${_icon('sparkles',14)}</button>`
         : '';
       return `<tr data-action="tlsDetailOpen" data-arg="${escAttr(t.id)}" class="pointer">
         <td>${statusBadge}${daneBadge}</td>
@@ -7274,7 +7290,7 @@ function renderScriptsList() {
     const size = s.body_len < 1024 ? `${s.body_len} B` : `${(s.body_len/1024).toFixed(1)} KB`;
     const updated = s.updated ? timeAgo(s.updated) : '—';
     const dangerBadge = s.dangerous
-      ? '<span class="patch-badge warn" title="Dry run flagged dangerous patterns">⚠ DANGER</span>'
+      ? '<span class="patch-badge warn" title="Dry run flagged dangerous patterns">DANGER</span>'
       : '';
     return `<tr>
       <td class="fw-500">${escHtml(s.name||'—')}</td>
@@ -7326,11 +7342,11 @@ function _renderLintIntoBox(boxId, lint) {
     head = '✗ ' + lint.syntax_error;
   } else if (lint.syntax_error === '__skipped__') {
     bg = 'rgba(245,158,11,0.12)'; fg = 'var(--amber)';
-    head = '⚠ bash -n not available server-side — syntax check skipped';
+    head = 'bash -n not available server-side — syntax check skipped';
   }
   let body = head;
   if (lint.dangerous && lint.dangerous.length) {
-    body += '\n\n⚠ Dangerous patterns detected:';
+    body += '\n\nDangerous patterns detected:';
     lint.dangerous.forEach(d => { body += '\n  • ' + d; });
   }
   el.style.background = bg;
@@ -7393,7 +7409,7 @@ async function dryRunScript(id) {
     summary = '✓ Syntax OK';
   }
   if (l.dangerous && l.dangerous.length) {
-    summary += ` — ⚠ ${l.dangerous.length} dangerous pattern${l.dangerous.length>1?'s':''}: ${l.dangerous.join(', ')}`;
+    summary += ` — ${l.dangerous.length} dangerous pattern${l.dangerous.length>1?'s':''}: ${l.dangerous.join(', ')}`;
   }
   toast(summary, l.syntax_error && l.syntax_error !== '__skipped__' ? 'error'
                 : (l.dangerous && l.dangerous.length ? 'info' : 'success'));
@@ -7437,7 +7453,7 @@ async function _populateScriptRunPicker() {
   (Array.isArray(data) ? data : []).forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.id;
-    opt.textContent = s.name + (s.dangerous ? '  ⚠ DANGER' : '');
+    opt.textContent = s.name + (s.dangerous ? '  DANGER' : '');
     opt.dataset.dangerous = s.dangerous ? '1' : '';
     sel.appendChild(opt);
   });
@@ -7616,10 +7632,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // Two surfaces:
 //   1. Settings → AI assistant tab (loadAISettings / saveAISettings /
 //      testAIConnection / onAIProviderChange)
-//   2. Inline ✨ buttons on command output, journal, scripts, CVE rows,
+//   2. Inline AIbuttons on command output, journal, scripts, CVE rows,
 //      device cards, and notifications — all routed through openAIModal().
 //
-// openAIModal() is the single reusable component for every ✨ click. It:
+// openAIModal() is the single reusable component for every AIclick. It:
 //   - shows a modal with a context summary at the top (what's being sent)
 //   - posts to /api/ai/chat
 //   - renders the response (one shot — no streaming in v1)
@@ -7725,9 +7741,9 @@ async function testAIConnection() {
   }
 }
 
-// ─── Reusable ✨ modal ─────────────────────────────────────────────────────
+// ─── Reusable AImodal ─────────────────────────────────────────────────────
 //
-// Every ✨ button on the dashboard funnels through this. Pass:
+// Every AIbutton on the dashboard funnels through this. Pass:
 //   title    — visible header
 //   system   — system prompt key (one of ai_provider.SYSTEM_PROMPTS keys)
 //              OR a literal system prompt string
@@ -7747,7 +7763,7 @@ function _ensureAIModal() {
   wrap.innerHTML = `
     <div class="modal isl-508">
       <div class="modal-header row-between">
-        <div id="ai-modal-title" class="fw-600">✨ AI</div>
+        <div id="ai-modal-title" class="fw-600">AI</div>
         <button class="btn-icon isl-44" data-action="closeAIModal" >✕</button>
       </div>
       <div id="ai-modal-meta" class="isl-509">—</div>
@@ -7779,7 +7795,7 @@ function aiModalCopy() {
 async function openAIModal({title, system, userMsg, context, onResult, actionLabel, maxTokens}) {
   _ensureAIModal();
   _aiModalEl.classList.add('active');
-  document.getElementById('ai-modal-title').textContent = title || '✨ AI';
+  document.getElementById('ai-modal-title').textContent = title || 'AI';
   document.getElementById('ai-modal-meta').textContent  =
     `context: ${context || 'n/a'} — be aware the request content is sent to the configured AI provider`;
   const body = document.getElementById('ai-modal-body');
@@ -7833,7 +7849,7 @@ async function openAIModal({title, system, userMsg, context, onResult, actionLab
   }
 }
 
-// ─── Inline ✨ triggers ────────────────────────────────────────────────────
+// ─── Inline AItriggers ────────────────────────────────────────────────────
 //
 // Per-button max_tokens is tuned to the typical response length. Tighter
 // budgets cut latency on slow local thinking models (smallthinker /
@@ -7846,7 +7862,7 @@ function aiExplainOutput(deviceName, command, output) {
   if (!output || !output.trim()) { toast('Nothing to explain', 'info'); return; }
   const userMsg = `Device: ${deviceName}\nCommand: ${command}\n\nOutput:\n${output}`;
   openAIModal({
-    title:    '✨ Explain command output',
+    title:    'Explain command output',
     system:   'explain_output',
     userMsg:  userMsg,
     context:  `device:${deviceName}`,
@@ -7869,7 +7885,7 @@ function aiFindProblemInJournal(deviceName, journalLines) {
   const sliced = Array.from(interestingIdx).sort((a, b) => a - b).map(i => lines[i]);
   const userText = sliced.length ? sliced.join('\n') : lines.slice(-50).join('\n');
   openAIModal({
-    title:    '✨ Find the problem',
+    title:    'Find the problem',
     system:   'find_problem',
     userMsg:  `Device: ${deviceName}\n\nJournal slice:\n${userText}`,
     context:  `device:${deviceName}`,
@@ -7883,7 +7899,7 @@ function aiExplainAlert(eventType, deviceName, message, samplePayload) {
     try { payload = JSON.stringify(samplePayload, null, 2).slice(0, 4000); } catch(e){}
   }
   openAIModal({
-    title:    '✨ Explain alert',
+    title:    'Explain alert',
     system:   'explain_alert',
     userMsg:  `Event: ${eventType}\nDevice: ${deviceName}\nMessage: ${message}\n\nPayload:\n${payload}`,
     context:  `alert:${eventType}`,
@@ -7893,7 +7909,7 @@ function aiExplainAlert(eventType, deviceName, message, samplePayload) {
 
 function aiTriageCve(cveId, packageName, version, deviceName, description) {
   openAIModal({
-    title:    `✨ Triage ${cveId}`,
+    title:    `Triage ${cveId}`,
     system:   'triage_cve',
     userMsg:  `CVE: ${cveId}\nDevice: ${deviceName}\nAffected package: ${packageName} ${version}\n\nDescription:\n${description || '(no description available — assess based on the CVE ID alone)'}`,
     context:  `cve:${cveId}`,
@@ -7958,7 +7974,7 @@ function aiInvestigateDevice(devId, deviceName) {
     if (hasCmds)    sections.push('Recent commands:\n' + recentCmds.slice(0, 4000));
 
     openAIModal({
-      title:    `✨ Investigate ${deviceName}`,
+      title:    `Investigate ${deviceName}`,
       system:   'investigate_device',
       userMsg:  sections.join('\n\n'),
       context:  `device:${devId}`,
@@ -7969,7 +7985,7 @@ function aiInvestigateDevice(devId, deviceName) {
 
 function aiExplainScript(scriptBody) {
   openAIModal({
-    title:    '✨ Explain script',
+    title:    'Explain script',
     system:   'explain_script',
     userMsg:  scriptBody,
     context:  'script',
@@ -7979,7 +7995,7 @@ function aiExplainScript(scriptBody) {
 
 function aiAuditScript(scriptBody) {
   openAIModal({
-    title:    '✨ Audit script for risks',
+    title:    'Audit script for risks',
     system:   'audit_script',
     userMsg:  scriptBody,
     context:  'script',
@@ -7990,7 +8006,7 @@ function aiAuditScript(scriptBody) {
 function aiGenerateScript(prompt, targetElementId) {
   if (!prompt || !prompt.trim()) { toast('Describe what the script should do', 'info'); return; }
   openAIModal({
-    title:    '✨ Generate script',
+    title:    'Generate script',
     system:   'generate_script',
     userMsg:  prompt,
     context:  'script-generate',
@@ -8009,7 +8025,7 @@ function aiGenerateScript(prompt, targetElementId) {
   });
 }
 
-// ─── Script editor ✨ buttons ──────────────────────────────────────────────
+// ─── Script editor AIbuttons ──────────────────────────────────────────────
 
 function scriptEditorAIGenerate() {
   const prompt = window.prompt('Describe what the script should do:', '');
@@ -8408,7 +8424,7 @@ async function aiPageSend() {
     last.meta = `${resp.tokens_in}+${resp.tokens_out} tokens · ${(resp.elapsed_ms/1000).toFixed(1)}s` +
                 (resp.daily_cap ? ` · ${resp.used_today}/${resp.daily_cap} today` : '');
   } else {
-    last.content = `⚠ ${resp.error}`;
+    last.content = `${resp.error}`;
     last.pending = false;
     last.meta = 'error';
   }
@@ -8448,7 +8464,7 @@ function deviceDropdownHtml(d, isMonitored) {
 function aiDiagnoseService(serviceName, deviceName, state, subState, recentLogs) {
   const logs = Array.isArray(recentLogs) ? recentLogs.join('\n') : (recentLogs || '');
   openAIModal({
-    title:    `✨ Diagnose ${serviceName}`,
+    title:    `Diagnose ${serviceName}`,
     system:   'diagnose_service',
     userMsg:  `Service: ${serviceName}\nDevice: ${deviceName}\nState: ${state || '?'}/${subState || '?'}\n\nRecent journal:\n${logs.slice(0, 6000)}`,
     context:  `service:${serviceName}`,
@@ -8466,7 +8482,7 @@ function aiExplainTls(host, port, expiryEpoch, issuer, extraContext) {
     extraContext || '',
   ].filter(Boolean);
   openAIModal({
-    title:    `✨ Triage cert for ${host}`,
+    title:    `Triage cert for ${host}`,
     system:   'explain_tls',
     userMsg:  lines.join('\n'),
     context:  `tls:${host}`,
@@ -8486,7 +8502,7 @@ function aiPrioritisePatches(deviceName, packageList) {
   }
   if (!listText.trim()) { toast('No pending packages to prioritise', 'info'); return; }
   openAIModal({
-    title:    `✨ Prioritise updates for ${deviceName}`,
+    title:    `Prioritise updates for ${deviceName}`,
     system:   'prioritise_patches',
     userMsg:  `Device: ${deviceName}\n\nPending updates:\n${listText.slice(0, 6000)}`,
     context:  `patches:${deviceName}`,
@@ -8497,7 +8513,7 @@ function aiPrioritisePatches(deviceName, packageList) {
 function aiExplainContainerLogs(containerName, image, logs) {
   if (!logs || !logs.trim()) { toast('No logs to explain', 'info'); return; }
   openAIModal({
-    title:    `✨ Explain ${containerName} logs`,
+    title:    `Explain ${containerName} logs`,
     system:   'explain_container_logs',
     userMsg:  `Container: ${containerName}\nImage: ${image || '?'}\n\nLogs:\n${logs.slice(0, 8000)}`,
     context:  `container:${containerName}`,
@@ -8518,13 +8534,13 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
   // COUNT, not the listing (the agent's get_patch_info() discards `out`
   // and only keeps len()). The only path that populates patch_history
   // with a real listing is an operator-triggered exec command. Rather
-  // than make the operator dig for that, ✨ now queues the right
+  // than make the operator dig for that, AInow queues the right
   // listing command for the device's package manager automatically.
   // One click → next click in ~60s → AI engages.
   const originalLabel = btn ? btn.innerHTML : null;
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '⏳';
+    btn.innerHTML = '…';
     btn.title = 'Fetching patch history…';
   }
   const restore = () => {
@@ -8567,21 +8583,21 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
     toast(`No upgrade listing in patch history, and no built-in listing `
           + `command for "${pkgManager || 'unknown'}". Run an appropriate `
           + `"list upgradable packages" command via Run Command, then `
-          + `click ✨ again.`, 'info');
+          + `click again.`, 'info');
     return;
   }
 
   if (!confirm(
         `No upgrade listing recorded for ${devName} yet.\n\n`
       + `Queue "${listingCmd}" on the device now?\n\n`
-      + `Output arrives in ~60s. Click ✨ again after that to get the `
+      + `Output arrives in ~60s. Click again after that to get the `
       + `AI's upgrade-prioritisation summary.`)) {
     return;
   }
 
   const r = await api('POST', '/exec', {device_id: devId, cmd: listingCmd});
   if (r?.ok) {
-    toast(`Queued ${listingCmd} on ${devName}. Click ✨ again in ~60s `
+    toast(`Queued ${listingCmd} on ${devName}. Click again in ~60s `
           + `to get the AI analysis.`, 'success');
   } else {
     toast(r?.error || 'Failed to queue the listing command', 'error');
@@ -8591,7 +8607,7 @@ async function aiPrioritisePatchesForDevice(devId, devName, btn) {
 // ─── v2.1.7: Device runbooks ───────────────────────────────────────────────
 //
 // Two surfaces:
-//   1. ✨ Generate runbook — entry in the device dropdown. Opens a
+//   1. AIGenerate runbook — entry in the device dropdown. Opens a
 //      modal, fires POST /api/devices/<id>/runbook/generate, displays
 //      the resulting Markdown via renderMarkdown(). Sync — the modal
 //      shows an elapsed-time ticker so a slow local model doesn't look
@@ -8610,7 +8626,7 @@ function _ensureRunbookModal() {
   wrap.innerHTML = `
     <div class="modal isl-527">
       <div class="modal-header row-between">
-        <div id="runbook-modal-title" class="fw-600">✨ Runbook</div>
+        <div id="runbook-modal-title" class="fw-600">Runbook</div>
         <button class="btn-icon isl-44" data-action="closeRunbookModal" >✕</button>
       </div>
       <div id="runbook-modal-meta" class="isl-509">—</div>
@@ -8651,7 +8667,7 @@ async function aiGenerateRunbook(devId, deviceName) {
   _ensureRunbookModal();
   _runbookModalEl.classList.add('active');
   _runbookCurrentDevice = {id: devId, name: deviceName};
-  document.getElementById('runbook-modal-title').textContent = `✨ Runbook — ${deviceName}`;
+  document.getElementById('runbook-modal-title').textContent = `Runbook — ${deviceName}`;
   document.getElementById('runbook-modal-meta').textContent =
     'Gathering device snapshot and asking the AI to write a runbook — this can take 30–120 s on slow local models.';
   const body = document.getElementById('runbook-modal-body');
@@ -8752,7 +8768,7 @@ function _renderRunbookSectionHtml(devId, resp) {
     return `<div class="isl-530">
       <div class="isl-93">
         <div class="isl-433">Runbook</div>
-        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">✨ Generate runbook</button>
+        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">${_icon('sparkles',14)} Generate runbook</button>
       </div>
       <div class="hint">No runbook generated yet for this device.</div>
     </div>`;
@@ -8766,7 +8782,7 @@ function _renderRunbookSectionHtml(devId, resp) {
       </div>
       <div class="row-6">
         <button class="btn-icon badge-xs" data-action="aiViewRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">Open full</button>
-        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">✨ Regenerate</button>
+        <button class="btn-icon badge-xs" data-action="aiGenerateRunbook" data-arg="${escAttr(devId)}" data-arg2="${escAttr(_lastOpenDeviceName||'')}">${_icon('sparkles',14)} Regenerate</button>
         <button class="btn-icon isl-459" data-action="aiDeleteRunbook" data-arg="${escAttr(devId)}" >Delete</button>
       </div>
     </div>
@@ -9915,7 +9931,7 @@ async function _renderHomeFleet(devs) {
   devs = (devs || []).filter(d => d.monitored !== false);
   if (devs.length === 0) {
     target.innerHTML = `<div class="empty-state isl-553">
-      <div class="empty-state-icon">📦</div>
+      <div class="empty-state-icon">${_icon('package',32)}</div>
       <div class="empty-state-title">No devices enrolled yet</div>
       <div class="empty-state-body">Once you enroll your first device, you'll see its 7-day status stripe here.</div>
     </div>`;
@@ -9959,9 +9975,9 @@ async function _renderHomeFleet(devs) {
   }).join('');
 }
 
-// ─── v2.2.1: ✨ identity extension ──────────────────────────────────────
+// ─── v2.2.1: AIidentity extension ──────────────────────────────────────
 //
-// Stamps every ✨ button across the app with the .ai-btn class plus a
+// Stamps every AIbutton across the app with the .ai-btn class plus a
 // provider-tinted variant (`.available` for cloud providers, `.local`
 // for Ollama/LocalAI). The CSS adds a subtle animated glow.
 //
@@ -9994,12 +10010,16 @@ async function _getAiConfigCached() {
 async function applyAiIdentity() {
   const cfg = await _getAiConfigCached();
   if (!cfg.enabled) return;
-  // Find every ✨ button — text content contains the sparkle character —
-  // and stamp the class. Idempotent: querySelectorAll re-finds them on
-  // each render, but adding a class twice is a no-op.
+  // v3.3.0: was a text.indexOf('AI') sniff. Emoji are gone from the UI,
+  // so we detect AI buttons by the action name pattern instead. Every
+  // AI button's data-action / data-action-btn starts with "ai" or
+  // contains "aiExplain" / "aiTriage" / "aiPrioritise" / etc., or
+  // explicitly carries data-ai-btn="1". Idempotent — adding a class
+  // twice is a no-op.
+  const AI_ACTION_RX = /^(ai[A-Z]|_ai[A-Z]|scriptEditorAI|aiGenerateRunbook|aiInvestigate|aiViewRunbook|testAIConnection|csGenerateWithAI)/;
   document.querySelectorAll('button, .btn-icon').forEach(btn => {
-    const t = btn.textContent || '';
-    if (t.indexOf('✨') >= 0) {
+    const act = btn.dataset.action || btn.dataset.actionBtn || '';
+    if (btn.dataset.aiBtn === '1' || AI_ACTION_RX.test(act)) {
       btn.classList.add('ai-btn');
       btn.classList.add(cfg.isLocal ? 'local' : 'available');
     }
@@ -10037,7 +10057,10 @@ async function applyAiIdentity() {
 // Helper: render the three-sparkle "thinking" indicator for AI loading
 // states. Replaces the generic spinner in AI-aware modals.
 function aiThinkingHtml() {
-  return '<span class="ai-thinking"><span class="sparkle">✨</span><span class="sparkle">✨</span><span class="sparkle">✨</span></span>';
+  // v3.3.0: emoji sparkle replaced with three pulsing dots that animate
+  // via existing .sparkle-dot CSS (defined alongside .sparkle's
+  // animation, fallback works without the CSS update).
+  return '<span class="ai-thinking"><span class="sparkle">·</span><span class="sparkle">·</span><span class="sparkle">·</span></span>';
 }
 
 // ─── v2.2.1: helper used by per-row hover affordances ───────────────────
@@ -10223,7 +10246,7 @@ async function _refreshDriftDiff() {
     }
     if (data.denied) {
       body.innerHTML = `<div class="empty-state">
-        <div class="empty-state-icon">🔒</div>
+        <div class="empty-state-icon">${_icon('lock',32)}</div>
         <div class="empty-state-title">Content retrieval refused</div>
         <div class="empty-state-body">${escHtml(data.error || 'Path is on the drift-content denylist.')}</div>
       </div>`;
@@ -10995,7 +11018,7 @@ async function forcePackageScan(devId, name, btn) {
   const _origText = btn ? btn.textContent : '';
   if (btn) {
     btn.disabled    = true;
-    btn.textContent = '⏳ Sending…';
+    btn.textContent = 'Sending…';
     btn.style.cssText += ';opacity:0.7;cursor:wait';
   }
   try {
@@ -11333,7 +11356,7 @@ async function csGenerateWithAI() {
   const btn    = document.getElementById('cs-ai-btn');
   const status = document.getElementById('cs-ai-status');
   btn.disabled = true;
-  status.textContent = '✨ Generating…';
+  status.textContent = 'Generating…';
   status.style.color = 'var(--accent)';
 
   try {
@@ -11477,7 +11500,7 @@ function _hcShowDrift(drift) {
     document.getElementById('hc-drift-sections').textContent = sections.join(', ');
     sections.forEach(s => {
       const el = document.getElementById(`hc-drift-${s}`);
-      if (el) el.textContent = '⚠ drift detected';
+      if (el) el.textContent = 'drift detected';
     });
   } else {
     banner.style.display = 'none';
@@ -12162,6 +12185,24 @@ const _ICONS = {
   wrench:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
   clock:       '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   trash:       '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  // v3.3.0: extra icons for device-icon palette + status pills
+  laptop:      '<rect x="2" y="4" width="20" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>',
+  smartphone:  '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
+  printer:     '<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  globe:       '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  server:      '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+  hardDrive:   '<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>',
+  gamepad:     '<line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/><rect x="2" y="6" width="20" height="12" rx="2"/>',
+  tv:          '<rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>',
+  home:        '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  building:    '<rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="22" x2="9" y2="2"/><line x1="15" y1="22" x2="15" y2="2"/>',
+  factory:     '<path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/>',
+  cloud:       '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  shield:      '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  lock:        '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  unlock:      '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
+  edit:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  partyPopper: '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-1.53.84a2.91 2.91 0 0 1-3.18-.13c-.86-.6-2.08-.55-2.86.13l-.51.43"/><path d="M5 5c2 0 5 1 5 6 0 0 .35.21.61.34"/><path d="M3 21c.6-3.6 4-7 7-7"/>',
 };
 
 function _icon(name, size) {
@@ -12249,7 +12290,7 @@ function _renderDrawerSettings() {
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Icon</span>
-      <input class="form-input isl-620" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="🖥">
+      <input class="form-input isl-620" id="ds-icon" value="${escAttr(d.icon||'')}" placeholder="e.g. monitor, server, cloud">
     </div>
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Monitored</span>
@@ -12329,11 +12370,11 @@ async function _drawerLoadSnmpConfig(devId) {
         status.innerHTML = '<span class="c-muted">Disabled</span>';
       } else if (data.last_ok && !data.last_error) {
         status.innerHTML =
-          `<span class="snmp-pill snmp-ok">📡 polled OK</span> ` +
+          `<span class="snmp-pill snmp-ok">SNMP OK</span> ` +
           `<span class="hint">${_formatTs(data.last_ok)} · sysName ${_escapeHtml(data.sysName || '?')}</span>`;
       } else if (data.last_error) {
         status.innerHTML =
-          `<span class="snmp-pill snmp-fail">📡 failing</span> ` +
+          `<span class="snmp-pill snmp-fail">SNMP fail</span> ` +
           `<span class="hint">${_escapeHtml(data.last_error)}</span>`;
       } else {
         status.innerHTML = '<span class="hint">Enabled, never polled yet — click "Poll now"</span>';
@@ -12429,19 +12470,22 @@ async function _drawerSaveSettings() {
 
 // ── Audit tab ─────────────────────────────────────────────────────────────────
 
+// v3.3.0: audit-section icons now use Lucide SVGs via _icon(name).
+// Each section's `icon` is a key from the _ICONS dictionary (defined
+// near _renderDrawerActions). New section? Add an _ICONS entry too.
 const _AUDIT_SECTIONS = [
-  {key: 'sysinfo',   title: 'System Info',      icon: '🖥'},
-  {key: 'snmp',      title: 'SNMP',             icon: '📡'},
-  {key: 'ports',     title: 'Listening Ports',  icon: '🔌'},
-  {key: 'packages',  title: 'Packages',         icon: '📦'},
-  {key: 'logs',      title: 'Logs',             icon: '📄'},
-  {key: 'commands',  title: 'Command History',  icon: '💻'},
-  {key: 'events',    title: 'Fleet Events',     icon: '📡'},
-  {key: 'drift',     title: 'Drift State',      icon: '⚖'},
-  {key: 'cve',       title: 'CVE Summary',      icon: '🛡'},
-  {key: 'containers',title: 'Containers',       icon: '🐳'},
-  {key: 'metrics',   title: 'Metrics',          icon: '📊'},
-  {key: 'hostcfg',   title: 'Host Config',      icon: '⚙'},
+  {key: 'sysinfo',   title: 'System Info',      icon: 'monitor'},
+  {key: 'snmp',      title: 'SNMP',             icon: 'radio'},
+  {key: 'ports',     title: 'Listening Ports',  icon: 'unplug'},
+  {key: 'packages',  title: 'Packages',         icon: 'package'},
+  {key: 'logs',      title: 'Logs',             icon: 'fileCode'},
+  {key: 'commands',  title: 'Command History',  icon: 'terminal'},
+  {key: 'events',    title: 'Fleet Events',     icon: 'radio'},
+  {key: 'drift',     title: 'Drift State',      icon: 'search'},
+  {key: 'cve',       title: 'CVE Summary',      icon: 'sparkles'},
+  {key: 'containers',title: 'Containers',       icon: 'ship'},
+  {key: 'metrics',   title: 'Metrics',          icon: 'clock'},
+  {key: 'hostcfg',   title: 'Host Config',      icon: 'settings'},
 ];
 
 function _renderDrawerAuditSections() {
@@ -12456,7 +12500,7 @@ function _renderDrawerAuditSections() {
   el.innerHTML = _AUDIT_SECTIONS.map(s =>
     `<details class="audit-section" id="audit-sec-${s.key}" data-audit-key="${s.key}">
       <summary>
-        <span>${s.icon} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
+        <span>${_icon(s.icon, 14)} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
       </summary>
       <div class="audit-section-body" id="audit-body-${s.key}">
         <div class="c-muted">Click to load…</div>
@@ -12535,11 +12579,11 @@ async function _loadAuditSection(key) {
           aiDiv.innerHTML = `
             <button class="btn-secondary fs-12"
               data-action-btn="_aiFindProblemBtn" data-dev-id="${escAttr(id)}" data-journal-sel=".journal-wrap" >
-              ✨ Find the problem
+              ${_icon('sparkles',14)} Find the problem
             </button>
             <button class="btn-secondary fs-12"
               data-action="aiInvestigateDevice" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" >
-              ✨ Full investigation
+              ${_icon('sparkles',14)} Full investigation
             </button>`;
           body.appendChild(aiDiv);
         }
@@ -12755,7 +12799,7 @@ async function _loadAuditSection(key) {
               ${bySev[sev].length>5 ? `<div class="meta-sm-nm">…and ${bySev[sev].length-5} more</div>` : ''}
             </div>`;
           }).join('') ||
-          '<div class="c-green">No CVEs found. 🎉</div>';
+          '<div class="c-green">No CVEs found.</div>';
         break;
       }
 
@@ -13072,8 +13116,8 @@ function expandPortsTable(hidden) {
 // WoL — send magic packet; prompt for MAC only if server says none is stored
 async function _wolWithMacCheck(id, name, btn) {
   // NOTE: do NOT closeDeviceDrawer() — the button must stay visible for feedback
-  const _origText = btn?.textContent || '📡 Wake on LAN';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+  const _origText = btn?.textContent || 'Wake on LAN';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   const _wolDone = (ok, msg) => {
     if (btn) {
       btn.textContent = ok ? '✓ Sent' : '✗ Failed';
@@ -13094,7 +13138,7 @@ async function _wolWithMacCheck(id, name, btn) {
       const mac = prompt(
         `No MAC address stored for ${name}.\nEnter the MAC address (e.g. AA:BB:CC:DD:EE:FF):`, '');
       if (!mac || !mac.trim()) return;
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       const save = await api('POST', `/devices/${id}`, { mac: mac.trim() });
       if (!save?.ok) { _wolDone(false, save?.error || 'Failed to save MAC'); return; }
       data = await api('POST', '/wol', { device_id: id });
@@ -13464,7 +13508,7 @@ async function iacGenerate(btn, withAi) {
   _iacSavePref();
   const origText = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '⏳ Requesting collection…';
+  btn.textContent = 'Requesting collection…';
   _iacStatus('Asking agent to collect data… (~60s on next heartbeat)');
   document.getElementById('iac-code-output').textContent = '';
 
@@ -13490,7 +13534,7 @@ async function iacGenerate(btn, withAi) {
       _iacStatus('Timeout waiting for agent — try again', 'error');
       return;
     }
-    btn.textContent = `⏳ Collecting (${Math.floor(elapsed/1000)}s)…`;
+    btn.textContent = `Collecting (${Math.floor(elapsed/1000)}s)…`;
     const status = await api('GET', `/iac/status/${encodeURIComponent(req.request_id)}`);
     if (!status) return;
     if (status.status === 'error') {
@@ -13507,7 +13551,7 @@ async function iacGenerate(btn, withAi) {
       // it as a file. No LLM call, no token spend.
       if (!withAi) {
         _iacStatus('Data collected — preparing JSON download…');
-        btn.textContent = '⏳ Preparing…';
+        btn.textContent = 'Preparing…';
         const payload = await api('GET', `/iac/payload/${encodeURIComponent(req.request_id)}`);
         btn.disabled = false; btn.textContent = origText;
         if (!payload) { _iacStatus('Failed to fetch payload', 'error'); return; }
@@ -13520,11 +13564,11 @@ async function iacGenerate(btn, withAi) {
         URL.revokeObjectURL(url);
         document.getElementById('iac-json-btn').disabled  = false;
         document.getElementById('iac-rerun-btn').disabled = false;
-        _iacStatus(`Done — JSON downloaded (${(JSON.stringify(payload).length/1024).toFixed(1)} KB). Click "↻ Re-run AI" to feed this same data to the LLM.`, 'done');
+        _iacStatus(`Done — JSON downloaded (${(JSON.stringify(payload).length/1024).toFixed(1)} KB). Click "Re-run AI" to feed this same data to the LLM.`, 'done');
         return;
       }
       _iacStatus('Data collected — calling AI provider…');
-      btn.textContent = '⏳ Generating…';
+      btn.textContent = 'Generating…';
       // Step 3: generate
       const instr = document.getElementById('iac-user-instructions')?.value || '';
       const gen = await api('POST', '/iac/generate', {
@@ -13554,7 +13598,7 @@ async function iacGenerate(btn, withAi) {
       _iacRenderConversation();
       const sizeKb = (_iacLastCode.length/1024).toFixed(1);
       if (gen.markers_used === false) {
-        _iacStatus(`⚠ Model ignored the BEGIN_IAC/END_IAC markers — output may include reasoning prose. Try Re-run AI or check the Conversation tab. (${sizeKb} KB)`, 'error');
+        _iacStatus(`Model ignored the BEGIN_IAC/END_IAC markers — output may include reasoning prose. Try Re-run AI or check the Conversation tab. (${sizeKb} KB)`, 'error');
       } else {
         _iacStatus(`Done — ${sizeKb} KB of ${fmt}`, 'done');
       }
@@ -13618,7 +13662,7 @@ async function _iacRerunAi(btn) {
   const instr = document.getElementById('iac-user-instructions')?.value || '';
   if (!fmt) { toast('Select an output format', 'error'); return; }
   const origText = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳ Re-prompting…';
+  btn.disabled = true; btn.textContent = 'Re-prompting…';
   _iacStatus('Re-prompting AI with cached data…');
   try {
     const gen = await api('POST', '/iac/generate', {
@@ -13761,7 +13805,7 @@ async function saveAiParams(key, btn) {
     num_ctx:     _v('.prompt-numctx'),
   };
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳';
+  btn.disabled = true; btn.textContent = '…';
   const r = await api('POST', '/ai/params', body);
   btn.disabled = false;
   if (r?.ok) {
@@ -13796,7 +13840,7 @@ async function saveAiPrompt(key, btn) {
   const payload  = (text && text !== defaultV) ? text : '';
   const label    = card?.querySelector('strong')?.textContent || key;
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  btn.disabled = true; btn.textContent = 'Saving…';
   const r = await api('POST', '/ai/prompts', { key, text: payload });
   btn.disabled = false;
   if (r?.ok) {
@@ -13816,7 +13860,7 @@ async function resetAiPrompt(key, btn) {
   if (!ta) return;
   const label = card?.querySelector('strong')?.textContent || key;
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳…';
+  btn.disabled = true; btn.textContent = '…';
   const r = await api('POST', '/ai/prompts', { key, text: '' });
   btn.disabled = false;
   if (r?.ok) {
@@ -14068,7 +14112,7 @@ function _acmeRenderTable() {
         <td colspan="6" class="hint">acme.sh ${escHtml(r.version || '')} installed at <code>${escHtml(r.home)}</code> — no certs yet</td>
         <td class="row-4">
           <button class="btn-icon badge-sm" title="Issue a new cert" data-action="acmeOpenIssue" data-arg="${escAttr(r.device_id)}" >+ Issue</button>
-          <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >↻ Rescan</button>
+          <button class="btn-icon badge-sm" title="Force agent to rescan ~/.acme.sh on next heartbeat (default cadence is hourly)" data-stop-prop="1" data-action="acmeForceRescan" data-arg="${escAttr(r.device_id)}" >Rescan</button>
         </td>
       </tr>`;
     }
@@ -14099,7 +14143,7 @@ function _acmeRenderTable() {
       <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
       <td data-stop-prop="1" class="nowrap">
         <button class="btn-icon badge-xs" title="Force renew now"
-                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >↻</button>
+                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" ></button>
         <button class="btn-icon isl-675" title="Revoke and remove"
                 data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >✗</button>
       </td>
@@ -14201,7 +14245,7 @@ function _acmeRenderDetail(r) {
         ${c.key_path ? `<div>Key: <code>${escHtml(c.key_path)}</code></div>` : ''}
       </div>` : ''}
     <div class="isl-265">
-      <button class="btn-icon" data-action="acmeForceRenew" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >↻ Force renew</button>
+      <button class="btn-icon" data-action="acmeForceRenew" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >Force renew</button>
       <button class="btn-icon c-red" data-action="acmeRevoke" data-arg="${escAttr(_acmeDetailContext.devId)}" data-arg2="${escAttr(c.domain)}" >✗ Revoke + remove</button>
     </div>`;
   document.getElementById('acme-detail-overview').innerHTML = overview;
@@ -14242,7 +14286,7 @@ function _acmeRenderDetail(r) {
         const isCancelled = l.rc === -3 || l.rc === -4;
         let stateLabel;
         if (isCancelled) stateLabel = `<span class="c-muted">⊘ cancelled</span>`;
-        else if (isPending) stateLabel = `<span class="c-amber">⏳ pending</span>`;
+        else if (isPending) stateLabel = `<span class="c-amber">pending</span>`;
         else if (l.rc === 0) stateLabel = `<span class="c-green">✓ rc=0</span>`;
         else stateLabel = `<span class="c-red">✗ rc=${l.rc}</span>`;
         return `<div class="row-6-center">
@@ -14642,7 +14686,7 @@ function _mitigateRenderFixOptions(aiResult) {
     } else if (aiResult.requires_confirmation) {
       warn.style.display = 'block';
       warn.innerHTML = `<div class="isl-695">
-        <strong>⚠ Sensitive — requires explicit RUN confirmation</strong>
+        <strong>Sensitive — requires explicit RUN confirmation</strong>
         <div class="isl-696">Click "Use this as fix command" to take it to the Apply Fix tab, where you'll need to type RUN.</div>
       </div>`;
       document.getElementById('mitigate-ai-use').style.display = 'inline-flex';
@@ -14678,7 +14722,7 @@ function _mitigateRenderFixOptions(aiResult) {
       <input type="radio" name="mitigate-fix-pick" value="${i}" data-change="_mitigateSelectFixOption" data-change-arg="${i}" class="isl-698">
       <div class="isl-445">
         <div class="isl-699 ${o.kind === 'preapproved' ? 'is-pre' : ''}">
-          ${o.kind === 'preapproved' ? '✓ ' : '✨ '}${escHtml(o.label)}
+          ${o.kind === 'preapproved' ? '✓ ' : ''}${escHtml(o.label)}
           ${o.sensitive ? '<span class="isl-700">(RUN required)</span>' : ''}
         </div>
         <code class="isl-701">${escHtml(o.cmd)}</code>
@@ -14745,7 +14789,7 @@ function _mitigateUpdateSafety() {
     document.getElementById('mitigate-fix-go').disabled = true;
   } else if (sensitive) {
     safetyEl.innerHTML = `<div class="isl-704">
-      <strong>⚠ Sensitive command.</strong> Type RUN in the confirmation field below.
+      <strong>Sensitive command.</strong> Type RUN in the confirmation field below.
     </div>`;
     confirmRow.style.display = 'block';
     document.getElementById('mitigate-fix-go').disabled = false;
@@ -15085,7 +15129,7 @@ async function mitigateRunFix() {
   const confirmation = document.getElementById('mitigate-fix-confirm').value.trim();
   const btn = document.getElementById('mitigate-fix-go');
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = '⏳ Queueing…';
+  btn.disabled = true; btn.textContent = 'Queueing…';
   const r = await api('POST', `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/fix`, {
     kind:         _mitigateCtx.kind,
     target:       _mitigateCtx.target,
@@ -15821,7 +15865,7 @@ function renderWebhookDests() {
             <strong>Enabled</strong>
           </label>
           <input type="text" data-field="name" class="form-input isl-738" placeholder="Label (e.g. Pushover crit-only)" value="${escAttr(d.name || '')}">
-          <button class="btn-icon isl-739" title="Test — fire a 'test' event to this destination" data-action="testWebhookDest" data-arg="${idx}">⚡ Test</button>
+          <button class="btn-icon isl-739" title="Test — fire a 'test' event to this destination" data-action="testWebhookDest" data-arg="${idx}">Test</button>
           <button class="btn-icon isl-740" title="Remove" data-action="removeWebhookDest" data-arg="${idx}">×</button>
         </div>
         <div class="isl-741">
