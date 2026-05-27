@@ -427,24 +427,21 @@ def get_patch_info():
                 ['pacman', '-Sy', '--noconfirm', '--noprogressbar'] + pacman_flags,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
             )
+        except subprocess.CalledProcessError as e:
+            result['upgradable'] = None
+            log.warning(f'pacman sync failed (rc={e.returncode}); patch status unknown')
+            return result
+        except Exception as e:
+            result['upgradable'] = None
+            log.warning(f'pacman patch check failed: {e}')
+            return result
+        try:
             out = subprocess.check_output(['pacman', '-Qu'], text=True, timeout=10,
                                           stderr=subprocess.DEVNULL)
-            # `pacman -Qu` rc=1 with empty stdout means "no upgrades available"
-            # which CalledProcessError below catches as 0. rc=0 with stdout
-            # means lines = number of upgrades. Both legitimate.
             result['upgradable'] = len(out.strip().splitlines()) if out.strip() else 0
-        except subprocess.CalledProcessError as e:
-            # rc=1 from `pacman -Qu` on empty result IS the normal "all clean"
-            # path. But CalledProcessError from `pacman -Sy` means the sync
-            # failed (sandbox issue, network, mirror down). Distinguish by
-            # which command was the one that failed.
-            if 'pacman -Qu' in str(e.cmd) if hasattr(e, 'cmd') else False:
-                result['upgradable'] = 0
-            else:
-                # Sync failed — leave upgradable as None so the UI shows
-                # "unknown" rather than falsely reporting fully patched.
-                result['upgradable'] = None
-                log.warning(f'pacman sync failed (rc={e.returncode}); patch status unknown')
+        except subprocess.CalledProcessError:
+            # rc=1 with empty stdout is the normal "no upgrades available" path
+            result['upgradable'] = 0
         except Exception as e:
             result['upgradable'] = None
             log.warning(f'pacman patch check failed: {e}')
