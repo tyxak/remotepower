@@ -979,6 +979,21 @@
         <!-- ── Security ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-security">
           <div class="settings-section">
+            <h3>IP allowlist</h3>
+            <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default.</p>
+            <label class="isl-33">
+              <input type="checkbox" id="cfg-ipal-enabled" class="isl-34">
+              <span class="fs-14">Enforce IP allowlist</span>
+            </label>
+            <div class="form-group">
+              <label class="form-label">Allowed IPs and CIDR ranges (one per line)</label>
+              <textarea id="cfg-ipal-list" class="form-input ff-mono" rows="6" placeholder="10.0.0.0/8&#10;192.168.1.42&#10;fd00::/8"></textarea>
+              <div class="meta-sm">Your current IP: <code id="cfg-ipal-mine">(loading)</code>. Add it first if you plan to enable the gate — the save handler refuses to enforce the allowlist while your address isn't in it.</div>
+            </div>
+            <button class="btn-primary" data-action="saveIpAllowlist">Save IP allowlist</button>
+          </div>
+
+          <div class="settings-section">
             <h3>Two-Factor Authentication (2FA)</h3>
             <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
             <div id="totp-status" class="mb-12"></div>

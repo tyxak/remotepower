@@ -1535,6 +1535,13 @@ async function loadSecurityDiag() {
       archive > 0 ? `${(archive / 1024).toFixed(1)} KB` : '—';
     document.getElementById('cfg-audit-retention').textContent =
       String(diag.audit_log_retention_days ?? '—');
+    // v3.3.0: IP allowlist UI state.
+    const ipEnabled = document.getElementById('cfg-ipal-enabled');
+    const ipList    = document.getElementById('cfg-ipal-list');
+    const ipMine    = document.getElementById('cfg-ipal-mine');
+    if (ipEnabled) ipEnabled.checked = !!diag.ip_allowlist_enabled;
+    if (ipList)    ipList.value = (diag.ip_allowlist || []).join('\n');
+    if (ipMine)    ipMine.textContent = diag.your_ip || '(unknown)';
   }
   // HSTS detection — issue a HEAD against the current page and read
   // the Strict-Transport-Security header out of the response. Fetch
@@ -2102,6 +2109,30 @@ async function loadAbout() { try { const v = await api('GET', '/version'); if (v
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
+
+// v3.3.0: operator-triggered agent removal. Server queues an 'uninstall'
+// command; on next heartbeat (~60s) the agent stops + disables the
+// systemd unit, deletes credentials + state, removes the binary, then
+// exits. The device record stays in the dashboard so history, tags,
+// groups, etc. survive — re-enrollment with the same device_id is
+// supported if the operator re-installs the agent later.
+async function uninstallAgent(id, name) {
+  const msg = `Uninstall the RemotePower agent on "${name}"?\n\n` +
+              `This will:\n` +
+              `  • stop and disable the systemd service\n` +
+              `  • delete /etc/remotepower/credentials and state files\n` +
+              `  • remove /usr/local/bin/remotepower-agent\n\n` +
+              `The device record stays here so you can re-enroll later.\n` +
+              `Continue?`;
+  if (!confirm(msg)) return;
+  const r = await api('POST', `/devices/${id}/uninstall-agent`, {});
+  if (r && r.ok) {
+    toast(`Uninstall queued for ${name} — completes on next heartbeat`, 'success');
+    setTimeout(loadDevices, 3000);
+  } else {
+    toast(r?.error || 'Failed to queue uninstall', 'error');
+  }
+}
 // v1.11.7: per-device upgrade packages from the dropdown menu. Mirrors
 // the existing batch-upgrade flow but for one device at a time. Used to
 // require selecting the device first, then clicking the toolbar batch
@@ -10577,6 +10608,28 @@ function loadSshUsername() {
   if (el) el.value = getDefaultSshUsername();
 }
 
+// v3.3.0: save IP allowlist + enabled flag in one POST. Server-side
+// guard refuses to enable the allowlist if the caller's own IP would
+// be excluded.
+async function saveIpAllowlist() {
+  const enabled = document.getElementById('cfg-ipal-enabled').checked;
+  const raw     = document.getElementById('cfg-ipal-list').value || '';
+  const list    = raw.split('\n').map(s => s.trim()).filter(Boolean);
+  const r = await api('POST', '/config', {
+    ip_allowlist:         list,
+    ip_allowlist_enabled: enabled,
+  });
+  if (r && r.ok) {
+    toast(enabled
+      ? `IP allowlist enabled (${list.length} entr${list.length === 1 ? 'y' : 'ies'})`
+      : 'IP allowlist saved (not enforced — toggle is off)',
+      'success');
+    loadSecurityDiag();
+  } else {
+    toast(r?.error || 'Failed to save IP allowlist', 'error');
+  }
+}
+
 async function saveSshUsername() {
   const el = document.getElementById('cfg-ssh-username');
   if (!el) return;
@@ -11577,6 +11630,10 @@ let _processRows = [];
 async function loadProcesses() {
   const tbody = document.getElementById('processes-tbody');
   if (!tbody) return;
+  // Wire sort indicators eagerly so the ↕ arrows appear even before data
+  // arrives (and in empty / failure states). Other Monitoring tables do
+  // the same — keeps the column UX consistent.
+  tableCtl.wireSortOnly('processes-thead', 'processes', _renderProcessesFiltered);
   tbody.innerHTML = '<tr><td colspan="5" class="c-muted-padded">Loading…</td></tr>';
   const devs = await api('GET', '/devices');
   if (!Array.isArray(devs)) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Failed to load.</td></tr>'; return; }
@@ -11874,6 +11931,7 @@ function _renderDrawerActions() {
     ['📜', 'Run script',       () => { closeDeviceDrawer(); openScriptRunForDevice(id, name); },              false, agentless],
     ['🔧', 'Update agent',     () => { closeDeviceDrawer(); sendUpdate(id, name); },                          false, agentless],
     ['⚡', 'Force-upgrade',    () => { closeDeviceDrawer(); forceAgentUpgrade(id, name); },                   true,  agentless],
+    ['🧹', 'Uninstall agent',  () => { closeDeviceDrawer(); uninstallAgent(id, name); },                      true,  agentless],
     ['🐳', 'Docker compose',   () => { closeDeviceDrawer(); openComposeModal(id, name); },                    false, agentless],
     ['⚙',  'Host config',     () => { closeDeviceDrawer(); openHostConfigModal(id, name); },                 false, agentless],
     ['✨', 'AI Investigate',   () => aiInvestigateDevice(id, name),                                           false, false],

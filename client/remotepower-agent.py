@@ -2158,6 +2158,81 @@ def enroll_interactive(re_enroll=False):
     except Exception as e:
         print(f"✗ Error contacting server: {e}"); sys.exit(1)
 
+def _execute_uninstall():
+    """v3.3.0: tear down this agent in place.
+
+    Order matters: we want the OS-level cleanup (stop unit, remove
+    files) to happen before the binary deletion, and we want the
+    binary to outlive this Python process long enough to be unlinked
+    by a detached shell. The shell trampoline writes itself to a
+    tempfile, exec's, and then deletes the binary + sleeps + kills
+    its parent so the running agent exits cleanly.
+    """
+    import tempfile as _tf
+    # 1. Disable the systemd unit (so it doesn't auto-start at boot
+    #    and so a future reinstall starts from a clean slate). Done
+    #    here, in-process, so the disable runs as root.
+    for action in ('stop', 'disable'):
+        try:
+            subprocess.run(['systemctl', action, 'remotepower-agent'],
+                           timeout=15, check=False)
+        except Exception as e:
+            log.warning(f"systemctl {action} failed: {e}")
+    # 2. Remove credentials + state + the systemd unit file.
+    targets = [
+        CREDS_FILE,
+        PKG_HASH_FILE,
+        STATE_DIR / 'last-cmd',
+        STATE_DIR / 'poll-interval',
+        STATE_DIR / 'boot-reason',
+        Path('/etc/systemd/system/remotepower-agent.service'),
+        Path('/var/log/remotepower-agent.log'),
+    ]
+    for p in targets:
+        try:
+            if p.exists() or p.is_symlink():
+                p.unlink()
+        except Exception as e:
+            log.warning(f"failed to remove {p}: {e}")
+    # 3. Try to remove the config dir if it's empty.
+    try:
+        if CONF_DIR.exists():
+            for child in CONF_DIR.iterdir():
+                # Other files in /etc/remotepower may belong to operator
+                # — leave them. We only clear files we put there.
+                break
+            else:
+                CONF_DIR.rmdir()
+    except Exception:
+        pass
+    # 4. Detach a cleanup trampoline: remove the binary + run
+    #    daemon-reload + kill this PID. Spawned with start_new_session
+    #    so it survives our exit.
+    try:
+        script = f"""#!/bin/sh
+sleep 2
+rm -f {AGENT_BINARY!s}
+systemctl daemon-reload 2>/dev/null || true
+kill {os.getpid()} 2>/dev/null || true
+"""
+        fd, path = _tf.mkstemp(prefix='rp-uninstall-', suffix='.sh')
+        try:
+            os.write(fd, script.encode())
+        finally:
+            os.close(fd)
+        os.chmod(path, 0o700)
+        subprocess.Popen(['/bin/sh', path],
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        log.info("Uninstall trampoline spawned — agent will exit shortly.")
+    except Exception as e:
+        log.error(f"failed to spawn uninstall trampoline: {e}")
+    # 5. Stop the main loop (clean exit so the user sees a final log
+    #    line). The trampoline will SIGTERM us in 2s if we don't exit.
+    sys.exit(0)
+
+
 # ─── Command execution ──────────────────────────────────────────────────────────
 def execute_command(cmd):
     if cmd == 'shutdown':
@@ -2174,6 +2249,15 @@ def execute_command(cmd):
         log.info("Executing: self-update (server-initiated)")
         creds = load_credentials()
         if creds: check_for_update(creds['server_url'])
+    elif cmd == 'uninstall':
+        # v3.3.0: operator-triggered agent removal. Stops the systemd
+        # unit, deletes credentials + state, removes the binary, then
+        # spawns a detached cleanup so this process can exit cleanly.
+        # The device record on the server STAYS — operator can later
+        # re-install + re-enroll (with the existing device_id+token if
+        # any backup exists, otherwise as a new device via PIN).
+        log.info("Executing: uninstall (server-initiated)")
+        _execute_uninstall()
     elif cmd.startswith('poll_interval:'):
         # Server is requesting a poll interval change
         try:

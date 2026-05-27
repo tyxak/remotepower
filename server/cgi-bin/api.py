@@ -1389,6 +1389,91 @@ def _clear_login_failures(username: str):
         save(RATELIMIT_FILE, rl)
 
 
+def _ip_in_allowlist(ip: str, entries) -> bool:
+    """Match an IP against a list of CIDR/host strings. Empty list
+    rejects everything (the caller decides whether allowlist mode is
+    on). Loopback always matches independently of the list — see
+    _enforce_ip_allowlist.
+
+    Accepts bare addresses (`1.2.3.4`, `::1`) and CIDR notation
+    (`192.168.0.0/24`, `fd00::/8`).
+    """
+    if not ip:
+        return False
+    try:
+        import ipaddress as _ip
+        target = _ip.ip_address(ip)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(entries, list):
+        return False
+    for raw in entries:
+        if not isinstance(raw, str):
+            continue
+        raw = raw.strip()
+        if not raw or raw.startswith('#'):
+            continue
+        try:
+            if '/' in raw:
+                if target in _ip.ip_network(raw, strict=False):
+                    return True
+            else:
+                if target == _ip.ip_address(raw):
+                    return True
+        except (ValueError, TypeError):
+            continue
+    return False
+
+
+# Paths exempt from the IP allowlist — must always be reachable so the
+# operator never accidentally bricks agent enrollment / heartbeats by
+# enabling the gate. Each agent picks up the same IP allowlist for the
+# UI, not for itself.
+_IP_ALLOWLIST_EXEMPT_PATHS = (
+    '/api/heartbeat',
+    '/api/enroll/pin',
+    '/api/enroll/register',
+    '/api/enroll/token',
+    '/api/agent/version',
+    '/api/agent/download',
+    '/api/csp-report',
+    '/api/health',
+    '/api/public-info',
+)
+
+
+def _enforce_ip_allowlist():
+    """v3.3.0: optional IP allowlist for UI/API access.
+
+    When `ip_allowlist_enabled` is True, only requests whose source IP
+    matches an entry in `ip_allowlist` (CIDRs or bare addresses) are
+    allowed through. Loopback (127.0.0.1 / ::1) is ALWAYS allowed so
+    a local MCP sidecar and the operator's recovery shell can never
+    be locked out. Agent paths (heartbeat, enrollment, agent binary
+    download) are exempted so enabling the allowlist doesn't brick
+    the fleet — agents on dynamic IPs keep working.
+
+    Off by default. The Settings UI's save path refuses to enable the
+    allowlist unless the current request's IP is already in it (or
+    loopback), so an operator can't accidentally lock themselves out
+    in one click.
+    """
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('ip_allowlist_enabled'):
+        return
+    pi = path_info()
+    if pi in _IP_ALLOWLIST_EXEMPT_PATHS:
+        return
+    ip = _get_client_ip()
+    # Loopback safety net — never lock out a local request.
+    if ip in ('127.0.0.1', '::1', '::ffff:127.0.0.1'):
+        return
+    entries = cfg.get('ip_allowlist') or []
+    if _ip_in_allowlist(ip, entries):
+        return
+    respond(403, {'error': 'Your IP is not in the configured allowlist'})
+
+
 def _ip_ratelimit(scope: str, ip: str, max_per_window: int, window: int = 60) -> bool:
     """v3.3.0: per-IP sliding-window rate limit, shared across CGI processes.
 
@@ -3314,6 +3399,12 @@ def handle_security_diag():
         'csp_report_throttle_per_minute': int(cfg.get('csp_report_throttle_per_minute', 10) or 0),
         'csp_reports_last_24h':           csp_24h,
         'hsts_recommended':               True,
+        # v3.3.0: surface the IP allowlist state + the caller's own
+        # source IP so the Settings page can render "your current IP"
+        # and the toggle state without a second round-trip.
+        'ip_allowlist_enabled':           bool(cfg.get('ip_allowlist_enabled')),
+        'ip_allowlist':                   cfg.get('ip_allowlist') or [],
+        'your_ip':                        _get_client_ip(),
     })
 
 
@@ -5040,7 +5131,7 @@ def handle_heartbeat():
     # executed_command webhook — validate it's one of our known command types
     if 'executed_command' in body:
         cmd_val = str(body['executed_command'])[:600]
-        allowed_prefixes = ('shutdown', 'reboot', 'update', 'exec:', 'poll_interval:')
+        allowed_prefixes = ('shutdown', 'reboot', 'update', 'uninstall', 'exec:', 'poll_interval:')
         if any(cmd_val.startswith(p) for p in allowed_prefixes):
             fire_webhook('command_executed', {
                 'device_id': dev_id,
@@ -5519,6 +5610,45 @@ def handle_update_device():
     if not ids: respond(400, {'error': 'No valid device targets'})
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
+
+
+def handle_uninstall_agent(dev_id):
+    """POST /api/devices/<id>/uninstall-agent — queue agent self-removal.
+
+    v3.3.0: queues the 'uninstall' command, which the agent picks up on
+    its next heartbeat. The agent stops + disables its systemd unit,
+    removes credentials + state, deletes the binary, and exits. The
+    device record on the server STAYS in devices.json so:
+      • alerts / history / tags / groups survive.
+      • if the operator later reinstalls the agent on the same host
+        using the existing credentials backup, the device rebinds
+        transparently (existing re-enrollment path).
+      • if the host is wiped first, a fresh PIN-based enrollment
+        creates a new device_id; the old record is the operator's to
+        delete manually.
+
+    Marks `agent_uninstalled=true` on the device record so the Devices
+    page can label these rows.
+    """
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['agent_uninstalled']    = True
+        devices[dev_id]['agent_uninstalled_at'] = int(time.time())
+        devices[dev_id]['agent_uninstalled_by'] = actor
+        dev_name = devices[dev_id].get('name', dev_id)
+    # Queue the command outside the device-file lock.
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        bucket = cmds.setdefault(dev_id, [])
+        if 'uninstall' not in bucket:
+            bucket.append('uninstall')
+    log_command(actor, dev_id, dev_name, 'uninstall')
+    audit_log(actor, 'agent_uninstall_queued', f'device={dev_id} ({dev_name})')
+    respond(200, {'ok': True, 'queued': 'uninstall'})
 
 
 # Single self-detecting upgrade command. Runs on the device and picks
@@ -6444,6 +6574,45 @@ def handle_config_save():
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
+
+    # v3.3.0: IP allowlist (off by default). When enabled, only requests
+    # from listed IPs/CIDRs (plus loopback + agent paths) reach the UI/API.
+    # Refuses to enable the allowlist if the current request's IP isn't
+    # already in the list — operators can't lock themselves out with a
+    # single misclick.
+    incoming_list = body.get('ip_allowlist')
+    incoming_enabled = body.get('ip_allowlist_enabled')
+    if isinstance(incoming_list, list):
+        clean_list = []
+        for raw in incoming_list[:200]:
+            s = _sanitize_str(str(raw), 64, allow_empty=True).strip()
+            if not s:
+                continue
+            try:
+                import ipaddress as _ip
+                if '/' in s:
+                    _ip.ip_network(s, strict=False)
+                else:
+                    _ip.ip_address(s)
+                clean_list.append(s)
+            except (ValueError, TypeError):
+                respond(400, {'error': f'invalid IP/CIDR in allowlist: {s!r}'})
+        cfg['ip_allowlist'] = clean_list
+    if incoming_enabled is not None:
+        want_on = bool(incoming_enabled)
+        if want_on:
+            # Lockout guard: caller's IP must be loopback OR in the new
+            # list (or in the existing one if no list change posted).
+            caller_ip = _get_client_ip()
+            effective_list = cfg.get('ip_allowlist') or []
+            if caller_ip not in ('127.0.0.1', '::1', '::ffff:127.0.0.1') \
+                    and not _ip_in_allowlist(caller_ip, effective_list):
+                respond(400, {
+                    'error': (f"refusing to enable: your IP {caller_ip} is not "
+                              f"in the allowlist. Add it first, save the list, "
+                              f"then re-enable.")
+                })
+        cfg['ip_allowlist_enabled'] = want_on
 
     # v3.0.2: scheduled backup config (nested dict)
     if 'backup' in body and isinstance(body['backup'], dict):
@@ -18497,6 +18666,11 @@ def main():
     # and points elsewhere.
     _enforce_same_origin()
 
+    # v3.3.0: optional IP allowlist. Off by default; when on, blocks
+    # all UI/API access except agent paths and loopback. The save path
+    # for this config rejects edits that would lock the configurer out.
+    _enforce_ip_allowlist()
+
     # v3.0.3: F2 — hard backstop for default-password admin accounts.
     # The warning banner from 2.3.2 nags but doesn't *force* anything;
     # an operator on the default password can ignore it and use the
@@ -18571,6 +18745,8 @@ def main():
         handle_sysinfo_batch()
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/uninstall-agent') and m == 'POST':
+        handle_uninstall_agent(pi[len('/api/devices/'):-len('/uninstall-agent')])
     elif pi.startswith('/api/devices/') and pi.endswith('/metrics') and m == 'GET':
         handle_metrics(pi[len('/api/devices/'):-len('/metrics')])
     elif pi.startswith('/api/devices/') and pi.endswith('/allowlist'):
