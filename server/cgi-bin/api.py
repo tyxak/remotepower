@@ -2037,6 +2037,64 @@ def _channel_routing():
     return migrated
 
 
+# v3.2.3 (#3): per-rule display templates for log alerts. Tech-enthusiast
+# feature — operators with multiple rules per host want each rule's
+# Needs Attention card / alert title to phrase itself differently.
+# We render the rule's `display_template` (when set) by replacing a
+# fixed allowlist of placeholders against the firing payload. Anything
+# outside the allowlist is rejected at save time so a typo can't crash
+# the renderer or expose internals.
+_LOG_TEMPLATE_PLACEHOLDERS = (
+    'device', 'unit', 'pattern', 'count',
+    'sample', 'sample0', 'sample1', 'sample2',
+)
+_LOG_TEMPLATE_RX = re.compile(r'\{([^{}]*)\}')
+
+
+def _validate_log_template(s):
+    """Return (clean, error). Empty string is allowed (template feature
+    is opt-in). Each `{placeholder}` token must be from the allowlist;
+    literal `{` or `}` aren't supported — keep the grammar small."""
+    if not s:
+        return '', None
+    if len(s) > 256:
+        return None, 'display_template too long (max 256 chars)'
+    for m in _LOG_TEMPLATE_RX.finditer(s):
+        token = m.group(1)
+        if token not in _LOG_TEMPLATE_PLACEHOLDERS:
+            return None, (f'unknown placeholder {{{token}}}; allowed: '
+                          + ', '.join('{' + p + '}' for p in _LOG_TEMPLATE_PLACEHOLDERS))
+    return s, None
+
+
+def _render_log_template(template, payload, device_name):
+    """Apply a validated template to the firing payload. Best-effort —
+    missing payload fields render as ''. Never raises; on any error
+    returns None so the caller falls back to the default summary."""
+    if not template:
+        return None
+    try:
+        samples = payload.get('sample') or []
+        repl = {
+            'device':  str(device_name or payload.get('name') or ''),
+            'unit':    str(payload.get('unit') or ''),
+            'pattern': str(payload.get('pattern') or ''),
+            'count':   str(payload.get('count') if payload.get('count') is not None else ''),
+            'sample':  ' | '.join(str(s) for s in samples[:3]),
+            'sample0': str(samples[0]) if len(samples) > 0 else '',
+            'sample1': str(samples[1]) if len(samples) > 1 else '',
+            'sample2': str(samples[2]) if len(samples) > 2 else '',
+        }
+        def _sub(m):
+            return repl.get(m.group(1), '')
+        rendered = _LOG_TEMPLATE_RX.sub(_sub, template)
+        # Cap the output so a template multiplying samples can't blow
+        # up the NA card / alert title.
+        return rendered[:280]
+    except Exception:
+        return None
+
+
 def _channel_allowed(event_or_kind, channel):
     """True if this event (or kind) should reach the channel. Unknown
     event types route as if allowed — better to over-report than to
@@ -2121,6 +2179,10 @@ def _alert_title(event, payload):
         # just the rule regex. Title goes to Alerts inbox, audit log,
         # webhook/email subjects — every reader benefits from seeing
         # what triggered the rule, not what the rule is looking for.
+        # v3.2.3 (#3): per-rule display_template wins when set.
+        tmpl_text = _render_log_template(p.get('display_template'), p, name)
+        if tmpl_text:
+            return f'Log alert on {name}: {tmpl_text}'
         samples = p.get('sample') or []
         unit = p.get('unit', '')
         if samples:
@@ -10979,7 +11041,14 @@ def _compute_attention():
             samples = payload.get('sample') or []
             count = payload.get('count', '?')
             count_label = f'{count} hit{"s" if count != 1 else ""}'
-            if samples:
+            # v3.2.3 (#3): per-rule display_template renders first when
+            # the operator wrote one. Falls back to the default sample
+            # text when the rule has no template.
+            tmpl = payload.get('display_template')
+            tmpl_text = _render_log_template(tmpl, payload, dev_name)
+            if tmpl_text:
+                summary_text = tmpl_text
+            elif samples:
                 first = str(samples[0])[:140]
                 summary_text = f'{unit} matched ({count_label}): {first}'
             else:
@@ -12730,7 +12799,7 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
             if len(matches) >= threshold:
                 fired_keys.add(key)
                 if severity != 'OK':
-                    fire_webhook('log_alert', {
+                    wb_payload = {
                         'device_id': dev_id,
                         'name':      name,
                         'unit':      'syslog',
@@ -12739,7 +12808,11 @@ def _eval_syslog_rules(dev_id, dev, new_lines):
                         'sample':    matches[:3],
                         'scope':     scope,
                         'severity':  severity,
-                    })
+                    }
+                    tmpl = rule.get('display_template')
+                    if tmpl:
+                        wb_payload['display_template'] = tmpl
+                    fire_webhook('log_alert', wb_payload)
 
     _eval(per_device_rules, 'device')
     _eval(global_rules, 'global')
@@ -15675,6 +15748,8 @@ def handle_services_config(dev_id):
             if sev not in ('OK', 'WARN', 'CRIT'):
                 sev = 'WARN'
             ex_pat = _sanitize_str(r.get('exclude_pattern', ''), 128, allow_empty=True)
+            tmpl, _tmpl_err = _validate_log_template(
+                _sanitize_str(str(r.get('display_template', '')), 256, allow_empty=True))
             if unit and pat and 1 <= thr <= 100:
                 # Sanity-check the regex compiles
                 try:
@@ -15692,6 +15767,8 @@ def handle_services_config(dev_id):
                     rule_clean['path'] = file_path
                 if ex_pat:
                     rule_clean['exclude_pattern'] = ex_pat
+                if tmpl:
+                    rule_clean['display_template'] = tmpl
                 log_rules.append(rule_clean)
 
     devices[dev_id]['services_watched'] = watched
@@ -15865,7 +15942,7 @@ def handle_log_submit():
                     # OK rules don't fire webhooks — they're noise suppressors
                     # that confirm "this expected pattern is still present".
                     if severity != 'OK':
-                        fire_webhook('log_alert', {
+                        wb_payload = {
                             'device_id': dev_id,
                             'name':      dev.get('name', dev_id),
                             'unit':      unit,
@@ -15874,7 +15951,15 @@ def handle_log_submit():
                             'sample':    matches[:3],
                             'scope':     scope,  # v1.8.2: 'device' | 'global'
                             'severity':  severity,  # v3.0.1
-                        })
+                        }
+                        # v3.2.3 (#3): pass the rule's display_template
+                        # along so renderers downstream (NA card, alert
+                        # title, webhook subject) can format the event
+                        # the way the operator wrote.
+                        tmpl = rule.get('display_template')
+                        if tmpl:
+                            wb_payload['display_template'] = tmpl
+                        fire_webhook('log_alert', wb_payload)
 
         _eval_rules(per_device_rules, 'device')
         _eval_rules(global_rules,     'global')
@@ -16038,12 +16123,21 @@ def _validate_global_rule(body):
             re.compile(exclude_pattern)
         except re.error as e:
             return None, f'invalid exclude regex: {e}'
+    # v3.2.3 (#3): optional per-rule display template — strict allowlist
+    # of placeholders, validated at save.
+    template_raw = body.get('display_template', '')
+    template_clean, tmpl_err = _validate_log_template(
+        _sanitize_str(str(template_raw or ''), 256, allow_empty=True))
+    if tmpl_err:
+        return None, tmpl_err
     clean = {'unit': unit, 'pattern': pattern,
              'threshold': threshold, 'severity': severity}
     if file_path:
         clean['path'] = file_path
     if exclude_pattern:
         clean['exclude_pattern'] = exclude_pattern
+    if template_clean:
+        clean['display_template'] = template_clean
     return clean, None
 
 

@@ -3792,6 +3792,8 @@ async function openAddRuleModal() {
   document.getElementById('log-rule-pattern').value = '';
   document.getElementById('log-rule-threshold').value = '1';
   document.getElementById('log-rule-exclude').value = '';
+  document.getElementById('log-rule-template').value = '';
+  _renderLogTemplatePreview();
   openModal('log-rule-modal');
 }
 
@@ -3807,10 +3809,19 @@ async function saveLogRule() {
   if (sourceType === 'path' && !path.startsWith('/')) { toast('File path must be absolute (start with /)', 'error'); return; }
   if (!pattern) { toast('Pattern is required', 'error'); return; }
   const excludePattern = document.getElementById('log-rule-exclude').value.trim();
+  const displayTemplate = document.getElementById('log-rule-template').value.trim();
   // Validate regex client-side
   try { new RegExp(pattern); } catch(e) { toast('Invalid regex: '+e.message, 'error'); return; }
   if (excludePattern) {
     try { new RegExp(excludePattern); } catch(e) { toast('Invalid exclude regex: '+e.message, 'error'); return; }
+  }
+  // Validate template placeholders client-side; server validates again.
+  if (displayTemplate) {
+    const allowed = new Set(['device','unit','pattern','count','sample','sample0','sample1','sample2']);
+    const bad = (displayTemplate.match(/\{([^{}]*)\}/g) || [])
+      .map(s => s.slice(1, -1))
+      .filter(t => !allowed.has(t));
+    if (bad.length) { toast(`Unknown template placeholder: {${bad[0]}}`, 'error'); return; }
   }
 
   // Build the rule payload. Server validates either unit OR path.
@@ -3818,6 +3829,7 @@ async function saveLogRule() {
     ? { path, pattern, threshold, severity }
     : { unit, pattern, threshold, severity };
   if (excludePattern) rulePayload.exclude_pattern = excludePattern;
+  if (displayTemplate) rulePayload.display_template = displayTemplate;
 
   if (logsRulesTab === 'global') {
     // Fleet-wide rule
@@ -3860,6 +3872,41 @@ async function saveLogRule() {
     loadPerDeviceLogRules();
   } else {
     toast(result?.error || 'Failed to save rule', 'error');
+  }
+}
+
+// v3.2.3 (#3): live preview of the display_template against synthetic
+// sample data. Fires on every keystroke via data-input dispatch.
+function _renderLogTemplatePreview() {
+  const tmpl = (document.getElementById('log-rule-template')?.value || '').trim();
+  const out = document.getElementById('log-rule-template-preview');
+  if (!out) return;
+  if (!tmpl) { out.innerHTML = ''; return; }
+  const samples = [
+    'Mar 12 09:11:42 host postfix/smtpd[12345]: NOQUEUE: reject: RCPT from unknown[1.2.3.4]: 550 5.1.1',
+    'Mar 12 09:12:03 host postfix/smtpd[12345]: NOQUEUE: reject: RCPT from unknown[5.6.7.8]: 550 5.7.1',
+    'Mar 12 09:12:55 host postfix/smtpd[12345]: NOQUEUE: reject: RCPT from unknown[9.10.11.12]: 550 5.1.1',
+  ];
+  const unit = document.getElementById('log-rule-unit')?.value.trim() || 'postfix.service';
+  const pattern = document.getElementById('log-rule-pattern')?.value.trim() || 'reject';
+  const repl = {
+    device: 'pmg01.tvipper.com',
+    unit, pattern, count: '14',
+    sample: samples.slice(0, 3).join(' | '),
+    sample0: samples[0],
+    sample1: samples[1],
+    sample2: samples[2],
+  };
+  const allowed = new Set(Object.keys(repl));
+  let bad = '';
+  const rendered = tmpl.replace(/\{([^{}]*)\}/g, (m, t) => {
+    if (!allowed.has(t)) { bad = bad || t; return m; }
+    return repl[t];
+  });
+  if (bad) {
+    out.innerHTML = `<span class="c-red-bold">Unknown placeholder: <code>{${escHtml(bad)}}</code></span>`;
+  } else {
+    out.innerHTML = `Preview: <code>${escHtml(rendered.slice(0, 280))}</code>`;
   }
 }
 

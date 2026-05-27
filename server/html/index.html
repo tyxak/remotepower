@@ -4295,6 +4295,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div class="meta-sm">CheckMK-style: WARN/CRIT fire webhooks; OK rules are noise-suppressors that confirm an expected pattern is still present.</div>
   </div>
   <div class="form-group"><label>Exclude pattern (optional)</label><input type="text" id="log-rule-exclude" placeholder="postfix/" maxlength="128" class="ff-mono"><div class="meta-sm">Lines matching this regex are ignored even if they match the pattern above.</div></div>
+  <div class="form-group">
+    <label>Display template (optional)</label>
+    <input type="text" id="log-rule-template" placeholder="{device}: {unit} rejected {count} — {sample0}" maxlength="256" class="ff-mono" data-input="_renderLogTemplatePreview">
+    <div class="meta-sm">Customizes how the alert reads on Needs Attention / Alerts / webhook subjects. Placeholders: <code>{device}</code> <code>{unit}</code> <code>{pattern}</code> <code>{count}</code> <code>{sample}</code> <code>{sample0}</code> <code>{sample1}</code> <code>{sample2}</code>. Leave empty for the default (first matched line).</div>
+    <div class="meta-sm" id="log-rule-template-preview"></div>
+  </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="log-rule-modal" >Cancel</button><button class="btn-primary" data-action="saveLogRule" >Add</button></div>
 </div></div>
 <div class="modal-overlay" id="new-maint-modal"><div class="modal"><div class="modal-title">New maintenance window</div>
