@@ -1664,7 +1664,39 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.3.0 v3.3 channel routing matrix hash agent self-update ip allowlist healthchecks github issues acme dns credentials cloudflare hetzner route53 prometheus status token edit buttons emoji mobile uninstall agent log alert sample exclude pattern display template offline flap">
+          <details class="doc-card" open data-keywords="release notes changelog v3.3.2 v3.3.1 offline flap debounce missed polls per-device threshold maintenance hostname target action buttons icon align acme force renew tip did you know minimal-ui pwa csp qr table dots ellipsis pacman patch status home dashboard fleet events filter settings defaults">
+            <summary><strong>What's new — v3.3.2</strong> — OFFLINE flap fix, UI consistency, PWA polish</summary>
+            <div class="doc-body">
+              <p>Correctness + polish on top of v3.3.0 (covers v3.3.1 and v3.3.2). No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.2</code>).</p>
+
+              <h4>OFFLINE detection no longer flaps</h4>
+              <ul>
+                <li><strong>Per-device threshold + debounce.</strong> A device used to be marked OFFLINE the instant one sweep saw it past the TTL, so a late beat or a stale read produced an OFFLINE&nbsp;→&nbsp;ONLINE flap in the same second. The threshold is now <code>max(global ttl, poll_interval × 5) + grace</code>, and OFFLINE only fires if a <em>second</em> sweep (≥1 poll interval later) still sees the device silent. Recovery stays immediate.</li>
+                <li>The bar is <strong>5 missed polls</strong> (300&nbsp;s at the default 60&nbsp;s poll).</li>
+                <li><strong>Agent patch status</strong> no longer false-warns <code>pacman sync failed</code> on a fully-patched Arch/CachyOS host.</li>
+              </ul>
+
+              <h4>Fixes</h4>
+              <ul>
+                <li><strong>Maintenance windows</strong> show the device <em>hostname</em> in the Target column instead of the opaque device id.</li>
+                <li><strong>Home dashboard</strong> CVE/drift tiles now match the detail pages (stale records for deleted devices no longer inflate the counts).</li>
+                <li><strong>Settings</strong> toggles reflect the real runtime defaults even on servers that never set the v3.3.0 flags (notably <code>webhook_block_local</code>, default on).</li>
+                <li><strong>Fleet events</strong> honour the <code>?event=</code> filter the timeline relies on.</li>
+              </ul>
+
+              <h4>UI</h4>
+              <ul>
+                <li><strong>Action buttons aligned</strong> across pages — paired Edit/Delete/Revoke buttons share one size and icon style; the ACME force-renew button gets its missing icon.</li>
+                <li><strong>No more stray dots in the devices table.</strong> A narrow window could squeeze a fixed-layout column until Chrome painted a <code>&hellip;</code> ellipsis (Firefox clipped silently); the table now clips cleanly with no glyph.</li>
+                <li><strong>PWA defaults to <code>minimal-ui</code></strong> for new installs, and the docked-sidebar layout no longer clips the device table or the "MCP Confirmations" badge.</li>
+                <li><strong>"Did you know?" tips</strong> on the About page surface lesser-known features.</li>
+                <li><strong>TOTP QR</strong> renders as a data-URL image so it doesn't trip the strict <code>style-src 'self'</code> CSP.</li>
+              </ul>
+
+              <p>Forensic per-release detail lives in <code>CHANGELOG.md</code>, <code>docs/v3.3.1.md</code>, and <code>docs/v3.3.2.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.3.0 v3.3 channel routing matrix hash agent self-update ip allowlist healthchecks github issues acme dns credentials cloudflare hetzner route53 prometheus status token edit buttons emoji mobile uninstall agent log alert sample exclude pattern display template offline flap">
             <summary><strong>What's new — v3.3.0</strong> — audit follow-up, integrations, edit buttons, mobile polish</summary>
             <div class="doc-body">
               <p>Substantial release. The audit-driven correctness + perf work, plus four new integrations and the long-overdue edit-button sweep across every operator-managed list. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.0</code>).</p>
