@@ -423,6 +423,7 @@ PIN_TTL                  = 600
 # Settings → Webhooks page or POST /api/config {"online_ttl": 300}.
 DEFAULT_ONLINE_TTL       = 300
 MIN_ONLINE_TTL           = 150          # don't allow flapping under <2.5 poll intervals
+OFFLINE_GRACE_S          = 10           # absorb clock drift / FCGI jitter so a 1-2s late heartbeat doesn't trip OFFLINE
 DEFAULT_POLL_INTERVAL    = 60
 DEFAULT_CVE_CACHE_DAYS   = 7
 MAX_HISTORY       = 200
@@ -3366,7 +3367,7 @@ def check_offline_webhooks(skip_dev_id=None):
             if not last:
                 continue  # never heartbeated, don't claim it went offline
             delta = now - last
-            is_offline = delta > ttl
+            is_offline = delta > ttl + OFFLINE_GRACE_S
             already = notified.get(dev_id, False)
             if is_offline and not already:
                 notified[dev_id] = True
