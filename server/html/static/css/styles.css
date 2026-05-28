@@ -2320,7 +2320,7 @@ input.form-input[type="text"][data-token],
 }
 
 /* v3.3.x: "Did you know?" tip card on the About page. */
-.dyk-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.dyk-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 600px; }
 .dyk-header { display: flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; font-size: 13px; }
 .dyk-header svg { width: 16px; height: 16px; }
 .dyk-text { margin: 0; color: var(--text); font-size: 14px; line-height: 1.5; min-height: 2.6em; }
