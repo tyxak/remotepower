@@ -19,6 +19,20 @@ Follow-through on the v3.3.1 UI fixes.
   PWAs served the stale stylesheet and never saw the fixes. The bump to
   v3.3.2 changes `?v=` + `CACHE_NAME`, forcing a refetch — no manual
   cache clear required.
+- **Devices-table dots — final fix.** The `overflow: visible` backstop
+  alone still left a stray `…` on whichever cell was most squeezed
+  (Chrome paints the ellipsis glyph for any clipped cell; Firefox
+  doesn't). Switching the whole table to `text-overflow: clip` removes
+  the glyph entirely, regardless of which column is narrow.
+- **Emoji purge completed.** Residual emoji the v3.3.0 sweep missed
+  (`🩺` on the Investigate button, `⚙` on Fine-tuning, `⛔` on the
+  command denylist warnings, plus stale doc mentions) → Lucide SVG or
+  plain text.
+- **Per-device "Prioritise CVEs" AI button** on the CVE page — a
+  sparkle on each device row with findings that asks the AI for a ranked
+  remediation plan (new `prioritise_cves` system prompt, mirroring
+  `prioritise_patches`). The CVE page now has both Prioritise (per
+  device) and Triage (per finding).
 
 ## v3.3.1 — 2026-05-28
 
