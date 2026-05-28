@@ -2284,7 +2284,40 @@ async function _editScheduleBtn(btn) {
   openModal('schedule-add-modal');
 }
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
-async function loadAbout() { try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
+// ─── "Did you know?" tips (About page) ───────────────────────────────────
+const _DYK_TIPS = [
+  "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
+  "You can open an SSH session to any device straight from its row using the quick-connect button.",
+  "Stuck on an alert? Ask the built-in AI assistant for remediation suggestions tailored to the affected device.",
+  "RemotePower can take a Proxmox snapshot automatically before deploying changes, giving you an instant rollback point.",
+  "You can write custom scripts to monitor almost anything — niche services, sensors, or your own health checks.",
+  "Issue and renew TLS certificates directly from the dashboard through the built-in ACME (acme.sh) integration.",
+  "Set up a staggered, rolling patch schedule so your fleet updates in waves instead of all at once.",
+  "On the planning board you can drag scheduled tasks around like sticky notes.",
+  "A full REST API with named, non-expiring keys lets you wire RemotePower into the rest of your tooling.",
+  "Connect RemotePower to Claude over MCP to ask questions about your fleet and run commands in plain language.",
+  "Notifications can be routed per event and per channel, so the right people hear about the right things.",
+  "The IaC generator can export your fleet's configuration as Infrastructure-as-Code for version control and reuse.",
+  "There's a built-in web terminal — a full SSH session in your browser, with no client to install.",
+  "Poll your network gear over SNMP to track switches, routers, UPSes, and printers alongside your servers.",
+  "RemotePower hashes watched config files and alerts you the moment one drifts from its baseline.",
+  "Tail any unit or log file and get alerted when a pattern like 'error' or 'FATAL' appears.",
+  "Define maintenance windows to suppress alerts during planned work, so a reboot doesn't page everyone.",
+  "Every table is sortable and filterable — click a column header to reorder, or type to filter in place.",
+  "Agents verify their own updates by hash, not just version number, so a tampered or partial download is refused.",
+];
+let _dykIdx = -1;
+function _renderAboutTip() {
+  const el = document.getElementById('about-tip-text');
+  if (!el) return;
+  let i;
+  do { i = Math.floor(Math.random() * _DYK_TIPS.length); } while (_DYK_TIPS.length > 1 && i === _dykIdx);
+  _dykIdx = i;
+  el.textContent = _DYK_TIPS[i];
+}
+function nextAboutTip() { _renderAboutTip(); }
+
+async function loadAbout() { _renderAboutTip(); try { const v = await api('GET', '/version'); if (v) { document.getElementById('about-server-version').textContent = v.current || '—'; const latestEl = document.getElementById('about-latest-version'); if (v.latest) { latestEl.textContent = v.latest; if (v.update_available) { latestEl.style.color = 'var(--amber)'; latestEl.textContent += ' · update available'; } else { latestEl.style.color = 'var(--green)'; latestEl.textContent += ' ✓ up to date'; } } } } catch(e) {} try { const av = await api('GET', '/agent/version'); if (av && av.version) document.getElementById('about-agent-version').textContent = av.version; } catch(e) {} }
 function openTagModal(id, currentTags) { document.getElementById('tag-device-id').value = id; document.getElementById('tag-input').value = currentTags; openModal('tag-modal'); }
 async function saveTags() { const id = document.getElementById('tag-device-id').value; const raw = document.getElementById('tag-input').value; const tags = raw.split(',').map(t => t.trim()).filter(t => t.length > 0); const r = await fetch('/api/devices/' + id + '/tags', { method: 'PATCH', headers: {'Content-Type': 'application/json', 'X-Token': getToken()}, body: JSON.stringify({tags}) }); if (r.status === 401) { doLogout(); return; } const data = await r.json(); if (data?.ok) { toast(`Tags saved: ${tags.length ? tags.join(', ') : 'none'}`, 'success'); closeModal('tag-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function sendUpdate(id, name) { if (!confirm(`Push agent self-update to "${name}"?\nThe agent will update and restart within 60 seconds.`)) return; const data = await api('POST', '/update-device', {device_id: id}); if (data?.ok) toast(`Update queued for ${name}`, 'success'); else toast(data?.error || 'Failed', 'error'); }
@@ -3594,7 +3627,7 @@ function _registerMaintTable() {
     getColumns: (w) => ({
       reason: w.reason || '',
       scope:  w.scope || '',
-      target: w.target || '',
+      target: w.target_name || w.target || '',
       // 'when' as a sortable thing is messy — for cron we sort by the
       // cron string; for fixed windows we sort by start. Good enough.
       when:   w.cron || w.start || '',
@@ -3610,7 +3643,7 @@ function _registerMaintTable() {
       const status = w.active
         ? '<span class="c-amber-bold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> ACTIVE</span>'
         : '<span class="c-muted">scheduled</span>';
-      const target = w.scope === 'global' ? '—' : escHtml(w.target || '—');
+      const target = w.scope === 'global' ? '—' : escHtml(w.target_name || w.target || '—');
       const winKey = _storeEvtData(w);
       return `<tr>
         <td class="fw-500">${escHtml(w.reason || '(no reason)')}</td>

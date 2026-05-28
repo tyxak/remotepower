@@ -2,6 +2,72 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.3.1 — 2026-05-28
+
+Correctness + polish release on top of v3.3.0. No breaking changes, no
+schema changes. Headline is a rework of OFFLINE detection that ends the
+device flapping seen in production; the rest is a sweep of live-instance
+bugs and UI consistency fixes found while preparing for public
+production. The service-worker cache version is bumped, so installed
+PWAs pick up the UI fixes automatically.
+
+### OFFLINE detection hardening
+
+- **OFFLINE no longer fires on a single sample.** The per-request sweep
+  decided offline the instant one read saw `delta > ttl`, so a late
+  beat, a stale read landing before an in-flight heartbeat's rename, or
+  the lost-update race produced `OFFLINE` → `ONLINE` in the same second.
+  Three layers now guard the decision via `_offline_thresholds`:
+  - a fixed jitter **grace** (`OFFLINE_GRACE_S`) folded into the cutoff;
+  - a **per-device threshold**,
+    `max(global ttl, poll_interval × OFFLINE_MISSED_POLLS) + grace`, so a
+    30s poller and a 600s poller no longer share one cutoff;
+  - a **debounce** (`offline_pending`): the first sweep past the
+    threshold only arms a candidate; `OFFLINE` fires only if a later
+    sweep ≥1 poll interval on still sees it silent. A live device beats
+    in between and clears the candidate. Recovery stays immediate.
+- **Offline bar is now 5 missed polls** (`OFFLINE_MISSED_POLLS = 5`) —
+  300s at the default 60s poll, matching `DEFAULT_ONLINE_TTL`.
+- `offline_pending` is managed wherever `offline_notified` is, and is
+  purged on device delete (which previously leaked `offline_notified`).
+
+### Bug fixes
+
+- **Agent patch status no longer false-warns on clean hosts.**
+  `get_patch_info()` distinguished `pacman -Sy` from `pacman -Qu`
+  failures with `'pacman -Qu' in str(e.cmd)`, but `str(['pacman','-Qu'])`
+  never contains that substring, so every normal `pacman -Qu` exit-1
+  ("no upgrades") was reported as `pacman sync failed (rc=1)`. The two
+  commands now sit in separate try blocks.
+- **Home dashboard CVE/drift counts match the detail pages.** `/api/home`
+  aggregated by iterating `cve_findings.json` / `drift_state.json`
+  directly, so stale records for deleted devices inflated the tiles. Both
+  aggregators now iterate live device ids, matching the detail handlers.
+- **Settings reflect real runtime defaults.** `handle_config_get()` only
+  echoed keys present in `config.json`, so v3.3.0 flags rendered "off" on
+  servers that never set them (notably `webhook_block_local`, whose
+  runtime default is "on"). The handler now `setdefault()`s those flags.
+- **Fleet events honour `?event=`.** `handle_fleet_events` ignored the
+  query filter the UI timeline relies on; it now filters by event name
+  (multiple values OR together; unknown names return empty).
+
+### UI
+
+- **Action buttons aligned across pages.** Edit/Delete/Revoke siblings
+  mixed 14px icons with raw glyphs (`×` / `✗`) and one-off padding, so
+  paired buttons were different sizes; they now share a class and icon
+  style. The ACME **force-renew** button — previously rendered with no
+  icon — gets its refresh icon.
+- **PWA standalone clipping fixed.** The docked ~220px sidebar wasn't
+  subtracted from the device-table column breakpoints, so a narrow PWA
+  window collapsed the Status pill to `…`; the nav scrollbar also clipped
+  the "MCP Confirmations" badge. Fixed, scoped to
+  `@media (display-mode: standalone)` so the browser UI is untouched.
+- **Maintenance windows show the device hostname** instead of the opaque
+  device id (resolved in the list endpoint as `target_name`).
+- **"Did you know?" tips on the About page** surface lesser-known
+  features, with a button to cycle through them.
+
 ## v3.3.0 — 2026-05-27
 
 Audit follow-up release. Three Explore agents swept the code for bugs,

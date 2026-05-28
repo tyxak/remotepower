@@ -1,0 +1,151 @@
+"""v3.3.1 release tests.
+
+Strict version pins for v3.3.1. The v3.3.0 strict pins loosen to regex
+when this file ships, following the same convention every prior
+release-bump test followed.
+
+v3.3.1 is a correctness + polish release on top of v3.3.0:
+  - OFFLINE detection hardening: per-device threshold
+    (max(global ttl, poll_interval * OFFLINE_MISSED_POLLS) + grace) plus a
+    debounce (offline_pending) so a single stale/late sample can no longer
+    flap a device OFFLINE → ONLINE in the same second. Bar is now 5 missed
+    polls.
+  - Maintenance windows resolve a device-scoped target id to its hostname.
+  - Action buttons aligned across pages (icon vs raw glyph), and the ACME
+    force-renew button gets its missing icon.
+  - PWA standalone clipping fix (device-table Status column + nav badge).
+  - "Did you know?" tips on the About page.
+"""
+import re
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+class TestVersionBumps(unittest.TestCase):
+    """v3.3.1 takes the strict version pin (following prior convention)."""
+    EXPECTED = '3.3.1'
+
+    def test_api_server_version(self):
+        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
+        self.assertEqual(m.group(1), self.EXPECTED)
+
+    def test_agent_version(self):
+        text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        self.assertIsNotNone(m, 'VERSION line missing from agent')
+        self.assertEqual(m.group(1), self.EXPECTED)
+
+    def test_agent_extensionless_matches_py(self):
+        a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
+        b = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_bytes()
+        self.assertEqual(a, b,
+            'remotepower-agent and remotepower-agent.py have drifted')
+
+    def test_sw_cache_name(self):
+        sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
+        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
+            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+
+    def test_index_cache_bust(self):
+        html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.assertIn(f'?v={self.EXPECTED}', html,
+            f'index.html cache-bust ?v= must be {self.EXPECTED}')
+
+    def test_readme_badge(self):
+        text = (REPO_ROOT / 'README.md').read_text()
+        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
+            'README.md version badge not bumped')
+
+    def test_changelog_top_entry(self):
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
+        self.assertEqual(m.group(1), self.EXPECTED,
+            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+
+    def test_release_notes_doc_present(self):
+        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
+        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
+        self.assertIn(self.EXPECTED, path.read_text())
+
+
+class TestOfflineHardening(unittest.TestCase):
+    """OFFLINE flap fixes: per-device threshold + debounce + 5-missed bar."""
+
+    def setUp(self):
+        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+
+    def test_missed_polls_is_five(self):
+        m = re.search(r'^OFFLINE_MISSED_POLLS\s*=\s*(\d+)', self.api, re.MULTILINE)
+        self.assertIsNotNone(m, 'OFFLINE_MISSED_POLLS constant missing')
+        self.assertEqual(int(m.group(1)), 5,
+            'offline bar must be 5 missed polls')
+
+    def test_per_device_threshold_helper(self):
+        self.assertIn('def _offline_thresholds(', self.api,
+            '_offline_thresholds helper must exist')
+        self.assertIn('poll * OFFLINE_MISSED_POLLS', self.api,
+            'threshold must scale with the device poll interval')
+
+    def test_debounce_pending_state(self):
+        # check_offline_webhooks must arm a candidate before firing OFFLINE
+        self.assertIn("offline_pending", self.api,
+            'debounce requires an offline_pending candidate map')
+        m = re.search(
+            r'def check_offline_webhooks\(.*?\n(?:.*?\n){0,120}',
+            self.api, re.DOTALL)
+        self.assertIsNotNone(m, 'check_offline_webhooks missing')
+        self.assertIn('offline_pending', m.group(0),
+            'check_offline_webhooks must use offline_pending for debounce')
+
+    def test_pending_cleared_on_device_delete(self):
+        m = re.search(
+            r'def handle_device_delete\(.*?\n(?:.*?\n){0,80}',
+            self.api, re.DOTALL)
+        self.assertIsNotNone(m, 'handle_device_delete missing')
+        self.assertIn('offline_pending', m.group(0),
+            'device delete must purge offline_pending')
+
+
+class TestMaintenanceTargetName(unittest.TestCase):
+    def test_maintenance_list_resolves_target_name(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(
+            r'def handle_maintenance_list\(.*?\n(?:.*?\n){0,30}',
+            api, re.DOTALL)
+        self.assertIsNotNone(m, 'handle_maintenance_list missing')
+        self.assertIn('target_name', m.group(0),
+            'maintenance list must resolve a device target to target_name')
+
+
+class TestUiPolish(unittest.TestCase):
+    def setUp(self):
+        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.css   = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+        self.html  = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_acme_force_renew_has_icon(self):
+        # The force-renew button used to be empty; it must now carry an icon.
+        self.assertIn("_icon('refresh',14)", self.appjs,
+            'ACME force-renew button must render the refresh icon')
+
+    def test_pwa_standalone_clipping_block(self):
+        self.assertIn('display-mode: standalone', self.css,
+            'standalone media query missing')
+        self.assertIn('max-width: 1480px', self.css,
+            'PWA column-drop breakpoint shift missing')
+
+    def test_did_you_know_tips(self):
+        self.assertIn('_DYK_TIPS', self.appjs, 'Did-you-know tips array missing')
+        self.assertIn('function nextAboutTip', self.appjs,
+            'nextAboutTip handler missing')
+        self.assertIn('about-tip-text', self.html,
+            'About-page tip element missing')
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.3.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.3.1">
 
 </head>
 <body>
@@ -2802,6 +2802,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="settings-section isl-124"><div class="isl-125"><img src="static/img/logo-square.png" alt="RemotePower" class="isl-126"><div><div class="isl-127">RemotePower</div><div class="isl-100">Server version: <span id="about-server-version">—</span></div></div></div>
         <table class="isl-128"><tr><td class="isl-129">Agent version</td><td id="about-agent-version">—</td></tr><tr><td class="isl-130">GitHub</td><td><a href="https://github.com/tyxak/remotepower" target="_blank" class="c-accent">github.com/tyxak/remotepower</a></td></tr><tr><td class="isl-130">License</td><td>MIT</td></tr><tr><td class="isl-130">Latest release</td><td><span id="about-latest-version" class="ff-mono">checking…</span></td></tr></table>
         <p class="isl-131">Self-hosted remote device management — shutdown, reboot, Wake-on-LAN, monitoring, scheduled commands, and agent self-update.<br><br>No inbound firewall rules on clients. Agents poll the server over HTTPS. Flat JSON storage, Nginx + Python CGI. No Docker, no Node.js.</p></div>
+        <div class="settings-section dyk-card" id="about-tip-card">
+          <div class="dyk-header">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>
+            <span>Did you know?</span>
+          </div>
+          <p id="about-tip-text" class="dyk-text">&hellip;</p>
+          <button class="btn-icon" data-action="nextAboutTip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
+            Another tip
+          </button>
+        </div>
       </div>
 
       <!-- ── API Keys page (unchanged) ─────────────────────────────────────── -->
@@ -4634,8 +4645,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.3.0"></script>
+<script src="static/js/app.js?v=3.3.1"></script>
 
-<script src="static/js/sw-register.js?v=3.3.0"></script>
+<script src="static/js/sw-register.js?v=3.3.1"></script>
 </body>
 </html>

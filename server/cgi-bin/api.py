@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.3.0'
+SERVER_VERSION = '3.3.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -15986,9 +15986,17 @@ def handle_maintenance_list():
     maint = load(MAINT_FILE)
     windows = maint.get('windows') or []
     now = int(time.time())
+    devices = load(DEVICES_FILE)
     out = []
     for w in windows:
-        out.append({**w, 'active': _window_active(w, now)})
+        entry = {**w, 'active': _window_active(w, now)}
+        # Resolve a device-scoped target id to a human label so the UI can
+        # show the hostname instead of the opaque device id.
+        if w.get('scope') == 'device':
+            dev = devices.get(w.get('target'))
+            if dev:
+                entry['target_name'] = dev.get('name') or dev.get('hostname') or w.get('target')
+        out.append(entry)
     out.sort(key=lambda x: (not x['active'], x.get('reason', '')))
     respond(200, {'windows': out})
 
