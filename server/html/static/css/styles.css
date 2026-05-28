@@ -767,12 +767,18 @@
     padding: 8px 12px;
     vertical-align: middle;
     /* v1.11.9: with table-layout:fixed on the table, each <td> is sized
-       to its column header's width. We only need overflow:hidden +
-       text-overflow:ellipsis on the cell to clip overflowing content
-       — no max-width needed (it was a no-op under auto-layout anyway,
-       and now would conflict with the column-width-driven layout). */
+       to its column header's width; overflow:hidden clips overflow.
+       v3.3.x: text-overflow is CLIP, not ellipsis. Under table-layout:
+       fixed a too-narrow container shrinks every column proportionally,
+       and Chrome renders the "…" glyph for ANY clipped cell — including
+       fixed-content ones like the checkbox and the status pill — which
+       showed up as mysterious black dots right after the checkbox
+       (Chrome only; Firefox clips silently). Clipping with no ellipsis
+       kills the dots regardless of which cell is squeezed. Genuinely
+       long text (OS names) hard-cuts instead of showing "…" — an
+       acceptable trade for never rendering stray dots. */
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
   }
   /* v1.12.1: highlight selected rows in minimal mode. Matches the
