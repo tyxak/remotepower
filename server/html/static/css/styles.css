@@ -2271,27 +2271,25 @@ input.form-input[type="text"][data-token],
   body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
 }
 
-/* v3.3.x: installed-PWA clipping fixes.
+/* v3.3.x: docked-sidebar clipping fixes (browser + installed PWA).
  *
- * In any installed PWA (minimal-ui, standalone, fullscreen, …) the
- * sidebar is docked (≈220px) at every width >720px, but two layouts
- * don't subtract that 220px:
+ * Whenever the sidebar is docked (≈220px, every width >720px), two
+ * layouts don't subtract that 220px:
  *
  *  1. The device-table column-drop breakpoints below key off the
  *     *viewport* width, not the sidebar-reduced table area. In a narrow
  *     window too few columns are hidden, so table-layout: fixed shrinks
  *     every column proportionally and the 90px Status pill collapses to
- *     a lone "…". Fix: shed low-priority columns ~200px earlier when
- *     docked, so the essential columns never get squeezed.
+ *     a lone "…". Fix: shed low-priority columns ~200px earlier while
+ *     docked, so the essential columns never get squeezed. Applied in
+ *     ALL contexts (browser too) — a narrow window is narrow regardless
+ *     of how it got that way; the original display-mode: standalone
+ *     scope missed minimal-ui installs and the plain browser entirely.
  *
  *  2. The "MCP Confirmations" nav row is tight inside the 220px sidebar;
  *     the scrollbar tips its count badge past the edge. Fix: pin the
- *     badge (flex-shrink:0) and let the label ellipsis instead.
- *
- * Scoped to "not (display-mode: browser)" — i.e. any installed mode,
- * not a regular browser tab — so the browser webui is untouched. The
- * earlier attempt scoped only to display-mode: standalone, which missed
- * minimal-ui installs (the default). */
+ *     badge (flex-shrink:0) and let the label ellipsis instead. This one
+ *     stays scoped to installed modes (not (display-mode: browser)). */
 @media (not (display-mode: browser)) and (min-width: 721px) {
   body:not(.sidebar-collapsed) .nav-btn > span:not(.nav-badge) {
     min-width: 0;
@@ -2300,23 +2298,23 @@ input.form-input[type="text"][data-token],
   }
   body:not(.sidebar-collapsed) .nav-badge { flex-shrink: 0; }
 }
-@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1480px) {
+@media (min-width: 721px) and (max-width: 1480px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-host-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="hostname"] { display: none; }
 }
-@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1280px) {
+@media (min-width: 721px) and (max-width: 1280px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-version-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="version"] { display: none; }
 }
-@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1120px) {
+@media (min-width: 721px) and (max-width: 1120px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-group-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="group"] { display: none; }
 }
-@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 960px) {
+@media (min-width: 721px) and (max-width: 960px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-ip-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="ip"] { display: none; }
 }
-@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 840px) {
+@media (min-width: 721px) and (max-width: 840px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-os-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="os"] { display: none; }
 }

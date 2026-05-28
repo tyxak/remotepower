@@ -2,6 +2,24 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.3.2 — 2026-05-28
+
+Follow-through on the v3.3.1 UI fixes.
+
+- **Device-table column-shedding now applies everywhere, not just
+  installed PWAs.** v3.3.1 scoped the fix to `display-mode: standalone`,
+  which missed minimal-ui installs (the PWA default) and the plain
+  browser. The breakpoints are now general — whenever the sidebar is
+  docked (>720px, not collapsed) the table sheds low-priority columns
+  ~200px earlier so the Status pill can't collapse to a lone `…`. A
+  width-independent backstop (`.dev-status-cell { overflow: visible }`)
+  guarantees no ellipsis regardless of display mode or width.
+- **PWA cache delivery.** The service worker is cache-first keyed to
+  `?v=<version>`; v3.3.1's later UI commits kept `?v=3.3.1`, so installed
+  PWAs served the stale stylesheet and never saw the fixes. The bump to
+  v3.3.2 changes `?v=` + `CACHE_NAME`, forcing a refetch — no manual
+  cache clear required.
+
 ## v3.3.1 — 2026-05-28
 
 Correctness + polish release on top of v3.3.0. No breaking changes, no
