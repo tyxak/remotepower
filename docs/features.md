@@ -623,4 +623,50 @@ scroll with `-webkit-overflow-scrolling: touch`, form inputs use
 
 ---
 
+## v3.3.1 & v3.3.2 additions
+
+### OFFLINE detection hardening
+The per-request offline sweep no longer marks a device down on a single
+sample crossing the TTL — a late beat or a stale read used to produce an
+`OFFLINE` → `ONLINE` flap in the same second. The cutoff is now
+per-device, `max(global ttl, poll_interval * OFFLINE_MISSED_POLLS) +
+grace`, and OFFLINE is debounced through an `offline_pending` candidate:
+it fires only if a later sweep (≥1 poll interval on) still sees the
+device silent. Recovery stays immediate. The bar is 5 missed polls
+(300 s at the default 60 s poll). `offline_pending` is cleared wherever
+`offline_notified` is, including on device delete.
+
+### Maintenance windows show the hostname
+A device-scoped maintenance window's Target column resolves the device
+id to its name server-side (`target_name`) instead of showing the opaque
+id.
+
+### UI consistency + PWA polish
+- Action buttons aligned across pages: paired Edit/Delete/Revoke buttons
+  share one size class and icon style; the ACME force-renew button gets
+  its missing refresh icon.
+- Devices table no longer renders stray `…` dots: under
+  `table-layout: fixed` a too-narrow container shrinks columns until
+  Chrome paints an ellipsis on the clipped cell (Firefox clips
+  silently). Cells now use `text-overflow: clip`, and the table sheds
+  low-priority columns ~200 px earlier while the sidebar is docked
+  (browser and installed PWA alike).
+- PWA manifest defaults to `minimal-ui`; the docked-sidebar layout no
+  longer clips the device table or the "MCP Confirmations" nav badge.
+- "Did you know?" tips on the About page surface lesser-known features.
+- The TOTP enrollment QR renders as a data-URL `<img>` so it doesn't
+  trip the strict `style-src 'self'` CSP.
+
+### Bug fixes
+- Agent patch status no longer false-warns `pacman sync failed` on a
+  fully-patched Arch/CachyOS host (`-Sy` and `-Qu` are now in separate
+  try blocks).
+- `/api/home` CVE and drift tiles match the detail pages — stale records
+  for deleted devices no longer inflate the counts.
+- Settings toggles reflect real runtime defaults even when the v3.3.0
+  flags were never explicitly set (notably `webhook_block_local`).
+- `/api/fleet/events` honours the `?event=` filter.
+
+---
+
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
