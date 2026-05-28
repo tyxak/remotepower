@@ -2325,6 +2325,7 @@ const _DYK_TIPS = [
   "Tighten the poll interval on a critical host so it checks in more often than the rest of the fleet.",
   "A fleet-events timeline records every device coming online, going offline, and firing an alert.",
   "There's a keyboard-shortcut cheat sheet to help you fly through the dashboard without a mouse.",
+  "Pin quick links to the tools you live in — Grafana, Proxmox, your wiki — so they're one click from the dashboard.",
 ];
 let _dykIdx = -1;
 function _renderAboutTip() {

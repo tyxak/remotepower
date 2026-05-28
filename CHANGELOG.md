@@ -58,11 +58,14 @@ PWAs pick up the UI fixes automatically.
   paired buttons were different sizes; they now share a class and icon
   style. The ACME **force-renew** button — previously rendered with no
   icon — gets its refresh icon.
-- **PWA standalone clipping fixed.** The docked ~220px sidebar wasn't
-  subtracted from the device-table column breakpoints, so a narrow PWA
-  window collapsed the Status pill to `…`; the nav scrollbar also clipped
-  the "MCP Confirmations" badge. Fixed, scoped to
-  `@media (display-mode: standalone)` so the browser UI is untouched.
+- **PWA clipping fixed across installed modes.** The docked ~220px
+  sidebar wasn't subtracted from the device-table column breakpoints, so
+  a narrow PWA window collapsed the Status pill to `…`; the nav scrollbar
+  also clipped the "MCP Confirmations" badge. Fixed, scoped to
+  `not (display-mode: browser)` so it covers minimal-ui and standalone
+  installs (but never the browser tab), with a backstop so the Status
+  pill can't render an ellipsis. The PWA manifest now defaults to
+  `minimal-ui` for new installs.
 - **Maintenance windows show the device hostname** instead of the opaque
   device id (resolved in the list endpoint as `target_name`).
 - **"Did you know?" tips on the About page** surface lesser-known

@@ -2244,7 +2244,7 @@ input.form-input[type="text"][data-token],
  * the mobile rules above still apply — drawer UX, no buttons,
  * scrim-tap to dismiss.
  */
-@media (display-mode: standalone) and (min-width: 721px) {
+@media (not (display-mode: browser)) and (min-width: 721px) {
   .sidebar-mobile-close { display: none !important; }
   .sidebar-collapse-btn { display: block; }
 
@@ -2271,26 +2271,28 @@ input.form-input[type="text"][data-token],
   body.sidebar-collapsed .sidebar-collapse-btn-text { display: none; }
 }
 
-/* v3.3.x: PWA standalone clipping fixes.
+/* v3.3.x: installed-PWA clipping fixes.
  *
- * In an installed PWA the sidebar is docked (≈220px) at every width
- * >720px, but two layouts don't subtract that 220px:
+ * In any installed PWA (minimal-ui, standalone, fullscreen, …) the
+ * sidebar is docked (≈220px) at every width >720px, but two layouts
+ * don't subtract that 220px:
  *
  *  1. The device-table column-drop breakpoints below key off the
  *     *viewport* width, not the sidebar-reduced table area. In a narrow
- *     PWA window (~770–820px) too few columns are hidden, so table-layout:
- *     fixed shrinks every column proportionally and the 90px Status pill
- *     collapses to a lone "…". Fix: shed low-priority columns ~200px
- *     earlier when docked, so the essential columns never get squeezed.
+ *     window too few columns are hidden, so table-layout: fixed shrinks
+ *     every column proportionally and the 90px Status pill collapses to
+ *     a lone "…". Fix: shed low-priority columns ~200px earlier when
+ *     docked, so the essential columns never get squeezed.
  *
  *  2. The "MCP Confirmations" nav row is tight inside the 220px sidebar;
- *     the standalone scrollbar tips its count badge past the edge. Fix:
- *     pin the badge (flex-shrink:0) and let the label ellipsis instead,
- *     so the count is never clipped.
+ *     the scrollbar tips its count badge past the edge. Fix: pin the
+ *     badge (flex-shrink:0) and let the label ellipsis instead.
  *
- * Scoped to display-mode: standalone + docked (>720px, not collapsed),
- * so the browser webui is completely untouched. */
-@media (display-mode: standalone) and (min-width: 721px) {
+ * Scoped to "not (display-mode: browser)" — i.e. any installed mode,
+ * not a regular browser tab — so the browser webui is untouched. The
+ * earlier attempt scoped only to display-mode: standalone, which missed
+ * minimal-ui installs (the default). */
+@media (not (display-mode: browser)) and (min-width: 721px) {
   body:not(.sidebar-collapsed) .nav-btn > span:not(.nav-badge) {
     min-width: 0;
     overflow: hidden;
@@ -2298,26 +2300,30 @@ input.form-input[type="text"][data-token],
   }
   body:not(.sidebar-collapsed) .nav-badge { flex-shrink: 0; }
 }
-@media (display-mode: standalone) and (min-width: 721px) and (max-width: 1480px) {
+@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1480px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-host-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="hostname"] { display: none; }
 }
-@media (display-mode: standalone) and (min-width: 721px) and (max-width: 1280px) {
+@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1280px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-version-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="version"] { display: none; }
 }
-@media (display-mode: standalone) and (min-width: 721px) and (max-width: 1120px) {
+@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 1120px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-group-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="group"] { display: none; }
 }
-@media (display-mode: standalone) and (min-width: 721px) and (max-width: 960px) {
+@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 960px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-ip-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="ip"] { display: none; }
 }
-@media (display-mode: standalone) and (min-width: 721px) and (max-width: 840px) {
+@media (not (display-mode: browser)) and (min-width: 721px) and (max-width: 840px) {
   body:not(.sidebar-collapsed) .devices-minimal-table .dev-os-cell,
   body:not(.sidebar-collapsed) .devices-minimal-table th[data-col="os"] { display: none; }
 }
+/* Backstop: the Status cell holds a fixed-size pill, never arbitrary
+   text, so it should never render an ellipsis. Even if a column is
+   squeezed, let the pill keep its size rather than collapse to "…". */
+.devices-minimal-table .dev-status-cell { overflow: visible; }
 
 /* v3.3.x: "Did you know?" tip card on the About page. */
 .dyk-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 600px; }

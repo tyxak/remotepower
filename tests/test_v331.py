@@ -133,11 +133,23 @@ class TestUiPolish(unittest.TestCase):
         self.assertIn("_icon('refresh',14)", self.appjs,
             'ACME force-renew button must render the refresh icon')
 
-    def test_pwa_standalone_clipping_block(self):
-        self.assertIn('display-mode: standalone', self.css,
-            'standalone media query missing')
+    def test_pwa_installed_clipping_block(self):
+        # Scoped to any installed mode (not a browser tab) so it also
+        # covers minimal-ui installs, not just standalone.
+        self.assertIn('not (display-mode: browser)', self.css,
+            'installed-PWA media query missing')
         self.assertIn('max-width: 1480px', self.css,
             'PWA column-drop breakpoint shift missing')
+
+    def test_status_cell_ellipsis_backstop(self):
+        self.assertRegex(self.css,
+            r'\.dev-status-cell\s*\{[^}]*overflow:\s*visible',
+            'Status cell must not collapse to an ellipsis')
+
+    def test_manifest_minimal_ui_default(self):
+        manifest = (REPO_ROOT / 'server' / 'html' / 'manifest.json').read_text()
+        self.assertIn('"minimal-ui"', manifest,
+            'PWA manifest display should default to minimal-ui')
 
     def test_did_you_know_tips(self):
         self.assertIn('_DYK_TIPS', self.appjs, 'Did-you-know tips array missing')
