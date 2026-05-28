@@ -423,7 +423,9 @@ PIN_TTL                  = 600
 # Settings → Webhooks page or POST /api/config {"online_ttl": 300}.
 DEFAULT_ONLINE_TTL       = 300
 MIN_ONLINE_TTL           = 150          # don't allow flapping under <2.5 poll intervals
-OFFLINE_GRACE_S          = 10           # absorb clock drift / FCGI jitter so a 1-2s late heartbeat doesn't trip OFFLINE
+OFFLINE_GRACE_S          = 10           # fixed jitter cushion folded into the per-device offline threshold
+OFFLINE_MISSED_POLLS     = 5            # offline threshold = max(global ttl, poll_interval * this) + grace
+#                                         (5 missed polls; at the default 60s poll that's 300s, matching DEFAULT_ONLINE_TTL)
 DEFAULT_POLL_INTERVAL    = 60
 DEFAULT_CVE_CACHE_DAYS   = 7
 MAX_HISTORY       = 200
@@ -573,6 +575,34 @@ def get_online_ttl():
     except (TypeError, ValueError):
         v = DEFAULT_ONLINE_TTL
     return max(MIN_ONLINE_TTL, v)
+
+
+def _offline_thresholds(dev, ttl):
+    """Per-device OFFLINE tuning used by check_offline_webhooks.
+
+    Returns (offline_after_s, debounce_s):
+
+      offline_after_s — silence beyond this makes the device a *candidate*
+        for OFFLINE. It is the larger of the operator's global online TTL
+        and OFFLINE_MISSED_POLLS of the device's own poll interval, plus a
+        fixed jitter grace. So a 30s poller and a 600s poller don't share
+        one cutoff, and a device that legitimately polls slower than the
+        global TTL isn't perpetually flagged offline.
+
+      debounce_s — once a candidate, the device must stay silent at least
+        this long (one of its own poll intervals, floored at the grace)
+        across a *second* sweep before OFFLINE actually fires. A live but
+        jittery device heartbeats within this window and clears the
+        candidate — that's what kills the OFFLINE/ONLINE flap.
+    """
+    try:
+        poll = int(dev.get('poll_interval', DEFAULT_POLL_INTERVAL))
+    except (TypeError, ValueError):
+        poll = DEFAULT_POLL_INTERVAL
+    poll = max(1, poll)
+    offline_after = max(ttl, poll * OFFLINE_MISSED_POLLS) + OFFLINE_GRACE_S
+    debounce = max(OFFLINE_GRACE_S, poll)
+    return offline_after, debounce
 
 
 def get_default_poll_interval():
@@ -3333,6 +3363,21 @@ def check_offline_webhooks(skip_dev_id=None):
     read-check-write is serialised under _LockedUpdate(CONFIG_FILE).
     Webhooks and uptime writes happen after the lock releases so a slow
     webhook call never blocks the next heartbeat's config access.
+
+    Flap hardening (per-device threshold + debounce): the sweep runs on
+    *every* CGI request and reads devices.json unlocked, so any single
+    sweep can see a momentarily-stale last_seen (a one-off late beat, a
+    read landing just before an in-flight heartbeat's rename, or the
+    lost-update race the _LockedUpdate comment describes). Firing OFFLINE
+    on one such sample produced the OFFLINE→ONLINE-in-the-same-second
+    flap seen in nginx logs. Two defences, both via _offline_thresholds:
+      - threshold is per-device (max(global ttl, poll*N) + grace) so the
+        cutoff scales with how often the device actually polls;
+      - OFFLINE is debounced through `offline_pending`: the first sweep
+        past the threshold only arms a candidate timestamp; OFFLINE fires
+        only if a later sweep, at least one poll interval on, still sees
+        it silent. A live device beats in between and clears the
+        candidate. Recovery (ONLINE) stays immediate.
     """
     devices = load(DEVICES_FILE)
     now = int(time.time())
@@ -3347,6 +3392,7 @@ def check_offline_webhooks(skip_dev_id=None):
 
     with _LockedUpdate(CONFIG_FILE) as cfg:
         notified = cfg.setdefault('offline_notified', {})
+        pending  = cfg.setdefault('offline_pending', {})
         for dev_id, dev in devices.items():
             if dev.get('agentless'):
                 continue
@@ -3354,10 +3400,11 @@ def check_offline_webhooks(skip_dev_id=None):
                 continue
             if skip_dev_id and dev_id == skip_dev_id:
                 # v3.3.0: this device is actively heartbeating right
-                # now — the request itself is proof it's alive. Mark
-                # it online if a stale offline-notified flag is set
-                # (recover from a transient flap) but never flip it
-                # to offline based on the pre-update last_seen.
+                # now — the request itself is proof it's alive. Cancel
+                # any armed offline candidate and recover a stale
+                # offline-notified flag, but never flip it to offline
+                # based on the pre-update last_seen.
+                pending.pop(dev_id, None)
                 if notified.get(dev_id):
                     notified[dev_id] = False
                     online_fires.append((dev_id, dev.get('name', dev_id),
@@ -3367,18 +3414,40 @@ def check_offline_webhooks(skip_dev_id=None):
             if not last:
                 continue  # never heartbeated, don't claim it went offline
             delta = now - last
-            is_offline = delta > ttl + OFFLINE_GRACE_S
+            offline_after, debounce = _offline_thresholds(dev, ttl)
             already = notified.get(dev_id, False)
-            if is_offline and not already:
-                notified[dev_id] = True
-                offline_fires.append((
-                    dev_id, dev.get('name', dev_id),
-                    dev.get('hostname', ''), last, delta,
-                    dev.get('poll_interval', 60),
-                ))
-            elif not is_offline and already:
-                notified[dev_id] = False
-                online_fires.append((dev_id, dev.get('name', dev_id), last, delta))
+
+            if delta <= offline_after:
+                # Within its window — alive/fresh. Drop any half-formed
+                # offline candidate and recover if we'd flagged it.
+                pending.pop(dev_id, None)
+                if already:
+                    notified[dev_id] = False
+                    online_fires.append(
+                        (dev_id, dev.get('name', dev_id), last, delta))
+                continue
+
+            # Past the threshold. If already reported, nothing more to do.
+            if already:
+                continue
+
+            # Debounce: a single sweep seeing delta>threshold isn't enough
+            # — a stale read or one genuinely-late beat would flap. Require
+            # the candidate to survive a second sweep at least `debounce`
+            # later; a live device beats in between and clears it above.
+            first = pending.get(dev_id)
+            if first is None:
+                pending[dev_id] = now
+                continue
+            if now - first < debounce:
+                continue
+            pending.pop(dev_id, None)
+            notified[dev_id] = True
+            offline_fires.append((
+                dev_id, dev.get('name', dev_id),
+                dev.get('hostname', ''), last, delta,
+                dev.get('poll_interval', 60),
+            ))
 
         raw_threshold = cfg.get(PATCH_ALERT_KEY)
         if raw_threshold is not None:
@@ -4027,7 +4096,8 @@ def handle_device_delete(dev_id):
         # config: stale-notified flags keyed by dev_id
         try:
             with _LockedUpdate(CONFIG_FILE) as cfg:
-                for key in ('containers_stale_notified', 'metric_notified'):
+                for key in ('containers_stale_notified', 'metric_notified',
+                            'offline_notified', 'offline_pending'):
                     if isinstance(cfg.get(key), dict) and dev_id in cfg[key]:
                         cfg[key].pop(dev_id)
         except Exception:
@@ -4218,10 +4288,14 @@ def handle_device_save_bulk(dev_id):
     save(DEVICES_FILE, devices)
     if updates.get('monitored') is False:
         cfg = load(CONFIG_FILE)
-        notified = cfg.get('offline_notified', {})
-        if dev_id in notified:
-            del notified[dev_id]
-            cfg['offline_notified'] = notified
+        changed = False
+        for key in ('offline_notified', 'offline_pending'):
+            d = cfg.get(key, {})
+            if dev_id in d:
+                del d[dev_id]
+                cfg[key] = d
+                changed = True
+        if changed:
             save(CONFIG_FILE, cfg)
 
     # Audit the bulk save with the field list (not values — keeps the
@@ -4439,10 +4513,14 @@ def handle_device_monitored(dev_id):
     # If disabling monitoring, clear any pending offline notification
     if not monitored:
         cfg = load(CONFIG_FILE)
-        notified = cfg.get('offline_notified', {})
-        if dev_id in notified:
-            del notified[dev_id]
-            cfg['offline_notified'] = notified
+        changed = False
+        for key in ('offline_notified', 'offline_pending'):
+            d = cfg.get(key, {})
+            if dev_id in d:
+                del d[dev_id]
+                cfg[key] = d
+                changed = True
+        if changed:
             save(CONFIG_FILE, cfg)
     respond(200, {'ok': True, 'monitored': monitored})
 
@@ -6209,8 +6287,8 @@ def handle_config_get():
     require_auth()
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
-            if k not in ('offline_notified', 'patch_alerted', 'monitor_notified',
-                         'containers_stale_notified',
+            if k not in ('offline_notified', 'offline_pending', 'patch_alerted',
+                         'monitor_notified', 'containers_stale_notified',
                          '_github_latest_version', '_github_latest_ts')}
     safe['webhook_configured'] = bool(cfg.get('webhook_url', '').strip())
     safe.setdefault('offline_webhook_enabled', True)
@@ -15317,6 +15395,7 @@ def handle_monitor_alerts_clear():
     cfg = load(CONFIG_FILE)
     cfg['monitor_notified'] = {}
     cfg['offline_notified'] = {}
+    cfg['offline_pending'] = {}
     save(CONFIG_FILE, cfg)
     audit_log(actor, 'clear_monitor_alerts', 'monitor alert state reset')
     respond(200, {'ok': True})

@@ -123,13 +123,25 @@ class TestOfflineDetection(_Base):
 
     def test_offline_logs_to_stderr_even_without_webhook(self):
         """The core fix: when nothing is in nginx logs, the operator has
-        no diagnostic. Now every state transition logs unconditionally."""
+        no diagnostic. Now every state transition logs unconditionally.
+
+        OFFLINE is debounced (see _offline_thresholds): the first sweep
+        only arms a candidate, so drive a second sweep with the candidate
+        aged past the debounce window to get the actual transition."""
         # Make the device look offline: last_seen 10 minutes ago
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 600
         api.save(api.DEVICES_FILE, devs)
         # Disable webhooks — used to mean silent flip
         api.save(api.CONFIG_FILE, {'webhook_events': {'device_offline': False}})
+
+        # First sweep arms the debounce candidate but must NOT fire yet.
+        api.check_offline_webhooks()
+        self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
+        # Age the candidate past the debounce window.
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['offline_pending']['dev1'] = int(time.time()) - 9999
+        api.save(api.CONFIG_FILE, cfg)
 
         api.check_offline_webhooks()
         logs = self._stderr_buf.getvalue()
@@ -180,6 +192,85 @@ class TestOfflineDetection(_Base):
         api.check_offline_webhooks()
         logs = self._stderr_buf.getvalue()
         self.assertNotIn('OFFLINE', logs)
+
+
+# ─── per-device threshold + debounce flap hardening ────────────────────────
+
+
+class TestOfflineFlapHardening(_Base):
+    """Per-device threshold + debounce that kill the OFFLINE→ONLINE-in-
+    the-same-second flap (see api._offline_thresholds / offline_pending)."""
+
+    def test_threshold_scales_with_poll_interval(self):
+        # A slow poller's cutoff is driven by its own interval, not the
+        # global TTL, so it isn't perpetually flagged offline.
+        offline_after, debounce = api._offline_thresholds(
+            {'poll_interval': 600}, ttl=300)
+        self.assertEqual(
+            offline_after, 600 * api.OFFLINE_MISSED_POLLS + api.OFFLINE_GRACE_S)
+        self.assertEqual(debounce, 600)
+
+    def test_threshold_floored_by_global_ttl(self):
+        # A fast poller never gets a cutoff below the operator's TTL.
+        offline_after, debounce = api._offline_thresholds(
+            {'poll_interval': 30}, ttl=300)
+        self.assertEqual(offline_after, 300 + api.OFFLINE_GRACE_S)
+        self.assertEqual(debounce, max(api.OFFLINE_GRACE_S, 30))
+
+    def test_single_sweep_arms_candidate_without_firing(self):
+        devs = api.load(api.DEVICES_FILE)
+        devs['dev1']['last_seen'] = int(time.time()) - 9999
+        api.save(api.DEVICES_FILE, devs)
+        api.check_offline_webhooks()
+        self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertIn('dev1', cfg.get('offline_pending', {}))
+        self.assertFalse(cfg.get('offline_notified', {}).get('dev1'))
+
+    def test_heartbeat_within_debounce_clears_candidate_no_flap(self):
+        # Arm a candidate, then let the device 'beat' (fresh last_seen)
+        # before the debounce window: OFFLINE must never fire and the
+        # candidate must be dropped. This is the flap the fix targets.
+        devs = api.load(api.DEVICES_FILE)
+        devs['dev1']['last_seen'] = int(time.time()) - 9999
+        api.save(api.DEVICES_FILE, devs)
+        api.check_offline_webhooks()                  # arms candidate
+        devs = api.load(api.DEVICES_FILE)
+        devs['dev1']['last_seen'] = int(time.time())  # device beat
+        api.save(api.DEVICES_FILE, devs)
+        api.check_offline_webhooks()                  # clears, must not fire
+        self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertNotIn('dev1', cfg.get('offline_pending', {}))
+
+    def test_candidate_past_debounce_fires_offline(self):
+        devs = api.load(api.DEVICES_FILE)
+        devs['dev1']['last_seen'] = int(time.time()) - 9999
+        api.save(api.DEVICES_FILE, devs)
+        api.check_offline_webhooks()                  # arms candidate
+        cfg = api.load(api.CONFIG_FILE)
+        cfg['offline_pending']['dev1'] = int(time.time()) - 9999   # age it
+        api.save(api.CONFIG_FILE, cfg)
+        api.check_offline_webhooks()                  # confirms → fires
+        self.assertIn('OFFLINE', self._stderr_buf.getvalue())
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertTrue(cfg['offline_notified'].get('dev1'))
+        self.assertNotIn('dev1', cfg.get('offline_pending', {}))
+
+    def test_skip_dev_id_cancels_pending_candidate(self):
+        # The actively-heartbeating device is exempt: its armed candidate
+        # is cancelled so its own slightly-stale pre-commit last_seen can't
+        # confirm a spurious OFFLINE.
+        cfg = api.load(api.CONFIG_FILE) or {}
+        cfg['offline_pending'] = {'dev1': int(time.time()) - 9999}
+        api.save(api.CONFIG_FILE, cfg)
+        devs = api.load(api.DEVICES_FILE)
+        devs['dev1']['last_seen'] = int(time.time()) - 9999
+        api.save(api.DEVICES_FILE, devs)
+        api.check_offline_webhooks(skip_dev_id='dev1')
+        self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
+        cfg = api.load(api.CONFIG_FILE)
+        self.assertNotIn('dev1', cfg.get('offline_pending', {}))
 
 
 # ─── log_alert message includes sample ─────────────────────────────────────

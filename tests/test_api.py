@@ -197,6 +197,13 @@ class TestOfflineWebhooks(ApiTestBase):
         with patch.object(api_module, 'DEVICES_FILE', self.data_dir / 'devices.json'), \
              patch.object(api_module, 'CONFIG_FILE',  self.data_dir / 'config.json'), \
              patch.object(api_module, 'fire_webhook') as mock_fire:
+            # OFFLINE is debounced: the first sweep only arms a candidate.
+            api_module.check_offline_webhooks()
+            mock_fire.assert_not_called()
+            # Age the candidate past the debounce window, then re-sweep.
+            cfg = api_module.load(api_module.CONFIG_FILE)
+            cfg['offline_pending']['dev1'] = now - 9999
+            api_module.save(api_module.CONFIG_FILE, cfg)
             api_module.check_offline_webhooks()
             mock_fire.assert_called_once()
             args = mock_fire.call_args[0]
