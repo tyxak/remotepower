@@ -9897,10 +9897,10 @@ async function _renderHomeAttention(preloaded) {
     const pill = PILL[i.severity] || 'info';
     const key  = i._ignore_key || '';
     const lbl  = `${i.device} — ${i.summary}`;
-    // v3.0.1: show 🩺 Investigate when server reported a mitigation_kind
+    // v3.0.1: show an Investigate button when server reported a mitigation_kind
     const mitBtn = (i.mitigation_kind && i.device_id) ?
       `<button class="btn-icon isl-554" title="Investigate with diagnostic + AI suggestion"
-         data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">🩺</button>` : '';
+         data-action="openMitigateModal" data-stop-prop="1" data-arg="${escAttr(i.device_id)}" data-arg2="${escAttr(i.mitigation_kind)}" data-arg3="${escAttr(i.mitigation_target || '')}" data-arg4="${escAttr(i.device)}">${_icon('search',14)}</button>` : '';
     // v3.2.3: for log_alert cards, expose all captured sample lines +
     // the rule pattern in a hover tooltip. The summary itself already
     // shows sample[0] truncated; the tooltip lets the operator see the
@@ -14071,7 +14071,7 @@ async function loadAiPrompts() {
                 placeholder="(empty = use default)">${escHtml(p.current)}</textarea>
 
       <details ${hasParams ? 'open' : ''} class="isl-26">
-        <summary class="isl-664">⚙ Fine-tuning (temperature, top_p, tokens, context)</summary>
+        <summary class="isl-664">Fine-tuning (temperature, top_p, tokens, context)</summary>
         <div class="isl-665">
           <div>
             <label class="isl-666">Temperature (0.0–2.0)</label>
@@ -14898,7 +14898,7 @@ const _MITIGATE_KIND_LABELS = {
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
-// on the server. Used to decide whether to show the 🩺 button on a card.
+// on the server. Used to decide whether to show the Investigate button on a card.
 // v3.0.4: added memory/swap/cpu — these alerts always fired with no
 // available playbook before. The two lists are intentionally separate
 // (labels also need a label) and both have to mention every kind.
@@ -15078,7 +15078,7 @@ function _mitigateRenderFixOptions(aiResult) {
     if (aiResult.denylist_match) {
       warn.style.display = 'block';
       warn.innerHTML = `<div class="isl-694">
-        <strong>⛔ Refused — denylist match.</strong>
+        <strong>Refused — denylist match.</strong>
         ${escHtml(aiResult.denylist_reason || '')}
         <div class="isl-121">
           This command will not be executed by RemotePower. Copy it manually if you really need to.
@@ -15185,7 +15185,7 @@ function _mitigateUpdateSafety() {
   const sensitive = !denied && SENSITIVE_RX.some(rx => rx.test(cmd));
   if (denied) {
     safetyEl.innerHTML = `<div class="isl-703">
-      <strong>⛔ This command appears to match the denylist.</strong> The server will refuse to run it. Edit the command, or run it manually on the host.
+      <strong>This command appears to match the denylist.</strong> The server will refuse to run it. Edit the command, or run it manually on the host.
     </div>`;
     confirmRow.style.display = 'none';
     document.getElementById('mitigate-fix-go').disabled = true;

@@ -2500,7 +2500,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
                 <li><strong>System prompt textarea</strong> — edit; click <em>Save prompt</em> to persist; clear and save to revert to default.</li>
                 <li><strong>● customized</strong> badge appears when overridden.</li>
                 <li><strong>Default</strong> button restores the hardcoded default for that feature.</li>
-                <li><strong>⚙ Fine-tuning</strong> (collapsible) — per-call temperature (0.0–2.0), top_p (0.0–1.0), max_tokens (1–16000), num_ctx (512–131072, Ollama/LocalAI only). Empty fields fall back to provider defaults.</li>
+                <li><strong>Fine-tuning</strong> (collapsible) — per-call temperature (0.0–2.0), top_p (0.0–1.0), max_tokens (1–16000), num_ctx (512–131072, Ollama/LocalAI only). Empty fields fall back to provider defaults.</li>
                 <li><strong>● tuned</strong> badge appears when any fine-tuning value is set.</li>
               </ul>
               <p><strong>Storage:</strong> <code>config.json</code> under <code>ai_prompt_overrides</code> and <code>ai_param_overrides</code>.</p>
@@ -2543,7 +2543,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <summary><strong>Host configuration management</strong> (v2.6.0)</summary>
             <div class="doc-body">
               <p>Per-device Host Configuration captures a <em>desired state</em> for a small set of system attributes; the agent reconciles on every poll.</p>
-              <p><strong>Where:</strong> Device Drawer → ⚙ Host config.</p>
+              <p><strong>Where:</strong> Device Drawer → Host config.</p>
               <p><strong>Tabs:</strong></p>
               <ul>
                 <li><strong>Packages / Sysctl / Units / Modules</strong> — structured fields. Each reconciled by the agent on every poll.</li>
@@ -2594,7 +2594,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <details class="doc-card" data-keywords="mitigate mitigation investigate ai diagnose fix runner alert">
             <summary><strong>Mitigation runners</strong> — investigate alerts with diagnostic + AI suggestion + confirmed fix</summary>
             <div class="doc-body">
-              <p>Every <strong>Needs Attention</strong> card with a supported alert kind (<code>patches</code>, <code>disk</code>, <code>drift</code>, <code>service_down</code>, <code>reboot</code>, <code>brute_force</code>) shows a 🩺 <strong>Investigate</strong> button. Three-tab modal:</p>
+              <p>Every <strong>Needs Attention</strong> card with a supported alert kind (<code>patches</code>, <code>disk</code>, <code>drift</code>, <code>service_down</code>, <code>reboot</code>, <code>brute_force</code>) shows an <strong>Investigate</strong> button. Three-tab modal:</p>
               <ol>
                 <li><strong>Diagnostic</strong> — server queues a hardcoded read-only command on the agent (e.g. for disk: <code>df -h</code> + top dirs + files &gt;500MB + journal disk usage). Live-polls every 2s, up to 3 min.</li>
                 <li><strong>AI Analysis</strong> — when diagnostic completes, the AI runs automatically with a playbook-specific system prompt (5 new keys in Settings → AI Assistant: <code>mitigate_cpu</code>, <code>_memory</code>, <code>_disk</code>, <code>_service</code>, <code>_patches</code>). It outputs a root cause + one specific fix command between <code>BEGIN_FIX</code> / <code>END_FIX</code> markers.</li>
@@ -2612,7 +2612,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <p><strong>Recent Activity</strong> = event log of things that happened in the past — transitions, dispatches, ACK'd alerts. A service that went down at 14:30 and came back up at 14:35 shows in Recent Activity but disappears from Needs Attention once it's healthy again. Click the <strong>✕ Clear</strong> button in the Recent Activity header to hide all current entries; this lasts for the browser session (persisted via <code>sessionStorage</code>) and resets when you close the tab.</p>
               <p><strong>v3.0.1 audit (attention coverage):</strong> these state-derived kinds now appear in NA whenever the condition is active:</p>
               <ul>
-                <li><code>service_down</code> — any watched systemd unit in <code>failed</code> (critical) or <code>inactive</code>/<code>deactivating</code> (warning). Carries the unit name as <code>target</code> so the 🩺 button can run <code>systemctl status</code> + <code>journalctl -u &lt;unit&gt;</code> automatically.</li>
+                <li><code>service_down</code> — any watched systemd unit in <code>failed</code> (critical) or <code>inactive</code>/<code>deactivating</code> (warning). Carries the unit name as <code>target</code> so the Investigate button can run <code>systemctl status</code> + <code>journalctl -u &lt;unit&gt;</code> automatically.</li>
                 <li><code>monitor_down</code> — any monitor target whose latest probe came back <code>ok: false</code>.</li>
                 <li><code>custom_script_fail</code> — any custom monitoring script reporting non-zero <code>rc</code> in its latest result.</li>
               </ul>
