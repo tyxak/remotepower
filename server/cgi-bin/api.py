@@ -20553,6 +20553,7 @@ _AI_PROMPT_LABELS = {
     'diagnose_service':       'Diagnose failing service',
     'explain_tls':            'Explain TLS / certificate',
     'prioritise_patches':     'Prioritise pending patches',
+    'prioritise_cves':        'Prioritise CVEs',
     'explain_container_logs': 'Explain container logs',
     'generate_runbook':       'Generate device runbook',
     'iac_generate':           'IaC Generator',

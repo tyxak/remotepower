@@ -3371,7 +3371,11 @@ function _registerCveTable() {
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      const cveTotal = (d.counts.critical||0) + (d.counts.high||0) + (d.counts.medium||0) + (d.counts.low||0);
+      const prioBtn = cveTotal > 0
+        ? `<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_aiPrioritiseCvesBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="AI: prioritise this device's CVEs">${_icon('sparkles',14)}</button> `
+        : '';
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td>${prioBtn}<button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -8755,6 +8759,39 @@ function aiPrioritisePatches(deviceName, packageList) {
     context:  `patches:${deviceName}`,
     maxTokens: 1500,
   });
+}
+
+function aiPrioritiseCves(deviceName, cveListText) {
+  if (!cveListText.trim()) { toast('No CVE findings to prioritise', 'info'); return; }
+  openAIModal({
+    title:    `Prioritise CVEs for ${deviceName}`,
+    system:   'prioritise_cves',
+    userMsg:  `Device: ${deviceName}\n\nCVE findings:\n${cveListText.slice(0, 6000)}`,
+    context:  `cves:${deviceName}`,
+    maxTokens: 1500,
+  });
+}
+
+async function aiPrioritiseCvesForDevice(devId, devName, btn) {
+  const originalLabel = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '…'; btn.title = 'Fetching CVE findings…'; }
+  const restore = () => {
+    if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; btn.title = "AI: prioritise this device's CVEs"; }
+  };
+  let data;
+  try {
+    data = await api('GET', `/devices/${encodeURIComponent(devId)}/cve`);
+  } finally {
+    restore();
+  }
+  if (!data) return;  // api() already toasted the error
+  const findings = (data.findings || []).filter(f => !f.ignored);
+  if (!findings.length) { toast('No active CVE findings to prioritise', 'info'); return; }
+  const listText = findings.map(f =>
+    `${(f.severity || 'unknown').toUpperCase()} ${f.vuln_id} — ${f.package} ${f.version}` +
+    (f.fixed_version ? ` (fixed in ${f.fixed_version})` : ' (no fix listed)')
+  ).join('\n');
+  aiPrioritiseCves(devName, listText);
 }
 
 function aiExplainContainerLogs(containerName, image, logs) {
@@ -15350,6 +15387,9 @@ function _cveScanBtn(btn) {
 }
 function _forcePackageScanBtn(btn) {
   forcePackageScan(btn.dataset.devId, btn.dataset.devName || '', btn);
+}
+function _aiPrioritiseCvesBtn(btn) {
+  aiPrioritiseCvesForDevice(btn.dataset.devId, btn.dataset.devName || '', btn);
 }
 function _aiPrioritisePatchesBtn(btn) {
   aiPrioritisePatchesForDevice(btn.dataset.devId, btn.dataset.devName || '', btn);

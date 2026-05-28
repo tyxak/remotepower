@@ -671,6 +671,15 @@ SYSTEM_PROMPTS = {
         "security-relevant). Recommend an order to apply them in, "
         "noting which need a reboot. Keep it short."
     ),
+    'prioritise_cves': (
+        "You are a security operations assistant. Given a list of CVE "
+        "findings for a single host (severity, CVE id, affected package, "
+        "installed version, and fixed version when known), produce a "
+        "short ranked remediation plan: which to fix first and why — "
+        "weigh severity, whether a fix is actually available, and likely "
+        "exposure. Group findings that a single package upgrade clears, "
+        "and flag any that need a reboot. A ranked list, no filler."
+    ),
     'explain_container_logs': (
         "You are an operations assistant. Given a container's recent "
         "logs (typically Docker or Podman), identify what the "
