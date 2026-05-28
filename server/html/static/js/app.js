@@ -2041,7 +2041,7 @@ function _registerScheduleTable() {
       const cmdCls   = isScript ? 'script' : j.command;
       const cmdLabel = isScript ? 'run script' : j.command;
       const jKey = _storeEvtData(j);
-      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon isl-45" title="Delete" data-action="deleteJob" data-arg="${escAttr(j.id)}" >×</button></td></tr>`;
+      return `<tr><td class="fw-500">${escHtml(j.device_name)}</td><td><span class="cmd-badge ${escHtml(cmdCls)}">${escHtml(cmdLabel)}</span></td><td class="mono-12">${j.recurring ? `<span class="c-accent">${escHtml(j.cron)}</span>` : new Date(j.run_at*1000).toLocaleString()}</td><td class="hint">${escHtml(j.actor)}</td><td><button class="btn-icon" title="Edit" data-action-btn="_editScheduleBtn" data-store-key="${jKey}">${_icon('edit',14)}</button> <button class="btn-icon c-danger-outline" title="Delete" data-action="deleteJob" data-arg="${escAttr(j.id)}" >${_icon('trash',14)}</button></td></tr>`;
     },
     emptyMsg: 'No scheduled jobs.',
     emptyMsgFiltered: 'No jobs match the filter.',
@@ -3317,7 +3317,7 @@ function _registerCveTable() {
       }[d.status] || d.status;
       const scanText = d.scanned_at ? new Date(d.scanned_at * 1000).toLocaleString() : statusBadge;
       const cell = (n, color) => n > 0 ? `<td class="isl-384" data-color="${color}">${n}</td>` : '<td class="isl-385">0</td>';
-      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button><button class="btn-icon isl-386" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
+      return `<tr data-action="openDeviceCVE" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" class="pointer"><td class="fw-500">${escHtml(d.name)}</td><td class="hint">${d.group ? `<span class="group-badge">${escHtml(d.group)}</span>` : '—'}</td><td class="isl-110">${escHtml(d.ecosystem)}</td>${cell(d.counts.critical, 'var(--red)')}${cell(d.counts.high, '#f97316')}${cell(d.counts.medium, 'var(--amber)')}${cell(d.counts.low, 'var(--muted)')}<td class="meta-sm-nm">${scanText}</td><td><button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Ask the agent to send its full installed-package list now">Send list</button> <button class="btn-icon cell-sm" data-stop-prop="1" data-prevent-default="1" data-action-btn="_cveScanBtn" data-dev-id="${escAttr(d.device_id)}" >Scan</button></td></tr>`;
     },
     emptyMsg: 'No devices enrolled.',
     emptyMsgFiltered: 'No CVE rows match the filter.',
@@ -6946,7 +6946,7 @@ function _registerTlsTable() {
         <td class="hint">${expires}</td>
         <td class="hint">${escHtml(issuer.slice(0,30))}</td>
         <td class="hint-nowrap">${lastChk}</td>
-        <td data-stop-prop="1" >${aiBtn}<button class="btn-icon" title="Edit" data-action="tlsEditOpen" data-arg="${escAttr(t.id)}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete" data-action="tlsDelete" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.host)}" >×</button></td>
+        <td data-stop-prop="1" >${aiBtn}<button class="btn-icon" title="Edit" data-action="tlsEditOpen" data-arg="${escAttr(t.id)}">${_icon('edit',14)}</button><button class="btn-icon c-danger-outline" title="Delete" data-action="tlsDelete" data-arg="${escAttr(t.id)}" data-arg2="${escAttr(t.host)}" >${_icon('trash',14)}</button></td>
       </tr>`;
     },
     emptyMsg: 'No TLS targets yet. Click "+ Add target" to start.',
@@ -14491,9 +14491,9 @@ function _acmeRenderTable() {
       <td><span class="acme-pill ${pillCls}">${pillText}</span></td>
       <td data-stop-prop="1" class="nowrap">
         <button class="btn-icon badge-xs" title="Force renew now"
-                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" ></button>
-        <button class="btn-icon isl-675" title="Revoke and remove"
-                data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >✗</button>
+                data-action="acmeForceRenew" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('refresh',14)}</button>
+        <button class="btn-icon badge-xs c-danger-outline" title="Revoke and remove"
+                data-action="acmeRevoke" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.domain)}" >${_icon('trash',14)}</button>
       </td>
     </tr>`;
   }).join('');

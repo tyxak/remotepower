@@ -3339,7 +3339,6 @@ button, a, [role="button"],
 .isl-383 { color: var(--muted); font-size: 13px; padding: 12px }
 .isl-384 { text-align: center; font-weight: 600 }
 .isl-385 { text-align: center; color: var(--muted) }
-.isl-386 { padding: 4px 8px; font-size: 11px; margin-left: 4px }
 .isl-387 { font-size: 12px; padding: 6px 12px }
 .isl-388 { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; color: var(--red) }
 .isl-389 { background: var(--surface2); padding: 2px 6px; border-radius: 4px }
@@ -3631,7 +3630,6 @@ button, a, [role="button"],
 .isl-672 { font-size: 12px; color: var(--muted); font-style: italic }
 .isl-673 { opacity: .85 }
 .isl-674 { font-size: 12px; font-weight: 500 }
-.isl-675 { font-size: 11px; padding: 3px 8px; color: var(--red) }
 .isl-676 { color: var(--red); padding: 20px; text-align: center }
 .isl-677 { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin-bottom: 18px }
 .isl-678 { color: #9a8dff }
