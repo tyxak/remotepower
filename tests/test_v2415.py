@@ -49,8 +49,9 @@ class TestManifest(unittest.TestCase):
     def test_short_name_present(self):
         self.assertIn('short_name', self.manifest)
 
-    def test_display_standalone(self):
-        self.assertEqual(self.manifest.get('display'), 'standalone')
+    def test_display_minimal_ui(self):
+        # v3.3.2: default install mode is minimal-ui (was standalone).
+        self.assertEqual(self.manifest.get('display'), 'minimal-ui')
 
     def test_start_url(self):
         self.assertEqual(self.manifest.get('start_url'), '/')
