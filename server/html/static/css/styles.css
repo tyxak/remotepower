@@ -1107,6 +1107,9 @@
   }
   .modal-overlay.active .modal { transform: translateY(0); }
   .modal-wide { max-width: 680px; }
+  /* v3.3.4: roughly twice modal-wide, for dense views like the RouterOS
+     console; capped to the viewport so it never overflows. */
+  .modal-xwide { max-width: min(1360px, 94vw); }
   .modal-title    { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
   .modal-subtitle { font-size: 14px; color: var(--muted); margin-bottom: 24px; line-height: 1.5; }
   .pin-display {
