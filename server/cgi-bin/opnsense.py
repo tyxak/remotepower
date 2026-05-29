@@ -141,17 +141,26 @@ def check(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
 
 
 def _firmware_status(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
-    """Normalised firmware/update state from POST /core/firmware/status."""
-    fw = _request(host, key, secret, "POST", "/core/firmware/status",
+    """Normalised firmware/update state.
+
+    Uses GET /core/firmware/status: against a live 26.1 box, GET returns the
+    static product info (product_version + product_latest) reliably, whereas
+    POST returns a check-result shape that nulls product_version until a
+    `check` has refreshed the repos. We still read the package lists for the
+    update count, and fall back to the nested `product` block for the version.
+    """
+    fw = _request(host, key, secret, "GET", "/core/firmware/status",
                   verify=verify, timeout=timeout)
     if not isinstance(fw, dict):
         return {}
+    prod = fw.get("product") if isinstance(fw.get("product"), dict) else {}
     n_upd = len(fw.get("upgrade_packages") or []) + len(fw.get("new_packages") or [])
     if not n_upd and str(fw.get("status", "")).lower() in ("update", "upgrade"):
         n_upd = 1
     return {
-        "version":           fw.get("product_version") or fw.get("product_name"),
-        "latest":            fw.get("product_latest"),
+        "version":           (fw.get("product_version") or prod.get("product_version")
+                              or fw.get("product_name")),
+        "latest":            fw.get("product_latest") or prod.get("product_latest"),
         "status":            fw.get("status"),
         "needs_reboot":      _truthy(fw.get("needs_reboot")),
         "updates_available": n_upd,
