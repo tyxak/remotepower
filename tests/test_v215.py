@@ -146,6 +146,8 @@ class TestHtmlIdReferences(unittest.TestCase):
         # v3.3.4: RouterOS console Firewall + QoS sections, appended in
         # openRouterosConsole() via createElement/innerHTML.
         'ros-fw-body', 'ros-qos-body',
+        # v3.4.0: OPNsense firewall body, rendered into the audit card.
+        'opn-fw-body',
     }
 
     def test_modal_title_body_ids_all_exist_in_html(self):

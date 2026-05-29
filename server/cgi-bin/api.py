@@ -16377,6 +16377,150 @@ def handle_device_routeros_action(dev_id):
     respond(200, {'ok': True, 'result': res})
 
 
+# ─── v3.4.0: OPNsense firewall management (REST API) ────────────────────────
+# Mirrors the RouterOS plumbing above: per-device opt-in config block with an
+# API key + write-only API secret, admin-only + audited management actions,
+# the same generic action allow-list pattern. opnsense.py holds the REST
+# client + the firewall filter/NAT CRUD.
+
+def _opnsense_target(dev):
+    """(host:port, api_key, api_secret, verify) for an OPNsense-enabled
+    device, or None. Host comes from the device's ip/hostname; key/secret +
+    port live in the device's `opnsense` config block."""
+    cfg = dev.get('opnsense') or {}
+    if not cfg.get('enabled'):
+        return None
+    host = dev.get('ip') or dev.get('hostname') or dev.get('host')
+    key = cfg.get('api_key') or ''
+    secret = cfg.get('api_secret') or ''
+    if not host or not key:
+        return None
+    port = int(cfg.get('port') or 443)
+    return (f'{host}:{port}', key, secret, bool(cfg.get('verify', False)))
+
+
+def _opnsense_redacted(dev):
+    cfg = dev.get('opnsense') or {}
+    return {
+        'enabled':     bool(cfg.get('enabled')),
+        'api_key':     cfg.get('api_key') or '',     # an access id, not the secret
+        'has_secret':  bool(cfg.get('api_secret')),
+        'port':        int(cfg.get('port') or 443),
+        'verify':      bool(cfg.get('verify', False)),
+    }
+
+
+def handle_device_opnsense(dev_id):
+    """GET /api/devices/<id>/opnsense — redacted config + (if enabled) a live
+    overview. PATCH — admin; save {enabled, api_key, api_secret, port,
+    verify} (empty api_secret preserves the stored one)."""
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    devs = load(DEVICES_FILE)
+    if dev_id not in devs:
+        respond(404, {'error': 'device not found'})
+    m = method()
+    if m == 'GET':
+        require_auth()
+        dev = devs[dev_id]
+        redacted = _opnsense_redacted(dev)
+        tgt = _opnsense_target(dev)
+        if not tgt:
+            respond(200, {'config': redacted, 'overview': None})
+        host, key, secret, verify = tgt
+        import opnsense as opn_mod
+        ov, err = None, None
+        try:
+            ov = opn_mod.overview(host, key, secret, verify=verify)
+        except Exception as e:
+            err = str(e)[:200]
+        resp = {'config': redacted, 'overview': ov}
+        if err:
+            resp['error'] = err
+        respond(200, resp)
+    elif m == 'PATCH':
+        actor = require_admin_auth()
+        body = get_json_body() or {}
+        with _LockedUpdate(DEVICES_FILE) as store:
+            dev = store.get(dev_id) or {}
+            oc = dict(dev.get('opnsense') or {})
+            if 'enabled' in body:
+                oc['enabled'] = bool(body['enabled'])
+            if 'api_key' in body:
+                oc['api_key'] = _sanitize_str(str(body['api_key']), 128)
+            if 'api_secret' in body:
+                sec = str(body['api_secret'])
+                if sec:                      # empty preserves existing
+                    oc['api_secret'] = sec[:256]
+            if 'port' in body:
+                try:
+                    p = int(body['port'])
+                    if 1 <= p <= 65535:
+                        oc['port'] = p
+                except (TypeError, ValueError):
+                    respond(400, {'error': 'port must be 1..65535'})
+            if 'verify' in body:
+                oc['verify'] = bool(body['verify'])
+            if oc.get('enabled') and not oc.get('api_key'):
+                respond(400, {'error': 'api_key required when OPNsense is enabled'})
+            if oc.get('enabled') and not oc.get('api_secret'):
+                respond(400, {'error': 'api_secret required when OPNsense is enabled'})
+            dev['opnsense'] = oc
+            store[dev_id] = dev
+        audit_log(actor, 'device_opnsense_config',
+                  f'dev={dev_id} enabled={oc.get("enabled")} key={oc.get("api_key", "")[:8]}')
+        respond(200, {'ok': True, 'config': _opnsense_redacted({'opnsense': oc})})
+    else:
+        respond(405, {'error': 'Method not allowed'})
+
+
+def handle_device_opnsense_firewall(dev_id):
+    """GET /api/devices/<id>/opnsense/firewall — filter + NAT rules detail."""
+    require_auth()
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    tgt = _opnsense_target(dev)
+    if not tgt:
+        respond(200, {'filter': [], 'nat': [], 'enabled': False})
+    host, key, secret, verify = tgt
+    import opnsense as opn_mod
+    try:
+        fw = opn_mod.firewall(host, key, secret, verify=verify)
+    except Exception as e:
+        respond(502, {'error': str(e)[:200]})
+    fw['enabled'] = True
+    respond(200, fw)
+
+
+def handle_device_opnsense_action(dev_id):
+    """POST /api/devices/<id>/opnsense/action {action, arg, rule?} — admin-only
+    firewall management, gated on the device's opnsense opt-in. Audited."""
+    actor = require_admin_auth()
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'invalid device id'})
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    tgt = _opnsense_target(dev)
+    if not tgt:
+        respond(403, {'error': 'OPNsense not enabled/configured on this device'})
+    body = get_json_body() or {}
+    act = _sanitize_str(body.get('action', ''), 32)
+    arg = _sanitize_str(str(body.get('arg', '')), 64) or None
+    host, key, secret, verify = tgt
+    import opnsense as opn_mod
+    if act not in opn_mod.ACTIONS:
+        respond(400, {'error': 'unknown action'})
+    rule = body.get('rule') if isinstance(body.get('rule'), dict) else None
+    try:
+        res = opn_mod.action(host, key, secret, act, arg=arg, rule=rule, verify=verify)
+    except Exception as e:
+        respond(502, {'error': str(e)[:200]})
+    audit_log(actor, 'device_opnsense_action', f'dev={dev_id} action={act} arg={arg}')
+    respond(200, {'ok': True, 'result': res})
+
+
 def handle_device_snmp(dev_id):
     """GET/PATCH /api/devices/<id>/snmp
 
@@ -20837,6 +20981,13 @@ def main():
         handle_device_routeros_qos(pi[len('/api/devices/'):-len('/routeros/qos')])
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros/traffic') and m == 'GET':
         handle_device_routeros_traffic(pi[len('/api/devices/'):-len('/routeros/traffic')])
+    # v3.4.0: OPNsense firewall management
+    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense/action') and m == 'POST':
+        handle_device_opnsense_action(pi[len('/api/devices/'):-len('/opnsense/action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense/firewall') and m == 'GET':
+        handle_device_opnsense_firewall(pi[len('/api/devices/'):-len('/opnsense/firewall')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/opnsense') and m in ('GET', 'PATCH'):
+        handle_device_opnsense(pi[len('/api/devices/'):-len('/opnsense')])
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH'):
         handle_device_routeros(pi[len('/api/devices/'):-len('/routeros')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):

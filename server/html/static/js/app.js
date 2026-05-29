@@ -13271,6 +13271,7 @@ function _renderDrawerAuditSections() {
   const sections = _AUDIT_SECTIONS.slice();
   if (_drawerDeviceData && _drawerDeviceData.agentless) {
     sections.push({key: 'routeros', title: 'RouterOS (MikroTik)', icon: 'radio'});
+    sections.push({key: 'opnsense', title: 'OPNsense', icon: 'shield'});
   }
   el.innerHTML = sections.map(s =>
     `<details class="audit-section" id="audit-sec-${s.key}" data-audit-key="${s.key}">
@@ -13859,6 +13860,12 @@ async function _loadAuditSection(key) {
         break;
       }
 
+      case 'opnsense': {
+        const data = await api('GET', `/devices/${id}/opnsense`);
+        _renderOpnsenseCard(body, badge, data || {});
+        break;
+      }
+
       case 'hostcfg': {
         const data = await api('GET', `/devices/${id}/host-config`);
         const cfg  = data?.current || data || {};
@@ -13987,6 +13994,190 @@ async function saveRouterosConfig() {
   else toast(r?.error || 'Failed', 'error');
 }
 
+// ── v3.4.0: OPNsense card — mirrors the RouterOS firewall console ───────────
+let _opnFirewall = { filter: [], nat: [] };
+
+function _renderOpnsenseCard(body, badge, data) {
+  const cfg = data.config || {};
+  const ov  = data.overview;
+  let h = `<div class="mb-12">
+    <label class="click-row-6"><input type="checkbox" id="opn-enabled" ${cfg.enabled ? 'checked' : ''}><span class="fs-12">Enable OPNsense API</span></label>
+    <input class="form-input mt-6" id="opn-key" placeholder="API key" value="${escAttr(cfg.api_key || '')}">
+    <input class="form-input mt-6" id="opn-secret" type="password" placeholder="${cfg.has_secret ? '•••••• (unchanged)' : 'API secret'}">
+    <input class="form-input mt-6" id="opn-port" type="number" placeholder="443" value="${cfg.port || 443}">
+    <div class="row-6 mt-6">
+      <button class="btn-icon" data-action="saveOpnsenseConfig">Save</button>
+      <button class="btn-icon" data-action="loadOpnsenseFirewall">Load firewall</button>
+    </div>
+    <div class="hint mt-6">Create an API key/secret under System → Access → Users (a dedicated user scoped to the firewall pages). TLS verification is off (OPNsense self-signed cert).</div>
+  </div>`;
+
+  if (data.error) {
+    badge.textContent = 'error';
+    body.innerHTML = h + `<div class="c-red">OPNsense error: ${escHtml(data.error)}</div>`;
+    return;
+  }
+  if (!cfg.enabled || !ov) {
+    badge.textContent = cfg.enabled ? 'configured' : 'off';
+    body.innerHTML = h + (cfg.enabled ? '' : '<div class="c-muted">Not enabled — add an API key/secret, Save, then Load firewall.</div>');
+    return;
+  }
+
+  const fwv = ov.firmware || {}, counts = ov.counts || {};
+  if (fwv.version) {
+    const stale = fwv.updates_available;
+    h += `<div class="hint mb-6">OPNsense ${escHtml(String(fwv.version))}${stale ? ` · <span class="c-amber">${escHtml(String(stale))} update(s) available</span>` : ''}</div>`;
+  }
+  h += `<div class="hint mb-6">Firewall: ${counts.filter ?? '?'} filter · ${counts.nat ?? '?'} nat</div>`;
+  if (ov.errors && Object.keys(ov.errors).length) {
+    h += `<div class="hint mb-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
+  }
+  h += '<div id="opn-fw-body"><div class="c-muted">Click "Load firewall" to view and manage rules.</div></div>';
+  badge.textContent = fwv.version ? 'v' + fwv.version : 'loaded';
+  body.innerHTML = h;
+}
+
+async function saveOpnsenseConfig() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const body = {
+    enabled: !!document.getElementById('opn-enabled')?.checked,
+    api_key: document.getElementById('opn-key')?.value.trim() || '',
+    port:    parseInt(document.getElementById('opn-port')?.value || '443', 10),
+  };
+  const sec = document.getElementById('opn-secret')?.value || '';
+  if (sec) body.api_secret = sec;
+  const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/opnsense`, body);
+  if (r?.ok) {
+    toast('OPNsense config saved', 'success');
+    const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
+    const cardBody = document.getElementById('audit-body-opnsense');
+    const badge = document.getElementById('audit-badge-opnsense');
+    if (cardBody) _renderOpnsenseCard(cardBody, badge || { textContent: '' }, data || {});
+  } else toast(r?.error || 'Failed', 'error');
+}
+
+async function loadOpnsenseFirewall() {
+  const id = _drawerDeviceId;
+  const body = document.getElementById('opn-fw-body');
+  if (!id || !body) return;
+  body.innerHTML = '<div class="c-muted">Loading rules…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense/firewall`);
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  _opnFirewall = { filter: data.filter || [], nat: data.nat || [] };
+  _renderOpnsenseFirewall(body);
+}
+
+function _renderOpnsenseFirewall(body) {
+  const f = _opnFirewall.filter || [], n = _opnFirewall.nat || [];
+  let h = `<h4 class="mt-12">Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Description</th><th></th></tr></thead><tbody>`;
+  h += f.map(r => _ruleRow(r, 'filter', 'opnsense')).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
+  h += '</tbody></table>';
+
+  h += `<h4 class="mt-12">NAT rules — outbound / source (${n.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Target</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ target:port</th><th>Description</th><th></th></tr></thead><tbody>`;
+  h += n.map(r => _ruleRow(r, 'nat', 'opnsense')).join('') || '<tr><td colspan="8" class="c-muted">No NAT rules.</td></tr>';
+  h += '</tbody></table>';
+
+  // Add-filter-rule form. New rules land DISABLED for review.
+  h += `<h4 class="mt-12">Add filter rule</h4>
+    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table. Changes are applied to the live ruleset on save.</div>
+    <div class="row-6">
+      <select class="form-input mw-200" id="opn-fw-action"><option value="pass">pass</option><option value="block">block</option><option value="reject">reject</option></select>
+      <input class="form-input mw-200" id="opn-fw-iface" placeholder="interface (e.g. lan, wan)">
+    </div>
+    <div class="row-6 mt-6">
+      <select class="form-input mw-200" id="opn-fw-ipproto"><option value="inet">IPv4 (inet)</option><option value="inet6">IPv6 (inet6)</option></select>
+      <input class="form-input mw-200" id="opn-fw-proto" placeholder="protocol (any/TCP/UDP/…)">
+    </div>
+    <input class="form-input mt-6" id="opn-fw-src" placeholder="source_net (e.g. any or 192.168.1.0/24)">
+    <input class="form-input mt-6" id="opn-fw-dst" placeholder="destination_net (optional)">
+    <input class="form-input mt-6" id="opn-fw-dport" placeholder="destination_port (optional)">
+    <input class="form-input mt-6" id="opn-fw-desc" placeholder="description">
+    <div class="row-6 mt-6"><button class="btn-primary" data-action="addOpnsenseFilterRule">Add filter rule (disabled)</button></div>`;
+
+  // Add-NAT-rule form (outbound / source NAT).
+  h += `<h4 class="mt-12">Add NAT rule (outbound / source)</h4>
+    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table. Set target to the translation address (leave empty for interface address).</div>
+    <input class="form-input" id="opn-nat-iface" placeholder="interface (e.g. wan)">
+    <div class="row-6 mt-6">
+      <select class="form-input mw-200" id="opn-nat-ipproto"><option value="inet">IPv4 (inet)</option><option value="inet6">IPv6 (inet6)</option></select>
+      <input class="form-input mw-200" id="opn-nat-proto" placeholder="protocol (any/TCP/UDP/…)">
+    </div>
+    <input class="form-input mt-6" id="opn-nat-src" placeholder="source_net (e.g. 192.168.1.0/24)">
+    <input class="form-input mt-6" id="opn-nat-dst" placeholder="destination_net (optional)">
+    <div class="row-6 mt-6">
+      <input class="form-input mw-200" id="opn-nat-target" placeholder="target (translation address)">
+      <input class="form-input mw-200" id="opn-nat-tport" placeholder="target_port (optional)">
+    </div>
+    <input class="form-input mt-6" id="opn-nat-desc" placeholder="description">
+    <div class="row-6 mt-6"><button class="btn-primary" data-action="addOpnsenseNatRule">Add NAT rule (disabled)</button></div>`;
+  body.innerHTML = h;
+}
+
+async function addOpnsenseFilterRule() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const rule = {
+    action:           document.getElementById('opn-fw-action')?.value,
+    interface:        document.getElementById('opn-fw-iface')?.value.trim() || '',
+    ipprotocol:       document.getElementById('opn-fw-ipproto')?.value || 'inet',
+    protocol:         document.getElementById('opn-fw-proto')?.value.trim() || '',
+    source_net:       document.getElementById('opn-fw-src')?.value.trim() || '',
+    destination_net:  document.getElementById('opn-fw-dst')?.value.trim() || '',
+    destination_port: document.getElementById('opn-fw-dport')?.value.trim() || '',
+    description:      document.getElementById('opn-fw-desc')?.value.trim() || '',
+  };
+  if (!rule.interface) { toast('interface is required', 'error'); return; }
+  if (!confirm(`Add a ${rule.action} rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_filter_rule', rule });
+  if (r && r.ok) { toast('Filter rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
+  else toast((r && r.error) || 'Add failed', 'error');
+}
+
+async function addOpnsenseNatRule() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const rule = {
+    interface:        document.getElementById('opn-nat-iface')?.value.trim() || '',
+    ipprotocol:       document.getElementById('opn-nat-ipproto')?.value || 'inet',
+    protocol:         document.getElementById('opn-nat-proto')?.value.trim() || '',
+    source_net:       document.getElementById('opn-nat-src')?.value.trim() || '',
+    destination_net:  document.getElementById('opn-nat-dst')?.value.trim() || '',
+    target:           document.getElementById('opn-nat-target')?.value.trim() || '',
+    target_port:      document.getElementById('opn-nat-tport')?.value.trim() || '',
+    description:      document.getElementById('opn-nat-desc')?.value.trim() || '',
+  };
+  if (!rule.interface) { toast('interface is required', 'error'); return; }
+  if (!confirm(`Add an outbound NAT rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_nat_rule', rule });
+  if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
+  else toast((r && r.error) || 'Add failed', 'error');
+}
+
+async function opnsenseRuleToggle(uuid, mode, table) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (mode === 'enable' && !confirm('Enable this rule? Make sure it won’t lock you out.')) return;
+  const nat = table === 'nat';
+  const action = mode === 'enable'
+    ? (nat ? 'enable_nat_rule' : 'enable_filter_rule')
+    : (nat ? 'disable_nat_rule' : 'disable_filter_rule');
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action, arg: uuid });
+  if (r && r.ok) { toast(`Rule ${mode}d`, 'success'); loadOpnsenseFirewall(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function opnsenseRuleDelete(uuid, table) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const nat = table === 'nat';
+  if (!confirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`,
+    { action: nat ? 'delete_nat_rule' : 'delete_filter_rule', arg: uuid });
+  if (r && r.ok) { toast('Rule deleted', 'success'); loadOpnsenseFirewall(); }
+  else toast((r && r.error) || 'Delete failed', 'error');
+}
+
 // Render into whichever surface is active — the full-width console modal
 // if it's open, else the compact drawer card.
 function _routerosSurface() {
@@ -14077,12 +14268,13 @@ async function loadRouterosFirewall() {
   _renderRouterosFirewall(body);
 }
 
-function _ruleRow(r, table) {
+function _ruleRow(r, table, ns) {
+  ns = ns || 'routeros';   // 'routeros' | 'opnsense' — picks the handler pair
   const dimmed = r.disabled ? ' c-muted' : '';
   const toggle = r.disabled
-    ? `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable" data-arg3="${table}">Enable</button>`
-    : `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable" data-arg3="${table}">Disable</button>`;
-  const del = `<button class="btn-icon badge-xs c-red" data-action="routerosRuleDelete" data-arg="${escAttr(r.id)}" data-arg2="${table}" title="Delete this rule">${_icon('trash', 13)}</button>`;
+    ? `<button class="btn-icon badge-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable" data-arg3="${table}">Enable</button>`
+    : `<button class="btn-icon badge-xs" data-action="${ns}RuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable" data-arg3="${table}">Disable</button>`;
+  const del = `<button class="btn-icon badge-xs c-red" data-action="${ns}RuleDelete" data-arg="${escAttr(r.id)}" data-arg2="${table}" title="Delete this rule">${_icon('trash', 13)}</button>`;
   const actCls = r.action === 'drop' || r.action === 'reject' ? 'c-red' : (r.action === 'accept' || r.action === 'masquerade' ? 'c-green' : '');
   const natCell = table === 'nat'
     ? `<td class="mono-12">${escHtml([r.to_addresses, r.to_ports].filter(Boolean).join(':'))}</td>`

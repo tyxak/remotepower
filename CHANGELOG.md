@@ -6,6 +6,18 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **OPNsense firewall management (REST API).** Agentless OPNsense devices
+  get a firewall card (device drawer → Audit → OPNsense) backed by the
+  OPNsense API: view, add, enable/disable, and delete **filter** rules and
+  outbound/source **NAT** rules. Per-device API key + write-only secret;
+  admin-only + audited; new rules land disabled and every change is applied
+  to the live ruleset. The OPNsense counterpart to the RouterOS firewall
+  console. See `docs/opnsense.md`.
+- **RouterOS firewall — NAT add + delete.** The MikroTik firewall console
+  could view NAT but only add filter rules and couldn't delete anything.
+  Completed the CRUD: add NAT rules (srcnat/dstnat, masquerade/dst-nat/…,
+  to-addresses/to-ports), enable/disable NAT rules, and delete buttons on
+  both filter and NAT tables. New rules still land disabled for review.
 - **RAG over your infrastructure.** The AI assistant now retrieves
   relevant facts from *your* fleet — device state, watched services,
   CVEs, containers, CMDB metadata and asset docs, per-device runbooks,
