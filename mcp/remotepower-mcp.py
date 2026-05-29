@@ -400,6 +400,30 @@ def tool_search_devices(args):
     return {"query": query, "matches": matched, "count": len(matched)}
 
 
+def tool_search_fleet(args):
+    """Semantic / keyword retrieval across the whole RAG knowledge index —
+    live device state, CMDB, runbooks, recent history, and the product docs.
+
+    This is the broad-question shortcut: instead of calling list_devices and
+    then a get_* tool per host and aggregating yourself, ask in one shot
+    ("worst CVEs in the fleet", "which hosts need a reboot", "what's listening
+    on tviapp01"). Returns ranked chunks with a citation id, the source kind,
+    the device (if any), and an excerpt. Fleet-wide rollups (worst CVEs,
+    pending updates/reboots, config drift, cert expiry) surface here as single
+    chunks. Use the granular get_* tools when you need one host's full,
+    structured record."""
+    query = ((args or {}).get("query") or "").strip()
+    if not query:
+        raise RuntimeError("'query' argument required")
+    top_n = int((args or {}).get("top_n", 6) or 6)
+    data = _api("POST", "/api/ai/rag/search", {"query": query, "top_n": top_n})
+    return {
+        "query":    query,
+        "semantic": (data or {}).get("semantic", False),
+        "results":  (data or {}).get("results", []),
+    }
+
+
 # ── Write tools (v3.2.0 Stage 4) ──────────────────────────────────────────
 # Server-side gates:
 #   * Token must hold the 'mcp' role.
@@ -654,6 +678,30 @@ TOOLS = {
             "required": ["query"],
         },
         "handler": tool_search_devices,
+    },
+    "search_fleet": {
+        "description":
+            "Search the RAG knowledge index across ALL fleet state, CMDB, "
+            "runbooks, recent history, and product docs in one call. Prefer "
+            "this for broad or cross-host questions ('worst CVEs in the "
+            "fleet', 'which hosts need a reboot', 'what ports are listening "
+            "on tviapp01', 'how do I configure X in RemotePower') instead of "
+            "calling list_devices + several get_* tools and aggregating "
+            "yourself. Returns ranked chunks with citation ids and excerpts; "
+            "fleet-wide rollups (worst CVEs, pending updates/reboots, config "
+            "drift, cert expiry) come back as single chunks. Use the granular "
+            "get_* tools when you need one host's complete structured record.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string",
+                          "description": "Natural-language question or keywords"},
+                "top_n": {"type": "integer",
+                          "description": "Max chunks to return (default 6)"},
+            },
+            "required": ["query"],
+        },
+        "handler": tool_search_fleet,
     },
     # ── v3.2.0 Stage 4: write tools ──────────────────────────────────────
     "reboot_device": {

@@ -131,6 +131,14 @@ the AI host generates these from your natural-language question.
 | `get_patches` | Pending OS package updates |
 | `get_tls` | TLS / DNS expiry watchlist |
 | `search_devices` | Free-text search by name / OS / group / tags / notes |
+| `search_fleet` | RAG retrieval across all fleet state, CMDB, runbooks, history, and docs — one call for broad/cross-host questions ("worst CVEs in the fleet", "which hosts need a reboot"). Returns ranked, cited chunks incl. fleet-wide rollups. (v3.4.0) |
+
+> `search_fleet` is the bridge between MCP and the RAG knowledge index: where
+> the granular `get_*` tools each fetch one host's structured record,
+> `search_fleet` answers a natural-language question in one shot and lets the
+> fleet rollups (worst CVEs, pending reboots, drift, cert expiry) do the
+> aggregation the model would otherwise have to do by hand. Requires the RAG
+> index to be enabled (Settings → AI → Knowledge index).
 
 ### Device-name resolution
 
