@@ -14877,16 +14877,32 @@ async function _dbgFlush() {
   } catch(_) {}
 })();
 
+// Secrets must never reach the debug log (console or /var/lib/remotepower/
+// debug.log). Mask values of credential-shaped keys in request bodies and
+// responses before they're stringified for logging. Covers api_secret /
+// api_key (OPNsense), password (RouterOS, login, vault), community (SNMP),
+// token, passphrase, private_key, etc. — case-insensitive, recursive.
+const _DBG_SECRET_RX = /(password|passwd|secret|api_?key|token|passphrase|private_key|community|credential)/i;
+function _dbgScrub(v, depth) {
+  if (depth > 6 || v == null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(x => _dbgScrub(x, depth + 1));
+  const out = {};
+  for (const k in v) {
+    out[k] = _DBG_SECRET_RX.test(k) ? '<redacted>' : _dbgScrub(v[k], depth + 1);
+  }
+  return out;
+}
+
 // Instrument api() — wrap it to log every request and response
 const _origApi = window.api;
 if (typeof _origApi === 'function') {
   window.api = async function(method, path, body) {
     const t0 = performance.now();
-    dbg(`→ ${method} ${path}` + (body ? ' body=' + JSON.stringify(body).slice(0,200) : ''), 'api');
+    dbg(`→ ${method} ${path}` + (body ? ' body=' + JSON.stringify(_dbgScrub(body, 0)).slice(0,200) : ''), 'api');
     try {
       const r = await _origApi(method, path, body);
       const dt = Math.round(performance.now() - t0);
-      const resp = JSON.stringify(r || {}).slice(0, 300);
+      const resp = JSON.stringify(_dbgScrub(r || {}, 0)).slice(0, 300);
       dbg(`← ${method} ${path} (${dt}ms) ${resp}`, 'api');
       return r;
     } catch (e) {
