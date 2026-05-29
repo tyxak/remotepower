@@ -13785,7 +13785,7 @@ async function _loadAuditSection(key) {
             ? '<span class="status-pill ok">normal</span>'
             : (v ? `<span class="status-pill critical">${escHtml(v)}</span>` : '—');
           h += '<h4 class="mt-12">Synology</h4>';
-          h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · DSM ' + escHtml(sy.dsm_version) : ''}${sy.serial ? ' · ' + escHtml(sy.serial) : ''}</div>`;
+          h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · ' + escHtml(sy.dsm_version) : ''}${sy.serial ? ' · ' + escHtml(sy.serial) : ''}</div>`;
           h += '<table class="fs-13"><tbody>';
           h += `<tr><td class="c-muted-padded">System</td><td>${okBadge(sy.system)}</td></tr>`;
           h += `<tr><td class="c-muted-padded">Power</td><td>${okBadge(sy.power)}</td></tr>`;
@@ -14298,7 +14298,7 @@ async function _renderSynologyCard(body, badge) {
 
   let h = '';
   if (sy.model || sy.dsm_version) {
-    h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · DSM ' + escHtml(sy.dsm_version) : ''}${sy.upgrade === 'available' ? ' · <span class="c-amber">DSM update available</span>' : ''}</div>`;
+    h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · ' + escHtml(sy.dsm_version) : ''}${sy.upgrade === 'available' ? ' · <span class="c-amber">DSM update available</span>' : ''}</div>`;
   } else {
     h += '<div class="hint mb-6">DSM health appears here once the device is polled over SNMP. The SSH upgrade below works independently of SNMP.</div>';
   }
@@ -14319,7 +14319,7 @@ async function _renderSynologyCard(body, badge) {
     ${(sshCfg.has_password || sshCfg.has_key) ? '' : '<div class="hint mt-6">No SSH credentials saved yet — save them before using the upgrade button.</div>'}
     <div id="syno-upgrade-out"></div>`;
 
-  badge.textContent = sy.dsm_version ? ('DSM ' + sy.dsm_version)
+  badge.textContent = sy.dsm_version ? sy.dsm_version
                     : (sshCfg.enabled ? 'ssh on' : 'ssh off');
   body.innerHTML = h;
 }

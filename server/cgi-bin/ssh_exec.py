@@ -27,7 +27,11 @@ import subprocess
 import tempfile
 
 DEFAULT_TIMEOUT = 30
-DSM_UPGRADE_LOG = "/var/log/dsm-upgrade.log"
+# Log to /tmp, not /var/log: the SSH user may be a non-root dedicated account
+# (e.g. a sudo-scoped "reboot" user), and the shell-level output redirect runs
+# AS that user — it can't write root-owned /var/log, which would silently
+# abort the detached launch.
+DSM_UPGRADE_LOG = "/tmp/rp-dsm-upgrade.log"
 
 # The built-in DSM upgrade + reboot script, run on the NAS over SSH. Shipped
 # with RemotePower (not a per-device path) so any operator gets the same
@@ -133,10 +137,13 @@ def synology_upgrade(host, user, port, *, password=None, key=None,
     """Launch the built-in DSM upgrade + reboot script, detached, so the call
     returns immediately and the reboot doesn't read back as an error. Output
     on the NAS goes to DSM_UPGRADE_LOG."""
-    # Write the script to a temp file on the NAS, then nohup it detached.
+    # Write the script to a temp file on the NAS (cat must finish reading the
+    # script from stdin before we background it), then nohup it detached so the
+    # call returns immediately and the final reboot doesn't read back as an
+    # error. Grouping the nohup in `{ … & }` keeps cat/chmod in the foreground.
     remote = (
         "cat > /tmp/rp-dsm-upgrade.sh && chmod 700 /tmp/rp-dsm-upgrade.sh && "
-        f"nohup /tmp/rp-dsm-upgrade.sh > {DSM_UPGRADE_LOG} 2>&1 </dev/null & "
+        "{ nohup /tmp/rp-dsm-upgrade.sh > " + DSM_UPGRADE_LOG + " 2>&1 </dev/null & } && "
         "echo rp-upgrade-started"
     )
     res = run_script(host, user, port, DSM_UPGRADE_SCRIPT,
