@@ -13124,7 +13124,13 @@ function _renderDrawerAuditSections() {
   // blocked by `script-src 'self'`. <details> has no `data-action`
   // equivalent through the delegated-click handler (toggle isn't a
   // click), so we attach the toggle listener directly after rendering.
-  el.innerHTML = _AUDIT_SECTIONS.map(s =>
+  // v3.3.4: RouterOS (MikroTik) card — agentless devices only (that's how
+  // routers are added); irrelevant on Linux agent hosts.
+  const sections = _AUDIT_SECTIONS.slice();
+  if (_drawerDeviceData && _drawerDeviceData.agentless) {
+    sections.push({key: 'routeros', title: 'RouterOS (MikroTik)', icon: 'radio'});
+  }
+  el.innerHTML = sections.map(s =>
     `<details class="audit-section" id="audit-sec-${s.key}" data-audit-key="${s.key}">
       <summary>
         <span>${_icon(s.icon, 14)} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
@@ -13705,6 +13711,12 @@ async function _loadAuditSection(key) {
         break;
       }
 
+      case 'routeros': {
+        const data = await api('GET', `/devices/${id}/routeros`);
+        _renderRouterosCard(body, badge, data || {});
+        break;
+      }
+
       case 'hostcfg': {
         const data = await api('GET', `/devices/${id}/host-config`);
         const cfg  = data?.current || data || {};
@@ -13725,6 +13737,138 @@ async function _loadAuditSection(key) {
     body.innerHTML = `<div class="c-red">Error loading: ${escHtml(String(err))}</div>`;
     if (_drawerAuditLoaded[key]) delete _drawerAuditLoaded[key]; // allow retry
   }
+}
+
+// ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────
+function _renderRouterosCard(body, badge, data) {
+  const cfg = data.config || {};
+  const ov  = data.overview;
+  const fmtB = (b) => {
+    if (b == null) return '—';
+    if (b < 1024) return String(b);
+    const u = ['B','KB','MB','GB','TB']; let i = 0; let v = b;
+    while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v < 10 ? 1 : 0) + u[i];
+  };
+
+  let h = `<div class="mb-12">
+    <label class="click-row-6"><input type="checkbox" id="ros-enabled" ${cfg.enabled ? 'checked' : ''}><span class="fs-12">Enable RouterOS REST (v7+)</span></label>
+    <input class="form-input mt-6" id="ros-user" placeholder="username" value="${escAttr(cfg.username || '')}">
+    <input class="form-input mt-6" id="ros-pass" type="password" placeholder="${cfg.has_password ? '•••••• (unchanged)' : 'password'}">
+    <input class="form-input mt-6" id="ros-port" type="number" placeholder="443" value="${cfg.port || 443}">
+    <div class="row-6 mt-6">
+      <button class="btn-icon" data-action="saveRouterosConfig">Save</button>
+      <button class="btn-icon" data-action="routerosReload">Load</button>
+    </div>
+    <div class="hint mt-6">Use a dedicated RouterOS user — a read-only group for visibility, a write group only if you'll use the actions. TLS verification is off (RouterOS self-signed cert).</div>
+  </div>`;
+
+  if (data.error) {
+    badge.textContent = 'error';
+    body.innerHTML = h + `<div class="c-red">RouterOS error: ${escHtml(data.error)}</div>`;
+    return;
+  }
+  if (!cfg.enabled || !ov) {
+    badge.textContent = cfg.enabled ? 'configured' : 'off';
+    body.innerHTML = h + (cfg.enabled ? '' : '<div class="c-muted">Not enabled — add credentials, Save, then Load.</div>');
+    return;
+  }
+
+  const sys = ov.system || {}, rb = ov.routerboard || {}, up = ov.update || {};
+  h += `<h4 class="mt-12">System</h4>`;
+  h += `<div class="hint mb-6">${escHtml(rb.model || sys.board_name || 'RouterOS')} · RouterOS ${escHtml(sys.version || '?')}${sys.cpu_load != null ? ' · CPU ' + escHtml(String(sys.cpu_load)) + '%' : ''}${sys.uptime ? ' · up ' + escHtml(sys.uptime) : ''}</div>`;
+  if (up.installed_version || up.latest_version) {
+    const stale = up.latest_version && up.installed_version && up.latest_version !== up.installed_version;
+    h += `<div class="hint mb-6">Update: ${escHtml(up.installed_version || '?')} → ${stale ? `<span class="c-amber">${escHtml(up.latest_version)}</span>` : escHtml(up.latest_version || 'current')}</div>`;
+  }
+  h += `<div class="row-6 mb-12">
+    <button class="btn-icon" data-action="routerosAction" data-arg="reboot" title="Reboot the router">${_icon('refresh',14)} Reboot</button>
+    <button class="btn-icon" data-action="routerosAction" data-arg="export" title="Export the running config">Export config</button>
+  </div><div id="ros-action-out"></div>`;
+
+  const ifs = ov.interfaces || [];
+  if (ifs.length) {
+    h += `<h4 class="mt-12">Interfaces (${ifs.length})</h4><table class="fs-13"><thead><tr><th>Name</th><th>Type</th><th>State</th><th class="ta-right">RX</th><th class="ta-right">TX</th><th></th></tr></thead><tbody>`;
+    for (const i of ifs) {
+      const state = i.disabled ? '<span class="c-muted">disabled</span>'
+                  : (i.running ? '<span class="c-green">up</span>' : '<span class="c-amber">down</span>');
+      const btn = i.disabled
+        ? `<button class="btn-icon badge-xs" data-action="routerosAction" data-arg="enable_interface" data-arg2="${escAttr(i.id)}">Enable</button>`
+        : `<button class="btn-icon badge-xs" data-action="routerosAction" data-arg="disable_interface" data-arg2="${escAttr(i.id)}">Disable</button>`;
+      h += `<tr><td><strong>${escHtml(i.name || '?')}</strong></td><td class="hint">${escHtml(i.type || '')}</td><td>${state}</td><td class="ta-right">${fmtB(i.rx_byte)}</td><td class="ta-right">${fmtB(i.tx_byte)}</td><td class="nowrap">${btn}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+
+  const leases = ov.dhcp_leases || [];
+  if (leases.length) {
+    h += `<h4 class="mt-12">DHCP leases (${leases.length})</h4><table class="fs-13"><thead><tr><th>Address</th><th>MAC</th><th>Host</th><th>Status</th></tr></thead><tbody>`;
+    for (const l of leases.slice(0, 100)) {
+      h += `<tr><td class="mono-12">${escHtml(l.address || '')}</td><td class="mono-12">${escHtml(l.mac || '')}</td><td>${escHtml(l.hostname || '—')}</td><td class="hint">${escHtml(l.status || '')}${l.dynamic ? '' : ' · static'}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+
+  const wl = ov.wireless || [];
+  if (wl.length) {
+    h += `<h4 class="mt-12">Wireless clients (${wl.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>MAC</th><th>Signal</th></tr></thead><tbody>`;
+    for (const w of wl.slice(0, 100)) {
+      h += `<tr><td>${escHtml(w.interface || '')}</td><td class="mono-12">${escHtml(w.mac || '')}</td><td class="hint">${escHtml(String(w.signal || '—'))}</td></tr>`;
+    }
+    h += '</tbody></table>';
+  }
+
+  const fw = ov.firewall || {};
+  h += `<div class="hint mt-12">Firewall: ${fw.filter || 0} filter · ${fw.nat || 0} nat${ov.routes != null ? ' · ' + ov.routes + ' routes' : ''}</div>`;
+  if (ov.errors && Object.keys(ov.errors).length) {
+    h += `<div class="hint mt-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
+  }
+  badge.textContent = sys.version ? 'v' + sys.version : 'loaded';
+  body.innerHTML = h;
+}
+
+async function saveRouterosConfig() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const body = {
+    enabled:  !!document.getElementById('ros-enabled')?.checked,
+    username: document.getElementById('ros-user')?.value.trim() || '',
+    port:     parseInt(document.getElementById('ros-port')?.value || '443', 10),
+  };
+  const pw = document.getElementById('ros-pass')?.value || '';
+  if (pw) body.password = pw;
+  const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/routeros`, body);
+  if (r?.ok) { toast('RouterOS config saved', 'success'); routerosReload(); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function routerosReload() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const body  = document.getElementById('audit-body-routeros');
+  const badge = document.getElementById('audit-badge-routeros');
+  if (!body) return;
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
+  _renderRouterosCard(body, badge, data || {});
+}
+
+async function routerosAction(action, arg) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (action === 'reboot' && !confirm('Reboot this RouterOS device?')) return;
+  if (action === 'disable_interface' &&
+      !confirm('Disable this interface? If it carries your access you could lock yourself out.')) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action, arg });
+  if (!r || r.error) { toast(r?.error || 'Action failed', 'error'); return; }
+  if (action === 'export' && r.result && r.result.export != null) {
+    const out = document.getElementById('ros-action-out');
+    if (out) out.innerHTML = `<h4 class="mt-12">Config export</h4><pre class="isl-514"><code>${escHtml(r.result.export)}</code></pre>`;
+    toast('Config exported', 'success');
+    return;
+  }
+  toast(`${action.replace('_', ' ')} ok`, 'success');
+  if (action !== 'export') routerosReload();
 }
 
 // ── Audit helpers ─────────────────────────────────────────────────────────────

@@ -1698,6 +1698,11 @@
                 <li>Agentless devices used to be "up" forever. They now default to an <strong>ICMP ping check</strong> that flips their online state and fires <code>device_offline</code> / <code>device_online</code> (2-fail debounce, respects the Monitored flag) — real reachability, like agent devices. A per-device <strong>Reachability</strong> setting (device → Actions &amp; Settings) switches between <em>ICMP ping</em> and <em>Manual</em> (set Up/Down by hand) for hosts that block ping.</li>
               </ul>
 
+              <h4>MikroTik RouterOS management (REST)</h4>
+              <ul>
+                <li>Agentless MikroTik devices get a <strong>RouterOS card</strong> (device drawer → Audit) over the RouterOS v7+ REST API: system + firmware/update, interfaces with traffic, DHCP leases, firewall/NAT counts, routes, wireless clients — plus <strong>management actions</strong> (enable/disable interface, reboot, run script, export config). Credentials are per-device (write-only password); admin-only + audited; TLS verification off for RouterOS's self-signed cert. Beyond the SNMP health + ICMP reachability MikroTik already had.</li>
+              </ul>
+
               <p>Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.4.md</code>.</p>
             </div>
           </details>

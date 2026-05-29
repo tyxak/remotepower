@@ -50,6 +50,16 @@ In development.
   *ICMP ping* (default) or *Manual* (set Up/Down by hand, for hosts that
   block ping). `check_offline_webhooks` already skips agentless, so this
   sweep solely owns their up/down.
+- **MikroTik RouterOS management (REST).** New `routeros.py` REST client
+  (RouterOS **v7+**, HTTPS + basic auth) gives MikroTik devices a
+  visibility + management card in the device drawer (agentless devices):
+  system + firmware/update state, interfaces with traffic, DHCP leases,
+  firewall/NAT counts, routes, wireless clients — plus management actions
+  (enable/disable interface, reboot, run a saved script, export config).
+  Stored per-device with a write-only password; **admin-only + audited**,
+  and management is gated behind the device's RouterOS opt-in. TLS verify
+  is off by default (RouterOS self-signed cert). Beyond the SNMP health +
+  ICMP reachability MikroTik already had.
 
 ## v3.3.3 — unreleased (dev)
 

@@ -153,5 +153,31 @@ class TestAgentlessReachabilityShipped(unittest.TestCase):
         self.assertIn('function onReachabilityModeChange', self.appjs)
 
 
+class TestRouterosShipped(unittest.TestCase):
+    """MikroTik RouterOS REST client + endpoints + drawer card."""
+
+    def setUp(self):
+        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_client_module_present(self):
+        path = REPO_ROOT / 'server' / 'cgi-bin' / 'routeros.py'
+        self.assertTrue(path.exists(), 'routeros.py missing')
+        body = path.read_text()
+        self.assertIn('def overview', body)
+        self.assertIn('def action', body)
+        self.assertIn('/rest', body)
+
+    def test_endpoints_and_gating(self):
+        self.assertIn('def handle_device_routeros', self.api)
+        self.assertIn('def handle_device_routeros_action', self.api)
+        self.assertIn("'/routeros'", self.api)
+        self.assertIn('_routeros_target', self.api)
+
+    def test_ui_card_present(self):
+        self.assertIn('function _renderRouterosCard', self.appjs)
+        self.assertIn('function routerosAction', self.appjs)
+
+
 if __name__ == '__main__':
     unittest.main()
