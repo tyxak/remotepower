@@ -14007,7 +14007,6 @@ function _renderOpnsenseCard(body, badge, data) {
     <input class="form-input mt-6" id="opn-port" type="number" placeholder="443" value="${cfg.port || 443}">
     <div class="row-6 mt-6">
       <button class="btn-icon" data-action="saveOpnsenseConfig">Save</button>
-      <button class="btn-icon" data-action="loadOpnsenseFirewall">Load firewall</button>
     </div>
     <div class="hint mt-6">Create an API key/secret under System → Access → Users (a dedicated user scoped to the firewall pages). TLS verification is off (OPNsense self-signed cert).</div>
   </div>`;
@@ -14044,7 +14043,11 @@ function _renderOpnsenseCard(body, badge, data) {
   if (ov.errors && Object.keys(ov.errors).length) {
     h += `<div class="hint mb-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
   }
-  h += '<div id="opn-fw-body"><div class="c-muted">Click "Load firewall" to view and manage rules.</div></div>';
+  h += `<h4 class="mt-12">Firewall &amp; NAT rules</h4>
+    <div class="row-6 mb-6">
+      <button class="btn-icon" data-action="loadOpnsenseFirewall">${_icon('refresh',14)} Load / refresh rules</button>
+    </div>
+    <div id="opn-fw-body"><div class="c-muted">Click "Load / refresh rules" to view and manage filter + NAT rules.</div></div>`;
   badge.textContent = fwv.version ? String(fwv.version).replace(/^OPNsense\s*/i, 'v') : 'loaded';
   body.innerHTML = h;
 }
@@ -14058,12 +14061,32 @@ async function opnsenseAction(action, arg) {
   if (act === 'check_update') toast('Checking OPNsense for updates…', 'info');
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: act });
   if (!r || r.error) { toast((r && r.error) || 'Action failed', 'error'); return; }
-  toast(`${act.replace('_', ' ')} ok`, 'success');
+
+  // Build a visible verdict for check_update — with 0 updates the card looks
+  // unchanged, so an explicit "up to date" message is what the operator needs.
+  let resultMsg = '';
+  if (act === 'check_update') {
+    const u = (r.result && r.result.update) || {};
+    resultMsg = u.updates_available
+      ? `${u.updates_available} update(s) available${u.latest ? ' — latest ' + u.latest : ''}`
+      : `Up to date — OPNsense ${u.version || '?'}${u.needs_reboot ? ' (reboot pending)' : ''}`;
+    toast(resultMsg, 'success');
+  } else {
+    toast(`${act.replace('_', ' ')} ok`, 'success');
+  }
+
   // Refresh the active surface so the new firmware/update state shows.
   if (act !== 'reboot') {
     const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
     const { body, badge } = _opnsenseSurface();
-    if (body) { _renderOpnsenseCard(body, badge, data || {}); _opnsenseConsoleAppendFirewall(body, data); }
+    if (body) {
+      _renderOpnsenseCard(body, badge, data || {});
+      _opnsenseConsoleAppendFirewall(body, data);
+      if (resultMsg) {
+        const out = document.getElementById('opn-action-out');
+        if (out) out.innerHTML = `<div class="hint mb-6">${escHtml(resultMsg)}</div>`;
+      }
+    }
   }
 }
 
@@ -14083,6 +14106,11 @@ async function openOpnsenseConsole() {
 // In the console, drop the firewall management straight into the body (more
 // room than the drawer card) instead of behind a "Load firewall" click.
 function _opnsenseConsoleAppendFirewall(surface, data) {
+  // Console only — auto-load the rules into the roomy modal. The compact
+  // drawer card stays button-driven (Load / refresh rules), matching the
+  // RouterOS/MikroTik load-on-demand UX.
+  const modal = document.getElementById('opnsense-console-modal');
+  if (!modal || !modal.classList.contains('active')) return;
   if (!surface || !data || !data.config || !data.config.enabled || !data.overview) return;
   const holder = surface.querySelector('#opn-fw-body');
   if (holder) loadOpnsenseFirewall();
