@@ -47,10 +47,16 @@ citation key, plus a freshness timestamp.
 | Embedding model | provider default | e.g. `text-embedding-3-small`, `nomic-embed-text` |
 | Max chunks per question | 6 | Upper bound on injected chunks |
 | History: keep last N days | 14 | Age cutoff for the history source |
+| `reindex_min_interval_sec` | 600 | Throttle: lazy rebuild at most once per this many seconds |
 | Retrieve context per question (RAG) | on | Per-query injection into chat (Context awareness) |
 
-The index rebuilds **lazily** on chat whenever an enabled source file is
-newer than the last build, and on demand via **Rebuild index**.
+The index rebuilds **lazily** on chat when an enabled source file is newer
+than the last build — but at most once per `reindex_min_interval_sec`
+(default 10 min), so a fleet whose `devices.json` bumps every heartbeat
+doesn't rebuild (and, with embeddings on, re-embed volatile chunks) on
+every chat. The manual **Rebuild index** button bypasses the throttle.
+Volatile current-usage metrics (load, CPU %, memory %) live in their own
+`#metrics` chunk so they never destabilise the stable specs/summary chunks.
 
 ## Privacy
 

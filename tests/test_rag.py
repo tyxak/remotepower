@@ -237,6 +237,22 @@ class TestCorpusBuilders(unittest.TestCase):
         patch_roll = next(d for d in idx.docs if d["id"] == "live/_fleet#patches")
         self.assertIn("a", patch_roll["text"])      # reboot + updates host listed
 
+    def test_metrics_chunk_and_stable_resources(self):
+        devs = [{"id": "app01", "name": "app01", "sysinfo": {
+            "cores": 8, "mem_total_mb": 16384, "boot_time": 1700000000,
+            "uptime_seconds": 999, "loadavg": [1.2, 0.9, 0.7],
+            "mem_percent": 63, "disk_percent": 88}}]
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs))
+        ids = {d["id"] for d in idx.docs}
+        self.assertIn("live/app01#metrics", ids)
+        # the stable resources chunk must NOT carry the ever-incrementing
+        # uptime_seconds (that would churn the embedding cache every heartbeat)
+        res = next(d for d in idx.docs if d["id"] == "live/app01#resources")
+        self.assertNotIn("uptime", res["text"].lower())
+        self.assertNotIn("999", res["text"])
+        self.assertEqual(idx.search("current load and memory usage on app01", 1)[0]["id"],
+                         "live/app01#metrics")
+
     def test_listening_ports_indexed(self):
         devs = [{"id": "app01", "name": "app01", "sysinfo": {"listening_ports": [
             {"port": 22, "proto": "tcp", "process": "sshd"},
@@ -426,6 +442,24 @@ class TestApiCorpus(unittest.TestCase):
         cve_hits = api._rag_retrieve(cfg, "critical CVE on web01")
         self.assertTrue(any("cve" in h["id"] or "alert" in h["id"]
                             for h in cve_hits))
+
+    def test_reindex_throttle(self):
+        import time as _t
+        cfg = api._ai_cfg()
+        self.assertEqual(cfg["rag"]["reindex_min_interval_sec"], 600)
+        idx1 = api._rag_get_index(cfg)          # first call builds
+        built1 = idx1.built_at
+        self.assertGreater(idx1.stats()["docs"], 0)
+        # a source change inside the throttle window must NOT trigger a rebuild
+        _t.sleep(1)
+        os.utime(api.DEVICES_FILE, None)
+        idx2 = api._rag_get_index(cfg)
+        self.assertEqual(idx2.built_at, built1)
+        # interval=0 => a source change rebuilds immediately
+        cfg["rag"]["reindex_min_interval_sec"] = 0
+        os.utime(api.DEVICES_FILE, None)
+        idx3 = api._rag_get_index(cfg)
+        self.assertGreaterEqual(idx3.built_at, built1)
 
     def test_lexical_works_without_embeddings(self):
         # Anthropic provider => embeddings inactive, retrieval still works.

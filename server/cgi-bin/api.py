@@ -10515,6 +10515,12 @@ _AI_DEFAULTS = {
         'embedding_model':    '',
         'max_chunks': 6,
         'max_chars':  4000,
+        # Lazy reindex throttle: rebuild at most once per this many seconds,
+        # even though devices.json changes every heartbeat. Bounds both the
+        # (cheap) lexical rebuild frequency and — when embeddings are on — the
+        # re-embedding of volatile chunks. The manual "Rebuild index" button
+        # bypasses this. Default 10 min.
+        'reindex_min_interval_sec': 600,
         'history_limits': {
             'commands_per_device': 20,
             'max_age_days':        14,
@@ -10627,6 +10633,9 @@ def handle_ai_config_set():
             mch = rb.get('max_chars')
             if isinstance(mch, int) and 200 <= mch <= 20000:
                 cur['rag']['max_chars'] = mch
+            iv = rb.get('reindex_min_interval_sec')
+            if isinstance(iv, int) and 0 <= iv <= 86400:
+                cur['rag']['reindex_min_interval_sec'] = iv
             if isinstance(rb.get('sources'), dict):
                 cur['rag']['sources'] = dict(cur['rag'].get('sources') or {})
                 for k in ('docs', 'live_state', 'cmdb', 'history'):
@@ -10901,14 +10910,22 @@ def _rag_reindex(cfg):
 
 
 def _rag_get_index(cfg):
-    """Return a ready-to-search index, rebuilding lazily if any enabled
-    source is newer than the persisted index. Never raises — on any failure
-    returns whatever index we could load (possibly empty)."""
+    """Return a ready-to-search index, rebuilding lazily when enabled sources
+    have changed — but at most once per reindex_min_interval_sec, so a fleet
+    whose devices.json bumps every heartbeat doesn't rebuild (and, with
+    embeddings on, re-embed volatile chunks) on every single chat. Never
+    raises — on any failure returns whatever index we could load."""
     try:
+        rag = cfg.get('rag') or {}
         idx = _rag_load_index()
-        sources = (cfg.get('rag') or {}).get('sources') or {}
-        if idx.stats()['docs'] == 0 or _rag_newest_mtime(sources) > idx.built_at:
-            idx.build(_rag_build_corpus(cfg), built_at=int(time.time()))
+        sources = rag.get('sources') or {}
+        now = int(time.time())
+        interval = int(rag.get('reindex_min_interval_sec', 600))
+        never_built = idx.stats()['docs'] == 0
+        changed = _rag_newest_mtime(sources) > idx.built_at
+        throttle_elapsed = (now - idx.built_at) >= interval
+        if never_built or (changed and throttle_elapsed):
+            idx.build(_rag_build_corpus(cfg), built_at=now)
             _rag_embed_missing(cfg, idx)
             save(RAG_INDEX_FILE, idx.to_dict())
         return idx

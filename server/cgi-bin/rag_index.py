@@ -420,12 +420,15 @@ def build_live_state_corpus(devices, facets=None, now=0):
         # asks about ("how much memory/disk/cpu does X have", "how long has
         # X been up"). Totals are stable; we keep current free/percent out of
         # the embedded text (volatile, see the summary note).
+        # Stable specs only. Note: uptime_seconds is intentionally NOT here —
+        # it increments every heartbeat, so it would change the chunk hash
+        # constantly and re-embed it each rebuild. boot_time is the stable
+        # anchor (uptime = now - boot_time, which the model can compute).
         res = []
         for label, key in (('cpu', 'cpu'), ('cpu cores', 'cores'),
                            ('cpu cores', 'cpu_count'),
                            ('total memory (MB)', 'mem_total_mb'),
                            ('total disk (GB)', 'disk_total_gb'),
-                           ('uptime (seconds)', 'uptime_seconds'),
                            ('boot time', 'boot_time'),
                            ('last boot', 'last_boot')):
             v = si.get(key)
@@ -436,6 +439,26 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 f"live/{dev_id}#resources", 'live_state', 'device_resources',
                 f"{name} resources / hardware specs:\n" + '\n'.join(res),
                 title=f"{name} — resources", device=dev_id, ts=ts))
+
+        # Current resource usage — volatile (changes every heartbeat). Kept in
+        # its own small chunk so it doesn't destabilise the stable specs/
+        # summary chunks; the reindex throttle (api side) bounds how often
+        # this re-embeds when embeddings are enabled.
+        usage = []
+        for label, key in (('load average', 'loadavg'),
+                           ('cpu usage %', 'cpu_percent'),
+                           ('memory usage %', 'mem_percent'),
+                           ('swap usage %', 'swap_percent'),
+                           ('disk usage %', 'disk_percent')):
+            v = si.get(key)
+            if v not in (None, ''):
+                usage.append(f"{label}: {v}")
+        if usage:
+            docs.append(make_doc(
+                f"live/{dev_id}#metrics", 'live_state', 'device_metrics',
+                f"{name} current resource usage (load, CPU, memory, swap, "
+                f"disk):\n" + '\n'.join(usage),
+                title=f"{name} — current usage", device=dev_id, ts=ts))
 
         # Patch / reboot status. `upgradable` is a pending-update count on the
         # device record; reboot_required comes from sysinfo. Both answer
