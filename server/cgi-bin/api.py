@@ -210,6 +210,11 @@ IMAGE_UPDATES_FILE = DATA_DIR / 'image_updates.json'
 # ignored while the registry digest matches acked_digest (empty = mute
 # always); a newer upstream digest re-surfaces it. Mirrors cve_ignore.json.
 IMAGE_IGNORE_FILE  = DATA_DIR / 'image_ignore.json'
+# v3.3.4: uploaded docker-compose "stacks" the operator can deploy to a
+# device. { stack_id: {name, device_id, yaml, status, created_by, ...} }.
+# Deploying is gated behind a per-device `compose_enabled` opt-in (default
+# off) since it runs an arbitrary compose file as root on the host.
+COMPOSE_STACKS_FILE = DATA_DIR / 'compose_stacks.json'
 # Sweep cadence + per-run caps. The sweep runs at most once per interval
 # (default 12h); each run refreshes at most MAX_PER_RUN of the most-overdue
 # images within a wall-time budget, so a big fleet spreads across sweeps
@@ -3991,6 +3996,7 @@ def handle_devices_list():
             # screaming about a swap warning on the same host.
             'metric_state': dev.get('metric_state') or {},
             'require_confirmation': dev.get('require_confirmation', True),
+            'compose_enabled': dev.get('compose_enabled', False),
             'last_seen': last_ping, 'enrolled': dev.get('enrolled', 0),
             'online': is_online, 'offline_reason': offline_reason, 'missed_polls': missed,
             'poll_interval': dev.get('poll_interval', 60),
@@ -4590,6 +4596,28 @@ def handle_device_require_confirmation(dev_id):
     audit_log(requester, 'device_require_confirmation',
               f'dev={dev_id} require_confirmation={require}')
     respond(200, {'ok': True, 'require_confirmation': require})
+
+
+def handle_device_compose_enabled(dev_id):
+    """PATCH /api/devices/<id>/compose_enabled — per-device opt-in for
+    compose deploys. Default off: a device can't be targeted by a stack
+    deploy until an admin explicitly enables it here, since deploying runs
+    an arbitrary compose file as root on the host."""
+    requester = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    enabled = bool(body.get('compose_enabled', False))
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    devices[dev_id]['compose_enabled'] = enabled
+    save(DEVICES_FILE, devices)
+    audit_log(requester, 'device_compose_enabled',
+              f'dev={dev_id} compose_enabled={enabled}')
+    respond(200, {'ok': True, 'compose_enabled': enabled})
 
 
 def handle_enroll_pin():
@@ -5466,6 +5494,25 @@ def handle_heartbeat():
                 meta_path.write_text(json.dumps(meta))
             except Exception as e:
                 sys.stderr.write(f"[remotepower] acme log capture failed dev={dev_id}: {e}\n")
+        # v3.3.4: compose-deploy status. Same round-trip pattern as ACME/
+        # mitigate — the agent echoes the full command, so we recognise
+        # compose_deploy:<action>:<stack_id> and update the stack's status
+        # from the return code. No separate status endpoint needed.
+        compose_match = re.match(r'^compose_deploy:(up|down|redeploy):(s-[a-f0-9]+)$', cmd_raw)
+        if compose_match:
+            c_action, c_stack = compose_match.group(1), compose_match.group(2)
+            try:
+                with _LockedUpdate(COMPOSE_STACKS_FILE) as cstore:
+                    cs = cstore.get(c_stack)
+                    if cs and cs.get('device_id') == dev_id:
+                        rc = int(co['rc']) if isinstance(co.get('rc'), int) else -1
+                        cs['status'] = _compose_status_from(c_action, rc)
+                        cs['last_rc'] = rc
+                        cs['last_action'] = c_action
+                        cs['last_action_ts'] = now
+                        cs['last_output'] = str(co.get('output', ''))[:8192]
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] compose status update failed dev={dev_id}: {e}\n")
         outputs[dev_id].append({
             'ts':     now,
             'cmd':    cmd_display,
@@ -15353,6 +15400,157 @@ def handle_image_ignore_remove():
     respond(200, {'ok': True})
 
 
+# ── v3.3.4: docker-compose stacks (upload + deploy) ────────────────────────
+#
+# Lifecycle-core: upload/paste a compose file as a named "stack" targeted at
+# a device, then up / down / redeploy. Deploying is gated behind the
+# device's compose_enabled opt-in (default off), admin-only, and audited —
+# it runs an arbitrary compose file as root on the host. The agent fetches
+# the YAML itself (POST /api/compose/fetch, device-token auth) so the file
+# (and any secrets in it) never lands in the command queue/log; the run goes
+# through argv (no shell), and status comes back via the normal command-
+# output channel (the compose_deploy hook in handle_heartbeat).
+
+_STACK_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,63}$')
+COMPOSE_YAML_MAX = 128 * 1024
+_COMPOSE_ACTIONS = ('up', 'down', 'redeploy')
+
+
+def _compose_status_from(action, rc):
+    if rc != 0:
+        return 'error'
+    return 'down' if action == 'down' else 'up'   # up / redeploy → up
+
+
+def handle_compose_stacks_list():
+    """GET /api/compose/stacks — list stacks (metadata only, no YAML)."""
+    require_auth()
+    stacks = load(COMPOSE_STACKS_FILE) or {}
+    devs = load(DEVICES_FILE) or {}
+    items = []
+    for sid, s in stacks.items():
+        dev = devs.get(s.get('device_id')) or {}
+        items.append({
+            'id':              sid,
+            'name':            s.get('name', ''),
+            'device_id':       s.get('device_id', ''),
+            'device_name':     dev.get('name') or s.get('device_id', ''),
+            'compose_enabled': bool(dev.get('compose_enabled', False)),
+            'status':          s.get('status', 'created'),
+            'last_action':     s.get('last_action', ''),
+            'last_action_ts':  int(s.get('last_action_ts', 0)),
+            'last_rc':         s.get('last_rc'),
+            'created_by':      s.get('created_by', ''),
+            'created_ts':      int(s.get('created_ts', 0)),
+        })
+    items.sort(key=lambda x: (x['device_name'], x['name']))
+    respond(200, {'stacks': items})
+
+
+def handle_compose_stack_get(stack_id):
+    """GET /api/compose/stacks/<id> — full stack incl. YAML + last output."""
+    require_admin_auth()
+    s = (load(COMPOSE_STACKS_FILE) or {}).get(stack_id)
+    if not s:
+        respond(404, {'error': 'stack not found'})
+    out = dict(s)
+    out['id'] = stack_id
+    respond(200, out)
+
+
+def handle_compose_stack_create():
+    """POST /api/compose/stacks — create a stack {name, device_id, yaml}."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    name = _sanitize_str(body.get('name', ''), 64).lower()
+    device_id = _sanitize_str(body.get('device_id', ''), 64, allow_empty=False)
+    yaml = body.get('yaml', '')
+    if not _STACK_NAME_RE.match(name or ''):
+        respond(400, {'error': 'name must be lowercase [a-z0-9_-], up to 64 chars'})
+    if not isinstance(yaml, str) or not yaml.strip():
+        respond(400, {'error': 'compose yaml required'})
+    if len(yaml) > COMPOSE_YAML_MAX:
+        respond(400, {'error': f'compose file too large (>{COMPOSE_YAML_MAX} bytes)'})
+    if 'services:' not in yaml:
+        respond(400, {'error': 'does not look like a compose file (no "services:" key)'})
+    devices = load(DEVICES_FILE)
+    if device_id not in devices:
+        respond(404, {'error': 'device not found'})
+    stacks = load(COMPOSE_STACKS_FILE) or {}
+    for s in stacks.values():
+        if s.get('device_id') == device_id and s.get('name') == name:
+            respond(409, {'error': f'a stack named "{name}" already exists on this device'})
+    stack_id = 's-' + os.urandom(6).hex()
+    stacks[stack_id] = {
+        'name': name, 'device_id': device_id, 'yaml': yaml,
+        'status': 'created', 'created_by': actor, 'created_ts': int(time.time()),
+        'last_action': '', 'last_action_ts': 0, 'last_rc': None, 'last_output': '',
+    }
+    save(COMPOSE_STACKS_FILE, stacks)
+    audit_log(actor, 'compose_stack_create', f'{name} dev={device_id}')
+    respond(200, {'ok': True, 'id': stack_id})
+
+
+def handle_compose_stack_delete(stack_id):
+    """DELETE /api/compose/stacks/<id> — drop the stored definition (admin).
+
+    Does NOT tear down running containers — run "down" first if you want
+    that. We only forget the stack."""
+    actor = require_admin_auth()
+    stacks = load(COMPOSE_STACKS_FILE) or {}
+    if stack_id in stacks:
+        name = stacks[stack_id].get('name', '')
+        del stacks[stack_id]
+        save(COMPOSE_STACKS_FILE, stacks)
+        audit_log(actor, 'compose_stack_delete', f'{name} ({stack_id})')
+    respond(200, {'ok': True})
+
+
+def handle_compose_stack_action(stack_id):
+    """POST /api/compose/stacks/<id>/action {action} — queue up/down/redeploy."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    action = _sanitize_str(body.get('action', ''), 16).lower()
+    if action not in _COMPOSE_ACTIONS:
+        respond(400, {'error': f'action must be one of {_COMPOSE_ACTIONS}'})
+    stacks = load(COMPOSE_STACKS_FILE) or {}
+    s = stacks.get(stack_id)
+    if not s:
+        respond(404, {'error': 'stack not found'})
+    device_id = s.get('device_id')
+    dev = load(DEVICES_FILE).get(device_id)
+    if not dev:
+        respond(404, {'error': 'target device not found'})
+    if not dev.get('compose_enabled', False):
+        respond(403, {'error': 'compose deploys are disabled on this device — enable them first'})
+    s['status'] = 'deploying'
+    s['last_action'] = action
+    s['last_action_ts'] = int(time.time())
+    save(COMPOSE_STACKS_FILE, stacks)
+    # _queue_command_batch queues without responding (unlike _queue_command);
+    # the agent fetches the YAML itself via /api/compose/fetch.
+    _queue_command_batch([device_id], f'compose_deploy:{action}:{stack_id}', actor)
+    audit_log(actor, 'compose_stack_action', f'{action} {s.get("name")} dev={device_id}')
+    respond(200, {'ok': True, 'queued': action})
+
+
+def handle_compose_fetch():
+    """POST /api/compose/fetch {device_id, token, stack_id} — agent fetches a
+    stack's YAML with its device token. Kept off the command queue so the
+    compose file never lands in the command log."""
+    body = get_json_body()
+    device_id = str(body.get('device_id', '')).strip()
+    token = str(body.get('token', '')).strip()
+    stack_id = str(body.get('stack_id', '')).strip()
+    dev = load(DEVICES_FILE).get(device_id)
+    if not dev or not hmac.compare_digest(dev.get('token', ''), token):
+        respond(403, {'error': 'Unauthorized device'})
+    s = (load(COMPOSE_STACKS_FILE) or {}).get(stack_id)
+    if not s or s.get('device_id') != device_id:
+        respond(404, {'error': 'stack not found for this device'})
+    respond(200, {'ok': True, 'name': s.get('name', ''), 'yaml': s.get('yaml', '')})
+
+
 def handle_device_snmp(dev_id):
     """GET/PATCH /api/devices/<id>/snmp
 
@@ -19782,6 +19980,8 @@ def main():
     elif pi.startswith('/api/devices/') and pi.endswith('/require_confirmation') and m == 'PATCH':
         handle_device_require_confirmation(
             pi[len('/api/devices/'):-len('/require_confirmation')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/compose_enabled') and m == 'PATCH':
+        handle_device_compose_enabled(pi[len('/api/devices/'):-len('/compose_enabled')])
     # v3.2.0 (B5): SNMP per-device config + on-demand poll
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp/poll') and m == 'POST':
         handle_device_snmp_poll(pi[len('/api/devices/'):-len('/snmp/poll')])
@@ -20064,6 +20264,17 @@ def main():
     elif pi == '/api/image-updates/scan' and m == 'POST': handle_image_updates_scan()
     elif pi == '/api/image-updates/ignore' and m == 'POST': handle_image_ignore_add()
     elif pi == '/api/image-updates/ignore' and m == 'DELETE': handle_image_ignore_remove()
+
+    # ── v3.3.4: docker-compose stacks (upload + deploy) ────────────────────────
+    elif pi == '/api/compose/fetch' and m == 'POST': handle_compose_fetch()
+    elif pi == '/api/compose/stacks' and m == 'GET': handle_compose_stacks_list()
+    elif pi == '/api/compose/stacks' and m == 'POST': handle_compose_stack_create()
+    elif pi.startswith('/api/compose/stacks/') and pi.endswith('/action') and m == 'POST':
+        handle_compose_stack_action(pi[len('/api/compose/stacks/'):-len('/action')])
+    elif pi.startswith('/api/compose/stacks/') and m == 'GET':
+        handle_compose_stack_get(pi[len('/api/compose/stacks/'):])
+    elif pi.startswith('/api/compose/stacks/') and m == 'DELETE':
+        handle_compose_stack_delete(pi[len('/api/compose/stacks/'):])
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()

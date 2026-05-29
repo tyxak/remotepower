@@ -21,6 +21,17 @@ In development.
   the current digest. Routable independently via the channel matrix
   ("Container image updates"). Notify-only — RemotePower never pulls.
   Default on; disable with `image_updates_enabled=false`.
+- **Compose stacks (upload + deploy).** Upload or paste a
+  docker-compose file as a named stack targeted at a device, then
+  **up / down / redeploy** it from the Containers page. The agent
+  fetches the YAML with its device token (so it never rides the command
+  log), writes it under `/var/lib/remotepower/stacks/<name>/`, and runs
+  `docker compose` via argv (no shell). **Admin-only, audited, and gated
+  behind a per-device `compose_enabled` opt-in (default off)** — a deploy
+  can't reach a host until you explicitly enable it there, since it runs
+  an arbitrary compose file as root. Status flows back through the normal
+  command-output channel. RemotePower runs the file as-is; it doesn't
+  sandbox it, build images for you, or auto-restart on changes.
 
 ## v3.3.3 — unreleased (dev)
 

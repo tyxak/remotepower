@@ -286,5 +286,57 @@ class TestContainerImageDigests(unittest.TestCase):
         self.assertEqual(m[('ghcr.io/wizarrrr/wizarr', 'latest')], self.DIG_WIZARR)
 
 
+class TestComposeDeploy(unittest.TestCase):
+    """v3.3.4: agent deploys an uploaded stack — fetch YAML, write it, run
+    docker compose via argv (no shell)."""
+
+    YAML = "services:\n  app:\n    image: nginx:latest\n"
+
+    def test_rejects_unknown_action(self):
+        res = agent._run_compose_deploy('compose_deploy:bogus:s-abc')
+        self.assertEqual(res['rc'], -1)
+        self.assertIn('not allowed', res['output'])
+
+    def test_up_fetches_writes_and_runs_argv(self):
+        tmp = Path(tempfile.mkdtemp())
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            return MagicMock(returncode=0, stdout='Started', stderr='')
+
+        with patch.object(agent, 'COMPOSE_STACKS_DIR', tmp), \
+             patch.object(agent, '_which', return_value='/usr/bin/docker'), \
+             patch.object(agent, 'load_credentials',
+                          return_value={'server_url': 'https://s', 'device_id': 'd1', 'token': 't'}), \
+             patch.object(agent, 'http_post',
+                          return_value={'ok': True, 'name': 'web', 'yaml': self.YAML}), \
+             patch.object(agent.subprocess, 'run', side_effect=fake_run):
+            res = agent._run_compose_deploy('compose_deploy:up:s-abc123')
+
+        self.assertEqual(res['rc'], 0)
+        # ran via argv (no shell), with the pinned project name
+        self.assertIn(['docker', 'compose', '-p', 'web', 'up', '-d'], calls)
+        # wrote the compose file under the managed dir
+        self.assertEqual((tmp / 'web' / 'docker-compose.yml').read_text(), self.YAML)
+
+    def test_redeploy_pulls_then_ups(self):
+        tmp = Path(tempfile.mkdtemp())
+        calls = []
+        with patch.object(agent, 'COMPOSE_STACKS_DIR', tmp), \
+             patch.object(agent, '_which', return_value='/usr/bin/docker'), \
+             patch.object(agent, 'load_credentials',
+                          return_value={'server_url': 'https://s', 'device_id': 'd1', 'token': 't'}), \
+             patch.object(agent, 'http_post',
+                          return_value={'ok': True, 'name': 'web', 'yaml': self.YAML}), \
+             patch.object(agent.subprocess, 'run',
+                          side_effect=lambda argv, **kw: (calls.append(argv),
+                                                          MagicMock(returncode=0, stdout='', stderr=''))[1]):
+            res = agent._run_compose_deploy('compose_deploy:redeploy:s-abc')
+        self.assertEqual(res['rc'], 0)
+        self.assertEqual(calls[0], ['docker', 'compose', '-p', 'web', 'pull'])
+        self.assertEqual(calls[1], ['docker', 'compose', '-p', 'web', 'up', '-d'])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

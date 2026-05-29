@@ -1681,6 +1681,13 @@
                 <li>A stale image fires a low-severity <code>image_update_available</code> alert into the inbox + webhooks, debounced on the digest last alerted (no re-spam across the 12h sweep), and auto-resolves (<code>image_updated</code>) once every host has pulled the current digest. Routable independently via the channel matrix ("Container image updates").</li>
               </ul>
 
+              <h4>Compose stacks (upload + deploy)</h4>
+              <ul>
+                <li>Upload or paste a <strong>docker-compose file</strong> as a named stack targeted at a device, then <strong>up / down / redeploy</strong> it from the Containers page — the first feature that lets RemotePower create/deploy containers, not just observe and restart them.</li>
+                <li>The agent fetches the YAML with its device token (it never rides the command log), writes it under <code>/var/lib/remotepower/stacks/&lt;name&gt;/</code>, and runs <code>docker compose</code> via argv (no shell).</li>
+                <li><strong>Admin-only, audited, and gated behind a per-device opt-in (default off)</strong> — a deploy can't reach a host until you enable compose there, since it runs an arbitrary compose file as root. RemotePower runs the file as-is; it doesn't sandbox it.</li>
+              </ul>
+
               <p>Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.4.md</code>.</p>
             </div>
           </details>
@@ -3141,7 +3148,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-containers" class="page">
         <div class="page-title">Containers</div>
         <div id="containers-panel-agent">
-          <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. Read-only — RemotePower shows what's running, doesn't manage it.</div>
+          <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. For Docker/Podman you can start, stop, restart, and pull logs (queued to the agent, runs on its next heartbeat); RemotePower doesn't create, build, or deploy containers.</div>
           <div class="toolbar">
             <input type="text" id="containers-search" class="form-input isl-170" placeholder="Filter by device or container name…">
             <button class="btn-icon" data-action="loadContainersOverview" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
@@ -3165,6 +3172,20 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <table>
               <thead id="image-updates-thead"><tr><th data-col="image">Image</th><th data-col="tag">Tag</th><th data-col="hosts">Hosts</th><th data-col="status">Status</th><th data-col="registry">Registry</th><th data-col="checked">Last checked</th><th></th></tr></thead>
               <tbody id="image-updates-tbody"><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="7"><div class="skeleton skeleton-line med"></div></td></tr></tbody>
+            </table>
+          </div>
+
+          <!-- ── v3.3.4: compose stacks (upload + deploy) ──────────────── -->
+          <div class="page-title isl-172 mt-32">Compose stacks</div>
+          <div class="page-subtitle">Upload a docker-compose file and deploy it to a device — up / down / redeploy. Admin-only and audited, and only to devices where you've turned on compose deploys. RemotePower runs the file as-is on the host; it doesn't sandbox it.</div>
+          <div class="toolbar">
+            <button class="btn-icon" data-action="loadComposeStacks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-icon" data-action="openComposeCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New stack</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead id="compose-stacks-thead"><tr><th data-col="name">Stack</th><th data-col="device">Device</th><th data-col="status">Status</th><th data-col="last">Last action</th><th></th></tr></thead>
+              <tbody id="compose-stacks-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
             </table>
           </div>
         </div><!-- /containers-panel-agent -->
@@ -4383,6 +4404,37 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div></div>
 
 <!-- ── v1.11.0: Container detail (per-device drilldown) ─────────────────── -->
+<!-- v3.3.4: create a compose stack -->
+<div class="modal-overlay" id="compose-create-modal"><div class="modal modal-wide">
+  <div class="modal-title">New compose stack</div>
+  <div class="form-group">
+    <label class="form-label">Stack name</label>
+    <input type="text" id="compose-create-name" class="form-input" placeholder="lowercase, e.g. media-stack" maxlength="64">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Target device</label>
+    <select id="compose-create-device" class="form-input"></select>
+    <div class="hint mt-6">Deploys only run on devices with compose enabled. If the target is off, enable it from the stack row after creating.</div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">docker-compose.yml</label>
+    <textarea id="compose-create-yaml" class="form-input mono-12" rows="14" placeholder="services:&#10;  app:&#10;    image: nginx:latest&#10;    ports:&#10;      - 8080:80"></textarea>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="compose-create-modal">Cancel</button>
+    <button class="btn-primary" data-action="submitComposeStack">Create stack</button>
+  </div>
+</div></div>
+
+<!-- v3.3.4: view a compose stack (YAML + last run output) -->
+<div class="modal-overlay" id="compose-view-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="compose-view-title">Stack</div>
+  <div id="compose-view-body" class="isl-266"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="compose-view-modal">Close</button>
+  </div>
+</div></div>
+
 <div class="modal-overlay" id="containers-detail-modal"><div class="modal modal-wide">
   <div class="modal-title" id="containers-detail-title">Containers</div>
   <div id="containers-detail-body" class="isl-266"></div>

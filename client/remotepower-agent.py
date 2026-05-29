@@ -2372,6 +2372,13 @@ def execute_command(cmd):
         # shell interpolation of `dir` — it goes in argv directly to docker
         # compose, so a malicious or stale path can't inject command flags.
         return _run_compose(cmd)
+    elif cmd.startswith('compose_deploy:'):
+        # v3.3.4: compose_deploy:<action>:<stack_id> — deploy an
+        # operator-uploaded stack. The agent fetches the YAML from the
+        # server with its device token (so it never rides the command
+        # queue), writes it under a managed dir, and runs docker compose
+        # via argv. Gated server-side by the device's compose_enabled flag.
+        return _run_compose_deploy(cmd)
     elif cmd.startswith('container:'):
         # v2.1.1: per-container start/stop/restart from the Containers
         # page. Same shape as compose: action verb + identifier, action
@@ -2462,6 +2469,83 @@ def _run_compose(cmd):
         return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
     except Exception as e:
         return {'cmd': cmd, 'output': f'compose {action} failed: {e}', 'rc': -1}
+
+
+# v3.3.4: operator-uploaded compose stacks. Written under a managed dir,
+# one subdir per stack name; the project name is pinned with `-p` so up/down
+# target the same stack regardless of the working directory.
+COMPOSE_STACKS_DIR = STATE_DIR / 'stacks'
+COMPOSE_DEPLOY_ACTIONS = {'up', 'down', 'redeploy'}
+_STACK_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9_-]{0,63}$')
+
+
+def _run_compose_deploy(cmd):
+    """Deploy an uploaded stack: compose_deploy:<action>:<stack_id>.
+
+    Fetches {name, yaml} from the server with the device token, writes the
+    compose file under COMPOSE_STACKS_DIR/<name>/, then runs docker compose
+    via argv (no shell). Returns the exec-channel result dict so the server
+    captures output + return code (and updates the stack status).
+    """
+    try:
+        _, action, stack_id = cmd.split(':', 2)
+    except ValueError:
+        return {'cmd': cmd, 'output': 'malformed compose_deploy command', 'rc': -1}
+    action = action.strip().lower()
+    if action not in COMPOSE_DEPLOY_ACTIONS:
+        return {'cmd': cmd, 'output': f'action {action!r} not allowed', 'rc': -1}
+    if not _which('docker'):
+        return {'cmd': cmd, 'output': 'docker not installed on this host', 'rc': -1}
+
+    creds = load_credentials()
+    if not creds:
+        return {'cmd': cmd, 'output': 'agent not enrolled', 'rc': -1}
+    try:
+        resp = http_post(creds['server_url'].rstrip('/') + '/api/compose/fetch',
+                         {'device_id': creds['device_id'], 'token': creds['token'],
+                          'stack_id': stack_id})
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'failed to fetch stack: {e}', 'rc': -1}
+    if not resp or not resp.get('ok'):
+        return {'cmd': cmd, 'output': f'stack fetch rejected: {(resp or {}).get("error", "?")}', 'rc': -1}
+    name = str(resp.get('name', ''))
+    yaml_text = resp.get('yaml', '')
+    if not _STACK_NAME_RE.match(name):
+        return {'cmd': cmd, 'output': f'invalid stack name {name!r}', 'rc': -1}
+    if not isinstance(yaml_text, str) or not yaml_text.strip():
+        return {'cmd': cmd, 'output': 'empty compose file', 'rc': -1}
+
+    stack_dir = COMPOSE_STACKS_DIR / name
+    try:
+        stack_dir.mkdir(parents=True, exist_ok=True)
+        (stack_dir / 'docker-compose.yml').write_text(yaml_text)
+    except Exception as e:
+        return {'cmd': cmd, 'output': f'failed to write compose file: {e}', 'rc': -1}
+
+    base = ['docker', 'compose', '-p', name]
+    steps = []
+    if action == 'up':
+        steps = [base + ['up', '-d']]
+    elif action == 'down':
+        steps = [base + ['down']]
+    elif action == 'redeploy':
+        steps = [base + ['pull'], base + ['up', '-d']]
+
+    out_parts, rc = [], 0
+    for argv in steps:
+        log.info(f"compose_deploy {' '.join(argv[3:])} in {stack_dir}")
+        try:
+            r = subprocess.run(argv, cwd=str(stack_dir), capture_output=True,
+                               text=True, timeout=COMPOSE_ACTION_TIMEOUT_S)
+            out_parts.append((r.stdout + r.stderr).strip())
+            rc = r.returncode
+            if rc != 0:
+                break          # don't run `up` if `pull` failed
+        except subprocess.TimeoutExpired:
+            return {'cmd': cmd, 'output': '\n'.join(out_parts + ['TIMEOUT']), 'rc': -1}
+        except Exception as e:
+            return {'cmd': cmd, 'output': '\n'.join(out_parts + [str(e)]), 'rc': -1}
+    return {'cmd': cmd, 'output': '\n'.join(out_parts)[:COMPOSE_OUT_CAP], 'rc': rc}
 
 
 # v2.1.1: per-container actions from the Containers page. Same allowlist

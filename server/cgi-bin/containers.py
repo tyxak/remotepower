@@ -1,11 +1,13 @@
 """
 RemotePower container awareness — v1.11.0.
 
-Stores container/pod listings reported by agents on heartbeat. Read-only
-visibility — RemotePower does not start, stop, exec into, or stream logs
-from containers. That's Portainer / k9s / kubectl's job. This module's
-job is to surface "is `nginx-proxy` running and how many times has it
-restarted" without anyone needing to SSH in.
+Stores container/pod listings reported by agents on heartbeat. This
+module is storage-only — it surfaces "is `nginx-proxy` running and how
+many times has it restarted" without anyone needing to SSH in. Lifecycle
+actions (start / stop / restart / fetch logs, Docker & Podman) queue to
+the agent elsewhere (handle_device_container_action); RemotePower still
+doesn't build, deploy, or exec into containers — that's Portainer /
+k9s / kubectl's job.
 
 Three runtimes supported by detection-on-the-agent-side:
   - Docker  (``docker ps --format '{{json .}}'``)

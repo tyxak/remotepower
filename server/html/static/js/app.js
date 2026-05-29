@@ -6383,6 +6383,8 @@ async function enterContainers() {
   await loadContainersOverview();
   // v3.3.4: image-update freshness for the agent-reported containers.
   loadImageUpdates();
+  // v3.3.4: operator-uploaded compose stacks.
+  loadComposeStacks();
   // v2.3.0: also pull Proxmox LXC containers (section self-hides if
   // Proxmox isn't configured).
   loadProxmoxLXC();
@@ -6511,6 +6513,137 @@ async function unignoreImageUpdate(ref) {
   const r = await api('DELETE', '/image-updates/ignore', { ref });
   if (r && r.ok) { toast('Resumed update alerts', 'success'); loadImageUpdates(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+// ── v3.3.4: compose stacks ─────────────────────────────────────────────────
+let _composeStacks = [];
+
+async function loadComposeStacks() {
+  _registerComposeStacksTable();
+  const tbody = document.getElementById('compose-stacks-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">Loading…</td></tr>';
+  const data = await api('GET', '/compose/stacks');
+  _composeStacks = (data && data.stacks) || [];
+  renderComposeStacks();
+}
+
+let _composeStacksRegistered = false;
+function _registerComposeStacksTable() {
+  if (_composeStacksRegistered) return;
+  _composeStacksRegistered = true;
+  tableCtl.register({
+    name: 'compose-stacks',
+    tbody: 'compose-stacks-tbody',
+    sortHeaders: 'compose-stacks-thead',
+    colspan: 5,
+    columns: ['name', 'device', 'status', 'last'],
+    getColumns: (s) => ({
+      name:   s.name || '',
+      device: s.device_name || '',
+      status: s.status || '',
+      last:   s.last_action_ts || 0,
+    }),
+    row: (s) => {
+      const statusMap = {
+        up:        '<span class="patch-badge ok">Up</span>',
+        down:      '<span class="c-muted">Down</span>',
+        deploying: '<span class="patch-badge warn">Deploying…</span>',
+        error:     '<span class="c-red">Error</span>',
+        created:   '<span class="c-muted">Not deployed</span>',
+      };
+      const statusCell = statusMap[s.status] || `<span class="c-muted">${escHtml(s.status || '?')}</span>`;
+      const last = s.last_action_ts
+        ? `${escHtml(s.last_action || '')} · ${new Date(s.last_action_ts * 1000).toLocaleString()}`
+        : '—';
+      const view = `<button class="btn-icon badge-xs" data-action="viewComposeStack" data-arg="${escAttr(s.id)}">View</button>`;
+      const del = `<button class="btn-icon badge-xs c-danger-outline" data-action="deleteComposeStack" data-arg="${escAttr(s.id)}" data-arg2="${escAttr(s.name)}">Delete</button>`;
+      let actions;
+      if (s.compose_enabled) {
+        actions =
+          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="up" title="docker compose up -d">Up</button>` +
+          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="down" title="docker compose down">Down</button>` +
+          `<button class="btn-icon badge-xs" data-action="composeStackAction" data-arg="${escAttr(s.id)}" data-arg2="redeploy" title="docker compose pull + up -d">Redeploy</button>` +
+          view + del;
+      } else {
+        actions =
+          `<span class="hint">deploys off</span> ` +
+          `<button class="btn-icon badge-xs" data-action="enableComposeOnDevice" data-arg="${escAttr(s.device_id)}" data-arg2="${escAttr(s.device_name)}" title="Allow compose deploys on this device">Enable</button>` +
+          view + del;
+      }
+      return `<tr>
+        <td class="fw-500">${escHtml(s.name)}</td>
+        <td class="hint">${escHtml(s.device_name)}</td>
+        <td>${statusCell}</td>
+        <td class="hint-nowrap">${last}</td>
+        <td class="nowrap">${actions}</td>
+      </tr>`;
+    },
+    emptyMsg: 'No compose stacks yet. Click "New stack" to upload a docker-compose file and deploy it to a device.',
+  });
+}
+
+function renderComposeStacks() {
+  _registerComposeStacksTable();
+  tableCtl.render('compose-stacks', _composeStacks || []);
+}
+
+async function openComposeCreate() {
+  const sel = document.getElementById('compose-create-device');
+  const devs = await api('GET', '/devices');
+  const list = Array.isArray(devs) ? devs : (devs && devs.devices) || [];
+  sel.innerHTML = list
+    .filter(d => !d.agentless)
+    .map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}${d.compose_enabled ? '' : ' (deploys off)'}</option>`)
+    .join('') || '<option value="">No agent devices</option>';
+  document.getElementById('compose-create-name').value = '';
+  document.getElementById('compose-create-yaml').value = '';
+  openModal('compose-create-modal');
+}
+
+async function submitComposeStack() {
+  const name = document.getElementById('compose-create-name').value.trim();
+  const device_id = document.getElementById('compose-create-device').value;
+  const yaml = document.getElementById('compose-create-yaml').value;
+  if (!name || !device_id || !yaml.trim()) {
+    toast('Name, device, and compose file are all required', 'error'); return;
+  }
+  const r = await api('POST', '/compose/stacks', { name, device_id, yaml });
+  if (r && r.ok) { toast('Stack created', 'success'); closeModal('compose-create-modal'); loadComposeStacks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function composeStackAction(stackId, action) {
+  if (action === 'down' && !confirm('Run `docker compose down` for this stack?')) return;
+  const r = await api('POST', `/compose/stacks/${encodeURIComponent(stackId)}/action`, { action });
+  if (r && r.ok) { toast(`${action} queued — runs on the device's next heartbeat (~60s)`, 'success'); loadComposeStacks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function deleteComposeStack(stackId, name) {
+  if (!confirm(`Delete stack "${name}"?\n\nThis only removes it from RemotePower — it does NOT stop running containers. Run "Down" first if you want to tear it down.`)) return;
+  const r = await api('DELETE', `/compose/stacks/${encodeURIComponent(stackId)}`);
+  if (r && r.ok) { toast('Stack deleted', 'success'); loadComposeStacks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function enableComposeOnDevice(deviceId, deviceName) {
+  if (!confirm(`Enable compose deploys on "${deviceName}"?\n\nThis lets RemotePower run uploaded compose files as root on that host.`)) return;
+  const r = await api('PATCH', `/devices/${encodeURIComponent(deviceId)}/compose_enabled`, { compose_enabled: true });
+  if (r && r.ok) { toast('Compose deploys enabled', 'success'); loadComposeStacks(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function viewComposeStack(stackId) {
+  const body = document.getElementById('compose-view-body');
+  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  openModal('compose-view-modal');
+  const s = await api('GET', `/compose/stacks/${encodeURIComponent(stackId)}`);
+  if (!s || s.error) { body.innerHTML = `<div class="c-red">${escHtml((s && s.error) || 'Failed')}</div>`; return; }
+  document.getElementById('compose-view-title').textContent = `Stack — ${s.name || ''}`;
+  const out = s.last_output
+    ? `<h4>Last run (${escHtml(s.last_action || '')}, rc=${s.last_rc != null ? s.last_rc : '?'})</h4><pre class="isl-514"><code>${escHtml(s.last_output)}</code></pre>`
+    : '';
+  body.innerHTML = `<h4>docker-compose.yml</h4><pre class="isl-514"><code>${escHtml(s.yaml || '')}</code></pre>${out}`;
 }
 
 async function loadContainersOverview() {

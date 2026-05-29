@@ -94,5 +94,32 @@ class TestImageUpdatesShipped(unittest.TestCase):
         self.assertIn("What's new — v3.3.4", html)
 
 
+class TestComposeStacksShipped(unittest.TestCase):
+    """The compose-stacks feature (upload + deploy) must be present + wired."""
+
+    def setUp(self):
+        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.agent = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+        self.html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_server_endpoints_and_gating(self):
+        self.assertIn("def handle_compose_stack_action", self.api)
+        self.assertIn("def handle_compose_fetch", self.api)
+        self.assertIn("def handle_device_compose_enabled", self.api)
+        self.assertIn("'/api/compose/stacks'", self.api)
+        # the per-device opt-in must guard deploys
+        self.assertIn("compose_enabled", self.api)
+
+    def test_agent_deploy_handler(self):
+        self.assertIn("def _run_compose_deploy", self.agent)
+        self.assertIn("compose_deploy:", self.agent)
+
+    def test_ui_wired(self):
+        self.assertIn('id="compose-stacks-tbody"', self.html)
+        self.assertIn("function loadComposeStacks", self.appjs)
+        self.assertIn("function composeStackAction", self.appjs)
+
+
 if __name__ == '__main__':
     unittest.main()
