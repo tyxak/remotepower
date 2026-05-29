@@ -239,5 +239,52 @@ class TestGetNetworkInfo(unittest.TestCase):
             self.assertEqual(agent.get_network_info(), [])
 
 
+class TestContainerImageDigests(unittest.TestCase):
+    """v3.3.4: each container item carries the registry repo_digest so the
+    server can flag stale images. Regression guard for the implicit-`latest`
+    join: `docker ps` reports an empty tag, `docker images` says `latest`."""
+
+    DIG_WIZARR = 'sha256:' + 'a' * 64
+    DIG_SEERR = 'sha256:' + 'b' * 64
+
+    def _run(self, cmd, **kwargs):
+        sub = cmd[1] if len(cmd) > 1 else ''
+        out = ''
+        if sub == 'ps':
+            out = '\n'.join([
+                # implicit latest -> ps reports an empty tag
+                json.dumps({'Names': 'wizarr', 'Image': 'ghcr.io/wizarrrr/wizarr',
+                            'Status': 'Up 17 hours', 'Ports': ''}),
+                # explicit :latest
+                json.dumps({'Names': 'seerr', 'Image': 'ghcr.io/seerr-team/seerr:latest',
+                            'Status': 'Up 17 hours', 'Ports': ''}),
+            ])
+        elif sub == 'images':
+            # docker images --digests reports the tag as `latest` for both
+            out = '\n'.join([
+                json.dumps({'Repository': 'ghcr.io/wizarrrr/wizarr', 'Tag': 'latest',
+                            'Digest': self.DIG_WIZARR}),
+                json.dumps({'Repository': 'ghcr.io/seerr-team/seerr', 'Tag': 'latest',
+                            'Digest': self.DIG_SEERR}),
+            ])
+        # 'stats' (and anything else) -> empty
+        return MagicMock(returncode=0, stdout=out, stderr='')
+
+    def test_implicit_latest_image_gets_digest(self):
+        with patch.object(agent.subprocess, 'run', side_effect=self._run):
+            items = agent._docker_listing('/usr/bin/docker', 'docker')
+        by_name = {c['name']: c for c in items}
+        # The whole point: the implicit-latest image is NOT dropped.
+        self.assertEqual(by_name['wizarr']['tag'], '')
+        self.assertEqual(by_name['wizarr']['repo_digest'], self.DIG_WIZARR)
+        self.assertEqual(by_name['seerr']['tag'], 'latest')
+        self.assertEqual(by_name['seerr']['repo_digest'], self.DIG_SEERR)
+
+    def test_image_digests_map_parsing(self):
+        with patch.object(agent.subprocess, 'run', side_effect=self._run):
+            m = agent._image_digests('/usr/bin/docker')
+        self.assertEqual(m[('ghcr.io/wizarrrr/wizarr', 'latest')], self.DIG_WIZARR)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

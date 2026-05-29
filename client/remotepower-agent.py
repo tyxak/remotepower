@@ -843,7 +843,11 @@ def _docker_listing(cmd_path, runtime_name):
             'name':           name,
             'image':          image,
             'tag':            tag,
-            'repo_digest':    digests.get((image, tag), ''),  # v3.3.4
+            # v3.3.4: `docker ps` reports an empty tag for an implicit
+            # `latest` pull, but `docker images` lists it as `latest` — so
+            # normalise here or the digest join misses every implicit-latest
+            # image (i.e. most of them).
+            'repo_digest':    digests.get((image, tag or 'latest'), ''),
             'status':         status,
             'health':         health,                       # v2.2.6
             'namespace':      '',
