@@ -15530,6 +15530,40 @@ def _device_snmp_target(dev):
     return (host, community, port)
 
 
+def _snmp_os_label(entry):
+    """A short OS string for an agentless device, derived from its SNMP data,
+    so the Devices list OS column isn't blank. Prefers vendor specifics
+    (Synology DSM, RouterOS, OPNsense/pfSense) then falls back to parsing
+    sysDescr. Returns '' when there's nothing useful."""
+    if not isinstance(entry, dict):
+        return ''
+    syn = (entry.get('synology') or {}).get('system') or {}
+    if syn.get('dsm_version'):
+        return ('Synology ' + str(syn['dsm_version']))[:60]   # "Synology DSM 7.3-86009"
+    sd = (entry.get('sysDescr') or '').strip()
+    if not sd:
+        return ''
+    low = sd.lower()
+    if 'routeros' in low:
+        # Use a dotted version (e.g. 7.14) — a bare integer would match the
+        # board number (RB5009) instead of the RouterOS version.
+        m = re.search(r'(\d+\.\d[\d.]*)', sd)
+        return ('RouterOS ' + m.group(1)) if m else 'RouterOS'
+    if 'opnsense' in low:
+        return 'OPNsense'
+    if 'pfsense' in low:
+        return 'pfSense'
+    toks = sd.split()
+    if toks and toks[0] in ('FreeBSD', 'Linux', 'OpenBSD', 'NetBSD', 'Darwin', 'SunOS'):
+        ver = ''
+        if len(toks) > 2 and toks[2][:1].isdigit():
+            ver = toks[2]
+        elif len(toks) > 1 and toks[1][:1].isdigit():
+            ver = toks[1]
+        return (toks[0] + (' ' + ver if ver else '')).strip()[:60]
+    return sd[:48]
+
+
 def _do_snmp_poll(dev_id, dev):
     """Poll one device and update SNMP_DATA_FILE. Returns the per-device
     result dict that was stored (or the error record on failure).
@@ -15676,6 +15710,19 @@ def _do_snmp_poll(dev_id, dev):
     try:
         with _LockedUpdate(SNMP_DATA_FILE) as store:
             store[dev_id] = entry
+    except Exception:
+        pass
+    # v3.4.0: fill the OS column for agentless devices from SNMP (they have no
+    # agent to report it). Refresh on agentless devices (keeps e.g. DSM version
+    # current) but never clobber an agent/operator-provided os.
+    try:
+        os_label = _snmp_os_label(entry)
+        if os_label and (dev.get('agentless') or not (dev.get('os') or '').strip()):
+            with _LockedUpdate(DEVICES_FILE) as dstore:
+                d = dstore.get(dev_id)
+                if (d is not None and (d.get('agentless') or not (d.get('os') or '').strip())
+                        and d.get('os') != os_label):
+                    d['os'] = os_label
     except Exception:
         pass
     return entry

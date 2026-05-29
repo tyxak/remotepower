@@ -162,5 +162,35 @@ class TestSynologyPatchReport(unittest.TestCase):
         self.assertEqual(row["patch_status"], "no_data")
 
 
+class TestSnmpOsLabel(unittest.TestCase):
+    """v3.4.0: derive an OS string for agentless devices from SNMP data so the
+    Devices list OS column isn't blank."""
+
+    def setUp(self):
+        self.f = _api._snmp_os_label
+
+    def test_synology_prefers_dsm_version(self):
+        self.assertEqual(
+            self.f({"synology": {"system": {"dsm_version": "DSM 7.3-86009"}},
+                    "sysDescr": "Linux nas 4.4"}),
+            "Synology DSM 7.3-86009")
+
+    def test_routeros_version_not_board_number(self):
+        self.assertEqual(self.f({"sysDescr": "RouterOS RB5009 7.14"}), "RouterOS 7.14")
+        self.assertEqual(self.f({"sysDescr": "RouterOS RB5009UPr+S+"}), "RouterOS")
+
+    def test_opnsense_and_pfsense(self):
+        self.assertEqual(self.f({"sysDescr": "FreeBSD OPNsense01 14.3-RELEASE"}), "OPNsense")
+        self.assertEqual(self.f({"sysDescr": "FreeBSD pfSense.local 14.0"}), "pfSense")
+
+    def test_generic_unix(self):
+        self.assertEqual(self.f({"sysDescr": "FreeBSD host 14.3-RELEASE"}), "FreeBSD 14.3-RELEASE")
+        self.assertTrue(self.f({"sysDescr": "Linux pmg 6.1.0-21-amd64 #1"}).startswith("Linux 6.1.0"))
+
+    def test_empty(self):
+        self.assertEqual(self.f({}), "")
+        self.assertEqual(self.f({"sysDescr": ""}), "")
+
+
 if __name__ == "__main__":
     unittest.main()
