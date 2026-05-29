@@ -14077,36 +14077,39 @@ async function loadRouterosFirewall() {
   _renderRouterosFirewall(body);
 }
 
-function _ruleRow(r, withToggle) {
+function _ruleRow(r, table) {
   const dimmed = r.disabled ? ' c-muted' : '';
-  const toggle = withToggle
-    ? (r.disabled
-        ? `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable">Enable</button>`
-        : `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable">Disable</button>`)
+  const toggle = r.disabled
+    ? `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable" data-arg3="${table}">Enable</button>`
+    : `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable" data-arg3="${table}">Disable</button>`;
+  const del = `<button class="btn-icon badge-xs c-red" data-action="routerosRuleDelete" data-arg="${escAttr(r.id)}" data-arg2="${table}" title="Delete this rule">${_icon('trash', 13)}</button>`;
+  const actCls = r.action === 'drop' || r.action === 'reject' ? 'c-red' : (r.action === 'accept' || r.action === 'masquerade' ? 'c-green' : '');
+  const natCell = table === 'nat'
+    ? `<td class="mono-12">${escHtml([r.to_addresses, r.to_ports].filter(Boolean).join(':'))}</td>`
     : '';
-  const actCls = r.action === 'drop' || r.action === 'reject' ? 'c-red' : (r.action === 'accept' ? 'c-green' : '');
   return `<tr class="${dimmed.trim()}">
     <td>${escHtml(r.chain || '')}</td>
     <td class="${actCls}">${escHtml(r.action || '')}${r.disabled ? ' <span class="hint">(off)</span>' : ''}</td>
     <td class="mono-12">${escHtml(r.src_address || '')}</td>
     <td class="mono-12">${escHtml(r.dst_address || '')}</td>
     <td class="hint">${escHtml([r.protocol, r.dst_port].filter(Boolean).join(':'))}</td>
+    ${natCell}
     <td class="hint">${escHtml(r.comment || '')}</td>
-    <td class="nowrap">${toggle}</td>
+    <td class="nowrap">${toggle} ${del}</td>
   </tr>`;
 }
 
 function _renderRouterosFirewall(body) {
   const f = _rosFirewall.filter || [], n = _rosFirewall.nat || [];
   let h = `<h4>Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
-  h += f.map(r => _ruleRow(r, true)).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
+  h += f.map(r => _ruleRow(r, 'filter')).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
   h += '</tbody></table>';
-  if (n.length) {
-    h += `<h4 class="mt-12">NAT rules (${n.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
-    h += n.map(r => _ruleRow(r, false)).join('');
-    h += '</tbody></table>';
-  }
-  // Add-rule form (filter chain). New rules land DISABLED for review.
+
+  h += `<h4 class="mt-12">NAT rules (${n.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>→ to-addr:port</th><th>Comment</th><th></th></tr></thead><tbody>`;
+  h += n.map(r => _ruleRow(r, 'nat')).join('') || '<tr><td colspan="8" class="c-muted">No NAT rules.</td></tr>';
+  h += '</tbody></table>';
+
+  // Add-filter-rule form. New rules land DISABLED for review.
   h += `<h4 class="mt-12">Add filter rule</h4>
     <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table.</div>
     <div class="row-6">
@@ -14122,6 +14125,29 @@ function _renderRouterosFirewall(body) {
     <input class="form-input mt-6" id="fw-add-comment" placeholder="comment">
     <div class="row-6 mt-6">
       <button class="btn-primary" data-action="addRouterosFirewallRule">Add rule (disabled)</button>
+    </div>`;
+
+  // Add-NAT-rule form. srcnat (masquerade/src-nat) or dstnat (dst-nat/redirect).
+  h += `<h4 class="mt-12">Add NAT rule</h4>
+    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table. For masquerade leave to-addresses empty; for dst-nat set to-addresses (and to-ports for port-forward).</div>
+    <div class="row-6">
+      <select class="form-input mw-200" id="nat-add-chain"><option value="srcnat">srcnat</option><option value="dstnat">dstnat</option></select>
+      <select class="form-input mw-200" id="nat-add-action"><option value="masquerade">masquerade</option><option value="src-nat">src-nat</option><option value="dst-nat">dst-nat</option><option value="redirect">redirect</option></select>
+    </div>
+    <input class="form-input mt-6" id="nat-add-src" placeholder="src-address (optional)">
+    <input class="form-input mt-6" id="nat-add-dst" placeholder="dst-address (optional)">
+    <div class="row-6 mt-6">
+      <input class="form-input mw-200" id="nat-add-proto" placeholder="protocol (tcp/udp/…)">
+      <input class="form-input mw-200" id="nat-add-dport" placeholder="dst-port (optional)">
+    </div>
+    <div class="row-6 mt-6">
+      <input class="form-input mw-200" id="nat-add-toaddr" placeholder="to-addresses (e.g. 10.0.0.5)">
+      <input class="form-input mw-200" id="nat-add-toports" placeholder="to-ports (e.g. 8080)">
+    </div>
+    <input class="form-input mt-6" id="nat-add-iface" placeholder="out-interface (srcnat) / in-interface (dstnat)">
+    <input class="form-input mt-6" id="nat-add-comment" placeholder="comment">
+    <div class="row-6 mt-6">
+      <button class="btn-primary" data-action="addRouterosNatRule">Add NAT rule (disabled)</button>
     </div>`;
   body.innerHTML = h;
 }
@@ -14145,14 +14171,54 @@ async function addRouterosFirewallRule() {
   else toast((r && r.error) || 'Add failed', 'error');
 }
 
-async function routerosRuleToggle(ruleId, mode) {
+async function addRouterosNatRule() {
   const id = _drawerDeviceId;
   if (!id) return;
-  if (mode === 'enable' && !confirm('Enable this firewall rule? Make sure it won’t lock you out.')) return;
+  const chain = document.getElementById('nat-add-chain')?.value;
+  const iface = document.getElementById('nat-add-iface')?.value.trim() || '';
+  const rule = {
+    chain,
+    action:  document.getElementById('nat-add-action')?.value,
+    'src-address': document.getElementById('nat-add-src')?.value.trim() || '',
+    'dst-address': document.getElementById('nat-add-dst')?.value.trim() || '',
+    protocol: document.getElementById('nat-add-proto')?.value.trim() || '',
+    'dst-port': document.getElementById('nat-add-dport')?.value.trim() || '',
+    'to-addresses': document.getElementById('nat-add-toaddr')?.value.trim() || '',
+    'to-ports': document.getElementById('nat-add-toports')?.value.trim() || '',
+    comment: document.getElementById('nat-add-comment')?.value.trim() || '',
+    disabled: 'yes',
+  };
+  // out-interface is the usual match for srcnat; in-interface for dstnat.
+  if (iface) rule[chain === 'dstnat' ? 'in-interface' : 'out-interface'] = iface;
+  if (!confirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'add_nat_rule', rule });
+  if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadRouterosFirewall(); }
+  else toast((r && r.error) || 'Add failed', 'error');
+}
+
+async function routerosRuleToggle(ruleId, mode, table) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (mode === 'enable' && !confirm('Enable this rule? Make sure it won’t lock you out.')) return;
+  const nat = table === 'nat';
+  const action = mode === 'enable'
+    ? (nat ? 'enable_nat_rule' : 'enable_rule')
+    : (nat ? 'disable_nat_rule' : 'disable_rule');
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`,
-    { action: mode === 'enable' ? 'enable_rule' : 'disable_rule', arg: ruleId });
+    { action, arg: ruleId });
   if (r && r.ok) { toast(`Rule ${mode}d`, 'success'); loadRouterosFirewall(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function routerosRuleDelete(ruleId, table) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const nat = table === 'nat';
+  if (!confirm(`Permanently delete this ${nat ? 'NAT' : 'filter'} rule? This cannot be undone.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`,
+    { action: nat ? 'delete_nat_rule' : 'delete_filter_rule', arg: ruleId });
+  if (r && r.ok) { toast('Rule deleted', 'success'); loadRouterosFirewall(); }
+  else toast((r && r.error) || 'Delete failed', 'error');
 }
 
 function _rosFirewallText() {

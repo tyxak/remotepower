@@ -30,6 +30,7 @@ import socket
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 DEFAULT_TIMEOUT = 6.0
@@ -244,7 +245,12 @@ def _int(v):
 
 ACTIONS = ("enable_interface", "disable_interface", "reboot",
            "run_script", "export", "check_update", "upgrade",
-           "add_firewall_rule", "enable_rule", "disable_rule")
+           # filter rules
+           "add_firewall_rule", "enable_rule", "disable_rule",
+           "delete_filter_rule",
+           # NAT rules (v3.4.0)
+           "add_nat_rule", "enable_nat_rule", "disable_nat_rule",
+           "delete_nat_rule")
 
 # Whitelist of firewall-filter fields we let callers set — keeps a crafted
 # (or AI-drafted) rule from smuggling arbitrary RouterOS properties.
@@ -253,20 +259,75 @@ _RULE_FIELDS = ("chain", "action", "src-address", "dst-address", "protocol",
                 "comment", "disabled", "log", "place-before",
                 "connection-state")
 
+# NAT rules share most fields but add the translation targets (to-addresses /
+# to-ports) and use the srcnat/dstnat chains with masquerade/dst-nat/etc.
+# Kept as its own whitelist so a filter-only field can't leak in and vice
+# versa.
+_NAT_FIELDS = ("chain", "action", "src-address", "dst-address", "protocol",
+               "dst-port", "src-port", "in-interface", "out-interface",
+               "to-addresses", "to-ports", "comment", "disabled", "log",
+               "place-before", "connection-state")
 
-def _sanitize_rule(rule):
+
+def _sanitize_rule(rule, fields=_RULE_FIELDS):
     if not isinstance(rule, dict):
         raise RouterOSError("rule object required")
     out = {}
     for k, v in rule.items():
         kk = str(k).replace("_", "-")
-        if kk in _RULE_FIELDS and v not in (None, ""):
+        if kk in fields and v not in (None, ""):
             out[kk] = str(v)
     if not out.get("chain"):
         raise RouterOSError("rule needs a chain")
     if not out.get("action"):
         raise RouterOSError("rule needs an action")
     return out
+
+
+def _sanitize_nat_rule(rule):
+    return _sanitize_rule(rule, fields=_NAT_FIELDS)
+
+
+# Map an action name to (table, verb) for the unified firewall-rule ops.
+# table is the RouterOS path segment under /ip/firewall.
+_FW_RULE_OPS = {
+    "add_firewall_rule":  ("filter", "add"),
+    "enable_rule":        ("filter", "enable"),
+    "disable_rule":       ("filter", "disable"),
+    "delete_filter_rule": ("filter", "remove"),
+    "add_nat_rule":       ("nat", "add"),
+    "enable_nat_rule":    ("nat", "enable"),
+    "disable_nat_rule":   ("nat", "disable"),
+    "delete_nat_rule":    ("nat", "remove"),
+}
+
+
+def _firewall_rule_op(host, user, password, table, verb, arg=None, rule=None,
+                      verify=False, timeout=10.0):
+    """One filter/NAT rule mutation. add → POST (lands disabled for review);
+    enable/disable → POST /{verb}; remove → DELETE /{id}."""
+    base = f"/ip/firewall/{table}"
+    if verb == "add":
+        body = _sanitize_nat_rule(rule) if table == "nat" else _sanitize_rule(rule)
+        body.setdefault("disabled", "yes")   # safety: new rules land disabled
+        r = _request(host, user, password, "POST", base,
+                     body=body, verify=verify, timeout=timeout)
+        return {"ok": True, "result": r}
+    if not arg:
+        raise RouterOSError("rule id required")
+    if verb in ("enable", "disable"):
+        _request(host, user, password, "POST", f"{base}/{verb}",
+                 body={".id": str(arg)}, verify=verify, timeout=timeout)
+        return {"ok": True}
+    if verb == "remove":
+        # RouterOS v7 REST: DELETE /rest/ip/firewall/{table}/{id}. IDs are
+        # "*" + hex; keep "*" literal (RouterOS routes on it) but encode any
+        # other char so a crafted id can't escape the path.
+        _request(host, user, password, "DELETE",
+                 f"{base}/{urllib.parse.quote(str(arg), safe='*')}",
+                 verify=verify, timeout=timeout)
+        return {"ok": True}
+    raise RouterOSError(f"unknown firewall verb {verb!r}")
 
 
 def firewall(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT):
@@ -289,6 +350,10 @@ def firewall(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT):
                 "protocol":     r.get("protocol"),
                 "dst_port":     r.get("dst-port"),
                 "in_interface": r.get("in-interface"),
+                # NAT translation targets — None on filter rows, populated on
+                # NAT rows so the console can show "→ to-addresses:to-ports".
+                "to_addresses": r.get("to-addresses"),
+                "to_ports":     r.get("to-ports"),
                 "comment":      r.get("comment"),
                 "disabled":     r.get("disabled") in (True, "true", "yes"),
                 "bytes":        _int(r.get("bytes")),
@@ -367,19 +432,13 @@ def action(host, user, password, act, arg=None, rule=None, verify=False,
     Returns the REST response (or {'ok': True})."""
     if act not in ACTIONS:
         raise RouterOSError(f"action {act!r} not allowed")
-    if act == "add_firewall_rule":
-        body = _sanitize_rule(rule)
-        body.setdefault("disabled", "yes")   # safety: new rules land disabled
-        r = _request(host, user, password, "POST", "/ip/firewall/filter",
-                     body=body, verify=verify, timeout=timeout)
-        return {"ok": True, "result": r}
-    if act in ("enable_rule", "disable_rule"):
-        if not arg:
-            raise RouterOSError("rule id required")
-        verb = "enable" if act == "enable_rule" else "disable"
-        _request(host, user, password, "POST", f"/ip/firewall/filter/{verb}",
-                 body={".id": str(arg)}, verify=verify, timeout=timeout)
-        return {"ok": True}
+    # Filter + NAT rule mutations (add / enable / disable / remove) share one
+    # code path keyed on the action name.
+    if act in _FW_RULE_OPS:
+        table, verb = _FW_RULE_OPS[act]
+        return _firewall_rule_op(host, user, password, table, verb,
+                                 arg=arg, rule=rule, verify=verify,
+                                 timeout=timeout)
     if act == "reboot":
         _request(host, user, password, "POST", "/system/reboot", body={},
                  verify=verify, timeout=timeout)

@@ -177,6 +177,64 @@ class TestRouterosClient(unittest.TestCase):
             ros.action("h", "u", "p", "disable_rule", arg="*5")
         self.assertEqual(calls[0], ("POST", "/ip/firewall/filter/disable", {".id": "*5"}))
 
+    # ── v3.4.0: NAT add/delete + filter delete ──────────────────────────────
+    def test_nat_actions_registered(self):
+        for a in ("add_nat_rule", "enable_nat_rule", "disable_nat_rule",
+                  "delete_nat_rule", "delete_filter_rule"):
+            self.assertIn(a, ros.ACTIONS)
+
+    def test_sanitize_nat_rule_allows_translation_fields(self):
+        r = ros._sanitize_nat_rule({"chain": "dstnat", "action": "dst-nat",
+                                    "to_addresses": "10.0.0.5", "to-ports": "8080",
+                                    "evil": "x"})
+        self.assertEqual(r["chain"], "dstnat")
+        self.assertEqual(r["to-addresses"], "10.0.0.5")   # underscore normalised
+        self.assertEqual(r["to-ports"], "8080")
+        self.assertNotIn("evil", r)
+        with self.assertRaises(ros.RouterOSError):
+            ros._sanitize_nat_rule({"chain": "srcnat"})    # no action
+
+    def test_add_nat_rule_targets_nat_table_disabled(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path, body))
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            ros.action("h", "u", "p", "add_nat_rule",
+                       rule={"chain": "srcnat", "action": "masquerade",
+                             "out_interface": "ether1"})
+        method, path, body = calls[0]
+        self.assertEqual((method, path), ("POST", "/ip/firewall/nat"))
+        self.assertEqual(body["disabled"], "yes")
+        self.assertEqual(body["out-interface"], "ether1")
+
+    def test_delete_rule_uses_delete_method_per_table(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path, body))
+            return None
+        with patch.object(ros, "_request", side_effect=cap):
+            ros.action("h", "u", "p", "delete_filter_rule", arg="*3")
+            ros.action("h", "u", "p", "delete_nat_rule", arg="*7")
+        self.assertEqual(calls[0], ("DELETE", "/ip/firewall/filter/*3", None))
+        self.assertEqual(calls[1], ("DELETE", "/ip/firewall/nat/*7", None))
+
+    def test_nat_toggle_targets_nat_table(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path, body))
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            ros.action("h", "u", "p", "enable_nat_rule", arg="*7")
+        self.assertEqual(calls[0], ("POST", "/ip/firewall/nat/enable", {".id": "*7"}))
+
+    def test_delete_requires_arg(self):
+        with self.assertRaises(ros.RouterOSError):
+            ros.action("h", "u", "p", "delete_nat_rule")    # no id
+
     def test_qos_parsing(self):
         def cap(host, user, pw, method, path, body=None, **k):
             if path == "/queue/simple":
