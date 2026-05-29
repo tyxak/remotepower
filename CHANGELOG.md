@@ -41,6 +41,15 @@ In development.
   Synology MIB (one cheap GET; empty for non-Synology) and only then walks
   the disk/RAID tables. Shown in the device's SNMP detail; CPU / memory /
   volume usage already came from the generic UCD/Host-Resources pollers.
+- **Agentless reachability (ICMP).** Agentless devices used to be "up"
+  forever (a static `manual_status`). They now default to an **ICMP ping
+  check** — a cheap-when-not-due sweep pings each one and flips its
+  online state, firing `device_offline` / `device_online` (inbox +
+  webhooks, 2-fail debounce, Monitored-flag respected) just like agent
+  devices. Per-device **Reachability** setting in Actions & Settings:
+  *ICMP ping* (default) or *Manual* (set Up/Down by hand, for hosts that
+  block ping). `check_offline_webhooks` already skips agentless, so this
+  sweep solely owns their up/down.
 
 ## v3.3.3 — unreleased (dev)
 

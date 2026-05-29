@@ -135,5 +135,23 @@ class TestSynologyPollerShipped(unittest.TestCase):
         self.assertIn("'synology'", api)
 
 
+class TestAgentlessReachabilityShipped(unittest.TestCase):
+    """Agentless ICMP reachability + the per-device mode control."""
+
+    def setUp(self):
+        self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_sweep_and_helper_present(self):
+        self.assertIn('def run_agentless_reachability_if_due', self.api)
+        self.assertIn('def _agentless_online', self.api)
+        self.assertIn('def _ping_host', self.api)
+        self.assertIn("_safe(run_agentless_reachability_if_due", self.api)
+
+    def test_ui_reachability_control(self):
+        self.assertIn('id="ds-reachability"', self.appjs)
+        self.assertIn('function onReachabilityModeChange', self.appjs)
+
+
 if __name__ == '__main__':
     unittest.main()

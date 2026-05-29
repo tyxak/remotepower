@@ -1263,6 +1263,14 @@ function openIconModal(id, current) {
 }
 async function saveDeviceIcon(icon) { const id = document.getElementById('icon-device-id').value; const data = await api('PATCH', '/devices/' + id + '/icon', { icon }); if (data?.ok) { toast(icon ? `Icon set to ${icon}` : 'Icon cleared', 'success'); closeModal('icon-modal'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
 async function toggleMonitored(id, monitored) { const data = await api('PATCH', '/devices/' + id + '/monitored', { monitored }); if (data?.ok) { toast(monitored ? 'Monitoring enabled' : 'Monitoring disabled', 'success'); loadDevices(); } else toast(data?.error || 'Failed', 'error'); }
+
+// v3.3.4: agentless reachability mode — reveal the manual Up/Down checkmark
+// only when "Manual" is picked.
+function onReachabilityModeChange() {
+  const mode = document.getElementById('ds-reachability')?.value;
+  const row = document.getElementById('ds-manual-status-row');
+  if (row) row.classList.toggle('d-none', mode !== 'manual');
+}
 async function clearMonitorAlerts() { if (!confirm('Reset all monitor alert state? This allows alerts to re-fire.')) return; const data = await api('DELETE', '/monitor/alerts/clear'); if (data?.ok) toast('Monitor alert state cleared', 'success'); else toast(data?.error || 'Failed', 'error'); }
 async function clearWebhookLog() { if (!confirm('Clear the webhook delivery log?')) return; const data = await api('DELETE', '/webhook/log'); if (data?.ok) { toast('Webhook log cleared', 'success'); loadWebhookLog(); } else toast(data?.error || 'Failed', 'error'); }
 function openDetail(id, name) {
@@ -12897,6 +12905,19 @@ function _renderDrawerSettings() {
         <span class="fs-12">Active monitoring</span>
       </label>
     </div>
+    ${isAgentless ? `
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">Reachability</span>
+      <select class="form-input isl-621" id="ds-reachability" data-change="onReachabilityModeChange">
+        <option value="icmp" ${(d.reachability || 'icmp') === 'icmp' ? 'selected' : ''}>ICMP ping</option>
+        <option value="manual" ${(d.reachability || 'icmp') === 'manual' ? 'selected' : ''}>Manual (set Up/Down)</option>
+      </select>
+      <label class="click-row-6 ${(d.reachability || 'icmp') === 'manual' ? '' : 'd-none'}" id="ds-manual-status-row">
+        <input type="checkbox" id="ds-manual-status" ${d.manual_status !== false ? 'checked' : ''}>
+        <span class="fs-12">Device is up</span>
+      </label>
+      <span class="hint">ICMP pings the host each sweep; switch to Manual for hosts that block ping.</span>
+    </div>` : ''}
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Poll interval</span>
       <input class="form-input isl-621" id="ds-poll" type="number" value="${d.poll_interval||60}" min="30">
@@ -13036,6 +13057,14 @@ async function _drawerSaveSettings() {
     watched_files: driftFiles,
     cmd_allowlist: allowlist,
   };
+
+  // v3.3.4: agentless reachability mode + manual up/down (form only shows
+  // these for agentless devices).
+  const reachEl = document.getElementById('ds-reachability');
+  if (reachEl) {
+    body.reachability = reachEl.value;
+    body.manual_status = !!document.getElementById('ds-manual-status')?.checked;
+  }
 
   const r = await api('POST', `/devices/${id}`, body);
   if (r?.ok) toast('Settings saved', 'success');

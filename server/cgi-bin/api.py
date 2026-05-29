@@ -604,6 +604,101 @@ def get_online_ttl():
     return max(MIN_ONLINE_TTL, v)
 
 
+def _agentless_online(dev):
+    """Online state for an agentless device (no heartbeat).
+
+    v3.3.4: agentless devices default to an ICMP reachability check —
+    `reachable` is set by run_agentless_reachability_if_due. The 'manual'
+    mode keeps the operator-set `manual_status` (for hosts that block
+    ping). Both default to up so a freshly-added device isn't shown down
+    before its first probe.
+    """
+    if dev.get('reachability', 'icmp') == 'manual':
+        return bool(dev.get('manual_status', True))
+    return bool(dev.get('reachable', True))
+
+
+# v3.3.4: agentless ICMP reachability sweep tuning.
+AGENTLESS_PING_INTERVAL = 60          # seconds between sweeps
+AGENTLESS_PING_FAIL_THRESHOLD = 2     # consecutive fails before OFFLINE (debounce)
+
+
+def _ping_host(host, timeout=2):
+    """True if `host` answers a single ICMP echo. Same approach as the
+    Monitor ping check — argv only (the `--` guards against a hostname
+    that looks like a flag), no shell."""
+    if not host:
+        return False
+    try:
+        r = subprocess.run(
+            ['ping', '-c', '1', '-W', str(int(timeout)), '--', str(host)],
+            capture_output=True, timeout=timeout + 3)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def run_agentless_reachability_if_due():
+    """Ping every ICMP-mode agentless device once per AGENTLESS_PING_INTERVAL
+    and flip its `reachable` bit, firing device_offline / device_online on
+    the edge (debounced by AGENTLESS_PING_FAIL_THRESHOLD consecutive fails).
+
+    Same cheap-when-not-due pattern as run_snmp_polls_if_due; marker in
+    CONFIG_FILE under `last_agentless_ping`. check_offline_webhooks skips
+    agentless devices, so this is the only place agentless up/down is
+    decided — no double-firing.
+    """
+    cfg = load(CONFIG_FILE)
+    now = int(time.time())
+    last = int(cfg.get('last_agentless_ping', 0))
+    interval = max(30, int(cfg.get('agentless_ping_interval', AGENTLESS_PING_INTERVAL)))
+    if (now - last) < interval:
+        return
+    devs = load(DEVICES_FILE)
+    targets = [did for did, d in devs.items()
+               if d.get('agentless') and d.get('reachability', 'icmp') != 'manual'
+               and (d.get('ip') or d.get('hostname') or d.get('host'))]
+    if not targets:
+        return
+    cfg['last_agentless_ping'] = now
+    save(CONFIG_FILE, cfg)
+
+    transitions = []   # (dev_id, name, online_bool) fired after the lock
+    with _LockedUpdate(DEVICES_FILE) as store:
+        for dev_id in targets:
+            dev = store.get(dev_id)
+            if not dev:
+                continue
+            host = dev.get('ip') or dev.get('hostname') or dev.get('host')
+            was_reachable = bool(dev.get('reachable', True))
+            if _ping_host(host):
+                dev['reachable'] = True
+                dev['reach_fails'] = 0
+                dev['last_seen'] = now            # so "last seen" reflects the probe
+                if not was_reachable:
+                    transitions.append((dev_id, dev.get('name', dev_id), True))
+            else:
+                fails = int(dev.get('reach_fails', 0)) + 1
+                dev['reach_fails'] = fails
+                if was_reachable and fails >= AGENTLESS_PING_FAIL_THRESHOLD:
+                    dev['reachable'] = False
+                    transitions.append((dev_id, dev.get('name', dev_id), False))
+
+    for dev_id, name, online in transitions:
+        d = load(DEVICES_FILE).get(dev_id) or {}
+        if not d.get('monitored', True):
+            continue            # unmonitored: track status, stay silent
+        event = 'device_online' if online else 'device_offline'
+        try:
+            fire_webhook(event, {'device_id': dev_id, 'device_name': name, 'name': name})
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] agentless {event} fire failed {dev_id}: {e}\n')
+        try:
+            _record_uptime(dev_id, name, online)
+        except Exception:
+            pass
+
+
 def _offline_thresholds(dev, ttl):
     """Per-device OFFLINE tuning used by check_offline_webhooks.
 
@@ -3975,7 +4070,7 @@ def handle_devices_list():
         # if the user marked them so manually; offline_reason is None either way.
         agentless = bool(dev.get('agentless', False))
         if agentless:
-            is_online = bool(dev.get('manual_status', True))
+            is_online = _agentless_online(dev)
             missed = None
             offline_reason = None
         else:
@@ -4261,6 +4356,15 @@ def handle_device_save_bulk(dev_id):
     # monitored — bool
     if 'monitored' in body:
         updates['monitored'] = bool(body.get('monitored'))
+
+    # v3.3.4: agentless reachability mode + manual up/down. 'icmp' pings
+    # the host each sweep; 'manual' uses manual_status (set by the Up/Down
+    # control, for hosts that block ping).
+    if 'reachability' in body:
+        rm = _sanitize_str(body.get('reachability') or '', 16).lower()
+        updates['reachability'] = rm if rm in ('icmp', 'manual') else 'icmp'
+    if 'manual_status' in body:
+        updates['manual_status'] = bool(body.get('manual_status'))
 
     # poll_interval — int, clamp to a reasonable floor
     if 'poll_interval' in body:
@@ -9435,7 +9539,7 @@ def handle_network_map() -> None:
     for dev_id, dev in devices.items():
         agentless = bool(dev.get('agentless', False))
         if agentless:
-            online = bool(dev.get('manual_status', True))
+            online = _agentless_online(dev)
         else:
             online = (now - dev.get('last_seen', 0)) < get_online_ttl()
         # Position fields — None means "no manual position set, fall back
@@ -12208,7 +12312,7 @@ def handle_home():
         last_ping = dev.get('last_seen', 0)
         agentless = bool(dev.get('agentless', False))
         if agentless:
-            is_online = bool(dev.get('manual_status', True))
+            is_online = _agentless_online(dev)
             missed = None
             offline_reason = None
         else:
@@ -19903,6 +20007,10 @@ def main():
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
     _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
+    # v3.3.4: ICMP reachability for agentless devices (icmp mode). Cheap-
+    # when-not-due; check_offline_webhooks skips agentless so this owns
+    # their up/down + offline/online alerts.
+    _safe(run_agentless_reachability_if_due, 'run_agentless_reachability_if_due')
     # v3.3.4: refresh registry digests for container image-update detection.
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
