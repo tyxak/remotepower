@@ -6,6 +6,17 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Synology DSM upgrade over SSH (one button).** Agentless Synology NAS
+  devices have no API to trigger a DSM upgrade, so the device's Synology
+  panel gets a single **Upgrade DSM & reboot** button that runs the
+  built-in upgrade script over SSH (root): it checks for a new DSM and, if
+  found, applies it and reboots — launched detached (logs to
+  /var/log/dsm-upgrade.log on the NAS). Per-device SSH credentials (a
+  private key — preferred, no extra packages — or a password via sshpass)
+  are stored write-only; admin-only + audited + per-device opt-in. The SSH
+  client lives in ssh_exec.py (pure stdlib, shells out to `ssh`).
+  Synology DSM update *status* also now shows in the Patches report (from
+  the existing SNMP poll).
 - **OPNsense firewall management (REST API).** Agentless OPNsense devices
   get a firewall card (device drawer → Audit → OPNsense) backed by the
   OPNsense API: view, add, enable/disable, and delete **filter** rules and

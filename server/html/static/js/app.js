@@ -13780,6 +13780,8 @@ async function _loadAuditSection(key) {
         if (data.synology && (data.synology.system || (data.synology.disks||[]).length)) {
           const syn = data.synology;
           const sy = syn.system || {};
+          let sshCfg = {};
+          try { const _s = await api('GET', `/devices/${id}/ssh`); sshCfg = (_s && _s.config) || {}; } catch (_) {}
           const okBadge = (v) => v === 'normal'
             ? '<span class="status-pill ok">normal</span>'
             : (v ? `<span class="status-pill critical">${escHtml(v)}</span>` : '—');
@@ -13812,6 +13814,26 @@ async function _loadAuditSection(key) {
             }
             h += '</tbody></table>';
           }
+
+          // v3.4.0: DSM upgrade over SSH (no DSM API for this). Per-device SSH
+          // creds (write-only) + one button that runs the built-in upgrade +
+          // reboot script. admin-only + audited server-side.
+          const haveCreds = sshCfg.has_password || sshCfg.has_key;
+          h += `<h4 class="mt-12">DSM upgrade (SSH)</h4>
+            <div class="hint mb-6">Synology has no API to trigger a DSM upgrade, so this runs the upgrade over SSH (root). One button: it checks for a DSM update and, if found, applies it and <strong>reboots the NAS</strong>. Save SSH credentials once — a key (recommended) or a password (needs sshpass on the server).</div>
+            <label class="click-row-6"><input type="checkbox" id="ssh-enabled" ${sshCfg.enabled ? 'checked' : ''}><span class="fs-12">Enable SSH for this device</span></label>
+            <div class="row-6 mt-6">
+              <input class="form-input mw-200" id="ssh-user" placeholder="username" value="${escAttr(sshCfg.username || 'root')}">
+              <input class="form-input mw-200" id="ssh-port" type="number" placeholder="22" value="${sshCfg.port || 22}">
+            </div>
+            <input class="form-input mt-6" id="ssh-pass" type="password" placeholder="${sshCfg.has_password ? '•••••• (unchanged)' : 'password (or use a key below)'}">
+            <textarea class="form-input mt-6" id="ssh-key" rows="2" placeholder="${sshCfg.has_key ? '•••••• private key stored (paste to replace)' : 'private key (PEM) — preferred, no sshpass needed'}"></textarea>
+            <div class="row-6 mt-6">
+              <button class="btn-icon" data-action="saveDeviceSsh">Save SSH credentials</button>
+              <button class="btn-icon c-danger-outline" data-action="synologyUpgrade" title="Check for a DSM update; if found, apply it and reboot the NAS">${_icon('refresh',14)} Upgrade DSM &amp; reboot</button>
+            </div>
+            ${haveCreds ? '' : '<div class="hint mt-6">No SSH credentials saved yet — save them before using the upgrade button.</div>'}
+            <div id="syno-upgrade-out"></div>`;
         }
         // Interface table
         if (Array.isArray(data.interfaces) && data.interfaces.length) {
@@ -14276,6 +14298,44 @@ async function opnsenseRuleDelete(uuid, table) {
     { action: nat ? 'delete_nat_rule' : 'delete_filter_rule', arg: uuid });
   if (r && r.ok) { toast('Rule deleted', 'success'); loadOpnsenseFirewall(); }
   else toast((r && r.error) || 'Delete failed', 'error');
+}
+
+// ── v3.4.0: agentless SSH creds + Synology DSM upgrade ──────────────────────
+async function saveDeviceSsh() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const body = {
+    enabled:  !!document.getElementById('ssh-enabled')?.checked,
+    username: document.getElementById('ssh-user')?.value.trim() || 'root',
+    port:     parseInt(document.getElementById('ssh-port')?.value || '22', 10),
+  };
+  const pw = document.getElementById('ssh-pass')?.value || '';
+  if (pw) body.password = pw;
+  const k = document.getElementById('ssh-key')?.value || '';
+  if (k.trim()) body.private_key = k;
+  const r = await api('PATCH', `/devices/${encodeURIComponent(id)}/ssh`, body);
+  if (r && r.ok) toast('SSH credentials saved', 'success');
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function synologyUpgrade() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (!confirm('Upgrade DSM and REBOOT this NAS now?\n\n' +
+    'It checks for a DSM update and, if one is available, applies it and ' +
+    'reboots the NAS — every service on it goes down during the reboot. ' +
+    'Make sure SSH credentials are saved first.')) return;
+  const out = document.getElementById('syno-upgrade-out');
+  if (out) out.innerHTML = '<div class="hint mt-6">Starting DSM upgrade over SSH…</div>';
+  toast('Starting DSM upgrade over SSH…', 'info');
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/synology/upgrade`, {});
+  if (r && r.ok) {
+    toast('DSM upgrade started', 'success');
+    if (out) out.innerHTML = `<div class="hint mt-6 c-green">${escHtml(r.message || 'DSM upgrade started on the NAS.')}</div>`;
+  } else {
+    toast((r && r.error) || 'Upgrade failed', 'error');
+    if (out) out.innerHTML = `<div class="hint mt-6 c-red">${escHtml((r && r.error) || 'Upgrade failed')}</div>`;
+  }
 }
 
 // Render into whichever surface is active — the full-width console modal
