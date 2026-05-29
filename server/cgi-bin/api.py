@@ -14926,6 +14926,14 @@ def _do_snmp_poll(dev_id, dev):
             ucd = snmp_mod.poll_ucd_snmp(host, community, port=port, timeout=2.0)
         except Exception:
             ucd = {}
+        # v3.3.4: Synology DSM health. Probed unconditionally (one cheap GET
+        # of the system scalars) — DSM runs net-snmp so its sysObjectID
+        # doesn't identify it; poll_synology returns {} for non-Synology and
+        # only then walks the disk/RAID tables.
+        try:
+            synology = snmp_mod.poll_synology(host, community, port=port, timeout=2.0)
+        except Exception:
+            synology = {}
         now = int(time.time())
         entry = {
             'host':         host,
@@ -14942,6 +14950,7 @@ def _do_snmp_poll(dev_id, dev):
             'processors':   processors,
             'storage':      storage,
             'vendor':       vendor,
+            'synology':     synology,
         }
         # Threshold pipeline — fires metric_warning/critical/recovered
         # events through the existing webhook + alerts inbox plumbing.
@@ -15723,6 +15732,15 @@ def handle_device_snmp_deep(dev_id):
                                               port=port, timeout=2.5)
         except Exception as e:
             out['errors']['ubnt'] = f'{type(e).__name__}: {e}'
+    # v3.3.4: Synology — probed unconditionally (DSM's sysObjectID is the
+    # generic net-snmp OID). Returns {} for non-Synology, so it's safe to
+    # always attempt; only Synology boxes get the disk/RAID walks.
+    try:
+        syno = snmp_mod.poll_synology(host, community, port=port, timeout=2.5)
+        if syno:
+            out['synology'] = syno
+    except Exception as e:
+        out['errors']['synology'] = f'{type(e).__name__}: {e}'
 
     out['polled_at'] = int(time.time())
     respond(200, out)

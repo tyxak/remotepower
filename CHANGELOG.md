@@ -32,6 +32,15 @@ In development.
   an arbitrary compose file as root. Status flows back through the normal
   command-output channel. RemotePower runs the file as-is; it doesn't
   sandbox it, build images for you, or auto-restart on changes.
+- **Synology NAS monitoring (SNMP).** New `poll_synology` reads DSM
+  health from the Synology MIBs (`1.3.6.1.4.1.6574.*`): system / power /
+  fan status, temperature, model + DSM version + update-available, and
+  per-disk and per-volume (RAID) status. Add the NAS as an agentless SNMP
+  device (enable SNMP in DSM → Control Panel → Terminal & SNMP). DSM runs
+  net-snmp so its sysObjectID doesn't identify it — the poller probes the
+  Synology MIB (one cheap GET; empty for non-Synology) and only then walks
+  the disk/RAID tables. Shown in the device's SNMP detail; CPU / memory /
+  volume usage already came from the generic UCD/Host-Resources pollers.
 
 ## v3.3.3 — unreleased (dev)
 

@@ -764,3 +764,123 @@ def poll_ubnt(host, community, port=161, timeout=2.0):
             for idx, r in sorted(rows.items())
         ]
     return out
+
+
+# ── Synology DSM vendor MIBs (1.3.6.1.4.1.6574) ───────────────────────────
+# Synology NAS boxes run net-snmp, so their sysObjectID is usually the
+# generic Linux OID (1.3.6.1.4.1.8072.*), NOT 6574 — sysObjectID-based
+# detection is unreliable. Instead we probe the Synology system MIB: a
+# single GET of the system scalars. If nothing comes back, it isn't a
+# Synology (or the MIB isn't exposed) and we skip the disk/RAID walks, so
+# non-Synology devices pay only one cheap GET.
+#
+# OIDs from Synology's published MIBs (SYNOLOGY-SYSTEM-MIB / -DISK-MIB /
+# -RAID-MIB). Enable SNMP in DSM → Control Panel → Terminal & SNMP.
+SYNOLOGY_SYSTEM_OIDS = {
+    'systemStatus':     '1.3.6.1.4.1.6574.1.1.0',     # 1=Normal 2=Failed
+    'temperature_c':    '1.3.6.1.4.1.6574.1.2.0',     # system temp, °C
+    'powerStatus':      '1.3.6.1.4.1.6574.1.3.0',     # 1=Normal 2=Failed
+    'systemFanStatus':  '1.3.6.1.4.1.6574.1.4.1.0',   # 1=Normal 2=Failed
+    'cpuFanStatus':     '1.3.6.1.4.1.6574.1.4.2.0',
+    'modelName':        '1.3.6.1.4.1.6574.1.5.1.0',
+    'serialNumber':     '1.3.6.1.4.1.6574.1.5.2.0',
+    'dsmVersion':       '1.3.6.1.4.1.6574.1.5.3.0',
+    'upgradeAvailable': '1.3.6.1.4.1.6574.1.5.4.0',   # 1=Available 2=Unavailable …
+}
+
+_SYNO_OKFAIL    = {1: 'normal', 2: 'failed'}
+_SYNO_UPGRADE   = {1: 'available', 2: 'unavailable', 3: 'connecting',
+                   4: 'disconnected', 5: 'others'}
+_SYNO_DISK_STAT = {1: 'normal', 2: 'initialized', 3: 'not_initialized',
+                   4: 'system_partition_failed', 5: 'crashed'}
+_SYNO_RAID_STAT = {1: 'normal', 2: 'repairing', 3: 'migrating', 4: 'expanding',
+                   5: 'deleting', 6: 'creating', 7: 'syncing',
+                   8: 'parity_checking', 9: 'assembling', 10: 'canceling',
+                   11: 'degraded', 12: 'crashed', 13: 'data_scrubbing',
+                   14: 'deploying', 15: 'undeploying'}
+
+
+def _syno_int(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def poll_synology(host, community, port=161, timeout=2.0):
+    """Synology DSM health: system status/temp/power/fans + per-disk and
+    per-volume (RAID) status. Returns {} if the box doesn't answer the
+    Synology MIB (i.e. not a Synology, or SNMP-on-DSM not enabled), so the
+    caller can run it unconditionally as a cheap probe.
+
+    Shape:
+      {'system': {model, serial, dsm_version, system, power, temperature_c,
+                  fan, cpu_fan, upgrade},
+       'disks':   [{id, model, type, status, temperature_c}, ...],
+       'volumes': [{name, status}, ...]}
+    """
+    try:
+        raw = snmp_get(host, community, list(SYNOLOGY_SYSTEM_OIDS.values()),
+                       port=port, timeout=timeout)
+    except SnmpError:
+        return {}
+    sysv = {name: raw.get(oid) for name, oid in SYNOLOGY_SYSTEM_OIDS.items()}
+    # Probe gate: no model AND no system status -> not a Synology MIB.
+    if sysv.get('modelName') is None and sysv.get('systemStatus') is None:
+        return {}
+
+    system = {
+        'model':         sysv.get('modelName'),
+        'serial':        sysv.get('serialNumber'),
+        'dsm_version':   sysv.get('dsmVersion'),
+        'system':        _SYNO_OKFAIL.get(_syno_int(sysv.get('systemStatus'))),
+        'power':         _SYNO_OKFAIL.get(_syno_int(sysv.get('powerStatus'))),
+        'fan':           _SYNO_OKFAIL.get(_syno_int(sysv.get('systemFanStatus'))),
+        'cpu_fan':       _SYNO_OKFAIL.get(_syno_int(sysv.get('cpuFanStatus'))),
+        'temperature_c': _syno_int(sysv.get('temperature_c')),
+        'upgrade':       _SYNO_UPGRADE.get(_syno_int(sysv.get('upgradeAvailable'))),
+    }
+
+    disks = _syno_walk_table(
+        host, community, port, timeout,
+        base='1.3.6.1.4.1.6574.2.1.1',
+        cols={'id': '2', 'model': '3', 'type': '4', 'status': '5', 'temp': '6'},
+        build=lambda r: {
+            'id':            r.get('id'),
+            'model':         r.get('model'),
+            'type':          r.get('type'),
+            'status':        _SYNO_DISK_STAT.get(_syno_int(r.get('status'))),
+            'temperature_c': _syno_int(r.get('temp')),
+        })
+    volumes = _syno_walk_table(
+        host, community, port, timeout,
+        base='1.3.6.1.4.1.6574.3.1.1',
+        cols={'name': '2', 'status': '3'},
+        build=lambda r: {
+            'name':   r.get('name'),
+            'status': _SYNO_RAID_STAT.get(_syno_int(r.get('status'))),
+        })
+    return {'system': system, 'disks': disks, 'volumes': volumes}
+
+
+def _syno_walk_table(host, community, port, timeout, base, cols, build,
+                     max_rows=64):
+    """Walk a Synology table: one bounded walk per column, joined by the
+    row index (the OID suffix after <base>.<col>). Returns [build(row), …]
+    ordered by index. Best effort — a column walk that errors is skipped."""
+    rows = {}
+    for key, col in cols.items():
+        col_oid = f'{base}.{col}'
+        try:
+            walked = snmp_walk(host, community, col_oid, port=port,
+                               timeout=timeout, retries=0, max_results=max_rows)
+        except SnmpError:
+            continue
+        for found_oid, value in walked.items():
+            idx = found_oid[len(col_oid) + 1:]
+            if idx:
+                rows.setdefault(idx, {})[key] = value
+    out = []
+    for idx in sorted(rows.keys(), key=lambda s: (len(s), s)):
+        out.append(build(rows[idx]))
+    return out

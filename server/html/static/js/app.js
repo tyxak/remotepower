@@ -13598,6 +13598,43 @@ async function _loadAuditSection(key) {
           }
           h += '</tbody></table>';
         }
+        // v3.3.4: Synology DSM health (system + disks + RAID/volumes)
+        if (data.synology && (data.synology.system || (data.synology.disks||[]).length)) {
+          const syn = data.synology;
+          const sy = syn.system || {};
+          const okBadge = (v) => v === 'normal'
+            ? '<span class="status-pill ok">normal</span>'
+            : (v ? `<span class="status-pill critical">${escHtml(v)}</span>` : '—');
+          h += '<h4 class="mt-12">Synology</h4>';
+          h += `<div class="hint mb-6">${escHtml(sy.model || 'Synology')}${sy.dsm_version ? ' · DSM ' + escHtml(sy.dsm_version) : ''}${sy.serial ? ' · ' + escHtml(sy.serial) : ''}</div>`;
+          h += '<table class="fs-13"><tbody>';
+          h += `<tr><td class="c-muted-padded">System</td><td>${okBadge(sy.system)}</td></tr>`;
+          h += `<tr><td class="c-muted-padded">Power</td><td>${okBadge(sy.power)}</td></tr>`;
+          h += `<tr><td class="c-muted-padded">Fan</td><td>${okBadge(sy.fan)}</td></tr>`;
+          if (sy.temperature_c != null) {
+            const tCls = sy.temperature_c > 65 ? 'c-red' : sy.temperature_c > 55 ? 'c-amber' : '';
+            h += `<tr><td class="c-muted-padded">Temperature</td><td class="${tCls}">${sy.temperature_c}°C</td></tr>`;
+          }
+          if (sy.upgrade) h += `<tr><td class="c-muted-padded">DSM update</td><td>${sy.upgrade === 'available' ? '<span class="c-amber">available</span>' : escHtml(sy.upgrade)}</td></tr>`;
+          h += '</tbody></table>';
+          if ((syn.disks || []).length) {
+            h += '<table class="fs-13 mt-6"><thead><tr><th>Disk</th><th>Model</th><th>Status</th><th class="ta-right">Temp</th></tr></thead><tbody>';
+            for (const d of syn.disks) {
+              const dCls = d.status && d.status !== 'normal' ? 'c-red' : '';
+              const dt = d.temperature_c != null ? `${d.temperature_c}°C` : '—';
+              h += `<tr><td><strong>${escHtml(d.id || '?')}</strong></td><td class="hint">${escHtml(d.model || '—')}</td><td class="${dCls}">${escHtml(d.status || '—')}</td><td class="ta-right">${dt}</td></tr>`;
+            }
+            h += '</tbody></table>';
+          }
+          if ((syn.volumes || []).length) {
+            h += '<table class="fs-13 mt-6"><thead><tr><th>Volume</th><th>Status</th></tr></thead><tbody>';
+            for (const v of syn.volumes) {
+              const vCls = v.status && v.status !== 'normal' ? 'c-red' : '';
+              h += `<tr><td><strong>${escHtml(v.name || '?')}</strong></td><td class="${vCls}">${escHtml(v.status || '—')}</td></tr>`;
+            }
+            h += '</tbody></table>';
+          }
+        }
         // Interface table
         if (Array.isArray(data.interfaces) && data.interfaces.length) {
           h += `<h4 class="mt-12">Interfaces (${data.interfaces.length})</h4>`;
@@ -13632,6 +13669,8 @@ async function _loadAuditSection(key) {
         if (data.ucd_snmp && Object.keys(data.ucd_snmp).length) counts.push('ucd');
         if (data.mikrotik && Object.keys(data.mikrotik).length) counts.push('mikrotik');
         if (data.ubnt && Object.keys(data.ubnt).length) counts.push('ubnt');
+        if (data.synology && (data.synology.disks || []).length) counts.push(`synology ${data.synology.disks.length}d`);
+        else if (data.synology) counts.push('synology');
         badge.textContent = counts.join(' · ') || 'loaded';
         body.innerHTML = h || '<div class="c-muted">No SNMP data returned.</div>';
         break;

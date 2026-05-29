@@ -1688,6 +1688,11 @@
                 <li><strong>Admin-only, audited, and gated behind a per-device opt-in (default off)</strong> — a deploy can't reach a host until you enable compose there, since it runs an arbitrary compose file as root. RemotePower runs the file as-is; it doesn't sandbox it.</li>
               </ul>
 
+              <h4>Synology NAS monitoring (SNMP)</h4>
+              <ul>
+                <li>Add a Synology as an <strong>agentless SNMP device</strong> (enable SNMP in DSM → Control Panel → Terminal &amp; SNMP) and RemotePower reads DSM health from the Synology MIBs: system / power / fan status, temperature, model + DSM version + update-available, and <strong>per-disk and per-volume (RAID) status</strong>. CPU / memory / volume usage already come from the generic SNMP pollers. Shown in the device's SNMP detail.</li>
+              </ul>
+
               <p>Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.4.md</code>.</p>
             </div>
           </details>
@@ -3148,7 +3153,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-containers" class="page">
         <div class="page-title">Containers</div>
         <div id="containers-panel-agent">
-          <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. For Docker/Podman you can start, stop, restart, and pull logs (queued to the agent, runs on its next heartbeat); RemotePower doesn't create, build, or deploy containers.</div>
+          <div class="page-subtitle">Docker / Podman / Kubernetes pods reported by enrolled agents. For Docker/Podman you can start, stop, restart, and pull logs — and deploy compose stacks (below). Actions queue to the agent and run on its next heartbeat.</div>
           <div class="toolbar">
             <input type="text" id="containers-search" class="form-input isl-170" placeholder="Filter by device or container name…">
             <button class="btn-icon" data-action="loadContainersOverview" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>

@@ -121,5 +121,19 @@ class TestComposeStacksShipped(unittest.TestCase):
         self.assertIn("function composeStackAction", self.appjs)
 
 
+class TestSynologyPollerShipped(unittest.TestCase):
+    """The Synology SNMP poller must be present + wired into the sweep."""
+
+    def test_poller_present(self):
+        snmp = (REPO_ROOT / 'server' / 'cgi-bin' / 'snmp.py').read_text()
+        self.assertIn('def poll_synology', snmp)
+        self.assertIn('1.3.6.1.4.1.6574', snmp)
+
+    def test_wired_into_poll_and_deep(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn('poll_synology', api)
+        self.assertIn("'synology'", api)
+
+
 if __name__ == '__main__':
     unittest.main()
