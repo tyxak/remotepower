@@ -71,7 +71,10 @@ In development.
   per-rule enable/disable, an add-rule form, and **AI** — "Explain" (plain-
   English ruleset summary + risk flags) and "Draft rule" (turns a plain-
   English request into a rule and fills the form). New rules are created
-  **disabled** for review; nothing is auto-applied.
+  **disabled** for review; nothing is auto-applied. And a **QoS & traffic**
+  view: simple-queue / queue-tree stats, plus **live per-interface
+  throughput** (bit/s, from a ~1s two-sample diff — no reliance on
+  monitor-traffic streaming).
 
 ## v3.3.3 — unreleased (dev)
 

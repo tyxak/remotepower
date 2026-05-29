@@ -15836,6 +15836,43 @@ def handle_device_routeros_firewall(dev_id):
     respond(200, fw)
 
 
+def handle_device_routeros_qos(dev_id):
+    """GET /api/devices/<id>/routeros/qos — simple queues + queue tree."""
+    require_auth()
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    tgt = _routeros_target(dev)
+    if not tgt:
+        respond(200, {'simple': [], 'tree': [], 'enabled': False})
+    host, user, password, verify = tgt
+    import routeros as routeros_mod
+    try:
+        q = routeros_mod.qos(host, user, password, verify=verify)
+    except Exception as e:
+        respond(502, {'error': str(e)[:200]})
+    q['enabled'] = True
+    respond(200, q)
+
+
+def handle_device_routeros_traffic(dev_id):
+    """GET /api/devices/<id>/routeros/traffic — live per-interface bit/s."""
+    require_auth()
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    tgt = _routeros_target(dev)
+    if not tgt:
+        respond(200, {'interfaces': []})
+    host, user, password, verify = tgt
+    import routeros as routeros_mod
+    try:
+        rates = routeros_mod.traffic(host, user, password, verify=verify)
+    except Exception as e:
+        respond(502, {'error': str(e)[:200]})
+    respond(200, {'interfaces': rates})
+
+
 def handle_device_routeros_action(dev_id):
     """POST /api/devices/<id>/routeros/action {action, arg, rule?} — admin-only
     management command, gated on the device's routeros opt-in. Audited."""
@@ -20331,6 +20368,10 @@ def main():
         handle_device_routeros_action(pi[len('/api/devices/'):-len('/routeros/action')])
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET':
         handle_device_routeros_firewall(pi[len('/api/devices/'):-len('/routeros/firewall')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/qos') and m == 'GET':
+        handle_device_routeros_qos(pi[len('/api/devices/'):-len('/routeros/qos')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/traffic') and m == 'GET':
+        handle_device_routeros_traffic(pi[len('/api/devices/'):-len('/routeros/traffic')])
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH'):
         handle_device_routeros(pi[len('/api/devices/'):-len('/routeros')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):

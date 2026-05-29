@@ -177,6 +177,35 @@ class TestRouterosClient(unittest.TestCase):
             ros.action("h", "u", "p", "disable_rule", arg="*5")
         self.assertEqual(calls[0], ("POST", "/ip/firewall/filter/disable", {".id": "*5"}))
 
+    def test_qos_parsing(self):
+        def cap(host, user, pw, method, path, body=None, **k):
+            if path == "/queue/simple":
+                return [{"name": "q1", "target": "192.168.1.0/24",
+                         "max-limit": "100M/100M", "disabled": "false"}]
+            return []
+        with patch.object(ros, "_request", side_effect=cap):
+            q = ros.qos("h", "u", "p")
+        self.assertEqual(q["simple"][0]["name"], "q1")
+        self.assertEqual(q["simple"][0]["max_limit"], "100M/100M")
+
+    def test_traffic_computes_rates(self):
+        seq = [
+            [{"name": "ether1", "rx-byte": "1000", "tx-byte": "2000"}],
+            [{"name": "ether1", "rx-byte": "9000", "tx-byte": "2000"}],  # +8000 rx
+        ]
+        state = {"n": 0}
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            i = min(state["n"], len(seq) - 1)
+            state["n"] += 1
+            return seq[i]
+        with patch.object(ros, "_request", side_effect=cap), \
+             patch.object(ros.time, "sleep"):     # no real 1s wait
+            rates = ros.traffic("h", "u", "p")
+        r = next(x for x in rates if x["name"] == "ether1")
+        self.assertGreater(r["rx_bps"], 0)        # rx changed
+        self.assertEqual(r["tx_bps"], 0)          # tx unchanged
+
 
 # ── server handlers (real auth, mocked routeros) ───────────────────────────
 class _Captured(Exception):
@@ -352,6 +381,25 @@ class TestRouterosHandlers(unittest.TestCase):
              {"action": "add_firewall_rule", "rule": {"chain": "input", "action": "drop"}}, self.tok)
         st, _ = _call(api.handle_device_routeros_action, "r1")
         self.assertEqual(st, 403)
+
+    def test_qos_endpoint(self):
+        self._enable_routeros()
+        with patch.object(ros, "qos",
+                          return_value={"simple": [{"name": "q"}], "tree": [], "errors": {}}):
+            _req("GET", "/api/devices/r1/routeros/qos", None, self.tok)
+            st, body = _call(api.handle_device_routeros_qos, "r1")
+        self.assertEqual(st, 200)
+        self.assertTrue(body["enabled"])
+        self.assertEqual(len(body["simple"]), 1)
+
+    def test_traffic_endpoint(self):
+        self._enable_routeros()
+        with patch.object(ros, "traffic",
+                          return_value=[{"name": "ether1", "rx_bps": 100, "tx_bps": 200}]):
+            _req("GET", "/api/devices/r1/routeros/traffic", None, self.tok)
+            st, body = _call(api.handle_device_routeros_traffic, "r1")
+        self.assertEqual(st, 200)
+        self.assertEqual(body["interfaces"][0]["rx_bps"], 100)
 
 
 if __name__ == "__main__":

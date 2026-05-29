@@ -28,6 +28,7 @@ import base64
 import json
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 
@@ -299,6 +300,63 @@ def firewall(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT):
             out[key] = _rules(path)
         except RouterOSError as e:
             out["errors"][key] = str(e)[:200]
+    return out
+
+
+def qos(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT):
+    """Read simple queues + queue tree (QoS) for the console QoS view."""
+    out = {"simple": [], "tree": [], "errors": {}}
+
+    def _q(path):
+        rows = _request(host, user, password, "GET", path, verify=verify, timeout=timeout)
+        if not isinstance(rows, list):
+            return []
+        return [{
+            "name":      r.get("name"),
+            "target":    r.get("target") or r.get("dst") or r.get("parent"),
+            "max_limit": r.get("max-limit") or r.get("limit-at"),
+            "rate":      r.get("rate"),
+            "bytes":     _int(r.get("bytes")),
+            "disabled":  r.get("disabled") in (True, "true", "yes"),
+        } for r in rows[:200]]
+
+    for key, path in (("simple", "/queue/simple"), ("tree", "/queue/tree")):
+        try:
+            out[key] = _q(path)
+        except RouterOSError as e:
+            out["errors"][key] = str(e)[:200]
+    return out
+
+
+def traffic(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT, window=1.0):
+    """Live per-interface throughput as bit/s, from two /interface byte
+    samples ~`window`s apart. Avoids relying on monitor-traffic's streaming
+    REST behaviour, which varies by RouterOS build."""
+    def snap():
+        rows = _request(host, user, password, "GET", "/interface",
+                        verify=verify, timeout=timeout)
+        m = {}
+        if isinstance(rows, list):
+            for r in rows:
+                n = r.get("name")
+                if n:
+                    m[n] = (_int(r.get("rx-byte")) or 0, _int(r.get("tx-byte")) or 0)
+        return m
+
+    a = snap()
+    t0 = time.time()
+    time.sleep(window)
+    b = snap()
+    dt = max(0.1, time.time() - t0)
+    out = []
+    for n, (rx2, tx2) in b.items():
+        rx1, tx1 = a.get(n, (rx2, tx2))
+        out.append({
+            "name":   n,
+            "rx_bps": int(max(0, rx2 - rx1) * 8 / dt),
+            "tx_bps": int(max(0, tx2 - tx1) * 8 / dt),
+        })
+    out.sort(key=lambda x: -(x["rx_bps"] + x["tx_bps"]))
     return out
 
 

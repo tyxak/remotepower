@@ -13890,6 +13890,16 @@ async function openRouterosConsole() {
       </div>
       <div id="ros-fw-body"><div class="c-muted">Click "Load rules".</div></div>`;
     body.appendChild(fw);
+
+    const qos = document.createElement('div');
+    qos.innerHTML = `
+      <div class="page-title isl-172 mt-32">QoS &amp; traffic</div>
+      <div class="row-6 mb-6">
+        <button class="btn-icon" data-action="loadRouterosQos">Load queues</button>
+        <button class="btn-icon" data-action="routerosLiveRates">Live interface rates</button>
+      </div>
+      <div id="ros-qos-body"><div class="c-muted">Queues, and a ~1s live-throughput sample per interface.</div></div>`;
+    body.appendChild(qos);
   }
 }
 
@@ -14047,6 +14057,46 @@ function routerosFirewallDraft() {
       toast('Form filled from AI draft — review, then Add (it stays disabled)', 'success');
     },
   });
+}
+
+// ── RouterOS QoS + live traffic (P3) ────────────────────────────────────────
+async function loadRouterosQos() {
+  const id = _drawerDeviceId;
+  const body = document.getElementById('ros-qos-body');
+  if (!id || !body) return;
+  body.innerHTML = '<div class="c-muted">Loading queues…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/qos`);
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  const rows = (data.simple || []).concat(data.tree || []);
+  if (!rows.length) { body.innerHTML = '<div class="c-muted">No queues configured.</div>'; return; }
+  let h = `<h4>Queues (${rows.length})</h4><table class="fs-13"><thead><tr><th>Name</th><th>Target / parent</th><th>Max limit</th><th>Rate</th></tr></thead><tbody>`;
+  for (const q of rows) {
+    h += `<tr class="${q.disabled ? 'c-muted' : ''}"><td><strong>${escHtml(q.name || '')}</strong>${q.disabled ? ' <span class="hint">(off)</span>' : ''}</td><td class="mono-12">${escHtml(q.target || '')}</td><td class="hint">${escHtml(q.max_limit || '')}</td><td class="hint">${escHtml(q.rate || '')}</td></tr>`;
+  }
+  h += '</tbody></table><div class="row-6 mt-6"><button class="btn-icon" data-action="routerosLiveRates">Live interface rates</button></div>';
+  body.innerHTML = h;
+}
+
+async function routerosLiveRates() {
+  const id = _drawerDeviceId;
+  const body = document.getElementById('ros-qos-body');
+  if (!id || !body) return;
+  body.innerHTML = '<div class="c-muted">Sampling ~1s…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/traffic`);
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  const fmt = (b) => {
+    const u = ['bit/s', 'Kbit/s', 'Mbit/s', 'Gbit/s']; let i = 0; let v = b || 0;
+    while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+    return v.toFixed(v < 10 && i ? 1 : 0) + ' ' + u[i];
+  };
+  const ifs = (data.interfaces || []).filter(i => i.rx_bps || i.tx_bps);
+  let h = `<h4>Live interface rates</h4><div class="hint mb-6">~1-second sample.</div><table class="fs-13"><thead><tr><th>Interface</th><th class="ta-right">RX</th><th class="ta-right">TX</th></tr></thead><tbody>`;
+  if (!ifs.length) h += '<tr><td colspan="3" class="c-muted">No active traffic right now.</td></tr>';
+  for (const i of ifs) {
+    h += `<tr><td><strong>${escHtml(i.name)}</strong></td><td class="ta-right c-green">${fmt(i.rx_bps)}</td><td class="ta-right c-accent">${fmt(i.tx_bps)}</td></tr>`;
+  }
+  h += '</tbody></table><div class="row-6 mt-6"><button class="btn-icon" data-action="routerosLiveRates">Refresh</button><button class="btn-icon" data-action="loadRouterosQos">Queues</button></div>';
+  body.innerHTML = h;
 }
 
 async function routerosAction(action, arg) {
