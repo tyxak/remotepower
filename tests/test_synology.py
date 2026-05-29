@@ -90,5 +90,77 @@ class TestPollSynology(unittest.TestCase):
         self.assertEqual(res, {})
 
 
+# ── v3.4.0: Synology DSM update status flows into the Patches report ────────
+import importlib.util as _ilu  # noqa: E402
+import io as _io               # noqa: E402
+import json as _json          # noqa: E402
+import os as _os              # noqa: E402
+import tempfile as _tf        # noqa: E402
+
+_os.environ["RP_DATA_DIR"] = _tf.mkdtemp()
+_os.environ.setdefault("REQUEST_METHOD", "GET")
+_os.environ.setdefault("PATH_INFO", "/")
+_os.environ.setdefault("CONTENT_LENGTH", "0")
+_CGI = Path(__file__).parent.parent / "server" / "cgi-bin"
+_spec = _ilu.spec_from_file_location("api_syno", _CGI / "api.py")
+_api = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_api)
+
+
+class _Cap(Exception):
+    def __init__(self, status, body):
+        self.status, self.body = status, body
+
+
+_api.respond = lambda s, d: (_ for _ in ()).throw(_Cap(s, d))
+
+
+class TestSynologyPatchReport(unittest.TestCase):
+    def setUp(self):
+        for f in (_api.DEVICES_FILE, _api.TOKENS_FILE, _api.SNMP_DATA_FILE):
+            _api.save(f, {})
+        _api.require_auth = lambda **k: "admin"
+
+    def _report(self):
+        try:
+            _api.handle_patch_report()
+        except _Cap as c:
+            return c.body
+        return None
+
+    def _row(self, body, dev_id):
+        return next(d for d in body["devices"] if d["device_id"] == dev_id)
+
+    def test_upgrade_available_shows_as_patch(self):
+        _api.save(_api.DEVICES_FILE, {"nas1": {"name": "nas", "agentless": True,
+                  "manual_status": True}})
+        _api.save(_api.SNMP_DATA_FILE, {"nas1": {"synology": {"system": {
+            "dsm_version": "DSM 7.2-64570", "upgrade": "available"}}}})
+        row = self._row(self._report(), "nas1")
+        self.assertEqual(row["pkg_manager"], "synology")
+        self.assertEqual(row["upgradable"], 1)
+        self.assertEqual(row["patch_status"], "patches_available")
+        self.assertEqual(row["firmware"]["installed"], "DSM 7.2-64570")
+
+    def test_upgrade_unavailable_is_fully_patched(self):
+        _api.save(_api.DEVICES_FILE, {"nas1": {"name": "nas", "agentless": True,
+                  "manual_status": True}})
+        _api.save(_api.SNMP_DATA_FILE, {"nas1": {"synology": {"system": {
+            "dsm_version": "DSM 7.2-64570", "upgrade": "unavailable"}}}})
+        row = self._row(self._report(), "nas1")
+        self.assertEqual(row["upgradable"], 0)
+        self.assertEqual(row["patch_status"], "fully_patched")
+
+    def test_unknown_upgrade_state_is_no_data(self):
+        # connecting/disconnected/others -> can't tell -> no_data (not 0/1)
+        _api.save(_api.DEVICES_FILE, {"nas1": {"name": "nas", "agentless": True,
+                  "manual_status": True}})
+        _api.save(_api.SNMP_DATA_FILE, {"nas1": {"synology": {"system": {
+            "dsm_version": "DSM 7.2", "upgrade": "connecting"}}}})
+        row = self._row(self._report(), "nas1")
+        self.assertIsNone(row["upgradable"])
+        self.assertEqual(row["patch_status"], "no_data")
+
+
 if __name__ == "__main__":
     unittest.main()

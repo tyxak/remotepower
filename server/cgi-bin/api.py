@@ -13805,6 +13805,7 @@ def handle_patch_report():
     """Return detailed patch information across all devices."""
     require_auth()
     devices = load(DEVICES_FILE)
+    snmp_data = load(SNMP_DATA_FILE)   # v3.4.0: Synology DSM update status
     now = int(time.time())
     report = {
         'generated_at': now,
@@ -13854,6 +13855,21 @@ def handle_patch_report():
                           else (1 if (latest and inst and latest != inst)
                                 else (0 if inst else None)))
             pkg_manager = 'opnsense'
+            if dev.get('agentless'):
+                is_online = _agentless_online(dev)
+
+        # v3.4.0: Synology DSM update status. The SNMP poller already reads
+        # DSM version + upgradeAvailable (Synology MIB 1.3.6.1.4.1.6574.*)
+        # and persists it to snmp_data.json, so we read it straight from
+        # there — no live fetch. (Note: the Synology MIB exposes no
+        # "reboot required" OID, so reboot status isn't available here.)
+        syno_sys = (snmp_data.get(dev_id, {}).get('synology') or {}).get('system') or {}
+        if syno_sys.get('dsm_version') or syno_sys.get('upgrade'):
+            up = syno_sys.get('upgrade')
+            firmware = {'installed': syno_sys.get('dsm_version'), 'latest': None}
+            upgradable = (1 if up == 'available'
+                          else (0 if up == 'unavailable' else None))
+            pkg_manager = 'synology'
             if dev.get('agentless'):
                 is_online = _agentless_online(dev)
 
