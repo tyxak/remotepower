@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.3.3">
+<link rel="stylesheet" href="static/css/styles.css?v=3.3.4">
 
 </head>
 <body>
@@ -1664,7 +1664,27 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.3.3 ai investigate alert alerts inbox ack resolve investigate_alert system prompt suggestions cause next steps triage on-call sparkles button settings ai">
+          <details class="doc-card" open data-keywords="release notes changelog v3.3.4 container image update detection stale digest registry docker hub ghcr lscr quay manifest scan now containers page notify-only alert inbox webhook image_update_available image_updated debounce">
+            <summary><strong>What's new — v3.3.4</strong> — container image-update detection</summary>
+            <div class="doc-body">
+              <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.4</code>).</p>
+
+              <h4>Image updates on the Containers page</h4>
+              <ul>
+                <li>The agent now reports each container's pulled image digest. The server resolves the registry's <em>current</em> digest for that <code>repo:tag</code> — <strong>deduped across the fleet</strong>, so the same image on five hosts is one registry call — and flags any container running behind it.</li>
+                <li>New <strong>Image updates</strong> table (Containers page): Image · Tag · Hosts · Status · Registry · Last checked, sortable, with a <strong>Scan now</strong> button. Registries: Docker Hub, GHCR, lscr.io, Quay, generic v2.</li>
+                <li><strong>Notify-only</strong> — RemotePower flags staleness, it never pulls or restarts. Default on; set <code>image_updates_enabled=false</code> to disable.</li>
+              </ul>
+
+              <h4>Alerts</h4>
+              <ul>
+                <li>A stale image fires a low-severity <code>image_update_available</code> alert into the inbox + webhooks, debounced on the digest last alerted (no re-spam across the 12h sweep), and auto-resolves (<code>image_updated</code>) once every host has pulled the current digest. Routable independently via the channel matrix ("Container image updates").</li>
+              </ul>
+
+              <p>Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.4.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.3.3 ai investigate alert alerts inbox ack resolve investigate_alert system prompt suggestions cause next steps triage on-call sparkles button settings ai">
             <summary><strong>What's new — v3.3.3</strong> — AI Investigate button on the Alerts inbox</summary>
             <div class="doc-body">
               <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.3</code>).</p>
@@ -3130,6 +3150,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <table>
               <thead id="containers-thead"><tr><th data-col="name">Device</th><th data-col="os">OS</th><th data-col="total">Total</th><th data-col="running">Running</th><th data-col="stopped">Stopped</th><th data-col="restarting">Restarting (≥5)</th><th data-col="runtimes">Runtimes</th><th data-col="reported_at">Reported</th><th></th></tr></thead>
               <tbody id="containers-tbody"><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="9"><div class="skeleton skeleton-line long"></div></td></tr></tbody>
+            </table>
+          </div>
+
+          <!-- ── v3.3.4: container image updates ───────────────────────── -->
+          <div class="page-title isl-172">Image updates</div>
+          <div class="page-subtitle">Containers whose pulled image is behind the registry's current digest for that tag. Notify-only — RemotePower flags staleness, you decide when to pull. <span id="image-updates-meta" class="hint"></span></div>
+          <div class="toolbar">
+            <input type="text" id="image-updates-search" class="form-input isl-170" placeholder="Filter by image, tag, or registry…">
+            <button class="btn-icon" data-action="loadImageUpdates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <button class="btn-icon" data-action-btn="scanImageUpdatesNow" title="Query the registries now (admin)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Scan now</button>
+          </div>
+          <div class="table-card">
+            <table>
+              <thead id="image-updates-thead"><tr><th data-col="image">Image</th><th data-col="tag">Tag</th><th data-col="hosts">Hosts</th><th data-col="status">Status</th><th data-col="registry">Registry</th><th data-col="checked">Last checked</th></tr></thead>
+              <tbody id="image-updates-tbody"><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="6"><div class="skeleton skeleton-line med"></div></td></tr></tbody>
             </table>
           </div>
         </div><!-- /containers-panel-agent -->
@@ -4692,8 +4727,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.3.3"></script>
+<script src="static/js/app.js?v=3.3.4"></script>
 
-<script src="static/js/sw-register.js?v=3.3.3"></script>
+<script src="static/js/sw-register.js?v=3.3.4"></script>
 </body>
 </html>

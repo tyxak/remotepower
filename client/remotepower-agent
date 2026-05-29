@@ -29,7 +29,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '3.3.3'
+VERSION      = '3.3.4'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.0.2: agent state directory. Used for files that should survive a
@@ -730,6 +730,58 @@ def _docker_stats(cmd_path):
     return stats
 
 
+def _image_digests(cmd_path):
+    """Map ``(repository, tag) -> RepoDigest`` (``sha256:…``) for locally
+    present images, via ``<rt> images --digests``.
+
+    The server uses this to compare what's pulled against the registry's
+    current digest for that tag and flag stale images. Best-effort: any
+    error, a runtime that doesn't expose digests, or locally-built images
+    (``<none>`` digest) just yield no entry, and the server treats that
+    image's update status as unknown.
+    """
+    out_map = {}
+    try:
+        out = subprocess.run(
+            [cmd_path, 'images', '--digests', '--no-trunc', '--format', '{{json .}}'],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT,
+        )
+    except Exception as e:
+        log.debug(f'{cmd_path} images failed: {e}')
+        return out_map
+    if out.returncode != 0:
+        return out_map
+    text = out.stdout.strip()
+    if not text:
+        return out_map
+    # Docker emits one JSON object per line; some Podman versions emit a
+    # single JSON array. Tolerate both, same posture as the ps parser.
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except (json.JSONDecodeError, ValueError):
+            pass
+    if not rows:
+        try:
+            arr = json.loads(text)
+            if isinstance(arr, list):
+                rows = [r for r in arr if isinstance(r, dict)]
+        except (json.JSONDecodeError, ValueError):
+            return out_map
+    for r in rows:
+        repo = str(r.get('Repository') or r.get('repository') or '').strip()
+        tag = str(r.get('Tag') or r.get('tag') or '').strip()
+        digest = str(r.get('Digest') or r.get('digest') or '').strip()
+        if not repo or not digest.startswith('sha256:'):
+            continue
+        out_map[(repo, tag)] = digest
+    return out_map
+
+
 def _docker_listing(cmd_path, runtime_name):
     """Run ``docker ps`` (or podman ps) and parse the line-oriented JSON output.
 
@@ -754,6 +806,10 @@ def _docker_listing(cmd_path, runtime_name):
 
     # One stats sample for the whole batch (best effort).
     stats = _docker_stats(cmd_path)
+    # v3.3.4: one image-digest sample for the whole batch (best effort).
+    # Lets the server compare each container's pulled image against the
+    # registry's current digest for that tag and flag stale images.
+    digests = _image_digests(cmd_path)
 
     items = []
     now = int(time.time())
@@ -787,6 +843,7 @@ def _docker_listing(cmd_path, runtime_name):
             'name':           name,
             'image':          image,
             'tag':            tag,
+            'repo_digest':    digests.get((image, tag), ''),  # v3.3.4
             'status':         status,
             'health':         health,                       # v2.2.6
             'namespace':      '',

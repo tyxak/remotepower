@@ -2,6 +2,26 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.3.4 — unreleased (dev)
+
+In development.
+
+- **Container image-update detection.** The agent now reports each
+  container's pulled image digest (`docker/podman images --digests`).
+  The server resolves the registry's current manifest digest for that
+  `repo:tag` — deduped across the fleet, so the same image on five hosts
+  is one registry call — and flags any container running behind it. New
+  **Image updates** table on the Containers page (sortable; Image · Tag ·
+  Hosts · Status · Registry · Last checked) with a **Scan now** button.
+  Registries: Docker Hub, GHCR, lscr.io, Quay, and generic v2.
+- **Image-update alerts.** A stale image fires a low-severity
+  `image_update_available` event into the alert inbox + webhooks,
+  debounced on the digest last alerted (no re-spam across the 12h
+  sweep), and auto-resolves (`image_updated`) once every host has pulled
+  the current digest. Routable independently via the channel matrix
+  ("Container image updates"). Notify-only — RemotePower never pulls.
+  Default on; disable with `image_updates_enabled=false`.
+
 ## v3.3.3 — unreleased (dev)
 
 In development.

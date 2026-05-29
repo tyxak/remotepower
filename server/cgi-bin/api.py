@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.3.3'
+SERVER_VERSION = '3.3.4'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -199,6 +199,20 @@ CMDB_SSH_PORT_MAX     = 65535
 
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
 CONTAINERS_FILE = DATA_DIR / 'containers.json'
+# v3.3.4: container image-update detection. A registry-digest cache keyed
+# by "image:tag" — { "images": {"<ref>": {registry_digest, last_checked,
+# last_error}}, "last_full_scan": <ts> }. Whether a container is stale is
+# derived at read time by joining this cache against the live container
+# digests in CONTAINERS_FILE, so the file never holds stale host lists.
+IMAGE_UPDATES_FILE = DATA_DIR / 'image_updates.json'
+# Sweep cadence + per-run caps. The sweep runs at most once per interval
+# (default 12h); each run refreshes at most MAX_PER_RUN of the most-overdue
+# images within a wall-time budget, so a big fleet spreads across sweeps
+# and one slow registry can't stall a heartbeat.
+IMAGE_SCAN_INTERVAL    = 12 * 3600
+IMAGE_SCAN_MAX_PER_RUN = 25
+IMAGE_SCAN_BUDGET_SEC  = 20
+IMAGE_SCAN_HTTP_TIMEOUT = 4.0
 TLS_TARGETS_FILE = DATA_DIR / 'tls_targets.json'
 TLS_RESULTS_FILE = DATA_DIR / 'tls_results.json'
 # Agentless devices live in the regular devices.json with a special marker
@@ -398,6 +412,9 @@ import openapi_spec
 # v1.11.0: container/pod awareness. Agent posts a normalised list in
 # heartbeats; this module validates and summarises.
 import containers as containers_mod
+# v3.3.4: container image-update detection — resolves the registry's
+# current manifest digest for a repo:tag so the scan can flag stale images.
+import image_registry as image_registry_mod
 # v2.3.0: Proxmox VE integration — server-side API client for QEMU VMs
 # and LXC containers on a single Proxmox node.
 import proxmox_client
@@ -2151,6 +2168,10 @@ _ALERT_RULES = {
     'snapshot_old':           ('medium',   None),
     'reboot_required':        ('medium',   None),
     'new_port_detected':      ('medium',   None),
+    # v3.3.4: container image-update detection. Low severity — it's a
+    # freshness nudge, not an outage. image_updated is the recover event
+    # (no severity; handled by _auto_resolve_alerts).
+    'image_update_available': ('low',      None),
 }
 
 # Map recover event → firing event it resolves
@@ -2162,6 +2183,9 @@ _ALERT_RECOVER = {
     # v3.2.3: monitor_up auto-resolves the matching monitor_down alert
     # so the inbox stays clean when an external target recovers.
     'monitor_up':              'monitor_down',
+    # v3.3.4: once every host running an image has pulled the registry's
+    # current digest, image_updated clears the open image_update_available.
+    'image_updated':           'image_update_available',
     # snmp_recover also resolves any snmp_dead alert (same device).
     # _auto_resolve_alerts walks once per recovered event, so we register
     # both here. The trick: dict keys must be unique, so the second
@@ -2194,6 +2218,7 @@ CHANNEL_KINDS = [
     ('cve',         'CVE findings',             'operational',   ['cve_found']),
     ('service',     'Service down/up',          'operational',   ['service_down', 'service_up', 'service_recover']),
     ('container',   'Container alerts',         'operational',   ['container_stopped', 'container_restarting', 'containers_stale']),
+    ('image_update', 'Container image updates',  'operational',   ['image_update_available', 'image_updated']),
     ('script',      'Custom script',            'operational',   ['custom_script_fail', 'custom_script_recover']),
     ('log_alert',   'Log alerts',               'operational',   ['log_alert']),
     ('drift',       'Config drift',             'operational',   ['drift_detected', 'config_drift']),
@@ -2400,6 +2425,12 @@ def _alert_title(event, payload):
         return f'Container restarting on {name}: {p.get("container", "")}'
     if event == 'containers_stale':
         return f'Container data stale on {name}'
+    if event in ('image_update_available', 'image_updated'):
+        ref = f'{p.get("image", "")}:{p.get("tag", "")}'
+        hosts = p.get('hosts_count')
+        suffix = f' ({hosts} host{"s" if hosts != 1 else ""})' if hosts else ''
+        verb = 'Image update available' if event == 'image_update_available' else 'Image updated'
+        return f'{verb}: {ref}{suffix}'
     if event == 'patch_alert':
         return f'{p.get("upgradable", "?")} pending updates on {name}'
     if event == 'cve_found':
@@ -2514,7 +2545,10 @@ def _record_alert(event, payload):
                     # snapshot (vm_name/snap_name/days_old).
                     'label', 'target', 'source_ip', 'count',
                     'user', 'fingerprint', 'proto', 'port', 'process',
-                    'age_hours', 'vm_name', 'snap_name', 'days_old'):
+                    'age_hours', 'vm_name', 'snap_name', 'days_old',
+                    # v3.3.4: image-update events — image/tag identify the
+                    # alert so image_updated can auto-resolve it.
+                    'image', 'tag', 'registry', 'hosts_count'):
             if key in p and p[key] is not None:
                 v = p[key]
                 if isinstance(v, str):
@@ -2565,6 +2599,10 @@ def _auto_resolve_alerts(event, payload):
         # Monitor events have no device_id — match by label+target instead
         sub_match['label']  = p.get('label')
         sub_match['target'] = p.get('target')
+    elif event == 'image_updated':
+        # Fleet-level (no device_id) — match the open alert by image+tag.
+        sub_match['image'] = p.get('image')
+        sub_match['tag']   = p.get('tag')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -14951,6 +14989,262 @@ def run_snmp_polls_if_due():
             sys.stderr.write(f'[remotepower] snmp poll failed for {dev_id}: {e}\n')
 
 
+# ── v3.3.4: container image-update detection ───────────────────────────────
+#
+# Notify-only freshness check: compare each container's pulled image digest
+# (repo_digest, captured by the agent) against the registry's current digest
+# for the same tag. Server-side and deduped across the fleet, so the same
+# lscr.io image on five hosts is one registry call and Docker Hub's rate
+# limit is one central budget. Registry client lives in image_registry.py.
+
+def _image_scan_enabled(cfg):
+    # Default on — passive freshness is the feature's point. Operators set
+    # image_updates_enabled=false to stop the server reaching out to registries.
+    return bool(cfg.get('image_updates_enabled', True))
+
+
+def _collect_fleet_images():
+    """Unique {ref -> {image, tag, local_digests:set}} across all devices.
+
+    ``ref`` is ``image:tag``. Only images the agent reported a repo_digest
+    for are included — no digest means there's nothing to compare, so we
+    skip rather than guess.
+    """
+    store = load(CONTAINERS_FILE) or {}
+    images = {}
+    for dev_id, rec in store.items():
+        if not isinstance(rec, dict):
+            continue
+        for c in rec.get('items', []) or []:
+            if not isinstance(c, dict):
+                continue
+            local = (c.get('repo_digest') or '').strip()
+            image = (c.get('image') or '').strip()
+            tag = (c.get('tag') or '').strip() or 'latest'
+            if not local.startswith('sha256:') or not image:
+                continue
+            ref = f'{image}:{tag}'
+            entry = images.setdefault(
+                ref, {'image': image, 'tag': tag,
+                      'local_digests': set(), 'devices': set()})
+            entry['local_digests'].add(local)
+            entry['devices'].add(dev_id)
+    return images
+
+
+def run_image_scan_if_due():
+    """Refresh registry digests for stale-image detection, when due.
+
+    Same cheap-when-not-due pattern as run_snmp_polls_if_due; the marker
+    lives in CONFIG_FILE under ``last_image_scan``. Bounded per run (cap +
+    wall-time budget + short per-call timeout) so a heartbeat is never held
+    hostage to a slow or rate-limited registry.
+    """
+    cfg = load(CONFIG_FILE)
+    if not _image_scan_enabled(cfg):
+        return
+    interval = max(3600, int(cfg.get('image_scan_interval', IMAGE_SCAN_INTERVAL)))
+    now = int(time.time())
+    last = int(cfg.get('last_image_scan', 0))
+    if (now - last) < interval:
+        return
+    fleet = _collect_fleet_images()
+    if not fleet:
+        return
+    # Bump the marker BEFORE the network work so a parallel CGI doesn't
+    # double-sweep (mirrors run_snmp_polls_if_due).
+    cfg['last_image_scan'] = now
+    save(CONFIG_FILE, cfg)
+    _scan_images(list(fleet.keys()), fleet, cfg, force=False)
+
+
+def _scan_images(refs, fleet, cfg, force=False):
+    """Resolve registry digests for ``refs`` and update the cache.
+
+    ``force`` re-checks every ref (ignoring the per-image interval) and uses
+    a larger cap/budget for an operator-triggered "scan now". Returns the
+    number of images actually checked.
+    """
+    store = load(IMAGE_UPDATES_FILE) or {}
+    images = store.get('images') or {}
+    creds_by_registry = cfg.get('registry_credentials') or {}
+    block_local = bool(cfg.get('webhook_block_local', True))
+    now = int(time.time())
+    interval = max(3600, int(cfg.get('image_scan_interval', IMAGE_SCAN_INTERVAL)))
+    max_items = 50 if force else IMAGE_SCAN_MAX_PER_RUN
+    budget = 30 if force else IMAGE_SCAN_BUDGET_SEC
+
+    def _last_checked(ref):
+        return int((images.get(ref) or {}).get('last_checked', 0))
+
+    if force:
+        due = list(refs)
+    else:
+        due = [r for r in refs if (now - _last_checked(r)) >= interval]
+    due.sort(key=_last_checked)          # never-checked (0) first, then oldest
+    due = due[:max_items]
+
+    checked = 0
+    started = time.time()
+    for ref in due:
+        if (time.time() - started) > budget:
+            break
+        meta = fleet.get(ref) or {}
+        parsed = image_registry_mod.parse_image_ref(meta.get('image'), meta.get('tag'))
+        entry = images.setdefault(ref, {})
+        entry['last_checked'] = now
+        if not parsed:
+            entry['last_error'] = 'unparseable image reference'
+            continue
+        registry, repository, tag = parsed
+        url = image_registry_mod.manifest_url(registry, repository, tag)
+        # SSRF guard — reuse the webhook check so a crafted image ref can't
+        # aim the server at a link-local / metadata address.
+        if block_local:
+            try:
+                if _url_targets_local_or_meta(urllib.parse.urlparse(url),
+                                              allow_loopback=False):
+                    entry['last_error'] = 'blocked: registry resolves to a local/meta address'
+                    continue
+            except Exception:
+                pass
+        creds = creds_by_registry.get(registry)
+        try:
+            dig = image_registry_mod.remote_digest(
+                registry, repository, tag, creds=creds,
+                timeout=IMAGE_SCAN_HTTP_TIMEOUT)
+            entry['registry'] = registry
+            entry['registry_digest'] = dig or ''
+            entry['last_error'] = '' if dig else 'no digest returned'
+            checked += 1
+            if dig:
+                _maybe_fire_image_alert(meta, registry, dig, entry)
+        except Exception as e:
+            entry['last_error'] = f'{e.__class__.__name__}: {e}'[:200]
+    store['images'] = images
+    store['last_full_scan'] = now
+    save(IMAGE_UPDATES_FILE, store)
+    return checked
+
+
+def _maybe_fire_image_alert(meta, registry, registry_digest, entry):
+    """Fire (or auto-resolve) the image-update alert for one ref, debounced.
+
+    Stale = some host's pulled digest differs from the registry's current
+    one. We alert once per registry digest (``alerted_digest`` on the cache
+    entry, persisted across CGI processes), re-alert when upstream publishes
+    a newer digest, and fire the ``image_updated`` recover once every host
+    has caught up.
+    """
+    local_digests = meta.get('local_digests') or set()
+    stale = any(ld != registry_digest for ld in local_digests)
+    payload = {
+        'image':       meta.get('image', ''),
+        'tag':         meta.get('tag', ''),
+        'registry':    registry,
+        'hosts_count': len(meta.get('devices') or ()),
+    }
+    if stale:
+        if entry.get('alerted_digest') != registry_digest:
+            try:
+                fire_webhook('image_update_available', payload)
+            except Exception:
+                pass
+            entry['alerted_digest'] = registry_digest
+    elif entry.get('alerted_digest'):
+        try:
+            fire_webhook('image_updated', payload)
+        except Exception:
+            pass
+        entry['alerted_digest'] = ''
+
+
+def _image_update_view():
+    """Join the registry-digest cache against live container digests.
+
+    Returns per-image rows with the hosts running each image and whether
+    any host's local digest differs from the registry's current digest.
+    Deriving staleness here (rather than storing it) keeps the cache free
+    of stale host lists.
+    """
+    fleet = _collect_fleet_images()
+    images = (load(IMAGE_UPDATES_FILE) or {}).get('images') or {}
+    cstore = load(CONTAINERS_FILE) or {}
+    devs = load(DEVICES_FILE) or {}
+    host_rows = {}
+    for dev_id, rec in cstore.items():
+        if not isinstance(rec, dict):
+            continue
+        dname = (devs.get(dev_id) or {}).get('name') or dev_id
+        for c in rec.get('items', []) or []:
+            if not isinstance(c, dict):
+                continue
+            local = (c.get('repo_digest') or '').strip()
+            image = (c.get('image') or '').strip()
+            tag = (c.get('tag') or '').strip() or 'latest'
+            if not local.startswith('sha256:') or not image:
+                continue
+            host_rows.setdefault(f'{image}:{tag}', []).append({
+                'device_id': dev_id, 'device_name': dname,
+                'container': c.get('name') or '', 'local_digest': local,
+            })
+    rows = []
+    for ref, meta in fleet.items():
+        cache = images.get(ref) or {}
+        reg_dig = (cache.get('registry_digest') or '').strip()
+        hosts = host_rows.get(ref, [])
+        update_available = False
+        for h in hosts:
+            h['stale'] = bool(reg_dig and h['local_digest'] != reg_dig)
+            update_available = update_available or h['stale']
+        rows.append({
+            'image': meta['image'], 'tag': meta['tag'], 'ref': ref,
+            'registry': cache.get('registry', ''),
+            'registry_digest': reg_dig,
+            'update_available': update_available,
+            'checked': bool(reg_dig) or bool(cache.get('last_error')),
+            'last_checked': int(cache.get('last_checked', 0)),
+            'last_error': cache.get('last_error', ''),
+            'hosts': hosts,
+        })
+    rows.sort(key=lambda r: (not r['update_available'], r['ref']))
+    return rows
+
+
+def handle_image_updates_get():
+    """GET /api/image-updates — fleet-wide container-image freshness view."""
+    require_auth()
+    rows = _image_update_view()
+    cfg = load(CONFIG_FILE)
+    store = load(IMAGE_UPDATES_FILE) or {}
+    summary = {
+        'total':             len(rows),
+        'updates_available': sum(1 for r in rows if r['update_available']),
+        'unchecked':         sum(1 for r in rows if not r['checked']),
+        'last_full_scan':    int(store.get('last_full_scan', 0)),
+        'enabled':           _image_scan_enabled(cfg),
+        'interval':          max(3600, int(cfg.get('image_scan_interval', IMAGE_SCAN_INTERVAL))),
+    }
+    respond(200, {'images': rows, 'summary': summary})
+
+
+def handle_image_updates_scan():
+    """POST /api/image-updates/scan — force a registry refresh now (admin)."""
+    require_admin_auth()
+    cfg = load(CONFIG_FILE)
+    if not _image_scan_enabled(cfg):
+        respond(400, {'error': 'image-update detection is disabled'})
+    fleet = _collect_fleet_images()
+    if not fleet:
+        respond(200, {'ok': True, 'checked': 0,
+                      'note': 'no container images with digests reported yet'})
+    checked = _scan_images(list(fleet.keys()), fleet, cfg, force=True)
+    cfg2 = load(CONFIG_FILE)
+    cfg2['last_image_scan'] = int(time.time())
+    save(CONFIG_FILE, cfg2)
+    respond(200, {'ok': True, 'checked': checked})
+
+
 def handle_device_snmp(dev_id):
     """GET/PATCH /api/devices/<id>/snmp
 
@@ -19285,6 +19579,9 @@ def main():
     # when-not-due pattern as run_monitors_if_due; the work itself is
     # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
     _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
+    # v3.3.4: refresh registry digests for container image-update detection.
+    # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
+    _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     _safe(process_schedule,    'process_schedule')
     # v3.3.0: ping Healthchecks.io (or compatible) when configured.
     # External watchdog over the server itself — if RemotePower stops
@@ -19653,6 +19950,10 @@ def main():
         handle_cve_ignore_delete(pi[len('/api/cve/ignore/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
         handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
+
+    # ── v3.3.4: container image-update detection ───────────────────────────────
+    elif pi == '/api/image-updates' and m == 'GET': handle_image_updates_get()
+    elif pi == '/api/image-updates/scan' and m == 'POST': handle_image_updates_scan()
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()

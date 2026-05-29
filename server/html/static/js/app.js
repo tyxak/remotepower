@@ -6381,9 +6381,110 @@ let _containersOpenDeviceId = null;
 
 async function enterContainers() {
   await loadContainersOverview();
+  // v3.3.4: image-update freshness for the agent-reported containers.
+  loadImageUpdates();
   // v2.3.0: also pull Proxmox LXC containers (section self-hides if
   // Proxmox isn't configured).
   loadProxmoxLXC();
+}
+
+// ── v3.3.4: container image-update detection ───────────────────────────────
+let _imageUpdates = [];
+
+async function loadImageUpdates() {
+  // Eager sort wire-up so the ↕ indicators show before data arrives.
+  _registerImageUpdatesTable();
+  const tbody = document.getElementById('image-updates-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">Loading…</td></tr>';
+  const data = await api('GET', '/image-updates');
+  _imageUpdates = (data && data.images) || [];
+  _renderImageUpdatesMeta(data && data.summary);
+  renderImageUpdates();
+}
+
+function _renderImageUpdatesMeta(summary) {
+  const el = document.getElementById('image-updates-meta');
+  if (!el) return;
+  if (!summary) { el.textContent = ''; return; }
+  const bits = [];
+  if (summary.updates_available) bits.push(`${summary.updates_available} update(s) available`);
+  if (summary.unchecked) bits.push(`${summary.unchecked} not yet checked`);
+  if (!summary.enabled) bits.push('detection disabled');
+  if (summary.last_full_scan) bits.push(`last scan ${new Date(summary.last_full_scan * 1000).toLocaleString()}`);
+  el.textContent = bits.length ? `— ${bits.join(' · ')}` : '';
+}
+
+let _imageUpdatesRegistered = false;
+function _registerImageUpdatesTable() {
+  if (_imageUpdatesRegistered) return;
+  _imageUpdatesRegistered = true;
+  tableCtl.register({
+    name: 'image-updates',
+    tbody: 'image-updates-tbody',
+    filterInput: 'image-updates-search',
+    sortHeaders: 'image-updates-thead',
+    colspan: 6,
+    columns: ['image', 'tag', 'hosts', 'status', 'registry', 'checked'],
+    getColumns: (r) => ({
+      image:    r.image || '',
+      tag:      r.tag || '',
+      hosts:    (r.hosts || []).length,
+      // Sort rank: updates first, then unknown/unchecked, then up-to-date.
+      status:   r.update_available ? 0 : (r.registry_digest ? 2 : 1),
+      registry: r.registry || '',
+      checked:  r.last_checked || 0,
+    }),
+    match: (r, q) =>
+      (r.image || '').toLowerCase().includes(q) ||
+      (r.tag || '').toLowerCase().includes(q) ||
+      (r.registry || '').toLowerCase().includes(q),
+    row: (r) => {
+      let statusCell;
+      if (r.update_available) {
+        statusCell = `<span class="patch-badge warn">Update available</span>`;
+      } else if (r.registry_digest) {
+        statusCell = `<span class="patch-badge ok">Up to date</span>`;
+      } else if (r.last_error) {
+        statusCell = `<span class="c-muted" title="${escAttr(r.last_error)}">Unknown</span>`;
+      } else {
+        statusCell = `<span class="c-muted">Not checked</span>`;
+      }
+      const hosts = (r.hosts || []);
+      const hostTitle = hosts.map(h => `${h.device_name}${h.stale ? ' (stale)' : ''}`).join(', ');
+      const checked = r.last_checked ? new Date(r.last_checked * 1000).toLocaleString() : '—';
+      return `<tr>
+        <td class="fw-500">${escHtml(r.image)}</td>
+        <td class="mono-12">${escHtml(r.tag)}</td>
+        <td title="${escAttr(hostTitle)}">${hosts.length}</td>
+        <td>${statusCell}</td>
+        <td class="hint">${escHtml(r.registry || '—')}</td>
+        <td class="hint-nowrap">${checked}</td>
+      </tr>`;
+    },
+    emptyMsg: 'No container images to check yet. The agent reports image digests with each container sweep (~5 min when Docker/Podman is installed); the server then checks each unique image against its registry.',
+    emptyMsgFiltered: 'No images match the filter.',
+  });
+}
+
+function renderImageUpdates() {
+  _registerImageUpdatesTable();
+  tableCtl.render('image-updates', _imageUpdates || []);
+}
+
+async function scanImageUpdatesNow(btn) {
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Scanning…'; }
+  try {
+    const r = await api('POST', '/image-updates/scan', {});
+    if (r && r.ok) {
+      toast(`Checked ${r.checked} image(s)`, 'success');
+      await loadImageUpdates();
+    } else {
+      toast((r && r.error) || 'Scan failed', 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+  }
 }
 
 async function loadContainersOverview() {

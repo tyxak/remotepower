@@ -2,18 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>RemotePower Manual — v3.3.3</title>
+<title>RemotePower Manual — v3.3.4</title>
 <link rel="stylesheet" href="/static/css/manual.css">
 </head>
 <body>
 
 <h1>RemotePower Manual</h1>
-<p><em>Version 3.3.3 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server (now with write tools), inbound webhooks, OIDC SSO, alert inbox, channel routing, and the security model.</em></p>
+<p><em>Version 3.3.4 — the long-form reference: architecture, agent and heartbeat, commands, monitoring, CVE scanning, drift detection, ACME, mitigation runners, IaC generator, Proxmox, the MCP server (now with write tools), inbound webhooks, OIDC SSO, alert inbox, channel routing, and the security model.</em></p>
 
 <div class="note"><strong>How this doc fits together.</strong> The in-app Documentation page (sidebar → Help → Documentation) covers common tasks with substring search across topics; this Manual.html is the long-form reference; the dedicated <code>docs/&lt;feature&gt;.md</code> files are the source of truth for each subsystem. Where a section here is intentionally brief, follow the link to the matching <code>docs/*.md</code>.</div>
 
 <div class="note"><strong>What's new in v3.3.x / v3.2.x / v3.1.x / v3.0.x:</strong>
 <ul class="manual-changelog-list">
+  <li><strong>v3.3.4:</strong> <strong>Container image-update detection.</strong> The agent reports each container's pulled image digest; the server resolves the registry's current digest for that <code>repo:tag</code> (Docker Hub / GHCR / lscr.io / Quay / generic v2), deduped across the fleet, and flags containers running behind it. New <strong>Image updates</strong> table on the Containers page (sortable, with <strong>Scan now</strong>). A stale image fires a low-severity <code>image_update_available</code> alert (debounced, routable via the channel matrix) and auto-resolves once every host catches up. Notify-only — RemotePower never pulls. Default on (<code>image_updates_enabled=false</code> to disable). Service-worker cache <code>remotepower-shell-v3.3.4</code>.</li>
   <li><strong>v3.3.3:</strong> <strong>AI Investigate on alerts.</strong> Each open row in the Alerts inbox (MAIN → Alerts) gains an <strong>Investigate</strong> button next to Ack and Resolve. It sends the alert's severity, event type, device, timestamp, and raw message to the AI and returns what the alert means, the most likely cause, and 2&ndash;4 concrete next steps or commands to verify and resolve it. Backed by a new <code>investigate_alert</code> system prompt, editable under Settings → AI. Complements the webhook-log <strong>Explain</strong> button (one-paragraph rewrite) with deeper, action-oriented triage. Service-worker cache <code>remotepower-shell-v3.3.3</code>.</li>
   <li><strong>v3.3.2:</strong> Correctness + polish follow-up. <strong>OFFLINE detection no longer flaps</strong> — per-device threshold <code>max(global ttl, poll_interval × 5) + grace</code> plus a debounce (<code>offline_pending</code>): OFFLINE fires only if a second sweep ≥1 poll interval later still sees the device silent, killing the OFFLINE→ONLINE-in-the-same-second flap. Bar is 5 missed polls. <strong>Devices-table "dots" fix</strong> — a narrow window squeezed a fixed-layout column until Chrome painted a stray <code>…</code> ellipsis (Firefox clipped silently); the table now clips with no glyph, and sheds low-priority columns ~200px earlier while the sidebar is docked. <strong>PWA defaults to minimal-ui</strong>; docked-sidebar layout no longer clips the device table or the MCP Confirmations badge. <strong>TOTP QR</strong> renders as a data-URL image (CSP-clean). <strong>Maintenance windows</strong> show the device hostname instead of its id. <strong>Fixes:</strong> agent <code>pacman</code> patch-status false-warning on fully-patched Arch/CachyOS; Home dashboard CVE/drift counts match the detail pages; Settings reflect real runtime defaults; fleet events honour <code>?event=</code>. Action buttons aligned across pages; ACME force-renew icon added; "Did you know?" tips on the About page.</li>
   <li><strong>v3.3.0:</strong> Audit follow-up + integrations + edit buttons. <strong>Channel routing matrix</strong> (Settings → Dashboard) — one matrix per event kind × four surfaces (Needs Attention, Recent Activity, Alerts inbox, Webhook); legacy <code>dashboard_hidden_*</code> auto-migrates. <strong>Hash-driven agent self-update</strong> — agents compare their binary sha256 to the server's canonical hash (either direction), replacing version-string comparison. <strong>Log alert improvements</strong> — matched sample in summaries, per-rule display template + exclude pattern, inline snooze/open-in-logs. <strong>Security</strong> — per-IP rate limits on enroll/login, SSRF default flipped (<code>webhook_block_local</code> on), optional UI/API IP allowlist, re-enrollment token rotation, optional admin-only alert mutation. <strong>Integrations</strong> — Healthchecks.io watchdog, Prometheus metrics with status-token auth, GitHub-issues webhook destination, central ACME DNS-01 credentials (Cloudflare/Hetzner/Route 53/…). <strong>Uninstall agent</strong> from the device drawer. <strong>Edit buttons</strong> on every operator-managed list. <strong>Perf</strong> — <code>/api/home</code> single round-trip, <code>?slim=1</code> devices, batch sysinfo, file-backed attention cache. Mobile UX polish. Service-worker cache <code>remotepower-shell-v3.3.0</code>.</li>
@@ -81,8 +82,8 @@
 <h2 id="install">2. Install &amp; deploy</h2>
 
 <h3>2.1 Server</h3>
-<pre><code>tar xzf remotepower-3.3.3.tar.gz
-cd remotepower-3.3.3
+<pre><code>tar xzf remotepower-3.3.4.tar.gz
+cd remotepower-3.3.4
 sudo bash deploy-server.sh
 </code></pre>
 

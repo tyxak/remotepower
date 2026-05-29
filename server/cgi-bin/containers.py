@@ -42,6 +42,7 @@ from typing import Any
 MAX_CONTAINERS_PER_DEVICE = 100
 MAX_CONTAINER_NAME_LEN = 256
 MAX_CONTAINER_IMAGE_LEN = 512
+MAX_CONTAINER_DIGEST_LEN = 256
 MAX_CONTAINER_STATUS_LEN = 64
 MAX_CONTAINER_NAMESPACE_LEN = 128
 MAX_PORT_STRING_LEN = 128
@@ -124,6 +125,7 @@ def normalize_container(item: Any) -> dict | None:
         return None
     image = _str(item.get("image"), MAX_CONTAINER_IMAGE_LEN)
     tag = _str(item.get("tag"), 128)
+    repo_digest = _str(item.get("repo_digest"), MAX_CONTAINER_DIGEST_LEN)
     status = _str(item.get("status"), MAX_CONTAINER_STATUS_LEN)
     namespace = _str(item.get("namespace"), MAX_CONTAINER_NAMESPACE_LEN)
     runtime = _normalize_runtime(item.get("runtime"))
@@ -141,6 +143,7 @@ def normalize_container(item: Any) -> dict | None:
         "name": name,
         "image": image,
         "tag": tag,
+        "repo_digest": repo_digest,
         "status": status,
         "namespace": namespace,
         "runtime": runtime,
