@@ -40,11 +40,25 @@ class RouterOSError(Exception):
 
 def _ctx(verify):
     if verify:
-        c = ssl.create_default_context()
-        return c
+        # Operator installed a trusted cert — keep modern, strict defaults.
+        return ssl.create_default_context()
     c = ssl.create_default_context()
     c.check_hostname = False
     c.verify_mode = ssl.CERT_NONE
+    # RouterOS commonly serves legacy TLS ciphers that the default
+    # SECLEVEL=2 rejects (the SSL_ERROR_NO_CYPHER_OVERLAP a modern browser
+    # shows). We're already not verifying the self-signed cert, so the
+    # trust model here is "LAN + RouterOS credentials", not the cert —
+    # dropping the cipher floor (matching `curl -k`) keeps the connection
+    # encrypted while letting Python negotiate with old RouterOS TLS.
+    try:
+        c.set_ciphers('DEFAULT@SECLEVEL=1')
+    except ssl.SSLError:
+        pass
+    try:
+        c.minimum_version = ssl.TLSVersion.TLSv1
+    except (ValueError, AttributeError):
+        pass
     return c
 
 
