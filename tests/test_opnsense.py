@@ -253,6 +253,35 @@ class TestOpnsenseHandlers(unittest.TestCase):
         self.assertTrue(body["enabled"])
         self.assertEqual(body["filter"][0]["id"], "u1")
 
+    def test_check_update_caches_for_patch_report(self):
+        api.save(api.DEVICES_FILE, {"o1": {"name": "fw", "agentless": True,
+                 "ip": "10.0.0.1", "opnsense": {"enabled": True, "api_key": "K",
+                 "api_secret": "S"}}})
+        _req("POST", "/api/devices/o1/opnsense/action", {"action": "check_update"}, self.tok)
+        upd = {"version": "26.1.8_5", "latest": "26.1.8", "updates_available": 0,
+               "needs_reboot": False, "status": "none"}
+        with patch.object(opn, "action", return_value={"ok": True, "update": upd}):
+            st, _ = _call(api.handle_device_opnsense_action, "o1")
+        self.assertEqual(st, 200)
+        cached = api.load(api.DEVICES_FILE)["o1"].get("opnsense_update")
+        self.assertEqual(cached["installed"], "26.1.8_5")
+        self.assertEqual(cached["updates_available"], 0)
+
+    def test_patch_report_includes_opnsense(self):
+        api.save(api.DEVICES_FILE, {"o1": {
+            "name": "fw", "agentless": True, "ip": "10.0.0.1", "manual_status": True,
+            "opnsense": {"enabled": True, "api_key": "K", "api_secret": "S"},
+            "opnsense_update": {"installed": "26.1.8_5", "latest": "26.1.8",
+                                "updates_available": 0, "status": "none"}}})
+        _req("GET", "/api/patch-report", None, self.tok)
+        st, body = _call(api.handle_patch_report)
+        self.assertEqual(st, 200)
+        row = next(d for d in body["devices"] if d["device_id"] == "o1")
+        self.assertEqual(row["pkg_manager"], "opnsense")
+        self.assertEqual(row["upgradable"], 0)
+        self.assertEqual(row["patch_status"], "fully_patched")   # not "no_data"
+        self.assertEqual(row["firmware"]["installed"], "26.1.8_5")
+
     def test_action_admin_and_unknown(self):
         api.save(api.DEVICES_FILE, {"o1": {"name": "fw", "agentless": True,
                  "ip": "10.0.0.1", "opnsense": {"enabled": True, "api_key": "K",

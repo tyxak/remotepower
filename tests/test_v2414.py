@@ -51,8 +51,11 @@ class TestPatchReportAPIField(unittest.TestCase):
         """Return the source of handle_patch_report()."""
         idx = self.api.find('def handle_patch_report():')
         self.assertGreater(idx, 0, 'handle_patch_report not found')
-        # Grab enough lines to cover the entry dict construction.
-        return self.api[idx: idx + 3000]
+        # Slice the whole function (up to the next top-level def) rather than a
+        # fixed char count, so adding per-source branches (RouterOS, OPNsense,
+        # …) before the entry dict can't push the entry fields out of view.
+        end = self.api.find('\ndef ', idx + 1)
+        return self.api[idx: end if end > idx else idx + 4000]
 
     def test_reboot_required_in_entry_dict(self):
         block = self._patch_report_block()

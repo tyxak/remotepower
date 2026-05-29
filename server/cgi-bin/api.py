@@ -13840,6 +13840,23 @@ def handle_patch_report():
             if dev.get('agentless'):
                 is_online = _agentless_online(dev)
 
+        # v3.4.0: OPNsense firmware/update status shows here too, same as
+        # RouterOS. Cached on the device as opnsense_update when the card is
+        # viewed or "Check for updates" runs. updates_available (0 = current)
+        # is the authoritative count from OPNsense's own status/package lists.
+        opn_cfg = dev.get('opnsense') or {}
+        opn_upd = dev.get('opnsense_update') or {}
+        if opn_cfg.get('enabled') and opn_upd:
+            inst, latest = opn_upd.get('installed'), opn_upd.get('latest')
+            firmware = {'installed': inst, 'latest': latest}
+            ua = opn_upd.get('updates_available')
+            upgradable = (ua if isinstance(ua, int)
+                          else (1 if (latest and inst and latest != inst)
+                                else (0 if inst else None)))
+            pkg_manager = 'opnsense'
+            if dev.get('agentless'):
+                is_online = _agentless_online(dev)
+
         entry = {
             'device_id': dev_id,
             'name': dev.get('name', dev_id),
@@ -16410,6 +16427,28 @@ def _opnsense_redacted(dev):
     }
 
 
+def _opnsense_cache_update(dev_id, fw):
+    """Persist the OPNsense firmware/update verdict on the device so the
+    Patches report can read it without a live fetch. `fw` is the normalised
+    firmware dict from opnsense.overview()/check_update. Best-effort."""
+    if not isinstance(fw, dict):
+        return
+    try:
+        with _LockedUpdate(DEVICES_FILE) as store:
+            d = store.get(dev_id)
+            if d is not None:
+                d['opnsense_update'] = {
+                    'installed':         fw.get('version'),
+                    'latest':            fw.get('latest'),
+                    'updates_available': fw.get('updates_available'),
+                    'needs_reboot':      fw.get('needs_reboot'),
+                    'status':            fw.get('status'),
+                    'last_checked':      int(time.time()),
+                }
+    except Exception:
+        pass
+
+
 def handle_device_opnsense(dev_id):
     """GET /api/devices/<id>/opnsense — redacted config + (if enabled) a live
     overview. PATCH — admin; save {enabled, api_key, api_secret, port,
@@ -16434,6 +16473,11 @@ def handle_device_opnsense(dev_id):
             ov = opn_mod.overview(host, key, secret, verify=verify)
         except Exception as e:
             err = str(e)[:200]
+        # Cache the firmware/update verdict on the device so the Patches
+        # report can show OPNsense alongside Linux + RouterOS without a live
+        # fetch per device — same pattern as routeros_update.
+        if ov and isinstance(ov.get('firmware'), dict) and ov['firmware'].get('version'):
+            _opnsense_cache_update(dev_id, ov['firmware'])
         resp = {'config': redacted, 'overview': ov}
         if err:
             resp['error'] = err
@@ -16517,6 +16561,9 @@ def handle_device_opnsense_action(dev_id):
         res = opn_mod.action(host, key, secret, act, arg=arg, rule=rule, verify=verify)
     except Exception as e:
         respond(502, {'error': str(e)[:200]})
+    # Cache the firmware verdict from a check so the Patches report stays fresh.
+    if act == 'check_update' and isinstance(res, dict) and isinstance(res.get('update'), dict):
+        _opnsense_cache_update(dev_id, res['update'])
     audit_log(actor, 'device_opnsense_action', f'dev={dev_id} action={act} arg={arg}')
     respond(200, {'ok': True, 'result': res})
 
