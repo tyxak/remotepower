@@ -37,19 +37,23 @@ DSM_UPGRADE_LOG = "/tmp/rp-dsm-upgrade.log"
 # with RemotePower (not a per-device path) so any operator gets the same
 # behaviour. Mirrors the field-proven synoupgrade sequence: check, and only
 # if a new DSM is offered, apply + force-start + reboot.
-DSM_UPGRADE_SCRIPT = r"""#!/bin/bash
-set -uo pipefail
+# POSIX sh (not bash): the dedicated user's login shell may be plain sh, and
+# we invoke it via `sh <file>` rather than executing the file, because DSM
+# mounts /tmp noexec — a chmod +x file there still can't be exec()'d, but
+# `sh file` only reads it.
+DSM_UPGRADE_SCRIPT = r"""#!/bin/sh
+set -u
 echo "=== $(date) RemotePower: DSM upgrade ==="
-# Run privileged commands directly when we're root, else via non-interactive
-# sudo — so a dedicated, low-privilege user works as long as it has a
-# NOPASSWD sudoers entry for synoupgrade + reboot.
-if [[ "$(id -u)" -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
+# Run privileged commands directly when root, else via non-interactive sudo —
+# so a dedicated low-privilege user works given a NOPASSWD sudoers entry for
+# synoupgrade + reboot.
+if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
 CHECK_RESULT="$($SUDO synoupgrade --check 2>&1 || true)"
 echo "check: $CHECK_RESULT"
-if [[ "$CHECK_RESULT" != *"UPGRADE_CHECKNEWDSM"* ]]; then
-    echo "No DSM update available — nothing to do."
-    exit 0
-fi
+case "$CHECK_RESULT" in
+    *UPGRADE_CHECKNEWDSM*) ;;   # a new DSM is offered — continue
+    *) echo "No DSM update available — nothing to do."; exit 0 ;;
+esac
 echo "Applying DSM update..."
 $SUDO synoupgrade --autoupdate=1 || true
 echo "Waiting for the upgrade to initialise..."
@@ -141,9 +145,11 @@ def synology_upgrade(host, user, port, *, password=None, key=None,
     # script from stdin before we background it), then nohup it detached so the
     # call returns immediately and the final reboot doesn't read back as an
     # error. Grouping the nohup in `{ … & }` keeps cat/chmod in the foreground.
+    # Invoke via `sh <file>` (not by executing the file) — DSM mounts /tmp
+    # noexec, so a +x file there still can't be run directly.
     remote = (
-        "cat > /tmp/rp-dsm-upgrade.sh && chmod 700 /tmp/rp-dsm-upgrade.sh && "
-        "{ nohup /tmp/rp-dsm-upgrade.sh > " + DSM_UPGRADE_LOG + " 2>&1 </dev/null & } && "
+        "cat > /tmp/rp-dsm-upgrade.sh && "
+        "{ nohup sh /tmp/rp-dsm-upgrade.sh > " + DSM_UPGRADE_LOG + " 2>&1 </dev/null & } && "
         "echo rp-upgrade-started"
     )
     res = run_script(host, user, port, DSM_UPGRADE_SCRIPT,
