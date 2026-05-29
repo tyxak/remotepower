@@ -14024,17 +14024,68 @@ function _renderOpnsenseCard(body, badge, data) {
   }
 
   const fwv = ov.firmware || {}, counts = ov.counts || {};
-  if (fwv.version) {
-    const stale = fwv.updates_available;
-    h += `<div class="hint mb-6">OPNsense ${escHtml(String(fwv.version))}${stale ? ` · <span class="c-amber">${escHtml(String(stale))} update(s) available</span>` : ''}</div>`;
+  h += `<h4 class="mt-12">System</h4>`;
+  // Update state comes from OPNsense's own `status` + package counts — NOT a
+  // version!=latest string compare, since product_version carries a patch
+  // suffix (e.g. 26.1.8_5) that never equals product_latest (26.1.8).
+  h += `<div class="hint mb-6">OPNsense ${escHtml(String(fwv.version || '?'))}`;
+  if (fwv.updates_available) {
+    h += ` · <span class="c-amber">${escHtml(String(fwv.updates_available))} update(s) available</span>`;
   }
-  h += `<div class="hint mb-6">Firewall: ${counts.filter ?? '?'} filter · ${counts.nat ?? '?'} nat</div>`;
+  if (fwv.needs_reboot) h += ` · <span class="c-amber">reboot required</span>`;
+  h += `</div>`;
+  h += `<div class="row-6 mb-12">
+    <button class="btn-icon" data-action="opnsenseAction" data-arg="check_update" title="Ask OPNsense whether updates are available">Check for updates</button>
+    <button class="btn-icon c-danger-outline" data-action="opnsenseAction" data-arg="upgrade" title="Run the OPNsense firmware upgrade — may REBOOT the firewall">Upgrade</button>
+    <button class="btn-icon" data-action="opnsenseAction" data-arg="reboot" title="Reboot the firewall">${_icon('refresh',14)} Reboot</button>
+    <button class="btn-icon" data-action="openOpnsenseConsole" title="Open the full-width OPNsense console"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v7H3V3h7"/></svg> Console</button>
+  </div><div id="opn-action-out"></div>`;
+  h += `<div class="hint mb-6">Firewall: ${counts.filter ?? '?'} filter · ${counts.nat ?? '?'} nat (API-managed rules)</div>`;
   if (ov.errors && Object.keys(ov.errors).length) {
     h += `<div class="hint mb-6">Sections unavailable: ${escHtml(Object.keys(ov.errors).join(', '))}</div>`;
   }
   h += '<div id="opn-fw-body"><div class="c-muted">Click "Load firewall" to view and manage rules.</div></div>';
-  badge.textContent = fwv.version ? 'v' + fwv.version : 'loaded';
+  badge.textContent = fwv.version ? String(fwv.version).replace(/^OPNsense\s*/i, 'v') : 'loaded';
   body.innerHTML = h;
+}
+
+async function opnsenseAction(action, arg) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const act = action;   // data-arg carries the action name (matches routerosAction shape)
+  if (act === 'reboot' && !confirm('Reboot this OPNsense firewall? It will drop all connections through it.')) return;
+  if (act === 'upgrade' && !confirm('Run the OPNsense firmware upgrade now? This can take several minutes and may reboot the firewall.')) return;
+  if (act === 'check_update') toast('Checking OPNsense for updates…', 'info');
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: act });
+  if (!r || r.error) { toast((r && r.error) || 'Action failed', 'error'); return; }
+  toast(`${act.replace('_', ' ')} ok`, 'success');
+  // Refresh the active surface so the new firmware/update state shows.
+  if (act !== 'reboot') {
+    const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
+    const { body, badge } = _opnsenseSurface();
+    if (body) { _renderOpnsenseCard(body, badge, data || {}); _opnsenseConsoleAppendFirewall(body, data); }
+  }
+}
+
+async function openOpnsenseConsole() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  openModal('opnsense-console-modal');
+  const title = document.getElementById('opnsense-console-title');
+  if (title) title.textContent = `OPNsense — ${_drawerDeviceName || id}`;
+  const body = document.getElementById('opnsense-console-body');
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense`);
+  _renderOpnsenseCard(body, { textContent: '' }, data || {});
+  _opnsenseConsoleAppendFirewall(body, data);
+}
+
+// In the console, drop the firewall management straight into the body (more
+// room than the drawer card) instead of behind a "Load firewall" click.
+function _opnsenseConsoleAppendFirewall(surface, data) {
+  if (!surface || !data || !data.config || !data.config.enabled || !data.overview) return;
+  const holder = surface.querySelector('#opn-fw-body');
+  if (holder) loadOpnsenseFirewall();
 }
 
 async function saveOpnsenseConfig() {
@@ -14057,20 +14108,40 @@ async function saveOpnsenseConfig() {
   } else toast(r?.error || 'Failed', 'error');
 }
 
+// Pick the active OPNsense surface — the full-width console modal if open,
+// else the drawer card — so writes never land in the hidden duplicate.
+function _opnsenseSurface() {
+  const modal = document.getElementById('opnsense-console-modal');
+  if (modal && modal.classList.contains('active')) {
+    return { body: document.getElementById('opnsense-console-body'), badge: { textContent: '' } };
+  }
+  return {
+    body:  document.getElementById('audit-body-opnsense'),
+    badge: document.getElementById('audit-badge-opnsense') || { textContent: '' },
+  };
+}
+
 async function loadOpnsenseFirewall() {
   const id = _drawerDeviceId;
-  const body = document.getElementById('opn-fw-body');
+  const surf = _opnsenseSurface();
+  const body = (surf.body && surf.body.querySelector('#opn-fw-body')) || document.getElementById('opn-fw-body');
   if (!id || !body) return;
   body.innerHTML = '<div class="c-muted">Loading rules…</div>';
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/opnsense/firewall`);
   if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
-  _opnFirewall = { filter: data.filter || [], nat: data.nat || [] };
+  _opnFirewall = { filter: data.filter || [], nat: data.nat || [], errors: data.errors || {} };
   _renderOpnsenseFirewall(body);
 }
 
 function _renderOpnsenseFirewall(body) {
   const f = _opnFirewall.filter || [], n = _opnFirewall.nat || [];
-  let h = `<h4 class="mt-12">Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Description</th><th></th></tr></thead><tbody>`;
+  const errs = _opnFirewall.errors || {};
+  let h = '';
+  if (Object.keys(errs).length) {
+    h += `<div class="c-red mb-6">Could not read: ${escHtml(Object.entries(errs).map(([k, v]) => `${k} (${v})`).join('; '))}</div>`;
+  }
+  h += `<div class="hint mb-6">Shows rules managed via the OPNsense API (Firewall → Automation). Rules created in the classic Firewall → Rules GUI are not exposed by the API and won't appear here.</div>`;
+  h += `<h4 class="mt-12">Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Interface</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Description</th><th></th></tr></thead><tbody>`;
   h += f.map(r => _ruleRow(r, 'filter', 'opnsense')).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
   h += '</tbody></table>';
 

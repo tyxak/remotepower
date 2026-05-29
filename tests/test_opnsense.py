@@ -110,6 +110,28 @@ class TestOpnsenseClient(unittest.TestCase):
         with self.assertRaises(opn.OPNsenseError):
             opn.action("h", "k", "s", "rm_rf")
 
+    def test_system_actions_registered_and_routed(self):
+        for a in ("reboot", "check_update", "upgrade"):
+            self.assertIn(a, opn.ACTIONS)
+        calls = []
+
+        def cap(host, k, s, method, path, body=None, **kw):
+            calls.append((method, path))
+            return {"product_version": "OPNsense 24.1", "status": "update",
+                    "new_packages": [1, 2]}
+        with patch.object(opn, "_request", side_effect=cap):
+            self.assertEqual(opn.action("h", "k", "s", "reboot"), {"ok": True})
+            r = opn.action("h", "k", "s", "check_update")
+            opn.action("h", "k", "s", "upgrade")
+        self.assertIn(("POST", "/core/system/reboot"), calls)
+        self.assertIn(("POST", "/core/firmware/check"), calls)
+        self.assertIn(("POST", "/core/firmware/upgrade"), calls)
+        self.assertEqual(r["update"]["updates_available"], 2)
+
+    def test_probe_fails_fast_on_unreachable(self):
+        with self.assertRaises(opn.OPNsenseError):
+            opn._probe("203.0.113.250:443", timeout=1)
+
     def test_firewall_parses_and_normalises(self):
         def cap(host, k, s, method, path, body=None, **kw):
             if "filter/searchRule" in path:
@@ -122,7 +144,8 @@ class TestOpnsenseClient(unittest.TestCase):
                                   "target": "1.1.1.1", "target_port": "80",
                                   "source_net": "192.168.1.0/24"}]}
             return {}
-        with patch.object(opn, "_request", side_effect=cap):
+        with patch.object(opn, "_request", side_effect=cap), \
+             patch.object(opn, "_probe", return_value=True):
             fw = opn.firewall("h", "k", "s")
         self.assertEqual(fw["filter"][0]["id"], "u1")
         self.assertFalse(fw["filter"][0]["disabled"])

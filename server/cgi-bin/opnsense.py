@@ -37,11 +37,31 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_TIMEOUT = 8.0
+DEFAULT_TIMEOUT = 6.0
+# A quick TCP reachability check runs before the real (TLS) requests so an
+# unreachable GUI fails in a few seconds with a clear message instead of
+# hanging the per-section timeout × N. SNMP working while this fails almost
+# always means the firewall blocks this host from the web GUI, or the GUI
+# isn't on the configured port.
+PROBE_TIMEOUT = 3.0
 
 
 class OPNsenseError(Exception):
     pass
+
+
+def _probe(host_port, timeout=PROBE_TIMEOUT):
+    """Fail fast if the GUI port isn't reachable over TCP."""
+    h, _, p = str(host_port).partition(":")
+    port = int(p or 443)
+    try:
+        with socket.create_connection((h, port), timeout=timeout):
+            return True
+    except OSError as e:
+        raise OPNsenseError(
+            f"cannot reach {host_port} over TCP ({e}). Check that the GUI "
+            f"port is correct and that OPNsense allows this server to reach "
+            f"the web UI/API (a firewall rule, not just SNMP).")
 
 
 def _ctx(verify):
@@ -114,25 +134,40 @@ _TABLES = {"filter": "filter", "nat": "source_nat"}
 
 def check(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
     """Cheap auth/connectivity probe. Returns True or raises OPNsenseError."""
+    _probe(host)
     _request(host, key, secret, "POST", "/firewall/filter/searchRule",
              body={"current": 1, "rowCount": 1}, verify=verify, timeout=timeout)
     return True
 
 
+def _firmware_status(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
+    """Normalised firmware/update state from POST /core/firmware/status."""
+    fw = _request(host, key, secret, "POST", "/core/firmware/status",
+                  verify=verify, timeout=timeout)
+    if not isinstance(fw, dict):
+        return {}
+    n_upd = len(fw.get("upgrade_packages") or []) + len(fw.get("new_packages") or [])
+    if not n_upd and str(fw.get("status", "")).lower() in ("update", "upgrade"):
+        n_upd = 1
+    return {
+        "version":           fw.get("product_version") or fw.get("product_name"),
+        "latest":            fw.get("product_latest"),
+        "status":            fw.get("status"),
+        "needs_reboot":      _truthy(fw.get("needs_reboot")),
+        "updates_available": n_upd,
+    }
+
+
 def overview(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
     """Read-only visibility: firmware/version + filter & NAT rule counts.
-    Each section degrades independently into `errors`."""
+    Probes reachability first (fast fail), then each section degrades
+    independently into `errors`."""
     out = {"firmware": {}, "counts": {}, "errors": {}}
+    _probe(host)   # fast, clear failure if the GUI is unreachable
 
     try:
-        fw = _request(host, key, secret, "GET", "/core/firmware/status",
-                      verify=verify, timeout=timeout)
-        if isinstance(fw, dict):
-            out["firmware"] = {
-                "version":          fw.get("product_version") or fw.get("product_name"),
-                "status":           fw.get("status"),
-                "updates_available": _int(fw.get("updates")),
-            }
+        out["firmware"] = _firmware_status(host, key, secret, verify=verify,
+                                           timeout=timeout)
     except OPNsenseError as e:
         out["errors"]["firmware"] = str(e)[:200]
 
@@ -199,6 +234,7 @@ def _norm_row(r, table):
 def firewall(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
     """Read filter + NAT rules in detail (for the console Firewall view)."""
     out = {"filter": [], "nat": [], "errors": {}}
+    _probe(host)   # fast, clear failure if the GUI is unreachable
     for table, ctrl in _TABLES.items():
         try:
             rows = _search(host, key, secret, ctrl, verify=verify, timeout=timeout)
@@ -208,11 +244,16 @@ def firewall(host, key, secret, verify=False, timeout=DEFAULT_TIMEOUT):
     return out
 
 
-# Allowlisted management actions. Each maps to (table, verb).
+# Allowlisted management actions. Firewall-rule ops map to (table, verb);
+# system ops (reboot / firmware) are handled separately.
 ACTIONS = ("add_filter_rule", "enable_filter_rule", "disable_filter_rule",
            "delete_filter_rule",
            "add_nat_rule", "enable_nat_rule", "disable_nat_rule",
-           "delete_nat_rule")
+           "delete_nat_rule",
+           # system / firmware (v3.4.0, parity with RouterOS)
+           "reboot", "check_update", "upgrade")
+
+_SYSTEM_OPS = ("reboot", "check_update", "upgrade")
 
 _FW_RULE_OPS = {
     "add_filter_rule":     ("filter", "add"),
@@ -301,12 +342,36 @@ def _firewall_rule_op(host, key, secret, table, verb, arg=None, rule=None,
     raise OPNsenseError(f"unknown firewall verb {verb!r}")
 
 
+def _system_op(host, key, secret, act, verify=False, timeout=15.0):
+    """reboot / check_update / upgrade — the RouterOS-parity system actions."""
+    if act == "reboot":
+        _request(host, key, secret, "POST", "/core/system/reboot",
+                 verify=verify, timeout=timeout)
+        return {"ok": True}
+    if act == "check_update":
+        # check refreshes the package metadata; status returns the verdict.
+        try:
+            _request(host, key, secret, "POST", "/core/firmware/check",
+                     verify=verify, timeout=timeout)
+        except OPNsenseError:
+            pass   # check can be slow/transient; status below is what we report
+        return {"ok": True, "update": _firmware_status(host, key, secret,
+                                                        verify=verify, timeout=timeout)}
+    if act == "upgrade":
+        r = _request(host, key, secret, "POST", "/core/firmware/upgrade",
+                     verify=verify, timeout=timeout)
+        return {"ok": True, "result": r}
+    raise OPNsenseError(f"unknown system op {act!r}")
+
+
 def action(host, key, secret, act, arg=None, rule=None, verify=False,
            timeout=15.0):
-    """Run one allowlisted firewall management command. `arg` is the rule
-    uuid; `rule` is the rule dict for add_*. Returns {'ok': True, ...}."""
+    """Run one allowlisted management command. `arg` is the rule uuid; `rule`
+    is the rule dict for add_*. Returns {'ok': True, ...}."""
     if act not in ACTIONS:
         raise OPNsenseError(f"action {act!r} not allowed")
+    if act in _SYSTEM_OPS:
+        return _system_op(host, key, secret, act, verify=verify, timeout=timeout)
     table, verb = _FW_RULE_OPS[act]
     return _firewall_rule_op(host, key, secret, table, verb,
                              arg=arg, rule=rule, verify=verify, timeout=timeout)
