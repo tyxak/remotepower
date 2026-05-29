@@ -2612,6 +2612,16 @@ button, a, [role="button"],
   background: var(--surface2); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: 10px; margin-left: 6px;
 }
+/* v3.4.0: Health & Hardware drawer section */
+.hw-block { margin-bottom: 16px; }
+.hw-block:last-child { margin-bottom: 0; }
+.hw-h {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); font-weight: 600; margin-bottom: 6px;
+}
+.hw-changes { margin: 0; padding-left: 18px; }
+.hw-changes li { margin-bottom: 2px; }
+.hw-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .audit-filter {
   width: 100%; padding: 6px 10px; margin-bottom: 10px;
   background: var(--surface2); border: 1px solid var(--border);

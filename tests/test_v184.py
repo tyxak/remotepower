@@ -278,6 +278,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'snmp_unreachable', 'snmp_dead', 'snmp_recover',
             # v3.2.0 (A1 follow-up): MCP confirmation TTL expiry
             'mcp_confirmation_expired',
+            # v3.4.0: hardware health
+            'smart_failure', 'kernel_outdated',
         }
         self.assertEqual(names, expected)
 

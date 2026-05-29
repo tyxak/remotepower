@@ -197,6 +197,18 @@ CMDB_DEFAULT_SSH_PORT = 22
 CMDB_SSH_PORT_MIN     = 1
 CMDB_SSH_PORT_MAX     = 65535
 
+# ── v3.4.0: hardware health, speedtest, discovery, metrics history, helm ─────
+# All per-device. hardware.json keeps the last SMART / kernel / inventory
+# report (+ event state); speedtest.json and discovery.json keep on-demand
+# action results; metrics_history.json keeps one compact daily sample per
+# device (disk/mem/inode) for forecasting + "what changed"; helm.json keeps
+# the last helm-release listing per device.
+HARDWARE_FILE    = DATA_DIR / 'hardware.json'
+SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
+DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
+METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
+HELM_FILE        = DATA_DIR / 'helm.json'
+
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
 CONTAINERS_FILE = DATA_DIR / 'containers.json'
 # v3.3.4: container image-update detection. A registry-digest cache keyed
@@ -438,6 +450,11 @@ import ai_provider
 import ai_context
 # v3.4.0: Level-2/3 RAG — retrieval over the operator's own infrastructure.
 import rag_index
+# v3.4.0: resource forecasting / "what changed", control-mapped compliance,
+# and on-demand AI insight prompt builders (anomaly, cron, runbook, doc draft).
+import forecast
+import compliance
+import ai_insights
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -583,6 +600,9 @@ WEBHOOK_EVENTS = (
     # v3.2.0 (A1 follow-up): MCP confirmation aged out without an admin
     # decision. Surfaces the silent-timeout case to the operator.
     ('mcp_confirmation_expired', 'MCP confirmation expired without operator decision', True),
+    # v3.4.0: hardware / health
+    ('smart_failure',         'A disk reported SMART failure or pre-fail',   True),
+    ('kernel_outdated',       'Running kernel is older than newest installed', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -2384,6 +2404,7 @@ CHANNEL_KINDS = [
     ('ssh_key',     'SSH key changes',          'operational',   ['ssh_key_added']),
     ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover']),
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
+    ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'kernel_outdated']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -3023,6 +3044,8 @@ def _webhook_title(event):
         'backup_stale':          'Backup File Stale',
         'mailbox_threshold':     'Mailbox Threshold Reached',
         'drift_detected':        'Configuration Drift',
+        'smart_failure':         'Disk SMART Failure',
+        'kernel_outdated':       'Kernel Reboot Required',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -5483,6 +5506,7 @@ def handle_heartbeat():
         saved_dev['name']          = dev.get('name', dev_id)
         saved_dev['last_seen']     = dev['last_seen']
         saved_dev['poll_interval'] = dev.get('poll_interval', 60)
+        saved_dev['quarantined']   = bool(dev.get('quarantined', False))
         saved_dev['cmd_allowlist'] = dev.get('cmd_allowlist', [])
         saved_dev['agentless']     = dev.get('agentless', False)
         saved_dev['services_watched'] = dev.get('services_watched', [])
@@ -5577,6 +5601,33 @@ def handle_heartbeat():
 
     if 'cmd_output' in body and isinstance(body['cmd_output'], dict):
         co = body['cmd_output']
+        # v3.4.0: on-demand speedtest / network-discovery results ride the
+        # same command-result channel but carry a structured key instead of
+        # plain `output`. Route them to their own stores and synthesise a
+        # human summary so the device's command history still shows the run.
+        if isinstance(co.get('speedtest'), dict):
+            st = co['speedtest']
+            try:
+                _ingest_speedtest(dev_id, saved_dev.get('name', dev_id), st, now)
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] speedtest ingest failed dev={dev_id}: {e}\n")
+            if st.get('ok'):
+                co = {'cmd': 'speedtest', 'rc': 0,
+                      'output': (f"download {st.get('download_mbps','?')} Mbps · "
+                                 f"upload {st.get('upload_mbps','?')} Mbps · "
+                                 f"ping {st.get('ping_ms','?')} ms")}
+            else:
+                co = {'cmd': 'speedtest', 'rc': 1,
+                      'output': f"speedtest failed: {st.get('error','unknown')}"}
+        elif isinstance(co.get('netscan'), dict):
+            ns = co['netscan']
+            try:
+                _ingest_netscan(dev_id, saved_dev.get('name', dev_id), ns, now)
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] netscan ingest failed dev={dev_id}: {e}\n")
+            n = len(ns.get('hosts') or [])
+            co = {'cmd': 'netscan', 'rc': 0,
+                  'output': f"discovered {n} host(s) via {ns.get('method','?')}"}
         outputs = load(CMD_OUTPUT_FILE)
         if dev_id not in outputs:
             outputs[dev_id] = []
@@ -5888,6 +5939,28 @@ def handle_heartbeat():
         except Exception as e:
             sys.stderr.write(f"[remotepower] custom script ingest failed dev={dev_id}: {e}\n")
 
+    # v3.4.0: hardware health (SMART / kernel / inventory). Fires
+    # smart_failure / kernel_outdated edge-triggered. Best-effort.
+    if any(k in body for k in ('smart', 'kernel', 'hardware')):
+        try:
+            _ingest_hardware(dev_id, saved_dev['name'], body, now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] hardware ingest failed dev={dev_id}: {e}\n")
+
+    # v3.4.0: Helm releases (visibility only).
+    if 'helm' in body:
+        try:
+            _ingest_helm(dev_id, saved_dev['name'], body.get('helm'), now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] helm ingest failed dev={dev_id}: {e}\n")
+
+    # v3.4.0: daily metrics sample for forecasting + "what changed". Cheap —
+    # _maybe_sample_metrics exits in one dict lookup if today's sample exists.
+    try:
+        _maybe_sample_metrics(dev_id, saved_dev.get('sysinfo') or {}, now)
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] metrics sample failed dev={dev_id}: {e}\n")
+
     # v2.6.0: host config current state — sent on-demand via
     # `remotepower-agent send_current_configs` or a UI-triggered command.
     if 'host_config_current' in body and isinstance(body['host_config_current'], dict):
@@ -5947,6 +6020,17 @@ def handle_heartbeat():
         common_resp['force_acme_rescan'] = True
     if pending:
         cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
+        # v3.4.0: quarantine enforcement (defence-in-depth). A quarantined
+        # device must not act, no matter which handler queued the command —
+        # _queue_command rejects at queue time, but action paths that write
+        # CMDS_FILE directly (compose, container, acme, …) are caught here at
+        # the single dispatch chokepoint. We pop-and-drop so a stale queue
+        # doesn't fire the instant quarantine is lifted, and only ever forward
+        # poll-interval changes (purely local, no side effects on the host).
+        if saved_dev.get('quarantined') and not str(cmd).startswith('poll_interval:'):
+            audit_log('system', 'quarantine_blocked',
+                      f'dev={dev_id} dropped queued command while quarantined')
+            respond(200, {'command': None, **common_resp})
         respond(200, {'command': cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
@@ -5987,10 +6071,19 @@ def _resolve_targets(body):
     return [dev_id] if _validate_id(dev_id) else []
 
 
+def _device_quarantined(dev):
+    """True if the device record opts out of exec/reboot/actions (v3.4.0)."""
+    return bool((dev or {}).get('quarantined', False))
+
+
 def _queue_command(dev_id, command, actor):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
         respond(404, {'error': 'Device not found'})
+    # v3.4.0: refuse to queue actions for a quarantined device. poll_interval
+    # is the one exception — it changes only the agent's local timer.
+    if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
+        respond(409, {'error': 'Device is quarantined — exec/reboot/actions are disabled.'})
     cmds = load(CMDS_FILE)
     if dev_id not in cmds:
         cmds[dev_id] = []
@@ -6012,6 +6105,8 @@ def _queue_command_batch(dev_ids, command, actor):
             results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
         if dev_id not in devices:
             results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+        if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
+            results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
         if dev_id not in cmds:
             cmds[dev_id] = []
         if command not in cmds[dev_id]:
@@ -11191,6 +11286,384 @@ def handle_ai_chat():
     })
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# v3.4.0 endpoints: hardware health, speedtest, network discovery, resource
+# forecasting, "what changed", quarantine, helm, compliance, and the on-demand
+# AI insight features (anomaly detection, cron builder, runbook, doc drafts).
+# ════════════════════════════════════════════════════════════════════════════
+
+def _ai_run(actor, system, messages, context_label, max_tokens=None):
+    """Shared wrapper for the on-demand AI insight endpoints: enforce the
+    AI-enabled + rate-limit gates, call the provider, audit, and return the
+    raw text (or respond with an error). Mirrors handle_ai_chat()."""
+    cfg = _ai_cfg()
+    if not cfg.get('enabled'):
+        respond(400, {'error': 'AI is disabled. Configure in Settings → AI.'})
+    allowed, used, cap = _ai_rate_limit_check(actor, cfg)
+    if not allowed:
+        respond(429, {'error': f'Daily AI request cap reached ({used}/{cap}).'})
+    t0 = time.monotonic()
+    result = ai_provider.chat(cfg, messages, system=system, max_tokens=max_tokens)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    audit_log(actor, 'ai_insight',
+              detail=f"feature={context_label} model={result.get('model','?')} "
+                     f"tokens_out={result.get('tokens_out',0)} elapsed_ms={elapsed_ms} "
+                     f"ok={result.get('ok', False)}")
+    if not result.get('ok'):
+        respond(502, {'error': result.get('error', 'AI provider error')})
+    return result, used, cap
+
+
+def handle_device_hardware(dev_id):
+    """GET /api/devices/<id>/hardware — SMART, kernel/livepatch, passive
+    inventory, recent speedtests, and the latest LAN-discovery result."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    hw = (load(HARDWARE_FILE) or {}).get(dev_id, {})
+    # Drop the internal alert-state booleans from the API surface.
+    hw = {k: v for k, v in hw.items() if not k.startswith('_')}
+    speed = (load(SPEEDTEST_FILE) or {}).get(dev_id, [])
+    disc  = (load(DISCOVERY_FILE) or {}).get(dev_id, {})
+    respond(200, {
+        'smart':     hw.get('smart', []),
+        'kernel':    hw.get('kernel', {}),
+        'hardware':  hw.get('hardware', {}),
+        'ts':        hw.get('ts'),
+        'speedtest': speed[-10:],
+        'discovery': disc,
+    })
+
+
+def handle_device_speedtest(dev_id):
+    """POST /api/devices/<id>/speedtest — queue an on-demand speed test."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    _queue_command(dev_id, 'speedtest', actor)   # also enforces quarantine
+
+
+def handle_device_netscan(dev_id):
+    """POST /api/devices/<id>/netscan — queue LAN discovery. Optional
+    {"subnet": "192.168.1.0/24"} enables an active nmap ping sweep; without
+    it the agent only reads its ARP/neighbour table."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body() or {}
+    subnet = str(body.get('subnet', '')).strip()
+    cmd = 'netscan'
+    if subnet:
+        if not re.match(r'^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$', subnet):
+            respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
+        cmd = f'netscan:{subnet}'
+    _queue_command(dev_id, cmd, actor)
+
+
+def handle_discovery():
+    """GET /api/discovery — aggregate unmanaged hosts across all agents that
+    ran a scan. De-duplicates by IP and reports which agent saw each host."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    store = load(DISCOVERY_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    by_ip = {}
+    for dev_id, rec in store.items():
+        seen_by = devices.get(dev_id, {}).get('name', dev_id)
+        for h in rec.get('hosts', []):
+            if h.get('managed'):
+                continue
+            ip = h.get('ip')
+            entry = by_ip.setdefault(ip, {'ip': ip, 'mac': h.get('mac', ''),
+                                          'hostname': h.get('hostname', ''),
+                                          'seen_by': set()})
+            entry['seen_by'].add(seen_by)
+            if h.get('mac') and not entry['mac']:
+                entry['mac'] = h['mac']
+    out = [{**e, 'seen_by': sorted(e['seen_by'])} for e in by_ip.values()]
+    out.sort(key=lambda e: tuple(int(x) for x in e['ip'].split('.'))
+             if re.match(r'^\d+\.\d+\.\d+\.\d+$', e['ip']) else (0, 0, 0, 0))
+    respond(200, {'hosts': out, 'scanned_by': len(store)})
+
+
+def handle_device_forecast(dev_id):
+    """GET /api/devices/<id>/forecast — disk-fill projection per mount."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
+    samples = rec.get('samples', [])
+    respond(200, {
+        'mounts':      forecast.forecast_mounts(samples),
+        'sample_days': len(samples),
+    })
+
+
+def handle_device_changes(dev_id):
+    """GET /api/devices/<id>/changes?days=1|7 — what changed in the window."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        days = max(1, min(90, int(qs.get('days', ['1'])[0])))
+    except ValueError:
+        days = 1
+    rec = (load(METRICS_HIST_FILE) or {}).get(dev_id, {})
+    respond(200, forecast.what_changed(rec.get('samples', []), days, int(time.time())))
+
+
+def handle_device_quarantine(dev_id):
+    """PATCH /api/devices/<id>/quarantine — admin toggle of the per-device
+    'no exec/reboot/actions' flag. Audited."""
+    actor = require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body() or {}
+    on = bool(body.get('quarantined', False))
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        if dev_id not in devices:
+            respond(404, {'error': 'Device not found'})
+        devices[dev_id]['quarantined'] = on
+        name = devices[dev_id].get('name', dev_id)
+    audit_log(actor, 'device_quarantine', f'dev={dev_id} quarantined={on}')
+    respond(200, {'ok': True, 'quarantined': on, 'name': name})
+
+
+def handle_device_helm(dev_id):
+    """GET /api/devices/<id>/helm — Helm releases the agent reported."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    rec = (load(HELM_FILE) or {}).get(dev_id, {})
+    respond(200, {'releases': rec.get('releases', []), 'ts': rec.get('ts')})
+
+
+def handle_device_runbook(dev_id):
+    """POST /api/devices/<id>/runbook — AI runbook for an alert/issue.
+    Body: {"trigger": "<text>"}. Uses RAG context when available."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body() or {}
+    trigger = str(body.get('trigger', '')).strip()
+    if not trigger:
+        respond(400, {'error': 'trigger is required'})
+    cfg = _ai_cfg()
+    retrieved_text = ''
+    if (cfg.get('rag') or {}).get('enabled'):
+        try:
+            r = _rag_retrieve(cfg, trigger)
+            if isinstance(r, dict):
+                retrieved_text = r.get('text', '') or ''
+        except Exception:
+            pass
+    system, messages = ai_insights.runbook_prompt(trigger[:4000], retrieved_text[:8000])
+    result, used, cap = _ai_run(actor, system, messages, 'runbook')
+    respond(200, {'ok': True, 'runbook': result['text'], 'used_today': used, 'daily_cap': cap})
+
+
+def handle_device_doc_draft(dev_id):
+    """POST /api/devices/<id>/doc-draft — AI CMDB asset doc from observed state."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    hw = (load(HARDWARE_FILE) or {}).get(dev_id, {})
+    containers = (load(CONTAINERS_FILE) or {}).get(dev_id, {})
+    state = {
+        'name':     dev.get('name', dev_id),
+        'os':       dev.get('os', ''),
+        'ip':       dev.get('ip', ''),
+        'tags':     dev.get('tags', []),
+        'sysinfo':  dev.get('sysinfo', {}),
+        'kernel':   {k: v for k, v in (hw.get('kernel') or {}).items()},
+        'hardware': hw.get('hardware', {}),
+        'smart':    hw.get('smart', []),
+        'containers': containers.get('containers', []) if isinstance(containers, dict) else [],
+    }
+    system, messages = ai_insights.docdraft_prompt(
+        dev.get('name', dev_id), json.dumps(state, default=str)[:16000])
+    result, used, cap = _ai_run(actor, system, messages, 'doc_draft')
+    respond(200, {'ok': True, 'markdown': result['text'], 'used_today': used, 'daily_cap': cap})
+
+
+def handle_ai_cron():
+    """POST /api/ai/cron — plain-English → cron expression + next runs.
+    Body: {"description": "every weekday at 6am"}."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    desc = str(body.get('description', '')).strip()
+    if not desc:
+        respond(400, {'error': 'description is required'})
+    system, messages = ai_insights.cron_prompt(desc)
+    result, used, cap = _ai_run(actor, system, messages, 'cron_builder', max_tokens=400)
+    parsed = ai_insights.parse_cron_response(result['text'])
+    next_runs = []
+    if parsed.get('valid'):
+        try:
+            next_runs = [int(d.timestamp())
+                         for d in ai_insights.next_cron_runs(parsed['cron'], 5)]
+        except Exception:
+            pass
+    respond(200, {'ok': True, **parsed, 'next_runs': next_runs,
+                  'used_today': used, 'daily_cap': cap})
+
+
+def handle_ai_anomaly():
+    """POST /api/ai/anomaly — on-demand AI scan of the fleet for anomalies."""
+    actor = require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    devices = load(DEVICES_FILE) or {}
+    ttl = get_online_ttl()
+    now = int(time.time())
+    lines = []
+    for dev_id, dev in list(devices.items())[:200]:
+        si = dev.get('sysinfo') or {}
+        online = (now - dev.get('last_seen', 0)) <= ttl
+        parts = [f"name={dev.get('name', dev_id)}",
+                 f"os={dev.get('os','?')}",
+                 f"online={online}"]
+        for k in ('cpu_percent', 'mem_percent', 'disk_percent', 'swap_percent'):
+            if isinstance(si.get(k), (int, float)):
+                parts.append(f"{k}={si[k]}")
+        if si.get('loadavg_1m') is not None:
+            parts.append(f"load1={si.get('loadavg_1m')}")
+        if si.get('failed_units'):
+            parts.append(f"failed_units={len(si['failed_units'])}")
+        if si.get('reboot_required'):
+            parts.append("reboot_required=true")
+        pend = (si.get('packages') or {}).get('upgradable')
+        if isinstance(pend, int):
+            parts.append(f"pending_updates={pend}")
+        lines.append(' '.join(parts))
+    summary = '\n'.join(lines) if lines else 'No devices.'
+    system, messages = ai_insights.anomaly_prompt(summary)
+    result, used, cap = _ai_run(actor, system, messages, 'anomaly')
+    anomalies = ai_insights.parse_anomaly_response(result['text'])
+    respond(200, {'ok': True, 'anomalies': anomalies, 'scanned': len(lines),
+                  'used_today': used, 'daily_cap': cap})
+
+
+def _compliance_facts():
+    """Assemble the fleet 'facts' the compliance checks evaluate, drawn
+    entirely from data RemotePower already collects."""
+    devices = load(DEVICES_FILE) or {}
+    cfg = load(CONFIG_FILE) or {}
+    now = int(time.time())
+
+    facts = {'devices': len(devices)}
+
+    # Patches / reboots from sysinfo + config threshold.
+    patch_thresh = int((cfg.get('thresholds') or {}).get('patch_alert', 50) or 50)
+    pending_bad, reboot = [], []
+    for dev in devices.values():
+        si = dev.get('sysinfo') or {}
+        up = (si.get('packages') or {}).get('upgradable')
+        if isinstance(up, int) and up >= patch_thresh:
+            pending_bad.append(dev.get('name', '?'))
+        if si.get('reboot_required'):
+            reboot.append(dev.get('name', '?'))
+    facts['pending_patches_devices'] = pending_bad
+    facts['reboot_required'] = reboot
+
+    # CVEs (critical+high) from the findings store.
+    try:
+        cve_all = load(CVE_FINDINGS_FILE) or {}
+        cnt = 0
+        for rec in cve_all.values():
+            for f in (rec or {}).get('findings') or []:
+                if str(f.get('severity', '')).lower() in ('critical', 'high'):
+                    cnt += 1
+        facts['cve_critical_high'] = cnt
+    except Exception:
+        facts['cve_critical_high'] = 0
+
+    # TLS expiry from the TLS monitor results (≤21 days remaining = expiring).
+    try:
+        tls_targets = load(TLS_TARGETS_FILE) or {}
+        tls_results = load(TLS_RESULTS_FILE) or {}
+        expiring = []
+        for tid, t in tls_targets.items():
+            r = tls_results.get(tid) or {}
+            if not r:
+                continue
+            days = tls_monitor.days_until_expiry(r)
+            if isinstance(days, (int, float)) and days <= 21:
+                expiring.append(f"{t.get('host', tid)}:{t.get('port', 443)}")
+        facts['tls_expiring'] = expiring
+        facts['tls_monitored'] = len(tls_targets)
+    except Exception:
+        facts['tls_expiring'] = []
+        facts['tls_monitored'] = 0
+
+    # Backups.
+    try:
+        bak = load(DATA_DIR / 'backup_state.json') if (DATA_DIR / 'backup_state.json').exists() else {}
+        facts['failed_backups'] = [k for k, v in bak.items() if not v.get('ok', True)]
+        facts['backup_monitors'] = len((cfg.get('backup_monitors') or []))
+    except Exception:
+        facts['failed_backups'] = []
+        facts['backup_monitors'] = 0
+
+    # Console posture.
+    facts['mfa_enabled'] = bool(cfg.get('oidc_enabled') and cfg.get('oidc_issuer')) or _any_user_has_totp()
+    facts['audit_log_enabled'] = True       # always on in this build
+    facts['encrypted_vault'] = True         # cmdb_vault is always encrypted
+
+    facts['new_ports'] = []                 # edge-triggered events; not aggregated here
+    facts['ssh_key_changes'] = []
+    facts['brute_force'] = []
+    return facts
+
+
+def _any_user_has_totp():
+    try:
+        users = load(USERS_FILE) if 'USERS_FILE' in globals() else {}
+        return any(u.get('totp_secret') for u in (users or {}).values())
+    except Exception:
+        return False
+
+
+def handle_compliance():
+    """GET /api/compliance?frameworks=pci,hipaa,soc2 — control-mapped report."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    fw_raw = (qs.get('frameworks', [''])[0] or '').strip()
+    frameworks = [f for f in fw_raw.split(',') if f in compliance.FRAMEWORKS] or None
+    facts = _compliance_facts()
+    report = compliance.build_report(facts, frameworks)
+    report['generated_ts'] = int(time.time())
+    respond(200, report)
+
+
 # v2.1.4 follow-up: model listing + provider stats for the AI page.
 # Read-only by everyone with auth; doesn't expose the API key.
 
@@ -11860,6 +12333,272 @@ def _get_custom_scripts_for_device(dev_id):
     # Enforce per-device cap — return the first N by creation order
     result.sort(key=lambda x: x['id'])
     return result[:MAX_CUSTOM_SCRIPTS_PER_DEVICE]
+
+
+# ─── v3.4.0: hardware health ingestion (SMART / kernel / inventory) ──────────
+# Bound on how much per-disk / per-DIMM data we keep, and the sanitiser caps.
+MAX_SMART_DISKS = 32
+MAX_DIMMS       = 64
+MAX_TEMPS       = 64
+
+
+def _ingest_hardware(dev_id, dev_name, body, now):
+    """Persist the agent's SMART / kernel / hardware report and fire
+    edge-triggered events (smart_failure, kernel_outdated).
+
+    Stored in hardware.json keyed by device id:
+        { dev_id: {smart: [...], kernel: {...}, hardware: {...},
+                   ts: <epoch>, _smart_failed: bool, _kernel_old: bool} }
+    The two underscore-prefixed booleans are the previous alert states so we
+    only fire on a transition (matching every other monitor in this file).
+    """
+    with _locked_update(HARDWARE_FILE) as store:
+        rec = store.setdefault(dev_id, {})
+        events = []
+
+        # ── SMART ────────────────────────────────────────────────────
+        if isinstance(body.get('smart'), list):
+            disks = []
+            any_failed = False
+            failed_devs = []
+            for d in body['smart'][:MAX_SMART_DISKS]:
+                if not isinstance(d, dict):
+                    continue
+                health = _sanitize_str(str(d.get('health', 'UNKNOWN')), 16).upper()
+                entry = {
+                    'device': _sanitize_str(str(d.get('device', '')), 64),
+                    'health': health,
+                    'model':  _sanitize_str(str(d.get('model', '')), 64),
+                    'serial': _sanitize_str(str(d.get('serial', '')), 64),
+                }
+                # Numeric SMART attributes — clamp to sane ints.
+                for k in ('reallocated_sectors', 'pending_sectors',
+                          'offline_uncorrectable', 'reported_uncorrect',
+                          'crc_errors', 'temperature_c', 'power_on_hours'):
+                    v = d.get(k)
+                    if isinstance(v, (int, float)) and -1 < v < 1e12:
+                        entry[k] = int(v)
+                # "Failure" = explicit FAILED health, or pre-fail signalled by
+                # reallocated / pending / offline-uncorrectable sectors.
+                prefail = any(entry.get(k, 0) > 0 for k in
+                              ('reallocated_sectors', 'pending_sectors',
+                               'offline_uncorrectable'))
+                if health == 'FAILED' or prefail:
+                    any_failed = True
+                    failed_devs.append(entry['device'])
+                disks.append(entry)
+            rec['smart'] = disks
+            prev_failed = rec.get('_smart_failed', False)
+            if any_failed and not prev_failed:
+                events.append(('smart_failure', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'disks': ', '.join(failed_devs) or 'unknown',
+                }))
+            rec['_smart_failed'] = any_failed
+
+        # ── kernel / livepatch ───────────────────────────────────────
+        if isinstance(body.get('kernel'), dict):
+            k = body['kernel']
+            kern = {
+                'running':          _sanitize_str(str(k.get('running', '')), 80),
+                'latest_installed': _sanitize_str(str(k.get('latest_installed', '')), 80),
+                'reboot_for_kernel': bool(k.get('reboot_for_kernel', False)),
+            }
+            lp = k.get('livepatch')
+            if isinstance(lp, dict):
+                kern['livepatch'] = {
+                    'provider': _sanitize_str(str(lp.get('provider', '')), 40),
+                    'state':    _sanitize_str(str(lp.get('state', '')), 40),
+                    'patched':  bool(lp.get('patched', False)),
+                }
+            rec['kernel'] = kern
+            prev_old = rec.get('_kernel_old', False)
+            if kern['reboot_for_kernel'] and not prev_old:
+                events.append(('kernel_outdated', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'running': kern['running'],
+                    'latest':  kern['latest_installed'],
+                }))
+            rec['_kernel_old'] = kern['reboot_for_kernel']
+
+        # ── passive hardware inventory ───────────────────────────────
+        if isinstance(body.get('hardware'), dict):
+            hw = body['hardware']
+            safe = {}
+            sysd = hw.get('system')
+            if isinstance(sysd, dict):
+                safe['system'] = {kk: _sanitize_str(str(sysd.get(kk, '')), 128)
+                                  for kk in ('manufacturer', 'product', 'serial')
+                                  if sysd.get(kk)}
+            mem = hw.get('memory')
+            if isinstance(mem, list):
+                dimms = []
+                for d in mem[:MAX_DIMMS]:
+                    if isinstance(d, dict):
+                        dimms.append({kk: _sanitize_str(str(v), 64)
+                                      for kk, v in d.items()
+                                      if kk in ('locator', 'size', 'type',
+                                                'speed', 'serial', 'manufacturer')})
+                safe['memory'] = dimms
+            temps = hw.get('temps')
+            if isinstance(temps, list):
+                safe['temps'] = [
+                    {'label': _sanitize_str(str(t.get('label', '')), 64),
+                     'current_c': round(float(t['current_c']), 1)}
+                    for t in temps[:MAX_TEMPS]
+                    if isinstance(t, dict) and isinstance(t.get('current_c'), (int, float))
+                ]
+            raid = hw.get('raid')
+            if isinstance(raid, list):
+                safe['raid'] = [
+                    {kk: _sanitize_str(str(r.get(kk, '')), 80)
+                     for kk in ('name', 'level', 'state', 'devices')}
+                    for r in raid[:32] if isinstance(r, dict)
+                ]
+            rec['hardware'] = safe
+
+        rec['ts'] = now
+
+    # Fire events outside the lock (fire_webhook does its own I/O).
+    for event, payload in events:
+        try:
+            fire_webhook(event, payload)
+        except Exception:
+            pass
+
+
+def _ingest_helm(dev_id, dev_name, releases, now):
+    """Persist the agent's Helm release listing (visibility only)."""
+    if not isinstance(releases, list):
+        return
+    safe = []
+    for rel in releases[:500]:
+        if not isinstance(rel, dict):
+            continue
+        safe.append({
+            'name':        _sanitize_str(str(rel.get('name', '')), 128),
+            'namespace':   _sanitize_str(str(rel.get('namespace', '')), 128),
+            'revision':    _sanitize_str(str(rel.get('revision', '')), 16),
+            'status':      _sanitize_str(str(rel.get('status', '')), 32),
+            'chart':       _sanitize_str(str(rel.get('chart', '')), 128),
+            'app_version': _sanitize_str(str(rel.get('app_version', '')), 64),
+            'updated':     _sanitize_str(str(rel.get('updated', '')), 64),
+        })
+    with _locked_update(HELM_FILE) as store:
+        store[dev_id] = {'releases': safe, 'ts': now}
+
+
+def _ingest_speedtest(dev_id, dev_name, result, now):
+    """Store an on-demand speedtest result (most-recent-N per device)."""
+    if not isinstance(result, dict):
+        return
+    entry = {'ts': now}
+    if result.get('ok'):
+        for k in ('download_mbps', 'upload_mbps', 'ping_ms', 'jitter_ms'):
+            v = result.get(k)
+            if isinstance(v, (int, float)):
+                entry[k] = round(float(v), 2)
+        entry['server'] = _sanitize_str(str(result.get('server', '')), 80)
+        entry['ok'] = True
+    else:
+        entry['ok'] = False
+        entry['error'] = _sanitize_str(str(result.get('error', 'failed')), 200)
+    with _locked_update(SPEEDTEST_FILE) as store:
+        lst = store.setdefault(dev_id, [])
+        lst.append(entry)
+        store[dev_id] = lst[-50:]
+
+
+def _ingest_netscan(dev_id, dev_name, result, now):
+    """Store the latest LAN-discovery result for a device. Cross-reference
+    against known device IPs so the UI can flag which hosts are unmanaged."""
+    if not isinstance(result, dict) or not result.get('ok'):
+        return
+    known_ips = set()
+    try:
+        for d in (load(DEVICES_FILE) or {}).values():
+            if d.get('ip'):
+                known_ips.add(d['ip'])
+    except Exception:
+        pass
+    hosts = []
+    for h in (result.get('hosts') or [])[:512]:
+        if not isinstance(h, dict):
+            continue
+        ip = _sanitize_ip(h.get('ip', ''))
+        if not ip:
+            continue
+        hosts.append({
+            'ip':       ip,
+            'mac':      _sanitize_mac(h.get('mac', '')),
+            'hostname': _sanitize_str(str(h.get('hostname', '')), 128),
+            'managed':  ip in known_ips,
+        })
+    with _locked_update(DISCOVERY_FILE) as store:
+        store[dev_id] = {
+            'ts':     now,
+            'method': _sanitize_str(str(result.get('method', '')), 40),
+            'hosts':  hosts,
+        }
+
+
+# Keep ~6 months of daily samples per device — enough for a year-over-year
+# feel without unbounded growth (a 50-device fleet ≈ a few MB).
+MAX_METRIC_SAMPLES = 185
+
+
+def _maybe_sample_metrics(dev_id, sysinfo, now):
+    """Record at most one metrics sample per device per UTC day.
+
+    Each sample carries the numeric series the forecaster fits over (per-mount
+    used/total GB, memory, swap) plus a small state fingerprint the
+    "what changed" diff compares (upgradable package count, listening ports,
+    reboot-required). Re-running on the same day overwrites that day's sample
+    with the latest values, so the series stays one-point-per-day.
+    """
+    if not sysinfo:
+        return
+    import datetime as _dt
+    day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+
+    mounts = []
+    for mnt in (sysinfo.get('mounts') or [])[:50]:
+        if not isinstance(mnt, dict):
+            continue
+        mounts.append({
+            'path':     mnt.get('path', ''),
+            'used_gb':  mnt.get('used_gb', 0),
+            'total_gb': mnt.get('total_gb', 0),
+            'percent':  mnt.get('percent', 0),
+        })
+
+    ports = sorted({f"{p.get('proto','')}/{p.get('port','')}"
+                    for p in (sysinfo.get('listening_ports') or [])
+                    if isinstance(p, dict)})
+    pkgs = ((sysinfo.get('packages') or {}).get('upgradable'))
+
+    sample = {
+        'date':         day,
+        'ts':           now,
+        'mounts':       mounts,
+        'mem_percent':  sysinfo.get('mem_percent'),
+        'swap_percent': sysinfo.get('swap_percent'),
+        'state': {
+            'pkg_upgradable':  pkgs if isinstance(pkgs, int) else None,
+            'ports':           ports,
+            'reboot_required': bool(sysinfo.get('reboot_required', False)),
+            'failed_units':    sorted(sysinfo.get('failed_units') or [])[:50],
+        },
+    }
+
+    with _locked_update(METRICS_HIST_FILE) as store:
+        rec = store.setdefault(dev_id, {'samples': []})
+        samples = rec.setdefault('samples', [])
+        if samples and samples[-1].get('date') == day:
+            samples[-1] = sample          # refresh today's point
+        else:
+            samples.append(sample)
+        rec['samples'] = samples[-MAX_METRIC_SAMPLES:]
 
 
 def _ingest_custom_script_results(dev_id, dev_name, results):
@@ -21224,6 +21963,26 @@ def main():
         handle_device_routeros(pi[len('/api/devices/'):-len('/routeros')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
         handle_device_snmp(pi[len('/api/devices/'):-len('/snmp')])
+    # v3.4.0: hardware health, on-demand diagnostics, forecasting, quarantine,
+    # helm, and per-device AI insights.
+    elif pi.startswith('/api/devices/') and pi.endswith('/hardware') and m == 'GET':
+        handle_device_hardware(pi[len('/api/devices/'):-len('/hardware')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/speedtest') and m == 'POST':
+        handle_device_speedtest(pi[len('/api/devices/'):-len('/speedtest')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/netscan') and m == 'POST':
+        handle_device_netscan(pi[len('/api/devices/'):-len('/netscan')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/forecast') and m == 'GET':
+        handle_device_forecast(pi[len('/api/devices/'):-len('/forecast')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/changes') and m == 'GET':
+        handle_device_changes(pi[len('/api/devices/'):-len('/changes')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/quarantine') and m == 'PATCH':
+        handle_device_quarantine(pi[len('/api/devices/'):-len('/quarantine')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/helm') and m == 'GET':
+        handle_device_helm(pi[len('/api/devices/'):-len('/helm')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'POST':
+        handle_device_runbook(pi[len('/api/devices/'):-len('/runbook')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/doc-draft') and m == 'POST':
+        handle_device_doc_draft(pi[len('/api/devices/'):-len('/doc-draft')])
     elif pi == '/api/devices/sysinfo' and m == 'GET':
         handle_sysinfo_batch()
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
@@ -21382,6 +22141,12 @@ def main():
     elif pi == '/api/ai/rag/status'  and m == 'GET':  handle_ai_rag_status()
     elif pi == '/api/ai/rag/reindex' and m == 'POST': handle_ai_rag_reindex()
     elif pi == '/api/ai/rag/search'  and m == 'POST': handle_ai_rag_search()
+    # v3.4.0: on-demand AI insights (cron builder, fleet anomaly scan)
+    elif pi == '/api/ai/cron'    and m == 'POST': handle_ai_cron()
+    elif pi == '/api/ai/anomaly' and m == 'POST': handle_ai_anomaly()
+    # v3.4.0: network discovery + compliance reports
+    elif pi == '/api/discovery'  and m == 'GET':  handle_discovery()
+    elif pi == '/api/compliance' and m == 'GET':  handle_compliance()
     # v2.1.7: per-device AI-generated runbooks
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
         handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])

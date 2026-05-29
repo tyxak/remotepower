@@ -1864,6 +1864,348 @@ def get_host_health():
     return out
 
 
+# ─── v3.4.0: hardware / health probes ────────────────────────────────────────
+# SMART, kernel/livepatch, and passive hardware inventory. All three are
+# best-effort and follow get_host_health()'s contract: every probe is wrapped
+# so a failure (missing tool, no permission, weird output) is silently omitted
+# rather than raising. They run on the slower CONTAINER_CHECK_EVERY cadence —
+# not every heartbeat — because smartctl/dmidecode/sensors aren't free.
+
+# SMART attribute IDs worth surfacing: reallocated sectors, pending sectors,
+# offline-uncorrectable, CRC errors, temperature, power-on hours. Pre-fail of
+# any of the first three is the classic "disk is dying" signal.
+_SMART_ATTRS = {
+    5:   'reallocated_sectors',
+    187: 'reported_uncorrect',
+    197: 'pending_sectors',
+    198: 'offline_uncorrectable',
+    199: 'crc_errors',
+    194: 'temperature_c',
+    9:   'power_on_hours',
+}
+
+
+def _list_block_devices():
+    """Return candidate disk device paths (/dev/sdX, /dev/nvmeXnY, /dev/vdX).
+
+    Uses lsblk when present (authoritative, excludes partitions/loop/rom);
+    falls back to scanning /sys/block. Best-effort, returns [] on failure.
+    """
+    devs = []
+    try:
+        if _which('lsblk'):
+            r = subprocess.run(['lsblk', '-dnpo', 'NAME,TYPE'],
+                               capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                for ln in r.stdout.splitlines():
+                    parts = ln.split()
+                    if len(parts) >= 2 and parts[1] == 'disk':
+                        devs.append(parts[0])
+                return devs
+    except Exception:
+        pass
+    try:
+        for name in sorted(os.listdir('/sys/block')):
+            if name.startswith(('loop', 'ram', 'sr', 'fd', 'dm-', 'md')):
+                continue
+            devs.append('/dev/' + name)
+    except Exception:
+        pass
+    return devs
+
+
+def get_smart_status():
+    """v3.4.0: SMART health per physical disk via `smartctl`.
+
+    Returns a list of per-disk dicts:
+        {device, health: PASSED|FAILED|UNKNOWN, model, serial,
+         <attr>: <raw value>, ...}
+    Empty list if smartctl isn't installed or no disks could be read.
+    smartctl needs root for most devices; when run unprivileged it usually
+    fails cleanly and that disk is simply omitted.
+    """
+    smartctl = _which('smartctl')
+    if not smartctl:
+        return []
+    disks = []
+    for dev in _list_block_devices()[:32]:
+        try:
+            r = subprocess.run([smartctl, '-H', '-A', '-i', dev],
+                               capture_output=True, text=True, timeout=20)
+        except Exception:
+            continue
+        out = r.stdout
+        if not out:
+            continue
+        entry = {'device': dev, 'health': 'UNKNOWN'}
+        # Overall health line varies by transport:
+        #   ATA:  "SMART overall-health self-assessment test result: PASSED"
+        #   NVMe: "SMART overall-health self-assessment test result: PASSED"
+        #   some: "SMART Health Status: OK"
+        m = re.search(r'self-assessment test result:\s*(\S+)', out)
+        if m:
+            entry['health'] = m.group(1).strip().upper()
+        else:
+            m = re.search(r'SMART Health Status:\s*(\S+)', out)
+            if m:
+                entry['health'] = 'PASSED' if m.group(1).upper() == 'OK' else m.group(1).upper()
+        # Identity
+        mi = re.search(r'(?:Device Model|Model Number):\s*(.+)', out)
+        if mi:
+            entry['model'] = mi.group(1).strip()
+        si = re.search(r'Serial Number:\s*(.+)', out)
+        if si:
+            entry['serial'] = si.group(1).strip()
+        # ATA attribute table: ID# ATTRIBUTE_NAME FLAG VALUE WORST THRESH ... RAW_VALUE
+        for ln in out.splitlines():
+            parts = ln.split()
+            if len(parts) >= 10 and parts[0].isdigit():
+                aid = int(parts[0])
+                if aid in _SMART_ATTRS:
+                    raw = parts[9].split()[0]
+                    try:
+                        entry[_SMART_ATTRS[aid]] = int(raw)
+                    except ValueError:
+                        entry[_SMART_ATTRS[aid]] = raw
+        # NVMe health lines (different format) — pull a couple of useful ones.
+        nm = re.search(r'Temperature:\s*(\d+)\s*Celsius', out)
+        if nm and 'temperature_c' not in entry:
+            entry['temperature_c'] = int(nm.group(1))
+        nh = re.search(r'Power On Hours:\s*([\d,]+)', out)
+        if nh and 'power_on_hours' not in entry:
+            entry['power_on_hours'] = int(nh.group(1).replace(',', ''))
+        disks.append(entry)
+    return disks
+
+
+def get_kernel_status():
+    """v3.4.0: running kernel vs newest installed kernel, plus livepatch.
+
+    Returns:
+        {running, latest_installed, reboot_for_kernel: bool,
+         livepatch: {state, patched} | None}
+    Best-effort; fields omitted when undeterminable.
+    """
+    out = {}
+    try:
+        out['running'] = platform.release()
+    except Exception:
+        return out
+
+    # Newest installed kernel package. Debian/Ubuntu: dpkg linux-image-*;
+    # RHEL/SUSE: rpm kernel; Arch: pacman linux. We compare the *version*
+    # the package provides against the running release.
+    latest = None
+    try:
+        if _which('dpkg-query'):
+            r = subprocess.run(
+                ['dpkg-query', '-W', '-f=${Package}\\n',
+                 'linux-image-[0-9]*'],
+                capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                vers = []
+                for pkg in r.stdout.split():
+                    mm = re.match(r'linux-image-(\d.+)', pkg)
+                    if mm:
+                        vers.append(mm.group(1))
+                if vers:
+                    latest = max(vers, key=_kernel_ver_key)
+        elif _which('rpm'):
+            r = subprocess.run(['rpm', '-q', '--qf', '%{VERSION}-%{RELEASE}.%{ARCH}\\n', 'kernel'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                vers = [v for v in r.stdout.split() if v]
+                if vers:
+                    latest = max(vers, key=_kernel_ver_key)
+    except Exception:
+        pass
+    if latest:
+        out['latest_installed'] = latest
+        # Reboot needed when the running release isn't a prefix of the newest
+        # installed one (handles the trailing arch/flavour suffix).
+        run = out.get('running', '')
+        out['reboot_for_kernel'] = bool(run) and (run not in latest) and (latest not in run)
+
+    # Live patching: Canonical Livepatch or kpatch.
+    try:
+        if _which('canonical-livepatch'):
+            r = subprocess.run(['canonical-livepatch', 'status'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                lp = {'provider': 'canonical-livepatch'}
+                sm = re.search(r'(?:checkState|check state):\s*(\S+)', r.stdout)
+                if sm:
+                    lp['state'] = sm.group(1)
+                lp['patched'] = 'applied' in r.stdout.lower() or 'kernel-applied' in r.stdout.lower()
+                out['livepatch'] = lp
+        elif _which('kpatch'):
+            r = subprocess.run(['kpatch', 'list'], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                loaded = [ln for ln in r.stdout.splitlines()
+                          if ln.strip() and not ln.lower().startswith(('loaded', 'installed'))]
+                out['livepatch'] = {'provider': 'kpatch', 'patched': bool(loaded)}
+    except Exception:
+        pass
+    return out
+
+
+def _kernel_ver_key(v):
+    """Sort key for kernel version strings: split into numeric/text runs so
+    '5.15.0-89' sorts below '5.15.0-101'. Best-effort, never raises."""
+    parts = re.split(r'[.\-+~]', v)
+    key = []
+    for p in parts:
+        if p.isdigit():
+            key.append((1, int(p), ''))
+        else:
+            key.append((0, 0, p))
+    return key
+
+
+def get_hardware_inventory():
+    """v3.4.0: passive hardware inventory — DIMMs, system serial, temps,
+    RAID arrays, disk models. Best-effort; each section omitted on failure.
+
+    Returns:
+        {system: {manufacturer, product, serial},
+         memory: [{locator, size, type, speed, serial}],
+         temps: [{label, current_c}],
+         raid: [{name, level, state, devices}]}
+    dmidecode requires root; when unavailable those sections are simply absent.
+    """
+    hw = {}
+
+    # ── DMI: system identity + memory modules ────────────────────────
+    dmidecode = _which('dmidecode')
+    if dmidecode:
+        try:
+            r = subprocess.run([dmidecode, '-t', 'system'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                sysd = {}
+                for key, field in (('Manufacturer', 'manufacturer'),
+                                   ('Product Name', 'product'),
+                                   ('Serial Number', 'serial')):
+                    mm = re.search(rf'{key}:\s*(.+)', r.stdout)
+                    if mm:
+                        sysd[field] = mm.group(1).strip()
+                if sysd:
+                    hw['system'] = sysd
+        except Exception:
+            pass
+        try:
+            r = subprocess.run([dmidecode, '-t', 'memory'],
+                               capture_output=True, text=True, timeout=10)
+            if r.returncode == 0:
+                dimms = []
+                # Split into "Memory Device" blocks.
+                for block in re.split(r'\n(?=Memory Device|Handle )', r.stdout):
+                    if 'Memory Device' not in block:
+                        continue
+                    size_m = re.search(r'\bSize:\s*(.+)', block)
+                    if not size_m or 'No Module Installed' in size_m.group(1):
+                        continue
+                    dimm = {'size': size_m.group(1).strip()}
+                    for key, field in (('Locator', 'locator'),
+                                       ('Type', 'type'),
+                                       ('Speed', 'speed'),
+                                       ('Serial Number', 'serial'),
+                                       ('Manufacturer', 'manufacturer')):
+                        mm = re.search(rf'\n\s*{key}:\s*(.+)', block)
+                        if mm:
+                            val = mm.group(1).strip()
+                            if val and val.lower() not in ('unknown', 'not specified'):
+                                dimm[field] = val
+                    dimms.append(dimm)
+                if dimms:
+                    hw['memory'] = dimms[:64]
+        except Exception:
+            pass
+
+    # ── temperatures (lm-sensors) ────────────────────────────────────
+    if _which('sensors'):
+        try:
+            r = subprocess.run(['sensors', '-A', '-j'],
+                               capture_output=True, text=True, timeout=10)
+            temps = []
+            if r.returncode == 0 and r.stdout.strip():
+                data = json.loads(r.stdout)
+                for chip, feats in data.items():
+                    if not isinstance(feats, dict):
+                        continue
+                    for label, vals in feats.items():
+                        if not isinstance(vals, dict):
+                            continue
+                        for k, v in vals.items():
+                            if k.endswith('_input') and 'temp' in k:
+                                try:
+                                    temps.append({'label': f'{chip}/{label}',
+                                                  'current_c': round(float(v), 1)})
+                                except (TypeError, ValueError):
+                                    pass
+            if temps:
+                hw['temps'] = temps[:64]
+        except Exception:
+            pass
+
+    # ── RAID arrays (mdadm software RAID; storcli hardware RAID) ──────
+    raid = []
+    try:
+        mdstat = Path('/proc/mdstat')
+        if mdstat.exists():
+            txt = mdstat.read_text()
+            for ln in txt.splitlines():
+                m = re.match(r'(md\d+)\s*:\s*(\w+)\s+(\w+)\s+(.+)', ln)
+                if m:
+                    raid.append({'name': m.group(1), 'state': m.group(2),
+                                 'level': m.group(3),
+                                 'devices': m.group(4).strip()})
+    except Exception:
+        pass
+    if raid:
+        hw['raid'] = raid
+
+    return hw
+
+
+def get_helm_releases():
+    """v3.4.0: list Helm releases via `helm list -A -o json`.
+
+    Visibility only — we never deploy/upgrade/rollback (that's Helm's own
+    CLI / CD pipeline). Returns [] when helm isn't installed or no kubeconfig
+    is reachable; the agent already uses the same kubeconfig-discovery for
+    Kubernetes pod listing. Best-effort, never raises.
+    """
+    helm = _which('helm')
+    if not helm:
+        return []
+    try:
+        r = subprocess.run([helm, 'list', '--all-namespaces', '-o', 'json'],
+                           capture_output=True, text=True, timeout=30)
+    except Exception:
+        return []
+    if r.returncode != 0 or not r.stdout.strip():
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except Exception:
+        return []
+    out = []
+    for rel in (data or [])[:500]:
+        if not isinstance(rel, dict):
+            continue
+        out.append({
+            'name':       str(rel.get('name', ''))[:128],
+            'namespace':  str(rel.get('namespace', ''))[:128],
+            'revision':   str(rel.get('revision', ''))[:16],
+            'status':     str(rel.get('status', ''))[:32],
+            'chart':      str(rel.get('chart', ''))[:128],
+            'app_version': str(rel.get('app_version', ''))[:64],
+            'updated':    str(rel.get('updated', ''))[:64],
+        })
+    return out
+
+
 def get_metrics():
     """Collect CPU/RAM/disk/swap/loadavg metrics via psutil (optional).
 
@@ -2291,6 +2633,121 @@ kill {os.getpid()} 2>/dev/null || true
     sys.exit(0)
 
 
+# ─── v3.4.0: on-demand actions (speedtest, network discovery) ────────────────
+def run_speedtest():
+    """v3.4.0: one-shot internet speed test via librespeed-cli.
+
+    librespeed-cli is FOSS and emits JSON, so no EULA prompt and no parsing
+    of human-readable output. If it isn't installed we return an explicit
+    'unavailable' marker so the UI can tell "not installed" apart from "ran
+    but failed". Returns a dict:
+        {ok, download_mbps, upload_mbps, ping_ms, jitter_ms, server, ts}
+      or {ok: False, error: ...}
+    """
+    cli = _which('librespeed-cli')
+    if not cli:
+        return {'ok': False, 'error': 'librespeed-cli not installed'}
+    try:
+        r = subprocess.run([cli, '--json'], capture_output=True, text=True,
+                           timeout=120)
+    except subprocess.TimeoutExpired:
+        return {'ok': False, 'error': 'speedtest timed out'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
+    if r.returncode != 0 or not r.stdout.strip():
+        return {'ok': False, 'error': (r.stderr or 'speedtest failed').strip()[:200]}
+    try:
+        data = json.loads(r.stdout)
+        # librespeed-cli reports a single object or a one-element array.
+        if isinstance(data, list):
+            data = data[0] if data else {}
+    except Exception as e:
+        return {'ok': False, 'error': f'could not parse output: {e}'}
+    return {
+        'ok':            True,
+        'download_mbps': round(float(data.get('download', 0)), 2),
+        'upload_mbps':   round(float(data.get('upload', 0)), 2),
+        'ping_ms':       round(float(data.get('ping', 0)), 1),
+        'jitter_ms':     round(float(data.get('jitter', 0)), 1),
+        'server':        (data.get('server') or {}).get('name', ''),
+        'ts':            int(time.time()),
+    }
+
+
+def run_netscan(subnet=None):
+    """v3.4.0: discover other hosts on the agent's LAN (opt-in per device).
+
+    Strategy, in order of preference:
+      1. Read the kernel ARP/neighbour table (`ip neigh` then /proc/net/arp)
+         — zero network noise, just what the host already knows about.
+      2. If a subnet is given and `nmap` is present, a light `-sn` ping sweep
+         to actively find quiet hosts.
+    Returns {ok, hosts: [{ip, mac, hostname}], method, ts}. The agent never
+    enrolls anything — it just reports candidates for the operator to import.
+    """
+    hosts = {}
+    method = []
+
+    # 1. Passive: neighbour / ARP table.
+    try:
+        if _which('ip'):
+            r = subprocess.run(['ip', 'neigh'], capture_output=True,
+                               text=True, timeout=10)
+            if r.returncode == 0:
+                method.append('neigh')
+                for ln in r.stdout.splitlines():
+                    parts = ln.split()
+                    if len(parts) >= 5 and parts[0].count('.') == 3:
+                        ip = parts[0]
+                        mac = ''
+                        if 'lladdr' in parts:
+                            mac = parts[parts.index('lladdr') + 1]
+                        if parts[-1] in ('FAILED', 'INCOMPLETE'):
+                            continue
+                        hosts.setdefault(ip, {'ip': ip, 'mac': mac, 'hostname': ''})
+                        if mac:
+                            hosts[ip]['mac'] = mac
+    except Exception:
+        pass
+    if not hosts:
+        try:
+            arp = Path('/proc/net/arp')
+            if arp.exists():
+                method.append('arp')
+                for ln in arp.read_text().splitlines()[1:]:
+                    parts = ln.split()
+                    if len(parts) >= 4 and parts[0].count('.') == 3:
+                        ip, mac = parts[0], parts[3]
+                        if mac != '00:00:00:00:00:00':
+                            hosts.setdefault(ip, {'ip': ip, 'mac': mac, 'hostname': ''})
+        except Exception:
+            pass
+
+    # 2. Active ping sweep (only if explicitly asked + nmap present).
+    if subnet and _which('nmap') and re.match(r'^[0-9./]+$', subnet):
+        try:
+            r = subprocess.run(['nmap', '-sn', '-n', '--max-retries', '1', subnet],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                method.append('nmap')
+                cur = None
+                for ln in r.stdout.splitlines():
+                    m = re.search(r'Nmap scan report for ([0-9.]+)', ln)
+                    if m:
+                        cur = m.group(1)
+                        hosts.setdefault(cur, {'ip': cur, 'mac': '', 'hostname': ''})
+                    elif cur and 'MAC Address:' in ln:
+                        mm = re.search(r'MAC Address:\s*(\S+)', ln)
+                        if mm:
+                            hosts[cur]['mac'] = mm.group(1)
+        except Exception:
+            pass
+
+    out = sorted(hosts.values(), key=lambda h: tuple(int(x) for x in h['ip'].split('.')))
+    return {'ok': True, 'hosts': out[:512], 'method': '+'.join(method) or 'none',
+            'ts': int(time.time())}
+
+
 # ─── Command execution ──────────────────────────────────────────────────────────
 def execute_command(cmd):
     if cmd == 'shutdown':
@@ -2390,6 +2847,19 @@ def execute_command(cmd):
         # anything. A crafted command can't reach `docker rm -f -v $(…)`
         # because we never let the shell see the string.
         return _run_container_action(cmd)
+    elif cmd == 'speedtest':
+        # v3.4.0: on-demand internet speed test. Result rides the same
+        # command-result channel as exec; the server recognises it by the
+        # 'speedtest' key rather than 'output'.
+        log.info("Executing: speedtest")
+        return {'cmd': cmd, 'speedtest': run_speedtest()}
+    elif cmd == 'netscan' or cmd.startswith('netscan:'):
+        # v3.4.0: discover unmanaged hosts on the agent's LAN. Optional
+        # subnet after the colon enables an active nmap ping sweep; bare
+        # `netscan` is passive (ARP/neighbour table only).
+        subnet = cmd.split(':', 1)[1].strip() if ':' in cmd else None
+        log.info(f"Executing: netscan (subnet={subnet or 'passive'})")
+        return {'cmd': cmd, 'netscan': run_netscan(subnet)}
     else:
         log.warning(f"Unknown command: {cmd!r}")
     return None
@@ -3416,6 +3886,37 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['compose_projects'] = projects
             except Exception as e:
                 log.debug(f'compose listing error: {e}')
+
+        # v3.4.0: hardware / health inventory on the slow cadence — smartctl,
+        # dmidecode, sensors and the kernel check aren't free, so they ride
+        # alongside containers rather than every heartbeat. Each is wrapped:
+        # a probe failure (missing tool, no root) leaves the key absent and
+        # the server keeps the last known value.
+        if poll_count > 1 and poll_count % CONTAINER_CHECK_EVERY == 0:
+            try:
+                smart = get_smart_status()
+                if smart:
+                    payload['smart'] = smart
+            except Exception as e:
+                log.debug(f'SMART probe error: {e}')
+            try:
+                payload['kernel'] = get_kernel_status()
+            except Exception as e:
+                log.debug(f'kernel probe error: {e}')
+            try:
+                hw = get_hardware_inventory()
+                if hw:
+                    payload['hardware'] = hw
+            except Exception as e:
+                log.debug(f'hardware inventory error: {e}')
+            # v3.4.0: Helm releases — only worth probing where a cluster CLI
+            # exists; rides the same kubeconfig discovery as pod listing.
+            try:
+                if _which('helm') and (_which('kubectl') or os.environ.get('KUBECONFIG')):
+                    helm_rel = get_helm_releases()
+                    payload['helm'] = helm_rel
+            except Exception as e:
+                log.debug(f'helm listing error: {e}')
 
         if send_sysinfo:
             sysinfo = {

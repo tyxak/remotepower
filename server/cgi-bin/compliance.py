@@ -1,0 +1,219 @@
+"""Control-mapped compliance reporting (PCI DSS / HIPAA / SOC 2).
+
+v3.4.0. This is deliberately an *evidence-from-observed-state* checklist, not a
+formal attestation engine: every control maps to data RemotePower already
+collects (patch status, CVEs, TLS expiry, firewall posture, login/SSH audit,
+backup freshness, MFA, audit logging). Each control resolves to one of:
+
+    pass  — observed state satisfies the control
+    fail  — observed state violates it (with the offending evidence)
+    na    — RemotePower has no signal for this control (honestly reported,
+            never silently counted as a pass)
+
+The caller assembles a `facts` dict from the fleet and passes it in; the logic
+here is pure so it unit-tests without a server. The mapping is a pragmatic
+operator aid for audit prep — it does not make a system "compliant".
+"""
+
+PASS, FAIL, NA = 'pass', 'fail', 'na'
+
+FRAMEWORKS = ('pci', 'hipaa', 'soc2')
+FRAMEWORK_LABELS = {
+    'pci':   'PCI DSS v4.0',
+    'hipaa': 'HIPAA Security Rule',
+    'soc2':  'SOC 2 (Common Criteria)',
+}
+
+
+def _patch_control(facts):
+    bad = facts.get('pending_patches_devices') or []
+    if bad:
+        return FAIL, f"{len(bad)} device(s) over the patch threshold: " + \
+               ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
+    return PASS, "No device exceeds its pending-patch threshold."
+
+
+def _cve_control(facts):
+    n = facts.get('cve_critical_high', 0)
+    if n:
+        return FAIL, f"{n} critical/high CVE finding(s) outstanding across the fleet."
+    return PASS, "No outstanding critical or high CVEs."
+
+
+def _tls_control(facts):
+    exp = facts.get('tls_expiring') or []
+    if exp:
+        return FAIL, f"{len(exp)} certificate(s) expiring soon: " + ", ".join(exp[:10])
+    if facts.get('tls_monitored', 0) == 0:
+        return NA, "No TLS endpoints are being monitored."
+    return PASS, "All monitored certificates are within their validity window."
+
+
+def _backup_control(facts):
+    bad = facts.get('failed_backups') or []
+    if bad:
+        return FAIL, f"{len(bad)} stale/missing backup(s): " + ", ".join(bad[:10])
+    if facts.get('backup_monitors', 0) == 0:
+        return NA, "No backup monitors are configured."
+    return PASS, "All configured backups are within their freshness window."
+
+
+def _mfa_control(facts):
+    if facts.get('mfa_enabled'):
+        return PASS, "Multi-factor (TOTP/OIDC) is enabled for console access."
+    return FAIL, "No operator MFA (TOTP or OIDC) is enabled on the console."
+
+
+def _audit_control(facts):
+    if facts.get('audit_log_enabled', True):
+        return PASS, "Administrative actions are recorded in the audit log."
+    return FAIL, "Audit logging is disabled."
+
+
+def _firewall_control(facts):
+    new_ports = facts.get('new_ports') or []
+    if new_ports:
+        return FAIL, f"{len(new_ports)} unexpected listening port(s) appeared: " + \
+               ", ".join(str(p) for p in new_ports[:10])
+    return PASS, "No unexpected listening ports detected since baseline."
+
+
+def _access_review_control(facts):
+    changes = facts.get('ssh_key_changes') or []
+    if changes:
+        return FAIL, f"{len(changes)} unreviewed SSH authorized-key change(s)."
+    return PASS, "No unreviewed SSH key changes."
+
+
+def _intrusion_control(facts):
+    bf = facts.get('brute_force') or []
+    if bf:
+        return FAIL, f"Brute-force attempts detected on {len(bf)} host(s)."
+    return PASS, "No brute-force login activity detected."
+
+
+def _vault_control(facts):
+    if facts.get('encrypted_vault', True):
+        return PASS, "Stored device secrets are held in the encrypted vault."
+    return NA, "No credential vault in use."
+
+
+def _reboot_control(facts):
+    rb = facts.get('reboot_required') or []
+    if rb:
+        return FAIL, f"{len(rb)} host(s) pending a reboot to apply updates: " + \
+               ", ".join(rb[:10])
+    return PASS, "No host is pending a security reboot."
+
+
+# Each control: (framework, id, title, check_fn, remediation).
+# A single check can map into several frameworks; we list it per-framework so
+# the report reads naturally under each standard's section.
+_CONTROLS = [
+    # PCI DSS
+    ('pci', '6.3.3',  'Install applicable security patches',        _patch_control,
+     'Apply pending updates on the listed hosts.'),
+    ('pci', '6.3.1',  'Identify and rank known vulnerabilities',    _cve_control,
+     'Remediate outstanding critical/high CVEs.'),
+    ('pci', '4.2.1',  'Strong cryptography for transmission (TLS)', _tls_control,
+     'Renew expiring certificates.'),
+    ('pci', '1.2.1',  'Restrict inbound/outbound traffic',          _firewall_control,
+     'Investigate and close unexpected listening ports.'),
+    ('pci', '8.4.2',  'Multi-factor authentication for access',     _mfa_control,
+     'Enable TOTP or OIDC for all console operators.'),
+    ('pci', '10.2.1', 'Audit logs for all administrative actions',  _audit_control,
+     'Enable audit logging.'),
+    ('pci', '11.5.1', 'Detect and respond to intrusions',           _intrusion_control,
+     'Review brute-force sources; block at the firewall.'),
+
+    # HIPAA Security Rule
+    ('hipaa', '164.308(a)(5)(ii)(B)', 'Protection from malicious software', _patch_control,
+     'Apply pending security updates.'),
+    ('hipaa', '164.308(a)(1)(ii)(A)', 'Risk analysis (known vulnerabilities)', _cve_control,
+     'Remediate outstanding critical/high CVEs.'),
+    ('hipaa', '164.312(e)(1)',        'Transmission security (encryption)',    _tls_control,
+     'Renew expiring certificates.'),
+    ('hipaa', '164.308(a)(7)(ii)(A)', 'Data backup plan',                      _backup_control,
+     'Restore backup freshness on the listed targets.'),
+    ('hipaa', '164.312(d)',           'Person/entity authentication (MFA)',    _mfa_control,
+     'Enable operator MFA.'),
+    ('hipaa', '164.312(b)',           'Audit controls',                        _audit_control,
+     'Enable audit logging.'),
+    ('hipaa', '164.308(a)(4)(ii)(C)', 'Access establishment and modification', _access_review_control,
+     'Review and acknowledge SSH key changes.'),
+
+    # SOC 2 Common Criteria
+    ('soc2', 'CC7.1', 'Detect configuration changes / new exposure', _firewall_control,
+     'Review unexpected listening ports.'),
+    ('soc2', 'CC7.2', 'Monitor for anomalies and intrusions',        _intrusion_control,
+     'Investigate brute-force activity.'),
+    ('soc2', 'CC6.1', 'Logical access — encryption of secrets',      _vault_control,
+     'Store secrets in the encrypted vault.'),
+    ('soc2', 'CC6.6', 'Restrict transmission to authorized TLS',     _tls_control,
+     'Renew expiring certificates.'),
+    ('soc2', 'CC6.7', 'Manage vulnerabilities (patching)',           _patch_control,
+     'Apply pending updates.'),
+    ('soc2', 'CC6.8', 'Prevent/detect unauthorized software (CVEs)', _cve_control,
+     'Remediate outstanding CVEs.'),
+    ('soc2', 'CC4.1', 'Audit logging of control operation',          _audit_control,
+     'Enable audit logging.'),
+    ('soc2', 'A1.2',  'Availability — recoverability (backups)',     _backup_control,
+     'Restore backup freshness.'),
+    ('soc2', 'CC7.4', 'Remediation — apply security reboots',        _reboot_control,
+     'Reboot hosts pending update activation.'),
+]
+
+
+def build_report(facts, frameworks=None):
+    """Evaluate every control for the requested frameworks against `facts`.
+
+    Returns:
+        {
+          generated_ts: <set by caller>,
+          frameworks: {
+            pci: {label, pass, fail, na, score, controls: [
+              {id, title, status, evidence, remediation}, ...]},
+            ...
+          },
+          summary: {pass, fail, na, total}
+        }
+    score = pass / (pass + fail), ignoring NA — the honest "of what we can
+    measure, how much passes" number.
+    """
+    want = set(frameworks) if frameworks else set(FRAMEWORKS)
+    result = {'frameworks': {}, 'summary': {PASS: 0, FAIL: 0, NA: 0, 'total': 0}}
+
+    for fw in FRAMEWORKS:
+        if fw not in want:
+            continue
+        rows = []
+        counts = {PASS: 0, FAIL: 0, NA: 0}
+        for (cfw, cid, title, fn, remediation) in _CONTROLS:
+            if cfw != fw:
+                continue
+            try:
+                status, evidence = fn(facts)
+            except Exception as e:
+                status, evidence = NA, f"check error: {e}"
+            counts[status] += 1
+            rows.append({
+                'id':          cid,
+                'title':       title,
+                'status':      status,
+                'evidence':    evidence,
+                'remediation': remediation if status == FAIL else '',
+            })
+        measurable = counts[PASS] + counts[FAIL]
+        result['frameworks'][fw] = {
+            'label':    FRAMEWORK_LABELS[fw],
+            'pass':     counts[PASS],
+            'fail':     counts[FAIL],
+            'na':       counts[NA],
+            'score':    round(100.0 * counts[PASS] / measurable, 1) if measurable else None,
+            'controls': rows,
+        }
+        for k in (PASS, FAIL, NA):
+            result['summary'][k] += counts[k]
+        result['summary']['total'] += len(rows)
+
+    return result

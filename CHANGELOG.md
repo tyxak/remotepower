@@ -6,6 +6,53 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Disk SMART health.** The agent runs `smartctl` on each physical disk
+  (best-effort, skipped if not installed) and reports overall health plus
+  the attributes that matter — reallocated/pending/offline-uncorrectable
+  sectors, CRC errors, temperature, power-on hours. A FAILED result or any
+  pre-fail sector count fires the new **smart_failure** alert (edge-triggered)
+  and shows in the device drawer's **Health & Hardware** card.
+- **Kernel / livepatch awareness.** Compares the running kernel (`uname -r`)
+  against the newest installed kernel package and flags hosts that need a
+  reboot to pick it up (new **kernel_outdated** alert). Reads
+  `canonical-livepatch`/`kpatch` status where present.
+- **Passive hardware inventory.** DIMMs (size/type/speed/serial via
+  `dmidecode`), system serial, temperatures (`lm-sensors`), and software-RAID
+  array state (`/proc/mdstat`) — all best-effort, shown in the drawer.
+- **Resource forecasting.** A compact daily metrics snapshot per device feeds
+  a linear projection: *"/ fills in ~18 days at current growth."* Per-mount
+  trend (GB/day) and a fill date, soonest first.
+- **"What changed?" summaries.** Diffs the daily snapshots over the last
+  day/week — pending-update deltas, newly/no-longer listening ports, units
+  failed/recovered, reboot-required edges, and per-mount disk growth.
+- **On-demand internet speed test.** A drawer button queues a `librespeed-cli`
+  run; the agent reports download/upload Mbps + ping/jitter back through the
+  command channel. FOSS backend, no EULA prompt; silently unavailable when the
+  CLI isn't installed.
+- **Local network discovery.** An opt-in per-device LAN scan (passive
+  ARP/neighbour table, or an `nmap -sn` sweep when a subnet is given). The
+  server cross-references against known device IPs and surfaces the unmanaged
+  hosts (`GET /api/discovery`). The agent never enrolls anything itself.
+- **Device quarantine.** A per-device admin flag that disables
+  exec/reboot/all actions on sensitive hosts — enforced **server-side** at the
+  command-queue chokepoint (queued commands are dropped while quarantined;
+  poll-interval changes still apply) and audited.
+- **Helm release status.** Where `helm` + a kubeconfig are present, the agent
+  reports `helm list -A` (visibility only) — release, namespace, chart,
+  revision, status — in the drawer.
+- **On-demand AI insights.** Four new AI features that ride the existing
+  provider layer: **fleet anomaly scan** (`POST /api/ai/anomaly` → ranked
+  outliers from the live fleet snapshot), **cron builder**
+  (`POST /api/ai/cron` → plain-English → cron expression, validated locally
+  with the next 5 run times computed by a stdlib evaluator), **runbook
+  suggestions** (`POST /api/devices/<id>/runbook`, RAG-aware), and **CMDB doc
+  drafts** (`POST /api/devices/<id>/doc-draft` → Markdown asset page from
+  observed state).
+- **Compliance reports.** A control-mapped checklist (`GET /api/compliance`)
+  that scores PCI DSS / HIPAA / SOC 2 controls **pass/fail/N-A** from data
+  RemotePower already collects (patches, CVEs, TLS, firewall posture, MFA,
+  audit logging, backups). Honest by design — controls with no signal report
+  N-A rather than a false pass. New module `compliance.py`.
 - **Synology DSM upgrade over SSH (one button).** Agentless Synology NAS
   devices have no API to trigger a DSM upgrade, so the device's Synology
   panel gets a single **Upgrade DSM & reboot** button that runs the

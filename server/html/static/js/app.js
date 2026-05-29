@@ -10503,6 +10503,8 @@ function _renderHomeActivity(fleetEvents) {
     'snmp_unreachable', 'snmp_dead', 'snmp_recover',
     // v3.2.0 (A1 follow-up): silent MCP confirmation timeout
     'mcp_confirmation_expired',
+    // v3.4.0: hardware health
+    'smart_failure', 'kernel_outdated',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -10635,6 +10637,9 @@ function _homeActivityAttrs(event, p) {
       // Click → MCP Confirmations admin page so the operator can see
       // what timed out
       return `${base} data-home-act="confirmations"`;
+    case 'smart_failure': case 'kernel_outdated':
+      // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -13047,6 +13052,14 @@ function _renderDrawerSettings() {
         <span class="fs-12">Active monitoring</span>
       </label>
     </div>
+    <div class="drawer-setting-row">
+      <span class="drawer-setting-label">${_icon('shield',14)} Quarantine</span>
+      <label class="click-row-6">
+        <input type="checkbox" id="ds-quarantine" ${d.quarantined ? 'checked' : ''} data-change="toggleQuarantine" data-change-arg="${escAttr(id)}">
+        <span class="fs-12">Disable exec / reboot / actions on this host</span>
+      </label>
+      <span class="hint">Enforced server-side: queued commands are dropped while quarantined (poll-interval changes still apply). Admin only.</span>
+    </div>
     ${isAgentless ? `
     <div class="drawer-setting-row">
       <span class="drawer-setting-label">Reachability</span>
@@ -13255,6 +13268,9 @@ const _AUDIT_SECTIONS = [
   {key: 'containers',title: 'Containers',       icon: 'ship'},
   {key: 'metrics',   title: 'Metrics',          icon: 'clock'},
   {key: 'hostcfg',   title: 'Host Config',      icon: 'settings'},
+  // v3.4.0
+  {key: 'hardware',  title: 'Health & Hardware', icon: 'hardDrive'},
+  {key: 'helm',      title: 'Helm Releases',    icon: 'cloud'},
 ];
 
 function _renderDrawerAuditSections() {
@@ -13886,6 +13902,55 @@ async function _loadAuditSection(key) {
         break;
       }
 
+      // v3.4.0: SMART, kernel/livepatch, passive inventory, disk-fill
+      // forecast, "what changed", plus on-demand speedtest + LAN discovery.
+      case 'hardware': {
+        const [hw, fc, ch] = await Promise.all([
+          api('GET', `/devices/${id}/hardware`),
+          api('GET', `/devices/${id}/forecast`).catch(() => ({})),
+          api('GET', `/devices/${id}/changes?days=7`).catch(() => ({})),
+        ]);
+        body.innerHTML = _renderHardwareSection(id, hw || {}, fc || {}, ch || {});
+        const disks = (hw && hw.smart) || [];
+        const failed = disks.filter(d => d.health && d.health !== 'PASSED').length;
+        badge.textContent = failed ? `${failed} disk alert${failed>1?'s':''}`
+                          : (disks.length ? `${disks.length} disk${disks.length>1?'s':''}` : 'no data');
+        if (disks.length) {
+          tableCtl.wireSortOnly('hw-smart-thead', 'hw_smart',
+            () => _loadAuditSectionForce('hardware'));
+        }
+        break;
+      }
+
+      case 'helm': {
+        const data = await api('GET', `/devices/${id}/helm`);
+        const rels = (data && data.releases) || [];
+        if (!rels.length) {
+          body.innerHTML = '<div class="c-muted">No Helm releases reported. The agent runs <code>helm list -A</code> when helm + a kubeconfig are present.</div>';
+          badge.textContent = 'none';
+          break;
+        }
+        tableCtl.wireSortOnly('helm-thead', 'helm', () => _loadAuditSectionForce('helm'));
+        const rows = tableCtl.sortRows('helm', rels, r => ({
+          name: r.name, namespace: r.namespace, chart: r.chart,
+          status: r.status, revision: parseInt(r.revision, 10) || 0,
+        }));
+        body.innerHTML = `<table class="audit-table">
+          <thead id="helm-thead"><tr>
+            <th data-col="name">Release</th><th data-col="namespace">Namespace</th>
+            <th data-col="chart">Chart</th><th data-col="status">Status</th>
+            <th data-col="revision">Rev</th></tr></thead>
+          <tbody>` + rows.map(r => {
+            const ok = String(r.status).toLowerCase() === 'deployed';
+            return `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.namespace)}</td>
+              <td><code>${escHtml(r.chart)}</code></td>
+              <td class="${ok?'c-green':'c-amber'}">${escHtml(r.status)}</td>
+              <td class="ta-center">${escHtml(r.revision)}</td></tr>`;
+          }).join('') + `</tbody></table>`;
+        badge.textContent = `${rels.length} release${rels.length>1?'s':''}`;
+        break;
+      }
+
       default:
         body.innerHTML = `<div class="c-muted">Section "${key}" not implemented.</div>`;
     }
@@ -13893,6 +13958,155 @@ async function _loadAuditSection(key) {
     body.innerHTML = `<div class="c-red">Error loading: ${escHtml(String(err))}</div>`;
     if (_drawerAuditLoaded[key]) delete _drawerAuditLoaded[key]; // allow retry
   }
+}
+
+// v3.4.0: force a re-render of one audit section (used by sort + after an
+// on-demand action completes).
+function _loadAuditSectionForce(key) {
+  _drawerAuditLoaded[key] = true;
+  _loadAuditSection(key);
+}
+
+function _fmtDays(d) {
+  if (d == null) return '—';
+  if (d < 1)   return '<1 day';
+  if (d < 60)  return `${Math.round(d)} days`;
+  return `${(d/30).toFixed(1)} months`;
+}
+
+function _renderHardwareSection(id, hw, fc, ch) {
+  let h = '';
+  const k = hw.kernel || {};
+
+  // ── Kernel / livepatch ────────────────────────────────────────────
+  if (k.running) {
+    const stale = k.reboot_for_kernel;
+    h += `<div class="hw-block"><div class="hw-h">Kernel</div>
+      <div class="sysinfo-row isl-610">
+        <div class="sysinfo-pill"><div class="label">Running</div><div class="value"><code>${escHtml(k.running)}</code></div></div>
+        ${k.latest_installed ? `<div class="sysinfo-pill"><div class="label">Newest installed</div><div class="value"><code>${escHtml(k.latest_installed)}</code></div></div>` : ''}
+        <div class="sysinfo-pill"><div class="label">Reboot for kernel</div><div class="value ${stale?'c-amber':'c-green'}">${stale ? 'Yes — newer kernel installed' : 'No'}</div></div>
+        ${k.livepatch ? `<div class="sysinfo-pill"><div class="label">Livepatch</div><div class="value">${escHtml(k.livepatch.provider||'')} ${k.livepatch.patched?'<span class="c-green">applied</span>':''}</div></div>` : ''}
+      </div></div>`;
+  }
+
+  // ── SMART ──────────────────────────────────────────────────────────
+  const disks = hw.smart || [];
+  if (disks.length) {
+    const sorted = tableCtl.sortRows('hw_smart', disks, d => ({
+      device: d.device, health: d.health, model: d.model,
+      realloc: d.reallocated_sectors || 0, pending: d.pending_sectors || 0,
+      temp: d.temperature_c || 0, hours: d.power_on_hours || 0,
+    }));
+    h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
+      <table class="audit-table"><thead id="hw-smart-thead"><tr>
+        <th data-col="device">Device</th><th data-col="model">Model</th>
+        <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
+        <th data-col="pending">Pending</th><th data-col="temp">Temp</th>
+        <th data-col="hours">Power-on h</th></tr></thead><tbody>` +
+      sorted.map(d => {
+        const ok = d.health === 'PASSED';
+        return `<tr><td><code>${escHtml(d.device)}</code></td>
+          <td>${escHtml(d.model||'—')}</td>
+          <td class="${ok?'c-green':'c-red'}">${escHtml(d.health||'?')}</td>
+          <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
+          <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
+          <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
+          <td class="ta-center">${d.power_on_hours??'—'}</td></tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
+
+  // ── Forecast ───────────────────────────────────────────────────────
+  const mounts = (fc && fc.mounts) || [];
+  const risers = mounts.filter(m => m.days_to_full != null);
+  if (risers.length) {
+    h += `<div class="hw-block"><div class="hw-h">Disk-fill forecast <span class="c-muted fs-11">(${fc.sample_days||0} daily samples)</span></div>
+      <table class="audit-table"><thead><tr>
+        <th>Mount</th><th>Used</th><th>Trend</th><th>Fills in</th></tr></thead><tbody>` +
+      risers.map(m => `<tr><td><code>${escHtml(m.path)}</code></td>
+        <td class="ta-center">${m.current_percent}%</td>
+        <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
+        <td class="ta-center ${m.days_to_full<14?'c-red':m.days_to_full<45?'c-amber':''}">${_fmtDays(m.days_to_full)}</td></tr>`
+      ).join('') + `</tbody></table></div>`;
+  }
+
+  // ── What changed (7 days) ──────────────────────────────────────────
+  const changes = (ch && ch.changes) || [];
+  if (changes.length) {
+    h += `<div class="hw-block"><div class="hw-h">What changed (last 7 days)</div>
+      <ul class="hw-changes">` + changes.map(c => `<li>${escHtml(c)}</li>`).join('') + `</ul></div>`;
+  }
+
+  // ── Passive inventory ──────────────────────────────────────────────
+  const inv = hw.hardware || {};
+  if (inv.system || (inv.memory||[]).length || (inv.temps||[]).length || (inv.raid||[]).length) {
+    h += `<div class="hw-block"><div class="hw-h">Inventory</div>`;
+    if (inv.system) {
+      h += `<div class="mb-8">${['manufacturer','product','serial'].filter(x=>inv.system[x]).map(x=>`<span class="cmd-badge fs-11">${x}: ${escHtml(inv.system[x])}</span>`).join(' ')}</div>`;
+    }
+    if ((inv.memory||[]).length) {
+      h += `<div class="fs-11 c-muted mb-4">Memory (${inv.memory.length} module${inv.memory.length>1?'s':''})</div>
+        <table class="audit-table"><thead><tr><th>Slot</th><th>Size</th><th>Type</th><th>Speed</th></tr></thead><tbody>` +
+        inv.memory.map(d=>`<tr><td>${escHtml(d.locator||'—')}</td><td>${escHtml(d.size||'—')}</td><td>${escHtml(d.type||'—')}</td><td>${escHtml(d.speed||'—')}</td></tr>`).join('') +
+        `</tbody></table>`;
+    }
+    if ((inv.raid||[]).length) {
+      h += `<div class="fs-11 c-muted mb-4 mt-8">RAID</div>` +
+        inv.raid.map(r=>`<span class="cmd-badge fs-11">${escHtml(r.name)} ${escHtml(r.level)} <span class="${/active|clean/i.test(r.state)?'c-green':'c-amber'}">${escHtml(r.state)}</span></span>`).join(' ');
+    }
+    if ((inv.temps||[]).length) {
+      const hot = inv.temps.filter(t=>t.current_c>=75);
+      h += `<div class="fs-11 c-muted mb-4 mt-8">Temperatures${hot.length?` — <span class="c-red">${hot.length} hot</span>`:''}</div>` +
+        inv.temps.slice(0,16).map(t=>`<span class="cmd-badge fs-11 ${t.current_c>=75?'c-red':''}">${escHtml(t.label)}: ${t.current_c}°C</span>`).join(' ');
+    }
+    h += `</div>`;
+  }
+
+  // ── On-demand actions: speedtest + LAN discovery ───────────────────
+  const st = (hw.speedtest || []).slice(-1)[0];
+  const disc = hw.discovery || {};
+  const unmanaged = (disc.hosts||[]).filter(x=>!x.managed);
+  h += `<div class="hw-block"><div class="hw-h">On-demand diagnostics</div>
+    <div class="hw-actions">
+      <button class="btn-secondary fs-12" data-action="deviceSpeedtest" data-arg="${escAttr(id)}">${_icon('zap',14)} Run speed test</button>
+      <button class="btn-secondary fs-12" data-action="deviceNetscan" data-arg="${escAttr(id)}">${_icon('search',14)} Scan LAN</button>
+    </div>`;
+  if (st) {
+    h += st.ok
+      ? `<div class="fs-12 mt-8">Last speed test: <b>${st.download_mbps}</b> Mbps down · <b>${st.upload_mbps}</b> Mbps up · ${st.ping_ms} ms ping <span class="c-muted">(${timeAgo(st.ts)})</span></div>`
+      : `<div class="fs-12 mt-8 c-amber">Last speed test failed: ${escHtml(st.error||'')}</div>`;
+  }
+  if ((disc.hosts||[]).length) {
+    h += `<div class="fs-12 mt-8">LAN scan (${escHtml(disc.method||'')}, ${timeAgo(disc.ts)}): ${disc.hosts.length} host${disc.hosts.length>1?'s':''}, <b>${unmanaged.length}</b> unmanaged.</div>`;
+  }
+  h += `</div>`;
+
+  return h || '<div class="c-muted">No hardware data reported yet. The agent collects SMART / kernel / inventory every ~5 reports.</div>';
+}
+
+async function toggleQuarantine(id, on) {
+  const r = await api('PATCH', `/devices/${id}/quarantine`, {quarantined: !!on});
+  if (r && r.ok) {
+    if (_drawerDeviceData) _drawerDeviceData.quarantined = r.quarantined;
+    toast(r.quarantined ? 'Device quarantined — actions disabled.'
+                        : 'Quarantine lifted.', 'success');
+  } else {
+    toast((r && r.error) || 'Failed', 'error');
+    const cb = document.getElementById('ds-quarantine');
+    if (cb) cb.checked = !on;   // revert on failure
+  }
+}
+
+async function deviceSpeedtest(id) {
+  const r = await api('POST', `/devices/${id}/speedtest`, {});
+  if (r && r.ok) toast('Speed test queued — result appears after the next agent poll.', 'success');
+  else toast((r && r.error) || 'Failed to queue', 'error');
+}
+
+async function deviceNetscan(id) {
+  const r = await api('POST', `/devices/${id}/netscan`, {});
+  if (r && r.ok) toast('LAN scan queued — result appears after the next agent poll.', 'success');
+  else toast((r && r.error) || 'Failed to queue', 'error');
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────

@@ -1730,8 +1730,8 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.0 rag retrieval augmented generation knowledge index infrastructure bm25 embeddings semantic search lexical reciprocal rank fusion ollama openai localai anthropic cmdb runbook cve vault redaction reindex test retrieval citations ai assistant">
-            <summary><strong>What's new — v3.4.0</strong> — RAG over your infrastructure</summary>
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.0 rag retrieval augmented generation knowledge index infrastructure bm25 embeddings semantic search lexical reciprocal rank fusion ollama openai localai anthropic cmdb runbook cve vault redaction reindex test retrieval citations ai assistant smart smartctl disk health kernel livepatch reboot dmidecode dimm memory raid sensors temperature hardware inventory forecast disk fill prediction what changed diff speedtest librespeed mbps network discovery nmap arp scan unmanaged quarantine helm kubernetes anomaly detection cron builder doc draft compliance pci hipaa soc2 controls audit">
+            <summary><strong>What's new — v3.4.0</strong> — RAG over your infrastructure + fleet health &amp; insights</summary>
             <div class="doc-body">
               <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.0</code>).</p>
 
@@ -1750,6 +1750,17 @@
               <ul>
                 <li>Enable/disable, choose which sources to index, turn on embeddings, set max chunks + history retention, and <strong>Rebuild index</strong> with a live status line (chunk count, build age, embedded count, staleness).</li>
                 <li>A <strong>Test retrieval</strong> box shows exactly which chunks a question pulls in (id · kind · device · excerpt, sortable) with no model call and no tokens spent. Endpoints: <code>GET /api/ai/rag/status</code>, <code>POST /api/ai/rag/reindex</code> (admin), <code>POST /api/ai/rag/search</code>.</li>
+              </ul>
+
+              <h4>Fleet health &amp; insights</h4>
+              <ul>
+                <li><strong>Disk SMART health, kernel &amp; hardware inventory.</strong> The agent reports <code>smartctl</code> health per disk (alerts on FAIL / pre-fail sectors), the running-vs-newest-installed kernel (reboot-needed flag + livepatch status), and a passive inventory — DIMMs, serials, temperatures, RAID — all in the device drawer's <strong>Health &amp; Hardware</strong> card. Best-effort; missing tools are skipped silently.</li>
+                <li><strong>Resource forecasting &amp; "what changed".</strong> A daily metrics snapshot drives a per-mount disk-fill projection (<em>"/ fills in ~18 days"</em>) and a diff of the last day/week — package deltas, opened/closed ports, failed/recovered units, disk growth.</li>
+                <li><strong>On-demand diagnostics.</strong> One-click <strong>speed test</strong> (librespeed → Mbps up/down + ping) and <strong>LAN discovery</strong> (passive ARP, or an nmap sweep) that surfaces unmanaged hosts on the network.</li>
+                <li><strong>Device quarantine.</strong> A per-device admin toggle that disables exec / reboot / all actions on sensitive hosts — enforced server-side and audited.</li>
+                <li><strong>Helm release status</strong> for hosts with <code>helm</code> + a kubeconfig (visibility only).</li>
+                <li><strong>AI insights, on demand.</strong> Fleet <strong>anomaly scan</strong>, a plain-English → <strong>cron builder</strong> (with validated next-run preview), RAG-aware <strong>runbook suggestions</strong>, and <strong>CMDB doc drafts</strong> from observed state.</li>
+                <li><strong>Compliance reports.</strong> A control-mapped PCI / HIPAA / SOC 2 checklist scored pass/fail/N-A from data already collected — an honest audit-prep aid, never a false pass.</li>
               </ul>
 
               <p>Forensic per-release detail lives in <code>CHANGELOG.md</code>, <code>docs/v3.4.0.md</code>, and the full reference <code>docs/rag.md</code>.</p>
