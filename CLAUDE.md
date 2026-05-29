@@ -96,5 +96,9 @@ When bumping to vX.Y.Z:
 7. Loosen previous `tests/test_vXYZ.py` strict pins to regex
 8. Create `docs/vX.Y.Z.md`
 9. New top entry in `CHANGELOG.md`
+10. Update the in-app Help/Documentation page (the "Documentation"
+    page in `server/html/index.html`, ~line 1653) and the full
+    reference `docs/Manual.html` so both describe the new version's
+    features — including the "What's new — vX.Y.Z" card.
 
 The `test_vXYZ.TestVersionBumps` class catches all of these.
