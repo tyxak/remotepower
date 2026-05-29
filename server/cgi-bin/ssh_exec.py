@@ -36,22 +36,26 @@ DSM_UPGRADE_LOG = "/var/log/dsm-upgrade.log"
 DSM_UPGRADE_SCRIPT = r"""#!/bin/bash
 set -uo pipefail
 echo "=== $(date) RemotePower: DSM upgrade ==="
-CHECK_RESULT="$(synoupgrade --check 2>&1 || true)"
+# Run privileged commands directly when we're root, else via non-interactive
+# sudo — so a dedicated, low-privilege user works as long as it has a
+# NOPASSWD sudoers entry for synoupgrade + reboot.
+if [[ "$(id -u)" -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
+CHECK_RESULT="$($SUDO synoupgrade --check 2>&1 || true)"
 echo "check: $CHECK_RESULT"
 if [[ "$CHECK_RESULT" != *"UPGRADE_CHECKNEWDSM"* ]]; then
     echo "No DSM update available — nothing to do."
     exit 0
 fi
 echo "Applying DSM update..."
-synoupgrade --autoupdate=1 || true
+$SUDO synoupgrade --autoupdate=1 || true
 echo "Waiting for the upgrade to initialise..."
 sleep 60
 echo "Forcing upgrade start..."
-synoupgrade --start-force || true
+$SUDO synoupgrade --start-force || true
 echo "Waiting before reboot..."
 sleep 120
 echo "Rebooting NAS..."
-reboot
+$SUDO reboot
 """
 
 

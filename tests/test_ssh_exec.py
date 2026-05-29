@@ -65,6 +65,8 @@ class TestSshExec(unittest.TestCase):
         # the script we send must drive synoupgrade + reboot
         self.assertIn("synoupgrade", ssh_exec.DSM_UPGRADE_SCRIPT)
         self.assertIn("reboot", ssh_exec.DSM_UPGRADE_SCRIPT)
+        # sudo-aware so a non-root dedicated user works (root runs direct)
+        self.assertIn("sudo -n", ssh_exec.DSM_UPGRADE_SCRIPT)
 
     def test_synology_upgrade_failure(self):
         with patch.object(ssh_exec, "run_script",
