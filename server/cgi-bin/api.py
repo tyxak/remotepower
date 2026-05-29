@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.3.4'
+SERVER_VERSION = '3.4.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -436,6 +436,8 @@ import tls_monitor
 import ai_provider
 # v2.1.7: Level-1 RAG context (project + fleet awareness)
 import ai_context
+# v3.4.0: Level-2/3 RAG — retrieval over the operator's own infrastructure.
+import rag_index
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -10482,6 +10484,8 @@ _AI_DEFAULTS = {
     'context': {
         'include_project_context': True,
         'include_fleet_context':   True,
+        # v3.4.0: per-query RAG retrieval into the system prompt.
+        'include_rag':             True,
     },
     'privacy': {
         'send_hostnames':  False,
@@ -10492,6 +10496,29 @@ _AI_DEFAULTS = {
     'limits': {
         'max_tokens_per_response':  4000,
         'max_requests_per_user_day': 100,
+    },
+    # v3.4.0: RAG over the operator's own infrastructure. Lexical (BM25)
+    # retrieval is always available and works with every provider —
+    # including Anthropic, which has no embeddings endpoint. Embeddings are
+    # an optional semantic-rerank layer, off by default because for cloud
+    # providers they egress indexed content; the UI pre-checks the toggle
+    # for local providers (Ollama / LocalAI) where there's no egress.
+    'rag': {
+        'enabled': True,
+        'sources': {
+            'docs':       True,
+            'live_state': True,
+            'cmdb':       True,
+            'history':    True,
+        },
+        'embeddings_enabled': False,
+        'embedding_model':    '',
+        'max_chunks': 6,
+        'max_chars':  4000,
+        'history_limits': {
+            'commands_per_device': 20,
+            'max_age_days':        14,
+        },
     },
 }
 
@@ -10508,6 +10535,15 @@ def _ai_cfg():
     out['limits'].update((cfg.get('limits') or {}))
     out['context'] = dict(_AI_DEFAULTS['context'])
     out['context'].update((cfg.get('context') or {}))
+    # v3.4.0: RAG config — merge nested dicts explicitly like the others.
+    out['rag'] = dict(_AI_DEFAULTS['rag'])
+    _rag_in = cfg.get('rag') or {}
+    out['rag'].update({k: v for k, v in _rag_in.items()
+                       if k in _AI_DEFAULTS['rag']})
+    out['rag']['sources'] = dict(_AI_DEFAULTS['rag']['sources'])
+    out['rag']['sources'].update((_rag_in.get('sources') or {}))
+    out['rag']['history_limits'] = dict(_AI_DEFAULTS['rag']['history_limits'])
+    out['rag']['history_limits'].update((_rag_in.get('history_limits') or {}))
     return out
 
 
@@ -10569,11 +10605,41 @@ def handle_ai_config_set():
             if isinstance(rl, int) and 0 <= rl <= 100000:
                 cur['limits']['max_requests_per_user_day'] = rl
         # v2.1.7: project + fleet context toggles
+        # v3.4.0: + include_rag (per-query retrieval) toggle
         if isinstance(body.get('context'), dict):
             cur['context'] = dict(cur.get('context') or {})
-            for k in ('include_project_context', 'include_fleet_context'):
+            for k in ('include_project_context', 'include_fleet_context',
+                      'include_rag'):
                 if k in body['context']:
                     cur['context'][k] = bool(body['context'][k])
+        # v3.4.0: RAG config — allow-listed nested merge.
+        if isinstance(body.get('rag'), dict):
+            rb = body['rag']
+            cur['rag'] = dict(cur.get('rag') or _AI_DEFAULTS['rag'])
+            for k in ('enabled', 'embeddings_enabled'):
+                if k in rb:
+                    cur['rag'][k] = bool(rb[k])
+            if isinstance(rb.get('embedding_model'), str):
+                cur['rag']['embedding_model'] = rb['embedding_model'][:120]
+            mc = rb.get('max_chunks')
+            if isinstance(mc, int) and 1 <= mc <= 30:
+                cur['rag']['max_chunks'] = mc
+            mch = rb.get('max_chars')
+            if isinstance(mch, int) and 200 <= mch <= 20000:
+                cur['rag']['max_chars'] = mch
+            if isinstance(rb.get('sources'), dict):
+                cur['rag']['sources'] = dict(cur['rag'].get('sources') or {})
+                for k in ('docs', 'live_state', 'cmdb', 'history'):
+                    if k in rb['sources']:
+                        cur['rag']['sources'][k] = bool(rb['sources'][k])
+            if isinstance(rb.get('history_limits'), dict):
+                hl = cur['rag'].setdefault('history_limits', {})
+                cpd = rb['history_limits'].get('commands_per_device')
+                if isinstance(cpd, int) and 0 <= cpd <= 500:
+                    hl['commands_per_device'] = cpd
+                mad = rb['history_limits'].get('max_age_days')
+                if isinstance(mad, int) and 0 <= mad <= 3650:
+                    hl['max_age_days'] = mad
         # Validate before saving
         ok, err = ai_provider.validate_config(cur)
         if not ok:
@@ -10604,6 +10670,327 @@ def _ai_rate_limit_check(actor, cfg):
             return False, used, cap
         usage[key] = used + 1
     return True, used + 1, cap
+
+
+# ─── v3.4.0: RAG over your infrastructure ──────────────────────────────────
+#
+# The retrieval engine itself lives in rag_index.py (pure, stdlib, testable).
+# Everything below is the api.py-side plumbing: gathering the corpus from the
+# live JSON stores, persisting the index, driving embeddings through
+# ai_provider, and the three endpoints. The corpus is rebuilt lazily on chat
+# when any enabled source file is newer than the index, and on demand via
+# /api/ai/rag/reindex.
+
+_RAG_LOCAL_PROVIDERS = ('ollama', 'localai')
+# Hard ceiling on chunks embedded in a single reindex pass — protects against
+# a runaway cloud-embedding bill and keeps a reindex bounded in time.
+_RAG_MAX_EMBED_PER_RUN = 2000
+
+
+def _rag_embeddings_active(cfg):
+    """True if semantic embeddings should be used for this config.
+
+    Requires: RAG enabled, the provider has an embeddings endpoint, and the
+    operator turned embeddings on. (The UI pre-checks the toggle for local
+    providers, where there's no data egress, but we always honour the stored
+    flag rather than second-guessing it here.)
+    """
+    rag = cfg.get('rag') or {}
+    return bool(rag.get('enabled')
+                and ai_provider.supports_embeddings(cfg)
+                and rag.get('embeddings_enabled'))
+
+
+def _rag_read_docs():
+    """Read product Markdown docs from RAG_DOCS_DIR as (name, text) pairs.
+
+    Returns [] (not an error) if the directory is absent — that's the normal
+    case on a dev box or a fresh install before deploy-server.sh has run."""
+    out = []
+    try:
+        if not RAG_DOCS_DIR.is_dir():
+            return out
+        for p in sorted(RAG_DOCS_DIR.glob('*.md')):
+            try:
+                out.append((p.stem, p.read_text(errors='replace')))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def _rag_source_files(sources):
+    """The set of store files whose mtime determines index staleness, given
+    the enabled sources. Used for lazy-rebuild detection."""
+    files = []
+    if sources.get('docs'):
+        files.append(RUNBOOKS_FILE)
+        if RAG_DOCS_DIR.is_dir():
+            files.extend(RAG_DOCS_DIR.glob('*.md'))
+    if sources.get('live_state'):
+        files += [DEVICES_FILE, CVE_FINDINGS_FILE, CONTAINERS_FILE,
+                  SNMP_DATA_FILE]
+    if sources.get('cmdb'):
+        files.append(CMDB_FILE)
+    if sources.get('history'):
+        files += [CMD_OUTPUT_FILE, ALERTS_FILE, FLEET_EVENTS_FILE]
+    return files
+
+
+def _rag_newest_mtime(sources):
+    newest = 0
+    for f in _rag_source_files(sources):
+        try:
+            newest = max(newest, int(f.stat().st_mtime))
+        except Exception:
+            continue
+    return newest
+
+
+def _rag_build_corpus(cfg):
+    """Gather all enabled sources into one list of corpus documents.
+
+    This is where the shape knowledge of each live store lives; rag_index's
+    builders stay generic. Each source is wrapped so a malformed store can't
+    abort the whole reindex.
+    """
+    rag = cfg.get('rag') or {}
+    sources = rag.get('sources') or {}
+    now = int(time.time())
+    docs = []
+
+    if sources.get('docs'):
+        try:
+            docs += rag_index.build_docs_corpus(_rag_read_docs())
+            docs += rag_index.build_runbooks_corpus(load(RUNBOOKS_FILE))
+        except Exception as e:
+            sys.stderr.write(f'rag: docs source failed: {e}\n')
+
+    if sources.get('live_state'):
+        try:
+            raw = load(DEVICES_FILE)
+            devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
+            cve = load(CVE_FINDINGS_FILE) or {}
+            containers = load(CONTAINERS_FILE) or {}
+            snmp = load(SNMP_DATA_FILE) or {}
+            facets = {}
+            for d in devices:
+                dev_id = d.get('id') or d.get('name')
+                if not dev_id:
+                    continue
+                f = {}
+                if cve.get(dev_id):
+                    f['cves'] = (cve[dev_id].get('findings')
+                                 if isinstance(cve[dev_id], dict) else cve[dev_id])
+                cont = containers.get(dev_id) if isinstance(containers, dict) else None
+                if isinstance(cont, dict) and cont.get('items'):
+                    f['containers'] = cont['items']
+                if snmp.get(dev_id):
+                    f['snmp'] = snmp[dev_id]
+                if f:
+                    facets[dev_id] = f
+            docs += rag_index.build_live_state_corpus(devices, facets=facets, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: live_state source failed: {e}\n')
+
+    if sources.get('cmdb'):
+        try:
+            docs += rag_index.build_cmdb_corpus(_cmdb_load())
+        except Exception as e:
+            sys.stderr.write(f'rag: cmdb source failed: {e}\n')
+
+    if sources.get('history'):
+        try:
+            privacy = cfg.get('privacy') or {}
+            redactor = (lambda t: ai_provider.redact(t, privacy))
+            alerts = (load(ALERTS_FILE) or {}).get('alerts') or []
+            events = (load(FLEET_EVENTS_FILE) or {}).get('events') or []
+            docs += rag_index.build_history_corpus(
+                commands=load(CMD_OUTPUT_FILE) or {},
+                alerts=alerts, events=events,
+                limits=rag.get('history_limits') or {},
+                redactor=redactor, now=now)
+        except Exception as e:
+            sys.stderr.write(f'rag: history source failed: {e}\n')
+
+    return docs
+
+
+def _rag_load_index():
+    """Load the persisted index, or an empty one if absent/corrupt."""
+    return rag_index.InfraIndex.from_dict(load(RAG_INDEX_FILE))
+
+
+def _rag_embed_missing(cfg, idx, cap=_RAG_MAX_EMBED_PER_RUN):
+    """Embed any not-yet-embedded chunks in batches. Returns (embedded, error).
+    Best-effort: a provider failure leaves the lexical index fully usable."""
+    if not _rag_embeddings_active(cfg):
+        return 0, None
+    missing = idx.missing_embeddings()
+    if not missing:
+        return 0, None
+    missing = missing[:cap]
+    batch = ai_provider.MAX_EMBED_INPUTS
+    vecs = {}
+    model = ''
+    for i in range(0, len(missing), batch):
+        chunk = missing[i:i + batch]
+        res = ai_provider.embed(cfg, [t for _, t in chunk])
+        if not res.get('ok'):
+            # Save what we have so far; report the error.
+            idx.set_embeddings(vecs, model)
+            return len(vecs), res.get('error')
+        model = res.get('model', model)
+        for (h, _), v in zip(chunk, res['vectors']):
+            vecs[h] = v
+    idx.set_embeddings(vecs, model)
+    return len(vecs), None
+
+
+def _rag_reindex(cfg):
+    """Full reindex: rebuild the corpus + lexical index (preserving the
+    embedding cache across rebuilds), then embed new chunks if enabled.
+    Persists and returns the stats dict (with an optional embed_error)."""
+    idx = _rag_load_index()                  # keep existing embedding cache
+    idx.build(_rag_build_corpus(cfg), built_at=int(time.time()))
+    embedded, err = _rag_embed_missing(cfg, idx)
+    save(RAG_INDEX_FILE, idx.to_dict())
+    stats = idx.stats()
+    stats['embeddings_active'] = _rag_embeddings_active(cfg)
+    if err:
+        stats['embed_error'] = err
+    return stats
+
+
+def _rag_get_index(cfg):
+    """Return a ready-to-search index, rebuilding lazily if any enabled
+    source is newer than the persisted index. Never raises — on any failure
+    returns whatever index we could load (possibly empty)."""
+    try:
+        idx = _rag_load_index()
+        sources = (cfg.get('rag') or {}).get('sources') or {}
+        if idx.stats()['docs'] == 0 or _rag_newest_mtime(sources) > idx.built_at:
+            idx.build(_rag_build_corpus(cfg), built_at=int(time.time()))
+            _rag_embed_missing(cfg, idx)
+            save(RAG_INDEX_FILE, idx.to_dict())
+        return idx
+    except Exception as e:
+        sys.stderr.write(f'rag: get_index failed: {e}\n')
+        return rag_index.InfraIndex()
+
+
+def _rag_retrieve(cfg, query):
+    """Retrieve the top chunks for a query. Returns [] on any failure so a
+    retrieval problem can never break the chat path."""
+    rag = cfg.get('rag') or {}
+    if not rag.get('enabled') or not (query or '').strip():
+        return []
+    try:
+        idx = _rag_get_index(cfg)
+        if idx.stats()['docs'] == 0:
+            return []
+        query_vec = None
+        if _rag_embeddings_active(cfg) and idx.has_embeddings():
+            res = ai_provider.embed(cfg, [query])
+            if res.get('ok') and res.get('vectors'):
+                query_vec = res['vectors'][0]
+        top_n = int(rag.get('max_chunks', 6))
+        chunks = idx.search(query, top_n=top_n, query_vec=query_vec)
+        # Trim total size to the operator's char budget.
+        budget = int(rag.get('max_chars', 4000))
+        out, used = [], 0
+        for c in chunks:
+            t = c.get('text', '')
+            if used + len(t) > budget and out:
+                break
+            out.append(c)
+            used += len(t)
+        return out
+    except Exception as e:
+        sys.stderr.write(f'rag: retrieve failed: {e}\n')
+        return []
+
+
+def handle_ai_rag_status():
+    """GET /api/ai/rag/status — index freshness + counts (any authed user)."""
+    require_auth()
+    cfg = _ai_cfg()
+    idx = _rag_load_index()
+    sources = (cfg.get('rag') or {}).get('sources') or {}
+    stats = idx.stats()
+    newest = _rag_newest_mtime(sources)
+    respond(200, {
+        'enabled':           bool((cfg.get('rag') or {}).get('enabled')),
+        'config':            cfg.get('rag'),
+        'provider':          cfg.get('provider'),
+        'supports_embeddings': ai_provider.supports_embeddings(cfg),
+        'embeddings_active': _rag_embeddings_active(cfg),
+        'stale':             newest > stats['built_at'],
+        'newest_source':     newest,
+        **stats,
+    })
+
+
+def handle_ai_rag_reindex():
+    """POST /api/ai/rag/reindex — rebuild the corpus + index (admin only)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _ai_cfg()
+    if not (cfg.get('rag') or {}).get('enabled'):
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+    t0 = time.monotonic()
+    stats = _rag_reindex(cfg)
+    stats['elapsed_ms'] = int((time.monotonic() - t0) * 1000)
+    audit_log(actor, 'ai_rag_reindex',
+              detail=f"docs={stats.get('docs')} embedded={stats.get('embedded')} "
+                     f"elapsed_ms={stats['elapsed_ms']}")
+    respond(200, {'ok': True, **stats})
+
+
+def handle_ai_rag_search():
+    """POST /api/ai/rag/search — debug/standalone retrieval, no LLM call.
+    Body: {"query": "...", "top_n": optional int}. Any authed user."""
+    require_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = _ai_cfg()
+    if not (cfg.get('rag') or {}).get('enabled'):
+        respond(400, {'error': 'RAG is disabled. Enable it in Settings → AI.'})
+    body = get_json_body()
+    query = str(body.get('query', '') or '').strip()
+    if not query:
+        respond(400, {'error': 'query is required'})
+    if len(query) > 2000:
+        respond(400, {'error': 'query too long'})
+    top_n = body.get('top_n')
+    rag = cfg.get('rag') or {}
+    if not (isinstance(top_n, int) and 1 <= top_n <= 30):
+        top_n = int(rag.get('max_chunks', 6))
+    idx = _rag_get_index(cfg)
+    query_vec = None
+    if _rag_embeddings_active(cfg) and idx.has_embeddings():
+        res = ai_provider.embed(cfg, [query])
+        if res.get('ok') and res.get('vectors'):
+            query_vec = res['vectors'][0]
+    hits = idx.search(query, top_n=top_n, query_vec=query_vec)
+    # Return citation-friendly results; truncate bodies for the UI.
+    results = [{
+        'id':     h['id'],
+        'title':  h.get('title'),
+        'source': h.get('source'),
+        'type':   h.get('type'),
+        'device': h.get('device'),
+        'ts':     h.get('ts'),
+        'excerpt': (h.get('text', '') or '')[:600],
+    } for h in hits]
+    respond(200, {
+        'ok': True,
+        'query': query,
+        'semantic': query_vec is not None,
+        'results': results,
+    })
 
 
 def handle_ai_chat():
@@ -10666,12 +11053,25 @@ def handle_ai_chat():
             # If devices.json can't be read, just skip fleet context —
             # the AI call should still work, just with less awareness.
             fleet_devices = None
-    if include_project or fleet_devices:
+    # v3.4.0: Level-2/3 RAG — retrieve infra chunks relevant to the latest
+    # user turn and inject them as a <retrieved_context> block. Gated by the
+    # context toggle AND the rag.enabled flag; never allowed to break chat.
+    include_rag = bool(ctx_opts.get('include_rag', True))
+    retrieved = None
+    if include_rag and (cfg.get('rag') or {}).get('enabled'):
+        last_user = next((m.get('content') for m in reversed(messages)
+                          if isinstance(m, dict) and m.get('role') == 'user'
+                          and isinstance(m.get('content'), str)), '')
+        if last_user:
+            retrieved = _rag_retrieve(cfg, last_user)
+
+    if include_project or fleet_devices or retrieved:
         system_prompt = ai_context.build_combined_system_prompt(
             system_prompt,
             devices=fleet_devices,
             include_project=include_project,
             include_fleet=include_fleet and fleet_devices is not None,
+            retrieved=retrieved,
             now=int(time.time()),
             ttl=get_online_ttl(),
         )
@@ -10810,6 +11210,17 @@ def handle_ai_test():
 # requirement as /api/ai/chat applies.
 
 RUNBOOKS_FILE = DATA_DIR / 'runbooks.json'
+
+# v3.4.0: RAG index. The lexical postings, the corpus chunks, and the
+# embedding cache (keyed by content hash) all live in one file, persisted
+# via load()/save() so it inherits the same locking + .bak durability as
+# every other store. RAG_DOCS_DIR is where deploy-server.sh installs the
+# product Markdown docs so the CGI can index them ("how do I do X in
+# RemotePower"); it's outside the web root and read-only at runtime. If
+# the directory is absent (dev box, fresh install) the docs source is
+# simply skipped — never an error.
+RAG_INDEX_FILE = DATA_DIR / 'rag_index.json'
+RAG_DOCS_DIR   = Path(os.environ.get('RP_DOCS_DIR', str(DATA_DIR / 'docs')))
 
 
 def _build_runbook_snapshot(dev_id, devices):
@@ -20530,6 +20941,10 @@ def main():
     elif pi == '/api/ai/test'   and m == 'POST': handle_ai_test()
     elif pi == '/api/ai/models' and m == 'GET':  handle_ai_models()
     elif pi == '/api/ai/stats'  and m == 'GET':  handle_ai_stats()
+    # v3.4.0: RAG over your infrastructure
+    elif pi == '/api/ai/rag/status'  and m == 'GET':  handle_ai_rag_status()
+    elif pi == '/api/ai/rag/reindex' and m == 'POST': handle_ai_rag_reindex()
+    elif pi == '/api/ai/rag/search'  and m == 'POST': handle_ai_rag_search()
     # v2.1.7: per-device AI-generated runbooks
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
         handle_runbook_get(pi[len('/api/devices/'):-len('/runbook')])

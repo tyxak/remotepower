@@ -8213,7 +8213,21 @@ async function loadAISettings() {
   const ctx = cfg.context || {};
   document.getElementById('ai-ctx-project').checked = ctx.include_project_context !== false;
   document.getElementById('ai-ctx-fleet').checked   = ctx.include_fleet_context !== false;
+  document.getElementById('ai-ctx-rag').checked     = ctx.include_rag !== false;
+  // v3.4.0: RAG config
+  const rag = cfg.rag || {};
+  const rs  = rag.sources || {};
+  document.getElementById('ai-rag-enabled').checked     = rag.enabled !== false;
+  document.getElementById('ai-rag-src-docs').checked    = rs.docs !== false;
+  document.getElementById('ai-rag-src-live').checked    = rs.live_state !== false;
+  document.getElementById('ai-rag-src-cmdb').checked    = rs.cmdb !== false;
+  document.getElementById('ai-rag-src-history').checked = !!rs.history;
+  document.getElementById('ai-rag-embeddings').checked  = !!rag.embeddings_enabled;
+  document.getElementById('ai-rag-embed-model').value   = rag.embedding_model || '';
+  document.getElementById('ai-rag-max-chunks').value    = rag.max_chunks ?? 6;
+  document.getElementById('ai-rag-history-days').value  = (rag.history_limits || {}).max_age_days ?? 14;
   onAIProviderChange();   // refresh per-provider hint
+  loadRAGStatus();        // index freshness + counts
 }
 
 function onAIProviderChange() {
@@ -8231,6 +8245,118 @@ function onAIProviderChange() {
   document.getElementById('ai-api-key').disabled = local;
   if (local) document.getElementById('ai-api-key').placeholder =
     '(not required for local providers)';
+  // v3.4.0: embeddings availability + egress guidance per provider.
+  const embChk  = document.getElementById('ai-rag-embeddings');
+  const embHint = document.getElementById('ai-rag-embeddings-hint');
+  if (embChk && embHint) {
+    const supports = (provider === 'openai' || provider === 'ollama' || provider === 'localai');
+    embChk.disabled = !supports;
+    if (!supports) {
+      embChk.checked = false;
+      embHint.textContent = `${provider} has no embeddings endpoint — lexical (keyword) search is used. Run a local Ollama embedding model for semantic search.`;
+      embHint.style.color = 'var(--muted)';
+    } else if (local) {
+      embHint.textContent = 'Local provider — embeddings stay on-prem, no data egress. Recommended.';
+      embHint.style.color = 'var(--green)';
+    } else {
+      embHint.textContent = `Embeddings send indexed content to ${provider} (data egress). Leave off if that's a concern.`;
+      embHint.style.color = 'var(--amber, var(--muted))';
+    }
+  }
+}
+
+// ── v3.4.0: RAG index controls ─────────────────────────────────────────────
+
+function _ragFmtAge(builtAt) {
+  if (!builtAt) return 'never built';
+  const secs = Math.max(0, Math.floor(Date.now() / 1000) - builtAt);
+  if (secs < 60)    return 'just now';
+  if (secs < 3600)  return `${Math.floor(secs / 60)} min ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
+  return `${Math.floor(secs / 86400)} d ago`;
+}
+
+async function loadRAGStatus() {
+  const el = document.getElementById('ai-rag-status');
+  if (!el) return;
+  const s = await api('GET', '/ai/rag/status');
+  if (!s || s.error) { el.textContent = s?.error ? `(${s.error})` : ''; return; }
+  const bits = [`${s.docs || 0} chunks indexed`, `built ${_ragFmtAge(s.built_at)}`];
+  if (s.embedded)  bits.push(`${s.embedded} embedded (${s.emb_model || 'semantic'})`);
+  if (s.stale)     bits.push('— sources changed since last build');
+  el.textContent = bits.join(' · ');
+  el.style.color = s.stale ? 'var(--amber, var(--muted))' : 'var(--muted)';
+}
+
+async function aiRagReindex() {
+  const el = document.getElementById('ai-rag-status');
+  if (el) { el.textContent = 'Rebuilding index…'; el.style.color = 'var(--muted)'; }
+  // Persist any unsaved config first — reindex reads server-side config.
+  const saved = await saveAISettings();
+  if (!saved) { if (el) { el.textContent = '(save failed)'; el.style.color = 'var(--red)'; } return; }
+  const r = await api('POST', '/ai/rag/reindex', {});
+  if (r && r.ok) {
+    let msg = `Rebuilt: ${r.docs} chunks in ${r.elapsed_ms} ms`;
+    if (r.embedded) msg += ` · ${r.embedded} embedded`;
+    if (r.embed_error) msg += ` · embeddings: ${r.embed_error}`;
+    toast(msg, r.embed_error ? 'error' : 'success');
+    loadRAGStatus();
+  } else {
+    toast('Reindex: ' + (r?.error || 'unknown error'), 'error');
+    if (el) { el.textContent = '✗ ' + (r?.error || 'failed'); el.style.color = 'var(--red)'; }
+  }
+}
+
+// Last search results, kept module-scoped so the sort re-render can re-use
+// them without re-querying the server.
+let _ragSearchRows = [];
+
+async function aiRagTestSearch() {
+  const query = document.getElementById('ai-rag-query').value.trim();
+  const out = document.getElementById('ai-rag-search-result');
+  if (!query) { out.innerHTML = ''; return; }
+  out.innerHTML = '<div class="meta-sm">Searching…</div>';
+  const r = await api('POST', '/ai/rag/search', { query });
+  if (!r || r.error) { out.innerHTML = `<div class="meta-sm err-text">${escHtml(r?.error || 'search failed')}</div>`; return; }
+  _ragSearchRows = r.results || [];
+  if (!_ragSearchRows.length) {
+    out.innerHTML = '<div class="meta-sm">No matching chunks. Try different terms, or rebuild the index if it looks stale.</div>';
+    return;
+  }
+  _ragRenderSearch(r.semantic);
+}
+
+function _ragRenderSearch(semantic) {
+  const out = document.getElementById('ai-rag-search-result');
+  if (!out) return;
+  // Apply the stored sort to the rows before building the table; the
+  // thead is wired (with ↕ indicators) right after innerHTML below, since
+  // this renderer rebuilds the whole table — header included — each call.
+  const sorted = tableCtl.sortRows('ai-rag-results', _ragSearchRows, r => ({
+    rank:   _ragSearchRows.indexOf(r),
+    source: r.source || '',
+    device: r.device || '',
+    id:     r.id || '',
+  }));
+  const rows = sorted.map(r => `
+    <tr>
+      <td><code>${escHtml(r.id)}</code></td>
+      <td>${escHtml(r.source || '')}</td>
+      <td>${escHtml(r.device || '—')}</td>
+      <td class="meta-sm">${escHtml((r.excerpt || '').slice(0, 240))}${(r.excerpt || '').length > 240 ? '…' : ''}</td>
+    </tr>`).join('');
+  out.innerHTML = `
+    <div class="meta-sm isl-778">${_ragSearchRows.length} result(s) · ${semantic ? 'lexical + semantic (embeddings)' : 'lexical (keyword)'} retrieval</div>
+    <table class="fs-13">
+      <thead id="ai-rag-results-thead"><tr>
+        <th data-col="id">Source id</th>
+        <th data-col="source">Kind</th>
+        <th data-col="device">Device</th>
+        <th>Excerpt</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  tableCtl.wireSortOnly('ai-rag-results-thead', 'ai-rag-results', () => _ragRenderSearch(semantic));
 }
 
 async function saveAISettings() {
@@ -8252,6 +8378,22 @@ async function saveAISettings() {
     context: {
       include_project_context: document.getElementById('ai-ctx-project').checked,
       include_fleet_context:   document.getElementById('ai-ctx-fleet').checked,
+      include_rag:             document.getElementById('ai-ctx-rag').checked,
+    },
+    rag: {
+      enabled:            document.getElementById('ai-rag-enabled').checked,
+      embeddings_enabled: document.getElementById('ai-rag-embeddings').checked,
+      embedding_model:    document.getElementById('ai-rag-embed-model').value.trim(),
+      max_chunks:         parseInt(document.getElementById('ai-rag-max-chunks').value, 10) || 6,
+      sources: {
+        docs:       document.getElementById('ai-rag-src-docs').checked,
+        live_state: document.getElementById('ai-rag-src-live').checked,
+        cmdb:       document.getElementById('ai-rag-src-cmdb').checked,
+        history:    document.getElementById('ai-rag-src-history').checked,
+      },
+      history_limits: {
+        max_age_days: parseInt(document.getElementById('ai-rag-history-days').value, 10) || 14,
+      },
     },
   };
   // Only submit api_key if the user typed something — keeps the existing

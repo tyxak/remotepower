@@ -191,11 +191,44 @@ def build_fleet_context(devices, max_devices=80, now=None, ttl=300):
     return '\n'.join(lines)
 
 
+# ── Retrieved context (v3.4.0: Level-2/3 RAG) ───────────────────────────────
+
+def build_retrieved_context(chunks):
+    """Render retrieved corpus chunks into a prompt block.
+
+    `chunks` is the list of doc dicts returned by rag_index.InfraIndex.
+    search() — each has id, title, ts, text. We prefix every chunk with a
+    bracketed citation header `[id · date]` and instruct the model to cite
+    those ids, so an operator can trace any claim back to the indexed
+    source (a device facet, a runbook section, a CMDB doc). Returns '' for
+    an empty list so the caller can decide whether to include the block.
+    """
+    if not chunks:
+        return ''
+    lines = [
+        "The following snippets were retrieved from this deployment's own "
+        "infrastructure index (device state, docs, CMDB, history) because "
+        "they appear relevant to the operator's request. Treat them as "
+        "ground truth about THIS fleet. When you rely on one, cite it by "
+        "its bracketed id, e.g. [live/web01#cves]. If they don't cover the "
+        "question, say so rather than guessing.",
+        "",
+    ]
+    for c in chunks:
+        ts = c.get('ts') or 0
+        when = time.strftime('%Y-%m-%d', time.gmtime(ts)) if ts else 'static'
+        title = c.get('title') or c.get('id')
+        lines.append(f"[{c.get('id')} · {when}] {title}")
+        lines.append(c.get('text', '').strip())
+        lines.append('')
+    return '\n'.join(lines).rstrip()
+
+
 # ── Composition ────────────────────────────────────────────────────────────
 
 def build_combined_system_prompt(base_prompt, *, devices=None,
                                   include_project=True, include_fleet=True,
-                                  now=None, ttl=300):
+                                  retrieved=None, now=None, ttl=300):
     """Stitch base_prompt with optional project + fleet context.
 
     base_prompt is the per-action system prompt (e.g. SYSTEM_PROMPTS[
@@ -220,13 +253,19 @@ def build_combined_system_prompt(base_prompt, *, devices=None,
         if fleet:
             blocks.append(fleet)
 
-    if not blocks:
+    # Retrieved context lives in its own tagged block, after the always-true
+    # <system_context>: it's per-query and authoritative-about-this-fleet,
+    # so the model should weight it differently from the static preamble.
+    retrieved_block = build_retrieved_context(retrieved) if retrieved else ''
+
+    if not blocks and not retrieved_block:
         return base_prompt
 
-    context = '\n\n'.join(blocks)
-    return (
-        '<system_context>\n'
-        + context
-        + '\n</system_context>\n\n'
-        + (base_prompt or '')
-    )
+    out = ''
+    if blocks:
+        out += ('<system_context>\n' + '\n\n'.join(blocks)
+                + '\n</system_context>\n\n')
+    if retrieved_block:
+        out += ('<retrieved_context>\n' + retrieved_block
+                + '\n</retrieved_context>\n\n')
+    return out + (base_prompt or '')

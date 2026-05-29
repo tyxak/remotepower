@@ -1812,6 +1812,17 @@ input.form-input[type="text"][data-token],
 /* isl-769: card grid within category */
 .isl-769 { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
 .isl-770 { width: 100%; }
+/* v3.4.0 RAG settings panel — utility classes (CSP: no inline style=) */
+.isl-771 { vertical-align: -3px; margin-right: 6px; }
+.isl-772 { vertical-align: -2px; margin-right: 6px; }
+.isl-773 { margin-top: 10px; }
+.isl-774 { margin-top: 6px; }
+.isl-775 { margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.isl-776 { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.isl-777 { font-size: 0.95rem; }
+.isl-778 { margin-bottom: 6px; }
+.isl-779 { align-items: flex-end; }
+.err-text { color: var(--red); }
 /* recurring event glyph on calendar chips */
 .cal-recur-glyph { font-size: 9px; opacity: 0.75; margin-right: 2px; vertical-align: middle; }
 .cmd-badge.script { background: rgba(124,58,237,0.1); color: #a78bfa; }

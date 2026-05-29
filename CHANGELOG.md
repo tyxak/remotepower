@@ -2,6 +2,41 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.4.0 — unreleased (dev)
+
+In development.
+
+- **RAG over your infrastructure.** The AI assistant now retrieves
+  relevant facts from *your* fleet — device state, watched services,
+  CVEs, containers, CMDB metadata and asset docs, per-device runbooks,
+  recent commands and alerts, plus the RemotePower product docs — and
+  injects the most relevant snippets into every request as a cited
+  `<retrieved_context>` block. Answers reference your hosts and your
+  conventions instead of generic Linux advice, and cite their sources by
+  bracketed id (e.g. `[live/web01#cves]`). Pure stdlib, no new
+  dependencies. New retrieval engine in `rag_index.py`.
+- **Lexical-first, embeddings optional.** Keyword retrieval (BM25 over a
+  hand-built inverted index) is the always-on base and works with every
+  provider, **including Anthropic**, which has no embeddings endpoint.
+  When you run an embedding-capable provider (OpenAI / Ollama / LocalAI)
+  and enable embeddings, semantic search is fused with lexical via
+  Reciprocal Rank Fusion. Vectors are cached by content hash, so a
+  reindex only re-embeds chunks whose text changed.
+- **Privacy by construction.** The encrypted credentials vault is never
+  indexed (metadata and docs only). History chunks are redacted at index
+  time using your AI privacy toggles. Embeddings egress is opt-in and off
+  by default for cloud providers; the toggle is pre-checked only for
+  local providers, where nothing leaves the building.
+- **Settings → AI → Knowledge index.** Enable/disable, pick sources, turn
+  on embeddings, set max chunks + history retention, and **Rebuild index**
+  with a live status line. A **Test retrieval** box shows exactly which
+  chunks a question pulls in (id · kind · device · excerpt, sortable) with
+  no model call and no tokens spent.
+- **Endpoints.** `GET /api/ai/rag/status`, `POST /api/ai/rag/reindex`
+  (admin), `POST /api/ai/rag/search`. Product docs now deploy to
+  `/var/lib/remotepower/docs/` (read-only, not web-served) so the indexer
+  can answer "how do I do X in RemotePower". See `docs/rag.md`.
+
 ## v3.3.4 — unreleased (dev)
 
 In development.

@@ -154,6 +154,13 @@ done
 if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
     install -m 644 "$SCRIPT_DIR/docs/Manual.html" /var/www/remotepower/Manual.html
 fi
+# v3.4.0: product Markdown docs into the data dir for the RAG indexer
+# (RAG_DOCS_DIR = /var/lib/remotepower/docs). Not web-served.
+if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null; then
+    install -d -m 700 /var/lib/remotepower/docs
+    install -m 644 "$SCRIPT_DIR"/docs/*.md /var/lib/remotepower/docs/
+    chown -R "${NGINX_USER}:${NGINX_USER}" /var/lib/remotepower/docs
+fi
 # Auto-discover all cgi-bin Python modules (api.py plus siblings: cve_scanner,
 # cmdb_vault, prometheus_export, openapi_spec, containers, tls_monitor, ...).
 # api.py needs +x for CGI; others are imports so 644 is fine.

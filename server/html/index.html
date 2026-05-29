@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.3.4">
+<link rel="stylesheet" href="static/css/styles.css?v=3.4.0">
 
 </head>
 <body>
@@ -1372,7 +1372,73 @@
             <h3>Context awareness <span class="isl-74">(v2.1.7)</span></h3>
             <p class="hint">A small block of background ("you are an assistant inside RemotePower; the agent polls every 60s…") plus a one-line-per-device fleet snapshot is prepended to every AI request. The model stops giving generic Linux advice and starts giving advice that references <i>your</i> devices and <i>your</i> conventions. Project context is non-sensitive. <strong>Fleet context contains hostnames and group names by design</strong> — if you're on a cloud provider and don't want hostnames egressing, turn the fleet toggle off (project context will stay on).</p>
             <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-project" checked> Include project context (what RemotePower is)</label>
-            <label class="click-row"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
+            <label class="click-row-mb6"><input type="checkbox" id="ai-ctx-fleet" checked> Include fleet snapshot (one line per device)</label>
+            <label class="click-row"><input type="checkbox" id="ai-ctx-rag" checked> Retrieve relevant infrastructure context per question (RAG)</label>
+          </div>
+
+          <!-- v3.4.0: RAG over your infrastructure -->
+          <div class="settings-section">
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round" class="isl-771">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
+              </svg>
+              Knowledge index (RAG) <span class="isl-74">(v3.4.0)</span>
+            </h3>
+            <p class="hint">Indexes your own infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; docs, runbooks, recent commands and alerts, plus the product docs — so the assistant answers from <i>your</i> fleet instead of generic knowledge. Lexical (keyword) search works with every provider, including Anthropic. Optional embeddings add semantic search when you run an embedding-capable provider. <strong>The credentials vault is never indexed.</strong></p>
+
+            <label class="click-row-mb6"><input type="checkbox" id="ai-rag-enabled" checked> Enable the knowledge index</label>
+
+            <div class="form-group isl-773">
+              <label class="form-label">Sources to index</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-docs" checked> Product docs &amp; per-device runbooks</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-live" checked> Live state (devices, services, CVEs, containers, SNMP)</label>
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-src-cmdb" checked> CMDB metadata &amp; asset docs (no credentials)</label>
+              <label class="click-row"><input type="checkbox" id="ai-rag-src-history"> Recent commands, alerts &amp; fleet events <span class="meta-sm">(most sensitive — redaction applies)</span></label>
+            </div>
+
+            <div class="form-group isl-773">
+              <label class="click-row-mb6"><input type="checkbox" id="ai-rag-embeddings"> Use embeddings for semantic search</label>
+              <div id="ai-rag-embeddings-hint" class="meta-sm"></div>
+              <input type="text" id="ai-rag-embed-model" class="form-input isl-774" placeholder="(provider default embedding model)">
+            </div>
+
+            <div class="settings-row isl-72 isl-773">
+              <div class="form-group mw-200">
+                <label class="form-label">Max chunks per question</label>
+                <input type="number" id="ai-rag-max-chunks" class="form-input" min="1" max="30" value="6">
+              </div>
+              <div class="form-group mw-200">
+                <label class="form-label">History: keep last N days</label>
+                <input type="number" id="ai-rag-history-days" class="form-input" min="0" max="3650" value="14">
+              </div>
+            </div>
+
+            <div class="isl-775">
+              <button class="btn-icon" data-action="aiRagReindex">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+                </svg>
+                Rebuild index
+              </button>
+              <span id="ai-rag-status" class="meta-sm"></span>
+            </div>
+
+            <div class="settings-section isl-776">
+              <h3 class="isl-777">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="isl-772">
+                  <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+                Test retrieval
+              </h3>
+              <p class="hint">See exactly which indexed chunks a question would pull in — no model call, no tokens spent. Useful for checking coverage before you trust the assistant's answers.</p>
+              <div class="settings-row isl-72 isl-779">
+                <div class="form-group flex-1">
+                  <input type="text" id="ai-rag-query" class="form-input" placeholder="e.g. which hosts have a critical CVE?">
+                </div>
+                <button class="btn-icon" data-action="aiRagTestSearch">Search</button>
+              </div>
+              <div id="ai-rag-search-result" class="isl-773"></div>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -1664,7 +1730,33 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.3.4 container image update detection stale digest registry docker hub ghcr lscr quay manifest scan now containers page notify-only alert inbox webhook image_update_available image_updated debounce">
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.0 rag retrieval augmented generation knowledge index infrastructure bm25 embeddings semantic search lexical reciprocal rank fusion ollama openai localai anthropic cmdb runbook cve vault redaction reindex test retrieval citations ai assistant">
+            <summary><strong>What's new — v3.4.0</strong> — RAG over your infrastructure</summary>
+            <div class="doc-body">
+              <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.0</code>).</p>
+
+              <h4>The assistant now answers from your fleet</h4>
+              <ul>
+                <li>Every AI request retrieves the most relevant facts from <em>your</em> infrastructure — device state, watched services, CVEs, containers, CMDB metadata &amp; asset docs, per-device runbooks, recent commands and alerts, plus the RemotePower product docs — and injects them into the prompt as a cited <code>&lt;retrieved_context&gt;</code> block. Answers reference your hosts and conventions, and cite their sources by bracketed id, e.g. <code>[live/web01#cves]</code>.</li>
+                <li><strong>Lexical-first, embeddings optional.</strong> Keyword retrieval (BM25) is always on and works with <strong>every</strong> provider, including Anthropic (which has no embeddings endpoint). With an embedding-capable provider (OpenAI / Ollama / LocalAI) you can turn on semantic search, fused with lexical via Reciprocal Rank Fusion. Pure stdlib — no new dependencies.</li>
+              </ul>
+
+              <h4>Privacy by construction</h4>
+              <ul>
+                <li>The encrypted <strong>credentials vault is never indexed</strong> — metadata and docs only. History chunks are redacted at index time using your AI privacy toggles. Embeddings egress is <strong>opt-in</strong> and off by default for cloud providers; the toggle is pre-checked only for local providers, where nothing leaves the building.</li>
+              </ul>
+
+              <h4>Settings → AI → Knowledge index</h4>
+              <ul>
+                <li>Enable/disable, choose which sources to index, turn on embeddings, set max chunks + history retention, and <strong>Rebuild index</strong> with a live status line (chunk count, build age, embedded count, staleness).</li>
+                <li>A <strong>Test retrieval</strong> box shows exactly which chunks a question pulls in (id · kind · device · excerpt, sortable) with no model call and no tokens spent. Endpoints: <code>GET /api/ai/rag/status</code>, <code>POST /api/ai/rag/reindex</code> (admin), <code>POST /api/ai/rag/search</code>.</li>
+              </ul>
+
+              <p>Forensic per-release detail lives in <code>CHANGELOG.md</code>, <code>docs/v3.4.0.md</code>, and the full reference <code>docs/rag.md</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="release notes changelog v3.3.4 container image update detection stale digest registry docker hub ghcr lscr quay manifest scan now containers page notify-only alert inbox webhook image_update_available image_updated debounce">
             <summary><strong>What's new — v3.3.4</strong> — container image-update detection</summary>
             <div class="doc-body">
               <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.4</code>).</p>
@@ -4803,8 +4895,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.3.4"></script>
+<script src="static/js/app.js?v=3.4.0"></script>
 
-<script src="static/js/sw-register.js?v=3.3.4"></script>
+<script src="static/js/sw-register.js?v=3.4.0"></script>
 </body>
 </html>

@@ -418,6 +418,91 @@ def chat(cfg, messages, system=None, max_tokens=None, model=None,
                                       num_ctx=num_ctx)
 
 
+# ── Embeddings (v3.4.0: Level-3 RAG) ───────────────────────────────────────
+#
+# Only the OpenAI-compatible providers expose an embeddings endpoint.
+# Anthropic has none (operators who want semantic search on an Anthropic
+# deployment run a local Ollama embedding model alongside it). DeepSeek's
+# API likewise has no /embeddings route today, so we treat it as
+# unsupported rather than send a request that 404s. The RAG layer falls
+# back to lexical-only retrieval whenever embeddings are unavailable, so
+# this is a graceful degrade, not a hard failure.
+
+EMBEDDING_PROVIDERS = (PROVIDER_OPENAI, PROVIDER_OLLAMA, PROVIDER_LOCALAI)
+
+# Per-provider default embedding model. Operators override via
+# cfg['rag']['embedding_model']. Ollama's nomic-embed-text is the most
+# common locally-pulled embedding model; LocalAI mirrors the OpenAI name
+# of whatever the operator has loaded.
+DEFAULT_EMBED_MODELS = {
+    PROVIDER_OPENAI:  'text-embedding-3-small',
+    PROVIDER_OLLAMA:  'nomic-embed-text',
+    PROVIDER_LOCALAI: 'text-embedding-ada-002',
+}
+
+# A single embed request is bounded so one reindex of a large fleet can't
+# build a multi-megabyte POST body. api.py batches above this.
+MAX_EMBED_INPUTS = 64
+MAX_EMBED_INPUT_BYTES = 8 * 1024
+
+
+def supports_embeddings(cfg):
+    """True if the configured provider can produce embeddings."""
+    return cfg.get('provider') in EMBEDDING_PROVIDERS
+
+
+def embed(cfg, texts, model=None):
+    """Embed a list of strings via the configured provider's OpenAI-compatible
+    /embeddings endpoint.
+
+    Returns {ok: True, vectors: [[float,...], ...], model, dim} on success —
+    `vectors` is aligned 1:1 with `texts`. On failure or for a provider with
+    no embeddings endpoint, returns {ok: False, error}.
+
+    Note: embeddings carry the *content* of indexed chunks to the provider.
+    For cloud providers that is real data egress, which is why api.py gates
+    embedding generation behind an explicit, off-by-default-for-cloud toggle.
+    Redaction is applied here too, defence-in-depth, so a chunk that slipped
+    past index-time redaction still gets scrubbed before egress.
+    """
+    provider = cfg.get('provider')
+    if provider not in EMBEDDING_PROVIDERS:
+        return {'ok': False, 'error': f'{provider} has no embeddings endpoint'}
+    if not isinstance(texts, list) or not texts:
+        return {'ok': False, 'error': 'texts must be a non-empty list'}
+    if len(texts) > MAX_EMBED_INPUTS:
+        return {'ok': False, 'error': f'too many inputs (max {MAX_EMBED_INPUTS})'}
+
+    privacy = cfg.get('privacy', {}) or {}
+    safe = [redact(str(t), privacy)[:MAX_EMBED_INPUT_BYTES] for t in texts]
+
+    base = (cfg.get('base_url') or DEFAULT_BASE_URLS[provider]).rstrip('/')
+    mdl = model or (cfg.get('rag') or {}).get('embedding_model') \
+        or DEFAULT_EMBED_MODELS[provider]
+    url = f'{base}/embeddings'
+    headers = {}
+    if cfg.get('api_key'):
+        headers['Authorization'] = f"Bearer {cfg['api_key']}"
+    status, resp = _http_post_json(url, headers, {'model': mdl, 'input': safe},
+                                   insecure_ssl=bool(cfg.get('insecure_ssl')))
+    if status == 200 and isinstance(resp, dict):
+        try:
+            # OpenAI returns data out of order in theory; sort by index.
+            rows = sorted(resp['data'], key=lambda d: d.get('index', 0))
+            vectors = [r['embedding'] for r in rows]
+            if len(vectors) != len(texts):
+                return {'ok': False, 'error': 'embedding count mismatch'}
+            return {'ok': True, 'vectors': vectors,
+                    'model': resp.get('model', mdl),
+                    'dim': len(vectors[0]) if vectors and vectors[0] else 0}
+        except (KeyError, IndexError, TypeError):
+            return {'ok': False, 'error': f'unexpected response shape: {str(resp)[:200]}'}
+    err_msg = resp.get('error') if isinstance(resp, dict) else None
+    if isinstance(err_msg, dict):
+        err_msg = err_msg.get('message') or str(err_msg)
+    return {'ok': False, 'error': f'HTTP {status}: {err_msg or "unknown"}'}
+
+
 # ── Provider introspection (v2.1.4 follow-up to v2.1.3 AI launch) ──────────
 #
 # Used by the AI page (custom chat) to populate a model picker and surface

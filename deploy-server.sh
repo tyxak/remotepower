@@ -72,6 +72,22 @@ if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
     echo "      → Manual.html"
 fi
 
+# v3.4.0: deploy product Markdown docs into the DATA dir (not the web root)
+# so the RAG indexer can read them at runtime — RAG_DOCS_DIR defaults to
+# /var/lib/remotepower/docs. These are NOT web-served (no raw .md exposed);
+# they're indexed so the AI can answer "how do I do X in RemotePower".
+RP_DATA_DIR_DEPLOY="${RP_DATA_DIR:-/var/lib/remotepower}"
+if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null; then
+    info "Deploying product docs for RAG indexing..."
+    mkdir -p "$RP_DATA_DIR_DEPLOY/docs"
+    install -m 644 "$SCRIPT_DIR"/docs/*.md "$RP_DATA_DIR_DEPLOY/docs/"
+    # Match ownership of the data dir so the CGI user can read them.
+    if [[ -d "$RP_DATA_DIR_DEPLOY" ]]; then
+        chown --reference="$RP_DATA_DIR_DEPLOY" -R "$RP_DATA_DIR_DEPLOY/docs" 2>/dev/null || true
+    fi
+    echo "      → $RP_DATA_DIR_DEPLOY/docs/ ($(compgen -G "$SCRIPT_DIR/docs/*.md" | wc -l) files)"
+fi
+
 # v2.0: deploy /static/ tree (logos, future CSS/JS extraction targets).
 # rsync rather than cp -r so re-runs don't fail on existing-dir.
 if [[ -d "$SCRIPT_DIR/server/html/static" ]]; then
