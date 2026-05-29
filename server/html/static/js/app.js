@@ -14168,7 +14168,7 @@ function _renderOpnsenseFirewall(body) {
 
   // Add-NAT-rule form (outbound / source NAT).
   h += `<h4 class="mt-12">Add NAT rule (outbound / source)</h4>
-    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table. Set target to the translation address (leave empty for interface address).</div>
+    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table. <strong>target</strong> (the translation/NAT address — e.g. the WAN interface address) is required by OPNsense for outbound NAT.</div>
     <input class="form-input" id="opn-nat-iface" placeholder="interface (e.g. wan)">
     <div class="row-6 mt-6">
       <select class="form-input mw-200" id="opn-nat-ipproto"><option value="inet">IPv4 (inet)</option><option value="inet6">IPv6 (inet6)</option></select>
@@ -14177,7 +14177,7 @@ function _renderOpnsenseFirewall(body) {
     <input class="form-input mt-6" id="opn-nat-src" placeholder="source_net (e.g. 192.168.1.0/24)">
     <input class="form-input mt-6" id="opn-nat-dst" placeholder="destination_net (optional)">
     <div class="row-6 mt-6">
-      <input class="form-input mw-200" id="opn-nat-target" placeholder="target (translation address)">
+      <input class="form-input mw-200" id="opn-nat-target" placeholder="target — translation address (required)">
       <input class="form-input mw-200" id="opn-nat-tport" placeholder="target_port (optional)">
     </div>
     <input class="form-input mt-6" id="opn-nat-desc" placeholder="description">
@@ -14219,6 +14219,7 @@ async function addOpnsenseNatRule() {
     description:      document.getElementById('opn-nat-desc')?.value.trim() || '',
   };
   if (!rule.interface) { toast('interface is required', 'error'); return; }
+  if (!rule.target) { toast('target (translation address) is required for outbound NAT', 'error'); return; }
   if (!confirm(`Add an outbound NAT rule on "${rule.interface}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/opnsense/action`, { action: 'add_nat_rule', rule });
   if (r && r.ok) { toast('NAT rule added (disabled) — review then enable', 'success'); loadOpnsenseFirewall(); }
