@@ -30,6 +30,7 @@ import image_registry
 
 LOCAL = "sha256:" + "a" * 64
 NEWER = "sha256:" + "b" * 64
+EVEN_NEWER = "sha256:" + "c" * 64
 
 
 def _patch_respond():
@@ -76,6 +77,7 @@ class TestCollectAndScan(unittest.TestCase):
         _seed_cfg(True)
         _seed_containers(LOCAL)
         api.save(api.IMAGE_UPDATES_FILE, {})
+        api.save(api.IMAGE_IGNORE_FILE, {})
 
     def test_collect_dedups_and_skips_digestless(self):
         fleet = api._collect_fleet_images()
@@ -90,10 +92,10 @@ class TestCollectAndScan(unittest.TestCase):
         checked = api._scan_images(list(fleet.keys()), fleet, cfg, force=True)
         self.assertEqual(checked, 1)          # deduped to one registry call
         rows = api._image_update_view()
-        self.assertEqual(len(rows), 1)
-        self.assertTrue(rows[0]["update_available"])
-        self.assertEqual(len(rows[0]["hosts"]), 2)
-        self.assertTrue(all(h["stale"] for h in rows[0]["hosts"]))
+        radarr = next(r for r in rows if r["ref"] == "lscr.io/linuxserver/radarr:latest")
+        self.assertTrue(radarr["update_available"])
+        self.assertEqual(len(radarr["hosts"]), 2)
+        self.assertTrue(all(h["stale"] for h in radarr["hosts"]))
 
     def test_no_update_when_registry_matches(self):
         api.image_registry_mod.remote_digest = lambda *a, **k: LOCAL
@@ -136,6 +138,7 @@ class TestImageAlerts(unittest.TestCase):
         _seed_cfg(True)
         _seed_containers(LOCAL)
         api.save(api.IMAGE_UPDATES_FILE, {})
+        api.save(api.IMAGE_IGNORE_FILE, {})
         api.save(api.ALERTS_FILE, {"alerts": []})
 
     def _scan(self, registry_digest):
@@ -177,6 +180,83 @@ class TestImageAlerts(unittest.TestCase):
     def test_no_alert_when_up_to_date(self):
         self._scan(LOCAL)                       # registry == local
         self.assertEqual(len(self._open_image_alerts()), 0)
+
+
+class TestLocalRows(unittest.TestCase):
+    def setUp(self):
+        _patch_respond()
+        _seed_cfg(True)
+        api.save(api.IMAGE_UPDATES_FILE, {})
+        api.save(api.IMAGE_IGNORE_FILE, {})
+        api.save(api.DEVICES_FILE, {"dev1": {"name": "host-a"}})
+        api.save(api.CONTAINERS_FILE, {"dev1": {"ts": 1, "items": [
+            {"name": "radarr", "image": "lscr.io/linuxserver/radarr",
+             "tag": "latest", "repo_digest": LOCAL},
+            # locally-built compose image — no registry digest
+            {"name": "kmip", "image": "kmip-server-dsm-kmip-server-dsm",
+             "tag": "", "repo_digest": ""},
+        ]}})
+
+    def test_local_image_appears_as_row(self):
+        by_ref = {r["ref"]: r for r in api._image_update_view()}
+        self.assertIn("kmip-server-dsm-kmip-server-dsm:latest", by_ref)
+        row = by_ref["kmip-server-dsm-kmip-server-dsm:latest"]
+        self.assertTrue(row["local"])
+        self.assertFalse(row["update_available"])
+        self.assertFalse(row["checked"])
+
+    def test_local_excluded_from_scan(self):
+        # the scan (driven by _collect_fleet_images) only sees the digest image
+        self.assertEqual(list(api._collect_fleet_images().keys()),
+                         ["lscr.io/linuxserver/radarr:latest"])
+
+
+class TestIgnore(unittest.TestCase):
+    REF = "lscr.io/linuxserver/radarr:latest"
+
+    def setUp(self):
+        _patch_respond()
+        _seed_cfg(True)
+        _seed_containers(LOCAL)
+        api.save(api.IMAGE_UPDATES_FILE, {})
+        api.save(api.IMAGE_IGNORE_FILE, {})
+        api.save(api.ALERTS_FILE, {"alerts": []})
+
+    def _scan(self, registry_digest):
+        api.image_registry_mod.remote_digest = lambda *a, **k: registry_digest
+        cfg = api.load(api.CONFIG_FILE)
+        fleet = api._collect_fleet_images()
+        api._scan_images(list(fleet.keys()), fleet, cfg, force=True)
+
+    def _opens(self):
+        return [a for a in (api.load(api.ALERTS_FILE) or {}).get("alerts", [])
+                if a.get("event") == "image_update_available" and not a.get("resolved_at")]
+
+    def _ignore(self, acked):
+        api.save(api.IMAGE_IGNORE_FILE,
+                 {self.REF: {"acked_digest": acked, "reason": "pinned",
+                             "actor": "x", "ts": 1}})
+
+    def test_ignored_suppresses_alert_and_marks_view(self):
+        self._ignore(NEWER)           # accept the NEWER version
+        self._scan(NEWER)             # registry == acked -> suppressed
+        self.assertEqual(len(self._opens()), 0)
+        row = next(r for r in api._image_update_view() if r["ref"] == self.REF)
+        self.assertTrue(row["ignored"])
+        self.assertFalse(row["update_available"])
+
+    def test_newer_digest_resurfaces_ignored(self):
+        self._ignore(NEWER)
+        self._scan(EVEN_NEWER)        # upstream moved past the accepted version
+        self.assertEqual(len(self._opens()), 1)
+        row = next(r for r in api._image_update_view() if r["ref"] == self.REF)
+        self.assertFalse(row["ignored"])
+        self.assertTrue(row["update_available"])
+
+    def test_blanket_mute_when_acked_empty(self):
+        self._ignore("")              # mute regardless of digest
+        self._scan(EVEN_NEWER)
+        self.assertEqual(len(self._opens()), 0)
 
 
 class TestParseRef(unittest.TestCase):
@@ -227,6 +307,12 @@ class TestImageUpdatesUI(unittest.TestCase):
         self.assertIn("loadImageUpdates()", self.appjs)
         # and the scan button routes to the force-scan handler
         self.assertIn('data-action-btn="scanImageUpdatesNow"', self.html)
+
+    def test_ignore_actions_wired(self):
+        for fn in ("function ignoreImageUpdate", "function unignoreImageUpdate"):
+            self.assertIn(fn, self.appjs)
+        self.assertIn('data-action="ignoreImageUpdate"', self.appjs)
+        self.assertIn('data-action="unignoreImageUpdate"', self.appjs)
 
 
 if __name__ == "__main__":

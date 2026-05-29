@@ -205,6 +205,11 @@ CONTAINERS_FILE = DATA_DIR / 'containers.json'
 # derived at read time by joining this cache against the live container
 # digests in CONTAINERS_FILE, so the file never holds stale host lists.
 IMAGE_UPDATES_FILE = DATA_DIR / 'image_updates.json'
+# v3.3.4: per-image "accept this version" ignores. Keyed by "image:tag" ->
+# {acked_digest, reason, actor, ts}. Suppresses alerts + flags the row as
+# ignored while the registry digest matches acked_digest (empty = mute
+# always); a newer upstream digest re-surfaces it. Mirrors cve_ignore.json.
+IMAGE_IGNORE_FILE  = DATA_DIR / 'image_ignore.json'
 # Sweep cadence + per-run caps. The sweep runs at most once per interval
 # (default 12h); each run refreshes at most MAX_PER_RUN of the most-overdue
 # images within a wall-time budget, so a big fleet spreads across sweeps
@@ -15067,6 +15072,7 @@ def _scan_images(refs, fleet, cfg, force=False):
     """
     store = load(IMAGE_UPDATES_FILE) or {}
     images = store.get('images') or {}
+    ignores = load(IMAGE_IGNORE_FILE) or {}
     creds_by_registry = cfg.get('registry_credentials') or {}
     block_local = bool(cfg.get('webhook_block_local', True))
     now = int(time.time())
@@ -15118,7 +15124,7 @@ def _scan_images(refs, fleet, cfg, force=False):
             entry['last_error'] = '' if dig else 'no digest returned'
             checked += 1
             if dig:
-                _maybe_fire_image_alert(meta, registry, dig, entry)
+                _maybe_fire_image_alert(ref, meta, registry, dig, entry, ignores)
         except Exception as e:
             entry['last_error'] = f'{e.__class__.__name__}: {e}'[:200]
     store['images'] = images
@@ -15127,15 +15133,34 @@ def _scan_images(refs, fleet, cfg, force=False):
     return checked
 
 
-def _maybe_fire_image_alert(meta, registry, registry_digest, entry):
+def _image_ignored(ref, registry_digest, ignores):
+    """True if ``ref`` is currently ignored ("accept this version").
+
+    An entry suppresses the image while the registry digest still matches
+    the one the operator accepted (``acked_digest``). An empty acked_digest
+    is a blanket mute. A *newer* upstream digest no longer matches, so the
+    image re-surfaces — the operator accepted that version, not the next.
+    """
+    e = ignores.get(ref)
+    if not e:
+        return False
+    acked = (e.get('acked_digest') or '').strip()
+    if not acked:
+        return True
+    return acked == (registry_digest or '')
+
+
+def _maybe_fire_image_alert(ref, meta, registry, registry_digest, entry, ignores):
     """Fire (or auto-resolve) the image-update alert for one ref, debounced.
 
     Stale = some host's pulled digest differs from the registry's current
     one. We alert once per registry digest (``alerted_digest`` on the cache
     entry, persisted across CGI processes), re-alert when upstream publishes
     a newer digest, and fire the ``image_updated`` recover once every host
-    has caught up.
+    has caught up. Ignored ("accepted") refs never alert.
     """
+    if _image_ignored(ref, registry_digest, ignores):
+        return
     local_digests = meta.get('local_digests') or set()
     stale = any(ld != registry_digest for ld in local_digests)
     payload = {
@@ -15160,18 +15185,23 @@ def _maybe_fire_image_alert(meta, registry, registry_digest, entry):
 
 
 def _image_update_view():
-    """Join the registry-digest cache against live container digests.
+    """Per-image rows joining the registry-digest cache against live
+    container digests.
 
-    Returns per-image rows with the hosts running each image and whether
-    any host's local digest differs from the registry's current digest.
-    Deriving staleness here (rather than storing it) keeps the cache free
-    of stale host lists.
+    Includes every running image, not just registry-checkable ones:
+    locally-built / loaded images (no reported digest) appear as explicit
+    ``local`` rows rather than silently vanishing. Ignored ("accepted")
+    refs are flagged and don't count as updates. Staleness is derived here
+    so the cache never holds stale host lists.
     """
-    fleet = _collect_fleet_images()
     images = (load(IMAGE_UPDATES_FILE) or {}).get('images') or {}
+    ignores = load(IMAGE_IGNORE_FILE) or {}
     cstore = load(CONTAINERS_FILE) or {}
     devs = load(DEVICES_FILE) or {}
-    host_rows = {}
+
+    # One pass over every container: group by ref, remember hosts, and note
+    # whether any host reported a registry digest (else it's a local image).
+    refs = {}
     for dev_id, rec in cstore.items():
         if not isinstance(rec, dict):
             continue
@@ -15179,35 +15209,66 @@ def _image_update_view():
         for c in rec.get('items', []) or []:
             if not isinstance(c, dict):
                 continue
-            local = (c.get('repo_digest') or '').strip()
             image = (c.get('image') or '').strip()
-            tag = (c.get('tag') or '').strip() or 'latest'
-            if not local.startswith('sha256:') or not image:
+            if not image:
                 continue
-            host_rows.setdefault(f'{image}:{tag}', []).append({
+            tag = (c.get('tag') or '').strip() or 'latest'
+            local = (c.get('repo_digest') or '').strip()
+            ref = f'{image}:{tag}'
+            e = refs.setdefault(ref, {'image': image, 'tag': tag,
+                                      'hosts': [], 'any_digest': False})
+            e['hosts'].append({
                 'device_id': dev_id, 'device_name': dname,
                 'container': c.get('name') or '', 'local_digest': local,
             })
+            if local.startswith('sha256:'):
+                e['any_digest'] = True
+
     rows = []
-    for ref, meta in fleet.items():
+    for ref, e in refs.items():
         cache = images.get(ref) or {}
         reg_dig = (cache.get('registry_digest') or '').strip()
-        hosts = host_rows.get(ref, [])
+        is_local = not e['any_digest']
+        ign = ignores.get(ref)
+        ignored = bool(ign) and _image_ignored(ref, reg_dig, ignores)
         update_available = False
-        for h in hosts:
-            h['stale'] = bool(reg_dig and h['local_digest'] != reg_dig)
-            update_available = update_available or h['stale']
+        if is_local:
+            for h in e['hosts']:
+                h['stale'] = False
+        else:
+            for h in e['hosts']:
+                h['stale'] = bool(reg_dig and h['local_digest']
+                                  and h['local_digest'] != reg_dig)
+                update_available = update_available or h['stale']
+        if ignored:
+            update_available = False
         rows.append({
-            'image': meta['image'], 'tag': meta['tag'], 'ref': ref,
+            'image': e['image'], 'tag': e['tag'], 'ref': ref,
+            'local': is_local,
             'registry': cache.get('registry', ''),
             'registry_digest': reg_dig,
             'update_available': update_available,
-            'checked': bool(reg_dig) or bool(cache.get('last_error')),
+            'ignored': ignored,
+            'ignore_reason': (ign or {}).get('reason', '') if ignored else '',
+            'checked': (not is_local) and (bool(reg_dig) or bool(cache.get('last_error'))),
             'last_checked': int(cache.get('last_checked', 0)),
             'last_error': cache.get('last_error', ''),
-            'hosts': hosts,
+            'hosts': e['hosts'],
         })
-    rows.sort(key=lambda r: (not r['update_available'], r['ref']))
+
+    # Sort: actionable updates first, then unchecked, then up-to-date,
+    # then local, then ignored — each group alphabetised by ref.
+    def _rank(r):
+        if r['update_available']:
+            return 0
+        if r['ignored']:
+            return 4
+        if r['local']:
+            return 3
+        if r['registry_digest']:
+            return 2
+        return 1
+    rows.sort(key=lambda r: (_rank(r), r['ref']))
     return rows
 
 
@@ -15220,7 +15281,10 @@ def handle_image_updates_get():
     summary = {
         'total':             len(rows),
         'updates_available': sum(1 for r in rows if r['update_available']),
-        'unchecked':         sum(1 for r in rows if not r['checked']),
+        'unchecked':         sum(1 for r in rows
+                                 if not r['checked'] and not r['local'] and not r['ignored']),
+        'local':             sum(1 for r in rows if r['local']),
+        'ignored':           sum(1 for r in rows if r['ignored']),
         'last_full_scan':    int(store.get('last_full_scan', 0)),
         'enabled':           _image_scan_enabled(cfg),
         'interval':          max(3600, int(cfg.get('image_scan_interval', IMAGE_SCAN_INTERVAL))),
@@ -15243,6 +15307,50 @@ def handle_image_updates_scan():
     cfg2['last_image_scan'] = int(time.time())
     save(CONFIG_FILE, cfg2)
     respond(200, {'ok': True, 'checked': checked})
+
+
+_IMAGE_REF_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,599}$')
+
+
+def handle_image_ignore_add():
+    """POST /api/image-updates/ignore — accept an image's current version.
+
+    Body: {ref, reason?}. Records the registry digest currently known for
+    that ref as ``acked_digest`` (empty if not scanned yet → blanket mute),
+    so the image is suppressed until a *newer* upstream digest appears.
+    """
+    actor = require_admin_auth()
+    body = get_json_body()
+    ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
+    reason = _sanitize_str(body.get('reason', ''), 256)
+    if not ref or not _IMAGE_REF_RE.match(ref):
+        respond(400, {'error': 'valid image ref (image:tag) required'})
+    images = (load(IMAGE_UPDATES_FILE) or {}).get('images') or {}
+    acked = (images.get(ref) or {}).get('registry_digest', '') or ''
+    ignores = load(IMAGE_IGNORE_FILE) or {}
+    ignores[ref] = {
+        'acked_digest': acked,
+        'reason':       reason,
+        'actor':        actor,
+        'ts':           int(time.time()),
+    }
+    save(IMAGE_IGNORE_FILE, ignores)
+    audit_log(actor, 'image_ignore_add',
+              detail=f'{ref} acked={acked[:19]} reason={reason[:80]}')
+    respond(200, {'ok': True, 'ignored': ref})
+
+
+def handle_image_ignore_remove():
+    """DELETE /api/image-updates/ignore — stop ignoring an image. Body: {ref}."""
+    actor = require_admin_auth()
+    body = get_json_body()
+    ref = _sanitize_str(body.get('ref', ''), 600, allow_empty=False)
+    ignores = load(IMAGE_IGNORE_FILE) or {}
+    if ref in ignores:
+        del ignores[ref]
+        save(IMAGE_IGNORE_FILE, ignores)
+        audit_log(actor, 'image_ignore_remove', detail=ref)
+    respond(200, {'ok': True})
 
 
 def handle_device_snmp(dev_id):
@@ -19954,6 +20062,8 @@ def main():
     # ── v3.3.4: container image-update detection ───────────────────────────────
     elif pi == '/api/image-updates' and m == 'GET': handle_image_updates_get()
     elif pi == '/api/image-updates/scan' and m == 'POST': handle_image_updates_scan()
+    elif pi == '/api/image-updates/ignore' and m == 'POST': handle_image_ignore_add()
+    elif pi == '/api/image-updates/ignore' and m == 'DELETE': handle_image_ignore_remove()
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()

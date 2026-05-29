@@ -6409,6 +6409,8 @@ function _renderImageUpdatesMeta(summary) {
   const bits = [];
   if (summary.updates_available) bits.push(`${summary.updates_available} update(s) available`);
   if (summary.unchecked) bits.push(`${summary.unchecked} not yet checked`);
+  if (summary.local) bits.push(`${summary.local} local`);
+  if (summary.ignored) bits.push(`${summary.ignored} ignored`);
   if (!summary.enabled) bits.push('detection disabled');
   if (summary.last_full_scan) bits.push(`last scan ${new Date(summary.last_full_scan * 1000).toLocaleString()}`);
   el.textContent = bits.length ? `— ${bits.join(' · ')}` : '';
@@ -6423,14 +6425,15 @@ function _registerImageUpdatesTable() {
     tbody: 'image-updates-tbody',
     filterInput: 'image-updates-search',
     sortHeaders: 'image-updates-thead',
-    colspan: 6,
+    colspan: 7,
     columns: ['image', 'tag', 'hosts', 'status', 'registry', 'checked'],
     getColumns: (r) => ({
       image:    r.image || '',
       tag:      r.tag || '',
       hosts:    (r.hosts || []).length,
-      // Sort rank: updates first, then unknown/unchecked, then up-to-date.
-      status:   r.update_available ? 0 : (r.registry_digest ? 2 : 1),
+      // Sort rank mirrors the server: update(0) < unchecked(1) <
+      // up-to-date(2) < local(3) < ignored(4).
+      status:   r.update_available ? 0 : (r.ignored ? 4 : (r.local ? 3 : (r.registry_digest ? 2 : 1))),
       registry: r.registry || '',
       checked:  r.last_checked || 0,
     }),
@@ -6440,7 +6443,11 @@ function _registerImageUpdatesTable() {
       (r.registry || '').toLowerCase().includes(q),
     row: (r) => {
       let statusCell;
-      if (r.update_available) {
+      if (r.ignored) {
+        statusCell = `<span class="patch-badge" title="${escAttr(r.ignore_reason || 'Accepted — not alerting')}">Ignored</span>`;
+      } else if (r.local) {
+        statusCell = `<span class="c-muted" title="Locally-built or loaded image — no registry to compare against">Local</span>`;
+      } else if (r.update_available) {
         statusCell = `<span class="patch-badge warn">Update available</span>`;
       } else if (r.registry_digest) {
         statusCell = `<span class="patch-badge ok">Up to date</span>`;
@@ -6451,7 +6458,10 @@ function _registerImageUpdatesTable() {
       }
       const hosts = (r.hosts || []);
       const hostTitle = hosts.map(h => `${h.device_name}${h.stale ? ' (stale)' : ''}`).join(', ');
-      const checked = r.last_checked ? new Date(r.last_checked * 1000).toLocaleString() : '—';
+      const checked = (r.local || !r.last_checked) ? '—' : new Date(r.last_checked * 1000).toLocaleString();
+      const action = r.ignored
+        ? `<button class="btn-icon" data-action="unignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Resume alerting on updates for this image">Un-ignore</button>`
+        : `<button class="btn-icon c-muted" data-action="ignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Accept the current version and stop alerting until a newer one ships">Ignore</button>`;
       return `<tr>
         <td class="fw-500">${escHtml(r.image)}</td>
         <td class="mono-12">${escHtml(r.tag)}</td>
@@ -6459,9 +6469,10 @@ function _registerImageUpdatesTable() {
         <td>${statusCell}</td>
         <td class="hint">${escHtml(r.registry || '—')}</td>
         <td class="hint-nowrap">${checked}</td>
+        <td class="nowrap">${action}</td>
       </tr>`;
     },
-    emptyMsg: 'No container images to check yet. The agent reports image digests with each container sweep (~5 min when Docker/Podman is installed); the server then checks each unique image against its registry.',
+    emptyMsg: 'No container images reported yet. The agent reports image digests with each container sweep (~5 min when Docker/Podman is installed); the server then checks each unique image against its registry.',
     emptyMsgFiltered: 'No images match the filter.',
   });
 }
@@ -6485,6 +6496,21 @@ async function scanImageUpdatesNow(btn) {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = original; }
   }
+}
+
+async function ignoreImageUpdate(ref) {
+  const reason = window.prompt(
+    `Accept the current version of "${ref}" and stop alerting until a newer one ships?\n\nReason (optional):`, '');
+  if (reason === null) return;   // cancelled
+  const r = await api('POST', '/image-updates/ignore', { ref, reason });
+  if (r && r.ok) { toast('Image ignored', 'success'); loadImageUpdates(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+async function unignoreImageUpdate(ref) {
+  const r = await api('DELETE', '/image-updates/ignore', { ref });
+  if (r && r.ok) { toast('Resumed update alerts', 'success'); loadImageUpdates(); }
+  else toast((r && r.error) || 'Failed', 'error');
 }
 
 async function loadContainersOverview() {
