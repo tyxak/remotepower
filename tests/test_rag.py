@@ -156,6 +156,33 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertIn("live/web01#services", ids)
         self.assertIn("live/web01#cves", ids)
 
+    def test_device_focus_beats_doc_noise(self):
+        # A device-named question must surface that device's own chunks above
+        # generic product docs that merely share a word with the query, and
+        # must not bleed into a different host (web01 vs fw01).
+        devs = [
+            {"id": "web01.x.com", "name": "web01.x.com", "hostname": "web01.x.com",
+             "ip": "10.0.0.4", "os": "Ubuntu 24.04", "tags": ["servers"]},
+            {"id": "fw01", "name": "fw01", "hostname": "fw01", "ip": "192.168.1.1",
+             "tags": ["firewalls"]},
+        ]
+        docs = rag_index.build_live_state_corpus(
+            devs, facets={"web01.x.com": {"services": [{"name": "apache2"}]}})
+        docs += rag_index.build_runbooks_corpus(
+            {"web01.x.com": {"content": "# Purpose\nweb01 serves the website."}})
+        docs += rag_index.build_docs_corpus([
+            ("features", "# Features\nthe complete list of services running."),
+            ("scripts", "# Dry-run\nwhat services dry-run does not check.")])
+        idx = rag_index.InfraIndex().build(docs)
+        hits = idx.search("what is web01 doing", top_n=3)
+        ids = [h["id"] for h in hits]
+        # every top-3 hit belongs to web01; fw01 and the docs are pushed down
+        self.assertTrue(all(h["device"] == "web01.x.com" for h in hits), ids)
+        self.assertFalse(any("fw01" in i for i in ids), ids)
+        # a non-device query is unaffected — docs still win
+        doc_hits = idx.search("what does dry-run check", top_n=1)
+        self.assertEqual(doc_hits[0]["source"], "docs")
+
     def test_summary_indexes_network_identity(self):
         # "what IP does X have" must be answerable: ip/hostname/mac belong in
         # the summary chunk and a who/where query must surface it top-1.

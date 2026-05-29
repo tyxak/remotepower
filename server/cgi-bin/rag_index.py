@@ -544,8 +544,29 @@ class InfraIndex:
         self.emb_cache = {}            # content_hash -> {'v': [...]}
         self.emb_model = ''            # model that produced the cached vectors
         self.built_at = 0
+        self._device_tokens = {}       # dev_id -> set of identifying tokens
 
     # -- construction ----------------------------------------------------------
+
+    def _index_device_tokens(self):
+        """Map each device-scoped chunk's device id to the query tokens that
+        should "focus" on it: the full id plus its first hostname label.
+
+        We deliberately exclude shared labels like the domain (`tvipper`,
+        `com`) — those would make every `*.tvipper.com` device match a query
+        that merely contains "com". The short hostname (`tviweb01`) and the
+        full id are specific enough to be a reliable focus signal.
+        """
+        self._device_tokens = {}
+        for d in self.docs:
+            dev = d.get('device')
+            if not dev:
+                continue
+            if dev in self._device_tokens:
+                continue
+            low = str(dev).lower()
+            toks = {low, low.split('.')[0]}
+            self._device_tokens[dev] = {t for t in toks if len(t) >= 2}
 
     def build(self, docs, built_at=0):
         """(Re)build the lexical index from a list of docs. Embedding
@@ -567,6 +588,7 @@ class InfraIndex:
         self._n = len(self.docs)
         self._avgdl = (total / self._n) if self._n else 0.0
         self.built_at = int(built_at or 0)
+        self._index_device_tokens()
         # Drop cache entries for chunks that no longer exist, so the file
         # doesn't grow unbounded across many reindexes.
         live = {d['hash'] for d in self.docs}
@@ -634,11 +656,29 @@ class InfraIndex:
         sims.sort(key=lambda kv: kv[1], reverse=True)
         return sims[:top_n]
 
+    def _focus_devices(self, qtokens):
+        """Devices the query explicitly names (by id or short hostname).
+        Returns a set of device ids — empty when the query isn't about a
+        specific host."""
+        if not self._device_tokens:
+            return set()
+        qset = set(qtokens)
+        return {dev for dev, toks in self._device_tokens.items() if toks & qset}
+
+    # A bonus that dwarfs any RRF score (~1/61 max per list) so a named
+    # device's own chunks always sort above generic matches, while their
+    # relative order (by underlying relevance) is preserved.
+    _FOCUS_BONUS = 1.0
+
     def search(self, query, top_n=6, query_vec=None, prefilter_n=50):
         """Return up to top_n doc dicts most relevant to `query`.
 
-        Lexical-only unless query_vec is supplied AND we have cached
-        embeddings, in which case lexical + semantic are fused via RRF.
+        Scoring is rank-based (RRF) so lexical and optional semantic signals
+        combine without normalising raw scores. When the query names a
+        specific device, that device's chunks are boosted to the top — a
+        "what is web01 doing / what IP does web01 have" question should be
+        answered from web01's own state, not from whichever product doc
+        happens to share a word with the query.
         """
         qtokens = tokenize(query)
         lex = self._bm25_search(qtokens, top_n=max(top_n, prefilter_n))
@@ -652,11 +692,26 @@ class InfraIndex:
                 candidates = lex_ids or [d['id'] for d in self.docs[:prefilter_n]]
             sem = self._semantic_rank(candidates, query_vec, top_n=max(top_n, prefilter_n))
             sem_ids = [doc_id for doc_id, _ in sem]
-            fused = rrf_fuse([lex_ids, sem_ids])
-            ranked_ids = sorted(fused, key=lambda i: fused[i], reverse=True)[:top_n]
+            score = rrf_fuse([lex_ids, sem_ids])
         else:
-            ranked_ids = lex_ids[:top_n]
+            # Rank-based lexical score, so the focus bonus is comparable to
+            # the RRF path above (both ~1/(60+rank)).
+            score = {doc_id: 1.0 / (60 + rank)
+                     for rank, doc_id in enumerate(lex_ids, start=1)}
 
+        focus = self._focus_devices(qtokens)
+        if focus:
+            for doc_id in list(score):
+                doc = self._by_id.get(doc_id)
+                if doc and doc.get('device') in focus:
+                    score[doc_id] += self._FOCUS_BONUS
+            # Surface the named device's chunks even if a particular facet
+            # didn't lexically match the rest of the query.
+            for doc in self.docs:
+                if doc.get('device') in focus and doc['id'] not in score:
+                    score[doc['id']] = self._FOCUS_BONUS
+
+        ranked_ids = sorted(score, key=lambda i: score[i], reverse=True)[:top_n]
         return [self._by_id[i] for i in ranked_ids if i in self._by_id]
 
     # -- stats / persistence ---------------------------------------------------
@@ -701,4 +756,5 @@ class InfraIndex:
         idx.emb_cache = data.get('emb_cache') or {}
         idx.emb_model = data.get('emb_model') or ''
         idx.built_at = data.get('built_at') or 0
+        idx._index_device_tokens()     # derived, not persisted
         return idx
