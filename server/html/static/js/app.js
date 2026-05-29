@@ -811,7 +811,8 @@ function showPage(name, btn) {
   if (name === 'cmdb')     enterCMDB();
   if (name === 'containers') { enterContainers(); _showAllContainerPanels(); }
   if (name === 'virtualization') loadVirtualization();
-  if (name === 'netmap')   enterNetmap();
+  if (name === 'netmap')   { enterNetmap(); loadDiscovery(); }
+  if (name === 'compliance') loadCompliance();
   if (name === 'tls')      { enterTLS(); _showAllTLSPanels(); }
   if (name === 'drift')    loadDrift();
   if (name === 'links')    enterLinks();
@@ -9026,17 +9027,20 @@ async function loadAIPage() {
     document.getElementById('ai-page-disabled').style.display = 'block';
     document.getElementById('ai-page-status').style.display = 'none';
     document.getElementById('ai-page-chat-wrap').style.display = 'none';
+    document.getElementById('ai-page-tools').style.display = 'none';
     return;
   }
   if (!cfg.ok || !cfg.enabled) {
     document.getElementById('ai-page-disabled').style.display = 'block';
     document.getElementById('ai-page-status').style.display = 'none';
     document.getElementById('ai-page-chat-wrap').style.display = 'none';
+    document.getElementById('ai-page-tools').style.display = 'none';
     return;
   }
   document.getElementById('ai-page-disabled').style.display = 'none';
   document.getElementById('ai-page-status').style.display = 'block';
   document.getElementById('ai-page-chat-wrap').style.display = 'block';
+  document.getElementById('ai-page-tools').style.display = 'block';
 
   // Fire these in parallel — they don't depend on each other
   aiPageRefreshStats();
@@ -14066,10 +14070,13 @@ function _renderHardwareSection(id, hw, fc, ch) {
   const st = (hw.speedtest || []).slice(-1)[0];
   const disc = hw.discovery || {};
   const unmanaged = (disc.hosts||[]).filter(x=>!x.managed);
+  const dn = _drawerDeviceName || '';
   h += `<div class="hw-block"><div class="hw-h">On-demand diagnostics</div>
     <div class="hw-actions">
       <button class="btn-secondary fs-12" data-action="deviceSpeedtest" data-arg="${escAttr(id)}">${_icon('zap',14)} Run speed test</button>
       <button class="btn-secondary fs-12" data-action="deviceNetscan" data-arg="${escAttr(id)}">${_icon('search',14)} Scan LAN</button>
+      <button class="btn-secondary fs-12" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('bookOpen',14)} Suggest runbook</button>
+      <button class="btn-secondary fs-12" data-action="deviceDocDraft" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('sparkles',14)} Draft CMDB doc</button>
     </div>`;
   if (st) {
     h += st.ok
@@ -14107,6 +14114,159 @@ async function deviceNetscan(id) {
   const r = await api('POST', `/devices/${id}/netscan`, {});
   if (r && r.ok) toast('LAN scan queued — result appears after the next agent poll.', 'success');
   else toast((r && r.error) || 'Failed to queue', 'error');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// v3.4.0 fleet-level UI: AI insight modal (runbook / doc draft), fleet anomaly
+// scan + cron builder (AI page), network discovery (netmap), compliance report.
+// ════════════════════════════════════════════════════════════════════════════
+
+let _aiInsightLastMd = '';
+
+function _openAiInsight(title) {
+  document.getElementById('ai-insight-title').textContent = title;
+  document.getElementById('ai-insight-body').innerHTML =
+    '<div class="empty-state">Generating… this calls the AI provider and may take a few seconds.</div>';
+  _aiInsightLastMd = '';
+  openModal('ai-insight-modal');
+}
+
+function _fillAiInsight(md) {
+  _aiInsightLastMd = md || '';
+  document.getElementById('ai-insight-body').innerHTML = renderMarkdown(md || '_No content returned._');
+}
+
+function aiInsightCopy() {
+  if (!_aiInsightLastMd) return;
+  navigator.clipboard?.writeText(_aiInsightLastMd)
+    .then(() => toast('Copied Markdown to clipboard', 'success'))
+    .catch(() => toast('Copy failed', 'error'));
+}
+
+// #3 runbook suggestion (per-device, RAG-aware). Triggered from the drawer.
+async function deviceRunbook(id, name) {
+  const trigger = prompt(`Describe the issue / alert on ${name} to get a runbook:`);
+  if (!trigger || !trigger.trim()) return;
+  _openAiInsight(`Runbook — ${name}`);
+  const r = await api('POST', `/devices/${id}/runbook`, {trigger: trigger.trim()});
+  if (r && r.ok) _fillAiInsight(r.runbook);
+  else { closeModal('ai-insight-modal'); toast((r && r.error) || 'Failed', 'error'); }
+}
+
+// #11 CMDB doc draft (per-device). Triggered from the drawer.
+async function deviceDocDraft(id, name) {
+  _openAiInsight(`Doc draft — ${name}`);
+  const r = await api('POST', `/devices/${id}/doc-draft`, {});
+  if (r && r.ok) _fillAiInsight(r.markdown);
+  else { closeModal('ai-insight-modal'); toast((r && r.error) || 'Failed', 'error'); }
+}
+
+// #9 fleet anomaly scan (AI page).
+async function aiAnomalyScan() {
+  const btn = document.getElementById('ai-anomaly-btn');
+  const out = document.getElementById('ai-anomaly-results');
+  if (btn) btn.disabled = true;
+  out.innerHTML = '<div class="c-muted">Scanning the fleet…</div>';
+  const r = await api('POST', '/ai/anomaly', {});
+  if (btn) btn.disabled = false;
+  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
+  const items = r.anomalies || [];
+  if (!items.length) {
+    out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} device(s).</div>`;
+    return;
+  }
+  const sevColor = s => s === 'high' ? 'c-red' : s === 'medium' ? 'c-amber' : 'c-muted';
+  out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} device(s)</div>` +
+    items.map(a => `<div class="anomaly-row">
+      <span class="anomaly-sev ${sevColor(a.severity)}">${escHtml(a.severity)}</span>
+      <div><div class="anomaly-dev">${escHtml(a.device || '—')} — ${escHtml(a.finding)}</div>
+      <div class="fs-12 c-muted">${escHtml(a.why)}</div></div></div>`).join('');
+}
+
+// #10 cron builder (AI page).
+async function aiCronBuild() {
+  const input = document.getElementById('ai-cron-input');
+  const out = document.getElementById('ai-cron-result');
+  const desc = (input.value || '').trim();
+  if (!desc) { toast('Describe a schedule first', 'error'); return; }
+  const btn = document.getElementById('ai-cron-btn');
+  if (btn) btn.disabled = true;
+  out.innerHTML = '<div class="c-muted">Thinking…</div>';
+  const r = await api('POST', '/ai/cron', {description: desc});
+  if (btn) btn.disabled = false;
+  if (!r || !r.ok) { out.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed')}</div>`; return; }
+  if (!r.valid) {
+    out.innerHTML = `<div class="c-amber">Couldn't build a valid expression: ${escHtml(r.explanation || r.error || '')}</div>`;
+    return;
+  }
+  const runs = (r.next_runs || []).map(ts => new Date(ts * 1000).toLocaleString());
+  out.innerHTML = `
+    <div class="cron-result-expr"><code>${escHtml(r.cron)}</code>
+      <button class="btn-icon fs-11" data-action="aiCronCopy" data-arg="${escAttr(r.cron)}">Copy</button></div>
+    <div class="fs-12 mt-4">${escHtml(r.explanation || '')}</div>
+    ${runs.length ? `<div class="fs-11 c-muted mt-6">Next runs:</div><ul class="cron-runs">${runs.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}`;
+}
+
+function aiCronCopy(expr) {
+  navigator.clipboard?.writeText(String(expr))
+    .then(() => toast('Cron expression copied', 'success'))
+    .catch(() => toast('Copy failed', 'error'));
+}
+
+// #5 network discovery aggregate (netmap page).
+async function loadDiscovery() {
+  const body = document.getElementById('discovery-body');
+  if (!body) return;
+  const r = await api('GET', '/discovery');
+  const hosts = (r && r.hosts) || [];
+  if (!hosts.length) {
+    body.innerHTML = `<div class="c-muted">No unmanaged hosts found${r && r.scanned_by ? ` (${r.scanned_by} agent scan${r.scanned_by>1?'s':''} on record)` : ''}. Run a LAN scan from a device's Health &amp; Hardware card.</div>`;
+    return;
+  }
+  tableCtl.wireSortOnly('discovery-thead', 'discovery', loadDiscovery);
+  const rows = tableCtl.sortRows('discovery', hosts, h => ({
+    ip: h.ip.split('.').map(n => String(n).padStart(3, '0')).join('.'),
+    mac: h.mac, hostname: h.hostname, seen_by: (h.seen_by || []).join(','),
+  }));
+  body.innerHTML = `<div class="table-card"><table>
+    <thead id="discovery-thead"><tr>
+      <th data-col="ip">IP</th><th data-col="mac">MAC</th>
+      <th data-col="hostname">Hostname</th><th data-col="seen_by">Seen by</th></tr></thead>
+    <tbody>` + rows.map(h => `<tr>
+      <td><code>${escHtml(h.ip)}</code></td>
+      <td class="ff-mono fs-12">${escHtml(h.mac || '—')}</td>
+      <td>${escHtml(h.hostname || '—')}</td>
+      <td class="fs-12">${escHtml((h.seen_by || []).join(', '))}</td></tr>`).join('') +
+    `</tbody></table></div>`;
+}
+
+// #14 compliance report (Compliance page).
+async function loadCompliance() {
+  const body = document.getElementById('compliance-body');
+  if (!body) return;
+  const fws = Array.from(document.querySelectorAll('.compliance-fw:checked')).map(c => c.value);
+  body.innerHTML = '<div class="c-muted">Evaluating controls…</div>';
+  const qs = fws.length ? `?frameworks=${fws.join(',')}` : '';
+  const r = await api('GET', `/compliance${qs}`);
+  if (!r || !r.frameworks) { body.innerHTML = '<div class="c-red">Failed to load compliance report.</div>'; return; }
+  const sumColor = s => s === 'pass' ? 'c-green' : s === 'fail' ? 'c-red' : 'c-muted';
+  let h = `<div class="compliance-summary">Overall: <span class="c-green">${r.summary.pass} pass</span> · <span class="c-red">${r.summary.fail} fail</span> · <span class="c-muted">${r.summary.na} N/A</span></div>`;
+  for (const fw of Object.keys(r.frameworks)) {
+    const f = r.frameworks[fw];
+    h += `<div class="settings-section compliance-fw-card">
+      <div class="compliance-fw-head">
+        <div class="section-title">${escHtml(f.label)}</div>
+        <div class="compliance-score ${f.score != null && f.score >= 80 ? 'c-green' : f.score != null && f.score >= 50 ? 'c-amber' : 'c-red'}">${f.score != null ? f.score + '%' : '—'}</div>
+      </div>
+      <div class="fs-11 c-muted mb-6">${f.pass} pass · ${f.fail} fail · ${f.na} N/A</div>
+      <table class="audit-table"><thead><tr><th>Control</th><th>Status</th><th>Evidence</th></tr></thead><tbody>` +
+      f.controls.map(c => `<tr>
+        <td><strong>${escHtml(c.id)}</strong><div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
+        <td class="${sumColor(c.status)}">${escHtml(c.status.toUpperCase())}</td>
+        <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">→ ${escHtml(c.remediation)}</div>` : ''}</td>
+      </tr>`).join('') + `</tbody></table></div>`;
+  }
+  body.innerHTML = h;
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────

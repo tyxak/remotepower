@@ -390,5 +390,34 @@ class TestHardwareUI(unittest.TestCase):
         self.assertIn("data-change=\"toggleQuarantine\"", self.APP)
 
 
+class TestFleetUI(unittest.TestCase):
+    APP  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_fleet_functions_present(self):
+        for fn in ('function loadCompliance', 'function loadDiscovery',
+                   'function aiAnomalyScan', 'function aiCronBuild',
+                   'function deviceRunbook', 'function deviceDocDraft'):
+            self.assertIn(fn, self.APP, f'{fn} missing from app.js')
+
+    def test_showpage_wires_new_pages(self):
+        self.assertIn("name === 'compliance'", self.APP)
+        self.assertIn('loadDiscovery()', self.APP)
+
+    def test_compliance_page_and_nav(self):
+        self.assertIn('id="page-compliance"', self.HTML)
+        self.assertIn('data-page="compliance"', self.HTML)
+
+    def test_ai_tools_and_modal(self):
+        self.assertIn('id="ai-page-tools"', self.HTML)
+        self.assertIn('id="ai-insight-modal"', self.HTML)
+        self.assertIn('data-action="aiAnomalyScan"', self.HTML)
+        self.assertIn('data-action="aiCronBuild"', self.HTML)
+
+    def test_discovery_section_present(self):
+        self.assertIn('id="discovery-body"', self.HTML)
+        self.assertIn("wireSortOnly('discovery-thead'", self.APP)
+
+
 if __name__ == '__main__':
     unittest.main()

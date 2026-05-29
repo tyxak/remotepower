@@ -240,6 +240,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
         </button>
+        <!-- v3.4.0: control-mapped compliance report -->
+        <button class="nav-btn" data-page="compliance" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><polyline points="9 12 11 14 15 10"/></svg>
+          <span>Compliance</span>
+        </button>
       </div>
     </div>
 
@@ -2948,6 +2953,31 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
+        <!-- v3.4.0: on-demand AI tools (fleet anomaly scan + cron builder) -->
+        <div id="ai-page-tools" class="d-none">
+          <div class="settings-section ai-tool-card">
+            <div class="ai-tool-head">
+              <div class="section-label">Fleet anomaly scan</div>
+              <button class="btn-secondary fs-12" data-action="aiAnomalyScan" id="ai-anomaly-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+                Scan now
+              </button>
+            </div>
+            <div class="hint">Sends a compact live snapshot of the fleet to the model and ranks anomalies. On-demand — costs one AI request.</div>
+            <div id="ai-anomaly-results" class="ai-tool-body"></div>
+          </div>
+
+          <div class="settings-section ai-tool-card">
+            <div class="section-label mb-6">Cron builder</div>
+            <div class="ai-cron-row">
+              <input type="text" id="ai-cron-input" class="form-input" maxlength="500" placeholder="e.g. every weekday at 6am, or the 1st of each month at midnight">
+              <button class="btn-secondary fs-12" data-action="aiCronBuild" id="ai-cron-btn">Build</button>
+            </div>
+            <div class="hint">Plain English → a standard 5-field cron expression, validated and previewed with its next runs.</div>
+            <div id="ai-cron-result" class="ai-tool-body"></div>
+          </div>
+        </div>
+
         <!-- Chat -->
         <div id="ai-page-chat-wrap" class="d-none">
           <div class="isl-113">
@@ -2986,6 +3016,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-secondary isl-760" data-action="clearBackupState" id="self-backup-clear-btn">✕ Clear backup archives</button>
         </div>
         <div id="self-status-body" class="isl-123"><div class="c-muted">Loading…</div></div>
+      </div>
+
+      <!-- ── v3.4.0: Compliance report page ───────────────────────────────── -->
+      <div id="page-compliance" class="page">
+        <div class="page-title">Compliance</div>
+        <div class="page-subtitle">Control-mapped PCI&nbsp;DSS / HIPAA / SOC&nbsp;2 checklist, scored from data RemotePower already collects. An audit-prep aid — never a formal attestation. <a href="docs/v3.4.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="mb-16 row-8-center">
+          <label class="click-row-6"><input type="checkbox" class="compliance-fw" value="pci" checked> <span class="fs-12">PCI DSS</span></label>
+          <label class="click-row-6"><input type="checkbox" class="compliance-fw" value="hipaa" checked> <span class="fs-12">HIPAA</span></label>
+          <label class="click-row-6"><input type="checkbox" class="compliance-fw" value="soc2" checked> <span class="fs-12">SOC 2</span></label>
+          <button class="btn-secondary fs-12" data-action="loadCompliance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div id="compliance-body"><div class="c-muted">Loading…</div></div>
       </div>
 
       <!-- ── About page ───────────────────────────────────────────────────── -->
@@ -3344,6 +3387,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card isl-175">
           <svg id="netmap-svg" width="100%" height="600" class="isl-176"></svg>
         </div>
+
+        <!-- v3.4.0: LAN discovery — unmanaged hosts agents found on their subnet -->
+        <div class="section-header mt-16">
+          <div class="section-title">Unmanaged hosts on the LAN</div>
+          <button class="btn-icon" data-action="loadDiscovery"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div class="page-subtitle">Hosts seen by agents that ran a LAN scan (device drawer → Health &amp; Hardware → Scan LAN) and that aren't enrolled in RemotePower.</div>
+        <div id="discovery-body"><div class="c-muted">No scan data yet — run a LAN scan from a device's Health &amp; Hardware card.</div></div>
       </div>
 
       <!-- ── v2.2.0: configuration drift detection ────────────────────── -->
@@ -3882,6 +3933,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
 </div></div>
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="metrics-modal" >Close</button></div></div></div>
+<!-- v3.4.0: AI insight result (runbook / doc draft). Body holds rendered Markdown. -->
+<div class="modal-overlay" id="ai-insight-modal"><div class="modal modal-wide"><div class="modal-title" id="ai-insight-title">AI</div><div id="ai-insight-body" class="ai-insight-body"><div class="empty-state">Generating…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="aiInsightCopy">Copy Markdown</button><button class="btn-secondary" data-action="closeModal" data-arg="ai-insight-modal" >Close</button></div></div></div>
 <!-- v2.1.5: device-patch-modal — has been referenced by openDevicePatchReport
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property
