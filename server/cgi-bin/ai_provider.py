@@ -645,6 +645,27 @@ SYSTEM_PROMPTS = {
         "single short paragraph an on-call engineer can understand in "
         "5 seconds. Include severity assessment."
     ),
+    'routeros_firewall_rule': (
+        "You translate a plain-English request into ONE MikroTik RouterOS "
+        "firewall-filter rule. Output ONLY a single JSON object — no prose, "
+        "no markdown fences. Allowed keys: chain, action, src-address, "
+        "dst-address, protocol, dst-port, src-port, in-interface, "
+        "out-interface, connection-state, comment. `chain` and `action` are "
+        "required (chain is usually input/forward/output; action is usually "
+        "accept/drop/reject). Add a short `comment`. Do NOT set `disabled` — "
+        "the rule is created disabled for human review. If the request is "
+        "ambiguous or dangerous, still return your best single rule and note "
+        "the assumption in the comment."
+    ),
+    'routeros_firewall_explain': (
+        "You are a network-security assistant. Given a MikroTik RouterOS "
+        "firewall ruleset (filter/NAT rules in order), explain in plain "
+        "language what it does, the overall posture (default-drop vs "
+        "default-accept), and flag anything risky — accept-all rules, "
+        "management services exposed to WAN, rules shadowed by earlier ones, "
+        "or disabled rules that look load-bearing. Be concise and ordered by "
+        "importance."
+    ),
     'investigate_alert': (
         "You are a Linux operations assistant helping an on-call "
         "engineer triage a single monitoring alert. Given the alert's "

@@ -13878,6 +13878,19 @@ async function openRouterosConsole() {
   body.innerHTML = '<div class="c-muted">Loading…</div>';
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
   _renderRouterosCard(body, { textContent: '' }, data || {});
+  // Console-only: a Firewall section below the overview (P2).
+  if (data && data.config && data.config.enabled) {
+    const fw = document.createElement('div');
+    fw.innerHTML = `
+      <div class="page-title isl-172 mt-32">Firewall</div>
+      <div class="row-6 mb-6">
+        <button class="btn-icon" data-action="loadRouterosFirewall">Load rules</button>
+        <button class="btn-icon" data-action="routerosFirewallExplain" title="AI: explain this ruleset + flag risks">${_icon('sparkles',14)} Explain</button>
+        <button class="btn-icon" data-action="routerosFirewallDraft" title="AI: draft a rule from a plain-English description">${_icon('sparkles',14)} Draft rule</button>
+      </div>
+      <div id="ros-fw-body"><div class="c-muted">Click "Load rules".</div></div>`;
+    body.appendChild(fw);
+  }
 }
 
 async function routerosCheckUpdate() {
@@ -13896,6 +13909,144 @@ async function routerosUpgrade() {
   const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'upgrade' });
   if (r && r.ok) toast('Upgrade started — router is rebooting', 'success');
   else toast((r && r.error) || 'Upgrade failed', 'error');
+}
+
+// ── RouterOS firewall (P2) ──────────────────────────────────────────────────
+let _rosFirewall = { filter: [], nat: [] };
+
+async function loadRouterosFirewall() {
+  const id = _drawerDeviceId;
+  const body = document.getElementById('ros-fw-body');
+  if (!id || !body) return;
+  body.innerHTML = '<div class="c-muted">Loading rules…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros/firewall`);
+  if (!data || data.error) { body.innerHTML = `<div class="c-red">${escHtml((data && data.error) || 'Failed')}</div>`; return; }
+  _rosFirewall = { filter: data.filter || [], nat: data.nat || [] };
+  _renderRouterosFirewall(body);
+}
+
+function _ruleRow(r, withToggle) {
+  const dimmed = r.disabled ? ' c-muted' : '';
+  const toggle = withToggle
+    ? (r.disabled
+        ? `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="enable">Enable</button>`
+        : `<button class="btn-icon badge-xs" data-action="routerosRuleToggle" data-arg="${escAttr(r.id)}" data-arg2="disable">Disable</button>`)
+    : '';
+  const actCls = r.action === 'drop' || r.action === 'reject' ? 'c-red' : (r.action === 'accept' ? 'c-green' : '');
+  return `<tr class="${dimmed.trim()}">
+    <td>${escHtml(r.chain || '')}</td>
+    <td class="${actCls}">${escHtml(r.action || '')}${r.disabled ? ' <span class="hint">(off)</span>' : ''}</td>
+    <td class="mono-12">${escHtml(r.src_address || '')}</td>
+    <td class="mono-12">${escHtml(r.dst_address || '')}</td>
+    <td class="hint">${escHtml([r.protocol, r.dst_port].filter(Boolean).join(':'))}</td>
+    <td class="hint">${escHtml(r.comment || '')}</td>
+    <td class="nowrap">${toggle}</td>
+  </tr>`;
+}
+
+function _renderRouterosFirewall(body) {
+  const f = _rosFirewall.filter || [], n = _rosFirewall.nat || [];
+  let h = `<h4>Filter rules (${f.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
+  h += f.map(r => _ruleRow(r, true)).join('') || '<tr><td colspan="7" class="c-muted">No filter rules.</td></tr>';
+  h += '</tbody></table>';
+  if (n.length) {
+    h += `<h4 class="mt-12">NAT rules (${n.length})</h4><table class="fs-13"><thead><tr><th>Chain</th><th>Action</th><th>Src</th><th>Dst</th><th>Proto:Port</th><th>Comment</th><th></th></tr></thead><tbody>`;
+    h += n.map(r => _ruleRow(r, false)).join('');
+    h += '</tbody></table>';
+  }
+  // Add-rule form (filter chain). New rules land DISABLED for review.
+  h += `<h4 class="mt-12">Add filter rule</h4>
+    <div class="hint mb-6">New rules are created <strong>disabled</strong> — review, then Enable from the table.</div>
+    <div class="row-6">
+      <select class="form-input mw-200" id="fw-add-chain"><option value="input">input</option><option value="forward">forward</option><option value="output">output</option></select>
+      <select class="form-input mw-200" id="fw-add-action"><option value="accept">accept</option><option value="drop">drop</option><option value="reject">reject</option></select>
+    </div>
+    <input class="form-input mt-6" id="fw-add-src" placeholder="src-address (e.g. 192.168.2.50)">
+    <input class="form-input mt-6" id="fw-add-dst" placeholder="dst-address (optional)">
+    <div class="row-6 mt-6">
+      <input class="form-input mw-200" id="fw-add-proto" placeholder="protocol (tcp/udp/…)">
+      <input class="form-input mw-200" id="fw-add-dport" placeholder="dst-port (optional)">
+    </div>
+    <input class="form-input mt-6" id="fw-add-comment" placeholder="comment">
+    <div class="row-6 mt-6">
+      <button class="btn-primary" data-action="addRouterosFirewallRule">Add rule (disabled)</button>
+    </div>`;
+  body.innerHTML = h;
+}
+
+async function addRouterosFirewallRule() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  const rule = {
+    chain:   document.getElementById('fw-add-chain')?.value,
+    action:  document.getElementById('fw-add-action')?.value,
+    'src-address': document.getElementById('fw-add-src')?.value.trim() || '',
+    'dst-address': document.getElementById('fw-add-dst')?.value.trim() || '',
+    protocol: document.getElementById('fw-add-proto')?.value.trim() || '',
+    'dst-port': document.getElementById('fw-add-dport')?.value.trim() || '',
+    comment: document.getElementById('fw-add-comment')?.value.trim() || '',
+    disabled: 'yes',
+  };
+  if (!confirm(`Add a ${rule.action} rule to chain "${rule.chain}"? It will be created DISABLED — enable it from the table after reviewing.`)) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'add_firewall_rule', rule });
+  if (r && r.ok) { toast('Rule added (disabled) — review then enable', 'success'); loadRouterosFirewall(); }
+  else toast((r && r.error) || 'Add failed', 'error');
+}
+
+async function routerosRuleToggle(ruleId, mode) {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (mode === 'enable' && !confirm('Enable this firewall rule? Make sure it won’t lock you out.')) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`,
+    { action: mode === 'enable' ? 'enable_rule' : 'disable_rule', arg: ruleId });
+  if (r && r.ok) { toast(`Rule ${mode}d`, 'success'); loadRouterosFirewall(); }
+  else toast((r && r.error) || 'Failed', 'error');
+}
+
+function _rosFirewallText() {
+  const fmt = (r) => `${r.chain} ${r.action} src=${r.src_address || '-'} dst=${r.dst_address || '-'} ` +
+    `${[r.protocol, r.dst_port].filter(Boolean).join(':')} ${r.disabled ? '[disabled] ' : ''}${r.comment ? '# ' + r.comment : ''}`;
+  return 'FILTER:\n' + (_rosFirewall.filter || []).map(fmt).join('\n') +
+         '\n\nNAT:\n' + (_rosFirewall.nat || []).map(fmt).join('\n');
+}
+
+function routerosFirewallExplain() {
+  if (!(_rosFirewall.filter || []).length && !(_rosFirewall.nat || []).length) {
+    toast('Load the rules first', 'info'); return;
+  }
+  openAIModal({
+    title:   'Explain firewall',
+    system:  'routeros_firewall_explain',
+    userMsg: _rosFirewallText(),
+    context: 'routeros-firewall',
+    maxTokens: 1500,
+  });
+}
+
+function routerosFirewallDraft() {
+  const desc = window.prompt('Describe the rule in plain English (e.g. "block 192.168.2.50 from reaching the internet"):', '');
+  if (!desc) return;
+  openAIModal({
+    title:   'Draft firewall rule',
+    system:  'routeros_firewall_rule',
+    userMsg: desc,
+    context: 'routeros-firewall',
+    maxTokens: 500,
+    actionLabel: 'Fill the add-rule form',
+    onResult: (text) => {
+      let rule;
+      try { rule = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')); }
+      catch (e) { toast('AI did not return a clean rule — see the response', 'error'); return; }
+      const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+      set('fw-add-chain', rule.chain); set('fw-add-action', rule.action);
+      set('fw-add-src', rule['src-address'] || rule.src_address || '');
+      set('fw-add-dst', rule['dst-address'] || rule.dst_address || '');
+      set('fw-add-proto', rule.protocol || '');
+      set('fw-add-dport', rule['dst-port'] || rule.dst_port || '');
+      set('fw-add-comment', rule.comment || 'drafted by AI — review before enabling');
+      toast('Form filled from AI draft — review, then Add (it stays disabled)', 'success');
+    },
+  });
 }
 
 async function routerosAction(action, arg) {

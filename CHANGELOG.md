@@ -67,6 +67,11 @@ In development.
   package updates — a periodic check caches installed/latest so the fleet
   has one "what needs updating" view. (Connects even from TLS-1.3-only
   hosts: the client lowers to TLS 1.2 for RouterOS, which maxes at 1.2.)
+  The console also has a **Firewall** view: filter + NAT rules in detail,
+  per-rule enable/disable, an add-rule form, and **AI** — "Explain" (plain-
+  English ruleset summary + risk flags) and "Draft rule" (turns a plain-
+  English request into a rule and fills the form). New rules are created
+  **disabled** for review; nothing is auto-applied.
 
 ## v3.3.3 — unreleased (dev)
 

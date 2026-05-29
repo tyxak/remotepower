@@ -130,6 +130,53 @@ class TestRouterosClient(unittest.TestCase):
         self.assertTrue(r.get("rebooting"))
         self.assertIn(("POST", "/system/package/update/install"), calls)
 
+    def test_firewall_parsing(self):
+        def cap(host, user, pw, method, path, body=None, **k):
+            if path == "/ip/firewall/filter":
+                return [{".id": "*1", "chain": "input", "action": "drop",
+                         "src-address": "1.2.3.4", "disabled": "false", "comment": "x"}]
+            if path == "/ip/firewall/nat":
+                return [{".id": "*2", "chain": "srcnat", "action": "masquerade"}]
+            return []
+        with patch.object(ros, "_request", side_effect=cap):
+            fw = ros.firewall("h", "u", "p")
+        self.assertEqual(fw["filter"][0]["chain"], "input")
+        self.assertFalse(fw["filter"][0]["disabled"])
+        self.assertEqual(fw["nat"][0]["action"], "masquerade")
+
+    def test_sanitize_rule_whitelists_and_requires(self):
+        r = ros._sanitize_rule({"chain": "input", "action": "drop",
+                                "src_address": "1.2.3.4", "evil": "x", "dst-port": "22"})
+        self.assertEqual(r["chain"], "input")
+        self.assertEqual(r["src-address"], "1.2.3.4")   # underscore normalised
+        self.assertEqual(r["dst-port"], "22")
+        self.assertNotIn("evil", r)                     # not whitelisted
+        with self.assertRaises(ros.RouterOSError):
+            ros._sanitize_rule({"action": "drop"})       # no chain
+
+    def test_add_rule_defaults_disabled(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path, body))
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            ros.action("h", "u", "p", "add_firewall_rule",
+                       rule={"chain": "input", "action": "drop"})
+        method, path, body = calls[0]
+        self.assertEqual((method, path), ("POST", "/ip/firewall/filter"))
+        self.assertEqual(body["disabled"], "yes")        # safety default
+
+    def test_rule_toggle_calls(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path, body))
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            ros.action("h", "u", "p", "disable_rule", arg="*5")
+        self.assertEqual(calls[0], ("POST", "/ip/firewall/filter/disable", {".id": "*5"}))
+
 
 # ── server handlers (real auth, mocked routeros) ───────────────────────────
 class _Captured(Exception):
@@ -273,6 +320,38 @@ class TestRouterosHandlers(unittest.TestCase):
         self.assertEqual(row["upgradable"], 1)
         self.assertEqual(row["patch_status"], "patches_available")
         self.assertEqual(row["firmware"]["latest"], "7.24")
+
+    def _enable_routeros(self):
+        api.save(api.DEVICES_FILE, {"r1": {"name": "router", "agentless": True,
+                 "ip": "10.0.0.1", "routeros": {"enabled": True, "username": "rp",
+                 "password": "x"}}})
+
+    def test_firewall_endpoint(self):
+        self._enable_routeros()
+        with patch.object(ros, "firewall",
+                          return_value={"filter": [{"chain": "input"}], "nat": [], "errors": {}}):
+            _req("GET", "/api/devices/r1/routeros/firewall", None, self.tok)
+            st, body = _call(api.handle_device_routeros_firewall, "r1")
+        self.assertEqual(st, 200)
+        self.assertTrue(body["enabled"])
+        self.assertEqual(len(body["filter"]), 1)
+
+    def test_add_rule_via_action_passes_rule(self):
+        self._enable_routeros()
+        with patch.object(ros, "action", return_value={"ok": True}) as act:
+            _req("POST", "/api/devices/r1/routeros/action",
+                 {"action": "add_firewall_rule", "rule": {"chain": "input", "action": "drop"}}, self.tok)
+            st, _ = _call(api.handle_device_routeros_action, "r1")
+        self.assertEqual(st, 200)
+        self.assertEqual(act.call_args.kwargs.get("rule"), {"chain": "input", "action": "drop"})
+
+    def test_firewall_blocked_when_not_enabled(self):
+        # device exists but routeros not enabled -> action gate 403
+        api.save(api.DEVICES_FILE, {"r1": {"name": "router", "agentless": True, "ip": "10.0.0.1"}})
+        _req("POST", "/api/devices/r1/routeros/action",
+             {"action": "add_firewall_rule", "rule": {"chain": "input", "action": "drop"}}, self.tok)
+        st, _ = _call(api.handle_device_routeros_action, "r1")
+        self.assertEqual(st, 403)
 
 
 if __name__ == "__main__":

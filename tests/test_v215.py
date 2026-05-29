@@ -143,6 +143,9 @@ class TestHtmlIdReferences(unittest.TestCase):
         'drift-diff-path', 'drift-diff-fetch-btn', 'drift-diff-status',
         # Toast container created on first toast()
         'toast-container',
+        # v3.3.4: RouterOS console Firewall section, appended in
+        # openRouterosConsole() via createElement/innerHTML.
+        'ros-fw-body',
     }
 
     def test_modal_title_body_ids_all_exist_in_html(self):

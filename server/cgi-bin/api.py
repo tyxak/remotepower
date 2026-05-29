@@ -15817,8 +15817,27 @@ def handle_device_routeros(dev_id):
         respond(405, {'error': 'Method not allowed'})
 
 
+def handle_device_routeros_firewall(dev_id):
+    """GET /api/devices/<id>/routeros/firewall — filter + NAT rules detail."""
+    require_auth()
+    dev = load(DEVICES_FILE).get(dev_id)
+    if not dev:
+        respond(404, {'error': 'device not found'})
+    tgt = _routeros_target(dev)
+    if not tgt:
+        respond(200, {'filter': [], 'nat': [], 'enabled': False})
+    host, user, password, verify = tgt
+    import routeros as routeros_mod
+    try:
+        fw = routeros_mod.firewall(host, user, password, verify=verify)
+    except Exception as e:
+        respond(502, {'error': str(e)[:200]})
+    fw['enabled'] = True
+    respond(200, fw)
+
+
 def handle_device_routeros_action(dev_id):
-    """POST /api/devices/<id>/routeros/action {action, arg} — admin-only
+    """POST /api/devices/<id>/routeros/action {action, arg, rule?} — admin-only
     management command, gated on the device's routeros opt-in. Audited."""
     actor = require_admin_auth()
     if not _validate_id(dev_id):
@@ -15836,8 +15855,10 @@ def handle_device_routeros_action(dev_id):
     import routeros as routeros_mod
     if act not in routeros_mod.ACTIONS:
         respond(400, {'error': 'unknown action'})
+    rule = body.get('rule') if isinstance(body.get('rule'), dict) else None
     try:
-        res = routeros_mod.action(host, user, password, act, arg=arg, verify=verify)
+        res = routeros_mod.action(host, user, password, act, arg=arg, rule=rule,
+                                  verify=verify)
     except Exception as e:
         respond(502, {'error': str(e)[:200]})
     # v3.3.4: cache the update state so the Patches page can show RouterOS
@@ -20308,6 +20329,8 @@ def main():
     # v3.3.4: RouterOS (MikroTik) REST — visibility + management
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros/action') and m == 'POST':
         handle_device_routeros_action(pi[len('/api/devices/'):-len('/routeros/action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/routeros/firewall') and m == 'GET':
+        handle_device_routeros_firewall(pi[len('/api/devices/'):-len('/routeros/firewall')])
     elif pi.startswith('/api/devices/') and pi.endswith('/routeros') and m in ('GET', 'PATCH'):
         handle_device_routeros(pi[len('/api/devices/'):-len('/routeros')])
     elif pi.startswith('/api/devices/') and pi.endswith('/snmp') and m in ('GET', 'PATCH'):
@@ -21496,6 +21519,8 @@ _AI_PROMPT_LABELS = {
     'investigate_device':    'Investigate device',
     'explain_alert':          'Explain webhook alert',
     'investigate_alert':      'Investigate alert',
+    'routeros_firewall_rule': 'RouterOS — draft firewall rule',
+    'routeros_firewall_explain': 'RouterOS — explain firewall',
     'diagnose_service':       'Diagnose failing service',
     'explain_tls':            'Explain TLS / certificate',
     'prioritise_patches':     'Prioritise pending patches',

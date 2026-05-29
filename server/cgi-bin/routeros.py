@@ -242,15 +242,86 @@ def _int(v):
 
 
 ACTIONS = ("enable_interface", "disable_interface", "reboot",
-           "run_script", "export", "check_update", "upgrade")
+           "run_script", "export", "check_update", "upgrade",
+           "add_firewall_rule", "enable_rule", "disable_rule")
+
+# Whitelist of firewall-filter fields we let callers set — keeps a crafted
+# (or AI-drafted) rule from smuggling arbitrary RouterOS properties.
+_RULE_FIELDS = ("chain", "action", "src-address", "dst-address", "protocol",
+                "dst-port", "src-port", "in-interface", "out-interface",
+                "comment", "disabled", "log", "place-before",
+                "connection-state")
 
 
-def action(host, user, password, act, arg=None, verify=False,
+def _sanitize_rule(rule):
+    if not isinstance(rule, dict):
+        raise RouterOSError("rule object required")
+    out = {}
+    for k, v in rule.items():
+        kk = str(k).replace("_", "-")
+        if kk in _RULE_FIELDS and v not in (None, ""):
+            out[kk] = str(v)
+    if not out.get("chain"):
+        raise RouterOSError("rule needs a chain")
+    if not out.get("action"):
+        raise RouterOSError("rule needs an action")
+    return out
+
+
+def firewall(host, user, password, verify=False, timeout=DEFAULT_TIMEOUT):
+    """Read filter + NAT rules in detail (for the console Firewall view)."""
+    out = {"filter": [], "nat": [], "errors": {}}
+
+    def _rules(path):
+        rows = _request(host, user, password, "GET", path,
+                        verify=verify, timeout=timeout)
+        if not isinstance(rows, list):
+            return []
+        res = []
+        for r in rows[:300]:
+            res.append({
+                "id":           r.get(".id"),
+                "chain":        r.get("chain"),
+                "action":       r.get("action"),
+                "src_address":  r.get("src-address"),
+                "dst_address":  r.get("dst-address"),
+                "protocol":     r.get("protocol"),
+                "dst_port":     r.get("dst-port"),
+                "in_interface": r.get("in-interface"),
+                "comment":      r.get("comment"),
+                "disabled":     r.get("disabled") in (True, "true", "yes"),
+                "bytes":        _int(r.get("bytes")),
+            })
+        return res
+
+    for key, path in (("filter", "/ip/firewall/filter"), ("nat", "/ip/firewall/nat")):
+        try:
+            out[key] = _rules(path)
+        except RouterOSError as e:
+            out["errors"][key] = str(e)[:200]
+    return out
+
+
+def action(host, user, password, act, arg=None, rule=None, verify=False,
            timeout=10.0):
-    """Run one allowlisted management command. `arg` is the interface .id /
-    script id where relevant. Returns the REST response (or {'ok': True})."""
+    """Run one allowlisted management command. `arg` is the interface/rule
+    .id or script id; `rule` is the firewall-rule dict for add_firewall_rule.
+    Returns the REST response (or {'ok': True})."""
     if act not in ACTIONS:
         raise RouterOSError(f"action {act!r} not allowed")
+    if act == "add_firewall_rule":
+        body = _sanitize_rule(rule)
+        body.setdefault("disabled", "yes")   # safety: new rules land disabled
+        r = _request(host, user, password, "POST", "/ip/firewall/filter",
+                     body=body, verify=verify, timeout=timeout)
+        return {"ok": True, "result": r}
+    if act in ("enable_rule", "disable_rule"):
+        if not arg:
+            raise RouterOSError("rule id required")
+        verb = "enable" if act == "enable_rule" else "disable"
+        _request(host, user, password, "POST", f"/ip/firewall/filter/{verb}",
+                 body={".id": str(arg)}, verify=verify, timeout=timeout)
+        return {"ok": True}
     if act == "reboot":
         _request(host, user, password, "POST", "/system/reboot", body={},
                  verify=verify, timeout=timeout)
