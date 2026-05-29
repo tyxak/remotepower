@@ -43,27 +43,41 @@ DSM_UPGRADE_LOG = "/tmp/rp-dsm-upgrade.log"
 # `sh file` only reads it.
 DSM_UPGRADE_SCRIPT = r"""#!/bin/sh
 set -u
+# A non-login SSH/nohup shell has a minimal PATH, so `sudo synoupgrade` can
+# resolve to a different binary than the one a NOPASSWD sudoers rule lists ->
+# "sudo: a password is required". Put DSM's dirs first and call the resolved
+# ABSOLUTE path, so it matches the sudoers entry whether the user's shell is
+# login or not. Put /usr/syno/sbin before /usr/syno/bin so we resolve the same
+# path `which synoupgrade` shows in a login shell.
+PATH="/usr/syno/sbin:/usr/syno/bin:/sbin:/usr/sbin:/bin:/usr/bin:$PATH"
 echo "=== $(date) RemotePower: DSM upgrade ==="
 # Run privileged commands directly when root, else via non-interactive sudo —
 # so a dedicated low-privilege user works given a NOPASSWD sudoers entry for
 # synoupgrade + reboot.
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi
-CHECK_RESULT="$($SUDO synoupgrade --check 2>&1 || true)"
+SYNOUPGRADE="$(command -v synoupgrade 2>/dev/null || true)"
+REBOOT_BIN="$(command -v reboot 2>/dev/null || echo /sbin/reboot)"
+if [ -z "$SYNOUPGRADE" ]; then
+    echo "synoupgrade not found in PATH — cannot upgrade."
+    exit 1
+fi
+echo "using: $SYNOUPGRADE  (reboot: $REBOOT_BIN)"
+CHECK_RESULT="$($SUDO "$SYNOUPGRADE" --check 2>&1 || true)"
 echo "check: $CHECK_RESULT"
 case "$CHECK_RESULT" in
     *UPGRADE_CHECKNEWDSM*) ;;   # a new DSM is offered — continue
     *) echo "No DSM update available — nothing to do."; exit 0 ;;
 esac
 echo "Applying DSM update..."
-$SUDO synoupgrade --autoupdate=1 || true
+$SUDO "$SYNOUPGRADE" --autoupdate=1 || true
 echo "Waiting for the upgrade to initialise..."
 sleep 60
 echo "Forcing upgrade start..."
-$SUDO synoupgrade --start-force || true
+$SUDO "$SYNOUPGRADE" --start-force || true
 echo "Waiting before reboot..."
 sleep 120
 echo "Rebooting NAS..."
-$SUDO reboot
+$SUDO "$REBOOT_BIN"
 """
 
 
