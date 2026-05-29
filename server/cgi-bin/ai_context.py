@@ -210,8 +210,15 @@ def build_retrieved_context(chunks):
         "infrastructure index (device state, docs, CMDB, history) because "
         "they appear relevant to the operator's request. Treat them as "
         "ground truth about THIS fleet. When you rely on one, cite it by "
-        "its bracketed id, e.g. [live/web01#cves]. If they don't cover the "
-        "question, say so rather than guessing.",
+        "its bracketed id, e.g. [live/web01#cves].",
+        # The model was observed punting cross-fleet questions back to the
+        # operator ("call the get_cves tool", "run jq ...") even when the
+        # answer was sitting in the retrieved context. Answer from the data.
+        "Answer directly from these snippets. Do NOT tell the operator to "
+        "run an MCP tool, a `jq` filter, or a shell command to fetch data "
+        "that is already provided here — read it out of the snippets and "
+        "answer. Only if the snippets genuinely don't contain the answer, "
+        "say so briefly (and then you may suggest how to obtain it).",
         "",
     ]
     for c in chunks:

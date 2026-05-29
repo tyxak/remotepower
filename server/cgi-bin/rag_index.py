@@ -346,6 +346,13 @@ def build_live_state_corpus(devices, facets=None, now=0):
     """
     docs = []
     facets = facets or {}
+    # Fleet-wide aggregates, collected during the per-device pass and emitted
+    # as rollup chunks afterwards so cross-fleet questions ("which hosts need
+    # a reboot / have pending updates / have drifted?") have a single chunk to
+    # retrieve instead of relying on the model to fan out over every device.
+    reboot_hosts = []
+    patch_hosts = []
+    drift_hosts = []
     for dev in (devices or []):
         if not isinstance(dev, dict):
             continue
@@ -396,6 +403,79 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 f"{name} disks / hardware:\n" + _format_facet(si.get('disks')),
                 title=f"{name} — hardware", device=dev_id, ts=ts))
 
+        # Listening ports from sysinfo. The agent already collects these
+        # (sysinfo.listening_ports); indexing them answers "what ports are
+        # listening on X" from real data instead of the model suggesting
+        # `ss`/`netstat`. Ports are stable enough to embed (a service's
+        # listen set rarely changes between heartbeats). We do NOT index
+        # top_processes — those are as volatile as load/cpu (see summary).
+        if si.get('listening_ports'):
+            docs.append(make_doc(
+                f"live/{dev_id}#ports", 'live_state', 'device_ports',
+                f"{name} listening ports (open TCP/UDP sockets):\n"
+                + _format_facet(si.get('listening_ports')),
+                title=f"{name} — listening ports", device=dev_id, ts=ts))
+
+        # Resources / specs — stable hardware + capacity facts the operator
+        # asks about ("how much memory/disk/cpu does X have", "how long has
+        # X been up"). Totals are stable; we keep current free/percent out of
+        # the embedded text (volatile, see the summary note).
+        res = []
+        for label, key in (('cpu', 'cpu'), ('cpu cores', 'cores'),
+                           ('cpu cores', 'cpu_count'),
+                           ('total memory (MB)', 'mem_total_mb'),
+                           ('total disk (GB)', 'disk_total_gb'),
+                           ('uptime (seconds)', 'uptime_seconds'),
+                           ('boot time', 'boot_time'),
+                           ('last boot', 'last_boot')):
+            v = si.get(key)
+            if v not in (None, '', 0):
+                res.append(f"{label}: {v}")
+        if res:
+            docs.append(make_doc(
+                f"live/{dev_id}#resources", 'live_state', 'device_resources',
+                f"{name} resources / hardware specs:\n" + '\n'.join(res),
+                title=f"{name} — resources", device=dev_id, ts=ts))
+
+        # Patch / reboot status. `upgradable` is a pending-update count on the
+        # device record; reboot_required comes from sysinfo. Both answer
+        # high-value operational questions and feed the fleet rollups below.
+        upgradable = dev.get('upgradable')
+        reboot_required = bool(si.get('reboot_required'))
+        patch_lines = []
+        if isinstance(upgradable, int):
+            patch_lines.append(f"pending package updates: {upgradable}")
+            if upgradable > 0:
+                patch_hosts.append((name, upgradable))
+        if dev.get('patch_status'):
+            patch_lines.append(f"patch status: {dev['patch_status']}")
+        if (dev.get('sysinfo') or {}).get('packages', {}).get('manager'):
+            patch_lines.append(f"package manager: {si['packages']['manager']}")
+        if reboot_required:
+            patch_lines.append("reboot required: yes"
+                               + (f" ({si.get('reboot_reason')})"
+                                  if si.get('reboot_reason') else ""))
+            reboot_hosts.append(name)
+        if patch_lines:
+            docs.append(make_doc(
+                f"live/{dev_id}#patches", 'live_state', 'device_patches',
+                f"{name} patch & reboot status:\n" + '\n'.join(patch_lines),
+                title=f"{name} — patches", device=dev_id, ts=ts))
+
+        # Configuration drift — files that differ from their captured baseline.
+        drift = dev.get('drift_state') or {}
+        drifted = [f for f, st in drift.items()
+                   if isinstance(st, dict) and st.get('status') == 'drifted'
+                   and not st.get('ignored')]
+        if drifted:
+            drift_hosts.append((name, len(drifted)))
+            docs.append(make_doc(
+                f"live/{dev_id}#drift", 'live_state', 'device_drift',
+                f"{name} config drift — config files that have drifted / "
+                f"changed from their captured baseline:\n"
+                + '\n'.join(f"- {f}" for f in drifted[:50]),
+                title=f"{name} — config drift", device=dev_id, ts=ts))
+
         # Inline device facets that live on the record itself.
         inline = {
             'services': dev.get('services_watched_state') or dev.get('services'),
@@ -413,6 +493,67 @@ def build_live_state_corpus(devices, facets=None, now=0):
                 f"live/{dev_id}#{fname}", 'live_state', f'device_{fname}',
                 f"{name} {fname}:\n{body}",
                 title=f"{name} — {fname}", device=dev_id, ts=ts))
+
+    # Fleet-wide CVE rollup. Cross-fleet aggregate questions ("what are the
+    # worst CVEs in the fleet?") have no single device to focus on, so the
+    # per-device #cves chunks don't surface well and the model ends up
+    # punting to the get_cves tool. A single rollup chunk of the worst
+    # (critical + high) CVEs across every host gives the model authoritative
+    # data to answer from directly. Built from the caller-supplied `cves`
+    # facets so the shape knowledge stays in one place.
+    worst = []
+    for dev_id, f in (facets or {}).items():
+        for c in (f.get('cves') or []):
+            if not isinstance(c, dict):
+                continue
+            sev = str(c.get('severity', '')).lower()
+            if sev in ('critical', 'high'):
+                worst.append((sev, dev_id,
+                              c.get('id') or c.get('cve_id') or '?',
+                              c.get('package') or c.get('pkg') or ''))
+    if worst:
+        rank = {'critical': 0, 'high': 1}
+        worst.sort(key=lambda x: (rank.get(x[0], 9), x[1]))
+        n_crit = sum(1 for w in worst if w[0] == 'critical')
+        lines = [f"- {dev}: {cid} ({sev}{' in ' + pkg if pkg else ''})"
+                 for sev, dev, cid, pkg in worst[:80]]
+        text = ("Fleet CVE summary — the worst (critical and high severity) "
+                f"vulnerabilities / CVEs across the whole fleet "
+                f"({n_crit} critical, {len(worst) - n_crit} high):\n"
+                + '\n'.join(lines))
+        docs.append(make_doc(
+            "live/_fleet#cves", 'live_state', 'fleet_cves', text,
+            title="Fleet CVE summary (worst CVEs)", device=None, ts=now))
+
+    # Fleet patch & reboot rollup — "which hosts have pending updates / need a
+    # reboot?" Both are common cross-fleet questions with no single device.
+    if patch_hosts or reboot_hosts:
+        parts = []
+        if patch_hosts:
+            patch_hosts.sort(key=lambda x: x[1], reverse=True)
+            parts.append("Hosts with pending package updates (most first):\n"
+                         + '\n'.join(f"- {n}: {c} pending update"
+                                     f"{'s' if c != 1 else ''}"
+                                     for n, c in patch_hosts))
+        if reboot_hosts:
+            parts.append("Hosts that require a reboot:\n"
+                         + '\n'.join(f"- {n}" for n in sorted(reboot_hosts)))
+        docs.append(make_doc(
+            "live/_fleet#patches", 'live_state', 'fleet_patches',
+            "Fleet patch & reboot status — pending package updates and "
+            "pending reboots across the fleet:\n" + '\n\n'.join(parts),
+            title="Fleet patch & reboot status", device=None, ts=now))
+
+    # Fleet config-drift rollup — "which hosts have drifted from baseline?"
+    if drift_hosts:
+        drift_hosts.sort(key=lambda x: x[1], reverse=True)
+        docs.append(make_doc(
+            "live/_fleet#drift", 'live_state', 'fleet_drift',
+            "Fleet configuration drift — hosts with config files changed "
+            "from their captured baseline:\n"
+            + '\n'.join(f"- {n}: {c} drifted file{'s' if c != 1 else ''}"
+                        for n, c in drift_hosts),
+            title="Fleet config drift", device=None, ts=now))
     return docs
 
 

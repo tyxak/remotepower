@@ -10730,7 +10730,7 @@ def _rag_source_files(sources):
             files.extend(RAG_DOCS_DIR.glob('*.md'))
     if sources.get('live_state'):
         files += [DEVICES_FILE, CVE_FINDINGS_FILE, CONTAINERS_FILE,
-                  SNMP_DATA_FILE]
+                  SNMP_DATA_FILE, TLS_TARGETS_FILE, TLS_RESULTS_FILE]
     if sources.get('cmdb'):
         files.append(CMDB_FILE)
     if sources.get('history'):
@@ -10793,6 +10793,43 @@ def _rag_build_corpus(cfg):
             docs += rag_index.build_live_state_corpus(devices, facets=facets, now=now)
         except Exception as e:
             sys.stderr.write(f'rag: live_state source failed: {e}\n')
+
+        # Fleet TLS/cert-expiry rollup. TLS results are keyed by target (not
+        # device), so this is built here and appended as a standalone chunk:
+        # "which certs are expiring soon?" across everything the TLS monitor
+        # watches. Sorted soonest-first.
+        try:
+            import tls_monitor as _tls
+            targets = load(TLS_TARGETS_FILE) or {}
+            results = load(TLS_RESULTS_FILE) or {}
+            rows = []
+            for tid, t in (targets.items() if isinstance(targets, dict) else []):
+                r = results.get(tid) or {}
+                if not r:
+                    continue
+                try:
+                    days = _tls.days_until_expiry(r)
+                except Exception:
+                    continue
+                if days is None:
+                    continue
+                label = f"{t.get('host', tid)}:{t.get('port', 443)}"
+                rows.append((days, label, r.get('issuer') or r.get('subject') or ''))
+            if rows:
+                rows.sort(key=lambda x: x[0])
+                lines = [f"- {label}: expires in {days} day{'s' if days != 1 else ''}"
+                         f"{' (EXPIRED)' if days <= 0 else ''}"
+                         f"{' — ' + iss if iss else ''}"
+                         for days, label, iss in rows[:80]]
+                soon = sum(1 for d, _, _ in rows if d <= 30)
+                docs.append(rag_index.make_doc(
+                    'tls/_fleet#expiry', 'live_state', 'fleet_tls',
+                    "Fleet TLS / certificate expiry — monitored certificates "
+                    f"sorted by soonest expiry ({soon} expiring within 30 days):\n"
+                    + '\n'.join(lines),
+                    title='Fleet TLS / cert expiry', ts=now))
+        except Exception as e:
+            sys.stderr.write(f'rag: tls rollup failed: {e}\n')
 
     if sources.get('cmdb'):
         try:

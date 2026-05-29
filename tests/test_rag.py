@@ -198,6 +198,77 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertEqual(hits[0]["id"], "live/web01.example.com#summary")
         self.assertIn("10.20.0.11", hits[0]["text"])
 
+    def test_resources_patches_drift_facets(self):
+        devs = [{"id": "app01", "name": "app01", "upgradable": 7,
+                 "drift_state": {"/etc/nginx/nginx.conf": {"status": "drifted"},
+                                 "/etc/hosts": {"status": "ok"}},
+                 "sysinfo": {"cores": 8, "mem_total_mb": 16384,
+                             "disk_total_gb": 500, "reboot_required": True,
+                             "reboot_reason": "kernel update"}}]
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs))
+        ids = {d["id"] for d in idx.docs}
+        self.assertIn("live/app01#resources", ids)
+        self.assertIn("live/app01#patches", ids)
+        self.assertIn("live/app01#drift", ids)
+        # device-scoped questions hit the right facet
+        self.assertEqual(idx.search("how much memory does app01 have", 1)[0]["id"],
+                         "live/app01#resources")
+        self.assertEqual(idx.search("does app01 need a reboot", 1)[0]["id"],
+                         "live/app01#patches")
+        self.assertEqual(idx.search("what config has drifted on app01", 1)[0]["id"],
+                         "live/app01#drift")
+
+    def test_fleet_patch_reboot_and_drift_rollups(self):
+        devs = [
+            {"id": "a", "name": "a", "upgradable": 12,
+             "sysinfo": {"reboot_required": True}},
+            {"id": "b", "name": "b", "upgradable": 0,
+             "drift_state": {"/etc/x": {"status": "drifted"}},
+             "sysinfo": {"reboot_required": False}},
+        ]
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs, now=1))
+        ids = {d["id"] for d in idx.docs}
+        self.assertIn("live/_fleet#patches", ids)
+        self.assertIn("live/_fleet#drift", ids)
+        self.assertEqual(idx.search("which hosts need a reboot", 1)[0]["id"],
+                         "live/_fleet#patches")
+        self.assertEqual(idx.search("which hosts have config drift", 1)[0]["id"],
+                         "live/_fleet#drift")
+        patch_roll = next(d for d in idx.docs if d["id"] == "live/_fleet#patches")
+        self.assertIn("a", patch_roll["text"])      # reboot + updates host listed
+
+    def test_listening_ports_indexed(self):
+        devs = [{"id": "app01", "name": "app01", "sysinfo": {"listening_ports": [
+            {"port": 22, "proto": "tcp", "process": "sshd"},
+            {"port": 443, "proto": "tcp", "process": "nginx"}]}}]
+        idx = rag_index.InfraIndex().build(rag_index.build_live_state_corpus(devs))
+        self.assertIn("live/app01#ports", {d["id"] for d in idx.docs})
+        hits = idx.search("what ports are listening on app01", top_n=2)
+        self.assertEqual(hits[0]["id"], "live/app01#ports")
+        self.assertIn("443", hits[0]["text"])
+
+    def test_fleet_cve_rollup(self):
+        devs = [{"id": "a", "name": "a"}, {"id": "b", "name": "b"}]
+        facets = {
+            "a": {"cves": [{"id": "CVE-2024-3094", "severity": "critical", "package": "xz"},
+                           {"id": "CVE-2022-0001", "severity": "low", "package": "curl"}]},
+            "b": {"cves": [{"id": "CVE-2024-9999", "severity": "high", "package": "glibc"}]},
+        }
+        docs = rag_index.build_live_state_corpus(devs, facets=facets, now=1000)
+        roll = next(d for d in docs if d["id"] == "live/_fleet#cves")
+        # only critical/high are rolled up, critical first; low is excluded
+        self.assertIn("CVE-2024-3094", roll["text"])
+        self.assertIn("CVE-2024-9999", roll["text"])
+        self.assertNotIn("CVE-2022-0001", roll["text"])
+        self.assertLess(roll["text"].index("CVE-2024-3094"),
+                        roll["text"].index("CVE-2024-9999"))  # critical before high
+        # a cross-fleet question retrieves the rollup top-1, above doc noise
+        docs += rag_index.build_docs_corpus(
+            [("mcp", "# MCP\nthe get_cves tool returns CVE findings; filter with jq.")])
+        idx = rag_index.InfraIndex().build(docs)
+        hits = idx.search("what are the worst cves in the fleet", top_n=1)
+        self.assertEqual(hits[0]["id"], "live/_fleet#cves")
+
     def test_history_redactor_applied(self):
         # redactor that scrubs IPs, mimicking ai_provider.redact behaviour
         def redactor(t):
