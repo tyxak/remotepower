@@ -699,6 +699,51 @@ def run_agentless_reachability_if_due():
             pass
 
 
+ROUTEROS_UPDATE_INTERVAL = 12 * 3600   # how often to re-check RouterOS firmware
+
+
+def run_routeros_update_check_if_due():
+    """v3.3.4: periodically refresh RouterOS firmware-update state for
+    routeros-enabled devices, so the Patches page shows it without a live
+    fetch. Cheap-when-not-due; bounded per run. check-for-updates is safe
+    (no reboot)."""
+    cfg = load(CONFIG_FILE)
+    now = int(time.time())
+    last = int(cfg.get('last_routeros_update_check', 0))
+    interval = max(3600, int(cfg.get('routeros_update_interval', ROUTEROS_UPDATE_INTERVAL)))
+    if (now - last) < interval:
+        return
+    devs = load(DEVICES_FILE)
+    targets = [(did, d) for did, d in devs.items()
+               if (d.get('routeros') or {}).get('enabled')]
+    if not targets:
+        return
+    cfg['last_routeros_update_check'] = now
+    save(CONFIG_FILE, cfg)
+    import routeros as routeros_mod
+    results = {}   # dev_id -> update dict
+    started = time.time()
+    for dev_id, dev in targets[:25]:
+        if (time.time() - started) > 25:
+            break
+        tgt = _routeros_target(dev)
+        if not tgt:
+            continue
+        host, user, password, verify = tgt
+        try:
+            res = routeros_mod.action(host, user, password, 'check_update', verify=verify)
+            if isinstance(res, dict) and res.get('update'):
+                results[dev_id] = {**res['update'], 'last_checked': now}
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] routeros update check failed {dev_id}: {e}\n')
+    if results:
+        with _LockedUpdate(DEVICES_FILE) as store:
+            for dev_id, upd in results.items():
+                d = store.get(dev_id)
+                if d is not None:
+                    d['routeros_update'] = upd
+
+
 def _offline_thresholds(dev, ttl):
     """Per-device OFFLINE tuning used by check_offline_webhooks.
 
@@ -13312,7 +13357,23 @@ def handle_patch_report():
         si = dev.get('sysinfo', {})
         pkg = si.get('packages', {})
         upgradable = pkg.get('upgradable')
+        pkg_manager = pkg.get('manager', 'unknown')
         is_online = (now - dev.get('last_seen', 0)) < get_online_ttl()
+
+        # v3.3.4: RouterOS firmware updates show here too. For a
+        # routeros-enabled device with a cached check, derive upgradable
+        # from installed-vs-latest so it flows through the same status +
+        # summary logic as Linux package updates.
+        firmware = None
+        ros_cfg = dev.get('routeros') or {}
+        ros_upd = dev.get('routeros_update') or {}
+        if ros_cfg.get('enabled') and ros_upd.get('installed'):
+            inst, latest = ros_upd.get('installed'), ros_upd.get('latest')
+            firmware = {'installed': inst, 'latest': latest}
+            upgradable = 1 if (latest and inst and latest != inst) else (0 if latest else None)
+            pkg_manager = 'routeros'
+            if dev.get('agentless'):
+                is_online = _agentless_online(dev)
 
         entry = {
             'device_id': dev_id,
@@ -13323,8 +13384,9 @@ def handle_patch_report():
             'os': dev.get('os', ''),
             'online': is_online,
             'last_seen': dev.get('last_seen', 0),
-            'pkg_manager': pkg.get('manager', 'unknown'),
+            'pkg_manager': pkg_manager,
             'upgradable': upgradable,
+            'firmware': firmware,
             'patch_status': 'unknown',
             # reboot_required: True when /run/reboot-required exists on the host
             # (Debian/Ubuntu); False or absent on other distros / older agents.
@@ -15778,6 +15840,16 @@ def handle_device_routeros_action(dev_id):
         res = routeros_mod.action(host, user, password, act, arg=arg, verify=verify)
     except Exception as e:
         respond(502, {'error': str(e)[:200]})
+    # v3.3.4: cache the update state so the Patches page can show RouterOS
+    # firmware alongside Linux package updates without a live fetch.
+    if act == 'check_update' and isinstance(res, dict) and res.get('update'):
+        try:
+            with _LockedUpdate(DEVICES_FILE) as store:
+                d = store.get(dev_id)
+                if d is not None:
+                    d['routeros_update'] = {**res['update'], 'last_checked': int(time.time())}
+        except Exception:
+            pass
     audit_log(actor, 'device_routeros_action', f'dev={dev_id} action={act} arg={arg}')
     respond(200, {'ok': True, 'result': res})
 
@@ -20129,6 +20201,8 @@ def main():
     # when-not-due; check_offline_webhooks skips agentless so this owns
     # their up/down + offline/online alerts.
     _safe(run_agentless_reachability_if_due, 'run_agentless_reachability_if_due')
+    # v3.3.4: refresh RouterOS firmware-update state for the Patches page.
+    _safe(run_routeros_update_check_if_due, 'run_routeros_update_check_if_due')
     # v3.3.4: refresh registry digests for container image-update detection.
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')

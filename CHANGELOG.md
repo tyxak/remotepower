@@ -59,7 +59,14 @@ In development.
   Stored per-device with a write-only password; **admin-only + audited**,
   and management is gated behind the device's RouterOS opt-in. TLS verify
   is off by default (RouterOS self-signed cert). Beyond the SNMP health +
-  ICMP reachability MikroTik already had.
+  ICMP reachability MikroTik already had. A full-width **RouterOS console**
+  (drawer → Open console) gives the visibility room to breathe, with an
+  active **Check for updates** (runs check-for-updates on the router) and
+  **Upgrade firmware** (installs + reboots; confirm-gated). RouterOS
+  firmware updates also surface on the **Patches page** alongside Linux
+  package updates — a periodic check caches installed/latest so the fleet
+  has one "what needs updating" view. (Connects even from TLS-1.3-only
+  hosts: the client lowers to TLS 1.2 for RouterOS, which maxes at 1.2.)
 
 ## v3.3.3 — unreleased (dev)
 

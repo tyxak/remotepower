@@ -13782,8 +13782,11 @@ function _renderRouterosCard(body, badge, data) {
     h += `<div class="hint mb-6">Update: ${escHtml(up.installed_version || '?')} → ${stale ? `<span class="c-amber">${escHtml(up.latest_version)}</span>` : escHtml(up.latest_version || 'current')}</div>`;
   }
   h += `<div class="row-6 mb-12">
+    <button class="btn-icon" data-action="routerosCheckUpdate" title="Ask MikroTik whether a newer RouterOS is available">Check for updates</button>
+    <button class="btn-icon c-danger-outline" data-action="routerosUpgrade" title="Download + install the update — REBOOTS the router">Upgrade firmware</button>
     <button class="btn-icon" data-action="routerosAction" data-arg="reboot" title="Reboot the router">${_icon('refresh',14)} Reboot</button>
     <button class="btn-icon" data-action="routerosAction" data-arg="export" title="Export the running config">Export config</button>
+    <button class="btn-icon" data-action="openRouterosConsole" title="Open the full-width RouterOS console"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v7H3V3h7"/></svg> Console</button>
   </div><div id="ros-action-out"></div>`;
 
   const ifs = ov.interfaces || [];
@@ -13842,15 +13845,57 @@ async function saveRouterosConfig() {
   else toast(r?.error || 'Failed', 'error');
 }
 
+// Render into whichever surface is active — the full-width console modal
+// if it's open, else the compact drawer card.
+function _routerosSurface() {
+  const modal = document.getElementById('routeros-console-modal');
+  if (modal && modal.classList.contains('active')) {
+    return { body: document.getElementById('routeros-console-body'), badge: { textContent: '' } };
+  }
+  return {
+    body:  document.getElementById('audit-body-routeros'),
+    badge: document.getElementById('audit-badge-routeros') || { textContent: '' },
+  };
+}
+
 async function routerosReload() {
   const id = _drawerDeviceId;
   if (!id) return;
-  const body  = document.getElementById('audit-body-routeros');
-  const badge = document.getElementById('audit-badge-routeros');
+  const { body, badge } = _routerosSurface();
   if (!body) return;
   body.innerHTML = '<div class="c-muted">Loading…</div>';
   const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
   _renderRouterosCard(body, badge, data || {});
+}
+
+async function openRouterosConsole() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  openModal('routeros-console-modal');
+  const title = document.getElementById('routeros-console-title');
+  if (title) title.textContent = `RouterOS — ${_drawerDeviceName || id}`;
+  const body = document.getElementById('routeros-console-body');
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  const data = await api('GET', `/devices/${encodeURIComponent(id)}/routeros`);
+  _renderRouterosCard(body, { textContent: '' }, data || {});
+}
+
+async function routerosCheckUpdate() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  toast('Checking RouterOS for updates…', 'info');
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'check_update' });
+  if (r && r.ok) routerosReload();
+  else toast((r && r.error) || 'Check failed', 'error');
+}
+
+async function routerosUpgrade() {
+  const id = _drawerDeviceId;
+  if (!id) return;
+  if (!confirm('Upgrade RouterOS firmware?\n\nThis downloads the update and REBOOTS the router — it will be offline for a minute or two. Run it in a maintenance window.')) return;
+  const r = await api('POST', `/devices/${encodeURIComponent(id)}/routeros/action`, { action: 'upgrade' });
+  if (r && r.ok) toast('Upgrade started — router is rebooting', 'success');
+  else toast((r && r.error) || 'Upgrade failed', 'error');
 }
 
 async function routerosAction(action, arg) {

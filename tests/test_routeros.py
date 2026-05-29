@@ -104,6 +104,32 @@ class TestRouterosClient(unittest.TestCase):
         with self.assertRaises(ros.RouterOSError):
             ros.action("h", "u", "p", "disable_interface")
 
+    def test_check_update_action(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path))
+            if path == "/system/package/update":
+                return {"installed-version": "7.23", "latest-version": "7.24",
+                        "status": "New version is available", "channel": "stable"}
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            r = ros.action("h", "u", "p", "check_update")
+        self.assertIn(("POST", "/system/package/update/check-for-updates"), calls)
+        self.assertEqual(r["update"]["installed"], "7.23")
+        self.assertEqual(r["update"]["latest"], "7.24")
+
+    def test_upgrade_action_calls_install(self):
+        calls = []
+
+        def cap(host, user, pw, method, path, body=None, **k):
+            calls.append((method, path))
+            return {}
+        with patch.object(ros, "_request", side_effect=cap):
+            r = ros.action("h", "u", "p", "upgrade")
+        self.assertTrue(r.get("rebooting"))
+        self.assertIn(("POST", "/system/package/update/install"), calls)
+
 
 # ── server handlers (real auth, mocked routeros) ───────────────────────────
 class _Captured(Exception):
@@ -210,6 +236,43 @@ class TestRouterosHandlers(unittest.TestCase):
         self.assertEqual(st, 200)
         self.assertTrue(body["ok"])
         act.assert_called_once()
+
+    def test_check_update_caches_state(self):
+        api.save(api.DEVICES_FILE, {"r1": {"name": "router", "agentless": True,
+                 "ip": "10.0.0.1", "routeros": {"enabled": True, "username": "rp",
+                 "password": "x"}}})
+        upd = {"ok": True, "update": {"installed": "7.23", "latest": "7.24", "status": "avail"}}
+        with patch.object(ros, "action", return_value=upd):
+            _req("POST", "/api/devices/r1/routeros/action", {"action": "check_update"}, self.tok)
+            st, _ = _call(api.handle_device_routeros_action, "r1")
+        self.assertEqual(st, 200)
+        self.assertEqual(api.load(api.DEVICES_FILE)["r1"]["routeros_update"]["latest"], "7.24")
+
+    def test_update_sweep_caches_state(self):
+        api.save(api.DEVICES_FILE, {"r1": {"name": "router", "agentless": True,
+                 "ip": "10.0.0.1", "routeros": {"enabled": True, "username": "rp",
+                 "password": "x"}}})
+        cfg = api.load(api.CONFIG_FILE) or {}
+        cfg["last_routeros_update_check"] = 0
+        api.save(api.CONFIG_FILE, cfg)
+        with patch.object(ros, "action",
+                          return_value={"ok": True, "update": {"installed": "7.23", "latest": "7.24"}}):
+            api.run_routeros_update_check_if_due()
+        self.assertEqual(api.load(api.DEVICES_FILE)["r1"]["routeros_update"]["latest"], "7.24")
+
+    def test_patch_report_includes_routeros_firmware(self):
+        api.save(api.DEVICES_FILE, {"r1": {"name": "router", "agentless": True,
+                 "ip": "10.0.0.1", "reachability": "manual", "manual_status": True,
+                 "routeros": {"enabled": True, "username": "rp", "password": "x"},
+                 "routeros_update": {"installed": "7.23", "latest": "7.24", "last_checked": 1}}})
+        _req("GET", "/api/patch-report", None, self.tok)
+        st, body = _call(api.handle_patch_report)
+        self.assertEqual(st, 200)
+        row = next(d for d in body["devices"] if d["device_id"] == "r1")
+        self.assertEqual(row["pkg_manager"], "routeros")
+        self.assertEqual(row["upgradable"], 1)
+        self.assertEqual(row["patch_status"], "patches_available")
+        self.assertEqual(row["firmware"]["latest"], "7.24")
 
 
 if __name__ == "__main__":

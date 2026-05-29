@@ -242,7 +242,7 @@ def _int(v):
 
 
 ACTIONS = ("enable_interface", "disable_interface", "reboot",
-           "run_script", "export")
+           "run_script", "export", "check_update", "upgrade")
 
 
 def action(host, user, password, act, arg=None, verify=False,
@@ -275,4 +275,26 @@ def action(host, user, password, act, arg=None, verify=False,
             x if isinstance(x, str) else json.dumps(x)
             for x in (r if isinstance(r, list) else []))
         return {"ok": True, "export": text[:256 * 1024]}
+    if act == "check_update":
+        # Trigger a check against MikroTik's servers, then read the result.
+        # check-for-updates is safe (no reboot); only `upgrade` reboots.
+        try:
+            _request(host, user, password, "POST",
+                     "/system/package/update/check-for-updates", body={},
+                     verify=verify, timeout=timeout)
+        except RouterOSError:
+            pass   # read whatever state the box has even if the kick errored
+        upd = _one(_request(host, user, password, "GET", "/system/package/update",
+                            verify=verify, timeout=timeout))
+        return {"ok": True, "update": {
+            "installed": upd.get("installed-version"),
+            "latest":    upd.get("latest-version"),
+            "status":    upd.get("status"),
+            "channel":   upd.get("channel"),
+        }}
+    if act == "upgrade":
+        # Downloads + installs the update, which REBOOTS the router.
+        _request(host, user, password, "POST", "/system/package/update/install",
+                 body={}, verify=verify, timeout=timeout)
+        return {"ok": True, "rebooting": True}
     raise RouterOSError(f"unhandled action {act!r}")
