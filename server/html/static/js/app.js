@@ -4508,6 +4508,7 @@ function renderAlerts() {
     const ts = _formatTs(a.ts);
     let actions = '';
     if (!isResolved) {
+      actions += `<button class="btn-icon btn-xs" data-action="aiInvestigateAlert" data-arg="${a.id}" title="AI: investigate this alert and suggest fixes">${_icon('sparkles',14)} Investigate</button> `;
       if (!a.acknowledged_at) {
         actions += `<button class="btn-icon btn-xs" data-action="ackAlert" data-arg="${a.id}">Ack</button> `;
       } else {
@@ -4562,6 +4563,30 @@ async function resolveAlert(id) {
   const r = await api('POST', `/alerts/${encodeURIComponent(id)}/resolve`, {});
   if (r && r.ok) { toast('Alert resolved', 'success'); loadAlerts(); refreshAlertsBadge(); }
   else toast((r && r.error) || 'Failed', 'error');
+}
+
+function aiInvestigateAlert(id) {
+  const a = (_alertsCache || []).find(x => x.id === id);
+  if (!a) { toast('Alert not found', 'error'); return; }
+  const lines = [
+    `Severity: ${a.severity || 'unknown'}`,
+    `Event: ${a.event || '—'}`,
+  ];
+  if (a.device_name || a.device_id) lines.push(`Device: ${a.device_name || a.device_id}`);
+  if (a.ts) lines.push(`Time: ${new Date(a.ts * 1000).toISOString()}`);
+  lines.push('', `Alert: ${a.title || a.event || ''}`);
+  if (a.payload && typeof a.payload === 'object' && Object.keys(a.payload).length) {
+    let payloadStr = '';
+    try { payloadStr = JSON.stringify(a.payload, null, 2).slice(0, 3000); } catch (e) {}
+    if (payloadStr) lines.push('', `Details:\n${payloadStr}`);
+  }
+  openAIModal({
+    title:    'Investigate alert',
+    system:   'investigate_alert',
+    userMsg:  lines.join('\n'),
+    context:  `alert:${a.event || a.id}`,
+    maxTokens: 1200,
+  });
 }
 
 function toggleAllAlerts(checked) {

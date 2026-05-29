@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.3.2">
+<link rel="stylesheet" href="static/css/styles.css?v=3.3.3">
 
 </head>
 <body>
@@ -1664,7 +1664,22 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.3.2 v3.3.1 offline flap debounce missed polls per-device threshold maintenance hostname target action buttons icon align acme force renew tip did you know minimal-ui pwa csp qr table dots ellipsis pacman patch status home dashboard fleet events filter settings defaults">
+          <details class="doc-card" open data-keywords="release notes changelog v3.3.3 ai investigate alert alerts inbox ack resolve investigate_alert system prompt suggestions cause next steps triage on-call sparkles button settings ai">
+            <summary><strong>What's new — v3.3.3</strong> — AI Investigate button on the Alerts inbox</summary>
+            <div class="doc-body">
+              <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.3</code>).</p>
+
+              <h4>AI Investigate on alerts</h4>
+              <ul>
+                <li>Every open alert row (<strong>MAIN&nbsp;→&nbsp;Alerts</strong>) now carries an <strong>Investigate</strong> button next to Ack and Resolve. It feeds the alert's severity, event type, affected device, timestamp, and raw message to the AI and returns <em>what the alert means</em>, the <em>most likely cause</em>, and <em>2&ndash;4 concrete next steps or commands</em> to verify and resolve it.</li>
+                <li>Backed by a new <code>investigate_alert</code> system prompt, editable under <strong>Settings&nbsp;→&nbsp;AI</strong> like every other AI action prompt.</li>
+                <li>Different from the Webhook log's <strong>Explain</strong> button: Explain rewrites an alert into a one-paragraph summary, whereas Investigate is the deeper, action-oriented triage that proposes a cause and the commands to act on it.</li>
+              </ul>
+
+              <p>As with every AI surface, the request content is sent to the configured AI provider (redacted per your AI privacy settings). Forensic per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.3.3.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.3.2 v3.3.1 offline flap debounce missed polls per-device threshold maintenance hostname target action buttons icon align acme force renew tip did you know minimal-ui pwa csp qr table dots ellipsis pacman patch status home dashboard fleet events filter settings defaults">
             <summary><strong>What's new — v3.3.2</strong> — OFFLINE flap fix, UI consistency, PWA polish</summary>
             <div class="doc-body">
               <p>Correctness + polish on top of v3.3.0 (covers v3.3.1 and v3.3.2). No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.3.2</code>).</p>
@@ -4677,8 +4692,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.3.2"></script>
+<script src="static/js/app.js?v=3.3.3"></script>
 
-<script src="static/js/sw-register.js?v=3.3.2"></script>
+<script src="static/js/sw-register.js?v=3.3.3"></script>
 </body>
 </html>

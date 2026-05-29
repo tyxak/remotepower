@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.3.2'
+SERVER_VERSION = '3.3.3'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -20550,6 +20550,7 @@ _AI_PROMPT_LABELS = {
     'triage_cve':             'Triage CVE',
     'investigate_device':    'Investigate device',
     'explain_alert':          'Explain webhook alert',
+    'investigate_alert':      'Investigate alert',
     'diagnose_service':       'Diagnose failing service',
     'explain_tls':            'Explain TLS / certificate',
     'prioritise_patches':     'Prioritise pending patches',

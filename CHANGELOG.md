@@ -2,6 +2,21 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.3.3 — unreleased (dev)
+
+In development.
+
+- **AI Investigate button on the Alerts inbox.** Each open alert row
+  (MAIN → Alerts) gets an **Investigate** button alongside Ack and
+  Resolve. It feeds the alert's severity, event type, affected device,
+  timestamp, and raw message to the AI and returns what the alert
+  means, the most likely cause, and 2–4 concrete next steps or
+  commands to verify and resolve it. Backed by a new
+  `investigate_alert` system prompt (tunable under Settings → AI).
+  Complements the webhook-log "Explain" button, which only rewrites an
+  alert into a single paragraph — Investigate is the deeper,
+  action-oriented triage.
+
 ## v3.3.2 — 2026-05-28
 
 Follow-through on the v3.3.1 UI fixes.
