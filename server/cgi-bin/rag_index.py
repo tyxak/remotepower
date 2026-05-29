@@ -364,6 +364,17 @@ def build_live_state_corpus(devices, facets=None, now=0):
         # than from a stale index). Disk usage gets its own hardware chunk.
         si = dev.get('sysinfo') or {}
         summary = [f"Device {name} (id {dev_id})"]
+        # Network identity — the operator routinely asks "what IP / hostname
+        # does X have". These are stable enough to embed (an IP changes far
+        # less often than load/cpu) and are exactly what a who/where question
+        # needs. NOTE: at chat time ai_provider.chat still redacts IPs/
+        # hostnames per the AI privacy toggles, so the model only sees them
+        # when 'send_ips' / 'send_hostnames' are enabled; the Test-retrieval
+        # box (no provider) always shows them.
+        for k in ('hostname', 'fqdn', 'ip', 'host', 'mac'):
+            v = dev.get(k)
+            if v:
+                summary.append(f"{k}: {v}")
         for k in ('os', 'os_pretty', 'group'):
             if dev.get(k):
                 summary.append(f"{k}: {dev[k]}")

@@ -156,6 +156,21 @@ class TestCorpusBuilders(unittest.TestCase):
         self.assertIn("live/web01#services", ids)
         self.assertIn("live/web01#cves", ids)
 
+    def test_summary_indexes_network_identity(self):
+        # "what IP does X have" must be answerable: ip/hostname/mac belong in
+        # the summary chunk and a who/where query must surface it top-1.
+        devs = [{"id": "web01.example.com", "name": "web01.example.com",
+                 "hostname": "web01.example.com", "ip": "10.20.0.11",
+                 "mac": "aa:bb:cc:dd:ee:ff", "os": "Ubuntu 24.04"}]
+        idx = rag_index.InfraIndex().build(
+            rag_index.build_live_state_corpus(devs))
+        summary = next(d for d in idx.docs if d["id"].endswith("#summary"))
+        self.assertIn("10.20.0.11", summary["text"])
+        self.assertIn("aa:bb:cc:dd:ee:ff", summary["text"])
+        hits = idx.search("what ip does web01 have", top_n=3)
+        self.assertEqual(hits[0]["id"], "live/web01.example.com#summary")
+        self.assertIn("10.20.0.11", hits[0]["text"])
+
     def test_history_redactor_applied(self):
         # redactor that scrubs IPs, mimicking ai_provider.redact behaviour
         def redactor(t):
