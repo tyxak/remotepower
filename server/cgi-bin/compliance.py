@@ -73,23 +73,25 @@ def _audit_control(facts):
 def _firewall_control(facts):
     new_ports = facts.get('new_ports') or []
     if new_ports:
-        return FAIL, f"{len(new_ports)} unexpected listening port(s) appeared: " + \
+        return FAIL, f"{len(new_ports)} unexpected listening port(s) appeared in the last 30 days: " + \
                ", ".join(str(p) for p in new_ports[:10])
-    return PASS, "No unexpected listening ports detected since baseline."
+    return PASS, "No unexpected listening ports in the last 30 days."
 
 
 def _access_review_control(facts):
     changes = facts.get('ssh_key_changes') or []
     if changes:
-        return FAIL, f"{len(changes)} unreviewed SSH authorized-key change(s)."
-    return PASS, "No unreviewed SSH key changes."
+        return FAIL, f"{len(changes)} host(s) with SSH authorized-key changes in the last 30 days: " + \
+               ", ".join(str(h) for h in changes[:10])
+    return PASS, "No SSH authorized-key changes in the last 30 days."
 
 
 def _intrusion_control(facts):
     bf = facts.get('brute_force') or []
     if bf:
-        return FAIL, f"Brute-force attempts detected on {len(bf)} host(s)."
-    return PASS, "No brute-force login activity detected."
+        return FAIL, f"Brute-force attempts detected on {len(bf)} host(s) in the last 30 days: " + \
+               ", ".join(str(h) for h in bf[:10])
+    return PASS, "No brute-force login activity in the last 30 days."
 
 
 def _vault_control(facts):

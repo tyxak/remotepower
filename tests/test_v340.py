@@ -367,6 +367,16 @@ class TestServerWiring(unittest.TestCase):
                       'METRICS_HIST_FILE', 'HELM_FILE'):
             self.assertIn(const + ' ', self.API)
 
+    def test_compliance_facts_use_real_event_data(self):
+        # ports / ssh-key / brute-force must be derived from the fleet event
+        # log, not hardcoded to [] (which would be a silent false-pass).
+        facts = self.API[self.API.index('def _compliance_facts'):
+                         self.API.index('def _any_user_has_totp')]
+        self.assertIn('FLEET_EVENTS_FILE', facts)
+        self.assertIn("new_port_detected", facts)
+        self.assertIn("ssh_key_added", facts)
+        self.assertIn("brute_force_detected", facts)
+
 
 class TestHardwareUI(unittest.TestCase):
     APP = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()

@@ -2249,7 +2249,10 @@ def _record_fleet_event(event, payload):
                     'severity', 'critical', 'high',
                     'upgradable', 'pattern', 'level',
                     # v2.3.0: Proxmox action discriminators
-                    'guest_type', 'vmid', 'action'):
+                    'guest_type', 'vmid', 'action',
+                    # v3.4.0: port discriminators so the compliance report
+                    # can name the offending port, not just the host.
+                    'proto', 'port'):
             if key in payload and payload[key] is not None:
                 v = payload[key]
                 # Cap string lengths so a poisoned payload can't bloat
@@ -11636,9 +11639,35 @@ def _compliance_facts():
     facts['audit_log_enabled'] = True       # always on in this build
     facts['encrypted_vault'] = True         # cmdb_vault is always encrypted
 
-    facts['new_ports'] = []                 # edge-triggered events; not aggregated here
+    # Recent security events (last 30 days) from the immutable fleet-event
+    # log. These controls are edge-triggered, so "did this fire recently?"
+    # is the honest compliance signal — a clean 30-day window is a genuine
+    # pass, not a hardcoded one.
+    facts['new_ports'] = []
     facts['ssh_key_changes'] = []
     facts['brute_force'] = []
+    try:
+        cutoff = now - 30 * 86400
+        events = (load(FLEET_EVENTS_FILE) or {}).get('events', [])
+        recent = [e for e in events
+                  if isinstance(e, dict) and e.get('ts', 0) >= cutoff]
+
+        def _ev_label(e, with_port=False):
+            p = e.get('payload') or {}
+            nm = p.get('name') or p.get('device_id') or '?'
+            if with_port and p.get('port') is not None:
+                return f"{nm}:{p.get('port')}"
+            return nm
+
+        facts['new_ports'] = list(dict.fromkeys(
+            _ev_label(e, True) for e in recent
+            if e.get('event') == 'new_port_detected'))[:50]
+        facts['ssh_key_changes'] = list(dict.fromkeys(
+            _ev_label(e) for e in recent if e.get('event') == 'ssh_key_added'))
+        facts['brute_force'] = list(dict.fromkeys(
+            _ev_label(e) for e in recent if e.get('event') == 'brute_force_detected'))
+    except Exception:
+        pass
     return facts
 
 

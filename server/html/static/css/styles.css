@@ -2622,6 +2622,9 @@ button, a, [role="button"],
 .hw-changes { margin: 0; padding-left: 18px; }
 .hw-changes li { margin-bottom: 2px; }
 .hw-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.diag-pending { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); animation: diagPulse 1.4s ease-in-out infinite; }
+.diag-done { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+@keyframes diagPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
 
 /* v3.4.0: AI tools on the AI page (anomaly scan + cron builder) */
 .ai-tool-card { margin-bottom: 14px; }

@@ -14077,7 +14077,8 @@ function _renderHardwareSection(id, hw, fc, ch) {
       <button class="btn-secondary fs-12" data-action="deviceNetscan" data-arg="${escAttr(id)}">${_icon('search',14)} Scan LAN</button>
       <button class="btn-secondary fs-12" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('bookOpen',14)} Suggest runbook</button>
       <button class="btn-secondary fs-12" data-action="deviceDocDraft" data-arg="${escAttr(id)}" data-arg2="${escAttr(dn)}">${_icon('sparkles',14)} Draft CMDB doc</button>
-    </div>`;
+    </div>
+    <div id="hw-diag-status" class="mt-8"></div>`;
   if (st) {
     h += st.ok
       ? `<div class="fs-12 mt-8">Last speed test: <b>${st.download_mbps}</b> Mbps down · <b>${st.upload_mbps}</b> Mbps up · ${st.ping_ms} ms ping <span class="c-muted">(${timeAgo(st.ts)})</span></div>`
@@ -14104,16 +14105,82 @@ async function toggleQuarantine(id, on) {
   }
 }
 
+// v3.4.0: these queue a command the agent runs on its *next poll*, so the
+// result isn't instant. Rather than a fire-and-forget toast (which felt like
+// "nothing happened"), we show a live "running…" status under the buttons and
+// poll the hardware endpoint until a fresh result lands or we time out.
 async function deviceSpeedtest(id) {
+  const status = document.getElementById('hw-diag-status');
+  const base = await _diagBaselineTs(id, 'speedtest');
   const r = await api('POST', `/devices/${id}/speedtest`, {});
-  if (r && r.ok) toast('Speed test queued — result appears after the next agent poll.', 'success');
-  else toast((r && r.error) || 'Failed to queue', 'error');
+  if (!(r && r.ok)) { toast((r && r.error) || 'Failed to queue', 'error');
+    if (status) status.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed to queue')}</div>`;
+    return; }
+  toast('Speed test queued — running on the device…', 'success');
+  if (status) status.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Speed test queued — waiting for the agent to run it and report back (next poll)…</div>`;
+  _awaitDiag(id, 'speedtest', base, 'Speed test');
 }
 
 async function deviceNetscan(id) {
+  const status = document.getElementById('hw-diag-status');
+  const base = await _diagBaselineTs(id, 'discovery');
   const r = await api('POST', `/devices/${id}/netscan`, {});
-  if (r && r.ok) toast('LAN scan queued — result appears after the next agent poll.', 'success');
-  else toast((r && r.error) || 'Failed to queue', 'error');
+  if (!(r && r.ok)) { toast((r && r.error) || 'Failed to queue', 'error');
+    if (status) status.innerHTML = `<div class="c-red">${escHtml((r && r.error) || 'Failed to queue')}</div>`;
+    return; }
+  toast('LAN scan queued — running on the device…', 'success');
+  if (status) status.innerHTML = `<div class="diag-pending">${_icon('clock',13)} LAN scan queued — waiting for the agent to run it and report back (next poll)…</div>`;
+  _awaitDiag(id, 'discovery', base, 'LAN scan');
+}
+
+async function _diagBaselineTs(id, kind) {
+  try {
+    const hw = await api('GET', `/devices/${id}/hardware`);
+    if (kind === 'speedtest') { const a = (hw && hw.speedtest) || []; return a.length ? a[a.length-1].ts : 0; }
+    return ((hw && hw.discovery) || {}).ts || 0;
+  } catch (_) { return 0; }
+}
+
+// Poll until a result newer than `baseTs` shows up (or time out). Stops if the
+// operator navigates away from this device's drawer.
+function _awaitDiag(id, kind, baseTs, label) {
+  let tries = 0;
+  const maxTries = 50;          // ~5 min at 6s
+  const tick = async () => {
+    if (_drawerDeviceId !== id) return;   // drawer closed / switched device
+    tries++;
+    let hw = null;
+    try { hw = await api('GET', `/devices/${id}/hardware`); } catch (_) {}
+    let res = null, ts = 0;
+    if (hw) {
+      if (kind === 'speedtest') { const a = hw.speedtest || []; if (a.length) { res = a[a.length-1]; ts = res.ts; } }
+      else { res = hw.discovery || {}; ts = res.ts || 0; }
+    }
+    const status = document.getElementById('hw-diag-status');
+    if (ts && ts !== baseTs) {
+      if (status) status.innerHTML = _renderDiagResult(kind, res);
+      toast(`${label} finished`, 'success');
+      return;
+    }
+    if (tries >= maxTries) {
+      if (status) status.innerHTML = `<div class="c-amber">${label} still pending after 5 min — the device may be offline, polling slowly, or the required tool isn't installed. It'll appear here once it reports.</div>`;
+      return;
+    }
+    setTimeout(tick, 6000);
+  };
+  setTimeout(tick, 6000);
+}
+
+function _renderDiagResult(kind, res) {
+  if (kind === 'speedtest') {
+    if (!res) return '';
+    return res.ok
+      ? `<div class="diag-done c-green">${_icon('zap',13)} <b>${res.download_mbps}</b> Mbps down · <b>${res.upload_mbps}</b> Mbps up · ${res.ping_ms} ms ping ${res.jitter_ms!=null?`· ${res.jitter_ms} ms jitter`:''} <span class="c-muted">(${timeAgo(res.ts)})</span></div>`
+      : `<div class="diag-done c-amber">Speed test ran but failed: ${escHtml(res.error || 'unknown')} — is <code>librespeed-cli</code> installed on the host?</div>`;
+  }
+  const n = (res.hosts || []).length;
+  const unmanaged = (res.hosts || []).filter(x => !x.managed).length;
+  return `<div class="diag-done c-green">${_icon('search',13)} LAN scan (${escHtml(res.method||'')}): ${n} host(s), <b>${unmanaged}</b> unmanaged <span class="c-muted">(${timeAgo(res.ts)})</span>. See Network map → Unmanaged hosts.</div>`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
