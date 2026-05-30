@@ -2612,6 +2612,21 @@ button, a, [role="button"],
   background: var(--surface2); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: 10px; margin-left: 6px;
 }
+/* v3.4.0: "new" badge on freshly-added nav items (dismissed once visited) */
+.nav-new {
+  margin-left: 6px; font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  font-weight: 700; background: rgba(59,126,255,0.15); color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 8px; padding: 0 5px; line-height: 14px;
+}
+
+/* v3.4.0: audit-section group labels (drawer) */
+.audit-group-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  font-weight: 700; color: var(--muted); opacity: .8;
+  margin: 14px 0 4px; padding-left: 2px;
+}
+.audit-group-label:first-child { margin-top: 2px; }
+
 /* v3.4.0: Health & Hardware drawer section */
 .hw-block { margin-bottom: 16px; }
 .hw-block:last-child { margin-bottom: 0; }
@@ -2662,6 +2677,16 @@ button, a, [role="button"],
 .hc-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .lxc-toggles { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
 @media (max-width: 560px) { .hc-grid-2, .hc-grid-3 { grid-template-columns: 1fr; } }
+
+/* v3.4.0 Tier-3 mobile pass: wide v3.4.0 tables/modals shouldn't overflow the
+   viewport — let them scroll horizontally inside their container instead. */
+@media (max-width: 640px) {
+  .audit-section-body, .table-card, #compliance-body, #discovery-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .modal.modal-wide { width: 96vw; max-width: 96vw; }
+  .compliance-fw-head { flex-wrap: wrap; gap: 4px; }
+  .hw-actions { gap: 6px; }
+  .ai-cron-row { flex-direction: column; }
+}
 .audit-filter {
   width: 100%; padding: 6px 10px; margin-bottom: 10px;
   background: var(--surface2); border: 1px solid var(--border);

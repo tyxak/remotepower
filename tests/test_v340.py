@@ -564,6 +564,16 @@ class TestFleetUI(unittest.TestCase):
         self.assertIn('id="discovery-body"', self.HTML)
         self.assertIn("wireSortOnly('discovery-thead'", self.APP)
 
+    def test_ux_polish(self):
+        # drawer audit sections render in labeled groups
+        self.assertIn('_AUDIT_GROUP_ORDER', self.APP)
+        self.assertIn('audit-group-label', self.APP)
+        # compliance/anomaly use the shared sev-pill vocabulary
+        self.assertIn('sev-pill', self.APP)
+        # dismiss-on-visit nav "new" badge
+        self.assertIn('function _markNavSeen', self.APP)
+        self.assertIn('data-new="compliance"', self.HTML)
+
 
 class TestCrossFeatureLinks(unittest.TestCase):
     APP = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()

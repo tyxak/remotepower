@@ -6,6 +6,13 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **UX polish across the new surfaces.** The device drawer's audit panels (now
+  14+) render in labeled groups — **Health · Security · Software · Activity ·
+  System · Integrations** — instead of one long scroll. Compliance statuses and
+  AI-anomaly severities now use the same `sev-pill` vocabulary as the rest of
+  the app. New wide tables/modals (compliance, LXC wizard, SMART, discovery)
+  scroll instead of overflowing on mobile. Freshly-added nav items carry a
+  small **new** badge that clears once you visit them.
 - **Create Proxmox LXC containers from a wizard.** The Containers page → LXC
   section gets a **Create container** button. The wizard pulls live options
   from the Proxmox API (OS templates, root-disk storages, bridges, next free

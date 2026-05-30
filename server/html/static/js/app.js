@@ -752,7 +752,24 @@ function filterDocs(query) {
   });
 }
 
+// v3.4.0: dismiss a nav "new" badge once its page is visited (persisted).
+function _markNavSeen(page) {
+  try {
+    const badge = document.querySelector(`.nav-new[data-new="${page}"]`);
+    if (badge) { badge.remove(); localStorage.setItem('rp.seen.' + page, '1'); }
+  } catch (_) {}
+}
+function _initNavNew() {
+  try {
+    document.querySelectorAll('.nav-new[data-new]').forEach(b => {
+      if (localStorage.getItem('rp.seen.' + b.dataset.new)) b.remove();
+    });
+  } catch (_) {}
+}
+document.addEventListener('DOMContentLoaded', _initNavNew);
+
 function showPage(name, btn) {
+  _markNavSeen(name);
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   const el = document.getElementById('page-' + name);
@@ -13375,23 +13392,26 @@ async function _drawerSaveSettings() {
 // v3.3.0: audit-section icons now use Lucide SVGs via _icon(name).
 // Each section's `icon` is a key from the _ICONS dictionary (defined
 // near _renderDrawerActions). New section? Add an _ICONS entry too.
+// v3.4.0: sections carry a `group` so the (now 14+) audit panels render in
+// labeled bands instead of one long flat scroll. Order within a group is the
+// array order; group order is _AUDIT_GROUP_ORDER below.
 const _AUDIT_SECTIONS = [
-  {key: 'sysinfo',   title: 'System Info',      icon: 'monitor'},
-  {key: 'snmp',      title: 'SNMP',             icon: 'radio'},
-  {key: 'ports',     title: 'Listening Ports',  icon: 'unplug'},
-  {key: 'packages',  title: 'Packages',         icon: 'package'},
-  {key: 'logs',      title: 'Logs',             icon: 'fileCode'},
-  {key: 'commands',  title: 'Command History',  icon: 'terminal'},
-  {key: 'events',    title: 'Fleet Events',     icon: 'radio'},
-  {key: 'drift',     title: 'Drift State',      icon: 'search'},
-  {key: 'cve',       title: 'CVE Summary',      icon: 'sparkles'},
-  {key: 'containers',title: 'Containers',       icon: 'ship'},
-  {key: 'metrics',   title: 'Metrics',          icon: 'clock'},
-  {key: 'hostcfg',   title: 'Host Config',      icon: 'settings'},
-  // v3.4.0
-  {key: 'hardware',  title: 'Health & Hardware', icon: 'hardDrive'},
-  {key: 'helm',      title: 'Helm Releases',    icon: 'cloud'},
+  {key: 'sysinfo',   title: 'System Info',       icon: 'monitor',  group: 'Health'},
+  {key: 'metrics',   title: 'Metrics',           icon: 'clock',    group: 'Health'},
+  {key: 'hardware',  title: 'Health & Hardware', icon: 'hardDrive',group: 'Health'},
+  {key: 'ports',     title: 'Listening Ports',   icon: 'unplug',   group: 'Security'},
+  {key: 'cve',       title: 'CVE Summary',       icon: 'sparkles', group: 'Security'},
+  {key: 'drift',     title: 'Drift State',       icon: 'search',   group: 'Security'},
+  {key: 'packages',  title: 'Packages',          icon: 'package',  group: 'Software'},
+  {key: 'containers',title: 'Containers',        icon: 'ship',     group: 'Software'},
+  {key: 'helm',      title: 'Helm Releases',     icon: 'cloud',    group: 'Software'},
+  {key: 'commands',  title: 'Command History',   icon: 'terminal', group: 'Activity'},
+  {key: 'logs',      title: 'Logs',              icon: 'fileCode', group: 'Activity'},
+  {key: 'events',    title: 'Fleet Events',      icon: 'radio',    group: 'Activity'},
+  {key: 'snmp',      title: 'SNMP',              icon: 'radio',    group: 'System'},
+  {key: 'hostcfg',   title: 'Host Config',       icon: 'settings', group: 'System'},
 ];
+const _AUDIT_GROUP_ORDER = ['Health', 'Security', 'Software', 'Activity', 'System', 'Integrations'];
 
 function _renderDrawerAuditSections() {
   const el = document.getElementById('drawer-audit-sections');
@@ -13406,11 +13426,11 @@ function _renderDrawerAuditSections() {
   // routers are added); irrelevant on Linux agent hosts.
   const sections = _AUDIT_SECTIONS.slice();
   if (_drawerDeviceData && _drawerDeviceData.agentless) {
-    sections.push({key: 'routeros', title: 'RouterOS (MikroTik)', icon: 'radio'});
-    sections.push({key: 'opnsense', title: 'OPNsense', icon: 'shield'});
-    sections.push({key: 'synology', title: 'Synology (DSM)', icon: 'server'});
+    sections.push({key: 'routeros', title: 'RouterOS (MikroTik)', icon: 'radio',  group: 'Integrations'});
+    sections.push({key: 'opnsense', title: 'OPNsense',            icon: 'shield', group: 'Integrations'});
+    sections.push({key: 'synology', title: 'Synology (DSM)',      icon: 'server', group: 'Integrations'});
   }
-  el.innerHTML = sections.map(s =>
+  const _sectionHtml = s =>
     `<details class="audit-section" id="audit-sec-${s.key}" data-audit-key="${s.key}">
       <summary>
         <span>${_icon(s.icon, 14)} ${s.title} <span class="audit-section-badge" id="audit-badge-${s.key}">collapsed</span></span>
@@ -13418,8 +13438,16 @@ function _renderDrawerAuditSections() {
       <div class="audit-section-body" id="audit-body-${s.key}">
         <div class="c-muted">Click to load…</div>
       </div>
-    </details>`
-  ).join('');
+    </details>`;
+  // Render in labeled groups; only emit a group that actually has sections.
+  let html = '';
+  for (const group of _AUDIT_GROUP_ORDER) {
+    const inGroup = sections.filter(s => (s.group || 'System') === group);
+    if (!inGroup.length) continue;
+    html += `<div class="audit-group-label">${escHtml(group)}</div>`
+          + inGroup.map(_sectionHtml).join('');
+  }
+  el.innerHTML = html;
   // Wire the toggle event for each <details> after innerHTML.
   el.querySelectorAll('details[data-audit-key]').forEach(d => {
     d.addEventListener('toggle', () => _onAuditToggle(d.dataset.auditKey, d));
@@ -14406,7 +14434,7 @@ async function aiAnomalyScan() {
     const devs = await api('GET', '/devices');
     (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
   } catch (_) {}
-  const sevColor = s => s === 'high' ? 'c-red' : s === 'medium' ? 'c-amber' : 'c-muted';
+  const sevCls = s => s === 'high' ? 'sev-critical' : s === 'medium' ? 'sev-medium' : 'sev-low';
   out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} device(s)</div>` +
     items.map((a, i) => {
       const hasDev = !!_anomalyDevMap[a.device];
@@ -14414,7 +14442,7 @@ async function aiAnomalyScan() {
         ? `<a class="anomaly-dev anomaly-link" data-action="anomalyOpenDevice" data-arg="${escAttr(a.device)}">${escHtml(a.device)}</a>`
         : `<span class="anomaly-dev">${escHtml(a.device || '—')}</span>`;
       return `<div class="anomaly-row">
-        <span class="anomaly-sev ${sevColor(a.severity)}">${escHtml(a.severity)}</span>
+        <span class="anomaly-sev"><span class="sev-pill ${sevCls(a.severity)}">${escHtml(a.severity)}</span></span>
         <div class="anomaly-main">
           <div>${devCell} — ${escHtml(a.finding)}</div>
           <div class="fs-12 c-muted">${escHtml(a.why)}</div>
@@ -14549,7 +14577,7 @@ async function loadCompliance() {
   const qs = fws.length ? `?frameworks=${fws.join(',')}` : '';
   const r = await api('GET', `/compliance${qs}`);
   if (!r || !r.frameworks) { body.innerHTML = '<div class="c-red">Failed to load compliance report.</div>'; return; }
-  const sumColor = s => s === 'pass' ? 'c-green' : s === 'fail' ? 'c-red' : 'c-muted';
+  const statusPill = s => `<span class="sev-pill ${s === 'pass' ? 'sev-success' : s === 'fail' ? 'sev-critical' : 'sev-low'}">${s.toUpperCase()}</span>`;
   let h = `<div class="compliance-summary">Overall: <span class="c-green">${r.summary.pass} pass</span> · <span class="c-red">${r.summary.fail} fail</span> · <span class="c-muted">${r.summary.na} N/A</span></div>`;
   for (const fw of Object.keys(r.frameworks)) {
     const f = r.frameworks[fw];
@@ -14565,7 +14593,7 @@ async function loadCompliance() {
           ? ` <a class="compliance-fix" data-action="complianceFix" data-arg="${escAttr(c.topic)}">Fix &rarr;</a>` : '';
         return `<tr>
         <td><strong>${escHtml(c.id)}</strong><div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
-        <td class="${sumColor(c.status)}">${escHtml(c.status.toUpperCase())}</td>
+        <td>${statusPill(c.status)}</td>
         <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">&rarr; ${escHtml(c.remediation)}${fix}</div>` : ''}</td>
       </tr>`; }).join('') + `</tbody></table></div>`;
   }
