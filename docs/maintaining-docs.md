@@ -18,6 +18,9 @@ effectively invisible, and a half-updated set of docs is worse than none.
 5. **"Did you know?" tips** — the `_DYK_TIPS` array in
    `server/html/static/js/app.js`. Add a one-line, capability-style tip for any
    feature a user would want to discover.
+6. **Full feature inventory** — `docs/features.md`. The detailed, grouped list
+   (a per-version section) that README's "Full feature inventory" link points
+   to; this is where a feature gets its longer write-up.
 
 (The `CHANGELOG.md` entry is separate from these and should also be kept
 current.)

@@ -183,15 +183,18 @@ Full release history — every version, newest first — is in
 
 Swiss army knife. Everything you need for your fleet or homelab.
 
-CMDB, documentation, network map, Proxmox snapshots, remote management (with a
-browser-based web terminal), fire off bash scripts or commands, monitoring,
-custom monitoring scripts, logs with regex search, cert-expiry dashboard, ACME
-integration, patch management, alerting, notifications, configuration drift
-detection, audit log, calendar, tasks, maintenance windows, MCP server with
-write tools, IaC generator, proper documentation, full API with Swagger,
+CMDB, documentation, network map, Proxmox (snapshots, plus create/delete LXC),
+remote management (with a browser-based web terminal), fire off bash scripts or
+commands, monitoring, custom monitoring scripts, CVE scanning, disk SMART &
+hardware health, resource forecasting ("/ fills in ~18 days"), compliance
+reports (PCI / HIPAA / SOC 2), logs with regex search, cert-expiry dashboard,
+ACME integration, patch management, alerting, notifications, configuration
+drift detection, audit log, calendar, tasks, maintenance windows, MCP server
+with write tools, IaC generator, proper documentation, full API with Swagger,
 LDAP, OIDC / OpenID Connect, fleet dashboard, agent auto-update… And the best
 of it: heavily connected to your own local AI (Ollama, LocalAI) or online AI
-(Anthropic, OpenAI, DeepSeek), if you like.
+(Anthropic, OpenAI, DeepSeek), if you like — with **RAG** that retrieves facts
+from your own fleet and docs so its answers cite your hosts, not generic advice.
 
 ## License
 

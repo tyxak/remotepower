@@ -667,6 +667,115 @@ id.
   flags were never explicitly set (notably `webhook_block_local`).
 - `/api/fleet/events` honours the `?event=` filter.
 
+## v3.4.0 additions
+
+### Hardware & health (SMART / kernel / inventory)
+The agent runs `smartctl` on each disk and reports health plus the key
+pre-fail attributes (reallocated / pending / offline-uncorrectable
+sectors, temperature, power-on hours). A drive that reports a non-OK
+status **or** has pre-fail sectors raises the `smart_failure` event and
+a red health pill on the device card; drives `smartctl` can't assess
+(USB bridges, virtual disks) report `UNKNOWN` and are *not* treated as
+failures. The agent also compares the running kernel to the newest
+installed one (`kernel_outdated` + livepatch status) and collects a
+passive inventory — DIMMs, serial numbers, temperatures, RAID state.
+Everything surfaces in the device drawer's **Health & Hardware** card.
+
+### Resource forecasting
+A compact metrics snapshot is written **once per device per UTC day**
+(per-mount used/total GB, memory, swap, plus a state fingerprint) and
+retained for roughly six months in `metrics_history.json`. From that
+history, `GET /api/devices/<id>/forecast` fits a least-squares trend of
+used-GB-over-time **per mount** and extrapolates it to the mount's
+capacity, yielding a **days-to-full** estimate and a projected fill date
+(e.g. *"/ fills in ~18 days"*). Notes:
+
+- Each mount is projected independently, so a fast-growing `/var`
+  surfaces even while `/` looks healthy.
+- Flat or shrinking mounts report **no fill** rather than a misleading
+  far-future date.
+- It's a straight-line trend, not a guarantee — a log burst or a big
+  install shifts it; it's meant to give you lead time, not a precise
+  date. Accuracy improves as daily samples accumulate, so a freshly
+  added host shows little until it has a few days of history.
+- The drawer's forecast view colour-codes urgency (under ~14 days,
+  under ~45 days) and offers a one-click, context-prefilled AI runbook
+  for an imminent fill.
+
+### What changed (drift over time)
+`GET /api/devices/<id>/changes?days=1|7` diffs the oldest snapshot in
+the window against the latest and reports package deltas, opened/closed
+listening ports, failed/recovered units, reboot edges, and per-mount
+disk growth — a quick "what moved on this host since yesterday/last
+week" without trawling logs.
+
+### On-demand diagnostics
+A one-click **network speed test** (librespeed → Mbps, with live
+feedback) and a **LAN discovery** sweep (passive ARP table or an nmap
+scan) that lists hosts on the device's network and flags ones not yet
+managed by RemotePower.
+
+### Device quarantine
+A per-device admin switch that disables exec / reboot / every action,
+enforced server-side at the command-dispatch chokepoint (not just hidden
+in the UI) and audited. Freeze a suspect or sensitive host in one click,
+then release it the same way.
+
+### Compliance reports
+`GET /api/compliance?frameworks=pci,hipaa,soc2` maps PCI DSS / HIPAA /
+SOC 2 controls to data RemotePower already collects (patching, CVEs,
+TLS, MFA, audit logging, backups, listening-port change detection, …)
+and scores each **pass / fail / N-A** with evidence and remediation. The
+score is pass ÷ (pass + fail), ignoring N-A — an honest "of what we can
+measure, how much passes." An audit-prep aid, never a formal
+attestation, and never a false pass.
+
+### Helm release status
+Where a host has Helm and a kubeconfig, RemotePower surfaces Helm
+release status (visibility only — it doesn't install or upgrade).
+
+### On-demand AI insights
+All opt-in and disabled until you configure a provider:
+- **Fleet anomaly scan** (`POST /api/ai/anomaly`) — ranks unusual
+  signals across the fleet (odd ports, drift, failing disks) for review.
+- **Cron builder** (`POST /api/ai/cron`) — plain-English → a cron
+  expression, with the next run times previewed by local validation.
+- **Runbook suggestions** (`POST /api/devices/<id>/runbook`) and **CMDB
+  doc drafts** (`POST /api/devices/<id>/doc-draft`) — RAG-aware,
+  pre-fillable from a finding (a failing disk, an imminent fill).
+
+### RAG over your infrastructure
+The AI assistant retrieves the most relevant facts from *your* fleet —
+device state, watched services, CVEs, containers, CMDB metadata & asset
+docs, per-device runbooks, recent commands and alerts, plus the
+RemotePower product docs — and injects them into each request as a cited
+`<retrieved_context>` block, so answers reference your hosts and cite
+sources by id (e.g. `[live/web01#cves]`). Retrieval is **lexical-first**
+(BM25, pure stdlib) so it works with every provider including Anthropic;
+with an embedding-capable provider you can enable **semantic search**,
+fused with lexical via Reciprocal Rank Fusion. Privacy by construction:
+the encrypted credentials vault is never indexed (metadata + docs only),
+history is redacted at index time, and embeddings egress is opt-in.
+Managed under **Settings → AI → Knowledge index** (source toggles,
+**Rebuild index**, and a **Test retrieval** box). See [rag.md](rag.md).
+
+### Proxmox LXC create & delete
+Beyond start / shutdown / snapshots, the Containers page → LXC section
+gets a **Create container** wizard (live templates, root-disk storages,
+Linux/OVS bridges, next free VMID; hostname, disk/cores/memory/swap,
+DHCP or static network, root password and/or SSH key, start & on-boot
+toggles) and a **Delete** button with a type-to-confirm guard that
+force-stops a running container before removing it (no purge). Both are
+admin-only, validated server-side, and audited.
+
+### Security & hardening
+`remotepower-passwd` and the installer use salted PBKDF2-HMAC-SHA256
+when bcrypt isn't present (never bare SHA-256), and the server no longer
+accepts legacy pre-2.3.2 unsalted-SHA-256 hashes (bcrypt/PBKDF2
+auto-upgrade to bcrypt on login). A server-wide cap keeps a flapping
+monitor from flooding webhook channels. Native browser pop-ups are
+replaced with the app's own keyboard-friendly dialogs.
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)
