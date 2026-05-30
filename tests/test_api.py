@@ -311,12 +311,15 @@ class TestChannelRouting(ApiTestBase):
             f'_ALERT_RULES events without a kind: {missing}')
 
     def test_default_routes_everywhere(self):
-        """No saved config → every kind, every channel, allowed."""
+        """No saved config → routing matches each kind's default slot. Most
+        kinds default all-on; v3.4.0 added per-kind overrides (new_port is
+        informational by default), so compare against _kind_default."""
         for kind, *_ in api_module.CHANNEL_KINDS:
+            expected = api_module._kind_default(kind)
             for ch in api_module.CHANNELS:
-                self.assertTrue(
-                    api_module._channel_allowed(kind, ch),
-                    f'default routing for {kind}/{ch} should be allow')
+                self.assertEqual(
+                    api_module._channel_allowed(kind, ch), expected[ch],
+                    f'default routing for {kind}/{ch} should be {expected[ch]}')
 
     def test_unknown_event_routes_through(self):
         """Brand-new events that haven't been mapped yet must default to
@@ -384,8 +387,6 @@ class TestChannelRouting(ApiTestBase):
             ('snapshot_old',         {'vm_name': 'vm1', 'snap_name': 'pre-upgrade',
                                       'days_old': 90}),
             ('reboot_required',      {'device_id': 'd', 'name': 'h'}),
-            ('new_port_detected',    {'device_id': 'd', 'name': 'h',
-                                      'proto': 'tcp', 'port': 9999, 'process': 'foo'}),
         ]
         for event, payload in cases:
             result = api_module._record_alert(event, payload)
@@ -394,6 +395,13 @@ class TestChannelRouting(ApiTestBase):
             self.assertIn('title', result)
             self.assertTrue(result['title'].strip(),
                 f'{event} alert title must not be empty')
+        # v3.4.0: new_port_detected is informational by default — its alerts
+        # channel is off, so _record_alert must NOT create an inbox alert.
+        self.assertIsNone(
+            api_module._record_alert('new_port_detected', {
+                'device_id': 'd', 'name': 'h',
+                'proto': 'tcp', 'port': 9999, 'process': 'foo'}),
+            'new_port should not create an alert by default (informational)')
 
     def test_monitor_up_resolves_monitor_down(self):
         """monitor_up has no device_id but should still resolve the

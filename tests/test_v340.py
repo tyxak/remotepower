@@ -406,6 +406,11 @@ class TestServerWiring(unittest.TestCase):
         # the gate is invoked in the dispatch path
         self.assertIn('if not _webhook_rate_limit_ok()', self.API)
 
+    def test_new_port_informational_default(self):
+        self.assertIn('CHANNEL_KIND_DEFAULTS', self.API)
+        self.assertIn("'new_port'", self.API)
+        self.assertIn('def _kind_default', self.API)
+
     def test_compliance_facts_use_real_event_data(self):
         # ports / ssh-key / brute-force must be derived from the fleet event
         # log, not hardcoded to [] (which would be a silent false-pass).

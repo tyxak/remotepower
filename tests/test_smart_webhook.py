@@ -59,5 +59,31 @@ class TestWebhookRateLimit(unittest.TestCase):
         self.assertTrue(api._webhook_rate_limit_ok())
 
 
+class TestNewPortDefault(unittest.TestCase):
+    """A new listening port is informational by default: recent-activity on,
+    but no alert / webhook / Needs-Attention nag unless the operator opts in."""
+
+    def setUp(self):
+        # ensure no saved channel_routing influences the default
+        try:
+            cfg = api.load(api.CONFIG_FILE) or {}
+            cfg.pop('channel_routing', None)
+            api.save(api.CONFIG_FILE, cfg)
+        except Exception:
+            pass
+
+    def test_new_port_no_alert_no_webhook_no_na(self):
+        self.assertFalse(api._channel_allowed('new_port_detected', 'alerts'))
+        self.assertFalse(api._channel_allowed('new_port_detected', 'webhook'))
+        self.assertFalse(api._channel_allowed('new_port_detected', 'needs_attention'))
+
+    def test_new_port_still_logged_in_activity(self):
+        self.assertTrue(api._channel_allowed('new_port_detected', 'recent_activity'))
+
+    def test_other_events_still_alert(self):
+        self.assertTrue(api._channel_allowed('smart_failure', 'alerts'))
+        self.assertTrue(api._channel_allowed('cve_found', 'alerts'))
+
+
 if __name__ == '__main__':
     unittest.main()

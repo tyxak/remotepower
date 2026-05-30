@@ -2452,6 +2452,25 @@ NA_KIND_ALIAS = {
 CHANNELS = ('needs_attention', 'recent_activity', 'alerts', 'webhook')
 CHANNEL_DEFAULT = {c: True for c in CHANNELS}
 
+# v3.4.0: per-kind default channel overrides for kinds that shouldn't be on
+# every channel out of the box. A new listening port is a useful *audit*
+# signal but a noisy *alert* — every service restart, container, or dev server
+# opens one — so by default it only lands in Recent Activity (and the device's
+# port baseline). Operators who want it to nag can flip alerts / needs_attention
+# / webhook back on in Settings → Notifications; an explicit saved choice always
+# wins over this default.
+CHANNEL_KIND_DEFAULTS = {
+    'new_port': {'needs_attention': False, 'alerts': False, 'webhook': False},
+}
+
+
+def _kind_default(kind):
+    """The default channel slot for a kind — CHANNEL_DEFAULT with any per-kind
+    override applied."""
+    slot = dict(CHANNEL_DEFAULT)
+    slot.update(CHANNEL_KIND_DEFAULTS.get(kind, {}))
+    return slot
+
 
 def _channel_routing():
     """Load the channel routing matrix, lazy-migrating from legacy
@@ -2466,17 +2485,20 @@ def _channel_routing():
         out = {}
         for kind, _label, _group, _events in CHANNEL_KINDS:
             saved = routing.get(kind)
+            kd = _kind_default(kind)
             if isinstance(saved, dict):
-                out[kind] = {c: bool(saved.get(c, True)) for c in CHANNELS}
+                # Missing channels fall back to the per-kind default, not a
+                # blanket True (so new_port stays alert-off unless explicitly on).
+                out[kind] = {c: bool(saved.get(c, kd[c])) for c in CHANNELS}
             else:
-                out[kind] = dict(CHANNEL_DEFAULT)
+                out[kind] = kd
         return out
     # Migration: no channel_routing yet — translate legacy fields.
     hidden_attn = set(cfg.get('dashboard_hidden_attention_kinds') or [])
     hidden_act_events = set(cfg.get('dashboard_hidden_activity_events') or [])
     migrated = {}
     for kind, _label, _group, events in CHANNEL_KINDS:
-        slot = dict(CHANNEL_DEFAULT)
+        slot = _kind_default(kind)
         if kind in hidden_attn:
             slot['needs_attention'] = False
             slot['recent_activity'] = False

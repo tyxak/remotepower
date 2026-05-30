@@ -29,11 +29,19 @@ In development.
   **10 per 60 s** (server-wide), so a flapping monitor or a fleet-wide event
   can't unleash a notification storm. Over-cap sends are logged in the webhook
   log as `rate-limited`. Fail-open: a storage glitch never silences alerts.
-- **Fixed: "new listening port" alerts had stopped firing.** The port-audit
-  step read a per-request sysinfo cache that was never populated, so
-  `new_port_detected` had been silently dead. Restored — new ports are
-  compared against the baseline and alert again. (Also unblocks the new
-  resource-forecasting and "what changed" history, which used the same cache.)
+- **Fixed: new-listening-port detection had silently stopped working** — the
+  port-audit step read a per-request sysinfo cache that was never populated, so
+  `new_port_detected` never fired. Restored: new ports are again compared
+  against the baseline and recorded. (Also unblocks the new resource-forecasting
+  and "what changed" history, which used the same cache.)
+- **New listening ports are informational by default — no alert.** A new port
+  is a useful audit signal but a noisy *alert* (every service restart, new
+  container, or dev server opens one), so by default it now lands only in
+  **Recent Activity** (and the device's port baseline / drawer) — it no longer
+  raises an Alerts-inbox entry, fires a webhook, or posts a Needs-Attention
+  card. Want it to nag? Turn any of those channels back on for **New listening
+  ports** in Settings → Notifications. (Per-kind channel defaults are new; an
+  explicit saved choice always wins.)
 - **Host-config enforcement is now an explicit, gated opt-in.** Pushing a
   *desired* host config for the agent to **apply** (it writes `/etc/hosts`,
   netplan, systemd units, users, repos) had silently never happened (the same

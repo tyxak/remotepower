@@ -630,6 +630,14 @@ class TestAttentionLogAlertSurfacing(unittest.TestCase):
                 'proto': 'tcp', 'port': 4444, 'process': 'suspicious',
             }},
         ])
+        # v3.4.0: new_port is informational by default — no Needs-Attention card.
+        items = self.api._compute_attention()
+        self.assertEqual([i for i in items if i.get('kind') == 'new_port'], [])
+        # …but it surfaces once the operator turns the channel on.
+        cfg = self.api.load(self.api.CONFIG_FILE) or {}
+        cfg['channel_routing'] = {'new_port': {'needs_attention': True,
+            'recent_activity': True, 'alerts': True, 'webhook': True}}
+        self.api.save(self.api.CONFIG_FILE, cfg)
         items = self.api._compute_attention()
         np_items = [i for i in items if i.get('kind') == 'new_port']
         self.assertEqual(len(np_items), 1)
