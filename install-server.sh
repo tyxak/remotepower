@@ -48,13 +48,13 @@ if python3 -c "import bcrypt" 2>/dev/null; then
 else
     case $PKG_MGR in
       apt)    pip3 install bcrypt --break-system-packages 2>/dev/null \
-                || pip3 install bcrypt || warn "bcrypt install failed — SHA-256 fallback will be used" ;;
-      dnf)    pip3 install bcrypt || warn "bcrypt install failed — SHA-256 fallback will be used" ;;
-      pacman) pip install bcrypt  || warn "bcrypt install failed — SHA-256 fallback will be used" ;;
+                || pip3 install bcrypt || warn "bcrypt install failed — salted PBKDF2 fallback will be used" ;;
+      dnf)    pip3 install bcrypt || warn "bcrypt install failed — salted PBKDF2 fallback will be used" ;;
+      pacman) pip install bcrypt  || warn "bcrypt install failed — salted PBKDF2 fallback will be used" ;;
     esac
     python3 -c "import bcrypt" 2>/dev/null \
       && success "bcrypt installed" \
-      || warn "bcrypt unavailable — passwords will use SHA-256 (upgrade later with: pip3 install bcrypt)"
+      || warn "bcrypt unavailable — passwords will use salted PBKDF2 (install bcrypt later with: pip3 install bcrypt)"
 fi
 
 # ── reportlab (for PDF patch reports) ────────────────────────────────────────
@@ -253,22 +253,29 @@ ADMIN_USER="${ADMIN_USER:-admin}"
 read -srp "  Admin password: " ADMIN_PASS
 echo ""
 
-# Use bcrypt if available, fall back to SHA-256 — matches api.py logic exactly
-python3 - <<PYEOF
-import json, time, hashlib
+# Use bcrypt if available, else salted PBKDF2-HMAC-SHA256 — matches api.py's
+# hash_password() exactly (never bare unsalted SHA-256). The password is passed
+# via the environment, not interpolated into the script, so a password
+# containing quotes can't break or inject into the Python source.
+RP_ADMIN_USER="${ADMIN_USER}" RP_ADMIN_PASS="${ADMIN_PASS}" python3 - <<'PYEOF'
+import json, time, os, hashlib, secrets
 from pathlib import Path
 
+plain = os.environ['RP_ADMIN_PASS']
 try:
     import bcrypt
-    pw_hash = bcrypt.hashpw('${ADMIN_PASS}'.encode(), bcrypt.gensalt(12)).decode()
+    pw_hash = bcrypt.hashpw(plain.encode(), bcrypt.gensalt(12)).decode()
     hash_type = 'bcrypt'
 except ImportError:
-    pw_hash = hashlib.sha256('${ADMIN_PASS}'.encode()).hexdigest()
-    hash_type = 'sha256'
+    salt = secrets.token_bytes(16)
+    iters = 600_000
+    dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, iters)
+    pw_hash = f'pbkdf2${iters}${salt.hex()}${dk.hex()}'
+    hash_type = 'pbkdf2'
 
 path = Path('/var/lib/remotepower/users.json')
 users = json.loads(path.read_text()) if path.exists() else {}
-users['${ADMIN_USER}'] = {'password_hash': pw_hash, 'created': int(time.time())}
+users[os.environ['RP_ADMIN_USER']] = {'password_hash': pw_hash, 'created': int(time.time())}
 path.write_text(json.dumps(users, indent=2))
 print(f"  User saved (hash: {hash_type}).")
 PYEOF

@@ -4,6 +4,7 @@
 import json
 import hashlib
 import getpass
+import secrets
 import sys
 import time
 import re
@@ -17,15 +18,27 @@ try:
 except ImportError:
     _BCRYPT = False
 
+# Iterations match api.py's _PBKDF2_ITERATIONS (OWASP floor for PBKDF2-SHA256).
+_PBKDF2_ITERATIONS = 600_000
+
 def hash_password(plain: str) -> str:
     if _BCRYPT:
         return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt(12)).decode()
-    print("Warning: bcrypt not installed, falling back to SHA-256.")
-    print("         Install with: pip3 install bcrypt")
-    return hashlib.sha256(plain.encode()).hexdigest()
+    # No bcrypt: salted PBKDF2-HMAC-SHA256 in the exact self-describing format
+    # api.py's verify_password understands — NOT bare unsalted SHA-256 (which is
+    # fast and rainbow-table-able). Pure stdlib, no extra dependency.
+    print("Warning: bcrypt not installed, using salted PBKDF2-HMAC-SHA256.")
+    print("         For bcrypt instead: pip3 install bcrypt")
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac('sha256', plain.encode(), salt, _PBKDF2_ITERATIONS)
+    return f'pbkdf2${_PBKDF2_ITERATIONS}${salt.hex()}${dk.hex()}'
 
 def hash_type(stored: str) -> str:
-    return 'bcrypt' if stored.startswith('$2') else 'sha256'
+    if stored.startswith('$2'):
+        return 'bcrypt'
+    if stored.startswith('pbkdf2$'):
+        return 'pbkdf2'
+    return 'sha256'    # legacy pre-2.3.2 hashes (still verified by the server)
 
 if not USERS_FILE.exists():
     print("Error: users file not found. Is the server installed?")
