@@ -11606,6 +11606,37 @@ def handle_device_forecast(dev_id):
     })
 
 
+def handle_forecast():
+    """GET /api/forecast — fleet-wide disk-fill projection for the Forecast page.
+    One row per mount (across every device that has metrics history), soonest to
+    fill first, each carrying the chartable series + fitted line so the page can
+    draw a scatter + regression line without a second request."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    devices = load(DEVICES_FILE) or {}
+    mh_all = load(METRICS_HIST_FILE) or {}
+    rows = []
+    dev_count = 0
+    for dev_id, rec in mh_all.items():
+        dev = devices.get(dev_id)
+        if not dev:
+            continue
+        samples = (rec or {}).get('samples') or []
+        mounts = forecast.forecast_mounts(samples)
+        if mounts:
+            dev_count += 1
+        name = dev.get('name', dev_id)
+        for m in mounts:
+            m = dict(m)
+            m['device_id'] = dev_id
+            m['device_name'] = name
+            rows.append(m)
+    # Soonest-to-fill first; mounts that never fill (days_to_full None) sink.
+    rows.sort(key=lambda r: (r.get('days_to_full') is None, r.get('days_to_full') or 0))
+    respond(200, {'mounts': rows, 'devices': dev_count})
+
+
 def handle_device_changes(dev_id):
     """GET /api/devices/<id>/changes?days=1|7 — what changed in the window."""
     require_auth()
@@ -22179,6 +22210,7 @@ def _build_exact_routes():
         ('GET', '/api/digest'): handle_digest,
         ('GET', '/api/discovery'): handle_discovery,
         ('GET', '/api/drift'): handle_drift_overview,
+        ('GET', '/api/forecast'): handle_forecast,
         (None, '/api/enroll/pin'): handle_enroll_pin,
         ('GET', '/api/enrollment-tokens'): handle_enroll_token_list,
         ('POST', '/api/enrollment-tokens'): handle_enroll_token_create,

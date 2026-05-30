@@ -3874,6 +3874,9 @@ button, a, [role="button"],
 .isl-307.sel { background: var(--accent); color: #fff }
 .isl-311.active { background: rgba(59,126,255,0.2); color: var(--accent); border-color: var(--accent) }
 .isl-314.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(59,126,255,0.2) }
+/* v3.4.0 Forecast page */
+.forecast-svg { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .isl-329.ok { background: var(--green) }
 .isl-329.bad { background: var(--red) }
 .isl-390.is-ignored { opacity: 0.5 }

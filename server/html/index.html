@@ -184,6 +184,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="7 10 10 13 13 9 16 12"/></svg>
           <span>Device Metrics</span>
         </button>
+        <button class="nav-btn" data-page="forecast" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><polyline points="19 7 13 13 9 9 4 14"/></svg>
+          <span>Forecast</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-ports" data-pass-btn="1" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
           <span>Listening Ports</span>
@@ -3030,6 +3034,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-secondary fs-12" data-action="loadCompliance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
+      </div>
+
+      <!-- ── Forecast page (v3.4.0): disk-fill projection across the fleet ──── -->
+      <div id="page-forecast" class="page">
+        <div class="page-title">Forecast</div>
+        <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="mb-16 row-8-center">
+          <button class="btn-secondary fs-12" data-action="loadForecast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="forecast-summary" class="fs-12 c-muted"></span>
+        </div>
+        <div id="forecast-chart" class="mb-16"></div>
+        <div id="forecast-body"><div class="c-muted">Loading…</div></div>
       </div>
 
       <!-- ── About page ───────────────────────────────────────────────────── -->

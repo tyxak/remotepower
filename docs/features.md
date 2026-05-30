@@ -702,6 +702,11 @@ capacity, yielding a **days-to-full** estimate and a projected fill date
   under ~45 days) and offers a one-click, context-prefilled AI runbook
   for an imminent fill.
 
+There's also a dedicated **Monitoring → Forecast** page (`GET /api/forecast`)
+that lists every projected mount across the fleet, soonest-to-fill first, in a
+sortable table, with a scatter-plus-regression-line chart of the selected
+mount's history extrapolated to capacity and the projected fill date marked.
+
 ### What changed (drift over time)
 `GET /api/devices/<id>/changes?days=1|7` diffs the oldest snapshot in
 the window against the latest and reports package deltas, opened/closed

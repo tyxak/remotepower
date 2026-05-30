@@ -978,11 +978,42 @@ def build_hardware() -> dict:
     return out
 
 
+def build_metrics_history() -> dict:
+    """v3.4.0 demo: ~30 days of daily per-mount disk samples so the Forecast
+    page can project disk-fill — a fast-filling Nextcloud, a media volume on
+    Jellyfin climbing hard, a slow backup riser, and a flat mount (no fill)."""
+    DAY = 86400
+    n = 30
+    # dev_id -> [(mount, total_gb, start_used_gb, gb_per_day), ...]
+    plan = {
+        'nc01': [('/', 100.0, 62.0, 1.1)],                                  # ~34d
+        'jf01': [('/', 50.0, 20.0, 0.15), ('/media', 4000.0, 2700.0, 26.0)],  # media filling
+        'bk01': [('/', 64.0, 30.0, 0.05), ('/backup', 2000.0, 980.0, 9.0)],   # backup riser
+        'gt01': [('/', 80.0, 33.0, 0.0)],                                    # flat -> no fill
+    }
+    out = {}
+    for dev_id, mounts in plan.items():
+        rng = _seeded_random('mhist', dev_id)
+        samples = []
+        for i in range(n):
+            ts = now() - (n - 1 - i) * DAY
+            ms = []
+            for path, total, start, perday in mounts:
+                used = start + perday * i + rng.uniform(-0.2, 0.2) * max(perday, 0.1)
+                used = max(0.0, min(total, round(used, 2)))
+                ms.append({'path': path, 'used_gb': used, 'total_gb': total})
+            samples.append({'ts': ts, 'date': time.strftime('%Y-%m-%d', time.gmtime(ts)),
+                            'mounts': ms})
+        out[dev_id] = {'samples': samples}
+    return out
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
     'devices.json':          build_devices,
     'hardware.json':         build_hardware,
+    'metrics_history.json':  build_metrics_history,
     'metrics.json':           build_metrics,
     'containers.json':       build_containers,
     'monitor_history.json':  build_monitor_history,

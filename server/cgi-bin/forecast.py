@@ -73,7 +73,7 @@ def forecast_mounts(samples, min_points=3):
         ys = [u for _t, u, _tot in pts]
         total = pts[-1][2]
         cur = pts[-1][1]
-        slope, _intercept = linear_fit(xs, ys)  # GB per day
+        slope, intercept = linear_fit(xs, ys)  # GB per day
 
         days_to_full = None
         fill_ts = None
@@ -92,6 +92,14 @@ def forecast_mounts(samples, min_points=3):
             'days_to_full':     round(days_to_full, 1) if days_to_full is not None else None,
             'fill_date_ts':     fill_ts,
             'points':           len(pts),
+            # Chartable raw series + fitted line (v3.4.0 Forecast page). `series`
+            # is the observed samples as [unix_ts, used_gb]; the least-squares
+            # line is y = slope*(days since t0_ts) + intercept — enough to draw a
+            # scatter + trend line and extrapolate to capacity.
+            'series':           [[int(t), round(u, 2)] for t, u, _tot in pts],
+            'slope':            round(slope, 5),
+            'intercept':        round(intercept, 3),
+            't0_ts':            int(t0),
         })
 
     # Soonest-to-fill first; never-fills (None) sink to the bottom.

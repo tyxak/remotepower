@@ -837,6 +837,7 @@ function showPage(name, btn) {
   if (name === 'alerts')   loadAlerts();
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
+  if (name === 'forecast') loadForecast();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -10519,6 +10520,7 @@ const _ICONS = {
   bookOpen:    '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
   wrench:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
   clock:       '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  trendingUp:  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   trash:       '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
   // v3.3.0: extra icons for device-icon palette + status pills
   laptop:      '<rect x="2" y="4" width="20" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>',
@@ -12011,6 +12013,134 @@ function openDriftForDevice(name) {
 }
 
 // #14 compliance report (Compliance page).
+// ─── v3.4.0: Forecast page — fleet disk-fill projection + regression chart ───
+let _forecastRows = [];
+let _forecastSel = 0;
+
+async function loadForecast() {
+  const body = document.getElementById('forecast-body');
+  const chart = document.getElementById('forecast-chart');
+  const summary = document.getElementById('forecast-summary');
+  if (!body) return;
+  const r = await api('GET', '/forecast');
+  if (!r || !Array.isArray(r.mounts)) {
+    body.innerHTML = '<div class="c-red">Failed to load forecast.</div>';
+    if (chart) chart.innerHTML = '';
+    return;
+  }
+  _forecastRows = r.mounts;
+  _forecastSel = 0;
+  if (summary) {
+    const filling = _forecastRows.filter(m => m.days_to_full != null).length;
+    summary.textContent = _forecastRows.length
+      ? `${_forecastRows.length} mount(s) across ${r.devices} device(s) with history — ${filling} projected to fill.`
+      : '';
+  }
+  if (!_forecastRows.length) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('trendingUp', 28)}</div>`
+      + `<div class="empty-title">No forecast yet</div>`
+      + `<div class="empty-text">RemotePower needs a few days of daily metrics history per host before it can project disk-fill.<br>Check back once agents have been reporting for several days.</div></div>`;
+    if (chart) chart.innerHTML = '';
+    return;
+  }
+  _renderForecastTable();
+  _renderForecastChart();
+}
+
+function forecastSelect(idx) {
+  _forecastSel = Number(idx) || 0;
+  _renderForecastTable();
+  _renderForecastChart();
+}
+
+function _renderForecastTable() {
+  const body = document.getElementById('forecast-body');
+  if (!body) return;
+  const sorted = tableCtl.sortRows('forecast', _forecastRows.slice(), m => ({
+    device: m.device_name, mount: m.path, used: m.current_percent,
+    perday: m.trend_gb_per_day,
+    days: (m.days_to_full == null ? 1e12 : m.days_to_full),
+    fill: (m.fill_date_ts || 1e15),
+  }));
+  const rows = sorted.map(m => {
+    const idx = _forecastRows.indexOf(m);
+    const d2f = m.days_to_full;
+    const daysCls = d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
+    const daysTxt = d2f == null ? 'no fill' : _fmtDays(d2f);
+    const fill = m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—';
+    const sel = idx === _forecastSel ? ' is-selected' : '';
+    return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
+      <td class="fw-500">${escHtml(m.device_name)}</td>
+      <td><code>${escHtml(m.path)}</code></td>
+      <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
+      <td class="ta-center">${m.current_percent}%</td>
+      <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
+      <td class="ta-center ${daysCls}">${daysTxt}</td>
+      <td class="ta-center">${escHtml(fill)}</td></tr>`;
+  }).join('');
+  body.innerHTML = `<table class="audit-table"><thead id="forecast-thead"><tr>
+    <th data-col="device">Device</th><th data-col="mount">Mount</th>
+    <th data-col="used">Used</th><th data-col="used">%</th>
+    <th data-col="perday">Trend</th><th data-col="days">Fills in</th>
+    <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table>`;
+  // Wire sort after the thead exists (re-wires each render — safe).
+  tableCtl.wireSortOnly('forecast-thead', 'forecast', _renderForecastTable);
+}
+
+// Inline SVG scatter + least-squares regression line, extrapolated to capacity.
+// CSP-safe: SVG presentation attributes only, no inline style= attribute.
+function _renderForecastChart() {
+  const host = document.getElementById('forecast-chart');
+  if (!host) return;
+  const m = _forecastRows[_forecastSel];
+  if (!m || !Array.isArray(m.series) || m.series.length < 2) { host.innerHTML = ''; return; }
+  const DAY = 86400;
+  const W = 760, H = 300, padL = 58, padR = 96, padT = 18, padB = 36;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const pts = m.series;                       // [[ts, gb], ...]
+  const t0 = m.t0_ts, slope = m.slope, intercept = m.intercept;
+  const fit = ts => slope * ((ts - t0) / DAY) + intercept;
+  const tMin = pts[0][0];
+  const tEnd = m.fill_date_ts || pts[pts.length - 1][0];
+  const tMax = Math.max(tEnd, pts[pts.length - 1][0]);
+  const yMax = Math.max(m.total_gb, ...pts.map(p => p[1])) * 1.02 || 1;
+  const xspan = (tMax - tMin) || 1;
+  const X = ts => padL + ((ts - tMin) / xspan) * plotW;
+  const Y = gb => padT + (1 - Math.min(gb, yMax) / yMax) * plotH;
+  const fmtDate = ts => new Date(ts * 1000).toISOString().slice(0, 10);
+
+  const axis = `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>`
+    + `<line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--border)" stroke-width="1"/>`;
+  // capacity line
+  const capY = Y(m.total_gb);
+  const cap = `<line x1="${padL}" y1="${capY}" x2="${padL + plotW}" y2="${capY}" stroke="var(--red)" stroke-width="1" stroke-dasharray="5 4"/>`
+    + `<text x="${padL + plotW + 6}" y="${capY + 4}" fill="var(--red)" font-size="11">capacity ${m.total_gb} GB</text>`;
+  // y labels (0 and capacity)
+  const ylab = `<text x="${padL - 8}" y="${Y(0) + 4}" fill="var(--muted)" font-size="11" text-anchor="end">0</text>`
+    + `<text x="${padL - 8}" y="${capY + 4}" fill="var(--muted)" font-size="11" text-anchor="end">${m.total_gb}</text>`;
+  // x labels (first + last/fill date)
+  const xlab = `<text x="${X(tMin)}" y="${padT + plotH + 22}" fill="var(--muted)" font-size="11" text-anchor="middle">${fmtDate(tMin)}</text>`
+    + `<text x="${X(tMax)}" y="${padT + plotH + 22}" fill="var(--muted)" font-size="11" text-anchor="end">${fmtDate(tMax)}</text>`;
+  // regression line, clamped to the plot vertically
+  const ly0 = Math.max(padT, Math.min(padT + plotH, Y(fit(tMin))));
+  const ly1 = Math.max(padT, Math.min(padT + plotH, Y(fit(tEnd))));
+  const line = `<line x1="${X(tMin)}" y1="${ly0}" x2="${X(tEnd)}" y2="${ly1}" stroke="var(--accent)" stroke-width="2"/>`;
+  // observed points
+  const dots = pts.map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
+  // fill marker
+  let fillMark = '';
+  if (m.fill_date_ts && m.days_to_full != null) {
+    const fx = X(m.fill_date_ts);
+    fillMark = `<line x1="${fx}" y1="${padT}" x2="${fx}" y2="${padT + plotH}" stroke="var(--red)" stroke-width="1" stroke-dasharray="2 3"/>`
+      + `<circle cx="${fx}" cy="${capY}" r="4" fill="var(--red)"/>`
+      + `<text x="${fx}" y="${padT - 4}" fill="var(--red)" font-size="11" text-anchor="middle">fills ${fmtDate(m.fill_date_ts)} (${_fmtDays(m.days_to_full)})</text>`;
+  }
+  const title = `${escHtml(m.device_name)} — ${escHtml(m.path)} · ${m.trend_gb_per_day} GB/day`;
+  host.innerHTML = `<div class="fs-12 c-muted mb-6">${title}</div>`
+    + `<svg class="forecast-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Disk-fill forecast for ${escAttr(m.device_name)} ${escAttr(m.path)}">`
+    + axis + cap + ylab + xlab + line + dots + fillMark + `</svg>`;
+}
+
 async function loadCompliance() {
   const body = document.getElementById('compliance-body');
   if (!body) return;
