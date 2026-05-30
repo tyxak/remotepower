@@ -15,6 +15,20 @@ In development.
   before the API call, and audited (the password is passed straight to Proxmox
   and never logged or stored). New `create_lxc`/`list_templates`/
   `list_storages`/`list_bridges`/`next_vmid` in `proxmox_client.py`.
+- **Fixed: SMART "UNKNOWN" disks no longer raise false alarms; real failures
+  now reliably alert.** A drive smartctl can't assess (USB bridge, virtual
+  disk, no SMART support) reports `UNKNOWN` — that was being treated as a
+  failure, so it lit up Needs Attention and the device-card badge. Now a single
+  shared rule decides "failed" everywhere (event, Needs Attention, badge,
+  drawer): SMART says FAILED (or any non-OK status) **or** there are pre-fail
+  sector counts; UNKNOWN/PASSED are not failures. The `smart_failure` alert
+  also now edge-triggers on the *set* of failing disks, so a second/third disk
+  failing re-fires — and a host that was already failing when this shipped
+  alerts on its next report instead of staying silent.
+- **Webhook send-rate cap.** A global limiter drops outbound webhooks beyond
+  **10 per 60 s** (server-wide), so a flapping monitor or a fleet-wide event
+  can't unleash a notification storm. Over-cap sends are logged in the webhook
+  log as `rate-limited`. Fail-open: a storage glitch never silences alerts.
 - **Fixed: "new listening port" alerts had stopped firing.** The port-audit
   step read a per-request sysinfo cache that was never populated, so
   `new_port_detected` had been silently dead. Restored — new ports are

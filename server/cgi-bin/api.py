@@ -208,6 +208,10 @@ SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
+# v3.4.0: global webhook send-rate limiter state (sliding window of send ts).
+WEBHOOK_RATELIMIT_FILE = DATA_DIR / 'webhook_ratelimit.json'
+WEBHOOK_RATE_MAX    = 10    # max webhook sends ...
+WEBHOOK_RATE_WINDOW = 60    # ... per this many seconds, server-wide
 
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────
 CONTAINERS_FILE = DATA_DIR / 'containers.json'
@@ -3117,6 +3121,30 @@ def _auto_detect_format(url):
 _WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams', 'github')
 
 
+def _webhook_rate_limit_ok():
+    """Global sliding-window limiter: at most WEBHOOK_RATE_MAX webhook sends per
+    WEBHOOK_RATE_WINDOW seconds, server-wide. Returns True and records the send
+    when under the cap; False (caller drops the send) when the cap is hit.
+
+    File-backed + locked because CGI is process-per-request, so an in-memory
+    counter wouldn't survive across requests. Fail-open: any storage error
+    returns True, so a transient glitch can never silence every alert.
+    """
+    now = time.time()
+    try:
+        with _locked_update(WEBHOOK_RATELIMIT_FILE) as store:
+            sends = [t for t in (store.get('sends') or [])
+                     if isinstance(t, (int, float)) and (now - t) < WEBHOOK_RATE_WINDOW]
+            if len(sends) >= WEBHOOK_RATE_MAX:
+                store['sends'] = sends      # persist the pruned window
+                return False
+            sends.append(now)
+            store['sends'] = sends[-WEBHOOK_RATE_MAX * 4:]   # bounded
+            return True
+    except Exception:
+        return True
+
+
 def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
     """Build the right body+headers for `dest`'s format, POST, log."""
     url = dest['url']
@@ -3179,6 +3207,15 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
             event, title, message, priority, safe_payload)
     headers.setdefault('Content-Type', content_type)
     headers.setdefault('User-Agent', f'RemotePower/{SERVER_VERSION}')
+    # v3.4.0: global send-rate cap. Checked here — after every filter passes and
+    # we're committed to sending — so a webhook storm (e.g. a flapping monitor or
+    # a fleet-wide event) can't fire more than WEBHOOK_RATE_MAX requests per
+    # WEBHOOK_RATE_WINDOW seconds. Over the cap, the send is dropped + logged.
+    if not _webhook_rate_limit_ok():
+        _log_webhook(event, url, 'error',
+                     f'rate-limited: over {WEBHOOK_RATE_MAX} webhooks/'
+                     f'{WEBHOOK_RATE_WINDOW}s — dropped')
+        return
     req = urllib.request.Request(url, data=body, headers=headers, method='POST')
     try:
         ctx = None
@@ -4193,8 +4230,7 @@ def handle_devices_list():
             # agentless / pre-v3.4.0 agents → no badge).
             _hwrec = hw_store.get(dev_id) or {}
             _smart = _hwrec.get('smart') or []
-            _smart_bad = sum(1 for d in _smart
-                             if d.get('health') and d.get('health') != 'PASSED')
+            _smart_bad = sum(1 for d in _smart if _smart_disk_failed(d))
             row['hw_health'] = {
                 'smart_failed':  _smart_bad,
                 'kernel_reboot': bool((_hwrec.get('kernel') or {}).get('reboot_for_kernel')),
@@ -12473,6 +12509,29 @@ MAX_DIMMS       = 64
 MAX_TEMPS       = 64
 
 
+def _smart_disk_failed(d):
+    """The single source of truth for "is this disk failing?" — used by the
+    alert (smart_failure event), the home Needs-Attention digest, and the
+    device-card badge so all three agree.
+
+    A disk counts as failed when SMART explicitly says so (any health that
+    isn't PASSED / OK / UNKNOWN / empty) OR it has non-zero pre-fail sector
+    counts. **UNKNOWN is NOT a failure** — it means smartctl couldn't assess
+    the drive (USB bridge, virtual disk, no SMART support), which is common and
+    must not raise an alert or a Needs-Attention card.
+    """
+    if not isinstance(d, dict):
+        return False
+    health = str(d.get('health', '')).upper()
+    if health not in ('PASSED', 'OK', 'UNKNOWN', ''):
+        return True
+    for k in ('reallocated_sectors', 'pending_sectors', 'offline_uncorrectable'):
+        v = d.get(k)
+        if isinstance(v, (int, float)) and v > 0:
+            return True
+    return False
+
+
 def _ingest_hardware(dev_id, dev_name, body, now):
     """Persist the agent's SMART / kernel / hardware report and fire
     edge-triggered events (smart_failure, kernel_outdated).
@@ -12490,7 +12549,6 @@ def _ingest_hardware(dev_id, dev_name, body, now):
         # ── SMART ────────────────────────────────────────────────────
         if isinstance(body.get('smart'), list):
             disks = []
-            any_failed = False
             failed_devs = []
             for d in body['smart'][:MAX_SMART_DISKS]:
                 if not isinstance(d, dict):
@@ -12509,23 +12567,24 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     v = d.get(k)
                     if isinstance(v, (int, float)) and -1 < v < 1e12:
                         entry[k] = int(v)
-                # "Failure" = explicit FAILED health, or pre-fail signalled by
-                # reallocated / pending / offline-uncorrectable sectors.
-                prefail = any(entry.get(k, 0) > 0 for k in
-                              ('reallocated_sectors', 'pending_sectors',
-                               'offline_uncorrectable'))
-                if health == 'FAILED' or prefail:
-                    any_failed = True
+                if _smart_disk_failed(entry):
                     failed_devs.append(entry['device'])
                 disks.append(entry)
             rec['smart'] = disks
-            prev_failed = rec.get('_smart_failed', False)
-            if any_failed and not prev_failed:
+            # Edge-trigger on the *set* of failed disks, not a single device-level
+            # bool: fire when a disk newly enters the failed set. This re-arms as
+            # /dev/sdb, /dev/sdc fail after /dev/sda, and — because the key didn't
+            # exist before this change — fires once for hosts that were already
+            # failing when this shipped (so a pre-existing failure still alerts).
+            cur_failed = sorted(set(failed_devs))
+            prev_failed = set(rec.get('_smart_failed_devs') or [])
+            if set(cur_failed) - prev_failed:
                 events.append(('smart_failure', {
                     'device_id': dev_id, 'name': dev_name,
-                    'disks': ', '.join(failed_devs) or 'unknown',
+                    'disks': ', '.join(cur_failed) or 'unknown',
                 }))
-            rec['_smart_failed'] = any_failed
+            rec['_smart_failed_devs'] = cur_failed
+            rec['_smart_failed'] = bool(cur_failed)   # kept for back-compat
 
         # ── kernel / livepatch ───────────────────────────────────────
         if isinstance(body.get('kernel'), dict):
@@ -13556,8 +13615,7 @@ def _compute_attention():
         hw_all = load(HARDWARE_FILE) or {}
         for dev_id, dev in monitored.items():
             rec = hw_all.get(dev_id) or {}
-            bad = [d for d in (rec.get('smart') or [])
-                   if d.get('health') and d.get('health') != 'PASSED']
+            bad = [d for d in (rec.get('smart') or []) if _smart_disk_failed(d)]
             if bad:
                 items.append({
                     'severity': 'critical', 'kind': 'hardware',

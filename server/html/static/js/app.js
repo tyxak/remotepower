@@ -14041,7 +14041,7 @@ async function _loadAuditSection(key) {
         ]);
         body.innerHTML = _renderHardwareSection(id, hw || {}, fc || {}, ch || {});
         const disks = (hw && hw.smart) || [];
-        const failed = disks.filter(d => d.health && d.health !== 'PASSED').length;
+        const failed = disks.filter(_smartDiskFailed).length;
         badge.textContent = failed ? `${failed} disk alert${failed>1?'s':''}`
                           : (disks.length ? `${disks.length} disk${disks.length>1?'s':''}` : 'no data');
         if (disks.length) {
@@ -14103,6 +14103,16 @@ function _fmtDays(d) {
   return `${(d/30).toFixed(1)} months`;
 }
 
+// Mirror of the server's _smart_disk_failed: a disk is "failed" only when SMART
+// says so (health not PASSED/OK/UNKNOWN/empty) or it has pre-fail sectors.
+// UNKNOWN is not a failure (smartctl couldn't assess it).
+function _smartDiskFailed(d) {
+  if (!d) return false;
+  const h = String(d.health || '').toUpperCase();
+  if (h && !['PASSED', 'OK', 'UNKNOWN'].includes(h)) return true;
+  return (d.reallocated_sectors > 0) || (d.pending_sectors > 0) || (d.offline_uncorrectable > 0);
+}
+
 function _renderHardwareSection(id, hw, fc, ch) {
   let h = '';
   const k = hw.kernel || {};
@@ -14134,17 +14144,19 @@ function _renderHardwareSection(id, hw, fc, ch) {
         <th data-col="pending">Pending</th><th data-col="temp">Temp</th>
         <th data-col="hours">Power-on h</th></tr></thead><tbody>` +
       sorted.map(d => {
-        const ok = d.health === 'PASSED';
+        const hUp = String(d.health||'').toUpperCase();
+        const healthCls = _smartDiskFailed(d) ? 'c-red'
+          : (hUp === 'PASSED' || hUp === 'OK') ? 'c-green' : 'c-muted';
         return `<tr><td><code>${escHtml(d.device)}</code></td>
           <td>${escHtml(d.model||'—')}</td>
-          <td class="${ok?'c-green':'c-red'}">${escHtml(d.health||'?')}</td>
+          <td class="${healthCls}">${escHtml(d.health||'?')}</td>
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td></tr>`;
       }).join('') + `</tbody></table>`;
     // Cross-feature: a failing disk → a prefilled AI runbook.
-    const bad = disks.filter(d => d.health && d.health !== 'PASSED');
+    const bad = disks.filter(_smartDiskFailed);
     if (bad.length) {
       const trig = `SMART reports a failing/pre-fail disk on ${_drawerDeviceName}: ${bad.map(d=>`${d.device} (${d.health})`).join(', ')}. How do I safely investigate and replace it?`;
       h += `<div class="mt-6"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName||'')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen',13)} Get a runbook for this disk &rarr;</a></div>`;

@@ -389,6 +389,23 @@ class TestServerWiring(unittest.TestCase):
                       'METRICS_HIST_FILE', 'HELM_FILE'):
             self.assertIn(const + ' ', self.API)
 
+    def test_smart_failed_helper_used_everywhere(self):
+        # one definition, used by ingest + NA + the device-card badge
+        self.assertIn('def _smart_disk_failed', self.API)
+        # per-failed-disk-set edge trigger (re-arms / fires for already-failed)
+        self.assertIn('_smart_failed_devs', self.API)
+        # the old !=PASSED test (which wrongly caught UNKNOWN) must be gone
+        self.assertNotIn("d.get('health') != 'PASSED'", self.API)
+        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn('function _smartDiskFailed', app)
+        self.assertNotIn("d.health !== 'PASSED'", app)
+
+    def test_webhook_rate_limit(self):
+        self.assertIn('def _webhook_rate_limit_ok', self.API)
+        self.assertIn('WEBHOOK_RATE_MAX', self.API)
+        # the gate is invoked in the dispatch path
+        self.assertIn('if not _webhook_rate_limit_ok()', self.API)
+
     def test_compliance_facts_use_real_event_data(self):
         # ports / ssh-key / brute-force must be derived from the fleet event
         # log, not hardcoded to [] (which would be a silent false-pass).
