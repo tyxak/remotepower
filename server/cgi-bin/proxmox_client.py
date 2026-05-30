@@ -455,7 +455,28 @@ def delete_snapshot(pc: dict, guest_type: str, vmid: int, name: str) -> dict:
 _HOSTNAME_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-.]{0,61}[a-zA-Z0-9])?$')
 _BRIDGE_RE   = re.compile(r'^[a-zA-Z0-9_.\-]{1,15}$')
 _VOLID_RE    = re.compile(r'^[a-zA-Z0-9_.\-]+:[a-zA-Z0-9_./\-]+$')
-_IPCIDR_RE   = re.compile(r'^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$')
+
+
+def _valid_ipv4(s: str) -> bool:
+    """True for a dotted-quad IPv4 with every octet in 0–255. The regex alone
+    accepts nonsense like 999.1.1.1, so range-check each octet here."""
+    parts = s.split('.')
+    if len(parts) != 4:
+        return False
+    try:
+        return all(0 <= int(p) <= 255 and p.isdigit() for p in parts)
+    except ValueError:
+        return False
+
+
+def _valid_ipv4_cidr(s: str) -> bool:
+    """True for ``a.b.c.d/N`` with valid octets and a 0–32 prefix length."""
+    if '/' not in s:
+        return False
+    addr, _, prefix = s.partition('/')
+    if not (prefix.isdigit() and 0 <= int(prefix) <= 32):
+        return False
+    return _valid_ipv4(addr)
 
 
 def next_vmid(pc: dict) -> int:
@@ -598,10 +619,10 @@ def create_lxc(pc: dict, params: dict) -> dict:
         raise ProxmoxError('Invalid network bridge name.')
 
     ip = str(params.get('ip', 'dhcp')).strip() or 'dhcp'
-    if ip != 'dhcp' and not _IPCIDR_RE.match(ip):
+    if ip != 'dhcp' and not _valid_ipv4_cidr(ip):
         raise ProxmoxError('IP must be "dhcp" or a CIDR like 192.168.1.50/24.')
     gateway = str(params.get('gateway', '')).strip()
-    if gateway and not re.match(r'^(\d{1,3}\.){3}\d{1,3}$', gateway):
+    if gateway and not _valid_ipv4(gateway):
         raise ProxmoxError('Gateway must be a plain IPv4 address.')
 
     password = str(params.get('password', '') or '')

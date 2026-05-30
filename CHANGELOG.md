@@ -27,6 +27,9 @@ In development.
   before the API call, and audited (the password is passed straight to Proxmox
   and never logged or stored). New `create_lxc`/`list_templates`/
   `list_storages`/`list_bridges`/`next_vmid` in `proxmox_client.py`.
+  Static-IP/gateway validation now range-checks each octet (0–255) and the CIDR
+  prefix (0–32) so a typo like `192.168.1.300/33` fails with a clear local error
+  instead of an opaque Proxmox 500.
 - **Fixed: SMART "UNKNOWN" disks no longer raise false alarms; real failures
   now reliably alert.** A drive smartctl can't assess (USB bridge, virtual
   disk, no SMART support) reports `UNKNOWN` — that was being treated as a

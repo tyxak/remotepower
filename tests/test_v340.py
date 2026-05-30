@@ -502,6 +502,16 @@ class TestProxmoxLxcWizard(unittest.TestCase):
             with self.assertRaises(self.p.ProxmoxError):
                 self.p.create_lxc(self.pc, self._base(**over))
 
+    def test_validation_rejects_bad_octets(self):
+        # The dotted-quad regex alone accepts nonsense like 999.x or a /33
+        # prefix; the octet/prefix range-check must reject them locally so the
+        # operator gets a clear error instead of an opaque Proxmox 500.
+        for over in ({'ip': '999.1.1.1/24'}, {'ip': '192.168.1.50/33'},
+                     {'ip': '192.168.1/24'},
+                     {'ip': '192.168.1.50/24', 'gateway': '192.168.1.300'}):
+            with self.assertRaises(self.p.ProxmoxError):
+                self.p.create_lxc(self.pc, self._base(**over))
+
     def test_list_bridges_includes_ovs(self):
         self.p._request = lambda pc, path, method='GET', data=None: [
             {'iface': 'vmbr0', 'type': 'bridge'},
