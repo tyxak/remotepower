@@ -5323,6 +5323,31 @@ def handle_enroll_register():
     respond(201, {'ok': True, 'device_id': dev_id, 'token': devices[dev_id]['token']})
 
 
+# ── Heartbeat saved_dev contract (anti-regression) ──────────────────────────
+# handle_heartbeat snapshots fields from the persisted device record into a
+# plain `saved_dev` dict INSIDE the DEVICES_FILE lock, so the rest of the
+# handler can read them AFTER the lock without re-acquiring it.
+#
+# The #1 recurring "feature silently never worked" bug was a read
+# (`saved_dev.get('X')`) with no matching cache write — mailbox_paths,
+# force_agent_upgrade, host_config and the listening-port audit all shipped
+# broken in exactly this way. This table is the single source of truth for the
+# straightforward pass-through fields: `saved_dev[k] = dev.get(k, factory())`.
+# Values are zero-arg factories so each heartbeat gets a *fresh* mutable
+# default (no shared list/dict aliasing across requests). A guardrail test
+# (tests/test_heartbeat_contract.py) asserts every saved_dev read in the
+# handler is covered by this table, an explicit assignment, or a documented
+# special case — so a new read without a write fails CI instead of silently
+# doing nothing for months.
+_HEARTBEAT_PASSTHROUGH_FIELDS = {
+    'poll_interval':    lambda: 60,
+    'host_config':      dict,
+    'services_watched': list,
+    'log_watch':        list,
+    'mailbox_paths':    list,
+}
+
+
 def handle_heartbeat():
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
@@ -5592,22 +5617,19 @@ def handle_heartbeat():
                 dev['compose_projects_ts'] = now
 
         devices[dev_id] = dev
-        # Cache a snapshot of the fields we'll need below, so we don't
-        # have to re-acquire the lock just to read them.
-        saved_dev['name']          = dev.get('name', dev_id)
-        saved_dev['last_seen']     = dev['last_seen']
-        saved_dev['poll_interval'] = dev.get('poll_interval', 60)
-        saved_dev['quarantined']   = bool(dev.get('quarantined', False))
-        saved_dev['host_config']   = dev.get('host_config', {})
-        saved_dev['cmd_allowlist'] = dev.get('cmd_allowlist', [])
-        saved_dev['agentless']     = dev.get('agentless', False)
-        saved_dev['services_watched'] = dev.get('services_watched', [])
-        saved_dev['log_watch']     = dev.get('log_watch', [])
-        # v2.4.3: cache the mailbox monitor paths so the heartbeat
-        # response can push them to the agent. Without this line the
-        # agent always received an empty list and never counted —
-        # mailbox_paths was read off saved_dev, which never had it.
-        saved_dev['mailbox_paths'] = dev.get('mailbox_paths', [])
+        # Cache a snapshot of the fields we'll need below, so we don't have to
+        # re-acquire the lock just to read them. The straightforward
+        # pass-through fields are driven by _HEARTBEAT_PASSTHROUGH_FIELDS (the
+        # contract — add new ones THERE so the read below is never orphaned);
+        # name / last_seen / quarantined need per-field handling. The mailbox
+        # paths used to be read off saved_dev without ever being cached here,
+        # so the agent always got an empty list — that whole bug class is now
+        # caught by the contract guardrail test.
+        saved_dev['name']        = dev.get('name', dev_id)
+        saved_dev['last_seen']   = dev['last_seen']
+        saved_dev['quarantined'] = bool(dev.get('quarantined', False))
+        for _k, _factory in _HEARTBEAT_PASSTHROUGH_FIELDS.items():
+            saved_dev[_k] = dev.get(_k, _factory())
         # v2.4.5: one-shot "scan packages now" flag. If an operator
         # clicked the button, tell the agent to send its package list
         # on the next heartbeat — then clear the flag immediately so

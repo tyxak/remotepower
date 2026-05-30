@@ -378,7 +378,8 @@ class TestServerWiring(unittest.TestCase):
     def test_host_config_apply_gated(self):
         # host_config_desired must only be pushed when the per-device
         # apply_enabled opt-in is set — never auto-apply a drift-only baseline.
-        self.assertIn("saved_dev['host_config']", self.API)
+        # (That host_config is actually cached into saved_dev is enforced by
+        # the round-trip guard in tests/test_heartbeat_contract.py.)
         seg = self.API[self.API.index('host_config_desired ='):
                        self.API.index('host_config_desired =') + 400]
         self.assertIn('apply_enabled', seg,
