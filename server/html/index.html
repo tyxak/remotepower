@@ -4956,10 +4956,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="hc-groups-list" class="isl-303"></div>
     </div>
 
+    <div class="hc-enforce-row mt-16">
+      <label class="click-row-6">
+        <input type="checkbox" id="hc-apply-enabled" data-change="_hcToggleApplyWarn">
+        <span class="fs-12"><strong>Enforce on host</strong> — apply this config on the agent (writes <code>/etc/hosts</code>, netplan, services, users…)</span>
+      </label>
+      <div class="hint c-amber" id="hc-apply-warn" style="display:none">Enforcement is ON: the agent will overwrite the host's live config to match the desired config on its next poll. Leave OFF to only monitor drift.</div>
+    </div>
     <div class="modal-actions mt-16">
       <button class="btn-secondary" data-action="closeModal" data-arg="host-config-modal" >Cancel</button>
-      <button class="btn-icon" id="hc-fetch-all-btn" data-action="hcFetchAllCurrent" title="Trigger agent to collect and send all current config sections now">⬇ Collect all current</button>
-      <button class="btn-primary" data-action="saveHostConfig" >Save & push to agent</button>
+      <button class="btn-icon" id="hc-fetch-all-btn" data-action="hcFetchAllCurrent" title="Trigger agent to collect and send all current config sections now">Collect all current</button>
+      <button class="btn-primary" data-action="saveHostConfig" >Save</button>
     </div>
   </div>
 </div>

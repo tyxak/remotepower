@@ -5520,6 +5520,7 @@ def handle_heartbeat():
         saved_dev['last_seen']     = dev['last_seen']
         saved_dev['poll_interval'] = dev.get('poll_interval', 60)
         saved_dev['quarantined']   = bool(dev.get('quarantined', False))
+        saved_dev['host_config']   = dev.get('host_config', {})
         saved_dev['cmd_allowlist'] = dev.get('cmd_allowlist', [])
         saved_dev['agentless']     = dev.get('agentless', False)
         saved_dev['services_watched'] = dev.get('services_watched', [])
@@ -5987,8 +5988,15 @@ def handle_heartbeat():
 
     custom_scripts_for_device = _get_custom_scripts_for_device(dev_id)
 
-    # v2.6.0: push desired host config to agent if one is set
-    host_config_desired = saved_dev.get('host_config', {}).get('desired') or None
+    # v2.6.0: push desired host config to the agent so it can APPLY it.
+    # v3.4.0: gated behind a per-device opt-in. Applying host config mutates
+    # the host (/etc/hosts, netplan, systemd units, users, repos), so a desired
+    # config set only for *drift monitoring* must never auto-apply. The server
+    # pushes `host_config_desired` only when the operator explicitly flipped
+    # `apply_enabled` on. (Before v3.4.0 the cache was never populated, so the
+    # push silently never happened at all — see CHANGELOG.)
+    _hc = saved_dev.get('host_config') or {}
+    host_config_desired = (_hc.get('desired') or None) if _hc.get('apply_enabled') else None
 
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
@@ -22697,6 +22705,7 @@ def handle_device_host_config_get(dev_id):
         'current_collected_at': collected_at,
         'drift':                hc.get('drift', {}),
         'desired_at':           hc.get('desired_at'),
+        'apply_enabled':        bool(hc.get('apply_enabled', False)),
     })
 
 
@@ -22712,18 +22721,27 @@ def handle_device_host_config_put(dev_id):
         if section in body:
             desired[section] = _validate_host_config_section(section, body[section])
 
+    # v3.4.0: optional per-device opt-in to ENFORCE (apply) the desired config
+    # on the host, not just monitor drift. Off unless explicitly enabled — see
+    # the heartbeat push gate. Only updated when the key is present so saving
+    # the config from a UI that doesn't send it leaves the flag untouched.
+    apply_enabled = body.get('apply_enabled')
+
     with _locked_update(DEVICES_FILE) as devices:
         if dev_id not in devices:
             respond(404, {'error': 'Device not found'})
         hc = devices[dev_id].setdefault('host_config', {})
         hc['desired']    = desired
         hc['desired_at'] = int(time.time())
+        if apply_enabled is not None:
+            hc['apply_enabled'] = bool(apply_enabled)
         # Clear drift so it re-evaluates on next agent report
         hc.pop('drift', None)
+        enforce = bool(hc.get('apply_enabled'))
 
     audit_log(actor, 'host_config_update',
-              f'dev_id={dev_id} sections={list(desired.keys())}')
-    respond(200, {'ok': True})
+              f'dev_id={dev_id} sections={list(desired.keys())} apply_enabled={enforce}')
+    respond(200, {'ok': True, 'apply_enabled': enforce})
 
 
 def handle_device_host_config_current(dev_id):

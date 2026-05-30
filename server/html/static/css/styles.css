@@ -2646,6 +2646,10 @@ button, a, [role="button"],
 .compliance-fw-card { margin-bottom: 14px; }
 .compliance-fw-head { display: flex; align-items: center; justify-content: space-between; }
 .compliance-score { font-size: 20px; font-weight: 700; }
+
+/* v3.4.0: host-config enforce opt-in */
+.hc-enforce-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
+.hc-enforce-row .hint { margin-top: 6px; }
 .audit-filter {
   width: 100%; padding: 6px 10px; margin-bottom: 10px;
   background: var(--surface2); border: 1px solid var(--border);

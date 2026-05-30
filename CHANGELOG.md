@@ -11,6 +11,14 @@ In development.
   `new_port_detected` had been silently dead. Restored — new ports are
   compared against the baseline and alert again. (Also unblocks the new
   resource-forecasting and "what changed" history, which used the same cache.)
+- **Host-config enforcement is now an explicit, gated opt-in.** Pushing a
+  *desired* host config for the agent to **apply** (it writes `/etc/hosts`,
+  netplan, systemd units, users, repos) had silently never happened (the same
+  uncached-cache bug). Rather than turn it on for everyone — which would
+  suddenly mutate any host with a desired config set — applying now requires a
+  per-device **Enforce on host** toggle in the Host Config editor. Off by
+  default: a desired config is a drift-monitoring baseline unless you opt in.
+  Drift detection was unaffected and always worked.
 - **Disk SMART health.** The agent runs `smartctl` on each physical disk
   (best-effort, skipped if not installed) and reports overall health plus
   the attributes that matter — reallocated/pending/offline-uncorrectable

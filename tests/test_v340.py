@@ -362,6 +362,15 @@ class TestServerWiring(unittest.TestCase):
         # silently no-op.
         self.assertIn("saved_dev['sysinfo'] = safe_si", self.API)
 
+    def test_host_config_apply_gated(self):
+        # host_config_desired must only be pushed when the per-device
+        # apply_enabled opt-in is set — never auto-apply a drift-only baseline.
+        self.assertIn("saved_dev['host_config']", self.API)
+        seg = self.API[self.API.index('host_config_desired ='):
+                       self.API.index('host_config_desired =') + 400]
+        self.assertIn('apply_enabled', seg,
+            'host_config push must be gated on apply_enabled')
+
     def test_diagnostic_endpoints_admin_only(self):
         # speedtest + netscan execute on the host → admin, not any viewer.
         seg = self.API[self.API.index('def handle_device_speedtest'):

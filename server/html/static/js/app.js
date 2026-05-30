@@ -12185,6 +12185,10 @@ async function openHostConfigModal(devId, devName) {
   if (!data) return;
   _hcData = data;
 
+  // v3.4.0: reflect the per-device enforce opt-in + its warning banner.
+  const applyCb = document.getElementById('hc-apply-enabled');
+  if (applyCb) { applyCb.checked = !!data.apply_enabled; _hcToggleApplyWarn(); }
+
   const desired = data.desired || {};
   const current = data.current || {};
 
@@ -12444,10 +12448,25 @@ async function saveHostConfig() {
   const groups = _hcCollectGroups();
   if (groups.length) desired.groups = groups;
 
+  // v3.4.0: carry the enforce opt-in. The server only pushes the config for
+  // the agent to APPLY when this is on; otherwise it's a drift-monitoring
+  // baseline only.
+  const enforce = !!document.getElementById('hc-apply-enabled')?.checked;
+  desired.apply_enabled = enforce;
+
   const r = await api('PUT', `/devices/${_hcDevId}/host-config`, desired);
   if (!r) return;
   closeModal('host-config-modal');
-  toast('Host config saved — agent will apply on next heartbeat (~60s)', 'success');
+  toast(enforce
+    ? 'Host config saved — enforcement ON, agent will apply it on next poll (~60s).'
+    : 'Host config saved as a drift baseline (monitor only — not applied).', 'success');
+}
+
+// Show/hide the enforcement warning as the operator toggles it.
+function _hcToggleApplyWarn() {
+  const on = !!document.getElementById('hc-apply-enabled')?.checked;
+  const warn = document.getElementById('hc-apply-warn');
+  if (warn) warn.style.display = on ? 'block' : 'none';
 }
 
 // Trigger agent to collect and send all current config sections via exec command
