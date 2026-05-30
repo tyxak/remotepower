@@ -10,6 +10,10 @@ Tests for v2.3.2 — security hardening.
     in the login response and cleared when the password is changed.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import hashlib
 import importlib.util
 import os
@@ -107,7 +111,7 @@ class TestSecurityAssets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
         cls.docker_nginx = (_ROOT / 'docker/nginx-docker.conf').read_text()
         cls.bare_nginx = (_ROOT / 'server/conf/remotepower.conf').read_text()
 
@@ -213,7 +217,7 @@ class TestSecurityAssets(unittest.TestCase):
         ext = re.findall(r'(?:@import\s+url\(|url\(|src=)\s*[\'"]?(https?://[^\'")\s]+)', css)
         self.assertEqual(ext, [], f'styles.css loads external resources: {ext}')
 
-        js = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         # script.src = 'https://...' or link.href = 'https://...' assignments
         ext = re.findall(r'\.(?:src|href)\s*=\s*[\'"`](https?://[^\'"`]+)', js)
         self.assertEqual(ext, [],
@@ -221,7 +225,7 @@ class TestSecurityAssets(unittest.TestCase):
 
     def test_no_inline_event_handlers_in_appjs(self):
         appjs_path = _ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
-        appjs = appjs_path.read_text()
+        appjs = client_js()
         import re
         # Only flag occurrences not on comment lines
         code_lines = [l for l in appjs.splitlines() if not l.strip().startswith('//')]
@@ -477,7 +481,7 @@ class TestCSPMigrationFidelity(unittest.TestCase):
         import re
         html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
         css  = (_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
-        js   = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js   = client_js()
 
         hidden_classes = set(re.findall(
             r'\.([a-z][a-z0-9_-]*)\s*\{[^}]*display\s*:\s*none[^}]*\}', css))

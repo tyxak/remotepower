@@ -12,6 +12,10 @@ Tests for v2.5.0 — Custom Monitoring Scripts.
   6. Version consistency.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import sys
 import unittest
@@ -312,7 +316,7 @@ class TestFrontend(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (_ROOT / 'server/html/index.html').read_text()
-        cls.js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js   = client_js()
 
     def test_sidebar_nav_entry(self):
         # Custom Scripts is embedded in the Monitor page — no separate nav entry.

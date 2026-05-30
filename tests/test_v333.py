@@ -11,6 +11,10 @@ modal with a new `investigate_alert` system prompt — the model reads
 the alert's severity / event / device / message and returns what it
 means, the likely cause, and concrete next steps.
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -92,7 +96,7 @@ class TestInvestigateAlertButton(unittest.TestCase):
     the aiInvestigateAlert handler, alongside Ack / Resolve."""
 
     def setUp(self):
-        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.appjs = client_js()
 
     def test_handler_exists(self):
         self.assertIn('function aiInvestigateAlert(', self.appjs,

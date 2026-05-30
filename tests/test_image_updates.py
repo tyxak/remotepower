@@ -6,6 +6,10 @@ touch a real registry. (The live token-auth flow against Docker Hub / GHCR /
 lscr.io / Quay was validated by hand during development; baking real network
 calls into CI would be flaky and rate-limited.)
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import os
 import sys
@@ -286,7 +290,7 @@ class TestImageUpdatesUI(unittest.TestCase):
     def setUpClass(cls):
         root = Path(__file__).parent.parent / "server" / "html"
         cls.html = (root / "index.html").read_text()
-        cls.appjs = (root / "static" / "js" / "app.js").read_text()
+        cls.appjs = client_js()
 
     def test_panel_and_sortable_headers_present(self):
         self.assertIn('id="image-updates-tbody"', self.html)

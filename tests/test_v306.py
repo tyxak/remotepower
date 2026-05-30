@@ -6,6 +6,10 @@ for /api/health, /api/csp-report, SRI, and CI workflow is retained below
 as permanent regression guards. Version pins now accept any 3.x.x.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import os
 import re
 import sys
@@ -201,7 +205,7 @@ class TestSubresourceIntegrity(unittest.TestCase):
             hashlib.sha384(p.read_bytes()).digest()).decode()
 
     def test_every_vendor_load_carries_integrity_matching_file(self):
-        app_js = (REPO_ROOT / 'server/html/static/js/app.js').read_text()
+        app_js = client_js()
         swagger = (REPO_ROOT / 'server/html/swagger.html').read_text()
         sources = {'static/js/app.js': app_js, 'swagger.html': swagger}
         for vendor_path, source_key in self.VENDOR_LOADS:
@@ -276,7 +280,7 @@ class TestCmdbVlanField(unittest.TestCase):
             'CMDB Host → Properties form must include the VLAN input')
 
     def test_js_reads_and_writes_vlan(self):
-        js = self.APP_JS.read_text()
+        js = client_js()
         # cmdbOpenAsset reads res.data.vlan into the field
         self.assertIn("getElementById('cmdb-asset-vlan').value", js)
         # Save payload includes the field
@@ -318,7 +322,7 @@ class TestWebtermFont(unittest.TestCase):
     platforms."""
 
     def test_webterm_font_uses_jetbrains_mono(self):
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         self.assertIn(
             '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
             js,
@@ -363,12 +367,12 @@ class TestSecuritySettingsPane(unittest.TestCase):
         self.assertIn("if 'csp_report_logging' in body:", api_py)
         self.assertIn("if 'csp_report_throttle_per_minute' in body:", api_py)
         # JS save payload includes them
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertIn('csp_report_logging:', js)
         self.assertIn('csp_report_throttle_per_minute:', js)
 
     def test_js_loads_diag_and_probes_hsts(self):
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertIn("async function loadSecurityDiag()", js)
         self.assertIn("api('GET', '/security/diag')", js)
         # HSTS probe issues a HEAD to "/" and reads the response header.
@@ -445,7 +449,7 @@ class TestAdminPasswordWrappers(unittest.TestCase):
                 f'password input #{elid} must sit inside <form data-csp-pw-form>')
 
     def test_submit_handler_preventdefault(self):
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         # A document-level submit listener that matches the marker form
         # and preventDefaults must exist.
         self.assertRegex(js,

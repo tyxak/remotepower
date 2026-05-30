@@ -10,6 +10,10 @@ Tests for v2.4.0 — Proxmox snapshots + CVE Debian-urgency fix.
   - api.py snapshot endpoints validate input.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import os
 import sys
@@ -191,7 +195,7 @@ class TestSnapshotAssets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
 
     def test_snapshot_js_present(self):
         for fn in ('openSnapshots', 'loadSnapshots', 'snapshotCreate',

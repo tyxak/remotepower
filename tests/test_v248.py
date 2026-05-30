@@ -11,6 +11,10 @@ These tests verify the de-dup logic is present and shaped correctly
 by checking the rendered JS (the feed is client-side).
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -22,7 +26,7 @@ class TestActivityDedup(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
         start = cls.js.find('function _renderHomeActivity')
         assert start > 0, '_renderHomeActivity not found'
         cls.chunk = cls.js[start:start + 3200]

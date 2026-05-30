@@ -32,6 +32,10 @@ Plus the v3.1.0 Stage 1 scaffolding (role constants + audit shape
 silent infra — not exercised yet. Stage 1 tests are in
 test_v310.py and pin to no specific version.
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import io
 import json
 import os
@@ -470,8 +474,7 @@ class TestMitigationPlaybooksCoverage(unittest.TestCase):
         endpoint the client fetches on startup), this static check is
         the cheapest way to catch the drift at build time."""
         import re
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
-              ).read_text()
+        js = client_js()
         m = re.search(
             r'const MITIGATE_KINDS\s*=\s*new Set\(\[(.*?)\]\)',
             js, re.DOTALL)
@@ -498,8 +501,7 @@ class TestMitigationPlaybooksCoverage(unittest.TestCase):
         separate lists that must agree. Without a label the modal title
         renders as the raw kind string ("Investigate: swap")."""
         import re
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js'
-              ).read_text()
+        js = client_js()
         m_set = re.search(
             r'const MITIGATE_KINDS\s*=\s*new Set\(\[(.*?)\]\)',
             js, re.DOTALL)
@@ -898,7 +900,7 @@ class TestMobileNavCloseHandler(unittest.TestCase):
         back in — the comment can mention it, but no live check.
         Heuristic: find every line that ISN'T a comment, then assert
         the brittle pattern is absent from those."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         live_code = '\n'.join(
             line for line in js.splitlines()
             if not line.lstrip().startswith(('//', '*', '/*'))
@@ -914,7 +916,7 @@ class TestMobileNavCloseHandler(unittest.TestCase):
         close the drawer. The guard `e.target.closest('.sidebar')` is
         the only way to allow taps on sidebar headers, scroll bars,
         and other interactive bits without dismissing the menu."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertIn(
             "e.target.closest('.sidebar')", js,
             "close handler must protect taps INSIDE the sidebar from "
@@ -924,7 +926,7 @@ class TestMobileNavCloseHandler(unittest.TestCase):
         """Without a burger guard, the open-via-burger flow toggles
         the class on, then the same click bubbles to document and the
         handler closes it — drawer never appears."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertIn(
             "e.target.closest('.mobile-burger')", js,
             "close handler must skip when the click was on the burger "
@@ -936,7 +938,7 @@ class TestMobileNavCloseHandler(unittest.TestCase):
         """The actual close path: drawer is open, user taps outside.
         Must call body.classList.remove('mobile-nav-open') for the
         catch-all case."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         # Find the close handler block (between the addEventListener
         # and its closing brace) and confirm it removes the class
         # outside any of the early-return guards.
@@ -969,7 +971,7 @@ class TestAiPrioritiseAutoQueuesListing(unittest.TestCase):
         """The misleading 'use Force re-scan packages' toast in
         aiPrioritisePatchesForDevice must be gone — it didn't do what
         it claimed."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         # Find the function body
         import re
         m = re.search(
@@ -988,7 +990,7 @@ class TestAiPrioritiseAutoQueuesListing(unittest.TestCase):
     def test_handler_has_pacman_listing_command(self):
         """pacman is one of Jakob's target distros (CachyOS); the
         listing command for pacman is `pacman -Qu`."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         # The mapping must exist somewhere in the handler region. Be
         # tolerant of formatting — just look for the key/value pair.
         self.assertRegex(
@@ -996,13 +998,13 @@ class TestAiPrioritiseAutoQueuesListing(unittest.TestCase):
             "Listing command for pacman must be 'pacman -Qu'")
 
     def test_handler_has_apt_listing_command(self):
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertRegex(
             js, r"apt:\s*'apt list --upgradable'",
             "Listing command for apt must be 'apt list --upgradable'")
 
     def test_handler_has_dnf_listing_command(self):
-        js = self.APP_JS.read_text()
+        js = client_js()
         self.assertRegex(
             js, r"dnf:\s*'dnf check-update'",
             "Listing command for dnf must be 'dnf check-update'")
@@ -1010,7 +1012,7 @@ class TestAiPrioritiseAutoQueuesListing(unittest.TestCase):
     def test_handler_posts_to_exec_endpoint(self):
         """The auto-queue path posts to /exec — same endpoint sendExecCmd
         uses for the Run Command modal. No new endpoint introduced."""
-        js = self.APP_JS.read_text()
+        js = client_js()
         import re
         m = re.search(
             r'async function aiPrioritisePatchesForDevice\([^{]+\{(.+?)\n\}',
@@ -1052,7 +1054,7 @@ class TestMobileSidebarCloseButton(unittest.TestCase):
         self.assertIn('aria-label=', m.group(0),
             'Close button must have an aria-label for screen readers')
         # The toggleMobileNav wiring lives in app.js now
-        app_js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        app_js = client_js()
         self.assertIn(
             ".sidebar-mobile-close')?.addEventListener('click', toggleMobileNav",
             app_js,

@@ -12,6 +12,10 @@ Tests for v2.4.12 — three dashboard fixes plus asset cache-busting.
      nginx `expires 1h` rule). Assets now carry `?v=<version>`.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -30,7 +34,7 @@ class TestAttentionRouting(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
 
     def test_cve_maps_to_real_page_id(self):
         # The page element is id="page-cve" — the digest must route to
@@ -55,7 +59,7 @@ class TestAttentionRouting(unittest.TestCase):
 class TestOnlineTileCount(unittest.TestCase):
 
     def test_tile_excludes_unmonitored(self):
-        js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        js = client_js()
         idx = js.find('function _renderHomeTiles')
         block = js[idx:idx + 700]
         # The count must be taken from a monitored-filtered list.
@@ -67,7 +71,7 @@ class TestVirtualizationSearch(unittest.TestCase):
 
     def test_search_box_and_filter(self):
         html = (_ROOT / 'server/html/index.html').read_text()
-        js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        js   = client_js()
         self.assertIn('id="virt-search"', html)
         self.assertIn('function filterVirtualization', js)
         self.assertIn('_renderVirtualizationList', js)

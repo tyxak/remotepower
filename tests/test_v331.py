@@ -16,6 +16,10 @@ v3.3.1 is a correctness + polish release on top of v3.3.0:
   - PWA standalone clipping fix (device-table Status column + nav badge).
   - "Did you know?" tips on the About page.
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -119,7 +123,7 @@ class TestMaintenanceTargetName(unittest.TestCase):
 
 class TestUiPolish(unittest.TestCase):
     def setUp(self):
-        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.appjs = client_js()
         self.css   = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
         self.html  = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 

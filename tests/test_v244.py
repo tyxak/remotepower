@@ -9,6 +9,10 @@ The fix copies `mailbox_paths` into `saved_dev`; this test asserts a
 heartbeat response actually contains the configured paths.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import json
 import os
@@ -111,7 +115,7 @@ class TestMailboxRelocation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js   = client_js()
         cls.html = (_ROOT / 'server/html/index.html').read_text()
 
     def test_settings_has_mailbox_tab(self):

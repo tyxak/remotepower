@@ -9,6 +9,10 @@ Tests for v2.6.0 — Host Configuration Management.
   5. Version consistency.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -327,7 +331,7 @@ class TestFrontend(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (_ROOT / 'server/html/index.html').read_text()
-        cls.js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js   = client_js()
         cls.css  = (_ROOT / 'server/html/static/css/styles.css').read_text()
 
     def test_modal_exists(self):

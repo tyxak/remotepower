@@ -11,6 +11,10 @@ rerank when the provider supports it. The behavioural regression tests for
 retrieval live in tests/test_rag.py; this file pins the version bump + that
 the feature is wired and shipped end to end.
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import sys
 import unittest
@@ -117,7 +121,7 @@ class TestRagShipped(unittest.TestCase):
         self.assertIn("'include_rag'", text)
 
     def test_ui_controls_present(self):
-        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        app = client_js()
         for fn in ('function aiRagReindex', 'function aiRagTestSearch',
                    'function loadRAGStatus', 'function _ragRenderSearch'):
             self.assertIn(fn, app, f'{fn} missing from app.js')
@@ -424,7 +428,7 @@ class TestServerWiring(unittest.TestCase):
         # `disk.failed` instead of mirroring the rule in JS (the two copies
         # drifted once). The server stamps it; the client must not recompute.
         self.assertIn("entry['failed'] = _smart_disk_failed(entry)", self.API)
-        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        app = client_js()
         self.assertNotIn('function _smartDiskFailed', app)
         self.assertNotIn("d.health !== 'PASSED'", app)
 
@@ -451,7 +455,7 @@ class TestServerWiring(unittest.TestCase):
 
 
 class TestHardwareUI(unittest.TestCase):
-    APP = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+    APP = client_js()
 
     def test_drawer_section_registered(self):
         self.assertIn("key: 'hardware'", self.APP)
@@ -556,7 +560,7 @@ class TestProxmoxLxcWizard(unittest.TestCase):
         # create routes MUST precede the generic /lxc/ POST action route
         self.assertLess(api.index("'/api/proxmox/lxc/create'"),
                         api.index("pi.startswith('/api/proxmox/lxc/') and m == 'POST'"))
-        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        app = client_js()
         self.assertIn('function openLxcCreateWizard', app)
         self.assertIn('function submitLxcCreate', app)
 
@@ -600,7 +604,7 @@ class TestProxmoxLxcDelete(unittest.TestCase):
         self.assertIn('def handle_proxmox_lxc_delete', api)
         self.assertIn("pi.startswith('/api/proxmox/lxc/') and m == 'DELETE'", api)
         self.assertIn("'proxmox_lxc_delete'", api)
-        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        app = client_js()
         self.assertIn('function lxcDeleteOpen', app)
         self.assertIn('function confirmLxcDelete', app)
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
@@ -609,7 +613,7 @@ class TestProxmoxLxcDelete(unittest.TestCase):
 
 
 class TestFleetUI(unittest.TestCase):
-    APP  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+    APP  = client_js()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
     def test_fleet_functions_present(self):
@@ -648,7 +652,7 @@ class TestFleetUI(unittest.TestCase):
 
 
 class TestCrossFeatureLinks(unittest.TestCase):
-    APP = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+    APP = client_js()
 
     def test_link_functions_present(self):
         for fn in ('function anomalyOpenDevice', 'function anomalyRunbook',

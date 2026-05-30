@@ -11,6 +11,10 @@ Containers page and (debounced) in the alert inbox. The behavioural
 regression tests for that feature live in tests/test_image_updates.py;
 this file only pins the version bump + that the feature is wired/shipped.
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -96,7 +100,7 @@ class TestComposeStacksShipped(unittest.TestCase):
         self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         self.agent = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
         self.html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.appjs = client_js()
 
     def test_server_endpoints_and_gating(self):
         self.assertIn("def handle_compose_stack_action", self.api)
@@ -135,7 +139,7 @@ class TestAgentlessReachabilityShipped(unittest.TestCase):
 
     def setUp(self):
         self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.appjs = client_js()
 
     def test_sweep_and_helper_present(self):
         self.assertIn('def run_agentless_reachability_if_due', self.api)
@@ -153,7 +157,7 @@ class TestRouterosShipped(unittest.TestCase):
 
     def setUp(self):
         self.api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        self.appjs = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.appjs = client_js()
 
     def test_client_module_present(self):
         path = REPO_ROOT / 'server' / 'cgi-bin' / 'routeros.py'

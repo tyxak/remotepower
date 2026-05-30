@@ -9,6 +9,10 @@ Tests for v2.3.1 — Proxmox token secret hardening.
     2.3.1 a backup ZIP carried live credentials.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import io
 import json
@@ -138,7 +142,7 @@ class TestSettingsAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (_ROOT / 'server/html/index.html').read_text()
-        cls.js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js   = client_js()
 
     def test_env_hint_in_settings(self):
         self.assertIn('RP_PROXMOX_TOKEN_SECRET', self.html)

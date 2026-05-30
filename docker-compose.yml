@@ -1,8 +1,8 @@
 services:
   remotepower:
     build: .
-    # Or use a published image:
-    # image: tyxak/remotepower:1.8.6
+    # Or use a published image instead of building locally:
+    # image: tyxak/remotepower:latest
     container_name: remotepower
     ports:
       - "8080:8080"

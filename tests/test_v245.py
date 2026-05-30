@@ -8,6 +8,10 @@ Tests for v2.4.5 — force package scan on next heartbeat.
   - Agent + frontend assets present.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.machinery
 import importlib.util
 import os
@@ -124,7 +128,7 @@ class TestAssets(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
         loader = importlib.machinery.SourceFileLoader(
             'agent_v245', str(_ROOT / 'client' / 'remotepower-agent'))
         cls.agent_src = Path(_ROOT / 'client' / 'remotepower-agent').read_text()

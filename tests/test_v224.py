@@ -14,6 +14,10 @@ Covers two bugs from live testing of 2.2.3:
    them out (the same gate the alerting pipeline already applies).
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import io
 import json
@@ -262,7 +266,7 @@ class TestFrontendChanges(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
 
     def test_loadhome_uses_fleet_events(self):
         # v2.2.4 introduced /fleet/events for the activity panel.

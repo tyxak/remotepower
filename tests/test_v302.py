@@ -9,6 +9,10 @@ Covers:
   - Login lockout exponential ladder
   - Force ACME rescan endpoint
 """
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import json, os, sys, tempfile, time, unittest, importlib, shutil
 from pathlib import Path
 
@@ -428,7 +432,7 @@ class TestWebhookTestRoute(_ApiTestBase):
             "found a /api/webhook-test reference — should be /api/webhook/test")
 
     def test_frontend_calls_canonical_path(self):
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         # No stray '/webhook-test' (with dash). Allow '/webhook/test' (correct).
         # Check by counting dashes between webhook and test in api(...) calls.
         import re as _re
@@ -445,7 +449,7 @@ class TestCssVarsExist(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
-        cls.js  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js'  / 'app.js').read_text()
+        cls.js  = client_js()
 
     def test_no_var_bg_card_in_js(self):
         # The variable was never defined; my v3.0.2 modals used it. Replaced
@@ -556,7 +560,7 @@ class TestAcmeNoCertsRowsFiltering(unittest.TestCase):
     above the table."""
 
     def test_renderer_skips_unavailable(self):
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         # The unavailable case should not push a row anymore
         self.assertNotIn(
             "rows.push({ _kind: 'unavailable'",
@@ -580,7 +584,7 @@ class TestUrlBarSync(unittest.TestCase):
     showPage updates the hash via history.replaceState."""
 
     def test_show_page_writes_url_hash(self):
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         # showPage should call replaceState
         import re
         m = re.search(r'function showPage\([^)]*\)\s*\{([^}]+(?:\{[^}]+\}[^}]+)*?)', js)
@@ -594,7 +598,7 @@ class TestUrlBarSync(unittest.TestCase):
     def test_settings_tab_uses_replace_state(self):
         """switchSettingsTab should use replaceState, not pushState/assign,
         so clicking through tabs doesn't bloat browser history."""
-        js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        js = client_js()
         idx = js.find('function switchSettingsTab(')
         if idx == -1:
             # Some builds inline this; grep for the body

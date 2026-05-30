@@ -14,6 +14,10 @@ Covers:
      row hover).
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import sys
 import unittest
@@ -32,7 +36,7 @@ class _AssetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.css    = (_ROOT / 'server/html/static/css/styles.css').read_text()
-        cls.js     = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js     = client_js()
         cls.html   = (_ROOT / 'server/html/index.html').read_text()
         cls.deploy = (_ROOT / 'deploy-server.sh').read_text()
 

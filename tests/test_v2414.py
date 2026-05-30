@@ -16,6 +16,10 @@ Tests for v2.4.14 — Pending Reboot indicator on the Patches page.
      binary, README, and CHANGELOG.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import re
 import unittest
 from pathlib import Path
@@ -86,7 +90,7 @@ class TestPatchTableRebootBadge(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
 
     def _register_patch_block(self):
         idx = self.js.find('function _registerPatchTable(')

@@ -15,6 +15,10 @@ the JS allowlist needs the same addition; otherwise that event will
 silently disappear from the dashboard.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import sys
 import unittest
@@ -33,7 +37,7 @@ class TestActivityFilter(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js = client_js()
 
     def _extract_fleet_events_set(self):
         """Pull the FLEET_EVENTS Set literal out of app.js so we can

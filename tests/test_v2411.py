@@ -10,6 +10,10 @@ Tests for v2.4.11 — two CVE-ignore fixes.
      _compute_attention() now applies the ignore list.
 """
 
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
 import importlib.util
 import os
 import sys
@@ -94,7 +98,7 @@ class TestCveIgnoreModal(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.js   = (_ROOT / 'server/html/static/js/app.js').read_text()
+        cls.js   = client_js()
         cls.html = (_ROOT / 'server/html/index.html').read_text()
 
     def test_ignorecve_has_no_native_dialogs(self):
