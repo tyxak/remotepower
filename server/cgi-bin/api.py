@@ -11806,6 +11806,14 @@ def _compliance_facts():
     facts['new_ports'] = []
     facts['ssh_key_changes'] = []
     facts['brute_force'] = []
+    # How many devices have a listening-port baseline — i.e. is change
+    # detection actually running. (The CC7.1 control passes on capability, not
+    # on the raw count of changes.)
+    try:
+        facts['ports_monitored'] = len(load(PORT_BASELINE_FILE) or {}) \
+            if PORT_BASELINE_FILE.exists() else 0
+    except Exception:
+        facts['ports_monitored'] = 0
     try:
         cutoff = now - 30 * 86400
         events = (load(FLEET_EVENTS_FILE) or {}).get('events', [])

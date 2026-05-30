@@ -295,6 +295,19 @@ class TestCompliance(unittest.TestCase):
         rep = self.c.build_report(self._good_facts(), ['pci'])
         self.assertEqual(set(rep['frameworks'].keys()), {'pci'})
 
+    def test_new_ports_do_not_fail_compliance(self):
+        # A pile of "new since baseline" ports must NOT read as a compliance
+        # failure — new != unauthorized, and the baseline flood after the
+        # port-audit revival shouldn't show as 50 red fails.
+        facts = self._good_facts()
+        facts['new_ports'] = [f'host:{p}' for p in range(50)]
+        facts['ports_monitored'] = 3
+        rep = self.c.build_report(facts)
+        rows = {ctl['id']: ctl['status']
+                for fw in rep['frameworks'].values() for ctl in fw['controls']}
+        self.assertEqual(rows['1.2.1'], 'na')     # can't assess firewall rules
+        self.assertEqual(rows['CC7.1'], 'pass')   # detection is active
+
     def test_na_when_unmeasurable(self):
         facts = self._good_facts()
         facts['tls_monitored'] = 0

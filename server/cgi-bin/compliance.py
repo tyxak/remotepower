@@ -70,12 +70,29 @@ def _audit_control(facts):
     return FAIL, "Audit logging is disabled."
 
 
-def _firewall_control(facts):
-    new_ports = facts.get('new_ports') or []
-    if new_ports:
-        return FAIL, f"{len(new_ports)} unexpected listening port(s) appeared in the last 30 days: " + \
-               ", ".join(str(p) for p in new_ports[:10])
-    return PASS, "No unexpected listening ports in the last 30 days."
+def _exposure_detection_control(facts):
+    """SOC 2 CC7.1 — "detect configuration changes / new exposure".
+
+    RemotePower genuinely satisfies this: it baselines each host's listening
+    ports and records changes. A change is NOT a control failure (a new port is
+    usually a legitimate service) — "new since baseline" ≠ "unauthorized". So
+    this PASSES because the detection capability is in place, and surfaces the
+    recent count as context for review rather than a red FAIL.
+    """
+    n = len(facts.get('new_ports') or [])
+    if not facts.get('ports_monitored'):
+        return NA, "No listening-port data collected yet."
+    note = (f" {n} port change(s) recorded in the last 30 days — review them in "
+            f"Audit → Listening Ports.") if n else " No changes in the last 30 days."
+    return PASS, "Listening-port change detection is active." + note
+
+
+def _traffic_restrict_control(facts):
+    """PCI 1.2.1 — "restrict inbound/outbound traffic". RemotePower observes
+    listening ports but does not assess or manage firewall rule sets, so it
+    cannot honestly attest this control."""
+    return NA, ("RemotePower detects listening-port changes but does not assess "
+                "firewall rule configuration — verify restrictions at the firewall.")
 
 
 def _access_review_control(facts):
@@ -119,8 +136,8 @@ _CONTROLS = [
      'Remediate outstanding critical/high CVEs.'),
     ('pci', '4.2.1',  'Strong cryptography for transmission (TLS)', _tls_control,
      'Renew expiring certificates.'),
-    ('pci', '1.2.1',  'Restrict inbound/outbound traffic',          _firewall_control,
-     'Investigate and close unexpected listening ports.'),
+    ('pci', '1.2.1',  'Restrict inbound/outbound traffic',          _traffic_restrict_control,
+     'Verify firewall restrictions directly — RemotePower cannot assess them.'),
     ('pci', '8.4.2',  'Multi-factor authentication for access',     _mfa_control,
      'Enable TOTP or OIDC for all console operators.'),
     ('pci', '10.2.1', 'Audit logs for all administrative actions',  _audit_control,
@@ -145,8 +162,8 @@ _CONTROLS = [
      'Review and acknowledge SSH key changes.'),
 
     # SOC 2 Common Criteria
-    ('soc2', 'CC7.1', 'Detect configuration changes / new exposure', _firewall_control,
-     'Review unexpected listening ports.'),
+    ('soc2', 'CC7.1', 'Detect configuration changes / new exposure', _exposure_detection_control,
+     'Review recent listening-port changes in Audit → Listening Ports.'),
     ('soc2', 'CC7.2', 'Monitor for anomalies and intrusions',        _intrusion_control,
      'Investigate brute-force activity.'),
     ('soc2', 'CC6.1', 'Logical access — encryption of secrets',      _vault_control,
@@ -176,7 +193,7 @@ _TOPICS = {
     _backup_control:        'backup',
     _mfa_control:           'mfa',
     _audit_control:         'audit',
-    _firewall_control:      'ports',
+    _exposure_detection_control: 'ports',
     _access_review_control: 'sshkeys',
     _intrusion_control:     'intrusion',
     _vault_control:         'vault',
