@@ -21,7 +21,7 @@ def _load_order():
     """File names in the order index.html loads them, then any leftovers."""
     html = _INDEX.read_text()
     ordered = []
-    for m in re.finditer(r'<script\s+src="static/js/([A-Za-z0-9_.\-]+)"', html):
+    for m in re.finditer(r'<script\s+src="static/js/([A-Za-z0-9_.\-]+)(?:\?[^"]*)?"', html):
         name = m.group(1)
         if name not in ordered:
             ordered.append(name)

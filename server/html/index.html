@@ -5052,6 +5052,12 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
 <script src="static/js/app.js?v=3.4.0"></script>
+<!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
+     global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
+<script src="static/js/app-calendar.js?v=3.4.0"></script>
+<script src="static/js/app-cmdb.js?v=3.4.0"></script>
+<script src="static/js/app-containers.js?v=3.4.0"></script>
+<script src="static/js/app-network.js?v=3.4.0"></script>
 
 <script src="static/js/sw-register.js?v=3.4.0"></script>
 </body>
