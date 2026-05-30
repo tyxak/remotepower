@@ -83,6 +83,33 @@ cp client/remotepower-agent.py client/remotepower-agent
 A regression test (`test_agent_extensionless_matches_py`) enforces
 this on every release.
 
+## Adding a webhook/alert event — touch EVERY registry
+
+A new event type (`fire_webhook('my_event', …)`) has to be registered in
+several places or it half-works in ways the test suite and the UI won't
+forgive. When adding one:
+
+**Server (`server/cgi-bin/api.py`):**
+1. `WEBHOOK_EVENTS` tuple — the canonical list (a guardrail test pins the
+   exact set; `tests/test_v184.py` must be updated too).
+2. `_ALERT_RULES` — severity mapping. **Miss this and the event fires a
+   webhook but never lands in the Alerts inbox** (`_alert_severity` returns
+   None → skipped). Silent.
+3. `CHANNEL_KINDS` — map it to a channel "kind" so the routing matrix gets a
+   row and `EVENT_KIND_MAP` resolves it.
+4. `_webhook_title` — friendly title (has a fallback, but add it).
+
+**Frontend (`server/html/static/js/app.js`):**
+5. `FLEET_EVENTS` Set — or the event silently disappears from the dashboard
+   activity feed (a guardrail test, `tests/test_v223.py`, enforces this set
+   equals the server's).
+6. `_homeActivityAttrs` switch — click-through routing for the feed item
+   (guardrail test `tests/test_v225.py` requires a case for every event).
+
+The three guardrail tests catch 1/5/6 on the next run; 2/3/4 are silent —
+verify them by hand. Reference commit: the v3.4.0 `smart_failure` /
+`kernel_outdated` events.
+
 ## Version-bump checklist
 
 When bumping to vX.Y.Z:

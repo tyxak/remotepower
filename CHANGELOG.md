@@ -6,6 +6,11 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Fixed: "new listening port" alerts had stopped firing.** The port-audit
+  step read a per-request sysinfo cache that was never populated, so
+  `new_port_detected` had been silently dead. Restored — new ports are
+  compared against the baseline and alert again. (Also unblocks the new
+  resource-forecasting and "what changed" history, which used the same cache.)
 - **Disk SMART health.** The agent runs `smartctl` on each physical disk
   (best-effort, skipped if not installed) and reports overall health plus
   the attributes that matter — reallocated/pending/offline-uncorrectable
