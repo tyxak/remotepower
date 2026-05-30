@@ -502,6 +502,15 @@ class TestProxmoxLxcWizard(unittest.TestCase):
             with self.assertRaises(self.p.ProxmoxError):
                 self.p.create_lxc(self.pc, self._base(**over))
 
+    def test_list_bridges_includes_ovs(self):
+        self.p._request = lambda pc, path, method='GET', data=None: [
+            {'iface': 'vmbr0', 'type': 'bridge'},
+            {'iface': 'vmbr2', 'type': 'bridge'},
+            {'iface': 'vmbr1', 'type': 'OVSBridge'},
+            {'iface': 'eno1', 'type': 'eth'},
+        ]
+        self.assertEqual(self.p.list_bridges(self.pc), ['vmbr0', 'vmbr1', 'vmbr2'])
+
     def test_valid_build_payload(self):
         cap = {}
         self.p._request = lambda pc, path, method='GET', data=None: (

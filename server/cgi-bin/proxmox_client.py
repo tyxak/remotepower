@@ -525,14 +525,21 @@ def list_templates(pc: dict) -> list[dict]:
 
 
 def list_bridges(pc: dict) -> list[str]:
-    """Network bridges on the node (for the net0 dropdown). Best-effort."""
+    """Network bridges on the node, for the net0 dropdown — both Linux Bridges
+    (type "bridge") AND Open vSwitch bridges (type "OVSBridge"). The old
+    `?type=bridge` filter only returned Linux Bridges, so an OVS bridge like
+    vmbr1 was missing from the wizard. Best-effort. Proxmox uses the same
+    `bridge=<name>` net0 syntax for both, so nothing downstream changes."""
     node = urllib.parse.quote(pc['node'])
     try:
-        raw = _request(pc, f'/nodes/{node}/network?type=bridge')
+        raw = _request(pc, f'/nodes/{node}/network')
     except ProxmoxError:
         return []
+    if not isinstance(raw, list):
+        return []
     names = [str(n.get('iface', '')) for n in raw
-             if isinstance(n, dict) and n.get('iface')] if isinstance(raw, list) else []
+             if isinstance(n, dict) and n.get('iface')
+             and str(n.get('type', '')) in ('bridge', 'OVSBridge')]
     return sorted(n for n in names if _BRIDGE_RE.match(n))
 
 
