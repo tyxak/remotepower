@@ -2421,6 +2421,7 @@ const _DYK_TIPS = [
   "A fleet-events timeline records every device coming online, going offline, and firing an alert.",
   "There's a keyboard-shortcut cheat sheet to help you fly through the dashboard without a mouse.",
   "Pin quick links to the tools you live in — Grafana, Proxmox, your wiki — so they're one click from the dashboard.",
+  "A fleet-wide event won't flood your channels — RemotePower caps outbound webhook bursts so a flapping monitor can't spam your inbox.",
 ];
 let _dykIdx = -1;
 function _renderAboutTip() {

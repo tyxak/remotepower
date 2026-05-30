@@ -6,6 +6,13 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Reliability & polish.** Pop-up prompts (rename, confirm-to-delete, "describe
+  the issue", etc.) now use RemotePower's own styled dialogs instead of the
+  browser's native boxes — consistent look, keyboard-friendly (Enter confirms,
+  Esc cancels). Outbound-webhook burst protection was widened so a busy
+  fleet-wide event isn't throttled, and a round of internal hardening made
+  request handling and per-check-in device config more consistent. No change to
+  how any feature behaves — these are under-the-hood improvements.
 - **UX polish across the new surfaces.** The device drawer's audit panels (now
   14+) render in labeled groups — **Health · Security · Software · Activity ·
   System · Integrations** — instead of one long scroll. Compliance statuses and
