@@ -2612,6 +2612,10 @@ button, a, [role="button"],
   background: var(--surface2); border: 1px solid var(--border);
   padding: 1px 6px; border-radius: 10px; margin-left: 6px;
 }
+/* v3.4.0: soft-danger small button (LXC delete on the card) */
+.btn-danger-soft { color: var(--red); border-color: var(--red); }
+.btn-danger-soft:hover { background: rgba(220,53,69,0.12); }
+
 /* v3.4.0: "new" badge on freshly-added nav items (dismissed once visited) */
 .nav-new {
   margin-left: 6px; font-size: 9px; text-transform: uppercase; letter-spacing: .04em;

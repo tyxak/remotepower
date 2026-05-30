@@ -11237,6 +11237,7 @@ function _renderProxmoxGuest(g, kind) {
       ${!running ? `<button class="btn-icon badge-sm" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="start" data-arg4="${escAttr(g.name)}">Start</button>` : ''}
       ${running  ? `<button class="btn-icon isl-573" data-action="proxmoxAction" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="shutdown" data-arg4="${escAttr(g.name)}">Shutdown</button>` : ''}
       <button class="btn-icon badge-sm" data-action="openSnapshots" data-arg="${ep}" data-arg2="${g.vmid}" data-arg3="${escAttr(g.name)}">Snapshots</button>
+      ${ep === 'lxc' ? `<button class="btn-icon badge-sm btn-danger-soft" data-action="lxcDeleteOpen" data-arg="${g.vmid}" data-arg2="${escAttr(g.name)}" title="Delete this container">Delete</button>` : ''}
     </div>`;
   return `<div class="isl-460">
     <div class="isl-461">
@@ -11457,6 +11458,52 @@ async function proxmoxAction(kind, vmid, action, name) {
     }, 1500);
   } catch (e) {
     toast(`Action failed: ${e.message || String(e)}`, 'error');
+  }
+}
+
+// v3.4.0: LXC delete — type-to-confirm, auto-stop, no purge.
+let _lxcDelPending = null;
+
+function lxcDeleteOpen(vmid, name) {
+  // Confirm against the hostname when it has one, else the VMID.
+  const nm = (name && String(name).trim()) ? String(name).trim() : '';
+  const target = nm || String(vmid);
+  _lxcDelPending = { vmid, name: nm, target };
+  document.getElementById('lxc-del-name').textContent = nm || `(unnamed) ${vmid}`;
+  document.getElementById('lxc-del-vmid').textContent = vmid;
+  document.getElementById('lxc-del-confirm-target').textContent = target;
+  const inp = document.getElementById('lxc-del-confirm');
+  inp.value = ''; inp.placeholder = target;
+  document.getElementById('lxc-del-result').innerHTML = '';
+  document.getElementById('lxc-del-submit').disabled = true;
+  openModal('lxc-delete-modal');
+  setTimeout(() => inp.focus(), 50);
+}
+
+function lxcDelCheck() {
+  if (!_lxcDelPending) return;
+  const val = (document.getElementById('lxc-del-confirm').value || '').trim();
+  document.getElementById('lxc-del-submit').disabled = (val !== _lxcDelPending.target);
+}
+
+async function confirmLxcDelete() {
+  if (!_lxcDelPending) return;
+  const { vmid, name, target } = _lxcDelPending;
+  // Defence-in-depth: re-check the typed value before firing.
+  if ((document.getElementById('lxc-del-confirm').value || '').trim() !== target) return;
+  const result = document.getElementById('lxc-del-result');
+  const submit = document.getElementById('lxc-del-submit');
+  submit.disabled = true;
+  result.innerHTML = `<span class="diag-pending">${_icon('clock',13)} Stopping (if running) and deleting ${vmid}…</span>`;
+  const r = await api('DELETE', `/proxmox/lxc/${vmid}`);
+  if (r && r.ok) {
+    toast(`Container ${vmid}${name ? ' (' + name + ')' : ''} deleted`, 'success');
+    closeModal('lxc-delete-modal');
+    _lxcDelPending = null;
+    setTimeout(() => loadProxmoxLXC(true), 1500);
+  } else {
+    result.innerHTML = `<span class="c-red">${escHtml((r && r.error) || 'Delete failed')}</span>`;
+    submit.disabled = false;
   }
 }
 

@@ -536,6 +536,53 @@ class TestProxmoxLxcWizard(unittest.TestCase):
         self.assertIn('function submitLxcCreate', app)
 
 
+class TestProxmoxLxcDelete(unittest.TestCase):
+    def setUp(self):
+        import proxmox_client
+        self.p = proxmox_client
+        self.pc = {'enabled': True, 'host': 'h', 'node': 'pve',
+                   'token_id': 't', 'token_secret': 's', 'verify_tls': False}
+
+    def test_delete_stopped_goes_straight_to_delete(self):
+        calls = []
+        def req(pc, path, method='GET', data=None):
+            calls.append((method, path))
+            return {'status': 'stopped'} if path.endswith('/status/current') else 'UPID:del'
+        self.p._request = req
+        r = self.p.delete_lxc(self.pc, 205)
+        self.assertTrue(r['ok'])
+        self.assertFalse(r['stopped'])
+        self.assertIn(('DELETE', '/nodes/pve/lxc/205'), calls)
+
+    def test_delete_running_auto_stops_first(self):
+        seq = {'n': 0}
+        sent = []
+        def req(pc, path, method='GET', data=None):
+            sent.append((method, path))
+            if path.endswith('/status/current'):
+                seq['n'] += 1
+                return {'status': 'running' if seq['n'] == 1 else 'stopped'}
+            return 'UPID:x'
+        self.p._request = req
+        self.p.time.sleep = lambda s: None
+        r = self.p.delete_lxc(self.pc, 206)
+        self.assertTrue(r['stopped'])
+        self.assertIn(('POST', '/nodes/pve/lxc/206/status/stop'), sent)
+        self.assertIn(('DELETE', '/nodes/pve/lxc/206'), sent)
+
+    def test_server_wiring(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn('def handle_proxmox_lxc_delete', api)
+        self.assertIn("pi.startswith('/api/proxmox/lxc/') and m == 'DELETE'", api)
+        self.assertIn("'proxmox_lxc_delete'", api)
+        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn('function lxcDeleteOpen', app)
+        self.assertIn('function confirmLxcDelete', app)
+        html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.assertIn('id="lxc-delete-modal"', html)
+        self.assertIn('id="lxc-del-confirm"', html)   # type-to-confirm input
+
+
 class TestFleetUI(unittest.TestCase):
     APP  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()

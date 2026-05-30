@@ -13,6 +13,11 @@ In development.
   the app. New wide tables/modals (compliance, LXC wizard, SMART, discovery)
   scroll instead of overflowing on mobile. Freshly-added nav items carry a
   small **new** badge that clears once you visit them.
+- **Delete Proxmox LXC containers.** Each LXC card gets a **Delete** button →
+  a type-to-confirm dialog (you type the container's name/VMID). Destructive and
+  admin-only: it force-stops a running container, waits for it to go down, then
+  deletes it (no purge — backup/replication jobs are left alone). Audited. New
+  `delete_lxc` in `proxmox_client.py`; `DELETE /api/proxmox/lxc/<vmid>`.
 - **Create Proxmox LXC containers from a wizard.** The Containers page → LXC
   section gets a **Create container** button. The wizard pulls live options
   from the Proxmox API (OS templates, root-disk storages, bridges, next free

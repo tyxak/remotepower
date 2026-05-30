@@ -29,6 +29,7 @@ import json
 import re
 import os
 import ssl
+import time
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -638,6 +639,46 @@ def create_lxc(pc: dict, params: dict) -> dict:
     node = urllib.parse.quote(pc['node'])
     upid = _request(pc, f'/nodes/{node}/lxc', method='POST', data=data)
     return {'ok': True, 'vmid': vmid, 'task': upid if isinstance(upid, str) else ''}
+
+
+def delete_lxc(pc: dict, vmid, auto_stop: bool = True) -> dict:
+    """Delete an LXC container. DESTRUCTIVE — Proxmox wipes its rootfs.
+
+    Proxmox refuses to delete a *running* container, so when auto_stop is set
+    we force-stop it and poll until it's down (bounded) before issuing the
+    DELETE. No purge — backup/replication entries are left alone. Returns
+    {ok, vmid, task, stopped}; raises ProxmoxError on any failure.
+    """
+    try:
+        vmid = int(vmid)
+    except (ValueError, TypeError):
+        raise ProxmoxError('Invalid vmid.') from None
+
+    node = urllib.parse.quote(pc['node'])
+    base = f'/nodes/{node}/lxc/{vmid}'
+
+    cur = _request(pc, f'{base}/status/current') or {}
+    status = str(cur.get('status', '')).lower()
+    stopped_by_us = False
+    if status == 'running':
+        if not auto_stop:
+            raise ProxmoxError('Container is running — stop it first.')
+        _request(pc, f'{base}/status/stop', method='POST')   # async on Proxmox
+        stopped_by_us = True
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            time.sleep(1.0)
+            st = _request(pc, f'{base}/status/current') or {}
+            if str(st.get('status', '')).lower() == 'stopped':
+                break
+        else:
+            raise ProxmoxError('Container did not stop within 25 s — not '
+                               'deleting. Stop it manually and retry.')
+
+    upid = _request(pc, base, method='DELETE')   # no purge param
+    return {'ok': True, 'vmid': vmid,
+            'task': upid if isinstance(upid, str) else '',
+            'stopped': stopped_by_us}
 
 
 def test_connection(pc: dict) -> dict:

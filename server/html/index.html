@@ -3982,6 +3982,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-primary" id="lxc-create-submit" data-action="submitLxcCreate" disabled>Create container</button>
   </div>
 </div></div>
+<!-- v3.4.0: Proxmox LXC delete (type-to-confirm, auto-stop, no purge) -->
+<div class="modal-overlay" id="lxc-delete-modal"><div class="modal">
+  <div class="confirm-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></div>
+  <div class="modal-title">Delete LXC container?</div>
+  <div class="modal-subtitle">This permanently deletes <strong id="lxc-del-name"></strong> (VMID <span id="lxc-del-vmid"></span>) and its disk on Proxmox. <strong>This cannot be undone.</strong> A running container is force-stopped first.</div>
+  <div class="form-group">
+    <label class="form-label">Type <code id="lxc-del-confirm-target"></code> to confirm</label>
+    <input type="text" id="lxc-del-confirm" class="form-input" autocomplete="off" placeholder="" data-input="lxcDelCheck">
+  </div>
+  <div id="lxc-del-result" class="mb-8"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="lxc-delete-modal">Cancel</button>
+    <button class="btn-shutdown flex-1" id="lxc-del-submit" data-action="confirmLxcDelete" disabled>Delete container</button>
+  </div>
+</div></div>
 <!-- v2.1.5: device-patch-modal — has been referenced by openDevicePatchReport
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property

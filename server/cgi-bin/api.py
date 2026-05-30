@@ -9147,6 +9147,43 @@ def handle_proxmox_lxc_create() -> None:
     respond(200, result)
 
 
+def handle_proxmox_lxc_delete(rest) -> None:
+    """DELETE /api/proxmox/lxc/<vmid> — delete a container. Admin-only,
+    destructive (auto-stops a running container, no purge), audited. The
+    type-to-confirm guard lives in the UI; the server just gates on admin."""
+    actor = require_admin_auth()
+    parts = [p for p in rest.split('/') if p]
+    if len(parts) != 1:
+        respond(400, {'error': 'Expected /<vmid>'})
+        return
+    try:
+        vmid = int(parts[0])
+    except ValueError:
+        respond(400, {'error': 'vmid must be numeric'})
+        return
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        result = proxmox_client.delete_lxc(pc, vmid, auto_stop=True)
+    except proxmox_client.ProxmoxError as e:
+        msg = str(e)
+        code = 502 if ('Proxmox API' in msg or 'reach Proxmox' in msg) else 400
+        respond(code, {'error': msg})
+        return
+    audit_log(actor, 'proxmox_lxc_delete',
+              f"vmid={vmid} node={pc['node']} auto_stopped={result.get('stopped')}")
+    try:
+        _record_fleet_event('proxmox_action', {
+            'guest_type': 'lxc', 'vmid': vmid, 'action': 'delete',
+        })
+    except Exception:
+        pass
+    respond(200, result)
+
+
 def handle_proxmox_snapshots_list() -> None:
     """``GET /api/proxmox/snapshots?type=qemu&vmid=100`` — list a
     guest's snapshots."""
@@ -22672,6 +22709,8 @@ def main():
         handle_proxmox_lxc_create_options()
     elif pi == '/api/proxmox/lxc/create' and m == 'POST':
         handle_proxmox_lxc_create()
+    elif pi.startswith('/api/proxmox/lxc/') and m == 'DELETE':
+        handle_proxmox_lxc_delete(pi[len('/api/proxmox/lxc/'):])
     elif pi.startswith('/api/proxmox/qemu/') and m == 'POST':
         handle_proxmox_action('qemu', pi[len('/api/proxmox/qemu/'):])
     elif pi.startswith('/api/proxmox/lxc/') and m == 'POST':
