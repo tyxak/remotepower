@@ -1759,6 +1759,7 @@
 
               <h4>Fleet health &amp; insights</h4>
               <ul>
+                <li><strong>Create Proxmox LXC containers</strong> from a wizard (Containers → LXC → <strong>Create container</strong>) — picks template / storage / bridge / next VMID from the live Proxmox API and creates an unprivileged container with one click. Admin-only, validated, audited.</li>
                 <li><strong>Disk SMART health, kernel &amp; hardware inventory.</strong> The agent reports <code>smartctl</code> health per disk (alerts on FAIL / pre-fail sectors), the running-vs-newest-installed kernel (reboot-needed flag + livepatch status), and a passive inventory — DIMMs, serials, temperatures, RAID — all in the device drawer's <strong>Health &amp; Hardware</strong> card. Best-effort; missing tools are skipped silently.</li>
                 <li><strong>Resource forecasting &amp; "what changed".</strong> A daily metrics snapshot drives a per-mount disk-fill projection (<em>"/ fills in ~18 days"</em>) and a diff of the last day/week — package deltas, opened/closed ports, failed/recovered units, disk growth.</li>
                 <li><strong>On-demand diagnostics.</strong> One-click <strong>speed test</strong> (librespeed → Mbps up/down + ping) and <strong>LAN discovery</strong> (passive ARP, or an nmap sweep) that surfaces unmanaged hosts on the network.</li>
@@ -3354,8 +3355,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <!-- ── v2.3.0: Proxmox LXC containers ──────────────────────────── -->
         <div id="containers-panel-lxc">
           <div id="containers-lxc-section" class="isl-171">
-            <div class="page-title isl-172">Proxmox LXC containers</div>
-            <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
+            <div class="section-header">
+              <div>
+                <div class="page-title isl-172">Proxmox LXC containers</div>
+                <div class="page-subtitle">LXC containers on the Proxmox node. Actions hit the Proxmox API directly.</div>
+              </div>
+              <button class="enroll-btn" id="lxc-create-btn" data-action="openLxcCreateWizard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create container</button>
+            </div>
             <div id="containers-lxc-body"></div>
           </div>
         </div><!-- /containers-panel-lxc -->
@@ -3935,6 +3941,47 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="modal-overlay" id="metrics-modal"><div class="modal modal-wide"><div class="modal-title" id="metrics-title">Metrics</div><div id="metrics-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="metrics-modal" >Close</button></div></div></div>
 <!-- v3.4.0: AI insight result (runbook / doc draft). Body holds rendered Markdown. -->
 <div class="modal-overlay" id="ai-insight-modal"><div class="modal modal-wide"><div class="modal-title" id="ai-insight-title">AI</div><div id="ai-insight-body" class="ai-insight-body"><div class="empty-state">Generating…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="aiInsightCopy">Copy Markdown</button><button class="btn-secondary" data-action="closeModal" data-arg="ai-insight-modal" >Close</button></div></div></div>
+<!-- v3.4.0: Proxmox LXC create wizard -->
+<div class="modal-overlay" id="lxc-create-modal"><div class="modal modal-wide">
+  <div class="modal-title">Create LXC container</div>
+  <div class="modal-subtitle">Creates a new container on the Proxmox node via the API. <span id="lxc-create-node" class="c-muted"></span></div>
+  <div id="lxc-create-loading" class="empty-state">Loading options from Proxmox…</div>
+  <div id="lxc-create-form" class="d-none">
+    <div class="hc-grid-2">
+      <div class="form-group"><label class="form-label">Hostname</label><input type="text" id="lxc-hostname" class="form-input" placeholder="web1" maxlength="63"></div>
+      <div class="form-group"><label class="form-label">VMID</label><input type="number" id="lxc-vmid" class="form-input" min="100"></div>
+    </div>
+    <div class="form-group"><label class="form-label">OS template</label><select id="lxc-template" class="form-input"></select>
+      <span class="hint" id="lxc-template-hint">Templates available on the node. None? Download one in Proxmox: <code>pveam</code> / Storage → CT Templates.</span></div>
+    <div class="hc-grid-2">
+      <div class="form-group"><label class="form-label">Root-disk storage</label><select id="lxc-storage" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Disk size (GB)</label><input type="number" id="lxc-disk" class="form-input" value="8" min="1" max="8192"></div>
+    </div>
+    <div class="hc-grid-3">
+      <div class="form-group"><label class="form-label">CPU cores</label><input type="number" id="lxc-cores" class="form-input" value="1" min="1" max="512"></div>
+      <div class="form-group"><label class="form-label">Memory (MB)</label><input type="number" id="lxc-memory" class="form-input" value="512" min="16"></div>
+      <div class="form-group"><label class="form-label">Swap (MB)</label><input type="number" id="lxc-swap" class="form-input" value="512" min="0"></div>
+    </div>
+    <div class="hc-grid-3">
+      <div class="form-group"><label class="form-label">Bridge</label><select id="lxc-bridge" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">IP address</label><input type="text" id="lxc-ip" class="form-input" value="dhcp" placeholder="dhcp or 192.168.1.50/24"></div>
+      <div class="form-group"><label class="form-label">Gateway <span class="c-muted">(static only)</span></label><input type="text" id="lxc-gateway" class="form-input" placeholder="192.168.1.1"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Root password</label><input type="password" id="lxc-password" class="form-input" placeholder="min 5 chars" autocomplete="new-password"></div>
+    <div class="form-group"><label class="form-label">…or SSH public key</label><textarea id="lxc-sshkey" class="form-input" rows="2" placeholder="ssh-ed25519 AAAA…"></textarea>
+      <span class="hint">Set a password and/or an SSH key so you can log in.</span></div>
+    <div class="lxc-toggles">
+      <label class="click-row-6"><input type="checkbox" id="lxc-unprivileged" checked> <span class="fs-12">Unprivileged container (recommended)</span></label>
+      <label class="click-row-6"><input type="checkbox" id="lxc-start" checked> <span class="fs-12">Start after creation</span></label>
+      <label class="click-row-6"><input type="checkbox" id="lxc-onboot"> <span class="fs-12">Start on boot</span></label>
+    </div>
+    <div id="lxc-create-result" class="mt-8"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="lxc-create-modal">Cancel</button>
+    <button class="btn-primary" id="lxc-create-submit" data-action="submitLxcCreate" disabled>Create container</button>
+  </div>
+</div></div>
 <!-- v2.1.5: device-patch-modal — has been referenced by openDevicePatchReport
      for several releases but the element itself was missing from the HTML,
      so clicking Detail on the Patches page threw "can't access property

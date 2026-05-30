@@ -2656,6 +2656,12 @@ button, a, [role="button"],
 /* v3.4.0: host-config enforce opt-in */
 .hc-enforce-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
 .hc-enforce-row .hint { margin-top: 6px; }
+
+/* v3.4.0: LXC create wizard form grids */
+.hc-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hc-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.lxc-toggles { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
+@media (max-width: 560px) { .hc-grid-2, .hc-grid-3 { grid-template-columns: 1fr; } }
 .audit-filter {
   width: 100%; padding: 6px 10px; margin-bottom: 10px;
   background: var(--surface2); border: 1px solid var(--border);

@@ -9032,6 +9032,63 @@ def handle_proxmox_action(guest_type: str, rest: str) -> None:
     respond(200, result)
 
 
+def handle_proxmox_lxc_create_options() -> None:
+    """GET /api/proxmox/lxc/create-options — data the create wizard needs:
+    next free vmid, root-disk-capable storages, OS templates, bridges."""
+    require_admin_auth()
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        storages = proxmox_client.list_storages(pc)
+        out = {
+            'node':      pc['node'],
+            'next_vmid': proxmox_client.next_vmid(pc),
+            'storages':  [s for s in storages if s['rootdir']],
+            'templates': proxmox_client.list_templates(pc),
+            'bridges':   proxmox_client.list_bridges(pc),
+        }
+    except proxmox_client.ProxmoxError as e:
+        respond(502, {'error': str(e)})
+        return
+    respond(200, out)
+
+
+def handle_proxmox_lxc_create() -> None:
+    """POST /api/proxmox/lxc/create — create an LXC container.
+
+    Admin-only, side-effecting (creates a real container on the Proxmox node).
+    All fields are validated in proxmox_client.create_lxc. The root password,
+    if supplied, is passed straight to Proxmox and never logged or stored."""
+    actor = require_admin_auth()
+    body = get_json_body() or {}
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        result = proxmox_client.create_lxc(pc, body)
+    except proxmox_client.ProxmoxError as e:
+        msg = str(e)
+        code = 502 if ('Proxmox API' in msg or 'reach Proxmox' in msg) else 400
+        respond(code, {'error': msg})
+        return
+    # Audit WITHOUT the password / ssh key.
+    audit_log(actor, 'proxmox_lxc_create',
+              f"vmid={result.get('vmid')} hostname={body.get('hostname', '')!r} "
+              f"template={body.get('ostemplate', '')!r} node={pc['node']}")
+    try:
+        _record_fleet_event('proxmox_action', {
+            'guest_type': 'lxc', 'vmid': result.get('vmid'), 'action': 'create',
+        })
+    except Exception:
+        pass
+    respond(200, result)
+
+
 def handle_proxmox_snapshots_list() -> None:
     """``GET /api/proxmox/snapshots?type=qemu&vmid=100`` — list a
     guest's snapshots."""
@@ -22521,6 +22578,12 @@ def main():
         handle_proxmox_list('qemu')
     elif pi == '/api/proxmox/lxc' and m == 'GET':
         handle_proxmox_list('lxc')
+    # v3.4.0: LXC create wizard — MUST precede the generic /lxc/<vmid>/<action>
+    # POST route below, or "create" would be parsed as a vmid.
+    elif pi == '/api/proxmox/lxc/create-options' and m == 'GET':
+        handle_proxmox_lxc_create_options()
+    elif pi == '/api/proxmox/lxc/create' and m == 'POST':
+        handle_proxmox_lxc_create()
     elif pi.startswith('/api/proxmox/qemu/') and m == 'POST':
         handle_proxmox_action('qemu', pi[len('/api/proxmox/qemu/'):])
     elif pi.startswith('/api/proxmox/lxc/') and m == 'POST':

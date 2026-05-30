@@ -6,6 +6,15 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Create Proxmox LXC containers from a wizard.** The Containers page → LXC
+  section gets a **Create container** button. The wizard pulls live options
+  from the Proxmox API (OS templates, root-disk storages, bridges, next free
+  VMID) and creates an unprivileged container in one POST: hostname, template,
+  disk size, cores, memory, swap, network (DHCP or static), and a root
+  password and/or SSH key. Admin-only, every field validated server-side
+  before the API call, and audited (the password is passed straight to Proxmox
+  and never logged or stored). New `create_lxc`/`list_templates`/
+  `list_storages`/`list_bridges`/`next_vmid` in `proxmox_client.py`.
 - **Fixed: "new listening port" alerts had stopped firing.** The port-audit
   step read a per-request sysinfo cache that was never populated, so
   `new_port_detected` had been silently dead. Restored — new ports are

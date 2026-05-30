@@ -11345,6 +11345,86 @@ async function loadProxmoxLXC(focused = false) {
   </div>`;
 }
 
+// v3.4.0: LXC create wizard. Opens the modal, pulls options from Proxmox
+// (templates / storages / bridges / next vmid), then POSTs the create.
+async function openLxcCreateWizard() {
+  openModal('lxc-create-modal');
+  const loading = document.getElementById('lxc-create-loading');
+  const form    = document.getElementById('lxc-create-form');
+  const submit  = document.getElementById('lxc-create-submit');
+  const result  = document.getElementById('lxc-create-result');
+  loading.style.display = 'block'; loading.textContent = 'Loading options from Proxmox…';
+  form.classList.add('d-none'); submit.disabled = true; result.innerHTML = '';
+
+  const data = await api('GET', '/proxmox/lxc/create-options');
+  if (!data || data.error) {
+    loading.innerHTML = `<span class="c-red">${escHtml((data && data.error) || 'Could not load Proxmox options.')}</span>`;
+    return;
+  }
+  document.getElementById('lxc-create-node').textContent = data.node ? `Node: ${data.node}` : '';
+  document.getElementById('lxc-vmid').value = data.next_vmid || '';
+
+  const tmplSel = document.getElementById('lxc-template');
+  const tmpls = data.templates || [];
+  tmplSel.innerHTML = tmpls.length
+    ? tmpls.map(t => `<option value="${escAttr(t.volid)}">${escHtml(t.name)}</option>`).join('')
+    : '<option value="">(no templates found — download one in Proxmox)</option>';
+
+  const stSel = document.getElementById('lxc-storage');
+  const sts = data.storages || [];
+  stSel.innerHTML = sts.length
+    ? sts.map(s => `<option value="${escAttr(s.storage)}">${escHtml(s.storage)} (${escHtml(s.type)})</option>`).join('')
+    : '<option value="">(no root-disk storage)</option>';
+
+  const brSel = document.getElementById('lxc-bridge');
+  const brs = (data.bridges && data.bridges.length) ? data.bridges : ['vmbr0'];
+  brSel.innerHTML = brs.map(b => `<option value="${escAttr(b)}">${escHtml(b)}</option>`).join('');
+
+  loading.style.display = 'none';
+  form.classList.remove('d-none');
+  // Only allow create when there's a template + storage to use.
+  submit.disabled = !(tmpls.length && sts.length);
+  if (!tmpls.length) result.innerHTML = '<span class="c-amber fs-12">No OS templates on the node — download one first (Proxmox → Storage → CT Templates).</span>';
+}
+
+async function submitLxcCreate() {
+  const result = document.getElementById('lxc-create-result');
+  const submit = document.getElementById('lxc-create-submit');
+  const body = {
+    vmid:           parseInt(document.getElementById('lxc-vmid').value, 10),
+    hostname:       document.getElementById('lxc-hostname').value.trim(),
+    ostemplate:     document.getElementById('lxc-template').value,
+    storage:        document.getElementById('lxc-storage').value,
+    disk_gb:        parseInt(document.getElementById('lxc-disk').value, 10),
+    cores:          parseInt(document.getElementById('lxc-cores').value, 10),
+    memory_mb:      parseInt(document.getElementById('lxc-memory').value, 10),
+    swap_mb:        parseInt(document.getElementById('lxc-swap').value, 10),
+    bridge:         document.getElementById('lxc-bridge').value,
+    ip:             document.getElementById('lxc-ip').value.trim() || 'dhcp',
+    gateway:        document.getElementById('lxc-gateway').value.trim(),
+    password:       document.getElementById('lxc-password').value,
+    ssh_public_key: document.getElementById('lxc-sshkey').value.trim(),
+    unprivileged:   document.getElementById('lxc-unprivileged').checked,
+    start:          document.getElementById('lxc-start').checked,
+    onboot:         document.getElementById('lxc-onboot').checked,
+  };
+  if (!body.hostname) { result.innerHTML = '<span class="c-red">Hostname is required.</span>'; return; }
+  if (!body.ostemplate) { result.innerHTML = '<span class="c-red">Pick an OS template.</span>'; return; }
+  if (!body.password && !body.ssh_public_key) { result.innerHTML = '<span class="c-red">Set a root password or an SSH key.</span>'; return; }
+
+  submit.disabled = true;
+  result.innerHTML = `<span class="diag-pending">${_icon('clock',13)} Creating container ${body.vmid}…</span>`;
+  const r = await api('POST', '/proxmox/lxc/create', body);
+  if (r && r.ok) {
+    result.innerHTML = `<span class="c-green">${_icon('package',13)} Container ${r.vmid} created${body.start ? ' and starting' : ''}. Refreshing…</span>`;
+    toast(`LXC ${r.vmid} (${body.hostname}) created`, 'success');
+    setTimeout(() => { closeModal('lxc-create-modal'); loadProxmoxLXC(true); }, 1600);
+  } else {
+    result.innerHTML = `<span class="c-red">${escHtml((r && r.error) || 'Create failed')}</span>`;
+    submit.disabled = false;
+  }
+}
+
 // Perform a guest action then refresh whichever view is showing.
 async function proxmoxAction(kind, vmid, action, name) {
   const verb = action === 'shutdown' ? 'Shut down' : 'Start';

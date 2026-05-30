@@ -440,6 +440,58 @@ class TestSshExecHardening(unittest.TestCase):
         self.assertEqual(argv[-1], 'admin@nas.local')
 
 
+class TestProxmoxLxcWizard(unittest.TestCase):
+    def setUp(self):
+        import proxmox_client
+        self.p = proxmox_client
+        self.pc = {'enabled': True, 'host': 'h', 'node': 'pve',
+                   'token_id': 't', 'token_secret': 's', 'verify_tls': False}
+
+    def _base(self, **over):
+        b = dict(vmid=200, hostname='web1',
+                 ostemplate='local:vztmpl/debian-12.tar.zst', storage='local-lvm',
+                 disk_gb=8, cores=2, memory_mb=1024, swap_mb=512, bridge='vmbr0',
+                 ip='dhcp', password='secret', unprivileged=True, start=True)
+        b.update(over); return b
+
+    def test_client_functions_exist(self):
+        for fn in ('create_lxc', 'list_storages', 'list_templates',
+                   'next_vmid', 'list_bridges'):
+            self.assertTrue(hasattr(self.p, fn), fn)
+
+    def test_validation_rejects(self):
+        for over, frag in [({'vmid': 5}, 'VMID'), ({'hostname': '-x'}, 'Hostname'),
+                           ({'ostemplate': 'no'}, 'template'), ({'disk_gb': 0}, 'Disk'),
+                           ({'ip': '9/9'}, 'IP'), ({'password': '', 'ssh_public_key': ''}, 'SSH'),
+                           ({'password': 'abc'}, 'at least 5')]:
+            with self.assertRaises(self.p.ProxmoxError):
+                self.p.create_lxc(self.pc, self._base(**over))
+
+    def test_valid_build_payload(self):
+        cap = {}
+        self.p._request = lambda pc, path, method='GET', data=None: (
+            cap.update(path=path, method=method, data=data) or 'UPID:x')
+        r = self.p.create_lxc(self.pc, self._base(ip='192.168.1.9/24', gateway='192.168.1.1'))
+        self.assertTrue(r['ok'])
+        self.assertEqual(cap['method'], 'POST')
+        self.assertIn('/nodes/pve/lxc', cap['path'])
+        self.assertEqual(cap['data']['rootfs'], 'local-lvm:8')
+        self.assertIn('gw=192.168.1.1', cap['data']['net0'])
+        self.assertEqual(cap['data']['unprivileged'], 1)
+
+    def test_server_wiring(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn('def handle_proxmox_lxc_create', api)
+        self.assertIn("'/api/proxmox/lxc/create-options'", api)
+        self.assertIn("'/api/proxmox/lxc/create'", api)
+        # create routes MUST precede the generic /lxc/ POST action route
+        self.assertLess(api.index("'/api/proxmox/lxc/create'"),
+                        api.index("pi.startswith('/api/proxmox/lxc/') and m == 'POST'"))
+        app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.assertIn('function openLxcCreateWizard', app)
+        self.assertIn('function submitLxcCreate', app)
+
+
 class TestFleetUI(unittest.TestCase):
     APP  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()

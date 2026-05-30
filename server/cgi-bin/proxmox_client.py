@@ -443,6 +443,196 @@ def delete_snapshot(pc: dict, guest_type: str, vmid: int, name: str) -> dict:
 
 # ── Connection test (for the Settings page) ─────────────────────────────
 
+# ── LXC creation (v3.4.0) ────────────────────────────────────────────────
+#
+# A small "create container" wizard sits on top of the existing API token.
+# Proxmox creates an LXC via POST /nodes/<node>/lxc; the call returns a task
+# UPID and the container builds asynchronously. We expose the few read
+# endpoints the wizard needs to populate its dropdowns (storages, templates,
+# bridges, next free vmid) and one validated create call.
+
+_HOSTNAME_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-.]{0,61}[a-zA-Z0-9])?$')
+_BRIDGE_RE   = re.compile(r'^[a-zA-Z0-9_.\-]{1,15}$')
+_VOLID_RE    = re.compile(r'^[a-zA-Z0-9_.\-]+:[a-zA-Z0-9_./\-]+$')
+_IPCIDR_RE   = re.compile(r'^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$')
+
+
+def next_vmid(pc: dict) -> int:
+    """Return the next free VMID from /cluster/nextid (Proxmox suggestion)."""
+    raw = _request(pc, '/cluster/nextid')
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return 0
+
+
+def list_storages(pc: dict) -> list[dict]:
+    """Storages on the node, annotated with what they can hold.
+
+    Returns [{storage, type, content:[...], rootdir:bool, vztmpl:bool,
+    avail_bytes}]. `rootdir` storages can host a container's root disk;
+    `vztmpl` storages can hold OS templates.
+    """
+    node = urllib.parse.quote(pc['node'])
+    raw = _request(pc, f'/nodes/{node}/storage')
+    out = []
+    for s in raw if isinstance(raw, list) else []:
+        if not isinstance(s, dict):
+            continue
+        content = [c for c in str(s.get('content', '')).split(',') if c]
+        out.append({
+            'storage':     str(s.get('storage', '')),
+            'type':        str(s.get('type', '')),
+            'content':     content,
+            'rootdir':     'rootdir' in content,
+            'vztmpl':      'vztmpl' in content,
+            'avail_bytes': int(s.get('avail', 0) or 0),
+        })
+    return out
+
+
+def list_templates(pc: dict) -> list[dict]:
+    """LXC OS templates available across all vztmpl-capable storages.
+
+    Returns [{volid, storage, name, size_bytes}], sorted by name.
+    """
+    node = urllib.parse.quote(pc['node'])
+    out = []
+    for st in list_storages(pc):
+        if not st['vztmpl']:
+            continue
+        storage = st['storage']
+        try:
+            raw = _request(pc, f'/nodes/{node}/storage/'
+                               f'{urllib.parse.quote(storage)}/content?content=vztmpl')
+        except ProxmoxError:
+            continue
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            volid = str(item.get('volid', ''))
+            if not volid:
+                continue
+            name = volid.split('/', 1)[-1] if '/' in volid else volid
+            out.append({
+                'volid':      volid,
+                'storage':    storage,
+                'name':       name,
+                'size_bytes': int(item.get('size', 0) or 0),
+            })
+    out.sort(key=lambda t: t['name'])
+    return out
+
+
+def list_bridges(pc: dict) -> list[str]:
+    """Network bridges on the node (for the net0 dropdown). Best-effort."""
+    node = urllib.parse.quote(pc['node'])
+    try:
+        raw = _request(pc, f'/nodes/{node}/network?type=bridge')
+    except ProxmoxError:
+        return []
+    names = [str(n.get('iface', '')) for n in raw
+             if isinstance(n, dict) and n.get('iface')] if isinstance(raw, list) else []
+    return sorted(n for n in names if _BRIDGE_RE.match(n))
+
+
+def create_lxc(pc: dict, params: dict) -> dict:
+    """Create an LXC container. Validates every field locally before the
+    POST so a bad value fails with a clear message, not an opaque 500.
+
+    Expected `params` (already type-coerced by the caller is fine, we
+    re-check): vmid, hostname, ostemplate (volid), storage, disk_gb, cores,
+    memory_mb, swap_mb, bridge, ip ('dhcp' or CIDR), gateway (optional),
+    password (optional), ssh_public_key (optional), unprivileged (bool),
+    start (bool), onboot (bool).
+
+    Returns {ok, vmid, task}. Raises ProxmoxError on any validation or API
+    failure.
+    """
+    # ── validate ────────────────────────────────────────────────────
+    try:
+        vmid = int(params.get('vmid'))
+    except (ValueError, TypeError):
+        raise ProxmoxError('A numeric VMID is required.') from None
+    if not (100 <= vmid <= 999999999):
+        raise ProxmoxError('VMID must be between 100 and 999999999.')
+
+    hostname = str(params.get('hostname', '')).strip()
+    if not _HOSTNAME_RE.match(hostname):
+        raise ProxmoxError('Hostname must be a valid DNS label '
+                           '(letters, digits, hyphens; 1–63 chars).')
+
+    ostemplate = str(params.get('ostemplate', '')).strip()
+    if not _VOLID_RE.match(ostemplate):
+        raise ProxmoxError('Pick an OS template.')
+
+    storage = str(params.get('storage', '')).strip()
+    if not _BRIDGE_RE.match(storage):   # same safe charset as a storage id
+        raise ProxmoxError('Pick a root-disk storage.')
+
+    def _int(field, lo, hi, label):
+        try:
+            v = int(params.get(field))
+        except (ValueError, TypeError):
+            raise ProxmoxError(f'{label} must be a number.') from None
+        if not (lo <= v <= hi):
+            raise ProxmoxError(f'{label} must be between {lo} and {hi}.')
+        return v
+
+    disk_gb   = _int('disk_gb', 1, 8192, 'Disk size (GB)')
+    cores     = _int('cores', 1, 512, 'CPU cores')
+    memory_mb = _int('memory_mb', 16, 4 * 1024 * 1024, 'Memory (MB)')
+    swap_mb   = _int('swap_mb', 0, 4 * 1024 * 1024, 'Swap (MB)') \
+        if params.get('swap_mb') not in (None, '') else 0
+
+    bridge = str(params.get('bridge', 'vmbr0')).strip() or 'vmbr0'
+    if not _BRIDGE_RE.match(bridge):
+        raise ProxmoxError('Invalid network bridge name.')
+
+    ip = str(params.get('ip', 'dhcp')).strip() or 'dhcp'
+    if ip != 'dhcp' and not _IPCIDR_RE.match(ip):
+        raise ProxmoxError('IP must be "dhcp" or a CIDR like 192.168.1.50/24.')
+    gateway = str(params.get('gateway', '')).strip()
+    if gateway and not re.match(r'^(\d{1,3}\.){3}\d{1,3}$', gateway):
+        raise ProxmoxError('Gateway must be a plain IPv4 address.')
+
+    password = str(params.get('password', '') or '')
+    ssh_key  = str(params.get('ssh_public_key', '') or '').strip()
+    if not password and not ssh_key:
+        raise ProxmoxError('Set a root password or an SSH public key so you '
+                           'can log into the container.')
+    if password and len(password) < 5:
+        raise ProxmoxError('Root password must be at least 5 characters '
+                           '(Proxmox requirement).')
+
+    # ── build the Proxmox payload ───────────────────────────────────
+    net0 = f'name=eth0,bridge={bridge},ip={ip}'
+    if ip != 'dhcp' and gateway:
+        net0 += f',gw={gateway}'
+
+    data = {
+        'vmid':        vmid,
+        'hostname':    hostname,
+        'ostemplate':  ostemplate,
+        'rootfs':      f'{storage}:{disk_gb}',
+        'cores':       cores,
+        'memory':      memory_mb,
+        'swap':        swap_mb,
+        'net0':        net0,
+        'unprivileged': 1 if params.get('unprivileged', True) else 0,
+        'onboot':      1 if params.get('onboot', False) else 0,
+        'start':       1 if params.get('start', False) else 0,
+    }
+    if password:
+        data['password'] = password
+    if ssh_key:
+        data['ssh-public-keys'] = ssh_key
+
+    node = urllib.parse.quote(pc['node'])
+    upid = _request(pc, f'/nodes/{node}/lxc', method='POST', data=data)
+    return {'ok': True, 'vmid': vmid, 'task': upid if isinstance(upid, str) else ''}
+
+
 def test_connection(pc: dict) -> dict:
     """Probe the Proxmox connection for the Settings 'Test' button.
 
