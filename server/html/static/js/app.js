@@ -2031,6 +2031,62 @@ function closeModal(id) {
   const anyOpen = document.querySelector('.modal-overlay.active');
   if (!anyOpen) document.body.classList.remove('modal-open');
 }
+
+// ── Reusable async prompt (replaces native window.prompt) ──────────────────
+// Returns a Promise that resolves to the entered string, or null if cancelled.
+// One modal, consistent with the rest of the UI; opts: {title, message, value,
+// placeholder, type:'text'|'password', confirmText, danger, multiline}.
+let _uiPromptResolve = null;
+function uiPrompt(opts = {}) {
+  return new Promise(resolve => {
+    // If a prompt is somehow already open, cancel it first (resolve null).
+    if (_uiPromptResolve) { const r = _uiPromptResolve; _uiPromptResolve = null; r(null); }
+    _uiPromptResolve = resolve;
+    const { title = '', message = '', value = '', placeholder = '',
+            type = 'text', confirmText = 'OK', danger = false,
+            multiline = false } = opts;
+    document.getElementById('ui-prompt-title').textContent = title;
+    const msg = document.getElementById('ui-prompt-message');
+    msg.textContent = message; msg.classList.toggle('d-none', !message);
+    const inp = document.getElementById('ui-prompt-input');
+    const ta  = document.getElementById('ui-prompt-textarea');
+    inp.classList.toggle('d-none', multiline);
+    ta.classList.toggle('d-none', !multiline);
+    if (!multiline) inp.type = (type === 'password') ? 'password' : 'text';
+    const field = multiline ? ta : inp;
+    field.value = value || '';
+    field.placeholder = placeholder || '';
+    const btn = document.getElementById('ui-prompt-confirm');
+    btn.textContent = confirmText;
+    btn.classList.toggle('btn-shutdown', !!danger);
+    btn.classList.toggle('btn-primary', !danger);
+    openModal('ui-prompt-modal');
+    setTimeout(() => { field.focus(); field.select && field.select(); }, 50);
+  });
+}
+function _uiPromptFinish(ok) {
+  const ta = document.getElementById('ui-prompt-textarea');
+  const multiline = !ta.classList.contains('d-none');
+  const field = document.getElementById(multiline ? 'ui-prompt-textarea' : 'ui-prompt-input');
+  const val = ok ? field.value : null;
+  closeModal('ui-prompt-modal');
+  const r = _uiPromptResolve; _uiPromptResolve = null;
+  if (r) r(val);
+}
+function _uiPromptOk() { _uiPromptFinish(true); }
+function _uiPromptCancel() { _uiPromptFinish(false); }
+// Enter confirms (single-line), Escape cancels.
+document.addEventListener('keydown', e => {
+  if (!_uiPromptResolve) return;
+  const overlay = document.getElementById('ui-prompt-modal');
+  if (!overlay || !overlay.classList.contains('active')) return;
+  if (e.key === 'Enter' && e.target.id === 'ui-prompt-input') { e.preventDefault(); _uiPromptFinish(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); _uiPromptFinish(false); }
+});
+// Backdrop click cancels (and resolves null, so the awaiting caller unblocks).
+document.addEventListener('click', e => {
+  if (_uiPromptResolve && e.target.id === 'ui-prompt-modal') _uiPromptFinish(false);
+});
 document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); }); });
 // v2.1.0: escHtml escapes for HTML content + double-quoted attribute values.
 // It deliberately does NOT escape ' — HTML entity decoding turns &#39; back
@@ -3287,7 +3343,7 @@ function _renderQR(containerId, text) { const el = document.getElementById(conta
 async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span class="c-green-bold">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
 async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${data.secret}" title="Click to copy" class="isl-368">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
 async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); loadTotpStatus(); } else toast(data?.error || 'Invalid code', 'error'); }
-async function disableTotp() { const pw = prompt('Enter your password to disable 2FA:'); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
+async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
 function filterDevices() {
   // v1.11.5: persist filter input across reloads. The actual filter logic
   // still lives in renderDevices(); this just captures the current value
@@ -4755,7 +4811,10 @@ async function approveConfirmation(id) {
 }
 
 async function rejectConfirmation(id) {
-  const note = prompt('Reject this MCP write action. Optional note:') || '';
+  const note = await uiPrompt({title: 'Reject write action',
+    message: 'Reject this MCP write action. Optional note:',
+    placeholder: 'reason (optional)', confirmText: 'Reject', danger: true});
+  if (note === null) return;     // cancelled — leave the action pending
   const r = await api('POST', `/confirmations/${encodeURIComponent(id)}/reject`, { note });
   if (r && r.ok) { toast('Rejected', 'success'); loadConfirmations(); }
   else toast((r && r.error) || 'Failed', 'error');
@@ -4884,17 +4943,16 @@ async function _editInboundWebhookBtn(btn) {
   const curLabel  = t.label || '';
   const curScopeD = t.scope_device_id || '';
   const curScopeT = t.scope_tag || '';
-  const newLabel = prompt(
-    `Edit label for inbound webhook "${curLabel}"\n\n` +
-    `(Leave blank to keep current.)`, curLabel);
+  const newLabel = await uiPrompt({title: 'Edit inbound webhook',
+    message: `Label for "${curLabel}" (blank keeps current):`, value: curLabel});
   if (newLabel === null) return;  // operator cancelled
-  const newScopeD = prompt(
-    `Restrict to device_id? (current: ${curScopeD || '(any)'})\n\n` +
-    `Blank = any device.`, curScopeD);
+  const newScopeD = await uiPrompt({title: 'Restrict to device',
+    message: `Restrict to device_id? (current: ${curScopeD || '(any)'}). Blank = any device.`,
+    value: curScopeD});
   if (newScopeD === null) return;
-  const newScopeT = prompt(
-    `Restrict to tag? (current: ${curScopeT || '(any)'})\n\n` +
-    `Blank = any tag.`, curScopeT);
+  const newScopeT = await uiPrompt({title: 'Restrict to tag',
+    message: `Restrict to tag? (current: ${curScopeT || '(any)'}). Blank = any tag.`,
+    value: curScopeT});
   if (newScopeT === null) return;
   const body = {
     label:           newLabel.trim(),
@@ -6538,8 +6596,9 @@ async function scanImageUpdatesNow(btn) {
 }
 
 async function ignoreImageUpdate(ref) {
-  const reason = window.prompt(
-    `Accept the current version of "${ref}" and stop alerting until a newer one ships?\n\nReason (optional):`, '');
+  const reason = await uiPrompt({title: 'Ignore image update',
+    message: `Accept the current version of "${ref}" and stop alerting until a newer one ships? Reason (optional):`,
+    placeholder: 'reason (optional)', confirmText: 'Ignore'});
   if (reason === null) return;   // cancelled
   const r = await api('POST', '/image-updates/ignore', { ref, reason });
   if (r && r.ok) { toast('Image ignored', 'success'); loadImageUpdates(); }
@@ -8745,10 +8804,12 @@ function aiGenerateScript(prompt, targetElementId) {
 
 // ─── Script editor AIbuttons ──────────────────────────────────────────────
 
-function scriptEditorAIGenerate() {
-  const prompt = window.prompt('Describe what the script should do:', '');
-  if (!prompt) return;
-  aiGenerateScript(prompt, 'script-edit-body');
+async function scriptEditorAIGenerate() {
+  const desc = await uiPrompt({title: 'Generate script',
+    message: 'Describe what the script should do:', multiline: true,
+    placeholder: 'e.g. restart nginx and tail its error log', confirmText: 'Generate'});
+  if (!desc) return;
+  aiGenerateScript(desc, 'script-edit-body');
 }
 
 function scriptEditorAIExplain() {
@@ -9787,7 +9848,9 @@ async function driftSetIgnore(path, ignored) {
   if (!_driftCurrentDevice) return;
   let reason = '';
   if (ignored) {
-    reason = prompt(`Ignore drift for:\n${path}\n\nOptional reason (why this is expected):`, '');
+    reason = await uiPrompt({title: 'Ignore drift',
+      message: `Ignore drift for ${path}. Optional reason (why this is expected):`,
+      placeholder: 'reason (optional)', confirmText: 'Ignore'});
     if (reason === null) return;   // operator cancelled
   }
   try {
@@ -11660,10 +11723,9 @@ async function snapshotRollback(name) {
   if (!_snapCtx) return;
   // Destructive — discards all state since the snapshot. Require the
   // operator to type the guest name to confirm (not just an OK click).
-  const typed = prompt(
-    `ROLLBACK is destructive — it discards ALL changes made to ` +
-    `"${_snapCtx.name}" since snapshot "${name}" was taken.\n\n` +
-    `To confirm, type the guest name exactly:`);
+  const typed = await uiPrompt({title: 'Roll back snapshot',
+    message: `ROLLBACK is destructive — it discards ALL changes made to "${_snapCtx.name}" since snapshot "${name}" was taken. To confirm, type the guest name exactly:`,
+    placeholder: _snapCtx.name, confirmText: 'Roll back', danger: true});
   if (typed === null) return;
   if (typed.trim() !== _snapCtx.name) {
     toast('Name did not match — rollback cancelled', 'error');
@@ -13194,7 +13256,9 @@ function _renderDrawerActions() {
 async function _drawerAdjustPoll() {
   const d = _drawerDeviceData || {};
   const cur = d.poll_interval || 60;
-  const val = prompt(`Poll interval for ${_drawerDeviceName} (seconds, min 30):`, cur);
+  const val = await uiPrompt({title: 'Adjust poll interval',
+    message: `Poll interval for ${_drawerDeviceName} (seconds, min 30):`,
+    value: String(cur), confirmText: 'Save'});
   if (!val) return;
   const n = parseInt(val, 10);
   if (isNaN(n) || n < 30) { toast('Must be ≥ 30 seconds', 'error'); return; }
@@ -14436,7 +14500,9 @@ function aiInsightCopy() {
 // `trigger` (skips the prompt).
 async function deviceRunbook(id, name, prefill) {
   const trigger = (prefill && String(prefill).trim())
-    || prompt(`Describe the issue / alert on ${name} to get a runbook:`);
+    || await uiPrompt({title: `Runbook — ${name}`,
+         message: `Describe the issue / alert on ${name} to get a runbook:`,
+         multiline: true, placeholder: 'e.g. disk filling up on /var', confirmText: 'Generate'});
   if (!trigger || !trigger.trim()) return;
   _openAiInsight(`Runbook — ${name}`);
   const r = await api('POST', `/devices/${id}/runbook`, {trigger: trigger.trim()});
@@ -15362,8 +15428,10 @@ function routerosFirewallExplain() {
   });
 }
 
-function routerosFirewallDraft() {
-  const desc = window.prompt('Describe the rule in plain English (e.g. "block 192.168.2.50 from reaching the internet"):', '');
+async function routerosFirewallDraft() {
+  const desc = await uiPrompt({title: 'Draft firewall rule',
+    message: 'Describe the rule in plain English:', multiline: true,
+    placeholder: 'e.g. block 192.168.2.50 from reaching the internet', confirmText: 'Draft'});
   if (!desc) return;
   openAIModal({
     title:   'Draft firewall rule',
@@ -15520,8 +15588,9 @@ async function _wolWithMacCheck(id, name, btn) {
     const errMsg = (data?.error || '').toLowerCase();
     if (!data || errMsg.includes('mac') || errMsg.includes('no mac')) {
       if (btn) { btn.textContent = _origText; btn.disabled = false; }
-      const mac = prompt(
-        `No MAC address stored for ${name}.\nEnter the MAC address (e.g. AA:BB:CC:DD:EE:FF):`, '');
+      const mac = await uiPrompt({title: 'Wake-on-LAN',
+        message: `No MAC address stored for ${name}. Enter the MAC address:`,
+        placeholder: 'AA:BB:CC:DD:EE:FF', confirmText: 'Save & wake'});
       if (!mac || !mac.trim()) return;
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       const save = await api('POST', `/devices/${id}`, { mac: mac.trim() });
@@ -18319,7 +18388,9 @@ async function runBulkAction() {
   // Destructive actions need explicit confirmation
   const destructive = ['reboot', 'shutdown'].includes(action);
   if (destructive) {
-    const word = prompt(`Type RUN to confirm ${action} on ${targets.length} device(s).`);
+    const word = await uiPrompt({title: `Confirm bulk ${action}`,
+      message: `This will ${action} ${targets.length} device(s). Type RUN to confirm.`,
+      placeholder: 'RUN', confirmText: action, danger: true});
     if (word !== 'RUN') { toast('Cancelled', 'info'); return; }
   } else {
     if (!confirm(`Run ${action} on ${targets.length} device(s)?`)) return;

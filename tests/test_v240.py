@@ -199,10 +199,11 @@ class TestSnapshotAssets(unittest.TestCase):
             self.assertIn(f'function {fn}', self.js, f'{fn} missing')
 
     def test_rollback_requires_typed_confirmation(self):
-        # Rollback is destructive — must require typing the guest name.
+        # Rollback is destructive — must require typing the guest name. (Uses the
+        # reusable uiPrompt modal now instead of the native prompt().)
         idx = self.js.find('function snapshotRollback')
         chunk = self.js[idx:idx + 900]
-        self.assertIn('prompt(', chunk)
+        self.assertIn('uiPrompt(', chunk)
         self.assertIn('_snapCtx.name', chunk)
 
 

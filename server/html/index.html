@@ -3630,6 +3630,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div><!-- /app -->
 
 <!-- ══ MODALS (unchanged) ════════════════════════════════════════════════════════════════ -->
+<!-- Reusable promise-based prompt (replaces native window.prompt()). Driven by
+     uiPrompt({title, message, value, placeholder, type, confirmText, danger,
+     multiline}) in app.js, which resolves to the entered string or null. -->
+<div class="modal-overlay" id="ui-prompt-modal"><div class="modal">
+  <div class="modal-title" id="ui-prompt-title"></div>
+  <div class="modal-subtitle" id="ui-prompt-message"></div>
+  <div class="form-group">
+    <input type="text" id="ui-prompt-input" class="form-input" autocomplete="off">
+    <textarea id="ui-prompt-textarea" class="form-input d-none" rows="3"></textarea>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="_uiPromptCancel">Cancel</button>
+    <button class="btn-primary" id="ui-prompt-confirm" data-action="_uiPromptOk">OK</button>
+  </div>
+</div></div>
 <div class="modal-overlay" id="ldap-test-user-modal"><div class="modal">
   <div class="modal-title">Test LDAP user login</div>
   <div class="modal-subtitle">Enter credentials to verify the full authentication path. No session is created — this is purely a test.</div>
