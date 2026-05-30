@@ -465,6 +465,14 @@ import rag_index
 import forecast
 import compliance
 import ai_insights
+# Pure input-sanitisation leaf helpers (extracted from this file). Imported back
+# by name so existing call sites are unchanged; sanitize.py has no api deps.
+from sanitize import (
+    _sanitize_str, _sanitize_hostname, _sanitize_ip, _sanitize_mac,
+    _sanitize_version,
+    MAX_HOSTNAME_LEN, MAX_VERSION_LEN, MAX_IP_LEN, MAX_MAC_LEN,
+    _IP_RE, _MAC_RE, _VER_RE,
+)
 
 # Default values — overridable via /api/config (v1.8.4)
 DEFAULT_TOKEN_TTL_SHORT  = 86400        # 24h — when "remember me" is unchecked
@@ -887,12 +895,10 @@ LOGIN_LOCKOUT_TIME = 600   # 10-minute lockout
 
 # ── Input size limits ──────────────────────────────────────────────────────────
 MAX_BODY_BYTES    = 50 * 1024 * 1024  # 50 MB — raised from 64 KB in v1.7.0 for package-list uploads
-MAX_HOSTNAME_LEN  = 253
+# MAX_HOSTNAME_LEN / MAX_VERSION_LEN / MAX_IP_LEN / MAX_MAC_LEN now live in
+# sanitize.py (imported above), next to the sanitisers that use them.
 MAX_NAME_LEN      = 64
 MAX_OS_LEN        = 128
-MAX_VERSION_LEN   = 32
-MAX_IP_LEN        = 45      # IPv6 max
-MAX_MAC_LEN       = 17
 MAX_TAG_LEN       = 32
 MAX_TAG_COUNT     = 10
 MAX_GROUP_LEN     = 64
@@ -1976,52 +1982,10 @@ def current_username():
     return username
 
 # ── Input sanitization helpers ─────────────────────────────────────────────────
-_IP_RE  = re.compile(
-    r'^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)'  # IPv4
-    r'|(?:[0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}$'                                # IPv6 simplified
-)
-_MAC_RE = re.compile(r'^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$')
-_VER_RE = re.compile(r'^\d{1,4}\.\d{1,4}(?:\.\d{1,4})?(?:[.\-]\w{1,16})?$')
-
-def _sanitize_str(value, max_len, allow_empty=True):
-    """Truncate and strip a string field."""
-    if value is None:
-        return ''
-    s = str(value).strip()
-    if not allow_empty and not s:
-        return ''
-    return s[:max_len]
-
-def _sanitize_hostname(h):
-    """RFC-1123 hostname: letters, digits, hyphens, dots. Max 253 chars."""
-    h = _sanitize_str(h, MAX_HOSTNAME_LEN)
-    # Strip anything that isn't hostname-safe
-    h = re.sub(r'[^a-zA-Z0-9.\-]', '', h)
-    return h[:MAX_HOSTNAME_LEN] or 'unknown'
-
-def _sanitize_ip(ip):
-    if not ip:
-        return ''
-    ip = str(ip).strip()[:MAX_IP_LEN]
-    if _IP_RE.match(ip):
-        return ip
-    return ''
-
-def _sanitize_mac(mac):
-    if not mac:
-        return ''
-    mac = str(mac).strip()[:MAX_MAC_LEN]
-    if _MAC_RE.match(mac):
-        return mac
-    return ''
-
-def _sanitize_version(v):
-    if not v:
-        return ''
-    v = str(v).strip()[:MAX_VERSION_LEN]
-    if _VER_RE.match(v):
-        return v
-    return ''
+# _sanitize_str / _sanitize_hostname / _sanitize_ip / _sanitize_mac /
+# _sanitize_version and the _IP_RE/_MAC_RE/_VER_RE regexes now live in
+# sanitize.py (imported at the top). _sanitize_monitor_target stays here because
+# it reads config (load(CONFIG_FILE)) and so isn't a pure leaf.
 
 def _sanitize_monitor_target(mtype, target):
     """Validate monitor targets to prevent SSRF and flag injection."""
