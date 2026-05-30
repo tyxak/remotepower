@@ -13476,6 +13476,58 @@ def _compute_attention():
                 'summary':  f'New SSH key for {user} — fingerprint {fp}',
             })
 
+    # v3.4.0: hardware health (SMART / kernel) + disk-fill forecast. Same
+    # data the device drawer's Health & Hardware card shows; surfaced here so
+    # a dying disk or an imminent full filesystem lands on the home dashboard,
+    # not just in the drawer. Agent hosts only (hardware isn't reported for
+    # agentless devices), so iterate `monitored`.
+    try:
+        hw_all = load(HARDWARE_FILE) or {}
+        for dev_id, dev in monitored.items():
+            rec = hw_all.get(dev_id) or {}
+            bad = [d for d in (rec.get('smart') or [])
+                   if d.get('health') and d.get('health') != 'PASSED']
+            if bad:
+                items.append({
+                    'severity': 'critical', 'kind': 'hardware',
+                    'device':   dev.get('name', dev_id),
+                    'summary':  'SMART failure on '
+                                + ', '.join(d.get('device', '?') for d in bad[:3]),
+                })
+            kern = rec.get('kernel') or {}
+            if kern.get('reboot_for_kernel'):
+                items.append({
+                    'severity': 'warning', 'kind': 'hardware',
+                    'device':   dev.get('name', dev_id),
+                    'summary':  f'Newer kernel installed ({kern.get("latest_installed", "?")}) '
+                                f'— reboot to apply',
+                })
+    except Exception:
+        pass
+
+    try:
+        mh_all = load(METRICS_HIST_FILE) or {}
+        for dev_id, dev in monitored.items():
+            samples = (mh_all.get(dev_id) or {}).get('samples') or []
+            for m in forecast.forecast_mounts(samples):
+                d2f = m.get('days_to_full')
+                if d2f is None:
+                    continue
+                if d2f <= 7:
+                    sev = 'critical'
+                elif d2f <= 21:
+                    sev = 'warning'
+                else:
+                    continue
+                items.append({
+                    'severity': sev, 'kind': 'disk',
+                    'device':   dev.get('name', dev_id),
+                    'summary':  f'{m["path"]} fills in ~{int(round(d2f))} days at current '
+                                f'growth ({m["current_percent"]}% now)',
+                })
+    except Exception:
+        pass
+
     items.sort(key=lambda i: _ATTN_RANK.get(i['severity'], 0), reverse=True)
 
     # v3.2.3: routing matrix gate — NA shows only kinds whose

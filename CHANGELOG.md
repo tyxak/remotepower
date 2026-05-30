@@ -23,9 +23,16 @@ In development.
   anomaly findings link straight to the device drawer and to a prefilled AI
   runbook; compliance FAIL rows get a **Fix →** deep-link to the page that
   remediates them (Patches, CVEs, TLS, Audit, Settings…); discovered LAN hosts
-  get **Add as device** (pre-fills the agentless-device form); and a failing
-  SMART disk or an imminent disk-fill forecast offers a one-click,
-  context-prefilled runbook. Less hunting between pages.
+  get **Add as device** (pre-fills the agentless-device form); a failing SMART
+  disk, an imminent disk-fill forecast, or a device's CVE findings each offer a
+  one-click, context-prefilled runbook; and the drawer's "What changed" links
+  to that device's config-drift view. Less hunting between pages.
+- **SMART failures, outdated kernels, and disk-fill forecasts now surface
+  fleet-wide.** They already fired webhooks and landed in the Alerts inbox and
+  Recent Activity; they now also appear on the home **Needs Attention** digest
+  (a dying disk = critical; a newer-kernel reboot = warning; "/ fills in ~N
+  days" = warning/critical by urgency), and the new **Hardware health** row in
+  the notification routing matrix lets you route them per channel.
 - **Disk SMART health.** The agent runs `smartctl` on each physical disk
   (best-effort, skipped if not installed) and reports overall health plus
   the attributes that matter — reallocated/pending/offline-uncorrectable

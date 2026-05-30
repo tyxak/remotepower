@@ -10369,6 +10369,9 @@ async function _renderHomeAttention(preloaded) {
     cpu:                'devices',
     container:          'containers',
     acme:               'tls',
+    // v3.4.0: hardware health (SMART / kernel). Disk-fill forecast cards use
+    // the existing 'disk' kind, already routed to devices above.
+    hardware:           'devices',
   };
   const PILL = {critical: 'critical', warning: 'warn', info: 'info'};
   target.innerHTML = items.slice(0, 10).map(i => {
@@ -13619,6 +13622,15 @@ async function _loadAuditSection(key) {
             </div>`;
           }).join('') ||
           '<div class="c-green">No CVEs found.</div>';
+        // Cross-feature: CVE findings → a prefilled AI remediation runbook.
+        if (crit > 0 || high > 0) {
+          const top = (bySev.critical || []).concat(bySev.high || [])
+            .map(f => f.cve_id || f.vuln_id || f.id || '').filter(Boolean).slice(0, 6).join(', ');
+          const trig = `${_drawerDeviceName} has ${crit} critical and ${high} high CVE finding(s)`
+            + (top ? ` (e.g. ${top})` : '') + '. Give me a prioritized, safe remediation runbook.';
+          body.insertAdjacentHTML('beforeend',
+            `<div class="mt-8"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName || '')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen', 13)} Suggest a remediation runbook &rarr;</a></div>`);
+        }
         break;
       }
 
@@ -14075,7 +14087,8 @@ function _renderHardwareSection(id, hw, fc, ch) {
   const changes = (ch && ch.changes) || [];
   if (changes.length) {
     h += `<div class="hw-block"><div class="hw-h">What changed (last 7 days)</div>
-      <ul class="hw-changes">` + changes.map(c => `<li>${escHtml(c)}</li>`).join('') + `</ul></div>`;
+      <ul class="hw-changes">` + changes.map(c => `<li>${escHtml(c)}</li>`).join('') + `</ul>
+      <div class="mt-6"><a class="compliance-fix" data-action="openDriftForDevice" data-arg="${escAttr(_drawerDeviceName||'')}">${_icon('search',13)} Check watched-file config drift &rarr;</a></div></div>`;
   }
 
   // ── Passive inventory ──────────────────────────────────────────────
@@ -14411,6 +14424,17 @@ function complianceFix(topic) {
   const btn = document.querySelector(`.nav-btn[data-page="${page}"]`);
   showPage(page, btn);
   if (topic === 'mfa') setTimeout(() => { try { switchSettingsTab('security'); } catch (_) {} }, 60);
+}
+
+// Cross-feature: "What changed" → Drift, pre-filtered to this device.
+function openDriftForDevice(name) {
+  const btn = document.querySelector('.nav-btn[data-page="drift"]');
+  showPage('drift', btn);
+  if (!name) return;
+  setTimeout(() => {
+    const f = document.getElementById('drift-filter');
+    if (f) { f.value = name; f.dispatchEvent(new Event('input', { bubbles: true })); }
+  }, 80);
 }
 
 // #14 compliance report (Compliance page).

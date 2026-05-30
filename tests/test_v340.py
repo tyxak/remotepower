@@ -483,6 +483,25 @@ class TestCrossFeatureLinks(unittest.TestCase):
     def test_agentless_open_accepts_prefill(self):
         self.assertIn('function agentlessAddOpen(prefill)', self.APP)
 
+    def test_more_cross_links(self):
+        for fn in ('function openDriftForDevice',):
+            self.assertIn(fn, self.APP)
+        # CVE drawer section → prefilled remediation runbook
+        self.assertIn('Suggest a remediation runbook', self.APP)
+        # "What changed" → drift
+        self.assertIn('openDriftForDevice', self.APP)
+        # NA renderer routes the hardware kind
+        self.assertIn('hardware:', self.APP)
+
+    def test_na_surfaces_hardware(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        # the NA cards live near the end of _compute_attention
+        seg = api[api.index('def _compute_attention'):
+                  api.index('def _attention_cache_file')]
+        self.assertIn("'kind': 'hardware'", seg)
+        self.assertIn('forecast.forecast_mounts', seg)
+        self.assertIn('SMART failure on', seg)
+
     def test_compliance_topic_emitted(self):
         import compliance
         rep = compliance.build_report({'pending_patches_devices': ['x'],
