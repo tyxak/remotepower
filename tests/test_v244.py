@@ -71,11 +71,10 @@ class TestHeartbeatPushesMailboxPaths(unittest.TestCase):
         except SystemExit:
             pass
         except Exception:
-            # If heartbeat needs more scaffolding than we've stubbed,
-            # fall back to asserting the fix is in the source — the
-            # behavioural guarantee we care about.
-            src = (_CGI_BIN / 'api.py').read_text()
-            self.assertIn("saved_dev['mailbox_paths']", src)
+            # If heartbeat needs more scaffolding than we've stubbed, fall back
+            # to asserting the fix is in place — mailbox_paths is part of the
+            # heartbeat passthrough contract that caches it into saved_dev.
+            self.assertIn('mailbox_paths', api._HEARTBEAT_PASSTHROUGH_FIELDS)
             return
         # If the heartbeat ran, the response must carry the paths.
         self.assertIn('body', cap)
@@ -84,11 +83,11 @@ class TestHeartbeatPushesMailboxPaths(unittest.TestCase):
             ['/var/mail/vhosts/example.com/jmo/new'])
 
     def test_saved_dev_caches_mailbox_paths(self):
-        # Direct guard on the fix: the source caches mailbox_paths into
-        # saved_dev (without this line the response always sent []).
-        src = (_CGI_BIN / 'api.py').read_text()
-        self.assertIn("saved_dev['mailbox_paths'] = dev.get('mailbox_paths'",
-                      src)
+        # Guard on the fix: mailbox_paths must be cached into saved_dev each
+        # heartbeat (without it the response always sent []). It's now part of
+        # the heartbeat passthrough contract; the read<->write round-trip is
+        # enforced behaviourally by tests/test_heartbeat_contract.py.
+        self.assertIn('mailbox_paths', self.api._HEARTBEAT_PASSTHROUGH_FIELDS)
 
 
 class TestFavicon(unittest.TestCase):

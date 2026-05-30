@@ -13,8 +13,12 @@ Tests for v2.5.0 — Custom Monitoring Scripts.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from routing_harness import routes_to
 
 _ROOT = Path(__file__).parent.parent
 
@@ -170,35 +174,37 @@ class TestAPIHandlers(unittest.TestCase):
 # ── api.py: routing table ─────────────────────────────────────────────────────
 
 class TestRoutingTable(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.api = (_ROOT / 'server/cgi-bin/api.py').read_text()
-        # Find the main routing block
-        idx = cls.api.rfind('def main()')
-        cls.routes = cls.api[idx:]
+    """Behavioural: drive the real dispatcher and assert each custom-scripts
+    route reaches the right handler (was: grep the dispatcher source, which
+    broke when routes moved into the _EXACT_ROUTES table even though every
+    route still resolved correctly)."""
 
     def test_list_route(self):
-        self.assertIn("/api/custom-scripts'", self.routes)
+        self.assertEqual(routes_to('GET', '/api/custom-scripts'),
+                         'handle_custom_scripts_list')
 
     def test_results_route(self):
-        self.assertIn('/api/custom-scripts/results', self.routes)
+        self.assertEqual(routes_to('GET', '/api/custom-scripts/results'),
+                         'handle_custom_scripts_results')
 
     def test_create_route(self):
-        self.assertIn('handle_custom_script_create', self.routes)
+        self.assertEqual(routes_to('POST', '/api/custom-scripts'),
+                         'handle_custom_script_create')
 
     def test_update_route(self):
-        self.assertIn('handle_custom_script_update', self.routes)
+        self.assertEqual(routes_to('PUT', '/api/custom-scripts/abc'),
+                         'handle_custom_script_update')
 
     def test_delete_route(self):
-        self.assertIn('handle_custom_script_delete', self.routes)
+        self.assertEqual(routes_to('DELETE', '/api/custom-scripts/abc'),
+                         'handle_custom_script_delete')
 
     def test_results_route_before_id_routes(self):
-        """results must be matched before the :id catch-all."""
-        results_idx = self.routes.find('/api/custom-scripts/results')
-        id_idx      = self.routes.find('handle_custom_script_get')
-        self.assertLess(results_idx, id_idx,
-                        '/results route must appear before the :id catch-all')
+        """GET /results must reach the results handler, not the :id catch-all."""
+        self.assertEqual(routes_to('GET', '/api/custom-scripts/results'),
+                         'handle_custom_scripts_results')
+        self.assertEqual(routes_to('GET', '/api/custom-scripts/some-id'),
+                         'handle_custom_script_get')
 
 
 # ── api.py: heartbeat wiring ──────────────────────────────────────────────────

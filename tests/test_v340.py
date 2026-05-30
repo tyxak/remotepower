@@ -12,10 +12,14 @@ retrieval live in tests/test_rag.py; this file pins the version bump + that
 the feature is wired and shipped end to end.
 """
 import re
+import sys
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from routing_harness import routes_to  # noqa: E402
 
 
 class TestVersionBumps(unittest.TestCase):
@@ -358,12 +362,18 @@ class TestServerWiring(unittest.TestCase):
             self.assertIn(fn, self.API)
 
     def test_routes_registered(self):
-        for route in ("endswith('/hardware') and m == 'GET'",
-                      "endswith('/speedtest') and m == 'POST'",
-                      "endswith('/quarantine') and m == 'PATCH'",
-                      "pi == '/api/ai/cron'", "pi == '/api/compliance'",
-                      "pi == '/api/discovery'"):
-            self.assertIn(route, self.API)
+        # Behavioural: each path must reach its handler through the real
+        # dispatcher (was: grep for the elif source line, which broke when the
+        # exact routes moved into the _EXACT_ROUTES table).
+        for method, path, handler in (
+                ('GET',   '/api/devices/abc/hardware',   'handle_device_hardware'),
+                ('POST',  '/api/devices/abc/speedtest',   'handle_device_speedtest'),
+                ('PATCH', '/api/devices/abc/quarantine',  'handle_device_quarantine'),
+                ('POST',  '/api/ai/cron',                 'handle_ai_cron'),
+                ('GET',   '/api/compliance',              'handle_compliance'),
+                ('GET',   '/api/discovery',               'handle_discovery')):
+            self.assertEqual(routes_to(method, path), handler,
+                             f'{method} {path} must route to {handler}')
 
     def test_new_events_registered(self):
         self.assertIn("'smart_failure'", self.API)

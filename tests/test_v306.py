@@ -15,6 +15,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from routing_harness import routes_to  # noqa: E402
+
 
 class TestVersionBumps(unittest.TestCase):
     """Loosened to regex — v3.1.0 now holds the strict pin."""
@@ -92,10 +95,8 @@ class TestHealthEndpoint(unittest.TestCase):
             'handle_health must remain unauthenticated')
 
     def test_route_registered(self):
-        self.assertIn(
-            "elif pi == '/api/health' and m == 'GET': handle_health()",
-            self.api_py,
-            "dispatcher must route GET /api/health to handle_health()")
+        self.assertEqual(routes_to('GET', '/api/health'), 'handle_health',
+                         "dispatcher must route GET /api/health to handle_health()")
 
     def test_in_pwchg_allowed_paths(self):
         # Must be reachable even from a session pending forced password change.
@@ -127,9 +128,8 @@ class TestCspReportEndpoint(unittest.TestCase):
             'handle_csp_report() must be defined')
 
     def test_route_registered(self):
-        self.assertIn(
-            "elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()",
-            self.api_py)
+        self.assertEqual(routes_to('POST', '/api/csp-report'),
+                         'handle_csp_report')
 
     def test_body_size_cap(self):
         # Defensive cap so the endpoint can't be used as an audit-log
@@ -348,9 +348,8 @@ class TestSecuritySettingsPane(unittest.TestCase):
 
     def test_security_diag_endpoint_route(self):
         api_py = self.API_PY.read_text()
-        self.assertIn(
-            "elif pi == '/api/security/diag' and m == 'GET': handle_security_diag()",
-            api_py)
+        self.assertEqual(routes_to('GET', '/api/security/diag'),
+                         'handle_security_diag')
         # Handler is admin-only.
         m = re.search(
             r'(?ms)^def handle_security_diag\(\):.+?(?=^def )',

@@ -22130,104 +22130,188 @@ def _enforce_password_change():
     })
 
 
-def main():
-    # v2.1.1: these per-request maintenance sweeps used to be wrapped in
-    # bare `except Exception: pass` blocks. That silently swallowed every
-    # error — including the ones an operator most needs to see: "why
-    # didn't the offline webhook fire?" / "why isn't the schedule
-    # running?". Now each one logs the exception traceback to stderr so
-    # it lands in nginx's error log, but still doesn't propagate (the
-    # CGI response itself must complete regardless of a maintenance
-    # task failing).
-    def _safe(fn, label, *args):
-        try:
-            fn(*args)
-        except Exception as exc:
-            sys.stderr.write(
-                f"[remotepower] {label} failed: {exc.__class__.__name__}: {exc}\n")
-            traceback.print_exc(file=sys.stderr)
-    # v3.3.0 flap-fix: peek at the request body if this is a heartbeat,
-    # so check_offline_webhooks can exempt the device that's actively
-    # proving it's alive. _peek_heartbeat_dev_id() reads the body
-    # cached so the actual handler doesn't have to re-read.
-    _hb_skip = _peek_heartbeat_dev_id()
-    _safe(check_offline_webhooks, 'check_offline_webhooks', _hb_skip)
-    # v1.11.4: container-data-stale sweep, mirroring the offline check.
-    # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
-    _safe(check_container_webhooks, 'check_container_webhooks')
-    # v1.11.8: monitor checks used to only run when somebody opened
-    # the Monitor page in the dashboard. Now they run on every CGI hit
-    # but gated to the configured interval (default 300s). For low-
-    # traffic servers this means monitors run whenever an agent
-    # heartbeats — typically every 60s, so the gate kicks in and the
-    # actual checks happen every interval.
-    _safe(run_monitors_if_due, 'run_monitors_if_due')
-    # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
-    # when-not-due pattern as run_monitors_if_due; the work itself is
-    # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
-    _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
-    # v3.3.4: ICMP reachability for agentless devices (icmp mode). Cheap-
-    # when-not-due; check_offline_webhooks skips agentless so this owns
-    # their up/down + offline/online alerts.
-    _safe(run_agentless_reachability_if_due, 'run_agentless_reachability_if_due')
-    # v3.3.4: refresh RouterOS firmware-update state for the Patches page.
-    _safe(run_routeros_update_check_if_due, 'run_routeros_update_check_if_due')
-    # v3.3.4: refresh registry digests for container image-update detection.
-    # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
-    _safe(run_image_scan_if_due, 'run_image_scan_if_due')
-    _safe(process_schedule,    'process_schedule')
-    # v3.3.0: ping Healthchecks.io (or compatible) when configured.
-    # External watchdog over the server itself — if RemotePower stops
-    # serving requests, hc.io flips to red and pages someone.
-    _safe(ping_healthchecks_if_due, 'ping_healthchecks_if_due')
+# ── Exact-match route table (v3.4.0 router refactor) ────────────────────────
+# (method, path) -> no-arg handler for fixed-path routes; None method = any
+# verb. _dispatch consults this BEFORE the ordered pattern chain. Dict keys are
+# unique by construction, so no exact route can silently shadow another (a class
+# of bug the old hand-ordered elif chain was prone to). The remaining
+# prefix/suffix/substring/predicate routes stay in the ordered chain because they
+# need conditional matching. Built lazily because the handlers are defined later
+# in the file. tests/test_router_table.py proves every probe routes identically
+# to the pre-refactor inline chain.
+_EXACT_ROUTES = None
 
-    # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
-    # read + a constant set membership check. Done before route dispatch
-    # so every mutation handler is uniformly protected without needing
-    # an assert_writable() call at the top of each one.
-    _enforce_read_only()
 
-    # v3.0.2: CSRF defense-in-depth. The X-Token header is already
-    # CSRF-safe because browsers require a CORS preflight for any
-    # cross-origin request carrying a custom header, and we serve no
-    # permissive Access-Control-Allow-Origin. This adds a same-origin
-    # check on state-changing requests as belt-and-suspenders against
-    # future regressions (e.g. an operator turning on permissive CORS
-    # for an integration). API-key clients (CLI scripts, external
-    # automation) typically send no Origin at all — those are
-    # permitted; the check only rejects when an Origin/Referer IS sent
-    # and points elsewhere.
-    _enforce_same_origin()
+def _build_exact_routes():
+    return {
+        ('GET', '/api/acme'): handle_acme_list,
+        ('GET', '/api/acme/dns-credentials'): handle_acme_dns_credentials_get,
+        ('POST', '/api/acme/dns-credentials'): handle_acme_dns_credentials_set,
+        ('GET', '/api/agent/download'): handle_agent_download,
+        ('GET', '/api/agent/version'): handle_agent_version,
+        ('POST', '/api/ai/chat'): handle_ai_chat,
+        ('GET', '/api/ai/config'): handle_ai_config_get,
+        ('POST', '/api/ai/config'): handle_ai_config_set,
+        ('POST', '/api/ai/cron'): handle_ai_cron,
+        ('GET', '/api/ai/models'): handle_ai_models,
+        ('GET', '/api/ai/params'): handle_ai_params_get,
+        ('POST', '/api/ai/params'): handle_ai_params_save,
+        ('GET', '/api/ai/prompts'): handle_ai_prompts_get,
+        ('POST', '/api/ai/prompts'): handle_ai_prompts_save,
+        ('POST', '/api/ai/rag/reindex'): handle_ai_rag_reindex,
+        ('GET', '/api/ai/rag/status'): handle_ai_rag_status,
+        ('POST', '/api/ai/test'): handle_ai_test,
+        ('DELETE', '/api/alerts'): handle_alerts_clear,
+        ('GET', '/api/alerts'): handle_alerts_list,
+        ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
+        ('GET', '/api/alerts/summary'): handle_alerts_summary,
+        ('GET', '/api/apikeys'): handle_apikeys_list,
+        ('POST', '/api/apikeys'): handle_apikeys_create,
+        ('GET', '/api/attention'): handle_attention,
+        ('GET', '/api/audit-log'): handle_audit_log,
+        ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
+        ('GET', '/api/auth/oidc/start'): handle_oidc_start,
+        ('POST', '/api/auth/oidc/test'): handle_oidc_test,
+        ('GET', '/api/calendar'): handle_calendar_list,
+        ('POST', '/api/calendar'): handle_calendar_add,
+        ('GET', '/api/cmd-library'): handle_cmd_library_list,
+        ('POST', '/api/cmd-library'): handle_cmd_library_add,
+        ('GET', '/api/cmdb'): handle_cmdb_list,
+        ('POST', '/api/cmdb/vault/setup'): handle_cmdb_vault_setup,
+        ('GET', '/api/cmdb/vault/status'): handle_cmdb_vault_status,
+        ('POST', '/api/cmdb/vault/unlock'): handle_cmdb_vault_unlock,
+        ('POST', '/api/compose/fetch'): handle_compose_fetch,
+        ('GET', '/api/compose/stacks'): handle_compose_stacks_list,
+        ('POST', '/api/compose/stacks'): handle_compose_stack_create,
+        ('GET', '/api/config'): handle_config_get,
+        ('POST', '/api/config'): handle_config_save,
+        ('DELETE', '/api/confirmations'): handle_confirmations_clear,
+        ('GET', '/api/confirmations'): handle_confirmations_list,
+        ('GET', '/api/containers'): handle_containers_overview,
+        ('POST', '/api/csp-report'): handle_csp_report,
+        ('GET', '/api/custom-scripts'): handle_custom_scripts_list,
+        ('POST', '/api/custom-scripts'): handle_custom_script_create,
+        ('GET', '/api/custom-scripts/results'): handle_custom_scripts_results,
+        ('GET', '/api/cve/findings'): handle_cve_findings,
+        ('GET', '/api/cve/ignore'): handle_cve_ignore_list,
+        ('POST', '/api/cve/ignore'): handle_cve_ignore_add,
+        ('POST', '/api/cve/scan'): handle_cve_scan,
+        ('GET', '/api/dashboard/kinds'): handle_dashboard_kinds,
+        ('POST', '/api/dashboard/kinds'): handle_dashboard_kinds_set,
+        ('GET', '/api/debug-log'): handle_debug_log_download,
+        ('POST', '/api/debug-log'): handle_debug_log_post,
+        ('POST', '/api/devices/agentless'): handle_agentless_create,
+        ('GET', '/api/devices/sysinfo'): handle_sysinfo_batch,
+        ('GET', '/api/digest'): handle_digest,
+        ('GET', '/api/discovery'): handle_discovery,
+        ('GET', '/api/drift'): handle_drift_overview,
+        (None, '/api/enroll/pin'): handle_enroll_pin,
+        ('GET', '/api/enrollment-tokens'): handle_enroll_token_list,
+        ('POST', '/api/enrollment-tokens'): handle_enroll_token_create,
+        ('POST', '/api/exec'): handle_custom_cmd,
+        ('POST', '/api/exec/batch'): handle_exec_batch,
+        ('POST', '/api/exec/wait'): handle_longpoll_exec,
+        ('GET', '/api/export'): handle_export,
+        ('GET', '/api/health'): handle_health,
+        (None, '/api/heartbeat'): handle_heartbeat,
+        ('DELETE', '/api/history'): handle_history_clear,
+        ('GET', '/api/history'): handle_history,
+        ('GET', '/api/home'): handle_home,
+        ('POST', '/api/iac/generate'): handle_iac_generate,
+        ('POST', '/api/iac/request'): handle_iac_request,
+        ('GET', '/api/ignored'): handle_ignored_list,
+        ('POST', '/api/ignored'): handle_ignored_add,
+        ('POST', '/api/ignored/remove'): handle_ignored_remove,
+        ('GET', '/api/image-updates'): handle_image_updates_get,
+        ('POST', '/api/image-updates/ignore'): handle_image_ignore_add,
+        ('POST', '/api/image-updates/scan'): handle_image_updates_scan,
+        ('GET', '/api/inbound-webhooks'): handle_inbound_webhooks_list,
+        ('POST', '/api/inbound-webhooks'): handle_inbound_webhooks_create,
+        ('POST', '/api/internal/tls-webhook'): handle_tls_internal_webhook,
+        ('POST', '/api/ldap/test'): handle_ldap_test,
+        ('POST', '/api/ldap/test-user'): handle_ldap_test_user,
+        ('GET', '/api/links'): handle_links_list,
+        ('POST', '/api/links'): handle_link_add,
+        ('POST', '/api/logs'): handle_log_submit,
+        ('GET', '/api/logs/rules/global'): handle_log_rules_global_list,
+        ('POST', '/api/logs/rules/global'): handle_log_rules_global_add,
+        ('GET', '/api/logs/tail'): handle_log_tail,
+        ('GET', '/api/maintenance'): handle_maintenance_list,
+        ('POST', '/api/maintenance'): handle_maintenance_add,
+        ('GET', '/api/maintenance/suppressions'): handle_maintenance_suppressions,
+        ('POST', '/api/mcp/force_acme_rescan'): handle_mcp_force_acme_rescan,
+        ('POST', '/api/mcp/force_package_scan'): handle_mcp_force_package_scan,
+        ('POST', '/api/mcp/reboot_device'): handle_mcp_reboot_device,
+        ('POST', '/api/mcp/run_saved_script'): handle_mcp_run_saved_script,
+        ('GET', '/api/monitor'): handle_monitor_run,
+        ('DELETE', '/api/monitor/alerts/clear'): handle_monitor_alerts_clear,
+        ('GET', '/api/network-map'): handle_network_map,
+        ('PUT', '/api/network-map/positions'): handle_network_positions,
+        ('GET', '/api/network-map/tunnels'): handle_tunnels_list,
+        ('POST', '/api/network-map/tunnels'): handle_tunnel_add,
+        ('GET', '/api/openapi.json'): handle_openapi_spec,
+        ('POST', '/api/packages'): handle_packages_submit,
+        ('GET', '/api/patch-report'): handle_patch_report,
+        ('GET', '/api/patch-report/csv'): handle_patch_report_csv,
+        ('GET', '/api/patch-report/xml'): handle_patch_report_xml,
+        ('POST', '/api/proxmox/lxc/create'): handle_proxmox_lxc_create,
+        ('GET', '/api/proxmox/lxc/create-options'): handle_proxmox_lxc_create_options,
+        ('GET', '/api/proxmox/snapshots'): handle_proxmox_snapshots_list,
+        ('GET', '/api/proxmox/status'): handle_proxmox_status,
+        ('POST', '/api/proxmox/test'): handle_proxmox_test,
+        ('GET', '/api/public-info'): handle_public_info,
+        (None, '/api/reboot'): handle_reboot,
+        ('GET', '/api/schedule'): handle_schedule_list,
+        ('POST', '/api/schedule'): handle_schedule_add,
+        ('GET', '/api/scripts'): handle_scripts_list,
+        ('POST', '/api/scripts'): handle_scripts_add,
+        ('GET', '/api/security/diag'): handle_security_diag,
+        ('POST', '/api/self/backup-now'): handle_backup_run,
+        ('DELETE', '/api/self/backup-state'): handle_backup_clear,
+        ('GET', '/api/self/status'): handle_self_status,
+        ('GET', '/api/services'): handle_services_get,
+        (None, '/api/shutdown'): handle_shutdown,
+        ('POST', '/api/smtp/test'): handle_smtp_test,
+        ('GET', '/api/status'): handle_status,
+        ('GET', '/api/tasks'): handle_tasks_list,
+        ('POST', '/api/tasks'): handle_tasks_add,
+        ('GET', '/api/tls/targets'): handle_tls_list,
+        ('POST', '/api/tls/targets'): handle_tls_add,
+        ('POST', '/api/totp/confirm'): handle_totp_confirm,
+        ('POST', '/api/totp/disable'): handle_totp_disable,
+        ('POST', '/api/totp/setup'): handle_totp_setup,
+        ('GET', '/api/totp/status'): handle_totp_status,
+        ('DELETE', '/api/ui-prefs'): handle_ui_prefs_clear,
+        ('GET', '/api/ui-prefs'): handle_ui_prefs_get,
+        ('POST', '/api/ui-prefs'): handle_ui_prefs_set,
+        (None, '/api/update-device'): handle_update_device,
+        (None, '/api/upgrade-device'): handle_upgrade_device,
+        ('GET', '/api/users'): handle_users_list,
+        ('POST', '/api/users'): handle_user_create,
+        ('GET', '/api/version'): handle_version_check,
+        ('GET', '/api/webhook/log'): handle_webhook_log,
+        ('POST', '/api/webhook/test'): handle_webhook_test,
+        ('POST', '/api/webterm/audit'): handle_webterm_session_audit,
+        ('POST', '/api/webterm/auth'): handle_webterm_auth,
+        (None, '/api/wol'): handle_wol,
+    }
 
-    # v3.3.0: optional IP allowlist. Off by default; when on, blocks
-    # all UI/API access except agent paths and loopback. The save path
-    # for this config rejects edits that would lock the configurer out.
-    _enforce_ip_allowlist()
-
-    # v3.0.3: F2 — hard backstop for default-password admin accounts.
-    # The warning banner from 2.3.2 nags but doesn't *force* anything;
-    # an operator on the default password can ignore it and use the
-    # full app. This interceptor blocks every endpoint except the
-    # password-change route (and the bare server-info endpoint the
-    # login page reads) until must_change_password is cleared.
-    _enforce_password_change()
-
-    pi = path_info(); m = method()
-
+def _dispatch(pi, m):
+    """Route (method, path) to its handler. Extracted verbatim from main()
+    so the dispatch logic can be exercised in isolation by the router tests
+    (tests/test_router_table.py) — behaviour is identical to the old inline
+    chain."""
+    global _EXACT_ROUTES
+    if _EXACT_ROUTES is None:
+        _EXACT_ROUTES = _build_exact_routes()
+    _h = _EXACT_ROUTES.get((m, pi)) or _EXACT_ROUTES.get((None, pi))
+    if _h is not None:
+        _h(); return
     if pi == '/api/login': handle_login()
     # v3.2.0 (B3): OIDC SSO endpoints — must come before public-info
-    elif pi == '/api/auth/oidc/start' and m == 'GET':    handle_oidc_start()
-    elif pi == '/api/auth/oidc/callback' and m == 'GET': handle_oidc_callback()
-    elif pi == '/api/auth/oidc/test' and m == 'POST':    handle_oidc_test()
-    elif pi == '/api/public-info' and m == 'GET': handle_public_info()
-    elif pi == '/api/health' and m == 'GET': handle_health()
-    elif pi == '/api/csp-report' and m == 'POST': handle_csp_report()
-    elif pi == '/api/security/diag' and m == 'GET': handle_security_diag()
-    elif pi == '/api/openapi.json' and m == 'GET': handle_openapi_spec()
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     # v1.11.0: agentless device creation. Must precede the prefix-DELETE
     # check so a POST to /api/devices/agentless doesn't get misrouted.
-    elif pi == '/api/devices/agentless' and m == 'POST': handle_agentless_create()
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
@@ -22319,8 +22403,6 @@ def main():
         handle_device_runbook(pi[len('/api/devices/'):-len('/runbook')])
     elif pi.startswith('/api/devices/') and pi.endswith('/doc-draft') and m == 'POST':
         handle_device_doc_draft(pi[len('/api/devices/'):-len('/doc-draft')])
-    elif pi == '/api/devices/sysinfo' and m == 'GET':
-        handle_sysinfo_batch()
     elif pi.startswith('/api/devices/') and pi.endswith('/sysinfo') and m == 'GET':
         handle_sysinfo(pi[len('/api/devices/'):-len('/sysinfo')])
     elif pi.startswith('/api/devices/') and pi.endswith('/uninstall-agent') and m == 'POST':
@@ -22329,42 +22411,17 @@ def main():
         handle_metrics(pi[len('/api/devices/'):-len('/metrics')])
     elif pi.startswith('/api/devices/') and pi.endswith('/allowlist'):
         handle_device_allowlist(pi[len('/api/devices/'):-len('/allowlist')])
-    elif pi == '/api/enroll/pin': handle_enroll_pin()
     elif pi == '/api/enroll/register': handle_enroll_register()
     # v1.11.10: pre-shared one-time-use enrollment tokens for non-interactive
     # enrollment. Same final destination as /enroll/register, but via a
     # different credential path.
-    elif pi == '/api/enrollment-tokens' and m == 'POST': handle_enroll_token_create()
-    elif pi == '/api/enrollment-tokens' and m == 'GET':  handle_enroll_token_list()
     elif pi.startswith('/api/enrollment-tokens/') and m == 'DELETE':
         handle_enroll_token_revoke(pi[len('/api/enrollment-tokens/'):])
     # v1.11.11: web terminal — only the auth + audit endpoints live in CGI.
     # The actual websocket /api/webterm/connect is proxied by nginx to the
     # remotepower-webterm daemon (see packaging/nginx-webterm.conf).
-    elif pi == '/api/webterm/auth'  and m == 'POST': handle_webterm_auth()
-    elif pi == '/api/webterm/audit' and m == 'POST': handle_webterm_session_audit()
-    elif pi == '/api/heartbeat': handle_heartbeat()
-    elif pi == '/api/shutdown': handle_shutdown()
-    elif pi == '/api/reboot': handle_reboot()
-    elif pi == '/api/update-device': handle_update_device()
-    elif pi == '/api/upgrade-device': handle_upgrade_device()
-    elif pi == '/api/wol': handle_wol()
-    elif pi == '/api/debug-log' and m == 'GET': handle_debug_log_download()
-    elif pi == '/api/debug-log' and m == 'POST': handle_debug_log_post()
-    elif pi == '/api/iac/request'  and m == 'POST': handle_iac_request()
-    elif pi == '/api/iac/generate' and m == 'POST': handle_iac_generate()
     elif pi.startswith('/api/iac/status/') and m == 'GET': handle_iac_status(pi[len('/api/iac/status/'):])
     elif pi.startswith('/api/iac/payload/') and m == 'GET': handle_iac_payload(pi[len('/api/iac/payload/'):])
-    elif pi == '/api/ai/prompts' and m == 'GET':  handle_ai_prompts_get()
-    elif pi == '/api/ai/prompts' and m == 'POST': handle_ai_prompts_save()
-    elif pi == '/api/ignored'        and m == 'GET':  handle_ignored_list()
-    elif pi == '/api/ignored'        and m == 'POST': handle_ignored_add()
-    elif pi == '/api/ignored/remove' and m == 'POST': handle_ignored_remove()
-    elif pi == '/api/ai/params' and m == 'GET':  handle_ai_params_get()
-    elif pi == '/api/ai/params' and m == 'POST': handle_ai_params_save()
-    elif pi == '/api/acme' and m == 'GET':                       handle_acme_list()
-    elif pi == '/api/acme/dns-credentials' and m == 'GET':       handle_acme_dns_credentials_get()
-    elif pi == '/api/acme/dns-credentials' and m == 'POST':      handle_acme_dns_credentials_set()
     elif pi.startswith('/api/acme/') and pi.endswith('/issue') and m == 'POST':
         handle_acme_issue(pi[len('/api/acme/'):-len('/issue')])
     elif pi.startswith('/api/acme/') and '/log/' in pi and m == 'GET':
@@ -22396,44 +22453,20 @@ def main():
     elif pi.startswith('/api/mitigate/') and '/ai/' in pi and m == 'POST':
         _rest = pi[len('/api/mitigate/'):]; _did, _aid = _rest.split('/ai/', 1)
         handle_mitigate_ai(_did, _aid)
-    elif pi == '/api/monitor' and m == 'GET': handle_monitor_run()
-    elif pi == '/api/config' and m == 'GET': handle_config_get()
-    elif pi == '/api/config' and m == 'POST': handle_config_save()
-    elif pi == '/api/history' and m == 'GET': handle_history()
-    elif pi == '/api/history' and m == 'DELETE': handle_history_clear()
-    elif pi == '/api/users' and m == 'GET': handle_users_list()
-    elif pi == '/api/users' and m == 'POST': handle_user_create()
     elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'DELETE':
         handle_user_delete(pi[len('/api/users/'):])
     elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH':
         handle_user_update(pi[len('/api/users/'):])
     elif pi == '/api/users/passwd' and m == 'POST': handle_user_passwd()
     # v1.11.5: per-user UI preferences (density / filter / sort persistence)
-    elif pi == '/api/ui-prefs' and m == 'GET':    handle_ui_prefs_get()
-    elif pi == '/api/ui-prefs' and m == 'POST':   handle_ui_prefs_set()
-    elif pi == '/api/ui-prefs' and m == 'DELETE': handle_ui_prefs_clear()
-    elif pi == '/api/totp/setup' and m == 'POST': handle_totp_setup()
-    elif pi == '/api/totp/confirm' and m == 'POST': handle_totp_confirm()
-    elif pi == '/api/totp/disable' and m == 'POST': handle_totp_disable()
-    elif pi == '/api/totp/status' and m == 'GET': handle_totp_status()
-    elif pi == '/api/agent/version' and m == 'GET': handle_agent_version()
-    elif pi == '/api/agent/download' and m == 'GET': handle_agent_download()
     elif pi.startswith('/api/devices/') and pi.endswith('/agent/force-upgrade') and m == 'POST':
         handle_force_agent_upgrade(pi[len('/api/devices/'):-len('/agent/force-upgrade')])
     elif pi.startswith('/api/devices/') and pi.endswith('/acme/force-rescan') and m == 'POST':
         handle_force_acme_rescan(pi[len('/api/devices/'):-len('/acme/force-rescan')])
-    elif pi == '/api/version' and m == 'GET': handle_version_check()
-    elif pi == '/api/self/status' and m == 'GET': handle_self_status()
-    elif pi == '/api/self/backup-now' and m == 'POST': handle_backup_run()
-    elif pi == '/api/self/backup-state' and m == 'DELETE': handle_backup_clear()
-    elif pi == '/api/schedule' and m == 'GET': handle_schedule_list()
-    elif pi == '/api/schedule' and m == 'POST': handle_schedule_add()
     elif pi.startswith('/api/schedule/') and m == 'PUT':
         handle_schedule_update(pi[len('/api/schedule/'):])
     elif pi.startswith('/api/schedule/') and m == 'DELETE':
         handle_schedule_delete(pi[len('/api/schedule/'):])
-    elif pi == '/api/exec' and m == 'POST': handle_custom_cmd()
-    elif pi == '/api/exec/wait' and m == 'POST': handle_longpoll_exec()
     elif pi.startswith('/api/devices/') and pi.endswith('/output') and m == 'GET':
         handle_cmd_output(pi[len('/api/devices/'):-len('/output')])
     elif pi.startswith('/api/devices/') and pi.endswith('/update-logs') and m == 'GET':
@@ -22446,15 +22479,11 @@ def main():
         from urllib.parse import parse_qs
         label = parse_qs(os.environ.get('QUERY_STRING', '')).get('label', [''])[0]
         handle_monitor_history(label)
-    elif pi == '/api/cmd-library' and m == 'GET': handle_cmd_library_list()
-    elif pi == '/api/cmd-library' and m == 'POST': handle_cmd_library_add()
     elif pi.startswith('/api/cmd-library/') and m == 'PUT':
         handle_cmd_library_update(pi[len('/api/cmd-library/'):])
     elif pi.startswith('/api/cmd-library/') and m == 'DELETE':
         handle_cmd_library_delete(pi[len('/api/cmd-library/'):])
     # ── v2.1.0: multi-line script library + batch exec ─────────────────────
-    elif pi == '/api/scripts' and m == 'GET': handle_scripts_list()
-    elif pi == '/api/scripts' and m == 'POST': handle_scripts_add()
     elif pi.startswith('/api/scripts/') and pi.endswith('/dry-run') and m == 'POST':
         handle_scripts_dry_run(pi[len('/api/scripts/'):-len('/dry-run')])
     elif pi.startswith('/api/scripts/') and m == 'GET':
@@ -22463,25 +22492,15 @@ def main():
         handle_scripts_update(pi[len('/api/scripts/'):])
     elif pi.startswith('/api/scripts/') and m == 'DELETE':
         handle_scripts_delete(pi[len('/api/scripts/'):])
-    elif pi == '/api/exec/batch' and m == 'POST': handle_exec_batch()
     elif pi.startswith('/api/exec/batch/') and m == 'GET':
         handle_exec_batch_status(pi[len('/api/exec/batch/'):])
     # v2.1.3: AI assistant
-    elif pi == '/api/ai/config' and m == 'GET':  handle_ai_config_get()
-    elif pi == '/api/ai/config' and m == 'POST': handle_ai_config_set()
-    elif pi == '/api/ai/chat'   and m == 'POST': handle_ai_chat()
-    elif pi == '/api/ai/test'   and m == 'POST': handle_ai_test()
-    elif pi == '/api/ai/models' and m == 'GET':  handle_ai_models()
     elif pi == '/api/ai/stats'  and m == 'GET':  handle_ai_stats()
     # v3.4.0: RAG over your infrastructure
-    elif pi == '/api/ai/rag/status'  and m == 'GET':  handle_ai_rag_status()
-    elif pi == '/api/ai/rag/reindex' and m == 'POST': handle_ai_rag_reindex()
     elif pi == '/api/ai/rag/search'  and m == 'POST': handle_ai_rag_search()
     # v3.4.0: on-demand AI insights (cron builder, fleet anomaly scan)
-    elif pi == '/api/ai/cron'    and m == 'POST': handle_ai_cron()
     elif pi == '/api/ai/anomaly' and m == 'POST': handle_ai_anomaly()
     # v3.4.0: network discovery + compliance reports
-    elif pi == '/api/discovery'  and m == 'GET':  handle_discovery()
     elif pi == '/api/compliance' and m == 'GET':  handle_compliance()
     # v2.1.7: per-device AI-generated runbooks
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'GET':
@@ -22491,8 +22510,6 @@ def main():
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'DELETE':
         handle_runbook_delete(pi[len('/api/devices/'):-len('/runbook')])
     # v2.2.0: configuration drift detection
-    elif pi == '/api/drift' and m == 'GET':
-        handle_drift_overview()
     elif pi.startswith('/api/devices/') and pi.endswith('/drift') and m == 'GET':
         handle_device_drift_get(pi[len('/api/devices/'):-len('/drift')])
     elif pi.startswith('/api/devices/') and pi.endswith('/drift/baseline') and m == 'POST':
@@ -22514,39 +22531,17 @@ def main():
         handle_mailwatch_overview()
     # v2.4.6: update-available check is handled by /api/version above
     # v2.4.7: needs-attention digest + machine-readable status endpoint
-    elif pi == '/api/attention' and m == 'GET':
-        handle_attention()
-    elif pi == '/api/home' and m == 'GET':
-        handle_home()
-    elif pi == '/api/dashboard/kinds' and m == 'GET':
-        handle_dashboard_kinds()
-    elif pi == '/api/dashboard/kinds' and m == 'POST':
-        handle_dashboard_kinds_set()
-    elif pi == '/api/status' and m == 'GET':
-        handle_status()
     elif pi == '/api/status-token' and m == 'POST':
         handle_status_token()
     # v2.4.5: force a package scan on the device's next heartbeat
     elif pi.startswith('/api/devices/') and pi.endswith('/scan-packages') and m == 'POST':
         handle_force_package_scan(pi[len('/api/devices/'):-len('/scan-packages')])
-    elif pi == '/api/apikeys' and m == 'GET': handle_apikeys_list()
-    elif pi == '/api/apikeys' and m == 'POST': handle_apikeys_create()
     elif pi.startswith('/api/apikeys/') and m == 'DELETE':
         handle_apikeys_delete(pi[len('/api/apikeys/'):])
-    elif pi == '/api/export' and m == 'GET': handle_export()
-    elif pi == '/api/digest' and m == 'GET': handle_digest()
-    elif pi == '/api/patch-report' and m == 'GET': handle_patch_report()
     elif pi.startswith('/api/patch-report/device/') and m == 'GET':
         handle_patch_report_device(pi[len('/api/patch-report/device/'):])
-    elif pi == '/api/patch-report/csv' and m == 'GET': handle_patch_report_csv()
-    elif pi == '/api/patch-report/xml' and m == 'GET': handle_patch_report_xml()
-    elif pi == '/api/audit-log' and m == 'GET': handle_audit_log()
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
     # v3.2.0 (B1): alerts inbox
-    elif pi == '/api/alerts' and m == 'GET': handle_alerts_list()
-    elif pi == '/api/alerts' and m == 'DELETE': handle_alerts_clear()
-    elif pi == '/api/alerts/summary' and m == 'GET': handle_alerts_summary()
-    elif pi == '/api/alerts/bulk-resolve' and m == 'POST': handle_alerts_bulk_resolve()
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
         handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':
@@ -22559,56 +22554,31 @@ def main():
     # v3.2.0 (B6): syslog HTTP ingestion
     elif pi.startswith('/api/syslog/in/'):
         handle_syslog_in(pi[len('/api/syslog/in/'):])
-    elif pi == '/api/inbound-webhooks' and m == 'GET': handle_inbound_webhooks_list()
-    elif pi == '/api/inbound-webhooks' and m == 'POST': handle_inbound_webhooks_create()
     elif pi.startswith('/api/inbound-webhooks/') and m == 'DELETE':
         handle_inbound_webhook_revoke(pi[len('/api/inbound-webhooks/'):])
     elif pi.startswith('/api/inbound-webhooks/') and m == 'PATCH':
         handle_inbound_webhook_toggle(pi[len('/api/inbound-webhooks/'):])
     # v3.2.0 (A1): MCP Stage 4 — write tools + confirmation queue
-    elif pi == '/api/mcp/reboot_device' and m == 'POST': handle_mcp_reboot_device()
-    elif pi == '/api/mcp/run_saved_script' and m == 'POST': handle_mcp_run_saved_script()
-    elif pi == '/api/mcp/force_package_scan' and m == 'POST': handle_mcp_force_package_scan()
-    elif pi == '/api/mcp/force_acme_rescan' and m == 'POST': handle_mcp_force_acme_rescan()
-    elif pi == '/api/confirmations' and m == 'GET': handle_confirmations_list()
-    elif pi == '/api/confirmations' and m == 'DELETE': handle_confirmations_clear()
     elif pi.startswith('/api/confirmations/') and pi.endswith('/approve') and m == 'POST':
         handle_confirmation_approve(pi[len('/api/confirmations/'):-len('/approve')])
     elif pi.startswith('/api/confirmations/') and pi.endswith('/reject') and m == 'POST':
         handle_confirmation_reject(pi[len('/api/confirmations/'):-len('/reject')])
-    elif pi == '/api/webhook/test' and m == 'POST': handle_webhook_test()
-    elif pi == '/api/webhook/log' and m == 'GET': handle_webhook_log()
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
     # v2.2.4: fleet event log (every fired event, regardless of destinations)
     elif pi == '/api/fleet/events' and m == 'GET': handle_fleet_events()
     # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
-    elif pi == '/api/smtp/test' and m == 'POST': handle_smtp_test()
-    elif pi == '/api/ldap/test' and m == 'POST': handle_ldap_test()
-    elif pi == '/api/ldap/test-user' and m == 'POST': handle_ldap_test_user()
-    elif pi == '/api/monitor/alerts/clear' and m == 'DELETE': handle_monitor_alerts_clear()
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
 
     # ── v1.7.0: Package inventory + CVE scanner ────────────────────────────────
-    elif pi == '/api/packages' and m == 'POST': handle_packages_submit()
-    elif pi == '/api/cve/scan' and m == 'POST': handle_cve_scan()
-    elif pi == '/api/cve/findings' and m == 'GET': handle_cve_findings()
-    elif pi == '/api/cve/ignore' and m == 'GET': handle_cve_ignore_list()
-    elif pi == '/api/cve/ignore' and m == 'POST': handle_cve_ignore_add()
     elif pi.startswith('/api/cve/ignore/') and m == 'DELETE':
         handle_cve_ignore_delete(pi[len('/api/cve/ignore/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
         handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
 
     # ── v3.3.4: container image-update detection ───────────────────────────────
-    elif pi == '/api/image-updates' and m == 'GET': handle_image_updates_get()
-    elif pi == '/api/image-updates/scan' and m == 'POST': handle_image_updates_scan()
-    elif pi == '/api/image-updates/ignore' and m == 'POST': handle_image_ignore_add()
     elif pi == '/api/image-updates/ignore' and m == 'DELETE': handle_image_ignore_remove()
 
     # ── v3.3.4: docker-compose stacks (upload + deploy) ────────────────────────
-    elif pi == '/api/compose/fetch' and m == 'POST': handle_compose_fetch()
-    elif pi == '/api/compose/stacks' and m == 'GET': handle_compose_stacks_list()
-    elif pi == '/api/compose/stacks' and m == 'POST': handle_compose_stack_create()
     elif pi.startswith('/api/compose/stacks/') and pi.endswith('/action') and m == 'POST':
         handle_compose_stack_action(pi[len('/api/compose/stacks/'):-len('/action')])
     elif pi.startswith('/api/compose/stacks/') and m == 'GET':
@@ -22620,21 +22590,16 @@ def main():
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
 
     # ── v1.8.0: Service monitoring ─────────────────────────────────────────────
-    elif pi == '/api/services' and m == 'GET': handle_services_get()
     elif pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET':
         handle_services_device(pi[len('/api/devices/'):-len('/services')])
     elif pi.startswith('/api/devices/') and pi.endswith('/services/config'):
         handle_services_config(pi[len('/api/devices/'):-len('/services/config')])
 
     # ── v1.8.0: Log tail + pattern alerts ──────────────────────────────────────
-    elif pi == '/api/logs' and m == 'POST': handle_log_submit()
     elif pi == '/api/logs/search' and m == 'GET': handle_log_search()
     # ── v1.8.1: live tail + rules aggregate ────────────────────────────────────
-    elif pi == '/api/logs/tail' and m == 'GET': handle_log_tail()
     elif pi == '/api/logs/rules' and m == 'GET': handle_log_rules()
     # ── v1.8.2: fleet-wide log alert rules ─────────────────────────────────────
-    elif pi == '/api/logs/rules/global' and m == 'GET': handle_log_rules_global_list()
-    elif pi == '/api/logs/rules/global' and m == 'POST': handle_log_rules_global_add()
     elif pi.startswith('/api/logs/rules/global/') and m == 'PUT':
         handle_log_rules_global_update(pi[len('/api/logs/rules/global/'):])
     elif pi.startswith('/api/logs/rules/global/') and m == 'DELETE':
@@ -22643,26 +22608,18 @@ def main():
         handle_log_device(pi[len('/api/devices/'):-len('/logs')])
 
     # ── v1.8.0: Maintenance windows ────────────────────────────────────────────
-    elif pi == '/api/maintenance' and m == 'GET': handle_maintenance_list()
-    elif pi == '/api/maintenance' and m == 'POST': handle_maintenance_add()
     elif pi.startswith('/api/maintenance/') and m == 'PUT':
         handle_maintenance_update(pi[len('/api/maintenance/'):])
-    elif pi == '/api/maintenance/suppressions' and m == 'GET':
-        handle_maintenance_suppressions()
     elif pi.startswith('/api/maintenance/') and m == 'DELETE':
         handle_maintenance_delete(pi[len('/api/maintenance/'):])
 
     # ── v1.8.3: Shared calendar events ─────────────────────────────────────────
-    elif pi == '/api/calendar' and m == 'GET':  handle_calendar_list()
-    elif pi == '/api/calendar' and m == 'POST': handle_calendar_add()
     elif pi.startswith('/api/calendar/') and m == 'PUT':
         handle_calendar_update(pi[len('/api/calendar/'):])
     elif pi.startswith('/api/calendar/') and m == 'DELETE':
         handle_calendar_delete(pi[len('/api/calendar/'):])
 
     # ── v1.8.3: Shared tasks board ─────────────────────────────────────────────
-    elif pi == '/api/tasks' and m == 'GET':  handle_tasks_list()
-    elif pi == '/api/tasks' and m == 'POST': handle_tasks_add()
     elif pi.startswith('/api/tasks/') and m == 'PUT':
         handle_tasks_update(pi[len('/api/tasks/'):])
     elif pi.startswith('/api/tasks/') and m == 'DELETE':
@@ -22670,9 +22627,6 @@ def main():
 
     # ── v1.9.0: CMDB ───────────────────────────────────────────────────────────
     # Vault management — order matters, more specific paths first
-    elif pi == '/api/cmdb/vault/status'  and m == 'GET':  handle_cmdb_vault_status()
-    elif pi == '/api/cmdb/vault/setup'   and m == 'POST': handle_cmdb_vault_setup()
-    elif pi == '/api/cmdb/vault/unlock'  and m == 'POST': handle_cmdb_vault_unlock()
     elif pi == '/api/cmdb/vault/change'  and m == 'POST': handle_cmdb_vault_change()
     # Server-function autocomplete list
     elif pi == '/api/cmdb/server-functions' and m == 'GET': handle_cmdb_server_functions()
@@ -22706,14 +22660,12 @@ def main():
         dev_id, _, doc_id = rest.partition('/docs/')
         handle_cmdb_doc_delete(dev_id, doc_id)
     # Asset list + per-asset metadata
-    elif pi == '/api/cmdb' and m == 'GET':  handle_cmdb_list()
     elif pi.startswith('/api/cmdb/') and m == 'GET':
         handle_cmdb_get(pi[len('/api/cmdb/'):])
     elif pi.startswith('/api/cmdb/') and m == 'PUT':
         handle_cmdb_update(pi[len('/api/cmdb/'):])
 
     # ── v1.11.0: containers ────────────────────────────────────────────────
-    elif pi == '/api/containers' and m == 'GET': handle_containers_overview()
     elif pi.startswith('/api/devices/') and pi.endswith('/containers') and m == 'GET':
         handle_device_containers(pi[len('/api/devices/'):-len('/containers')])
     # v1.11.4: manual clear of a device's container snapshot. Useful for
@@ -22723,20 +22675,12 @@ def main():
         handle_device_containers_clear(pi[len('/api/devices/'):-len('/containers')])
 
     # ── v2.3.0: Proxmox virtualization ─────────────────────────────────────
-    elif pi == '/api/proxmox/status' and m == 'GET':
-        handle_proxmox_status()
-    elif pi == '/api/proxmox/test' and m == 'POST':
-        handle_proxmox_test()
     elif pi == '/api/proxmox/qemu' and m == 'GET':
         handle_proxmox_list('qemu')
     elif pi == '/api/proxmox/lxc' and m == 'GET':
         handle_proxmox_list('lxc')
     # v3.4.0: LXC create wizard — MUST precede the generic /lxc/<vmid>/<action>
     # POST route below, or "create" would be parsed as a vmid.
-    elif pi == '/api/proxmox/lxc/create-options' and m == 'GET':
-        handle_proxmox_lxc_create_options()
-    elif pi == '/api/proxmox/lxc/create' and m == 'POST':
-        handle_proxmox_lxc_create()
     elif pi.startswith('/api/proxmox/lxc/') and m == 'DELETE':
         handle_proxmox_lxc_delete(pi[len('/api/proxmox/lxc/'):])
     elif pi.startswith('/api/proxmox/qemu/') and m == 'POST':
@@ -22744,8 +22688,6 @@ def main():
     elif pi.startswith('/api/proxmox/lxc/') and m == 'POST':
         handle_proxmox_action('lxc', pi[len('/api/proxmox/lxc/'):])
     # v2.4.0: Proxmox snapshots — list / create / rollback / delete.
-    elif pi == '/api/proxmox/snapshots' and m == 'GET':
-        handle_proxmox_snapshots_list()
     elif pi == '/api/proxmox/snapshot' and m == 'POST':
         handle_proxmox_snapshot_action()
 
@@ -22759,42 +22701,27 @@ def main():
         handle_device_container_action(pi[len('/api/devices/'):-len('/containers/action')])
 
     # ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────────────
-    elif pi == '/api/tls/targets' and m == 'GET':  handle_tls_list()
-    elif pi == '/api/tls/targets' and m == 'POST': handle_tls_add()
     elif pi.startswith('/api/tls/targets/') and m == 'PUT':
         handle_tls_update(pi[len('/api/tls/targets/'):])
-    elif pi == '/api/internal/tls-webhook' and m == 'POST': handle_tls_internal_webhook()
     elif pi.startswith('/api/tls/targets/') and m == 'DELETE':
         handle_tls_delete(pi[len('/api/tls/targets/'):])
     elif pi == '/api/tls/scan' and m == 'POST': handle_tls_scan()
 
     # ── v1.11.0: network map + agentless device link ──────────────────────
-    elif pi == '/api/network-map' and m == 'GET': handle_network_map()
     elif pi.startswith('/api/devices/') and pi.endswith('/connected-to') and m == 'PUT':
         handle_device_connected_to(pi[len('/api/devices/'):-len('/connected-to')])
 
     # ── v1.11.1: positions + tunnels ───────────────────────────────────────
-    elif pi == '/api/network-map/positions' and m == 'PUT': handle_network_positions()
-    elif pi == '/api/network-map/tunnels'   and m == 'GET':  handle_tunnels_list()
-    elif pi == '/api/network-map/tunnels'   and m == 'POST': handle_tunnel_add()
     elif pi.startswith('/api/network-map/tunnels/') and m == 'DELETE':
         handle_tunnel_delete(pi[len('/api/network-map/tunnels/'):])
 
     # ── v1.11.2: shared link dashboard ────────────────────────────────────
-    elif pi == '/api/links' and m == 'GET':  handle_links_list()
-    elif pi == '/api/links' and m == 'POST': handle_link_add()
     elif pi.startswith('/api/links/') and m == 'PUT':
         handle_link_update(pi[len('/api/links/'):])
     elif pi.startswith('/api/links/') and m == 'DELETE':
         handle_link_delete(pi[len('/api/links/'):])
 
     # ── v2.5.0: custom monitoring scripts ──────────────────────────────────
-    elif pi == '/api/custom-scripts' and m == 'GET':
-        handle_custom_scripts_list()
-    elif pi == '/api/custom-scripts' and m == 'POST':
-        handle_custom_script_create()
-    elif pi == '/api/custom-scripts/results' and m == 'GET':
-        handle_custom_scripts_results()
     elif pi.startswith('/api/custom-scripts/') and m == 'GET':
         handle_custom_script_get(pi[len('/api/custom-scripts/'):])
     elif pi.startswith('/api/custom-scripts/') and m == 'PUT':
@@ -22811,6 +22738,93 @@ def main():
         handle_device_host_config_current(pi[len('/api/devices/'):-len('/host-config/current')])
 
     else: respond(404, {'error': 'Not found'})
+
+
+def main():
+    # v2.1.1: these per-request maintenance sweeps used to be wrapped in
+    # bare `except Exception: pass` blocks. That silently swallowed every
+    # error — including the ones an operator most needs to see: "why
+    # didn't the offline webhook fire?" / "why isn't the schedule
+    # running?". Now each one logs the exception traceback to stderr so
+    # it lands in nginx's error log, but still doesn't propagate (the
+    # CGI response itself must complete regardless of a maintenance
+    # task failing).
+    def _safe(fn, label, *args):
+        try:
+            fn(*args)
+        except Exception as exc:
+            sys.stderr.write(
+                f"[remotepower] {label} failed: {exc.__class__.__name__}: {exc}\n")
+            traceback.print_exc(file=sys.stderr)
+    # v3.3.0 flap-fix: peek at the request body if this is a heartbeat,
+    # so check_offline_webhooks can exempt the device that's actively
+    # proving it's alive. _peek_heartbeat_dev_id() reads the body
+    # cached so the actual handler doesn't have to re-read.
+    _hb_skip = _peek_heartbeat_dev_id()
+    _safe(check_offline_webhooks, 'check_offline_webhooks', _hb_skip)
+    # v1.11.4: container-data-stale sweep, mirroring the offline check.
+    # Cheap (one CONTAINERS_FILE read + per-device timestamp compare).
+    _safe(check_container_webhooks, 'check_container_webhooks')
+    # v1.11.8: monitor checks used to only run when somebody opened
+    # the Monitor page in the dashboard. Now they run on every CGI hit
+    # but gated to the configured interval (default 300s). For low-
+    # traffic servers this means monitors run whenever an agent
+    # heartbeats — typically every 60s, so the gate kicks in and the
+    # actual checks happen every interval.
+    _safe(run_monitors_if_due, 'run_monitors_if_due')
+    # v3.2.0 (B5): periodic SNMP polls for agentless devices. Same cheap-
+    # when-not-due pattern as run_monitors_if_due; the work itself is
+    # bounded (one UDP round trip per SNMP-enabled device, 2s timeout).
+    _safe(run_snmp_polls_if_due, 'run_snmp_polls_if_due')
+    # v3.3.4: ICMP reachability for agentless devices (icmp mode). Cheap-
+    # when-not-due; check_offline_webhooks skips agentless so this owns
+    # their up/down + offline/online alerts.
+    _safe(run_agentless_reachability_if_due, 'run_agentless_reachability_if_due')
+    # v3.3.4: refresh RouterOS firmware-update state for the Patches page.
+    _safe(run_routeros_update_check_if_due, 'run_routeros_update_check_if_due')
+    # v3.3.4: refresh registry digests for container image-update detection.
+    # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
+    _safe(run_image_scan_if_due, 'run_image_scan_if_due')
+    _safe(process_schedule,    'process_schedule')
+    # v3.3.0: ping Healthchecks.io (or compatible) when configured.
+    # External watchdog over the server itself — if RemotePower stops
+    # serving requests, hc.io flips to red and pages someone.
+    _safe(ping_healthchecks_if_due, 'ping_healthchecks_if_due')
+
+    # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
+    # read + a constant set membership check. Done before route dispatch
+    # so every mutation handler is uniformly protected without needing
+    # an assert_writable() call at the top of each one.
+    _enforce_read_only()
+
+    # v3.0.2: CSRF defense-in-depth. The X-Token header is already
+    # CSRF-safe because browsers require a CORS preflight for any
+    # cross-origin request carrying a custom header, and we serve no
+    # permissive Access-Control-Allow-Origin. This adds a same-origin
+    # check on state-changing requests as belt-and-suspenders against
+    # future regressions (e.g. an operator turning on permissive CORS
+    # for an integration). API-key clients (CLI scripts, external
+    # automation) typically send no Origin at all — those are
+    # permitted; the check only rejects when an Origin/Referer IS sent
+    # and points elsewhere.
+    _enforce_same_origin()
+
+    # v3.3.0: optional IP allowlist. Off by default; when on, blocks
+    # all UI/API access except agent paths and loopback. The save path
+    # for this config rejects edits that would lock the configurer out.
+    _enforce_ip_allowlist()
+
+    # v3.0.3: F2 — hard backstop for default-password admin accounts.
+    # The warning banner from 2.3.2 nags but doesn't *force* anything;
+    # an operator on the default password can ignore it and use the
+    # full app. This interceptor blocks every endpoint except the
+    # password-change route (and the bare server-info endpoint the
+    # login page reads) until must_change_password is cleared.
+    _enforce_password_change()
+
+    pi = path_info(); m = method()
+
+    _dispatch(pi, m)
 
 
 
