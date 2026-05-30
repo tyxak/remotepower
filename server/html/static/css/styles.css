@@ -2636,6 +2636,12 @@ button, a, [role="button"],
 .anomaly-row:first-child { border-top: none; }
 .anomaly-sev { text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: .04em; min-width: 56px; padding-top: 2px; }
 .anomaly-dev { font-weight: 500; }
+.anomaly-main { flex: 1; min-width: 0; }
+.anomaly-act { flex-shrink: 0; }
+.anomaly-link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.anomaly-link:hover { text-decoration: underline; }
+.compliance-fix { color: var(--accent); cursor: pointer; text-decoration: none; white-space: nowrap; margin-left: 6px; }
+.compliance-fix:hover { text-decoration: underline; }
 .cron-result-expr { display: flex; align-items: center; gap: 10px; font-size: 15px; }
 .cron-runs { margin: 4px 0 0; padding-left: 18px; }
 .cron-runs li { font-size: 12px; color: var(--muted); }

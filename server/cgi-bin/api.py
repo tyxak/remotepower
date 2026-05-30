@@ -22721,10 +22721,8 @@ def handle_device_host_config_put(dev_id):
         if section in body:
             desired[section] = _validate_host_config_section(section, body[section])
 
-    # v3.4.0: optional per-device opt-in to ENFORCE (apply) the desired config
-    # on the host, not just monitor drift. Off unless explicitly enabled — see
-    # the heartbeat push gate. Only updated when the key is present so saving
-    # the config from a UI that doesn't send it leaves the flag untouched.
+    # v3.4.0: optional per-device opt-in to ENFORCE (apply) the config — see
+    # the heartbeat push gate. Updated only when the key is present.
     apply_enabled = body.get('apply_enabled')
 
     with _locked_update(DEVICES_FILE) as devices:

@@ -469,5 +469,31 @@ class TestFleetUI(unittest.TestCase):
         self.assertIn("wireSortOnly('discovery-thead'", self.APP)
 
 
+class TestCrossFeatureLinks(unittest.TestCase):
+    APP = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+
+    def test_link_functions_present(self):
+        for fn in ('function anomalyOpenDevice', 'function anomalyRunbook',
+                   'function complianceFix', 'function discoveryAddDevice'):
+            self.assertIn(fn, self.APP, f'{fn} missing from app.js')
+
+    def test_runbook_accepts_prefill(self):
+        self.assertIn('function deviceRunbook(id, name, prefill)', self.APP)
+
+    def test_agentless_open_accepts_prefill(self):
+        self.assertIn('function agentlessAddOpen(prefill)', self.APP)
+
+    def test_compliance_topic_emitted(self):
+        import compliance
+        rep = compliance.build_report({'pending_patches_devices': ['x'],
+            'cve_critical_high': 0, 'tls_expiring': [], 'tls_monitored': 1,
+            'failed_backups': [], 'backup_monitors': 1, 'mfa_enabled': True,
+            'audit_log_enabled': True, 'encrypted_vault': True, 'new_ports': [],
+            'ssh_key_changes': [], 'brute_force': [], 'reboot_required': []}, ['pci'])
+        topics = {c['topic'] for c in rep['frameworks']['pci']['controls']}
+        self.assertIn('patches', topics)
+        self.assertIn('cve', topics)
+
+
 if __name__ == '__main__':
     unittest.main()

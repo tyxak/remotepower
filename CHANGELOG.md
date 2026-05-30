@@ -19,6 +19,13 @@ In development.
   per-device **Enforce on host** toggle in the Host Config editor. Off by
   default: a desired config is a drift-monitoring baseline unless you opt in.
   Drift detection was unaffected and always worked.
+- **Cross-feature links — the tools now hand off to each other.** Fleet
+  anomaly findings link straight to the device drawer and to a prefilled AI
+  runbook; compliance FAIL rows get a **Fix →** deep-link to the page that
+  remediates them (Patches, CVEs, TLS, Audit, Settings…); discovered LAN hosts
+  get **Add as device** (pre-fills the agentless-device form); and a failing
+  SMART disk or an imminent disk-fill forecast offers a one-click,
+  context-prefilled runbook. Less hunting between pages.
 - **Disk SMART health.** The agent runs `smartctl` on each physical disk
   (best-effort, skipped if not installed) and reports overall health plus
   the attributes that matter — reallocated/pending/offline-uncorrectable

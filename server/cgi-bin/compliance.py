@@ -166,6 +166,24 @@ _CONTROLS = [
 ]
 
 
+# Each control's check maps to a "topic" — a stable hint the dashboard turns
+# into a "Fix →" deep-link to the page where you remediate it. Kept here (not
+# in the UI) so the mapping lives next to the controls.
+_TOPICS = {
+    _patch_control:         'patches',
+    _cve_control:           'cve',
+    _tls_control:           'tls',
+    _backup_control:        'backup',
+    _mfa_control:           'mfa',
+    _audit_control:         'audit',
+    _firewall_control:      'ports',
+    _access_review_control: 'sshkeys',
+    _intrusion_control:     'intrusion',
+    _vault_control:         'vault',
+    _reboot_control:        'reboot',
+}
+
+
 def build_report(facts, frameworks=None):
     """Evaluate every control for the requested frameworks against `facts`.
 
@@ -204,6 +222,7 @@ def build_report(facts, frameworks=None):
                 'status':      status,
                 'evidence':    evidence,
                 'remediation': remediation if status == FAIL else '',
+                'topic':       _TOPICS.get(fn, ''),
             })
         measurable = counts[PASS] + counts[FAIL]
         result['frameworks'][fw] = {

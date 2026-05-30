@@ -7514,13 +7514,16 @@ function tlsDetailOpen(id) {
 
 // ── Agentless devices (modal opener used from Devices page) ──────────────────
 
-async function agentlessAddOpen() {
-  document.getElementById('al-name').value = '';
-  document.getElementById('al-hostname').value = '';
-  document.getElementById('al-ip').value = '';
-  document.getElementById('al-mac').value = '';
+async function agentlessAddOpen(prefill) {
+  // prefill (optional): {name, hostname, ip, mac} — used by the network-map
+  // "Add as device" cross-link so a discovered host lands pre-populated.
+  prefill = prefill || {};
+  document.getElementById('al-name').value = prefill.name || '';
+  document.getElementById('al-hostname').value = prefill.hostname || '';
+  document.getElementById('al-ip').value = prefill.ip || '';
+  document.getElementById('al-mac').value = prefill.mac || '';
   document.getElementById('al-group').value = '';
-  document.getElementById('al-notes').value = '';
+  document.getElementById('al-notes').value = prefill.ip ? `Imported from LAN discovery (${prefill.ip})` : '';
   document.getElementById('al-type').value = '';
   document.getElementById('al-status').checked = true;
   // Populate connected-to dropdown
@@ -12466,7 +12469,7 @@ async function saveHostConfig() {
 function _hcToggleApplyWarn() {
   const on = !!document.getElementById('hc-apply-enabled')?.checked;
   const warn = document.getElementById('hc-apply-warn');
-  if (warn) warn.style.display = on ? 'block' : 'none';
+  if (warn) warn.classList.toggle('d-none', !on);
 }
 
 // Trigger agent to collect and send all current config sections via exec command
@@ -14036,7 +14039,14 @@ function _renderHardwareSection(id, hw, fc, ch) {
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
           <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td></tr>`;
-      }).join('') + `</tbody></table></div>`;
+      }).join('') + `</tbody></table>`;
+    // Cross-feature: a failing disk → a prefilled AI runbook.
+    const bad = disks.filter(d => d.health && d.health !== 'PASSED');
+    if (bad.length) {
+      const trig = `SMART reports a failing/pre-fail disk on ${_drawerDeviceName}: ${bad.map(d=>`${d.device} (${d.health})`).join(', ')}. How do I safely investigate and replace it?`;
+      h += `<div class="mt-6"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName||'')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen',13)} Get a runbook for this disk &rarr;</a></div>`;
+    }
+    h += `</div>`;
   }
 
   // ── Forecast ───────────────────────────────────────────────────────
@@ -14050,7 +14060,15 @@ function _renderHardwareSection(id, hw, fc, ch) {
         <td class="ta-center">${m.current_percent}%</td>
         <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
         <td class="ta-center ${m.days_to_full<14?'c-red':m.days_to_full<45?'c-amber':''}">${_fmtDays(m.days_to_full)}</td></tr>`
-      ).join('') + `</tbody></table></div>`;
+      ).join('') + `</tbody></table>`;
+    // Cross-feature: an imminent fill → a prefilled AI runbook.
+    const urgent = risers.filter(m => m.days_to_full != null && m.days_to_full < 30)
+                         .sort((a,b)=>a.days_to_full-b.days_to_full)[0];
+    if (urgent) {
+      const trig = `Disk ${urgent.path} on ${_drawerDeviceName} is at ${urgent.current_percent}% and projected to fill in ~${Math.round(urgent.days_to_full)} days (growing ${urgent.trend_gb_per_day} GB/day). What should I check and clean up?`;
+      h += `<div class="mt-6"><a class="compliance-fix" data-action="deviceRunbook" data-arg="${escAttr(id)}" data-arg2="${escAttr(_drawerDeviceName||'')}" data-arg3="${escAttr(trig)}">${_icon('bookOpen',13)} Get a runbook for low disk space &rarr;</a></div>`;
+    }
+    h += `</div>`;
   }
 
   // ── What changed (7 days) ──────────────────────────────────────────
@@ -14229,9 +14247,12 @@ function aiInsightCopy() {
     .catch(() => toast('Copy failed', 'error'));
 }
 
-// #3 runbook suggestion (per-device, RAG-aware). Triggered from the drawer.
-async function deviceRunbook(id, name) {
-  const trigger = prompt(`Describe the issue / alert on ${name} to get a runbook:`);
+// #3 runbook suggestion (per-device, RAG-aware). Triggered from the drawer,
+// or cross-linked from anomaly findings / SMART / forecast with a prefilled
+// `trigger` (skips the prompt).
+async function deviceRunbook(id, name, prefill) {
+  const trigger = (prefill && String(prefill).trim())
+    || prompt(`Describe the issue / alert on ${name} to get a runbook:`);
   if (!trigger || !trigger.trim()) return;
   _openAiInsight(`Runbook — ${name}`);
   const r = await api('POST', `/devices/${id}/runbook`, {trigger: trigger.trim()});
@@ -14261,12 +14282,46 @@ async function aiAnomalyScan() {
     out.innerHTML = `<div class="c-green">No anomalies stood out across ${r.scanned} device(s).</div>`;
     return;
   }
+  // Cross-feature: map the AI's device names back to ids so each finding can
+  // open that device's drawer or kick off a prefilled runbook.
+  _lastAnomalies = items;
+  _anomalyDevMap = {};
+  try {
+    const devs = await api('GET', '/devices');
+    (devs || []).forEach(d => { _anomalyDevMap[d.name] = d.id; });
+  } catch (_) {}
   const sevColor = s => s === 'high' ? 'c-red' : s === 'medium' ? 'c-amber' : 'c-muted';
   out.innerHTML = `<div class="fs-11 c-muted mb-6">${items.length} finding(s) across ${r.scanned} device(s)</div>` +
-    items.map(a => `<div class="anomaly-row">
-      <span class="anomaly-sev ${sevColor(a.severity)}">${escHtml(a.severity)}</span>
-      <div><div class="anomaly-dev">${escHtml(a.device || '—')} — ${escHtml(a.finding)}</div>
-      <div class="fs-12 c-muted">${escHtml(a.why)}</div></div></div>`).join('');
+    items.map((a, i) => {
+      const hasDev = !!_anomalyDevMap[a.device];
+      const devCell = hasDev
+        ? `<a class="anomaly-dev anomaly-link" data-action="anomalyOpenDevice" data-arg="${escAttr(a.device)}">${escHtml(a.device)}</a>`
+        : `<span class="anomaly-dev">${escHtml(a.device || '—')}</span>`;
+      return `<div class="anomaly-row">
+        <span class="anomaly-sev ${sevColor(a.severity)}">${escHtml(a.severity)}</span>
+        <div class="anomaly-main">
+          <div>${devCell} — ${escHtml(a.finding)}</div>
+          <div class="fs-12 c-muted">${escHtml(a.why)}</div>
+        </div>
+        ${hasDev ? `<button class="btn-icon fs-11 anomaly-act" data-action="anomalyRunbook" data-arg="${i}" title="AI runbook for this finding">${_icon('bookOpen',13)} Runbook</button>` : ''}
+      </div>`;
+    }).join('');
+}
+
+let _lastAnomalies = [];
+let _anomalyDevMap = {};
+
+function anomalyOpenDevice(name) {
+  const id = _anomalyDevMap[name];
+  if (id) openDeviceDrawer(id, name, 'audit');
+}
+
+function anomalyRunbook(idx) {
+  const a = _lastAnomalies[idx];
+  if (!a) return;
+  const id = _anomalyDevMap[a.device];
+  if (!id) { toast('That device is not enrolled', 'error'); return; }
+  deviceRunbook(id, a.device, `${a.finding}. ${a.why}`);
 }
 
 // #10 cron builder (AI page).
@@ -14314,16 +14369,48 @@ async function loadDiscovery() {
     ip: h.ip.split('.').map(n => String(n).padStart(3, '0')).join('.'),
     mac: h.mac, hostname: h.hostname, seen_by: (h.seen_by || []).join(','),
   }));
+  _discoveryHosts = rows;   // cross-feature: "Add as device" reads these by index
   body.innerHTML = `<div class="table-card"><table>
     <thead id="discovery-thead"><tr>
       <th data-col="ip">IP</th><th data-col="mac">MAC</th>
-      <th data-col="hostname">Hostname</th><th data-col="seen_by">Seen by</th></tr></thead>
-    <tbody>` + rows.map(h => `<tr>
+      <th data-col="hostname">Hostname</th><th data-col="seen_by">Seen by</th><th></th></tr></thead>
+    <tbody>` + rows.map((h, i) => `<tr>
       <td><code>${escHtml(h.ip)}</code></td>
       <td class="ff-mono fs-12">${escHtml(h.mac || '—')}</td>
       <td>${escHtml(h.hostname || '—')}</td>
-      <td class="fs-12">${escHtml((h.seen_by || []).join(', '))}</td></tr>`).join('') +
+      <td class="fs-12">${escHtml((h.seen_by || []).join(', '))}</td>
+      <td><button class="btn-icon fs-11" data-action="discoveryAddDevice" data-arg="${i}" title="Add this host as an agentless device">${_icon('package',13)} Add as device</button></td></tr>`).join('') +
     `</tbody></table></div>`;
+}
+
+let _discoveryHosts = [];
+
+// Cross-feature: discovery → enrollment. Pre-fills the agentless add modal
+// with the discovered host's IP/MAC/hostname.
+function discoveryAddDevice(idx) {
+  const h = _discoveryHosts[idx];
+  if (!h) return;
+  agentlessAddOpen({
+    name:     h.hostname || h.ip,
+    hostname: h.hostname || '',
+    ip:       h.ip,
+    mac:      h.mac || '',
+  });
+}
+
+// Cross-feature: each compliance topic deep-links to the page that fixes it.
+const _COMPLIANCE_FIX_PAGE = {
+  patches: 'patches', cve: 'cve', tls: 'tls', backup: 'self',
+  mfa: 'settings', audit: 'audit', ports: 'audit', sshkeys: 'audit',
+  intrusion: 'audit', vault: 'cmdb', reboot: 'devices',
+};
+
+function complianceFix(topic) {
+  const page = _COMPLIANCE_FIX_PAGE[topic];
+  if (!page) return;
+  const btn = document.querySelector(`.nav-btn[data-page="${page}"]`);
+  showPage(page, btn);
+  if (topic === 'mfa') setTimeout(() => { try { switchSettingsTab('security'); } catch (_) {} }, 60);
 }
 
 // #14 compliance report (Compliance page).
@@ -14346,11 +14433,14 @@ async function loadCompliance() {
       </div>
       <div class="fs-11 c-muted mb-6">${f.pass} pass · ${f.fail} fail · ${f.na} N/A</div>
       <table class="audit-table"><thead><tr><th>Control</th><th>Status</th><th>Evidence</th></tr></thead><tbody>` +
-      f.controls.map(c => `<tr>
+      f.controls.map(c => {
+        const fix = (c.status === 'fail' && _COMPLIANCE_FIX_PAGE[c.topic])
+          ? ` <a class="compliance-fix" data-action="complianceFix" data-arg="${escAttr(c.topic)}">Fix &rarr;</a>` : '';
+        return `<tr>
         <td><strong>${escHtml(c.id)}</strong><div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
         <td class="${sumColor(c.status)}">${escHtml(c.status.toUpperCase())}</td>
-        <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">→ ${escHtml(c.remediation)}</div>` : ''}</td>
-      </tr>`).join('') + `</tbody></table></div>`;
+        <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">&rarr; ${escHtml(c.remediation)}${fix}</div>` : ''}</td>
+      </tr>`; }).join('') + `</tbody></table></div>`;
   }
   body.innerHTML = h;
 }
