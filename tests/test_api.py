@@ -61,9 +61,12 @@ class ApiTestBase(unittest.TestCase):
 
 
 class TestPasswordHashing(ApiTestBase):
-    def test_sha256_verify(self):
+    def test_legacy_sha256_rejected(self):
+        # Pre-2.3.2 bare unsalted SHA-256 hashes are no longer accepted (the
+        # weak-hashing verify path was removed). Such an account must be reset
+        # via remotepower-passwd.
         stored = hashlib.sha256(b'secret').hexdigest()
-        self.assertTrue(api_module.verify_password('secret', stored))
+        self.assertFalse(api_module.verify_password('secret', stored))
         self.assertFalse(api_module.verify_password('wrong', stored))
 
     def test_hash_is_not_plaintext(self):

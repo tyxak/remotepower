@@ -969,21 +969,20 @@ def verify_password(plain, stored):
             return hmac.compare_digest(candidate.hex(), digest_hex)
         except Exception:
             return False
-    # Legacy unsalted sha256 (pre-2.3.2). Still verified for
-    # backward compatibility; maybe_rehash upgrades on next login.
-    return hmac.compare_digest(hashlib.sha256(plain.encode()).hexdigest(), stored)
+    # Anything else — including legacy pre-2.3.2 bare unsalted SHA-256 hashes —
+    # is no longer accepted. Verifying a stored SHA-256 hash meant hashing the
+    # password with SHA-256, which CodeQL (correctly) flags as weak hashing of
+    # sensitive data. Such a hash hasn't been used since v2.3.2 (every login
+    # since upgrades to bcrypt/PBKDF2); on the rare chance one survives, an
+    # admin resets it with `remotepower-passwd`.
+    return False
 
 def maybe_rehash(username, plain, stored):
-    """Upgrade a stored hash to the strongest available scheme after a
-    successful login. v2.3.2: also upgrades the legacy unsalted-sha256
-    hashes to PBKDF2 when bcrypt isn't available (previously a
-    bcrypt-less server left legacy hashes in place forever)."""
-    needs_upgrade = False
+    """After a successful login, upgrade the stored hash to bcrypt once bcrypt
+    becomes available on a server that had been using the PBKDF2 fallback.
+    (Legacy pre-2.3.2 unsalted-SHA-256 hashes are no longer accepted by
+    verify_password, so they never reach here — they're reset out-of-band.)"""
     if _BCRYPT and not stored.startswith('$2'):
-        needs_upgrade = True            # → bcrypt
-    elif not _BCRYPT and not stored.startswith(('pbkdf2$', '$2')):
-        needs_upgrade = True            # legacy sha256 → PBKDF2
-    if needs_upgrade:
         users = load(USERS_FILE)
         if username in users:
             users[username]['password_hash'] = hash_password(plain)

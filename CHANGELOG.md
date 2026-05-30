@@ -6,13 +6,18 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
-- **Security: stronger password hashing in the CLI & installer.** When bcrypt
+- **Security: stronger password hashing, weak-hash path removed.** When bcrypt
   isn't installed, the `remotepower-passwd` tool and the installer now hash
   admin passwords with salted **PBKDF2-HMAC-SHA256** (600k iterations) — the
   same scheme the server already used — instead of a bare, unsalted SHA-256.
   The installer also passes the password through the environment rather than
   inlining it, so special characters can't break or inject into the setup
-  script. Existing hashes keep working and upgrade automatically on next login.
+  script. The server no longer accepts the **legacy pre-2.3.2 unsalted SHA-256**
+  hashes at all (verifying one meant hashing the password with SHA-256, a weak
+  algorithm). bcrypt and PBKDF2 hashes are unaffected and still auto-upgrade to
+  bcrypt on login. **Action:** any admin whose password hasn't been changed
+  since before v2.3.2 must be reset once with `remotepower-passwd` — in practice
+  almost no one, since every login since v2.3.2 already upgraded the hash.
 - **Reliability & polish.** Pop-up prompts (rename, confirm-to-delete, "describe
   the issue", etc.) now use RemotePower's own styled dialogs instead of the
   browser's native boxes — consistent look, keyboard-friendly (Enter confirms,

@@ -58,11 +58,13 @@ class TestPasswordHashing(unittest.TestCase):
         h = api._pbkdf2_hash('x')
         self.assertEqual(h.split('$')[1], str(api._PBKDF2_ITERATIONS))
 
-    def test_legacy_sha256_still_verifies(self):
-        # Pre-2.3.2 hashes are bare hex sha256 — must still work so an
-        # upgrade doesn't lock existing users out.
+    def test_legacy_sha256_no_longer_verifies(self):
+        # The weak unsalted-SHA-256 verify path was removed (CodeQL: weak
+        # hashing of sensitive data). Pre-2.3.2 hashes no longer authenticate —
+        # such an account is reset via remotepower-passwd. Only bcrypt/PBKDF2
+        # hashes verify now.
         legacy = hashlib.sha256(b'oldpassword').hexdigest()
-        self.assertTrue(api.verify_password('oldpassword', legacy))
+        self.assertFalse(api.verify_password('oldpassword', legacy))
         self.assertFalse(api.verify_password('nope', legacy))
 
     def test_hash_password_no_bare_sha256(self):
