@@ -420,8 +420,12 @@ class TestServerWiring(unittest.TestCase):
         self.assertIn('_smart_failed_devs', self.API)
         # the old !=PASSED test (which wrongly caught UNKNOWN) must be gone
         self.assertNotIn("d.get('health') != 'PASSED'", self.API)
+        # The verdict is now persisted per disk at ingest so the client reads
+        # `disk.failed` instead of mirroring the rule in JS (the two copies
+        # drifted once). The server stamps it; the client must not recompute.
+        self.assertIn("entry['failed'] = _smart_disk_failed(entry)", self.API)
         app = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
-        self.assertIn('function _smartDiskFailed', app)
+        self.assertNotIn('function _smartDiskFailed', app)
         self.assertNotIn("d.health !== 'PASSED'", app)
 
     def test_webhook_rate_limit(self):

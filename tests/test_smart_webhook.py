@@ -36,6 +36,23 @@ class TestSmartDiskFailed(unittest.TestCase):
         self.assertFalse(api._smart_disk_failed(None))
         self.assertFalse(api._smart_disk_failed('x'))
 
+    def test_ingest_persists_failed_verdict(self):
+        # The verdict must be stamped onto each stored disk so the UI reads
+        # disk.failed instead of recomputing the rule client-side.
+        body = {'smart': [
+            {'device': '/dev/sda', 'health': 'PASSED'},
+            {'device': '/dev/sdb', 'health': 'UNKNOWN'},          # not a failure
+            {'device': '/dev/sdc', 'health': 'FAILED'},           # failure
+            {'device': '/dev/sdd', 'health': 'OK', 'pending_sectors': 4},  # pre-fail
+        ]}
+        api._ingest_hardware('dev-smart-x', 'host', body, int(api.time.time()))
+        stored = (api.load(api.HARDWARE_FILE) or {})['dev-smart-x']['smart']
+        verdict = {d['device']: d['failed'] for d in stored}
+        self.assertEqual(verdict, {
+            '/dev/sda': False, '/dev/sdb': False,
+            '/dev/sdc': True,  '/dev/sdd': True,
+        })
+
 
 class TestWebhookRateLimit(unittest.TestCase):
     def setUp(self):

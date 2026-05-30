@@ -11540,10 +11540,17 @@ def handle_device_hardware(dev_id):
     hw = (load(HARDWARE_FILE) or {}).get(dev_id, {})
     # Drop the internal alert-state booleans from the API surface.
     hw = {k: v for k, v in hw.items() if not k.startswith('_')}
+    # Authoritative per-disk failed verdict. Ingest persists it, but annotate
+    # here too so records written before this shipped get it without waiting
+    # for the next heartbeat — the client never recomputes the rule.
+    _smart = hw.get('smart', [])
+    for _d in _smart:
+        if isinstance(_d, dict) and 'failed' not in _d:
+            _d['failed'] = _smart_disk_failed(_d)
     speed = (load(SPEEDTEST_FILE) or {}).get(dev_id, [])
     disc  = (load(DISCOVERY_FILE) or {}).get(dev_id, {})
     respond(200, {
-        'smart':     hw.get('smart', []),
+        'smart':     _smart,
         'kernel':    hw.get('kernel', {}),
         'hardware':  hw.get('hardware', {}),
         'ts':        hw.get('ts'),
@@ -12662,7 +12669,11 @@ def _ingest_hardware(dev_id, dev_name, body, now):
                     v = d.get(k)
                     if isinstance(v, (int, float)) and -1 < v < 1e12:
                         entry[k] = int(v)
-                if _smart_disk_failed(entry):
+                # Persist the verdict so the UI (and any consumer) reads one
+                # authoritative `failed` flag instead of re-deriving the rule
+                # client-side — they drifted once already (UNKNOWN handling).
+                entry['failed'] = _smart_disk_failed(entry)
+                if entry['failed']:
                     failed_devs.append(entry['device'])
                 disks.append(entry)
             rec['smart'] = disks
