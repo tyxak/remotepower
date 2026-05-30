@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 dist/
+
+# Local-only Claude Code working notes — kept on disk for the agent to read,
+# but never tracked, so it doesn't mirror to the production repo or releases.
+CLAUDE.md
