@@ -356,6 +356,19 @@ class TestServerWiring(unittest.TestCase):
         self.assertIn("'smart_failure'", self.API)
         self.assertIn("'kernel_outdated'", self.API)
 
+    def test_saved_dev_sysinfo_cached(self):
+        # Regression: the post-lock port audit + metrics sampler read
+        # saved_dev['sysinfo']; it must be populated inside the lock or both
+        # silently no-op.
+        self.assertIn("saved_dev['sysinfo'] = safe_si", self.API)
+
+    def test_diagnostic_endpoints_admin_only(self):
+        # speedtest + netscan execute on the host → admin, not any viewer.
+        seg = self.API[self.API.index('def handle_device_speedtest'):
+                       self.API.index('def handle_discovery')]
+        self.assertEqual(seg.count('require_admin_auth()'), 2,
+            'speedtest and netscan must both require admin')
+
     def test_quarantine_enforced(self):
         # both the queue-time guard and the dispatch chokepoint must check it
         self.assertIn('def _device_quarantined', self.API)

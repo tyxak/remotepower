@@ -2347,6 +2347,10 @@ _ALERT_RULES = {
     # freshness nudge, not an outage. image_updated is the recover event
     # (no severity; handled by _auto_resolve_alerts).
     'image_update_available': ('low',      None),
+    # v3.4.0: hardware health. A failing disk is serious; an outdated kernel
+    # is a reboot nudge (matches reboot_required's medium).
+    'smart_failure':          ('high',     None),
+    'kernel_outdated':        ('medium',   None),
 }
 
 # Map recover event → firing event it resolves
@@ -5437,6 +5441,12 @@ def handle_heartbeat():
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
             dev['sysinfo'] = safe_si
+            # Cache the sanitised sysinfo for the post-lock consumers (port
+            # audit, v3.4.0 daily metrics sampler). Without this, the
+            # `saved_dev.get('sysinfo')` reads below always saw {} — the port
+            # audit (new_port_detected alerts) had been silently dead, and
+            # the metrics history never accumulated. (Bug fix, v3.4.0.)
+            saved_dev['sysinfo'] = safe_si
             # _record_metrics writes to METRICS_FILE (different lock — no
             # deadlock with the DEVICES_FILE lock we currently hold)
             _record_metrics(dev_id, safe_si)
@@ -11341,8 +11351,12 @@ def handle_device_hardware(dev_id):
 
 
 def handle_device_speedtest(dev_id):
-    """POST /api/devices/<id>/speedtest — queue an on-demand speed test."""
-    actor = require_auth()
+    """POST /api/devices/<id>/speedtest — queue an on-demand speed test.
+
+    Admin-only: it runs a process on the host and consumes bandwidth, so it's
+    a side-effecting action like every other command-queueing endpoint — not
+    something a read-only viewer should trigger."""
+    actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -11353,8 +11367,11 @@ def handle_device_speedtest(dev_id):
 def handle_device_netscan(dev_id):
     """POST /api/devices/<id>/netscan — queue LAN discovery. Optional
     {"subnet": "192.168.1.0/24"} enables an active nmap ping sweep; without
-    it the agent only reads its ARP/neighbour table."""
-    actor = require_auth()
+    it the agent only reads its ARP/neighbour table.
+
+    Admin-only: active network scanning is a privileged, side-effecting
+    operation, not a read-only view."""
+    actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -11363,7 +11380,13 @@ def handle_device_netscan(dev_id):
     subnet = str(body.get('subnet', '')).strip()
     cmd = 'netscan'
     if subnet:
-        if not re.match(r'^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$', subnet):
+        # Validate a real IPv4 CIDR (octets 0-255, prefix 0-32) rather than a
+        # loose digit regex. The agent re-validates and passes it to nmap via
+        # argv (never a shell), so this is belt-and-suspenders, but a tight
+        # check keeps a nonsense range from ever reaching the agent.
+        m = re.match(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})$', subnet)
+        if (not m or any(int(m.group(i)) > 255 for i in range(1, 5))
+                or int(m.group(5)) > 32):
             respond(400, {'error': 'subnet must be CIDR, e.g. 192.168.1.0/24'})
         cmd = f'netscan:{subnet}'
     _queue_command(dev_id, cmd, actor)
