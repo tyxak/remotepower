@@ -118,7 +118,7 @@ The demo is reset every few hours, so feel free to break things.
 - **Run commands** — Shutdown, reboot, WoL, arbitrary shell, multi-line scripts with dry-run lint, batch across many devices, scheduled (cron) and one-shot.
 - **Browser SSH** — Real xterm.js terminal proxied through a hardened daemon. asciinema session recordings.
 - **docker compose** — Up / down / restart / pull / logs on projects the agent discovered under `/opt /home /docker /srv`.
-- **Proxmox** — Connect a Proxmox VE node — start/stop QEMU VMs and LXC containers, manage snapshots, all server-to-API.
+- **Proxmox** — Connect a Proxmox VE node — start/stop QEMU VMs and LXC containers, manage snapshots, and **create or delete LXC containers** *(v3.4)* from a wizard (templates, storage, bridges, networking, root password/SSH key) — all server-to-API, admin-only and audited.
 - **Configuration drift** — Hashes `sshd_config`, `sudoers` and friends against a baseline; diff, accept, or ignore changes.
 - **Alerts inbox** *(v3.2)* — Every fired event lands in a mutable ledger with acknowledge / resolve / auto-resolve lifecycle. Recover events (device_online, service_recover, snmp_recover) clear the matching open row automatically. Per-event filter, bulk-resolve, clear-resolved.
 - **Channel routing matrix** *(v3.3)* — Per-kind toggles for Needs Attention / Recent Activity / Alerts inbox / external webhook. One matrix replaces the prior scattered hide-this-kind toggles; lazy-migrates legacy `dashboard_hidden_*` config.
@@ -138,6 +138,14 @@ The demo is reset every few hours, so feel free to break things.
 - **IaC generator** — Terraform / Ansible / Pulumi / cloud-init / Salt from live host inventory across 18 categories. AI renders the output.
 - **Server self-monitoring** — Site-health card (load avg, memory %, sessions, devices-online %), disk usage breakdown, audit log size, scheduled backup state, webhook delivery rate (inbound + outbound, separate), MCP confirmation queue.
 - **Hash-driven agent self-update** *(v3.3)* — agents compare their own binary sha256 against the server's canonical hash; mismatch in either direction triggers a download. Replaces version-string comparison (which silently skipped same-version rebuilds and operator-initiated re-pushes).
+- **Hardware & health** *(v3.4)* — per-disk SMART (alerts on failing / pre-fail drives), kernel-vs-newest-installed and livepatch status, and a passive hardware inventory (DIMMs, serials, temperatures, RAID), all in the device drawer's Health & Hardware card.
+- **Resource forecasting & "what changed"** *(v3.4)* — projects per-mount disk-fill ("/ fills in ~18 days") from a daily metrics snapshot, and diffs the last day/week (packages, ports, units, disk growth) so you can see what moved.
+- **On-demand diagnostics** *(v3.4)* — one-click network speed test (librespeed → Mbps) and a LAN discovery sweep (passive ARP or nmap) that flags unmanaged hosts on the wire.
+- **Device quarantine** *(v3.4)* — a per-device switch that disables exec / reboot / all actions, enforced server-side at the command chokepoint and audited — isolate a suspect host in one click.
+- **Compliance reports** *(v3.4)* — maps PCI DSS / HIPAA / SOC 2 controls to data RemotePower already collects and scores them pass / fail / N-A with evidence and remediation. An audit-prep aid, never a formal attestation.
+- **Helm releases** *(v3.4)* — read-only visibility into Helm release status where Helm and a kubeconfig are present.
+- **RAG over your infrastructure** *(v3.4)* — the AI assistant retrieves relevant facts from *your* fleet (device state, services, CVEs, containers, CMDB docs, runbooks, recent commands/alerts, and the product docs) and cites their sources. Lexical BM25 works with every provider; semantic search is opt-in with an embedding-capable provider. The credentials vault is never indexed.
+- **On-demand AI insights** *(v3.4)* — fleet anomaly scan, a plain-English cron builder with a locally-validated next-run preview, RAG-aware per-device runbook suggestions, and CMDB doc drafts. All opt-in and disabled by default.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

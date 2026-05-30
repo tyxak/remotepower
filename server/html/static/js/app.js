@@ -2422,6 +2422,20 @@ const _DYK_TIPS = [
   "There's a keyboard-shortcut cheat sheet to help you fly through the dashboard without a mouse.",
   "Pin quick links to the tools you live in — Grafana, Proxmox, your wiki — so they're one click from the dashboard.",
   "A fleet-wide event won't flood your channels — RemotePower caps outbound webhook bursts so a flapping monitor can't spam your inbox.",
+  "RemotePower runs SMART on every disk and flags a failing or pre-fail drive before it takes the rest of the array with it.",
+  "After a kernel update, RemotePower shows which hosts are still running the old kernel and need a reboot.",
+  "Each agent reports its DIMMs, serials, temperatures and RAID state — a passive hardware inventory with no extra tooling.",
+  "RemotePower projects when each disk will fill — \"/ fills in ~18 days\" — from its own daily metrics, so you act before it's an outage.",
+  "Wondering what changed on a host? RemotePower diffs the last day or week — packages, ports, services, disk growth — at a glance.",
+  "Run an on-demand network speed test against any agent straight from the dashboard.",
+  "Sweep a device's LAN (ARP or nmap) to spot unmanaged hosts that should probably be under RemotePower too.",
+  "Suspect a host is compromised? Quarantine it in one click — commands, reboots and actions are blocked server-side until you release it.",
+  "Ask the AI to scan your fleet for anomalies and get a ranked list — odd ports, drift, failing disks — to review.",
+  "Describe a schedule in plain English and the cron builder writes the expression and previews the next run times.",
+  "Map PCI DSS, HIPAA or SOC 2 controls to data RemotePower already collects and score them pass/fail on the Compliance page.",
+  "Spin up a Proxmox LXC container from a wizard — pick a template, storage and network, and RemotePower creates it via the API.",
+  "Need a starting point for a device's documentation? Let the AI draft a CMDB doc from what it already knows about the host.",
+  "Running Kubernetes? Where a host has Helm and a kubeconfig, RemotePower shows your Helm release status alongside everything else.",
 ];
 let _dykIdx = -1;
 function _renderAboutTip() {

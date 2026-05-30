@@ -131,7 +131,7 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '3.0.2' if not dev['agentless'] else None,
+            'version':     '3.4.0' if not dev['agentless'] else None,
             'hostname':    dev['name'],
         }
         if not dev['agentless']:
@@ -763,7 +763,7 @@ def build_acme_state() -> dict:
         'devices': {
             'ng01': {
                 'available': True,
-                'version':   '3.1.1',
+                'version':   '3.4.0',
                 'home':      '/root/.acme.sh',
                 'last_scan': now() - 3600,
                 'certs': [
@@ -932,10 +932,57 @@ def build_links() -> list:
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 
+def build_hardware() -> dict:
+    """v3.4.0 demo: SMART + kernel/livepatch so the device drawer's
+    Health & Hardware card has something to show. One disk on the NAS is
+    failing (drives the SMART alert and a red health pill); one host has a
+    newer kernel installed and is waiting on a reboot."""
+    # dev_id -> (disk specs as (device, health, model, reallocated_sectors),
+    #            kernel-needs-reboot?)
+    specs = {
+        'tnas':  ([('/dev/sda', 'PASSED', 'WDC WD40EFRX',   0),
+                   ('/dev/sdb', 'PASSED', 'WDC WD40EFRX',   0),
+                   ('/dev/sdc', 'FAILED', 'WDC WD40EFRX',  24),   # failing
+                   ('/dev/sdd', 'PASSED', 'WDC WD40EFRX',   0)], False),
+        'pmx01': ([('/dev/nvme0n1', 'PASSED', 'Samsung SSD 980 1TB', 0)], True),
+        'nc01':  ([('/dev/sda', 'PASSED', 'Crucial MX500',  0)], False),
+        'bk01':  ([('/dev/sda', 'PASSED', 'Seagate IronWolf', 0),
+                   ('/dev/sdb', 'PASSED', 'Seagate IronWolf', 0)], False),
+        'gt01':  ([('/dev/sda', 'PASSED', 'Samsung SSD 870',  0)], False),
+    }
+    ts = now()
+    out = {}
+    for dev_id, (disk_specs, reboot) in specs.items():
+        rng = _seeded_random('hardware', dev_id)
+        disks = []
+        for device, health, model, realloc in disk_specs:
+            failed = (health != 'PASSED') or realloc > 0
+            disks.append({
+                'device': device, 'health': health, 'model': model,
+                'serial': f"S{rng.randint(10**9, 10**10 - 1)}",
+                'reallocated_sectors':   realloc,
+                'pending_sectors':       rng.randint(1, 4) if realloc else 0,
+                'offline_uncorrectable': 0,
+                'temperature_c':  rng.randint(30, 44),
+                'power_on_hours': rng.randint(8000, 41000),
+                'failed': failed,
+            })
+        running = '6.1.0-21-amd64'
+        latest  = '6.1.0-27-amd64' if reboot else running
+        out[dev_id] = {
+            'smart':  disks,
+            'kernel': {'running': running, 'latest_installed': latest,
+                       'reboot_for_kernel': reboot},
+            'ts': ts,
+        }
+    return out
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
     'devices.json':          build_devices,
+    'hardware.json':         build_hardware,
     'metrics.json':           build_metrics,
     'containers.json':       build_containers,
     'monitor_history.json':  build_monitor_history,
