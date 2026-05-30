@@ -72,10 +72,8 @@ if [[ -f "$SCRIPT_DIR/docs/Manual.html" ]]; then
     echo "      → Manual.html"
 fi
 
-# v3.4.0: deploy product Markdown docs into the DATA dir (not the web root)
-# so the RAG indexer can read them at runtime — RAG_DOCS_DIR defaults to
-# /var/lib/remotepower/docs. These are NOT web-served (no raw .md exposed);
-# they're indexed so the AI can answer "how do I do X in RemotePower".
+# v3.4.0: deploy product Markdown docs into the DATA dir so the RAG indexer can
+# read them at runtime — RAG_DOCS_DIR defaults to /var/lib/remotepower/docs.
 RP_DATA_DIR_DEPLOY="${RP_DATA_DIR:-/var/lib/remotepower}"
 if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null; then
     info "Deploying product docs for RAG indexing..."
@@ -86,6 +84,17 @@ if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null; then
         chown --reference="$RP_DATA_DIR_DEPLOY" -R "$RP_DATA_DIR_DEPLOY/docs" 2>/dev/null || true
     fi
     echo "      → $RP_DATA_DIR_DEPLOY/docs/ ($(compgen -G "$SCRIPT_DIR/docs/*.md" | wc -l) files)"
+fi
+
+# Also publish the docs under the web root so the in-app "Documentation" links
+# (href="docs/<name>.md") resolve instead of 404ing. nginx serves them as plain
+# text — they're public product docs, safe to expose. Ship the .html docs too.
+if compgen -G "$SCRIPT_DIR/docs/*.md" > /dev/null || compgen -G "$SCRIPT_DIR/docs/*.html" > /dev/null; then
+    info "Publishing docs to the web root..."
+    mkdir -p /var/www/remotepower/docs
+    install -m 644 "$SCRIPT_DIR"/docs/*.md   /var/www/remotepower/docs/ 2>/dev/null || true
+    install -m 644 "$SCRIPT_DIR"/docs/*.html /var/www/remotepower/docs/ 2>/dev/null || true
+    echo "      → /var/www/remotepower/docs/"
 fi
 
 # v2.0: deploy /static/ tree (logos, future CSS/JS extraction targets).
