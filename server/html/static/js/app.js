@@ -2084,7 +2084,9 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape') { e.preventDefault(); _uiPromptFinish(false); }
 });
 // Backdrop click cancels (and resolves null, so the awaiting caller unblocks).
-document.addEventListener('click', e => {
+// Scoped to the modal element (not document) so it doesn't shadow other
+// global click handlers. The modal exists in static HTML before app.js loads.
+document.getElementById('ui-prompt-modal')?.addEventListener('click', e => {
   if (_uiPromptResolve && e.target.id === 'ui-prompt-modal') _uiPromptFinish(false);
 });
 document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); }); });
