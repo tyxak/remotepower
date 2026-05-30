@@ -101,6 +101,8 @@ dist: clean
 	  --exclude='./.venv' \
 	  --exclude='./venv' \
 	  --exclude='./node_modules' \
+	  --exclude='./site' \
+	  --exclude='./CLAUDE.md' \
 	  .
 	@# Verify the smoke test passes against the staged tree. Extract into
 	@# a scratch dir, run the tests, then nuke it. This catches the kind
