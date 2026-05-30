@@ -209,8 +209,14 @@ DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.0: global webhook send-rate limiter state (sliding window of send ts).
+# The cap is a runaway-loop backstop, NOT a fleet-size limit: a single
+# fleet-wide event (e.g. a CVE flagged on every host, or a kernel rollout)
+# legitimately fans out one webhook per device, so the cap must comfortably
+# exceed a realistic fleet. 120/60s (2/s sustained) covers a ~100-host burst
+# without silently dropping the alerts you most want during an incident, while
+# still throttling a genuinely pathological loop.
 WEBHOOK_RATELIMIT_FILE = DATA_DIR / 'webhook_ratelimit.json'
-WEBHOOK_RATE_MAX    = 10    # max webhook sends ...
+WEBHOOK_RATE_MAX    = 120   # max webhook sends ...
 WEBHOOK_RATE_WINDOW = 60    # ... per this many seconds, server-wide
 
 # ── v1.11.0: container/k8s awareness, TLS monitor, network map, agentless ────

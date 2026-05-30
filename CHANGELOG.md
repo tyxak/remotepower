@@ -41,9 +41,11 @@ In development.
   failing re-fires — and a host that was already failing when this shipped
   alerts on its next report instead of staying silent.
 - **Webhook send-rate cap.** A global limiter drops outbound webhooks beyond
-  **10 per 60 s** (server-wide), so a flapping monitor or a fleet-wide event
-  can't unleash a notification storm. Over-cap sends are logged in the webhook
-  log as `rate-limited`. Fail-open: a storage glitch never silences alerts.
+  **120 per 60 s** (server-wide), so a flapping monitor can't unleash a
+  notification storm — while still leaving plenty of headroom for a legitimate
+  fleet-wide event (a CVE or kernel rollout fans out one webhook per host).
+  Over-cap sends are logged in the webhook log as `rate-limited`. Fail-open:
+  a storage glitch never silences alerts.
 - **Fixed: new-listening-port detection had silently stopped working** — the
   port-audit step read a per-request sysinfo cache that was never populated, so
   `new_port_detected` never fired. Restored: new ports are again compared
