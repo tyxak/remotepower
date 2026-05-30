@@ -4130,7 +4130,7 @@ def handle_devices_list():
         offset = 0
     limit = max(0, min(2000, limit))
     offset = max(0, offset)
-    bf_data, pb_data, snmp_store = {}, {}, {}
+    bf_data, pb_data, snmp_store, hw_store = {}, {}, {}, {}
     if not slim:
         bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
         pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
@@ -4138,6 +4138,10 @@ def handle_devices_list():
         # the fields the Devices page card actually shows — operators looking
         # for full data still click into the CMDB SNMP tab.
         snmp_store = load(SNMP_DATA_FILE) if SNMP_DATA_FILE.exists() else {}
+        # v3.4.0: compact hardware-health flags for the device-card badge
+        # (SMART failure / kernel reboot needed). Full detail lives behind
+        # GET /api/devices/<id>/hardware.
+        hw_store = load(HARDWARE_FILE) if HARDWARE_FILE.exists() else {}
     _, _bf_thresh, _bf_window = _brute_config()
     bf_cutoff = now - _bf_window
     result = []
@@ -4185,6 +4189,16 @@ def handle_devices_list():
             row['sysinfo']            = dev.get('sysinfo', {})
             row['brute_force_active'] = _bf_active(bf_data.get(dev_id, {}), bf_cutoff, _bf_thresh)
             row['listening_ports']    = pb_data.get(dev_id) or dev.get('sysinfo', {}).get('listening_ports') or []
+            # v3.4.0: hardware-health badge flags (best-effort; absent for
+            # agentless / pre-v3.4.0 agents → no badge).
+            _hwrec = hw_store.get(dev_id) or {}
+            _smart = _hwrec.get('smart') or []
+            _smart_bad = sum(1 for d in _smart
+                             if d.get('health') and d.get('health') != 'PASSED')
+            row['hw_health'] = {
+                'smart_failed':  _smart_bad,
+                'kernel_reboot': bool((_hwrec.get('kernel') or {}).get('reboot_for_kernel')),
+            }
         result.append(row)
         if slim:
             # v3.3.0: skip the SNMP-status block in slim mode. Home + nav

@@ -3902,6 +3902,13 @@ button, a, [role="button"],
 }
 .snmp-pill.snmp-ok   { background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid #28a745; }
 .snmp-pill.snmp-fail { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+/* v3.4.0: hardware-health pills on device cards (mirror snmp-pill) */
+.hw-pill {
+  display: inline-block; margin-left: 6px; padding: 1px 6px;
+  font-size: 11px; border-radius: 4px; vertical-align: middle; cursor: pointer;
+}
+.hw-pill.hw-fail { background: rgba(220,53,69,0.15); color: var(--red); border: 1px solid var(--red); }
+.hw-pill.hw-warn { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid var(--amber); }
 
 /* v3.2.0: Server Status performance bar.
    Width is set by JS via element.style.width = data-pct + '%' (the CSP-safe

@@ -1009,11 +1009,22 @@ function renderDevices() {
         snmpMeta = `<div class="meta-item"><div class="meta-label">SNMP up</div><div class="meta-value">${days}d</div></div>`;
       }
     }
+    // v3.4.0: hardware-health pills (SMART failure / kernel reboot). Clicking
+    // opens the device drawer's Health & Hardware section.
+    const hw = d.hw_health || {};
+    let hwPill = '';
+    if (hw.smart_failed > 0) {
+      const t = `SMART failure on ${hw.smart_failed} disk${hw.smart_failed > 1 ? 's' : ''} — open Health & Hardware`;
+      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1">${_icon('hardDrive',12)} SMART×</span>`;
+    }
+    if (hw.kernel_reboot) {
+      hwPill += ` <span class="hw-pill hw-warn" title="A newer kernel is installed — reboot to apply" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1">${_icon('refresh',12)} kernel</span>`;
+    }
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
       <div class="device-header">
         <div class="device-info">
           <div class="device-icon pointer" data-action="toggleSelect" data-arg="${d.id}" title="Select for batch action">${iconContent}</div>
-          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
+          <div><div class="device-name">${getDistroIcon(d.os)}${escHtml(d.name)}${d.notes ? `<span class="notes-tip" title="${escHtml(d.notes)}" data-action="openNotesModal" data-arg="${d.id}" data-arg2="${escAttr(d.notes)}" >${_icon('edit',12)}</span>` : ''}${snmpPill}${hwPill}</div><div class="device-hostname">${escHtml(d.hostname)}${d.group ? ` <span class="group-badge">${escHtml(d.group)}</span>` : ''}${isMonitored ? '' : ' <span class="isl-315">unmonitored</span>'}${d.agent_uninstalled ? _uninstallBadge(d) : ''}</div></div>
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>

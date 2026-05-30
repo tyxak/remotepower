@@ -493,6 +493,14 @@ class TestCrossFeatureLinks(unittest.TestCase):
         # NA renderer routes the hardware kind
         self.assertIn('hardware:', self.APP)
 
+    def test_device_card_hw_badge(self):
+        api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        self.assertIn("row['hw_health']", api)
+        self.assertIn("'smart_failed'", api)
+        self.assertIn("'kernel_reboot'", api)
+        self.assertIn('hwPill', self.APP)
+        self.assertIn('hw-pill', self.APP)
+
     def test_na_surfaces_hardware(self):
         api = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
         # the NA cards live near the end of _compute_attention

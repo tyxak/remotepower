@@ -27,6 +27,11 @@ In development.
   disk, an imminent disk-fill forecast, or a device's CVE findings each offer a
   one-click, context-prefilled runbook; and the drawer's "What changed" links
   to that device's config-drift view. Less hunting between pages.
+- **Device cards show a hardware-health pill.** A red **SMART×** or amber
+  **kernel** pill appears next to the device name on the Devices page when a
+  disk is failing or a newer kernel needs a reboot; clicking it opens that
+  device's Health & Hardware section. (`/api/devices` carries a compact
+  `hw_health` flag; absent for agentless / pre-v3.4.0 agents.)
 - **SMART failures, outdated kernels, and disk-fill forecasts now surface
   fleet-wide.** They already fired webhooks and landed in the Alerts inbox and
   Recent Activity; they now also appear on the home **Needs Attention** digest
