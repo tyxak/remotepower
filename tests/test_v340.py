@@ -413,6 +413,24 @@ class TestHardwareUI(unittest.TestCase):
         self.assertIn("data-change=\"toggleQuarantine\"", self.APP)
 
 
+class TestSshExecHardening(unittest.TestCase):
+    def setUp(self):
+        import ssh_exec
+        self.m = ssh_exec
+
+    def test_rejects_dash_host(self):
+        with self.assertRaises(self.m.SshError):
+            self.m._ssh_base_argv('-oProxyCommand=evil', 'root', 22, key_path='/tmp/k')
+
+    def test_rejects_dash_user(self):
+        with self.assertRaises(self.m.SshError):
+            self.m._ssh_base_argv('nas.local', '-oProxyCommand=x', 22, key_path='/tmp/k')
+
+    def test_normal_host_user_ok(self):
+        argv = self.m._ssh_base_argv('nas.local', 'admin', 22, key_path='/tmp/k')
+        self.assertEqual(argv[-1], 'admin@nas.local')
+
+
 class TestFleetUI(unittest.TestCase):
     APP  = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()

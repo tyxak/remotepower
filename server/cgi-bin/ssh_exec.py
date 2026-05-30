@@ -87,6 +87,13 @@ class SshError(Exception):
 
 def _ssh_base_argv(host, user, port, key_path=None, password=False):
     """Build the ssh (optionally sshpass-wrapped) argv up to user@host."""
+    # argv-injection guard: ssh parses any token beginning with '-' as an
+    # option, so a host/user like "-oProxyCommand=…" would smuggle in a
+    # ProxyCommand (arbitrary command on the RemotePower server). No real
+    # hostname or username starts with '-', so reject it outright. (These
+    # fields are admin-set, but this blocks the confused-deputy / typo case.)
+    if str(host).startswith("-") or str(user).startswith("-"):
+        raise SshError("host and user must not begin with '-'")
     opts = [
         "-o", "ConnectTimeout=10",
         "-o", "StrictHostKeyChecking=accept-new",
