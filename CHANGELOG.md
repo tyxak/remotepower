@@ -6,6 +6,13 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Bake & sign in the UI (Admin → Release Signing).** A one-click,
+  server-side path to signed releases: generate a server-held signing key,
+  **Sign current agent**, toggle enforcement, and copy the public key to pin on
+  agents. Honest about the trade-off — the UI states that server-side signing
+  protects against tampering at rest, not a full server compromise (sign in CI
+  for that). Plus **visibility**: an agent that refuses an unsigned/invalid
+  self-update reports the reason, listed on the signing page.
 - **Cryptographic release signing.** The agent release can now carry a detached
   GPG signature (`tools/sign-agent-release.sh`). An agent with a pinned release
   public key (`/etc/remotepower/release.pub`) verifies that signature before
@@ -48,6 +55,17 @@ In development.
   rule has a **cooldown** (default 60s) so a flapping event can't hammer an
   action. New `GET`/`POST /api/automation/rules` and
   `PUT`/`DELETE /api/automation/rules/<id>` (mutations admin-only, audited).
+
+### Fixes & polish
+- **Home:** the Fleet health panel now has proper spacing above Needs attention /
+  Recent activity (was flush against them).
+- **Recent activity → Clear now persists.** It used session storage, so cleared
+  items reappeared on the next refresh/restart; it now uses a localStorage
+  watermark — cleared events stay hidden, newer events still appear.
+- **Forecast** gains a device/mount filter, an "at-risk only" toggle, and
+  pagination — so a large fleet (many devices × mounts) doesn't render a
+  thousand-row table.
+- **Timeline** paginates (50 rows + "Load more") instead of dumping every event.
 
 ## v3.4.1
 

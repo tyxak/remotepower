@@ -2488,13 +2488,16 @@ def check_for_update(server_url, force=False):
             sig_text = _json.loads(sig.decode('utf-8')).get('signature', '')
         except Exception as e:
             log.error(f"Release signature required but unavailable ({e}). Refusing to install.")
+            _safe_state_write('update-rejected', f'signature unavailable: {e}')
             return False
         ok, detail = _verify_detached_sig(data, sig_text, pubkey,
                                           (info.get('key_fingerprint') or ''))
         if not ok:
             log.error(f"Release signature verification FAILED ({detail}). Refusing to install.")
+            _safe_state_write('update-rejected', f'signature invalid: {detail}')
             return False
         log.info("Release signature verified — installing.")
+        _safe_state_unlink('update-rejected')
 
     try:
         fd, tmp_path = tempfile.mkstemp(dir=AGENT_BINARY.parent, prefix='.rp-update-')
@@ -3799,6 +3802,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                    # v3.4.2: report our own binary's hash so the server can
                    # attest the running agent matches its canonical copy.
                    'agent_sha256': _agent_self_sha256()}
+        # v3.4.2: surface a refused (unsigned/invalid) self-update so the server
+        # can flag it. Cleared on the next successful update.
+        _rej = _safe_state_read('update-rejected')
+        if _rej:
+            payload['agent_update_rejected'] = _rej[:200]
 
         # v3.0.0: if the previous heartbeat asked us to collect IaC data,
         # run the requested collectors now and attach the result.

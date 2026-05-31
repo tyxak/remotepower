@@ -148,6 +148,98 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342UxFixes(unittest.TestCase):
+    """Home health spacing, persistent activity-clear, forecast + timeline paging."""
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_health_box_spacing(self):
+        idx = self.HTML.find('id="home-health"')
+        self.assertGreater(idx, 0)
+        self.assertIn('mb-16', self.HTML[idx - 60:idx])
+
+    def test_activity_clear_persists(self):
+        # Watermark moved from sessionStorage → localStorage so it survives reloads.
+        self.assertIn("localStorage.getItem('rp_activity_cleared'", self.APP)
+        self.assertIn("localStorage.setItem('rp_activity_cleared'", self.APP)
+        self.assertNotIn("sessionStorage.setItem('rp_activity_cleared'", self.APP)
+
+    def test_timeline_pagination(self):
+        self.assertIn('function timelineShowMore(', self.APP)
+        self.assertIn('_TIMELINE_PAGE', self.APP)
+
+    def test_forecast_smarter(self):
+        self.assertIn('function forecastShowMore(', self.APP)
+        self.assertIn('id="forecast-filter"', self.HTML)
+        self.assertIn('id="forecast-atrisk"', self.HTML)
+
+
+class TestV342BakeSign(unittest.TestCase):
+    """Server-side bake & sign UI + key management."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+
+    def test_routes_and_ui(self):
+        for method, path, handler in (
+                ('GET',  '/api/signing/status',   'handle_signing_status'),
+                ('POST', '/api/signing/generate', 'handle_signing_generate'),
+                ('POST', '/api/signing/sign',     'handle_signing_sign'),
+                ('POST', '/api/signing/toggle',   'handle_signing_toggle')):
+            self.assertEqual(routes_to(method, path), handler)
+        self.assertIn('data-page="signing"', self.HTML)
+        self.assertIn('id="page-signing"', self.HTML)
+        self.assertIn('function loadSigning(', self.APP)
+        self.assertIn('function signingGenerate(', self.APP)
+        # Honest caveat present in the UI.
+        self.assertIn('not', self.HTML[self.HTML.find('id="signing-caveat"'):
+                                       self.HTML.find('id="signing-caveat"') + 600].lower())
+
+    def test_rejection_reporting(self):
+        # Agent records + reports a refused update; server stores it; integrity
+        # report surfaces it.
+        self.assertIn("_safe_state_write('update-rejected'", self.AGENT)
+        self.assertIn("'agent_update_rejected'", self.AGENT)
+        self.assertIn("dev['agent_update_rejected']", self.API)
+        self.assertIn("'update_rejected'", self.API)
+
+    @unittest.skipUnless(shutil.which('gpg'), 'gpg not installed')
+    def test_generate_sign_roundtrip(self):
+        import importlib, tempfile, json, os as _os, sys as _s
+        from pathlib import Path as _P
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.require_auth = lambda *a, **k: 't'
+        api.require_admin_auth = lambda *a, **k: 'admin'
+        api.audit_log = lambda *a, **k: None
+        api._SIGNING_GNUPGHOME = _P(d) / 'signing-gpg'
+        ad = _P(d) / 'agent'; ad.mkdir()
+        binp = ad / 'remotepower-agent'; binp.write_bytes(b'VERSION="3.4.2"\n')
+        api._AGENT_BINARY_PATH = binp
+        api._AGENT_SIG_PATH = ad / 'remotepower-agent.asc'
+        api.CONFIG_FILE = _P(d) / 'config.json'; api.CONFIG_FILE.write_text('{}')
+
+        def run(fn, method='GET', body=None):
+            _os.environ['REQUEST_METHOD'] = method
+            if body is not None:
+                api.get_json_body = lambda: body
+            api._LOAD_CACHE.clear()
+            try:
+                fn(); return (None, None)
+            except api.HTTPError as e:
+                return (e.status, e.body)
+        s, dd = run(api.handle_signing_generate, 'POST', {})
+        self.assertEqual(s, 200); self.assertTrue(dd['fingerprint'])
+        s, dd = run(api.handle_signing_sign, 'POST', {})
+        self.assertEqual(s, 200); self.assertEqual(dd['signature_status'], 'valid')
+        self.assertTrue(api._AGENT_SIG_PATH.exists())
+        # regenerate without force is refused
+        s, dd = run(api.handle_signing_generate, 'POST', {})
+        self.assertEqual(s, 400)
+
+
 class TestV342ReleaseSigning(unittest.TestCase):
     """Cryptographic release signing — detached GPG signature over the agent."""
     API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()

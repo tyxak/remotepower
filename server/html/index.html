@@ -323,6 +323,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span>Automation</span>
         </button>
+        <button class="nav-btn" data-page="signing" title="Sign agent releases so agents reject tampered binaries">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L4 6v6c0 5 3.5 9 8 10 4.5-1 8-5 8-10V6l-8-4z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Release Signing</span>
+        </button>
         <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           <span>IaC Generator</span>
@@ -387,7 +391,7 @@
         </div>
 
         <!-- Fleet health score (v3.4.1) -->
-        <div class="dash-card mt-16" id="home-health">
+        <div class="dash-card mt-16 mb-16" id="home-health">
           <h3>Fleet health</h3>
           <div id="home-health-body">
             <div class="skeleton skeleton-line med mb-6"></div>
@@ -406,7 +410,7 @@
             </div>
           </div>
           <div class="dash-card">
-            <div class="isl-750"><h3>Recent activity</h3><button class="btn-icon isl-751" data-action="clearHomeActivity" title="Clear this view (session only)">✕ Clear</button></div>
+            <div class="isl-750"><h3>Recent activity</h3><button class="btn-icon isl-751" data-action="clearHomeActivity" title="Hide everything up to now — persists across reloads; newer events still appear">✕ Clear</button></div>
             <div id="home-activity">
               <div class="skeleton skeleton-line long mb-6"></div>
               <div class="skeleton skeleton-line med mb-6"></div>
@@ -1818,6 +1822,7 @@
               <h4>Cryptographic release signing</h4>
               <ul>
                 <li>Sign the agent release with a detached GPG signature (<code>tools/sign-agent-release.sh</code>). Pin the public key on a host (<code>/etc/remotepower/release.pub</code>) and the agent <strong>refuses any self-update</strong> whose signature doesn't verify against it — defending against a compromised server. Opt-in and fail-closed (no pinned key → unchanged sha256-only behaviour). No new dependency — uses <code>gpg</code>.</li>
+                <li><strong>Bake &amp; sign in the UI</strong> (Admin → Release Signing): generate a server-held key, sign with one click, toggle enforcement, copy the public key to distribute. Convenient but server-side (weaker than CI signing — the page says so). Agents that refuse an unsigned update are listed there for visibility.</li>
               </ul>
 
               <h4>Device dependency map</h4>
@@ -3189,6 +3194,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <button class="btn-secondary fs-12" data-action="loadForecast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device or mount…" data-input="renderForecastTable" data-input-value="1" autocomplete="off">
+          <label class="form-label fs-12"><input type="checkbox" id="forecast-atrisk" data-change="renderForecastTable"> At-risk only</label>
           <span id="forecast-summary" class="fs-12 c-muted"></span>
         </div>
         <div id="forecast-chart" class="mb-16"></div>
@@ -3312,6 +3319,21 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-secondary fs-12" data-action="closeAutomationEditor">Cancel</button>
             <span id="auto-editor-status" class="fs-12 c-muted"></span>
           </div>
+        </div>
+      </div>
+
+      <!-- ── Release Signing page (v3.4.2) ────────────────────────────────── -->
+      <div id="page-signing" class="page">
+        <div class="page-title">Release Signing</div>
+        <div class="page-subtitle">Sign the agent release so agents <strong>refuse any self-update that isn't validly signed</strong> by your key. <a href="docs/webhooks.md" class="c-accent">Documentation</a>.</div>
+        <div class="settings-section" id="signing-caveat">
+          <p class="hint"><strong>Server-side signing is the convenient mode.</strong> The private key lives on this server, so it protects against tampering of the published files <em>at rest</em> (mirror/CDN), but <strong>not</strong> a full compromise of this server. For the strongest guarantee, sign off-server in CI with <code>tools/sign-agent-release.sh</code> and only publish the public key here.</p>
+        </div>
+        <div id="signing-status" class="mb-16"><div class="c-muted">Loading…</div></div>
+        <div class="settings-section">
+          <h3>Distribute the public key to agents</h3>
+          <p class="hint">Pin this on each agent host at <code>/etc/remotepower/release.pub</code>. Once present, that agent enforces signatures (fail-closed). No key pinned → agent keeps using sha256-only verification.</p>
+          <textarea id="signing-pubkey" class="form-input ff-mono fs-12" rows="6" readonly placeholder="Generate a key to see the public key here."></textarea>
         </div>
       </div>
 

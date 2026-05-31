@@ -841,6 +841,7 @@ function showPage(name, btn) {
   if (name === 'timeline') enterTimeline();
   if (name === 'reports')  loadReports();
   if (name === 'automation') loadAutomation();
+  if (name === 'signing')    loadSigning();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2401,6 +2402,7 @@ const _DYK_TIPS = [
   "Agents report their own binary hash every heartbeat — RemotePower flags any agent whose code doesn't match the canonical build it serves.",
   "Sign your agent releases with GPG (tools/sign-agent-release.sh) and pin the public key on hosts — agents then refuse any self-update that isn't validly signed.",
   "Turn alerts into help-desk tickets with zero setup: point the email channel at a self-hosted osTicket (or Zammad / RT / FreeScout) inbound address.",
+  "Admin → Release Signing: sign agent releases so agents reject any tampered or unsigned self-update, and see which agents refused one.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -8038,11 +8040,14 @@ function openLogsForLogAlert(devId, unit) {
   }, 100);
 }
 
-let _activityClearedAt = parseInt(sessionStorage.getItem('rp_activity_cleared') || '0', 10);
+let _activityClearedAt = parseInt(localStorage.getItem('rp_activity_cleared') || '0', 10);
 
 function clearHomeActivity() {
   _activityClearedAt = Math.floor(Date.now() / 1000);
-  sessionStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
+  // v3.4.2: persist across reloads/restarts (was sessionStorage → cleared
+  // items reappeared on the next refresh tick / browser restart). Only events
+  // newer than this watermark show; genuinely new activity still appears.
+  localStorage.setItem('rp_activity_cleared', String(_activityClearedAt));
   const target = document.getElementById('home-activity');
   if (target) target.innerHTML = `<div class="empty-state isl-553">
     <div class="empty-state-icon">○</div>
@@ -12216,6 +12221,7 @@ async function loadForecast() {
     if (chart) chart.innerHTML = '';
     return;
   }
+  _forecastShown = _FORECAST_PAGE;
   _renderForecastTable();
   _renderForecastChart();
 }
@@ -12233,6 +12239,8 @@ function forecastSelect(idx) {
 let _timelineItems = [];
 let _timelineKindFilter = new Set();
 let _timelineFleet = true;   // '*' scope (whole fleet) vs a single device
+const _TIMELINE_PAGE = 50;   // rows rendered per page (Load more reveals more)
+let _timelineShown = _TIMELINE_PAGE;
 const _TIMELINE_SEV = { critical: 'sev-critical', high: 'sev-high',
   medium: 'sev-medium', low: 'sev-low', warning: 'sev-medium', info: 'sev-low' };
 
@@ -12294,7 +12302,13 @@ async function loadTimeline() {
   if (summary) summary.textContent = _timelineFleet
     ? `${r.total} event(s) across ${(r.devices || []).length} device(s)`
     : `${r.total} event(s) for ${r.device_name}`;
+  _timelineShown = _TIMELINE_PAGE;
   _renderTimelineKinds(r.kinds || []);
+  _renderTimeline();
+}
+
+function timelineShowMore() {
+  _timelineShown += _TIMELINE_PAGE;
   _renderTimeline();
 }
 
@@ -12313,6 +12327,7 @@ function timelineToggleKind(kind) {
   if (!kind) _timelineKindFilter.clear();
   else if (_timelineKindFilter.has(kind)) _timelineKindFilter.delete(kind);
   else _timelineKindFilter.add(kind);
+  _timelineShown = _TIMELINE_PAGE;   // reset paging when the filter changes
   _renderTimelineKinds([...new Set(_timelineItems.map(i => i.kind))]);
   _renderTimeline();
 }
@@ -12329,7 +12344,9 @@ function _renderTimeline() {
       + `<div class="empty-text">No events or command runs recorded ${where} yet${_timelineKindFilter.size ? ' in the selected categories' : ''}.</div></div>`;
     return;
   }
-  const rows = items.map(it => {
+  const total = items.length;
+  const page = items.slice(0, _timelineShown);
+  const rows = page.map(it => {
     const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
     const whenAbs = new Date((it.ts || 0) * 1000).toLocaleString();
     // In fleet mode each row names its device (clickable → that device's timeline).
@@ -12347,7 +12364,14 @@ function _renderTimeline() {
       + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${_escapeHtml(timeAgo(it.ts))}</div>`
       + `</div>`;
   });
-  body.innerHTML = `<div class="tl-list">${rows.join('')}</div>`;
+  let footer = '';
+  if (total > _timelineShown) {
+    footer = `<div class="tl-more"><span class="c-muted fs-12">Showing ${page.length} of ${total}</span>`
+      + `<button class="btn-secondary fs-12" data-action="timelineShowMore">Load ${Math.min(_TIMELINE_PAGE, total - _timelineShown)} more</button></div>`;
+  } else if (total > _TIMELINE_PAGE) {
+    footer = `<div class="tl-more"><span class="c-muted fs-12">Showing all ${total}</span></div>`;
+  }
+  body.innerHTML = `<div class="tl-list">${rows.join('')}</div>${footer}`;
 }
 
 // ── Reports page (v3.4.1) ────────────────────────────────────────────────────
@@ -12632,6 +12656,84 @@ async function deleteAutomationRule(id) {
   loadAutomation();
 }
 
+// ── Release signing (v3.4.2) ─────────────────────────────────────────────────
+async function loadSigning() {
+  const box = document.getElementById('signing-status');
+  if (!box) return;
+  const s = await api('GET', '/signing/status').catch(() => null);
+  if (!s) { box.innerHTML = '<div class="c-red">Failed to load signing status.</div>'; return; }
+  const pk = document.getElementById('signing-pubkey');
+  if (pk) pk.value = s.public_key || '';
+  if (!s.gpg_available) {
+    box.innerHTML = '<div class="settings-section"><p class="c-red">gpg is not installed on the server — server-side signing is unavailable. Install gpg, or sign off-server in CI.</p></div>';
+    return;
+  }
+  const sigPill = {
+    valid: '<span class="sev-pill sev-success">signed &amp; valid</span>',
+    invalid: '<span class="sev-pill sev-critical">signed but INVALID</span>',
+    unsigned: '<span class="sev-pill sev-low">unsigned</span>',
+    unverifiable: '<span class="sev-pill sev-medium">signed (unverifiable)</span>',
+  }[s.signature_status] || '';
+  const enPill = s.enabled ? '<span class="sev-pill sev-success">on</span>' : '<span class="sev-pill sev-low">off</span>';
+  box.innerHTML = `<div class="settings-section">
+    <div class="row-8-center mb-12"><strong>Enforcement</strong> ${enPill}
+      <strong class="ml-8">Current release</strong> ${sigPill}</div>
+    <div class="fs-13 c-muted mb-12">${s.has_key
+      ? `Server signing key: <code class="ff-mono">${escHtml(s.fingerprint)}</code>`
+      : 'No server signing key yet.'}</div>
+    <div class="row-8-center">
+      ${s.has_key
+        ? `<button class="btn-primary fs-12" data-action="signingSignNow">Sign current agent</button>
+           <button class="btn-secondary fs-12" data-action="signingToggle" data-arg="${s.enabled ? '0' : '1'}">${s.enabled ? 'Disable' : 'Enable'} enforcement</button>
+           <button class="btn-secondary fs-12" data-action="signingGenerate" data-arg="force">Regenerate key</button>`
+        : `<button class="btn-primary fs-12" data-action="signingGenerate" data-arg="">Generate signing key</button>`}
+      <span id="signing-action-status" class="fs-12 c-muted"></span>
+    </div>
+  </div>
+  <div id="signing-rejections"></div>`;
+  _loadSigningRejections();
+}
+
+async function _loadSigningRejections() {
+  const out = document.getElementById('signing-rejections');
+  if (!out) return;
+  const r = await api('GET', '/fleet/agent-integrity').catch(() => null);
+  const rej = ((r && r.devices) || []).filter(d => d.update_rejected);
+  if (!rej.length) { out.innerHTML = ''; return; }
+  out.innerHTML = `<div class="settings-section"><h3>Agents that refused an update</h3>`
+    + `<p class="hint">These agents declined a self-update because it wasn't validly signed — tamper, a missing signature, or the wrong key.</p>`
+    + `<div class="table-card"><table><thead><tr><th>Device</th><th>Reason</th></tr></thead><tbody>`
+    + rej.map(d => `<tr><td>${escHtml(d.name)}</td><td class="c-red fs-12">${escHtml(d.update_rejected)}</td></tr>`).join('')
+    + `</tbody></table></div></div>`;
+}
+
+async function signingGenerate(force) {
+  const msg = force === 'force'
+    ? 'Regenerate the server signing key? Agents pinned to the OLD public key will reject updates until you redistribute the new key.'
+    : 'Generate a server-held signing key? The private key is stored on this server (convenient, but weaker than CI signing — see the note above).';
+  if (!confirm(msg)) return;
+  const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Generating…';
+  const r = await api('POST', '/signing/generate', force === 'force' ? { force: true } : {}).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
+  toast('Signing key generated — now distribute the public key to agents', 'success');
+  loadSigning();
+}
+
+async function signingSignNow() {
+  const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Signing…';
+  const r = await api('POST', '/signing/sign', {}).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
+  toast('Agent release signed', 'success');
+  loadSigning();
+}
+
+async function signingToggle(on) {
+  const r = await api('POST', '/signing/toggle', { enabled: on === '1' || on === 1 }).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast(r.enabled ? 'Signature enforcement on' : 'Enforcement off', 'success');
+  loadSigning();
+}
+
 function downloadFleetReport(format) {
   const fmt = (format === 'csv') ? 'csv' : 'json';
   fetch(`/api/report/fleet?format=${fmt}`, { headers: { 'X-Token': getToken() } })
@@ -12665,16 +12767,31 @@ async function saveReportSchedule() {
     ? `Scheduled (${cron})` : 'Disabled.';
 }
 
+// v3.4.2: filter + at-risk + pagination so big fleets (many devices × mounts)
+// don't render a thousand-row table. Public wrappers are wired to the toolbar.
+const _FORECAST_PAGE = 50;
+let _forecastShown = _FORECAST_PAGE;
+function renderForecastTable() { _forecastShown = _FORECAST_PAGE; _renderForecastTable(); }
+function forecastShowMore() { _forecastShown += _FORECAST_PAGE; _renderForecastTable(); }
+
 function _renderForecastTable() {
   const body = document.getElementById('forecast-body');
   if (!body) return;
-  const sorted = tableCtl.sortRows('forecast', _forecastRows.slice(), m => ({
+  const q = (document.getElementById('forecast-filter')?.value || '').trim().toLowerCase();
+  const atRiskOnly = !!document.getElementById('forecast-atrisk')?.checked;
+  let pool = _forecastRows;
+  if (atRiskOnly) pool = pool.filter(m => m.days_to_full != null);
+  if (q) pool = pool.filter(m => (m.device_name || '').toLowerCase().includes(q)
+                                || (m.path || '').toLowerCase().includes(q));
+  const sorted = tableCtl.sortRows('forecast', pool.slice(), m => ({
     device: m.device_name, mount: m.path, used: m.current_percent,
     perday: m.trend_gb_per_day,
     days: (m.days_to_full == null ? 1e12 : m.days_to_full),
     fill: (m.fill_date_ts || 1e15),
   }));
-  const rows = sorted.map(m => {
+  const total = sorted.length;
+  const page = sorted.slice(0, _forecastShown);
+  const rows = page.map(m => {
     const idx = _forecastRows.indexOf(m);
     const d2f = m.days_to_full;
     const daysCls = d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
@@ -12690,11 +12807,18 @@ function _renderForecastTable() {
       <td class="ta-center ${daysCls}">${daysTxt}</td>
       <td class="ta-center">${escHtml(fill)}</td></tr>`;
   }).join('');
+  let footer = '';
+  if (total > _forecastShown) {
+    footer = `<div class="tl-more"><span class="c-muted fs-12">Showing ${page.length} of ${total}</span>`
+      + `<button class="btn-secondary fs-12" data-action="forecastShowMore">Load ${Math.min(_FORECAST_PAGE, total - _forecastShown)} more</button></div>`;
+  }
+  const emptyNote = total === 0
+    ? '<div class="c-muted p-12">No mounts match the current filter.</div>' : '';
   body.innerHTML = `<table class="audit-table"><thead id="forecast-thead"><tr>
     <th data-col="device">Device</th><th data-col="mount">Mount</th>
     <th data-col="used">Used</th><th data-col="used">%</th>
     <th data-col="perday">Trend</th><th data-col="days">Fills in</th>
-    <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table>${emptyNote}${footer}`;
   // Wire sort after the thead exists (re-wires each render — safe).
   tableCtl.wireSortOnly('forecast-thead', 'forecast', _renderForecastTable);
 }

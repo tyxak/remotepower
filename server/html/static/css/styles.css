@@ -4179,6 +4179,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 @media (max-width: 480px) { .status-cards { grid-template-columns: 1fr; } }
 .tl-detail { font-size: 13px; color: var(--muted); margin-top: 2px; word-break: break-word; }
 .tl-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.tl-more { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 14px 0 2px; }
 @media (max-width: 480px) {
   .tl-row { grid-template-columns: 14px 1fr; }
   .tl-time { grid-column: 2; }
@@ -4219,6 +4220,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 .m-0 { margin: 0; }
+.ml-8 { margin-left: 8px; }
 /* v3.4.2: automation rules list */
 .auto-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
 .auto-rule.auto-off { opacity: 0.6; }

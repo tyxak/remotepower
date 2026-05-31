@@ -5794,6 +5794,12 @@ def handle_heartbeat():
         _ash = body.get('agent_sha256')
         if isinstance(_ash, str) and len(_ash) == 64 and all(c in '0123456789abcdef' for c in _ash.lower()):
             dev['agent_sha256'] = _ash.lower()
+        # v3.4.2: agent reports a refused (unsigned/invalid) self-update.
+        _rej = body.get('agent_update_rejected')
+        if isinstance(_rej, str) and _rej:
+            dev['agent_update_rejected'] = _sanitize_str(_rej, 200)
+        else:
+            dev.pop('agent_update_rejected', None)
 
         if 'sysinfo' in body and isinstance(body['sysinfo'], dict):
             si = body['sysinfo']
@@ -8326,6 +8332,122 @@ def _gpg_verify_detached(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
         shutil.rmtree(home, ignore_errors=True)
 
 
+# ── v3.4.2: server-side "bake & sign" (convenience mode) ───────────────────────
+# A server-held signing key signs the published agent on demand. Convenient
+# (one click in the UI) but the private key lives on the server, so it protects
+# against tampering at rest, NOT a full server compromise — the UI says so. For
+# the strongest guarantee, sign off-server in CI (tools/sign-agent-release.sh).
+_SIGNING_GNUPGHOME = DATA_DIR / 'signing-gpg'
+
+
+def _signing_key_info():
+    """(fingerprint, armored_public_key) of the server signing key, or (None, None)."""
+    gpg = shutil.which('gpg')
+    if not gpg or not _SIGNING_GNUPGHOME.exists():
+        return None, None
+    try:
+        env = dict(os.environ, GNUPGHOME=str(_SIGNING_GNUPGHOME))
+        cols = subprocess.run([gpg, '--batch', '--list-secret-keys', '--with-colons'],
+                              env=env, capture_output=True, text=True, timeout=15).stdout
+        fpr = next((ln.split(':')[9] for ln in cols.splitlines()
+                    if ln.startswith('fpr:')), None)
+        if not fpr:
+            return None, None
+        pub = subprocess.run([gpg, '--batch', '--armor', '--export', fpr],
+                             env=env, capture_output=True, text=True, timeout=15).stdout
+        return fpr, pub
+    except Exception:
+        return None, None
+
+
+def handle_signing_status():
+    """GET /api/signing/status — server-side signing state for the UI."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    fpr, pub = _signing_key_info()
+    respond(200, {
+        'gpg_available':    bool(shutil.which('gpg')),
+        'enabled':          bool(cfg.get('agent_signing_enabled')),
+        'has_key':          bool(fpr),
+        'fingerprint':      (fpr or '').upper(),
+        'public_key':       pub or '',
+        'agent_signed':     _AGENT_SIG_PATH.exists(),
+        'signature_status': _release_signature_status(),
+    })
+
+
+def handle_signing_generate():
+    """POST /api/signing/generate — generate a server-held Ed25519 signing key
+    (no passphrase, so the server can sign non-interactively), export its public
+    key + fingerprint into config, and enable signing. Admin-only. `force`
+    replaces an existing key."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    gpg = shutil.which('gpg')
+    if not gpg:
+        respond(400, {'error': 'gpg is not installed on the server'})
+    fpr, _ = _signing_key_info()
+    if fpr and not (get_json_body() or {}).get('force'):
+        respond(400, {'error': 'a signing key already exists; pass force=true to replace it'})
+    if fpr:
+        shutil.rmtree(_SIGNING_GNUPGHOME, ignore_errors=True)
+    _SIGNING_GNUPGHOME.mkdir(parents=True, exist_ok=True)
+    os.chmod(_SIGNING_GNUPGHOME, 0o700)
+    env = dict(os.environ, GNUPGHOME=str(_SIGNING_GNUPGHOME))
+    params = ("%no-protection\nKey-Type: eddsa\nKey-Curve: ed25519\n"
+              "Key-Usage: sign\nName-Real: RemotePower Release\n"
+              "Expire-Date: 0\n%commit\n")
+    r = subprocess.run([gpg, '--batch', '--gen-key'], input=params.encode(),
+                       env=env, capture_output=True, timeout=120)
+    if r.returncode != 0:
+        respond(500, {'error': 'key generation failed: '
+                               + r.stderr.decode('utf-8', 'replace')[:200]})
+    fpr, pub = _signing_key_info()
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['release_pubkey'] = pub or ''
+        cfg['release_key_fingerprint'] = (fpr or '').upper()
+        cfg['agent_signing_enabled'] = True
+    audit_log(actor, 'signing_key_generate', f'fingerprint={fpr}')
+    respond(200, {'ok': True, 'fingerprint': (fpr or '').upper(), 'public_key': pub or ''})
+
+
+def handle_signing_sign():
+    """POST /api/signing/sign — sign the currently-published agent binary with the
+    server key (writes the detached signature). Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    gpg = shutil.which('gpg')
+    fpr, _ = _signing_key_info()
+    if not gpg or not fpr:
+        respond(400, {'error': 'no server signing key — generate one first'})
+    if not _AGENT_BINARY_PATH.exists():
+        respond(400, {'error': 'no published agent binary to sign'})
+    env = dict(os.environ, GNUPGHOME=str(_SIGNING_GNUPGHOME))
+    r = subprocess.run([gpg, '--batch', '--yes', '--armor', '--detach-sign',
+                        '-u', fpr, '-o', str(_AGENT_SIG_PATH), str(_AGENT_BINARY_PATH)],
+                       env=env, capture_output=True, timeout=60)
+    if r.returncode != 0:
+        respond(500, {'error': 'signing failed: '
+                               + r.stderr.decode('utf-8', 'replace')[:200]})
+    audit_log(actor, 'agent_release_signed',
+              f'fingerprint={fpr} sha={(_get_agent_sha256() or "")[:12]}')
+    respond(200, {'ok': True, 'signature_status': _release_signature_status()})
+
+
+def handle_signing_toggle():
+    """POST /api/signing/toggle — enable/disable signing advertisement. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    enabled = bool((get_json_body() or {}).get('enabled'))
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['agent_signing_enabled'] = enabled
+    audit_log(actor, 'signing_toggle', f'enabled={enabled}')
+    respond(200, {'ok': True, 'enabled': enabled})
+
+
 def _agent_integrity_status(dev, canonical_sha, canonical_ver):
     """Per-device agent integrity verdict against the canonical served binary.
 
@@ -8361,7 +8483,8 @@ def handle_agent_integrity():
         counts[st] += 1
         rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
                      'version': dev.get('version', ''), 'status': st,
-                     'agent_sha256': (dev.get('agent_sha256') or '')[:12]})
+                     'agent_sha256': (dev.get('agent_sha256') or '')[:12],
+                     'update_rejected': dev.get('agent_update_rejected') or ''})
     order = {'mismatch': 0, 'unknown': 1, 'verified': 2}
     rows.sort(key=lambda r: (order.get(r['status'], 3), r['name'].lower()))
     respond(200, {
@@ -23955,6 +24078,10 @@ def _build_exact_routes():
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/version'): handle_agent_version,
         ('GET', '/api/agent/signature'): handle_agent_signature,
+        ('GET', '/api/signing/status'): handle_signing_status,
+        ('POST', '/api/signing/generate'): handle_signing_generate,
+        ('POST', '/api/signing/sign'): handle_signing_sign,
+        ('POST', '/api/signing/toggle'): handle_signing_toggle,
         ('POST', '/api/ai/chat'): handle_ai_chat,
         ('GET', '/api/ai/config'): handle_ai_config_get,
         ('POST', '/api/ai/config'): handle_ai_config_set,

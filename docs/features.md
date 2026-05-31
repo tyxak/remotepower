@@ -66,6 +66,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Statistical resource anomalies** | Model-free per-host mean/stdev baselines over metric history flag sharp memory/swap/disk deviations (≥2.5σ). `GET /api/fleet/anomalies` (v3.4.2) |
 | **Agent integrity attestation** | Agents report their running binary hash each heartbeat; server flags a mismatch vs the canonical build (tamper/corruption) as a critical NA item. `GET /api/fleet/agent-integrity` (v3.4.2) |
 | **Cryptographic release signing** | Detached GPG signature over the agent release (`tools/sign-agent-release.sh`); agents with a pinned public key refuse unsigned/invalid self-updates. Opt-in, fail-closed, `gpg`-based (v3.4.2) |
+| **Bake & sign UI** | Admin → Release Signing: server-held key generate/sign/toggle + public-key distribution + a list of agents that refused an unsigned update. Convenient (server-side) mode (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*
