@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.4.1'
+SERVER_VERSION = '3.4.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -211,6 +211,8 @@ HELM_FILE        = DATA_DIR / 'helm.json'
 # v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
 HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
 HEALTH_ALERT_STATE_FILE = DATA_DIR / 'health_alert_state.json'
+# v3.4.2: automation rules (when event matches → run script / notify).
+RULES_FILE       = DATA_DIR / 'automation_rules.json'
 # v3.4.0: global webhook send-rate limiter state (sliding window of send ts).
 # The cap is a runaway-loop backstop, NOT a fleet-size limit: a single
 # fleet-wide event (e.g. a CVE flagged on every host, or a kernel rollout)
@@ -2872,6 +2874,224 @@ def _quiet_hours_active(event, payload, cfg, now=None):
     return None
 
 
+def _device_matches_rule(dm, dev_id, devices_cache):
+    """True if dev_id satisfies a rule's device_match {device_id|group|tags}."""
+    if not dm:
+        return True
+    if dm.get('device_id'):
+        return dev_id == dm['device_id']
+    grp = dm.get('group')
+    tags = dm.get('tags') or []
+    if not grp and not tags:
+        return True
+    if not dev_id:
+        return False
+    dev = (devices_cache or {}).get(dev_id) or {}
+    if grp and dev.get('group') != grp:
+        return False
+    if tags and not set(tags).issubset(set(dev.get('tags') or [])):
+        return False
+    return True
+
+
+def _run_automation_action(action, event, payload, dev_id, cfg, rule):
+    """Run one rule action: queue a saved script on the event's device, or
+    re-dispatch the event to a named webhook destination."""
+    atype = (action or {}).get('type')
+    if atype == 'run_script':
+        sid = action.get('script_id')
+        if not sid or not dev_id:
+            return
+        scripts = load(SCRIPTS_FILE) or {}
+        body = next((s.get('body', '') for s in (scripts.get('scripts') or [])
+                     if s.get('id') == sid), None)
+        if not body:
+            return
+        # Queue exec exactly like the scheduler. Quarantine is enforced at the
+        # command-dispatch chokepoint, so a quarantined host still won't run it.
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            q = cmds.setdefault(dev_id, [])
+            queued = f'exec:{body}'
+            if queued not in q:
+                q.append(queued)
+        nm = ((load(DEVICES_FILE) or {}).get(dev_id) or {}).get('name', dev_id)
+        log_command(f"automation({rule.get('name', 'rule')})", dev_id, nm, f"run_script:{sid}")
+        audit_log('automation', 'rule_run_script',
+                  f"rule={rule.get('id')} dev={dev_id} script={sid} on {event}")
+    elif atype == 'notify':
+        dest = next((d for d in (cfg.get('webhook_urls') or [])
+                     if isinstance(d, dict) and d.get('id') == action.get('dest_id')), None)
+        if not dest or not dest.get('url'):
+            return
+        safe = {k: v for k, v in (payload or {}).items() if not str(k).startswith('_')}
+        try:
+            msg = _webhook_message(event, payload or {})
+        except Exception:
+            msg = event
+        _dispatch_one_webhook(event, dest, safe, msg,
+                              _webhook_title(event), _webhook_priority(event))
+
+
+def _run_automation_rules(event, payload, cfg):
+    """v3.4.2: evaluate automation rules against a fired event and run matching
+    actions. Called from fire_webhook after the unmonitored-device guard (so
+    automation never acts on a silenced host) and independent of the
+    notification channel gates. Each rule has a cooldown to dampen flapping and
+    action loops. The caller wraps this — a rule bug never breaks event firing."""
+    rules = (load(RULES_FILE) or {}).get('rules') or []
+    if not rules:
+        return
+    p = payload or {}
+    dev_id = p.get('device_id')
+    sev = _alert_severity(event, p) or 'info'
+    now = int(time.time())
+    devices_cache = None
+    fired_ids = []
+    for rule in rules:
+        if not rule.get('enabled'):
+            continue
+        match = rule.get('match') or {}
+        evs = match.get('events') or []
+        if evs and event not in evs:
+            continue
+        sevs = match.get('severities') or []
+        if sevs and sev not in sevs:
+            continue
+        dm = match.get('device_match') or {}
+        if (dm.get('group') or dm.get('tags')) and devices_cache is None:
+            devices_cache = load(DEVICES_FILE) or {}
+        if not _device_matches_rule(dm, dev_id, devices_cache):
+            continue
+        try:
+            cooldown = int(rule.get('cooldown_seconds', 60))
+        except (TypeError, ValueError):
+            cooldown = 60
+        if cooldown > 0 and (now - int(rule.get('last_fired') or 0)) < cooldown:
+            continue
+        for action in (rule.get('actions') or []):
+            try:
+                _run_automation_action(action, event, p, dev_id, cfg, rule)
+            except Exception as e:
+                sys.stderr.write(f"[remotepower] automation action failed "
+                                 f"rule={rule.get('id')}: {e}\n")
+        fired_ids.append(rule.get('id'))
+    if fired_ids:
+        try:
+            with _LockedUpdate(RULES_FILE) as st:
+                for r in (st.get('rules') or []):
+                    if r.get('id') in fired_ids:
+                        r['last_fired'] = now
+                        r['fire_count'] = int(r.get('fire_count') or 0) + 1
+        except Exception:
+            pass
+
+
+def _validate_rule(body):
+    """Sanitise + validate a rule dict from a request. Returns (rule, error)."""
+    name = _sanitize_str(body.get('name', ''), 80) or 'Rule'
+    match = body.get('match') if isinstance(body.get('match'), dict) else {}
+    events = [e for e in (match.get('events') or [])
+              if isinstance(e, str) and e][:40]
+    sevs = [s for s in (match.get('severities') or []) if s in _QH_SEV_RANK][:5]
+    dm_in = match.get('device_match') if isinstance(match.get('device_match'), dict) else {}
+    device_match = {
+        'device_id': _sanitize_str(dm_in.get('device_id', ''), 64),
+        'group':     _sanitize_str(dm_in.get('group', ''), 64),
+        'tags':      [_sanitize_str(t, 32) for t in (dm_in.get('tags') or [])
+                      if isinstance(t, str)][:10],
+    }
+    actions = []
+    for a in (body.get('actions') or [])[:10]:
+        if not isinstance(a, dict):
+            continue
+        if a.get('type') == 'run_script' and a.get('script_id'):
+            actions.append({'type': 'run_script',
+                            'script_id': _sanitize_str(a['script_id'], 64)})
+        elif a.get('type') == 'notify' and a.get('dest_id'):
+            actions.append({'type': 'notify',
+                            'dest_id': _sanitize_str(a['dest_id'], 64)})
+    if not actions:
+        return None, 'at least one valid action (run_script or notify) is required'
+    if not (events or sevs):
+        return None, 'specify at least one event or severity to match'
+    try:
+        cooldown = max(0, min(86400, int(body.get('cooldown_seconds', 60))))
+    except (TypeError, ValueError):
+        cooldown = 60
+    return {
+        'name':    name,
+        'enabled': bool(body.get('enabled', True)),
+        'match':   {'events': events, 'severities': sevs,
+                    'device_match': device_match},
+        'actions': actions,
+        'cooldown_seconds': cooldown,
+    }, None
+
+
+def handle_automation_rules_list():
+    """GET /api/automation/rules — list automation rules. Auth: require_auth."""
+    require_auth()
+    respond(200, {'rules': (load(RULES_FILE) or {}).get('rules') or []})
+
+
+def handle_automation_rule_create():
+    """POST /api/automation/rules — create a rule. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    rule, err = _validate_rule(get_json_body() or {})
+    if err:
+        respond(400, {'error': err})
+    rule.update({'id': 'r-' + secrets.token_hex(6), 'created': int(time.time()),
+                 'actor': actor, 'last_fired': 0, 'fire_count': 0})
+    with _LockedUpdate(RULES_FILE) as st:
+        rules = st.setdefault('rules', [])
+        if len(rules) >= 200:
+            respond(400, {'error': 'too many rules (max 200)'})
+        rules.append(rule)
+    audit_log(actor, 'automation_rule_create', f"id={rule['id']} name={rule['name']!r}")
+    respond(201, rule)
+
+
+def handle_automation_rule_update(rule_id):
+    """PUT /api/automation/rules/<id> — replace a rule's config. Admin-only.
+    Preserves id/created/actor/last_fired/fire_count."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    rule, err = _validate_rule(get_json_body() or {})
+    if err:
+        respond(400, {'error': err})
+    found = False
+    with _LockedUpdate(RULES_FILE) as st:
+        for r in (st.get('rules') or []):
+            if r.get('id') == rule_id:
+                r.update(rule)
+                found = True
+                break
+    if not found:
+        respond(404, {'error': 'rule not found'})
+    audit_log(actor, 'automation_rule_update', f"id={rule_id}")
+    respond(200, {'ok': True})
+
+
+def handle_automation_rule_delete(rule_id):
+    """DELETE /api/automation/rules/<id> — remove a rule. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    removed = False
+    with _LockedUpdate(RULES_FILE) as st:
+        rules = st.get('rules') or []
+        kept = [r for r in rules if r.get('id') != rule_id]
+        removed = len(kept) != len(rules)
+        st['rules'] = kept
+    if not removed:
+        respond(404, {'error': 'rule not found'})
+    audit_log(actor, 'automation_rule_delete', f"id={rule_id}")
+    respond(200, {'ok': True})
+
+
 def fire_webhook(event, payload):
     """
     v1.8.6: Despite the historical name, this is now the single dispatch point
@@ -2939,6 +3159,15 @@ def fire_webhook(event, payload):
                 return
         except Exception:
             pass
+
+    # v3.4.2: automation rules. Evaluated here — after the unmonitored guard
+    # (don't auto-act on silenced hosts) but before the notification gates
+    # (automation is independent of who gets paged). Wrapped: a rule bug must
+    # never break the event firing path.
+    try:
+        _run_automation_rules(event, payload, cfg)
+    except Exception as _ar:
+        sys.stderr.write(f'[remotepower] automation rules error: {_ar}\n')
 
     # v3.0.2 helper: find SOME URL to attribute a suppression-log entry to.
     # Legacy code paths assumed `webhook_url` was always the truth; with
@@ -23886,6 +24115,13 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
     elif pi == '/api/public/status' and m == 'GET': handle_public_status()
     elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
+    # v3.4.2: automation rules engine (when event → run script / notify)
+    elif pi == '/api/automation/rules' and m == 'GET': handle_automation_rules_list()
+    elif pi == '/api/automation/rules' and m == 'POST': handle_automation_rule_create()
+    elif pi.startswith('/api/automation/rules/') and m == 'PUT':
+        handle_automation_rule_update(pi[len('/api/automation/rules/'):])
+    elif pi.startswith('/api/automation/rules/') and m == 'DELETE':
+        handle_automation_rule_delete(pi[len('/api/automation/rules/'):])
     # v3.4.1: fleet posture report (patches + CVE + health + compliance)
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()

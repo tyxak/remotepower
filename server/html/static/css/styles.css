@@ -4219,6 +4219,13 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .rep-compliance { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 .m-0 { margin: 0; }
+/* v3.4.2: automation rules list */
+.auto-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
+.auto-rule.auto-off { opacity: 0.6; }
+.auto-rule-name { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.auto-rule-sum { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.auto-rule-sum b { color: var(--text); font-weight: 600; }
+.auto-rule-acts { display: flex; gap: 6px; flex-shrink: 0; }
 /* Capacity top-consumers (Reports page) */
 .cap-tops { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
 .cap-top-row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 3px 0; border-bottom: 1px solid var(--border); }

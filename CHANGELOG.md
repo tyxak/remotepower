@@ -2,7 +2,24 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v3.4.1 — unreleased (dev)
+## v3.4.2 — unreleased (dev)
+
+In development.
+
+- **Automation rules engine (Admin → Automation).** Turn the events RemotePower
+  already fires into actions: *"when event X (at severity S) on devices matching
+  group/tags/id → run a saved script and/or notify a destination."* Rules are
+  evaluated on every fired event, right after the unmonitored-device guard
+  (so automation never touches a silenced host) and independently of the
+  notification channel gates. Two action types: **run a saved script** on the
+  event's device (auto-remediation — quarantine is still enforced at the
+  command chokepoint) and **notify** a specific webhook destination (escalate a
+  particular event past its normal routing, e.g. straight to PagerDuty). Each
+  rule has a **cooldown** (default 60s) so a flapping event can't hammer an
+  action. New `GET`/`POST /api/automation/rules` and
+  `PUT`/`DELETE /api/automation/rules/<id>` (mutations admin-only, audited).
+
+## v3.4.1
 
 **Theme: bind it together.** Three cohesion features that connect data which
 previously lived on separate pages, plus a smarter command palette.

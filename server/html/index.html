@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.4.1">
+<link rel="stylesheet" href="static/css/styles.css?v=3.4.2">
 
 </head>
 <body>
@@ -318,6 +318,10 @@
         <button class="nav-btn" data-page="scripts" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Scripts</span>
+        </button>
+        <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span>Automation</span>
         </button>
         <button class="nav-btn" data-page="iac" title="Generate Infrastructure-as-Code">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
@@ -1796,7 +1800,21 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.1 timeline per-device history events command runs fleet health score grade needs attention rollup home dashboard reports posture report patches cve compliance export json csv scheduled email cron command palette ctrl k deep link bind it together cohesion">
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity">
+            <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
+            <div class="doc-body">
+              <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
+              <h4>Automation rules (Admin → Automation)</h4>
+              <ul>
+                <li>Turn the events RemotePower already fires into actions: <strong>when</strong> an event (optionally at a given severity) fires on devices matching a group / tags / id, <strong>then</strong> run a saved script and/or notify a destination.</li>
+                <li><strong>Run a saved script</strong> auto-remediates (e.g. restart a unit on <code>service_down</code>) — it goes through the normal command queue, so device <strong>quarantine still blocks it</strong>. <strong>Notify</strong> escalates a specific event to a chosen webhook destination past its normal routing (e.g. straight to PagerDuty).</li>
+                <li>Each rule has a <strong>cooldown</strong> (default 60s) so a flapping event can't hammer the action. Rules run after the unmonitored-device guard (never touch a silenced host) and independently of who gets paged. Mutations are admin-only and audited.</li>
+              </ul>
+              <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="release notes changelog v3.4.1 timeline per-device history events command runs fleet health score grade needs attention rollup home dashboard reports posture report patches cve compliance export json csv scheduled email cron command palette ctrl k deep link bind it together cohesion sla uptime capacity public status page pagerduty opsgenie quiet hours prometheus ical">
             <summary><strong>What's new — v3.4.1</strong> — Timeline, Fleet health score &amp; Reports (bind it together)</summary>
             <div class="doc-body">
               <p>Additive release — no breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.1</code>). Three cohesion features that connect data which used to live on separate pages.</p>
@@ -3219,6 +3237,44 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-8-center">
             <button class="btn-primary fs-12" data-action="saveReportSchedule">Save schedule</button>
             <span id="report-sched-status" class="fs-12 c-muted"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Automation rules page (v3.4.2) ───────────────────────────────── -->
+      <div id="page-automation" class="page">
+        <div class="page-title">Automation</div>
+        <div class="page-subtitle">When an event fires on matching devices, run a saved script and/or notify a destination. Rules are evaluated on every event; each has a cooldown. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="section-header"><div class="section-title">Rules</div><button class="enroll-btn" data-action="openAutomationEditor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rule</button></div>
+        <div id="automation-list" class="mb-16"><div class="c-muted">Loading…</div></div>
+
+        <div id="automation-editor" class="dash-card d-none">
+          <h3 id="automation-editor-title">New rule</h3>
+          <input type="hidden" id="auto-rule-id">
+          <div class="mb-12"><label class="form-label">Name</label>
+            <input type="text" id="auto-name" class="form-input input-wide-sm" placeholder="e.g. Restart nginx on failure" autocomplete="off"></div>
+          <div class="mb-12"><label class="form-label">When these events fire <span class="meta-sm-nm">(comma-separated; blank = any)</span></label>
+            <input type="text" id="auto-events" class="form-input input-wide" placeholder="service_down, container_stopped" autocomplete="off"></div>
+          <div class="mb-12"><label class="form-label">…at these severities <span class="meta-sm-nm">(blank = any)</span></label>
+            <div class="row-8-center" id="auto-sevs">
+              <label class="form-label"><input type="checkbox" value="critical"> critical</label>
+              <label class="form-label"><input type="checkbox" value="high"> high</label>
+              <label class="form-label"><input type="checkbox" value="medium"> medium</label>
+              <label class="form-label"><input type="checkbox" value="low"> low</label>
+            </div></div>
+          <div class="mb-12 row-8-center">
+            <div><label class="form-label">Device group</label><input type="text" id="auto-group" class="form-input input-auto" placeholder="any"></div>
+            <div><label class="form-label">Tags <span class="meta-sm-nm">(comma-sep)</span></label><input type="text" id="auto-tags" class="form-input input-auto" placeholder="any"></div>
+          </div>
+          <div class="mb-12 row-8-center">
+            <div><label class="form-label">Action: run script</label><select id="auto-script" class="form-input input-auto"><option value="">— none —</option></select></div>
+            <div><label class="form-label">Action: notify destination</label><select id="auto-notify" class="form-input input-auto"><option value="">— none —</option></select></div>
+            <div><label class="form-label">Cooldown (s)</label><input type="number" id="auto-cooldown" class="form-input input-auto" min="0" max="86400" value="60"></div>
+          </div>
+          <div class="row-8-center">
+            <button class="btn-primary fs-12" data-action="saveAutomationRule">Save rule</button>
+            <button class="btn-secondary fs-12" data-action="closeAutomationEditor">Cancel</button>
+            <span id="auto-editor-status" class="fs-12 c-muted"></span>
           </div>
         </div>
       </div>
@@ -5263,14 +5319,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.4.1"></script>
+<script src="static/js/app.js?v=3.4.2"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.4.1"></script>
-<script src="static/js/app-cmdb.js?v=3.4.1"></script>
-<script src="static/js/app-containers.js?v=3.4.1"></script>
-<script src="static/js/app-network.js?v=3.4.1"></script>
+<script src="static/js/app-calendar.js?v=3.4.2"></script>
+<script src="static/js/app-cmdb.js?v=3.4.2"></script>
+<script src="static/js/app-containers.js?v=3.4.2"></script>
+<script src="static/js/app-network.js?v=3.4.2"></script>
 
-<script src="static/js/sw-register.js?v=3.4.1"></script>
+<script src="static/js/sw-register.js?v=3.4.2"></script>
 </body>
 </html>

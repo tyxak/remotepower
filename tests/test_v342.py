@@ -1,0 +1,150 @@
+"""v3.4.2 release tests.
+
+Strict version pins for v3.4.2 (the v3.4.1 strict pins loosen to regex when
+this file ships, per the standing convention). v3.4.2's headline feature is the
+**automation rules engine**: "when event X on devices matching Y, run a saved
+script and/or notify a channel" — composing the existing event registry, channel
+routing, and saved scripts into a rule model evaluated on every fired event.
+"""
+import sys as _cj_sys
+from pathlib import Path as _cj_Path
+_cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
+from clientjs import client_js
+import re
+import sys
+import unittest
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from routing_harness import routes_to  # noqa: E402
+
+
+class TestVersionBumps(unittest.TestCase):
+    """v3.4.2 takes the strict version pin (following prior convention)."""
+    EXPECTED = '3.4.2'
+
+    def test_api_server_version(self):
+        text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        self.assertIsNotNone(m, 'SERVER_VERSION line missing from api.py')
+        self.assertEqual(m.group(1), self.EXPECTED)
+
+    def test_agent_version(self):
+        text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
+        self.assertIsNotNone(m, 'VERSION line missing from agent')
+        self.assertEqual(m.group(1), self.EXPECTED)
+
+    def test_agent_extensionless_matches_py(self):
+        a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
+        b = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_bytes()
+        self.assertEqual(a, b,
+            'remotepower-agent and remotepower-agent.py have drifted')
+
+    def test_sw_cache_name(self):
+        sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
+        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw,
+            f'sw.js CACHE_NAME must be bumped to remotepower-shell-v{self.EXPECTED}')
+
+    def test_index_cache_bust(self):
+        html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.assertIn(f'?v={self.EXPECTED}', html,
+            f'index.html cache-bust ?v= must be {self.EXPECTED}')
+
+    def test_readme_badge(self):
+        text = (REPO_ROOT / 'README.md').read_text()
+        self.assertIn(f'version-{self.EXPECTED}-blue.svg', text,
+            'README.md version badge not bumped')
+
+    def test_changelog_top_entry(self):
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
+        self.assertIsNotNone(m, 'CHANGELOG.md has no ## v<x.y.z> header')
+        self.assertEqual(m.group(1), self.EXPECTED,
+            f'CHANGELOG.md top entry is v{m.group(1)}, expected v{self.EXPECTED}')
+
+    def test_release_notes_doc_present(self):
+        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
+        self.assertTrue(path.exists(), f'docs/v{self.EXPECTED}.md is missing')
+        self.assertIn(self.EXPECTED, path.read_text())
+
+
+class TestV342Automation(unittest.TestCase):
+    """Automation rules engine — when an event matches, run a script / notify."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_routes_registered(self):
+        for method, path, handler in (
+                ('GET',    '/api/automation/rules',     'handle_automation_rules_list'),
+                ('POST',   '/api/automation/rules',     'handle_automation_rule_create'),
+                ('PUT',    '/api/automation/rules/r-1', 'handle_automation_rule_update'),
+                ('DELETE', '/api/automation/rules/r-1', 'handle_automation_rule_delete')):
+            self.assertEqual(routes_to(method, path), handler,
+                             f'{method} {path} must route to {handler}')
+
+    def test_engine_defined_and_wired(self):
+        for fn in ('def _run_automation_rules(', 'def _run_automation_action(',
+                   'def _device_matches_rule(', 'def _validate_rule(',
+                   'def handle_automation_rule_create('):
+            self.assertIn(fn, self.API, f'{fn} missing from api.py')
+        # Evaluated from the event dispatch path.
+        self.assertIn('_run_automation_rules(event, payload, cfg)', self.API)
+
+    def test_create_is_admin_gated(self):
+        m = re.search(r'def handle_automation_rule_create\(.*?\n(.*?)\ndef ',
+                      self.API, re.DOTALL)
+        self.assertIsNotNone(m)
+        self.assertIn('require_admin_auth()', m.group(1))
+
+    def test_engine_behaviour(self):
+        import importlib, sys as _s, tempfile, json, time as _t
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        import os
+        d = tempfile.mkdtemp()
+        # Point the module's data files at a temp dir for this check.
+        from pathlib import Path as _P
+        api.DATA_DIR = _P(d)
+        for attr, fn in (('RULES_FILE', 'automation_rules.json'),
+                         ('SCRIPTS_FILE', 'scripts.json'),
+                         ('CMDS_FILE', 'commands.json'),
+                         ('DEVICES_FILE', 'devices.json'),
+                         ('CONFIG_FILE', 'config.json')):
+            setattr(api, attr, _P(d) / fn)
+        api.audit_log = lambda *a, **k: None
+        api.log_command = lambda *a, **k: None
+        (_P(d) / 'devices.json').write_text(json.dumps({'d1': {'name': 'web', 'group': 'prod', 'monitored': True}}))
+        (_P(d) / 'scripts.json').write_text(json.dumps({'scripts': [{'id': 's1', 'name': 'x', 'body': 'echo hi'}]}))
+        (_P(d) / 'automation_rules.json').write_text(json.dumps({'rules': [{
+            'id': 'r-1', 'name': 'a', 'enabled': True, 'cooldown_seconds': 0,
+            'match': {'events': ['service_down'], 'severities': [], 'device_match': {'group': 'prod'}},
+            'actions': [{'type': 'run_script', 'script_id': 's1'}],
+            'last_fired': 0, 'fire_count': 0}]}))
+        # load() memoises per-request and is invalidated by save(); since this
+        # test writes files directly, clear the cache to mimic a fresh request.
+        api._LOAD_CACHE.clear()
+        # matching event queues the script
+        api._run_automation_rules('service_down', {'device_id': 'd1'}, {})
+        cmds = json.loads((_P(d) / 'commands.json').read_text())
+        self.assertEqual(cmds.get('d1'), ['exec:echo hi'])
+        # group mismatch → nothing
+        (_P(d) / 'commands.json').write_text('{}')
+        (_P(d) / 'devices.json').write_text(json.dumps({'d1': {'name': 'web', 'group': 'dev', 'monitored': True}}))
+        api._LOAD_CACHE.clear()
+        api._run_automation_rules('service_down', {'device_id': 'd1'}, {})
+        self.assertEqual(json.loads((_P(d) / 'commands.json').read_text()), {})
+
+    def test_frontend_present(self):
+        self.assertIn('data-page="automation"', self.HTML)
+        self.assertIn('id="page-automation"', self.HTML)
+        self.assertIn('function loadAutomation(', self.APP)
+        self.assertIn('function saveAutomationRule(', self.APP)
+        self.assertIn("name === 'automation'", self.APP)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -840,6 +840,7 @@ function showPage(name, btn) {
   if (name === 'forecast') loadForecast();
   if (name === 'timeline') enterTimeline();
   if (name === 'reports')  loadReports();
+  if (name === 'automation') loadAutomation();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2394,6 +2395,7 @@ const _DYK_TIPS = [
   "The Reports page tracks per-device uptime % (SLA) and a fleet CPU/memory/disk capacity rollup.",
   "Share a read-only public status page (status.html?token=…) showing fleet health and monitor status — no login required.",
   "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
+  "Automation rules (Admin → Automation) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -12438,6 +12440,148 @@ function _renderReportsSla() {
   }).join('');
   out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('sla-thead', 'sla', _renderReportsSla);
+}
+
+// ── Automation rules (v3.4.2) ────────────────────────────────────────────────
+let _autoRules = [];
+let _autoScripts = [];   // [{id,name}]
+let _autoDests = [];     // [{id,name}] webhook destinations
+
+async function loadAutomation() {
+  const list = document.getElementById('automation-list');
+  if (!list) return;
+  closeAutomationEditor();
+  const [rules, scripts, cfg] = await Promise.all([
+    api('GET', '/automation/rules').catch(() => null),
+    api('GET', '/scripts').catch(() => null),
+    api('GET', '/config').catch(() => null),
+  ]);
+  _autoScripts = (Array.isArray(scripts) ? scripts : (scripts && scripts.scripts) || [])
+    .map(s => ({ id: s.id, name: s.name || s.id }));
+  _autoDests = ((cfg && cfg.webhook_urls) || [])
+    .filter(d => d && d.id).map(d => ({ id: d.id, name: d.name || d.url || d.id }));
+  // Populate editor dropdowns.
+  const sSel = document.getElementById('auto-script');
+  if (sSel) sSel.innerHTML = '<option value="">— none —</option>'
+    + _autoScripts.map(s => `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('');
+  const nSel = document.getElementById('auto-notify');
+  if (nSel) nSel.innerHTML = '<option value="">— none —</option>'
+    + _autoDests.map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('');
+  _autoRules = (rules && rules.rules) || [];
+  _renderAutomationList();
+}
+
+function _autoRuleSummary(r) {
+  const m = r.match || {};
+  const evs = (m.events || []).length ? (m.events || []).join(', ') : 'any event';
+  const sev = (m.severities || []).length ? ` [${m.severities.join('/')}]` : '';
+  const dm = m.device_match || {};
+  let where = 'any device';
+  if (dm.device_id) where = 'device ' + dm.device_id;
+  else if (dm.group || (dm.tags || []).length) where = [dm.group ? 'group ' + dm.group : '', (dm.tags || []).length ? 'tags ' + dm.tags.join(',') : ''].filter(Boolean).join(' + ');
+  const acts = (r.actions || []).map(a => {
+    if (a.type === 'run_script') { const s = _autoScripts.find(x => x.id === a.script_id); return 'run ' + (s ? s.name : a.script_id); }
+    if (a.type === 'notify') { const d = _autoDests.find(x => x.id === a.dest_id); return 'notify ' + (d ? d.name : a.dest_id); }
+    return a.type;
+  }).join(', ');
+  return `when <b>${escHtml(evs)}</b>${escHtml(sev)} on <b>${escHtml(where)}</b> → <b>${escHtml(acts)}</b>`;
+}
+
+function _renderAutomationList() {
+  const list = document.getElementById('automation-list');
+  if (!list) return;
+  if (!_autoRules.length) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('zap', 28)}</div>`
+      + `<div class="empty-title">No automation rules</div>`
+      + `<div class="empty-text">Click <b>New rule</b> to react to events automatically — e.g. restart a service when it goes down.</div></div>`;
+    return;
+  }
+  list.innerHTML = _autoRules.map(r =>
+    `<div class="auto-rule${r.enabled ? '' : ' auto-off'}">`
+    + `<div class="auto-rule-main">`
+    +   `<div class="auto-rule-name">${escHtml(r.name || 'Rule')}${r.enabled ? '' : ' <span class="sev-pill sev-low">disabled</span>'}</div>`
+    +   `<div class="auto-rule-sum">${_autoRuleSummary(r)}</div>`
+    +   `<div class="meta-sm-nm">fired ${r.fire_count || 0}×${r.cooldown_seconds ? ` · cooldown ${r.cooldown_seconds}s` : ''}</div>`
+    + `</div>`
+    + `<div class="auto-rule-acts">`
+    +   `<button class="btn-icon" data-action="toggleAutomationRule" data-arg="${escAttr(r.id)}">${r.enabled ? 'Disable' : 'Enable'}</button>`
+    +   `<button class="btn-icon" data-action="openAutomationEditor" data-arg="${escAttr(r.id)}">Edit</button>`
+    +   `<button class="btn-icon" data-action="deleteAutomationRule" data-arg="${escAttr(r.id)}">Delete</button>`
+    + `</div></div>`).join('');
+}
+
+function openAutomationEditor(ruleId) {
+  const ed = document.getElementById('automation-editor');
+  if (!ed) return;
+  const r = ruleId ? _autoRules.find(x => x.id === ruleId) : null;
+  document.getElementById('automation-editor-title').textContent = r ? 'Edit rule' : 'New rule';
+  document.getElementById('auto-rule-id').value = r ? r.id : '';
+  document.getElementById('auto-name').value = r ? (r.name || '') : '';
+  const m = (r && r.match) || {};
+  document.getElementById('auto-events').value = (m.events || []).join(', ');
+  const sevSet = new Set(m.severities || []);
+  document.querySelectorAll('#auto-sevs input[type=checkbox]').forEach(cb => { cb.checked = sevSet.has(cb.value); });
+  const dm = m.device_match || {};
+  document.getElementById('auto-group').value = dm.group || '';
+  document.getElementById('auto-tags').value = (dm.tags || []).join(', ');
+  const acts = (r && r.actions) || [];
+  document.getElementById('auto-script').value = (acts.find(a => a.type === 'run_script') || {}).script_id || '';
+  document.getElementById('auto-notify').value = (acts.find(a => a.type === 'notify') || {}).dest_id || '';
+  document.getElementById('auto-cooldown').value = r ? (r.cooldown_seconds != null ? r.cooldown_seconds : 60) : 60;
+  document.getElementById('auto-editor-status').textContent = '';
+  ed.classList.remove('d-none');
+  ed.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeAutomationEditor() {
+  const ed = document.getElementById('automation-editor');
+  if (ed) ed.classList.add('d-none');
+}
+
+async function saveAutomationRule() {
+  const id = document.getElementById('auto-rule-id').value;
+  const events = document.getElementById('auto-events').value.split(',').map(s => s.trim()).filter(Boolean);
+  const severities = [...document.querySelectorAll('#auto-sevs input:checked')].map(cb => cb.value);
+  const tags = document.getElementById('auto-tags').value.split(',').map(s => s.trim()).filter(Boolean);
+  const actions = [];
+  const sid = document.getElementById('auto-script').value;
+  const did = document.getElementById('auto-notify').value;
+  if (sid) actions.push({ type: 'run_script', script_id: sid });
+  if (did) actions.push({ type: 'notify', dest_id: did });
+  if (!actions.length) { toast('Pick at least one action (script or notify)', 'error'); return; }
+  if (!events.length && !severities.length) { toast('Specify at least one event or severity', 'error'); return; }
+  const rule = {
+    name: document.getElementById('auto-name').value.trim() || 'Rule',
+    enabled: true,
+    match: { events, severities, device_match: { group: document.getElementById('auto-group').value.trim(), tags } },
+    actions,
+    cooldown_seconds: parseInt(document.getElementById('auto-cooldown').value, 10) || 0,
+  };
+  // Preserve enabled state when editing.
+  if (id) { const ex = _autoRules.find(x => x.id === id); if (ex) rule.enabled = ex.enabled; }
+  const r = id
+    ? await api('PUT', '/automation/rules/' + encodeURIComponent(id), rule).catch(() => null)
+    : await api('POST', '/automation/rules', rule).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Save failed', 'error'); return; }
+  toast('Rule saved', 'success');
+  loadAutomation();
+}
+
+async function toggleAutomationRule(id) {
+  const r = _autoRules.find(x => x.id === id);
+  if (!r) return;
+  const rule = { name: r.name, enabled: !r.enabled, match: r.match, actions: r.actions, cooldown_seconds: r.cooldown_seconds };
+  const res = await api('PUT', '/automation/rules/' + encodeURIComponent(id), rule).catch(() => null);
+  if (!res || res.error) { toast((res && res.error) || 'Failed', 'error'); return; }
+  loadAutomation();
+}
+
+async function deleteAutomationRule(id) {
+  if (!confirm('Delete this automation rule?')) return;
+  const r = await api('DELETE', '/automation/rules/' + encodeURIComponent(id)).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Delete failed', 'error'); return; }
+  toast('Rule deleted', 'success');
+  loadAutomation();
 }
 
 function downloadFleetReport(format) {
