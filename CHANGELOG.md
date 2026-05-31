@@ -62,6 +62,21 @@ previously lived on separate pages, plus a smarter command palette.
     during a daily window (Settings → Dashboard → Quiet hours; may cross
     midnight). Events still land in the Alerts inbox and Recent Activity;
     anything at/above the chosen severity always pages through.
+- **Fleet reporting & integrations (medium).**
+  - **SLA / uptime reporting.** Per-device and per-group uptime % over a window
+    (7/30/90 days), computed from the uptime transition log, on the Reports
+    page; the fleet 30-day uptime is folded into the posture report.
+    `GET /api/fleet/sla?days=`.
+  - **Capacity dashboard.** Fleet-wide CPU / memory / disk rollup (averages,
+    peaks, total disk, top consumers) on the Reports page.
+    `GET /api/fleet/capacity`.
+  - **Read-only public status page.** A standalone `status.html` (no login)
+    shows the fleet health score, device online count, and monitor up/down,
+    backed by `GET /api/public/status?token=<status token>` — share the URL for
+    a lightweight public status board.
+  - **Webhook → on-call/ticketing.** New **PagerDuty** (Events API v2) and
+    **Opsgenie** (Alerts API v2) notification destinations alongside the
+    existing channels; recover events auto-resolve the PagerDuty incident.
 
 ## v3.4.0
 

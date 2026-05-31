@@ -88,6 +88,9 @@ class TestV341Routes(unittest.TestCase):
                 ('GET', '/api/fleet/timeline',       'handle_fleet_timeline'),
                 ('GET', '/api/inventory/search',     'handle_inventory_search'),
                 ('GET', '/api/schedule.ics',         'handle_schedule_ics'),
+                ('GET', '/api/fleet/sla',            'handle_fleet_sla'),
+                ('GET', '/api/fleet/capacity',       'handle_fleet_capacity'),
+                ('GET', '/api/public/status',        'handle_public_status'),
                 ('GET', '/api/report/fleet',         'handle_fleet_report'),
                 ('GET', '/api/report/schedule',      'handle_report_schedule_get'),
                 ('PUT', '/api/report/schedule',      'handle_report_schedule_set')):
@@ -347,6 +350,67 @@ class TestV341SmallTrio(unittest.TestCase):
         self.assertFalse(api._in_time_window('12:00', '22:00', '07:00'))
         self.assertTrue(api._in_time_window('09:00', '08:00', '17:00'))
         self.assertFalse(api._in_time_window('19:00', '08:00', '17:00'))
+
+
+class TestV341MediumTier(unittest.TestCase):
+    """SLA/uptime reporting, capacity dashboard, public status page, ticketing."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    ROOT = REPO_ROOT
+
+    def test_sla_backend(self):
+        for fn in ('def _uptime_pct(', 'def handle_fleet_sla('):
+            self.assertIn(fn, self.API)
+        # SLA headline folded into the posture report.
+        self.assertIn("'sla':            {'days': 30", self.API)
+
+    def test_sla_uptime_pct_behaviour(self):
+        import importlib, sys as _s, time as _t
+        _s.path.insert(0, str(self.ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        now = int(_t.time())
+        win = now - 10 * 86400
+        # always up
+        pct, down, cov = api._uptime_pct([{'ts': now - 40 * 86400, 'online': True}], win, now)
+        self.assertTrue(cov); self.assertEqual(pct, 100.0); self.assertEqual(down, 0)
+        # no data → unknown
+        self.assertEqual(api._uptime_pct([], win, now), (None, 0, False))
+        # one day down out of ten → ~90%
+        ev = [{'ts': now - 40 * 86400, 'online': True},
+              {'ts': now - 3 * 86400, 'online': False},
+              {'ts': now - 2 * 86400, 'online': True}]
+        pct, down, cov = api._uptime_pct(ev, win, now)
+        self.assertTrue(cov); self.assertAlmostEqual(pct, 90.0, delta=0.5)
+
+    def test_capacity_backend(self):
+        self.assertIn('def handle_fleet_capacity(', self.API)
+
+    def test_capacity_frontend(self):
+        self.assertIn('function loadReportsCapacity(', self.APP)
+        self.assertIn('id="reports-capacity"', self.HTML)
+        # SLA table must wire sort (sortable-tables rule).
+        self.assertIn("wireSortOnly('sla-thead'", self.APP)
+
+    def test_public_status_page(self):
+        self.assertIn('def handle_public_status(', self.API)
+        self.assertTrue((self.ROOT / 'server' / 'html' / 'status.html').exists())
+        self.assertTrue((self.ROOT / 'server' / 'html' / 'static' / 'js' / 'status.js').exists())
+        # Gated by the status token, not a session.
+        idx = self.API.find('def handle_public_status')
+        self.assertIn('status_token', self.API[idx:idx + 800])
+
+    def test_ticketing_adapters(self):
+        for fn in ('def _build_pagerduty_body(', 'def _build_opsgenie_body('):
+            self.assertIn(fn, self.API)
+        # registered + dispatched + auto-detected
+        self.assertIn("'pagerduty'", self.API)
+        self.assertIn("'opsgenie'", self.API)
+        self.assertIn("fmt == 'pagerduty'", self.API)
+        self.assertIn("events.pagerduty.com", self.API)
+        # frontend format options
+        self.assertIn("['pagerduty', 'PagerDuty'", self.APP)
+        self.assertIn("['opsgenie',  'Opsgenie'", self.APP)
 
 
 if __name__ == '__main__':

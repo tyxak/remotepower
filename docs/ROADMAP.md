@@ -22,13 +22,13 @@ extensions. Those are struck from the backlog below.
 | Quiet hours / notification schedules | 🟢 Small | ✅ v3.4.1 | Channels |
 | Command palette extensions | 🟢 Small | ✅ v3.4.1 | Existing palette |
 | Fleet health score | 🟡 Medium | ✅ v3.4.1 | `_compute_attention()` |
-| [Health-score history](#health-score-history) | 🟡 Medium | — | Forecast regression chart |
-| [Health-score thresholds → alerts](#health-score-thresholds--alerts) | 🟡 Medium | — | Event registries |
+| Health-score history | 🟡 Medium | ✅ v3.4.1 | Forecast regression chart |
+| Health-score thresholds → alerts | 🟡 Medium | ✅ v3.4.1 | Event registries |
 | Reporting (fleet-posture) | 🟡 Medium | ✅ v3.4.1 | patch-report + scheduler + SMTP |
-| [SLA / uptime reporting](#sla--uptime-reporting) | 🟡 Medium | — | `uptime.json` / `offline_since` |
-| [Webhook → ticketing](#webhook--ticketing) | 🟡 Medium | — | Existing channels |
-| [Capacity dashboard](#capacity-dashboard) | 🟡 Medium | — | Per-device forecast |
-| [Read-only public status page](#read-only-public-status-page) | 🟡 Medium | — | Report / health data |
+| SLA / uptime reporting | 🟡 Medium | ✅ v3.4.1 | `uptime.json` / `offline_since` |
+| Webhook → ticketing | 🟡 Medium | ✅ v3.4.1 | Existing channels |
+| Capacity dashboard | 🟡 Medium | ✅ v3.4.1 | Per-device forecast |
+| Read-only public status page | 🟡 Medium | ✅ v3.4.1 | Report / health data |
 | Per-device timeline | 🔴 Large | ✅ v3.4.1 | New merge endpoint + UI |
 | Fleet-wide timeline | 🔴 Large | ✅ v3.4.1 | Per-device merge logic |
 | [Automation rules engine](#automation-rules-engine) | 🔴 Large | — | Event registry + channels + scripts |
@@ -50,25 +50,10 @@ feed, quiet hours).*
 
 ## 🟡 Medium
 
-Reuse a core engine or dataset but require a new rollup, report, or modest surface.
-
-### Health-score history
-Sample the fleet/per-device score (now produced by `_fleet_health()`) into a `metrics_history.json`-style series and chart the trend. Reuses the forecast regression chart for rendering — mostly a sampling job + storage.
-
-### Health-score thresholds → alerts
-Fire a `health_degraded` event when a device drops below N or falls sharply. New event type wired through all 6 registries; threshold + slope detection on the score series.
-
-### SLA / uptime reporting
-Per-device and per-group uptime % over a window, exportable in the report. Computed from `uptime.json` / `offline_since`; integrate into the v3.4.1 reporting pipeline.
-
-### Webhook → ticketing
-Outbound adapters for Jira / Linear / PagerDuty / Opsgenie alongside existing channels. Each is a channel-shaped adapter following the `_webhook_message/_webhook_priority/_webhook_tags` helper pattern.
-
-### Capacity dashboard
-Fleet-wide CPU / mem / disk aggregates, not just per-device forecast. Roll up existing per-device metrics into fleet totals + a dashboard view.
-
-### Read-only public status page
-A tokened external page showing fleet health score + monitor status, served from the same report/health data. New public route + minimal template, no auth beyond the token.
+*All 🟡 Medium items shipped in v3.4.1 (fleet health score + history + threshold
+alerts, fleet-posture reporting, SLA/uptime, capacity dashboard, public status
+page, webhook→ticketing via PagerDuty/Opsgenie). Jira/Linear ticketing adapters
+remain a possible follow-up.*
 
 ---
 

@@ -2391,6 +2391,9 @@ const _DYK_TIPS = [
   "RemotePower flags hosts on an end-of-life OS — they show in Needs Attention and fail a compliance control until you upgrade.",
   "Subscribe your calendar to /api/schedule.ics to see scheduled jobs and maintenance windows alongside your other events.",
   "Set quiet hours in Settings → Dashboard to mute non-critical alerts overnight — critical ones still page through.",
+  "The Reports page tracks per-device uptime % (SLA) and a fleet CPU/memory/disk capacity rollup.",
+  "Share a read-only public status page (status.html?token=…) showing fleet health and monitor status — no login required.",
+  "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -12365,6 +12368,8 @@ async function loadReports() {
         + (fwPills ? `<div class="rep-compliance">${fwPills}</div>` : '');
     }
   }
+  loadReportsCapacity();
+  loadReportsSla();
   // Schedule config.
   const sch = await api('GET', '/report/schedule').catch(() => null);
   if (sch) {
@@ -12378,6 +12383,61 @@ async function loadReports() {
     if (status) status.textContent = sch.last_run
       ? `Last sent ${timeAgo(sch.last_run)}` : 'Never sent yet.';
   }
+}
+
+async function loadReportsCapacity() {
+  const out = document.getElementById('reports-capacity');
+  if (!out) return;
+  const r = await api('GET', '/fleet/capacity').catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load capacity.</div>'; return; }
+  const cell = (k, agg, unit) => `<div class="rep-cell"><div class="rep-k">${k}</div>`
+    + `<div class="rep-v">${agg.avg != null ? agg.avg : '—'}<span class="rep-unit">${unit} avg</span></div>`
+    + `<div class="rep-sub c-muted">max ${agg.max != null ? agg.max + unit : '—'}</div></div>`;
+  const d = r.disk || {};
+  const tops = (label, arr, unit) => arr && arr.length
+    ? `<div class="cap-top"><div class="rep-k">${label}</div>`
+      + arr.map(x => `<div class="cap-top-row"><span>${escHtml(x.name)}</span><span class="mono-12">${x.value}${unit}</span></div>`).join('')
+      + `</div>` : '';
+  out.innerHTML =
+    `<div class="rep-grid">`
+    + cell('CPU', r.cpu || {}, '%')
+    + cell('Memory', r.memory || {}, '%')
+    + cell('Swap', r.swap || {}, '%')
+    + `<div class="rep-cell"><div class="rep-k">Disk</div><div class="rep-v">${d.percent != null ? d.percent : '—'}<span class="rep-unit">% used</span></div><div class="rep-sub c-muted">${d.used_gb || 0} / ${d.total_gb || 0} GB</div></div>`
+    + `</div>`
+    + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online device(s) counted</div>`
+    + `<div class="cap-tops">${tops('Top CPU', r.top_cpu, '%')}${tops('Top memory', r.top_memory, '%')}${tops('Top disk', r.top_disk, '%')}</div>`;
+}
+
+let _slaRows = [];
+async function loadReportsSla() {
+  const out = document.getElementById('reports-sla');
+  if (!out) return;
+  const days = document.getElementById('sla-days')?.value || '30';
+  const r = await api('GET', '/fleet/sla?days=' + encodeURIComponent(days)).catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load uptime.</div>'; return; }
+  const fl = document.getElementById('sla-fleet');
+  if (fl) fl.textContent = r.fleet_uptime_pct != null ? `fleet ${r.fleet_uptime_pct}% over ${r.days}d` : 'no data yet';
+  _slaRows = r.devices || [];
+  _renderReportsSla();
+}
+function _renderReportsSla() {
+  const out = document.getElementById('reports-sla');
+  if (!out) return;
+  if (!_slaRows.length) { out.innerHTML = '<div class="c-muted fs-13">No uptime data yet.</div>'; return; }
+  const fmtPct = p => p == null ? '—' : p + '%';
+  const fmtDown = s => !s ? '0' : s >= 86400 ? Math.round(s / 86400) + 'd' : s >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
+  const sorted = tableCtl.sortRows('sla', _slaRows.slice(), r => ({
+    device: r.name, group: r.group, uptime: r.uptime_pct == null ? -1 : r.uptime_pct, downtime: r.downtime_seconds,
+  }));
+  const rows = sorted.map(r => {
+    const cls = r.uptime_pct == null ? 'c-muted' : r.uptime_pct >= 99.9 ? 'c-green' : r.uptime_pct >= 99 ? 'c-amber' : 'c-red';
+    return `<tr><td>${escHtml(r.name)}</td><td class="hint">${escHtml(r.group || '—')}</td>`
+      + `<td class="${cls} fw-500">${r.covered ? fmtPct(r.uptime_pct) : 'unknown'}</td>`
+      + `<td class="mono-12">${r.covered ? fmtDown(r.downtime_seconds) : '—'}</td></tr>`;
+  }).join('');
+  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('sla-thead', 'sla', _renderReportsSla);
 }
 
 function downloadFleetReport(format) {
@@ -16302,6 +16362,8 @@ const _WEBHOOK_FORMATS = [
   ['ntfy',      'ntfy.sh',        'https://ntfy.sh/your-topic'],
   ['teams',     'Microsoft Teams','https://outlook.office.com/webhook/...'],
   ['github',    'GitHub issues',  'https://api.github.com/repos/<owner>/<repo>/issues'],
+  ['pagerduty', 'PagerDuty',      'https://events.pagerduty.com/v2/enqueue'],
+  ['opsgenie',  'Opsgenie',       'https://api.opsgenie.com/v2/alerts'],
   ['generic',   'Generic JSON',   'https://your-receiver.example.com/webhook'],
 ];
 function renderWebhookDests() {
@@ -16316,6 +16378,8 @@ function renderWebhookDests() {
       `<option value="${v}" ${d.format === v ? 'selected' : ''}>${lbl}</option>`).join('');
     const isPushover = d.format === 'pushover';
     const isGithub   = d.format === 'github';
+    const isPagerduty = d.format === 'pagerduty';
+    const isOpsgenie  = d.format === 'opsgenie';
     const tokenSet = d.pushover_token_set;
     const userSet  = d.pushover_user_set;
     const githubTokenSet = d.token_set;
@@ -16344,6 +16408,11 @@ function renderWebhookDests() {
             <input type="text" data-field="token" class="form-input isl-743" placeholder="${githubTokenSet ? '••••••••••• (PAT set — leave blank to keep)' : 'GitHub PAT (fine-grained, issues:write)'}">
           </div>
           <div class="meta-sm-nm">Create a fine-grained PAT scoped to your target repo with <code>issues:write</code>. The URL is <code>https://api.github.com/repos/&lt;owner&gt;/&lt;repo&gt;/issues</code>.</div>` : ''}
+        ${(isPagerduty || isOpsgenie) ? `
+          <div class="isl-741">
+            <input type="text" data-field="token" class="form-input isl-743" placeholder="${githubTokenSet ? '••••••••••• (set — leave blank to keep)' : (isPagerduty ? 'PagerDuty integration/routing key' : 'Opsgenie API key (GenieKey)')}">
+          </div>
+          <div class="meta-sm-nm">${isPagerduty ? 'Events API v2 integration key from a PagerDuty service. Recover events auto-resolve the incident.' : 'API key from an Opsgenie API integration. Use the EU endpoint URL if your account is in the EU region.'}</div>` : ''}
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">

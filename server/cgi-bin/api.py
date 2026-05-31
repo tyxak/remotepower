@@ -3178,11 +3178,14 @@ def _auto_detect_format(url):
     if 'api.pushover.net' in host:                            return 'pushover'
     if 'outlook.office.com' in host or 'webhook.office.com' in host: return 'teams'
     if host == 'ntfy.sh' or host.endswith('.ntfy.sh'):        return 'ntfy'
+    if 'events.pagerduty.com' in host:                        return 'pagerduty'
+    if 'opsgenie.com' in host:                                return 'opsgenie'
     return 'generic'
 
 
 # Allowed format adapters — anything else falls back to generic.
-_WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams', 'github')
+_WEBHOOK_FORMATS = ('generic', 'discord', 'slack', 'ntfy', 'pushover', 'teams',
+                    'github', 'pagerduty', 'opsgenie')
 
 
 def _webhook_rate_limit_ok():
@@ -3265,6 +3268,20 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
         if body is None:
             _log_webhook(event, url, 'error',
                          'GitHub destination missing token — set it in Settings → Notifications')
+            return
+    elif fmt == 'pagerduty':
+        body, headers, content_type = _build_pagerduty_body(
+            event, title, message, priority, dest, safe_payload)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'PagerDuty destination missing routing key — set it in Settings → Notifications')
+            return
+    elif fmt == 'opsgenie':
+        body, headers, content_type = _build_opsgenie_body(
+            event, title, message, priority, dest, safe_payload)
+        if body is None:
+            _log_webhook(event, url, 'error',
+                         'Opsgenie destination missing API key — set it in Settings → Notifications')
             return
     else:
         body, headers, content_type = _build_generic_body(
@@ -3416,6 +3433,59 @@ def _build_github_body(event, title, message, dest, safe_payload):
         },
         'application/json',
     )
+
+
+def _build_pagerduty_body(event, title, message, priority, dest, safe_payload):
+    """PagerDuty Events API v2 — trigger (or resolve) an incident.
+
+    The routing/integration key comes from the destination's `routing_key`
+    field, falling back to the shared `token` field the UI already exposes.
+    Recover events (device_online, service_recover, …) send event_action
+    'resolve' against a stable dedup_key so the incident closes itself.
+    URL: https://events.pagerduty.com/v2/enqueue. Returns (None,…) if no key."""
+    key = (dest.get('routing_key') or dest.get('token') or '').strip()
+    if not key:
+        return None, None, None
+    sev = ('critical' if priority >= 5 else 'error' if priority >= 4
+           else 'warning' if priority >= 3 else 'info')
+    action = 'resolve' if event in _ALERT_RECOVER else 'trigger'
+    p = safe_payload or {}
+    dedup = f"remotepower-{event}-{p.get('device_id', '')}"[:255]
+    body = json.dumps({
+        'routing_key':  key,
+        'event_action': action,
+        'dedup_key':    dedup,
+        'payload': {
+            'summary':  (title or message or str(event))[:1024],
+            'severity': sev,
+            'source':   p.get('device_name') or p.get('_server_name') or 'RemotePower',
+            'custom_details': {'message': message, 'event': event},
+        },
+    }).encode()
+    return body, {}, 'application/json'
+
+
+def _build_opsgenie_body(event, title, message, priority, dest, safe_payload):
+    """Opsgenie Alerts API v2 — create an alert. The API key (GenieKey) comes
+    from the destination's `api_key`, falling back to the shared `token` field.
+    URL: https://api.opsgenie.com/v2/alerts (or the EU endpoint). Returns
+    (None,…) when no key is set."""
+    key = (dest.get('api_key') or dest.get('token') or '').strip()
+    if not key:
+        return None, None, None
+    pri = ('P1' if priority >= 5 else 'P2' if priority >= 4
+           else 'P3' if priority >= 3 else 'P4')
+    p = safe_payload or {}
+    body = json.dumps({
+        'message':     (title or message or str(event))[:130],
+        'description': (message or '')[:15000],
+        'priority':    pri,
+        'alias':       f"remotepower-{event}-{p.get('device_id', '')}"[:512],
+        'source':      'RemotePower',
+        'tags':        ['remotepower', str(event)[:48]],
+        'details':     {'event': event, 'device': p.get('device_name', '')},
+    }).encode()
+    return body, {'Authorization': f'GenieKey {key}'}, 'application/json'
 
 
 def _build_pushover_body(event, title, message, priority, dest):
@@ -8394,6 +8464,143 @@ def handle_uptime(dev_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     uptime = load(UPTIME_FILE); dev = uptime.get(dev_id, {})
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id), 'events': dev.get('events', [])})
+
+
+def _uptime_pct(events, window_start, now):
+    """v3.4.1: integrate online time over [window_start, now] from a device's
+    uptime transition events. Returns (uptime_pct, downtime_seconds, covered);
+    covered=False means RemotePower has no record covering the window (unknown,
+    not 100%). Each event is a state *transition*, so the state before the first
+    in-window event is the opposite of that event's state."""
+    if now <= window_start:
+        return None, 0, False
+    events = sorted(events or [], key=lambda e: e.get('ts', 0))
+    state = None
+    for e in events:
+        if e.get('ts', 0) <= window_start:
+            state = bool(e.get('online'))
+        else:
+            break
+    in_window = [e for e in events if window_start < e.get('ts', 0) <= now]
+    if state is None and not in_window:
+        return None, 0, False
+    if state is None:
+        state = not bool(in_window[0].get('online'))
+    total = now - window_start
+    down = 0
+    cursor = window_start
+    cur = state
+    for e in in_window:
+        ts = e.get('ts', 0)
+        if not cur:
+            down += ts - cursor
+        cursor = ts
+        cur = bool(e.get('online'))
+    if not cur:
+        down += now - cursor
+    pct = round(100.0 * (total - down) / total, 3) if total > 0 else None
+    return pct, int(down), True
+
+
+def handle_fleet_sla():
+    """GET /api/fleet/sla?days=N — per-device + per-group uptime % over a window.
+
+    Computed from the uptime transition log. Auth: require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        days = int((qs.get('days') or ['30'])[0])
+    except ValueError:
+        days = 30
+    days = max(1, min(365, days))
+    now = int(time.time())
+    window_start = now - days * 86400
+    uptime = load(UPTIME_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    rows = []
+    groups = {}
+    covered_pcts = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('monitored') is False:
+            continue
+        ev = (uptime.get(dev_id) or {}).get('events') or []
+        pct, down, covered = _uptime_pct(ev, window_start, now)
+        grp = dev.get('group') or 'ungrouped'
+        rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
+                     'group': grp, 'uptime_pct': pct,
+                     'downtime_seconds': down, 'covered': covered})
+        if covered and pct is not None:
+            covered_pcts.append(pct)
+            g = groups.setdefault(grp, [])
+            g.append(pct)
+    group_rows = [{'group': g, 'uptime_pct': round(sum(v) / len(v), 3),
+                   'devices': len(v)}
+                  for g, v in sorted(groups.items())]
+    fleet_pct = round(sum(covered_pcts) / len(covered_pcts), 3) if covered_pcts else None
+    rows.sort(key=lambda r: (r['uptime_pct'] if r['uptime_pct'] is not None else 101))
+    respond(200, {
+        'days': days, 'generated_ts': now,
+        'fleet_uptime_pct': fleet_pct,
+        'devices': rows, 'groups': group_rows,
+    })
+
+
+def handle_fleet_capacity():
+    """GET /api/fleet/capacity — fleet-wide CPU / memory / disk rollup from the
+    latest sysinfo of currently-online monitored devices, plus the top
+    consumers. Auth: require_auth."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    ttl = get_online_ttl()
+    cpu, mem, swap = [], [], []
+    disk_used = disk_total = 0.0
+    top_cpu, top_mem, top_disk = [], [], []
+    counted = 0
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('monitored') is False:
+            continue
+        if (now - dev.get('last_seen', 0)) >= ttl:
+            continue  # only reporting devices contribute
+        si = dev.get('sysinfo') or {}
+        name = dev.get('name', dev_id)
+        counted += 1
+        c, m, s = si.get('cpu_percent'), si.get('mem_percent'), si.get('swap_percent')
+        if isinstance(c, (int, float)): cpu.append(c); top_cpu.append((name, c, dev_id))
+        if isinstance(m, (int, float)): mem.append(m); top_mem.append((name, m, dev_id))
+        if isinstance(s, (int, float)): swap.append(s)
+        worst = None
+        for mnt in (si.get('mounts') or []):
+            if not isinstance(mnt, dict):
+                continue
+            ug, tg, pc = mnt.get('used_gb'), mnt.get('total_gb'), mnt.get('percent')
+            if isinstance(ug, (int, float)): disk_used += ug
+            if isinstance(tg, (int, float)): disk_total += tg
+            if isinstance(pc, (int, float)) and (worst is None or pc > worst):
+                worst = pc
+        if worst is not None:
+            top_disk.append((name, worst, dev_id))
+
+    def _agg(vals):
+        return ({'avg': round(sum(vals) / len(vals), 1), 'max': round(max(vals), 1)}
+                if vals else {'avg': None, 'max': None})
+
+    def _top(lst, n=5):
+        return [{'device_id': d, 'name': nm, 'value': round(v, 1)}
+                for nm, v, d in sorted(lst, key=lambda x: -x[1])[:n]]
+
+    respond(200, {
+        'generated_ts':    now,
+        'devices_counted': counted,
+        'cpu':    _agg(cpu),
+        'memory': _agg(mem),
+        'swap':   _agg(swap),
+        'disk':   {'used_gb': round(disk_used, 1), 'total_gb': round(disk_total, 1),
+                   'percent': round(100.0 * disk_used / disk_total, 1) if disk_total > 0 else None},
+        'top_cpu':    _top(top_cpu),
+        'top_memory': _top(top_mem),
+        'top_disk':   _top(top_disk),
+    })
 
 
 def _day_status_from_events(events, day_start, day_end):
@@ -14468,6 +14675,45 @@ def handle_dashboard_kinds_set():
     respond(200, {'ok': True, 'channel_routing': current})
 
 
+def handle_public_status():
+    """GET /api/public/status?token=<status_token> — read-only snapshot for a
+    public status page. No session. Gated by the status token. Deliberately
+    minimal: fleet health score + grade, device online/offline counts, and
+    monitor up/down — no device names, IPs, or any other detail."""
+    cfg = load(CONFIG_FILE) or {}
+    token = cfg.get('status_token') or ''
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    given = (qs.get('token') or [''])[0]
+    if not (token and given and hmac.compare_digest(given, token)):
+        respond(401, {'error': 'invalid or missing status token'})
+        return
+    now = int(time.time())
+    ttl = get_online_ttl()
+    devices = load(DEVICES_FILE) or {}
+    mon_devs = [d for d in devices.values()
+                if isinstance(d, dict) and d.get('monitored') is not False]
+    online = sum(1 for d in mon_devs if (now - d.get('last_seen', 0)) < ttl)
+    health = _fleet_health()
+    mon_hist = load(MON_HIST_FILE) or {}
+    mons = []
+    for label, entries in mon_hist.items():
+        if entries:
+            last = entries[-1]
+            mons.append({'label': str(label)[:64],
+                         'up': bool(last.get('up', last.get('ok', True)))})
+    mon_up = sum(1 for m in mons if m['up'])
+    respond(200, {
+        'server_name':  get_server_name(),
+        'generated_ts': now,
+        'health':       {'score': health['score'], 'grade': health['grade']},
+        'devices':      {'total': len(mon_devs), 'online': online,
+                         'offline': len(mon_devs) - online},
+        'monitors':     {'total': len(mons), 'up': mon_up,
+                         'down': len(mons) - mon_up,
+                         'items': sorted(mons, key=lambda m: (m['up'], m['label']))},
+    })
+
+
 def handle_status():
     """GET /api/status?token=<status_token> — machine-readable fleet
     summary for external dashboards (Uptime Kuma, Homepage, Grafana).
@@ -15680,12 +15926,26 @@ def _build_fleet_report():
     health = _fleet_health()
     comp = compliance.build_report(_compliance_facts())
     comp['generated_ts'] = now
+
+    # v3.4.1: fleet uptime % over the last 30 days (SLA headline).
+    uptime = load(UPTIME_FILE) or {}
+    win = now - 30 * 86400
+    sla_pcts = []
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        pct, _down, covered = _uptime_pct((uptime.get(did) or {}).get('events') or [], win, now)
+        if covered and pct is not None:
+            sla_pcts.append(pct)
+    fleet_uptime = round(sum(sla_pcts) / len(sla_pcts), 3) if sla_pcts else None
+
     return {
         'generated_ts':   now,
         'server_version': SERVER_VERSION,
         'server_name':    get_server_name(),
         'devices':        {'total': len(devices), 'online': online,
                            'offline': len(devices) - online},
+        'sla':            {'days': 30, 'fleet_uptime_pct': fleet_uptime},
         'patches':        {'devices_with_patches': with_patches,
                            'total_pending': total_pending},
         'cve':            cve,
@@ -23622,6 +23882,10 @@ def _dispatch(pi, m):
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
+    # v3.4.1: SLA / uptime reporting + fleet capacity rollup
+    elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
+    elif pi == '/api/public/status' and m == 'GET': handle_public_status()
+    elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
     # v3.4.1: fleet posture report (patches + CVE + health + compliance)
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
     elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()

@@ -57,6 +57,10 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Prometheus health metrics** | `/api/metrics` exports fleet + per-device health score, needs-attention counts, 24h event counts by kind, and CVE-fixable total (v3.4.1) |
 | **iCal feed** | `GET /api/schedule.ics?token=<status token>` — scheduled jobs + maintenance windows as a calendar subscription, recurring jobs as RRULEs (v3.4.1) |
 | **Quiet hours** | Hold non-critical webhook/email delivery during a daily window (may cross midnight); events still recorded, critical always pages (v3.4.1) |
+| **SLA / uptime reporting** | Per-device + per-group uptime % over 7/30/90 days from the uptime log, on the Reports page. `GET /api/fleet/sla` (v3.4.1) |
+| **Capacity dashboard** | Fleet-wide CPU/mem/disk rollup (avg, peak, total disk, top consumers) on the Reports page. `GET /api/fleet/capacity` (v3.4.1) |
+| **Public status page** | Standalone `status.html` (no login) — fleet health + monitor up/down via `GET /api/public/status?token=<status token>` (v3.4.1) |
+| **PagerDuty / Opsgenie** | On-call notification destinations: PagerDuty Events API v2 (trigger + auto-resolve) and Opsgenie Alerts API v2 (v3.4.1) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*
