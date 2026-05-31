@@ -17,9 +17,41 @@ The legacy single `webhook_url` field is still honoured — operators with one D
 | `pushover` | `api.pushover.net` | Form-encoded with `token`, `user`, `title`, `message`, `priority` |
 | `teams` | `outlook.office.com`, `webhook.office.com` | MessageCard schema with theme colour |
 | `ntfy` | `ntfy.sh` | Plain-text body + `Title`/`Priority`/`Tags` headers |
+| `github` | `api.github.com` | Opens a GitHub issue (PAT in the destination's credential field) |
+| `pagerduty` | `events.pagerduty.com` | Events API v2 — triggers an incident; recover events auto-resolve it (v3.4.1) |
+| `opsgenie` | `opsgenie.com` | Alerts API v2 — P1–P4 by severity (v3.4.1) |
 | `generic` | Anything else | JSON `{event, ts, title, message, priority, ...payload}` + `X-Title`/`X-Priority`/`X-Tags` headers |
 
 Format auto-detect runs only on the legacy `webhook_url`. Entries in the new array carry an explicit `format` field — change it in the UI dropdown.
+
+## On-call vs. ticketing
+
+These are two different jobs — use the right tool for each:
+
+- **On-call / paging** (wake someone, escalate if unacked): the `pagerduty` and
+  `opsgenie` formats above.
+- **Ticketing / help-desk** (a durable queue someone triages and closes): see
+  below.
+
+### osTicket (and any email-to-ticket help-desk) — zero code
+
+The simplest, dependency-free path to a ticketing system like **osTicket**,
+Zammad, Request Tracker, or FreeScout is the **email channel** — no webhook
+adapter required:
+
+1. In your help-desk, create an inbound mailbox/pipe that opens a ticket from
+   email (osTicket: *Admin → Emails → Add Email*; it polls the mailbox or
+   accepts a local pipe).
+2. In RemotePower, **Settings → Notifications → Email notifications (SMTP)**, add
+   that address to the recipient list and enable email for the events you want
+   to become tickets.
+3. Each fired event now arrives as an email → a new ticket, subject = the event
+   title, body = the human-readable detail.
+
+Because it rides the existing email channel, it inherits maintenance-window and
+quiet-hours suppression and the per-event opt-in for free. This keeps RemotePower
+self-hosted end to end — no SaaS dependency. (A native osTicket REST adapter
+could follow, but the email path covers the common case with zero new code.)
 
 ## Pushover specifics
 
@@ -77,7 +109,7 @@ Migrating a single legacy URL to the new array:
 | POST | `/api/config` | Accepts `webhook_urls` array; empty pushover_token/pushover_user fields preserve existing values |
 | POST | `/api/webhook-test` | Body `{}` → fan out to all enabled destinations. Body `{id: "wh_xxx"}` → fire only to that one (uses a synthetic config without touching persisted state) |
 
-Max 20 destinations. URL must be http or https. Format must be one of the six listed above (anything else returns 400).
+Max 20 destinations. URL must be http or https. Format must be one of those listed above (anything else returns 400).
 
 ## Audit + logging
 

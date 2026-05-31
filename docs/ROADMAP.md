@@ -64,9 +64,13 @@ Net-new surfaces, new data models, or cross-cutting engines.
 *All 🔴 Large items shipped in v3.4.2 (automation rules engine, device dependency
 map, anomaly baselining, agent integrity attestation).*
 
-**Possible follow-ups:** Jira/Linear ticketing adapters (PagerDuty + Opsgenie
-shipped in v3.4.1). *(Cryptographic release signing — detached GPG signatures
-over the agent artifact — shipped in v3.4.2.)*
+**Ticketing:** PagerDuty + Opsgenie (on-call paging) shipped in v3.4.1. For
+*ticketing/help-desk*, the recommended path is the email channel → a self-hosted
+help-desk (osTicket, Zammad, Request Tracker, FreeScout) — zero code, documented
+in `docs/webhooks.md`. This keeps RemotePower self-hosted end to end; preferred
+over SaaS Jira/Linear adapters. A native osTicket REST adapter could follow if a
+structured-field integration is wanted. *(Cryptographic release signing shipped
+in v3.4.2.)*
 
 ---
 
