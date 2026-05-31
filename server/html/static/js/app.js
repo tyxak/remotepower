@@ -2398,6 +2398,7 @@ const _DYK_TIPS = [
   "Automation rules (Admin → Automation) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
   "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
   "The Reports page flags resource anomalies — when a host's memory, swap, or disk jumps far outside its own normal range.",
+  "Agents report their own binary hash every heartbeat — RemotePower flags any agent whose code doesn't match the canonical build it serves.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -12373,6 +12374,7 @@ async function loadReports() {
     }
   }
   loadReportsCapacity();
+  loadReportsIntegrity();
   loadReportsAnomalies();
   loadReportsSla();
   // Schedule config.
@@ -12412,6 +12414,29 @@ async function loadReportsCapacity() {
     + `</div>`
     + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online device(s) counted</div>`
     + `<div class="cap-tops">${tops('Top CPU', r.top_cpu, '%')}${tops('Top memory', r.top_memory, '%')}${tops('Top disk', r.top_disk, '%')}</div>`;
+}
+
+async function loadReportsIntegrity() {
+  const out = document.getElementById('reports-integrity');
+  if (!out) return;
+  const r = await api('GET', '/fleet/agent-integrity').catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load agent integrity.</div>'; return; }
+  const c = r.counts || {};
+  const pills = `<div class="row-8-center mb-12">`
+    + `<span class="sev-pill sev-success">${c.verified || 0} verified</span>`
+    + `<span class="sev-pill sev-critical">${c.mismatch || 0} mismatch</span>`
+    + `<span class="sev-pill sev-low">${c.unknown || 0} unknown</span>`
+    + `<span class="fs-12 c-muted">canonical ${escHtml(r.canonical_sha256 || '—')} · v${escHtml(r.server_version || '')}</span></div>`;
+  // Only list the non-verified ones (the actionable rows); verified is the count pill.
+  const rows = (r.devices || []).filter(d => d.status !== 'verified').map(d => {
+    const cls = d.status === 'mismatch' ? 'sev-critical' : 'sev-low';
+    return `<tr><td>${escHtml(d.name)}</td><td class="mono-12">${escHtml(d.version || '—')}</td>`
+      + `<td><span class="sev-pill ${cls}">${escHtml(d.status)}</span></td>`
+      + `<td class="mono-12">${escHtml(d.agent_sha256 || '—')}</td></tr>`;
+  }).join('');
+  out.innerHTML = pills + (rows
+    ? `<div class="table-card"><table><thead><tr><th>Device</th><th>Version</th><th>Status</th><th>Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="c-muted fs-13">All reporting agents verified.</div>');
 }
 
 async function loadReportsAnomalies() {

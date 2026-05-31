@@ -1809,6 +1809,11 @@
                 <li>A model-free complement to the AI anomaly scan: each device's latest memory / swap / disk reading is compared to a mean/stdev baseline of its own recent history, and flagged when it deviates sharply (≥2.5σ). Shown on the Reports page.</li>
               </ul>
 
+              <h4>Agent integrity attestation</h4>
+              <ul>
+                <li>Each agent reports its own binary hash; the server attests it matches the canonical published build. A <strong>mismatch</strong> on the current version (tamper / corruption / partial update) is a critical Needs-Attention item and lowers the health score. Shown on the Reports page.</li>
+              </ul>
+
               <h4>Device dependency map</h4>
               <ul>
                 <li>On the Network Map, declare that a device <strong>depends on</strong> upstreams. When an upstream is offline, downstream alerts are <strong>held</strong> — you get the root-cause alert, not a storm of collateral ones. Dependency edges draw dashed violet (red when the upstream is down).</li>
@@ -3215,6 +3220,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <h3>Capacity</h3>
           <div id="reports-capacity"><div class="c-muted">Loading…</div></div>
+        </div>
+
+        <!-- v3.4.2: agent integrity attestation -->
+        <div class="dash-card mb-16">
+          <h3>Agent integrity</h3>
+          <div class="page-subtitle mb-12">Each agent reports its own binary hash; the server attests it matches the canonical published build. A mismatch on the current version flags tampering, corruption, or a partial update.</div>
+          <div id="reports-integrity"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.2: statistical resource anomalies -->

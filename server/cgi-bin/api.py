@@ -2411,6 +2411,7 @@ CHANNEL_KINDS = [
     ('cpu',         'CPU loadavg (NA)',         'informational', []),
     ('agent_version', 'Stale agent version (NA)', 'informational', []),
     ('os_eol',      'End-of-life OS (NA)',      'informational', []),
+    ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
     ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
 ]
@@ -5788,6 +5789,11 @@ def handle_heartbeat():
         dev['ip']      = _sanitize_ip(body.get('ip', dev.get('ip', '')))
         dev['os']      = _sanitize_str(body.get('os', dev.get('os', '')), MAX_OS_LEN)
         dev['version'] = _sanitize_version(body.get('version', dev.get('version', ''))) or dev.get('version', '')
+        # v3.4.2: record the agent's self-reported binary hash for integrity
+        # attestation (compared to the canonical served hash on read).
+        _ash = body.get('agent_sha256')
+        if isinstance(_ash, str) and len(_ash) == 64 and all(c in '0123456789abcdef' for c in _ash.lower()):
+            dev['agent_sha256'] = _ash.lower()
 
         if 'sysinfo' in body and isinstance(body['sysinfo'], dict):
             si = body['sysinfo']
@@ -8223,6 +8229,52 @@ def handle_agent_version():
         'version': cfg.get('agent_version', 'unknown'),
         'sha256':  sha,
         'size':    size,
+    })
+
+
+def _agent_integrity_status(dev, canonical_sha, canonical_ver):
+    """Per-device agent integrity verdict against the canonical served binary.
+
+    - 'verified': the agent's self-reported hash equals the canonical hash.
+    - 'mismatch': the agent claims the current version but reports a DIFFERENT
+      hash — tamper, corruption, or a partial update. A security signal.
+    - 'unknown': no reported hash yet, or the agent is on a different version
+      (we only hold the canonical hash for the currently-published agent)."""
+    reported = (dev.get('agent_sha256') or '').lower()
+    if not reported or not canonical_sha:
+        return 'unknown'
+    if reported == canonical_sha:
+        return 'verified'
+    if canonical_ver and (dev.get('version') or '') == canonical_ver:
+        return 'mismatch'
+    return 'unknown'
+
+
+def handle_agent_integrity():
+    """GET /api/fleet/agent-integrity — per-device agent integrity attestation:
+    does each agent's running binary hash match the canonical copy the server
+    serves? Mismatches (same version, different hash) flag tamper / corruption.
+    Auth: require_auth."""
+    require_auth()
+    canonical = _get_agent_sha256()
+    devices = load(DEVICES_FILE) or {}
+    counts = {'verified': 0, 'mismatch': 0, 'unknown': 0}
+    rows = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('agentless') or dev.get('monitored') is False:
+            continue
+        st = _agent_integrity_status(dev, canonical, SERVER_VERSION)
+        counts[st] += 1
+        rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
+                     'version': dev.get('version', ''), 'status': st,
+                     'agent_sha256': (dev.get('agent_sha256') or '')[:12]})
+    order = {'mismatch': 0, 'unknown': 1, 'verified': 2}
+    rows.sort(key=lambda r: (order.get(r['status'], 3), r['name'].lower()))
+    respond(200, {
+        'canonical_sha256': (canonical or '')[:12],
+        'server_version':   SERVER_VERSION,
+        'counts':           counts,
+        'devices':          rows,
     })
 
 
@@ -14288,6 +14340,19 @@ def _compute_attention():
             items.append({'severity': 'info', 'kind': 'os_eol',
                           'device': dev.get('name', dev_id),
                           'summary': f"{eol['label']} end-of-life in ~{eol['days']}d ({eol['eol_date']})"})
+
+    # v3.4.2: agent integrity — a running agent whose binary hash differs from
+    # the canonical published build on the current version (tamper / partial
+    # update / corruption). Critical: it's a security signal.
+    _canonical_agent_sha = _get_agent_sha256()
+    if _canonical_agent_sha:
+        for dev_id, dev in monitored.items():
+            if dev.get('agentless'):
+                continue
+            if _agent_integrity_status(dev, _canonical_agent_sha, SERVER_VERSION) == 'mismatch':
+                items.append({'severity': 'critical', 'kind': 'agent_integrity',
+                              'device': dev.get('name', dev_id),
+                              'summary': 'Agent binary hash does not match the published build'})
 
     # v3.0.1 (attention audit): services_watched that are NOT active right now.
     # Recent Activity gets a `service_down` event when the transition happens,
@@ -24227,6 +24292,8 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
     # v3.4.2: statistical resource anomalies (per-host metric baselines)
     elif pi == '/api/fleet/anomalies' and m == 'GET': handle_fleet_anomalies()
+    # v3.4.2: agent integrity attestation (running hash vs canonical)
+    elif pi == '/api/fleet/agent-integrity' and m == 'GET': handle_agent_integrity()
     # v3.4.2: automation rules engine (when event → run script / notify)
     elif pi == '/api/automation/rules' and m == 'GET': handle_automation_rules_list()
     elif pi == '/api/automation/rules' and m == 'POST': handle_automation_rule_create()

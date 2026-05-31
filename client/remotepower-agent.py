@@ -32,6 +32,19 @@ LOG_FILE     = '/var/log/remotepower-agent.log'
 VERSION      = '3.4.2'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
+# v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
+# on every heartbeat so the server can attest the running agent matches the
+# canonical copy it serves (tamper / partial-update / corruption detection).
+_AGENT_SELF_SHA = None
+def _agent_self_sha256():
+    global _AGENT_SELF_SHA
+    if _AGENT_SELF_SHA is None:
+        try:
+            _AGENT_SELF_SHA = hashlib.sha256(AGENT_BINARY.read_bytes()).hexdigest()
+        except Exception:
+            _AGENT_SELF_SHA = ''
+    return _AGENT_SELF_SHA
+
 # v3.0.2: agent state directory. Used for files that should survive a
 # /tmp wipe (boot-reason marker, poll interval override) and that must
 # NOT be writable by non-root users. Previously these lived in /tmp/
@@ -3703,7 +3716,10 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                 pass
 
         payload = {'device_id': dev_id, 'token': token, 'ip': get_local_ip(),
-                   'os': get_os_info(), 'version': VERSION}
+                   'os': get_os_info(), 'version': VERSION,
+                   # v3.4.2: report our own binary's hash so the server can
+                   # attest the running agent matches its canonical copy.
+                   'agent_sha256': _agent_self_sha256()}
 
         # v3.0.0: if the previous heartbeat asked us to collect IaC data,
         # run the requested collectors now and attach the result.

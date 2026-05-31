@@ -146,6 +146,40 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342AgentIntegrity(unittest.TestCase):
+    """Agent integrity attestation — running hash vs canonical served hash."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+    APP = client_js()
+
+    def test_route_and_wiring(self):
+        self.assertEqual(routes_to('GET', '/api/fleet/agent-integrity'),
+                         'handle_agent_integrity')
+        self.assertIn('def _agent_integrity_status(', self.API)
+        # Heartbeat stores the reported hash; NA flags mismatches.
+        self.assertIn("dev['agent_sha256']", self.API)
+        self.assertRegex(self.API, r"'kind': 'agent_integrity'")
+        # Agent reports its own hash.
+        self.assertIn('def _agent_self_sha256(', self.AGENT)
+        self.assertIn("'agent_sha256': _agent_self_sha256()", self.AGENT)
+        self.assertIn('function loadReportsIntegrity(', self.APP)
+
+    def test_status_behaviour(self):
+        import importlib, sys as _s
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        canon = 'a' * 64
+        ver = api.SERVER_VERSION
+        self.assertEqual(api._agent_integrity_status(
+            {'version': ver, 'agent_sha256': canon}, canon, ver), 'verified')
+        self.assertEqual(api._agent_integrity_status(
+            {'version': ver, 'agent_sha256': 'b' * 64}, canon, ver), 'mismatch')
+        self.assertEqual(api._agent_integrity_status(
+            {'version': '3.0.0', 'agent_sha256': 'c' * 64}, canon, ver), 'unknown')
+        self.assertEqual(api._agent_integrity_status(
+            {'version': ver}, canon, ver), 'unknown')
+
+
 class TestV342Anomaly(unittest.TestCase):
     """Statistical resource anomaly detection (anomaly_stats.py)."""
     API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()

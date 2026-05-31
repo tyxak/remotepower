@@ -34,7 +34,7 @@ extensions. Those are struck from the backlog below.
 | Automation rules engine | 🔴 Large | ✅ v3.4.2 | Event registry + channels + scripts |
 | Device dependency map | 🔴 Large | ✅ v3.4.2 | Netmap |
 | Anomaly baselining | 🔴 Large | ✅ v3.4.2 | AI anomaly scan |
-| [Agent integrity / signed binaries](#agent-integrity--signed-binaries) | 🔴 Large | — | Agent packaging |
+| Agent integrity / signed binaries | 🔴 Large | ✅ v3.4.2 | Agent packaging |
 
 ---
 
@@ -61,13 +61,16 @@ remain a possible follow-up.*
 
 Net-new surfaces, new data models, or cross-cutting engines.
 
-*(Automation rules engine shipped in v3.4.2.)*
+*All 🔴 Large items shipped in v3.4.2 (automation rules engine, device dependency
+map, anomaly baselining, agent integrity attestation).*
 
-### Device dependency map
-Declare "web depends on db"; suppress downstream alerts when an upstream is down, drawn on the netmap. New dependency model + alert-suppression logic + netmap rendering.
+**Possible follow-ups:** Jira/Linear ticketing adapters; cryptographic release
+signing (detached GPG signatures over the agent artifact) to complement the
+hash-based agent attestation shipped in v3.4.2.
 
-### Anomaly baselining
-Extend the existing AI anomaly scan to per-metric statistical baselines (per-host, per-metric rolling stats with deviation detection). New baseline store + scoring on top of the current scan.
+---
 
-### Agent integrity / signed binaries
-Sign agent binaries and verify integrity on the server side. Touches the agent packaging/release pipeline + a verification step — security-sensitive, largest blast radius.
+## ✅ Everything on the roadmap is shipped
+
+Every item in the table above landed across v3.4.1 and v3.4.2. New ideas get
+appended here.

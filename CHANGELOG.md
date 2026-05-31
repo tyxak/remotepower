@@ -6,6 +6,13 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Agent integrity attestation.** Each agent now reports the sha256 of its own
+  running binary on every heartbeat, and the server attests it against the
+  canonical copy it serves. An agent on the current version reporting a
+  *different* hash is flagged as a **mismatch** (tamper / corruption / partial
+  update) — a critical Needs-Attention item that also pulls down the health
+  score. Surfaced on the Reports page (verified / mismatch / unknown counts +
+  the actionable rows). New `GET /api/fleet/agent-integrity`.
 - **Statistical resource anomalies.** A model-free complement to the AI anomaly
   scan: for each device, RemotePower fits a mean/stdev baseline over its daily
   metric history and flags the latest memory / swap / disk reading when it
