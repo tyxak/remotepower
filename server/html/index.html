@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.4.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.4.1">
 
 </head>
 <body>
@@ -188,6 +188,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><polyline points="19 7 13 13 9 9 4 14"/></svg>
           <span>Forecast</span>
         </button>
+        <button class="nav-btn" data-page="timeline" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span>Timeline</span>
+        </button>
         <button class="nav-btn" data-action="showMonitorSection" data-arg="section-ports" data-pass-btn="1" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/></svg>
           <span>Listening Ports</span>
@@ -279,6 +283,10 @@
         <button class="nav-btn" data-page="history" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
           <span>History</span>
+        </button>
+        <button class="nav-btn" data-page="reports" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+          <span>Reports</span>
         </button>
       </div>
     </div>
@@ -372,6 +380,15 @@
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
           <div class="skeleton-card"><div class="skeleton skeleton-line short"></div><div class="skeleton skeleton-line long"></div></div>
+        </div>
+
+        <!-- Fleet health score (v3.4.1) -->
+        <div class="dash-card mt-16" id="home-health">
+          <h3>Fleet health</h3>
+          <div id="home-health-body">
+            <div class="skeleton skeleton-line med mb-6"></div>
+            <div class="skeleton skeleton-line long"></div>
+          </div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->
@@ -1739,7 +1756,38 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.0 rag retrieval augmented generation knowledge index infrastructure bm25 embeddings semantic search lexical reciprocal rank fusion ollama openai localai anthropic cmdb runbook cve vault redaction reindex test retrieval citations ai assistant smart smartctl disk health kernel livepatch reboot dmidecode dimm memory raid sensors temperature hardware inventory forecast disk fill prediction what changed diff speedtest librespeed mbps network discovery nmap arp scan unmanaged quarantine helm kubernetes anomaly detection cron builder doc draft compliance pci hipaa soc2 controls audit">
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.1 timeline per-device history events command runs fleet health score grade needs attention rollup home dashboard reports posture report patches cve compliance export json csv scheduled email cron command palette ctrl k deep link bind it together cohesion">
+            <summary><strong>What's new — v3.4.1</strong> — Timeline, Fleet health score &amp; Reports (bind it together)</summary>
+            <div class="doc-body">
+              <p>Additive release — no breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.1</code>). Three cohesion features that connect data which used to live on separate pages.</p>
+
+              <h4>Per-device Timeline (Monitoring → Timeline)</h4>
+              <ul>
+                <li>A single chronological history for one host — <strong>fleet events</strong> (offline, drift, CVEs, services, SMART, ports, …) and <strong>command runs</strong> merged into one newest-first stream. The command runs are the part you couldn't see before: they aren't fleet events, so a host's history never showed them until now.</li>
+                <li>Pick a device from the selector, filter by category with the chips, and read top-down. Jump straight in from the command palette or the home health panel.</li>
+              </ul>
+
+              <h4>Fleet health score (Home)</h4>
+              <ul>
+                <li>A single <strong>0–100 score</strong> per device and across the fleet, with a letter grade. The home dashboard gets a health panel: score + grade, a severity breakdown, and the lowest-scoring devices — each a click-through into its timeline.</li>
+                <li>It's a weighted rollup of the <strong>same Needs Attention signals</strong> the app already computes, so the number can never disagree with the NA list. Only monitored devices count.</li>
+              </ul>
+
+              <h4>Fleet posture Report + scheduled email (Planning → Reports)</h4>
+              <ul>
+                <li>One report binding <strong>patches, CVEs, the health score, and compliance</strong> — download as <strong>JSON or CSV</strong> on demand, or have it <strong>emailed on a cron schedule</strong>. Configuring the schedule is admin-only; delivery runs on the heartbeat with a once-per-minute lock so a busy fleet never double-sends.</li>
+              </ul>
+
+              <h4>Command palette, extended</h4>
+              <ul>
+                <li><code>Ctrl/Cmd-K</code> (or <code>/</code>) now also indexes the Timeline, Reports, Alerts, Compliance, and Forecast pages; offers a <strong>"&lt;device&gt; — timeline"</strong> jump for every host, a one-keystroke <strong>fleet report download</strong>, and your saved scripts.</li>
+              </ul>
+
+              <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.1.md</code>.</p>
+            </div>
+          </details>
+
+          <details class="doc-card" data-keywords="release notes changelog v3.4.0 rag retrieval augmented generation knowledge index infrastructure bm25 embeddings semantic search lexical reciprocal rank fusion ollama openai localai anthropic cmdb runbook cve vault redaction reindex test retrieval citations ai assistant smart smartctl disk health kernel livepatch reboot dmidecode dimm memory raid sensors temperature hardware inventory forecast disk fill prediction what changed diff speedtest librespeed mbps network discovery nmap arp scan unmanaged quarantine helm kubernetes anomaly detection cron builder doc draft compliance pci hipaa soc2 controls audit">
             <summary><strong>What's new — v3.4.0</strong> — RAG over your infrastructure + fleet health &amp; insights</summary>
             <div class="doc-body">
               <p>Additive release. No breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.0</code>).</p>
@@ -3046,6 +3094,55 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="forecast-chart" class="mb-16"></div>
         <div id="forecast-body"><div class="c-muted">Loading…</div></div>
+      </div>
+
+      <!-- ── Timeline page (v3.4.1) ───────────────────────────────────────── -->
+      <div id="page-timeline" class="page">
+        <div class="page-title">Timeline</div>
+        <div class="page-subtitle">A single chronological history per device — fleet events and command runs merged into one stream, so you can read what happened to a host in order. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="mb-16 row-8-center">
+          <select id="timeline-device" class="form-input input-wide-sm" data-change="loadTimeline"><option value="">Select a device…</option></select>
+          <button class="btn-secondary fs-12" data-action="loadTimeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="timeline-summary" class="fs-12 c-muted"></span>
+        </div>
+        <div id="timeline-kinds" class="mb-16 row-8-center"></div>
+        <div id="timeline-body"><div class="c-muted">Select a device to see its timeline.</div></div>
+      </div>
+
+      <!-- ── Reports page (v3.4.1) ────────────────────────────────────────── -->
+      <div id="page-reports" class="page">
+        <div class="page-title">Reports</div>
+        <div class="page-subtitle">One fleet posture report — health score, patches, CVEs, and compliance in a single export, on demand or emailed on a schedule. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+
+        <div class="dash-card mb-16">
+          <h3>Fleet posture report</h3>
+          <div id="reports-preview" class="mb-16"><div class="c-muted">Loading summary…</div></div>
+          <div class="row-8-center">
+            <button class="btn-secondary fs-12" data-action="downloadFleetReport" data-arg="json"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download JSON</button>
+            <button class="btn-secondary fs-12" data-action="downloadFleetReport" data-arg="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download CSV</button>
+          </div>
+        </div>
+
+        <div class="dash-card">
+          <h3>Scheduled email delivery</h3>
+          <div class="page-subtitle mb-16">Email the posture report on a cron schedule. Leave recipients empty to use the configured notification recipients. Admin only.</div>
+          <div class="mb-12">
+            <label class="form-label"><input type="checkbox" id="report-sched-enabled"> Enabled</label>
+          </div>
+          <div class="mb-12">
+            <label class="form-label">Cron schedule (min hour day month weekday)</label>
+            <input type="text" id="report-sched-cron" class="form-input input-wide-sm" placeholder="0 8 * * 1" autocomplete="off">
+            <div class="fs-12 c-muted mt-6">Example: <span class="ff-mono">0 8 * * 1</span> = every Monday at 08:00.</div>
+          </div>
+          <div class="mb-12">
+            <label class="form-label">Recipients (comma-separated)</label>
+            <input type="text" id="report-sched-recipients" class="form-input input-wide" placeholder="ops@example.com, oncall@example.com" autocomplete="off">
+          </div>
+          <div class="row-8-center">
+            <button class="btn-primary fs-12" data-action="saveReportSchedule">Save schedule</button>
+            <span id="report-sched-status" class="fs-12 c-muted"></span>
+          </div>
+        </div>
       </div>
 
       <!-- ── About page ───────────────────────────────────────────────────── -->
@@ -5067,14 +5164,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div class="toast-container" id="toast-container"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.4.0"></script>
+<script src="static/js/app.js?v=3.4.1"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.4.0"></script>
-<script src="static/js/app-cmdb.js?v=3.4.0"></script>
-<script src="static/js/app-containers.js?v=3.4.0"></script>
-<script src="static/js/app-network.js?v=3.4.0"></script>
+<script src="static/js/app-calendar.js?v=3.4.1"></script>
+<script src="static/js/app-cmdb.js?v=3.4.1"></script>
+<script src="static/js/app-containers.js?v=3.4.1"></script>
+<script src="static/js/app-network.js?v=3.4.1"></script>
 
-<script src="static/js/sw-register.js?v=3.4.0"></script>
+<script src="static/js/sw-register.js?v=3.4.1"></script>
 </body>
 </html>

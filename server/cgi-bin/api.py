@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.4.0'
+SERVER_VERSION = '3.4.1'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -13873,6 +13873,64 @@ def handle_attention():
     respond(200, _attention_payload())
 
 
+# v3.4.1: fleet health score. A single 0-100 rollup per device (and fleet-wide)
+# derived from the SAME Needs Attention signals — so there is exactly one source
+# of truth for "what's wrong" and the score can never disagree with the NA list.
+# Each device starts at 100 and loses points per attention item by severity;
+# the fleet score is the mean of per-device scores.
+_HEALTH_WEIGHTS = {'critical': 25, 'warning': 8, 'info': 2}
+
+
+def _health_grade(score):
+    if score >= 90: return 'good'
+    if score >= 70: return 'fair'
+    if score >= 40: return 'poor'
+    return 'critical'
+
+
+def _fleet_health(use_cache=True):
+    payload = _attention_payload(use_cache=use_cache)
+    items = payload.get('items') or []
+    devices = load(DEVICES_FILE) or {}
+    # Only score monitored devices. An unmonitored host is intentionally absent
+    # from NA, so scoring it a perfect 100 would inflate the fleet average with
+    # hosts the operator explicitly told us to ignore.
+    per = {}
+    for did, d in devices.items():
+        if not isinstance(d, dict) or d.get('monitored') is False:
+            continue
+        per[did] = {'device_id': did, 'device_name': d.get('name', did),
+                    'score': 100, 'critical': 0, 'warning': 0, 'info': 0}
+    for it in items:
+        did = it.get('device_id')
+        sev = it.get('severity')
+        rec = per.get(did)
+        if rec is None or sev not in _HEALTH_WEIGHTS:
+            continue
+        rec['score'] = max(0, rec['score'] - _HEALTH_WEIGHTS[sev])
+        rec[sev] += 1
+    # Worst first (lowest score; ties broken by critical count) so the UI can
+    # slice the top N "needs attention most" devices without re-sorting.
+    devs = sorted(per.values(), key=lambda r: (r['score'], -r['critical']))
+    fleet = round(sum(r['score'] for r in devs) / len(devs)) if devs else 100
+    return {
+        'score':         fleet,
+        'grade':         _health_grade(fleet),
+        'devices':       devs,
+        'counts':        payload.get('counts') or {},
+        'total_devices': len(devs),
+    }
+
+
+def handle_fleet_health():
+    """GET /api/fleet/health — 0-100 health score per device + fleet aggregate.
+
+    Built on the Needs Attention digest, so it's cheap (shares the 10s NA cache)
+    and always consistent with the NA list. Auth: require_auth."""
+    require_auth()
+    respond(200, _fleet_health())
+
+
 def handle_home():
     """GET /api/home — single round-trip for the Home dashboard.
 
@@ -14029,6 +14087,9 @@ def handle_home():
         'mailwatch':    mailwatch,
         'links':        links,
         'attention':    _attention_payload(),
+        # v3.4.1: fleet health score. Reuses the cached attention payload above
+        # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
+        'health':       _fleet_health(),
         # Echo the few config flags the Home renderer reads, so the page
         # doesn't need a separate /api/config round-trip.
         'config': {
@@ -15151,6 +15212,240 @@ def handle_patch_report_xml():
     sys.stdout.buffer.write(data)
     sys.stdout.buffer.flush()
     sys.exit(0)
+
+
+# ── v3.4.1: fleet posture report ───────────────────────────────────────────────
+# One report that binds together the four posture surfaces operators otherwise
+# read on separate pages — patches, CVEs, health score, and compliance — so a
+# single export (or scheduled email) captures "how is the fleet doing right now".
+
+def _build_fleet_report():
+    """Assemble the fleet posture report from data RemotePower already holds.
+
+    Reuses the existing single-source-of-truth helpers (_fleet_health,
+    _compliance_facts/compliance.build_report, the CVE findings store) rather
+    than recomputing, so the report can never disagree with the live pages."""
+    devices = load(DEVICES_FILE) or {}
+    now = int(time.time())
+    ttl = get_online_ttl()
+    online = sum(1 for d in devices.values()
+                 if isinstance(d, dict) and (now - d.get('last_seen', 0)) < ttl)
+
+    with_patches = 0
+    total_pending = 0
+    for d in devices.values():
+        up = ((d.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+        if isinstance(up, int) and up > 0:
+            with_patches += 1
+            total_pending += up
+
+    cve = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'devices_affected': 0}
+    for rec in (load(CVE_FINDINGS_FILE) or {}).values():
+        affected = False
+        for f in (rec or {}).get('findings') or []:
+            sev = str(f.get('severity', '')).lower()
+            if sev in cve:
+                cve[sev] += 1
+                affected = True
+        if affected:
+            cve['devices_affected'] += 1
+
+    health = _fleet_health()
+    comp = compliance.build_report(_compliance_facts())
+    comp['generated_ts'] = now
+    return {
+        'generated_ts':   now,
+        'server_version': SERVER_VERSION,
+        'server_name':    get_server_name(),
+        'devices':        {'total': len(devices), 'online': online,
+                           'offline': len(devices) - online},
+        'patches':        {'devices_with_patches': with_patches,
+                           'total_pending': total_pending},
+        'cve':            cve,
+        'health':         {'score': health['score'], 'grade': health['grade'],
+                           'worst': health['devices'][:10]},
+        'attention':      health['counts'],
+        'compliance':     comp,
+    }
+
+
+def _fleet_report_csv_bytes(report):
+    """Flatten the posture report into a single summary CSV (Section,Metric,Value)."""
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(['Section', 'Metric', 'Value'])
+    d = report['devices']
+    w.writerow(['Devices', 'Total', d['total']])
+    w.writerow(['Devices', 'Online', d['online']])
+    w.writerow(['Devices', 'Offline', d['offline']])
+    w.writerow(['Health', 'Fleet score', report['health']['score']])
+    w.writerow(['Health', 'Grade', report['health']['grade']])
+    a = report['attention']
+    w.writerow(['Attention', 'Critical', a.get('critical', 0)])
+    w.writerow(['Attention', 'Warning', a.get('warning', 0)])
+    w.writerow(['Attention', 'Info', a.get('info', 0)])
+    p = report['patches']
+    w.writerow(['Patches', 'Devices with patches', p['devices_with_patches']])
+    w.writerow(['Patches', 'Total pending', p['total_pending']])
+    for sev in ('critical', 'high', 'medium', 'low'):
+        w.writerow(['CVE', sev.capitalize(), report['cve'][sev]])
+    w.writerow(['CVE', 'Devices affected', report['cve']['devices_affected']])
+    for fw, fwrep in (report['compliance'].get('frameworks') or {}).items():
+        w.writerow(['Compliance', fw.upper() + ' pass %',
+                    fwrep.get('score') if fwrep.get('score') is not None else 'N/A'])
+    w.writerow([])
+    w.writerow(['Worst devices', 'Score', 'Critical/Warning'])
+    for dev in report['health']['worst']:
+        w.writerow([dev['device_name'], dev['score'],
+                    f"{dev['critical']}/{dev['warning']}"])
+    return buf.getvalue().encode()
+
+
+def handle_fleet_report():
+    """GET /api/report/fleet?format=json|csv — fleet posture report.
+
+    Auth: require_auth (read-only summary, no secrets)."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    fmt = (qs.get('format') or ['json'])[0].lower()
+    report = _build_fleet_report()
+    if fmt == 'csv':
+        data = _fleet_report_csv_bytes(report)
+        ts = time.strftime('%Y%m%d-%H%M%S')
+        print("Status: 200 OK")
+        print("Content-Type: text/csv")
+        print(f"Content-Disposition: attachment; filename=fleet-report-{ts}.csv")
+        print(f"Content-Length: {len(data)}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+        sys.exit(0)
+    respond(200, report)
+
+
+def _render_report_email(report):
+    """Plain-text body + subject for the scheduled fleet posture report."""
+    d = report['devices']
+    h = report['health']
+    a = report['attention']
+    p = report['patches']
+    c = report['cve']
+    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(report['generated_ts']))
+    subject = (f"{report['server_name']} fleet report — "
+               f"health {h['score']}/100 ({h['grade']})")
+    lines = [
+        f"{report['server_name']} — fleet posture report",
+        f"Generated {when}  ·  RemotePower {report['server_version']}",
+        "",
+        f"Fleet health score : {h['score']}/100 ({h['grade']})",
+        f"Devices            : {d['total']} total, {d['online']} online, "
+        f"{d['offline']} offline",
+        f"Needs attention    : {a.get('critical',0)} critical, "
+        f"{a.get('warning',0)} warning, {a.get('info',0)} info",
+        f"Patches            : {p['devices_with_patches']} device(s) pending, "
+        f"{p['total_pending']} update(s) total",
+        f"CVEs               : {c['critical']} critical, {c['high']} high, "
+        f"{c['medium']} medium ({c['devices_affected']} device(s) affected)",
+        "",
+    ]
+    if h['worst']:
+        lines.append("Lowest-scoring devices:")
+        for dev in h['worst'][:5]:
+            lines.append(f"  - {dev['device_name']}: {dev['score']}/100 "
+                         f"({dev['critical']} crit, {dev['warning']} warn)")
+        lines.append("")
+    fws = report['compliance'].get('frameworks') or {}
+    if fws:
+        lines.append("Compliance:")
+        for fw, rep in fws.items():
+            pct = rep.get('score') if rep.get('score') is not None else 'N/A'
+            lines.append(f"  - {fw.upper()}: {pct}% controls passing")
+    return subject, "\n".join(lines)
+
+
+def _maybe_send_scheduled_report():
+    """Heartbeat hook: send the fleet report on its configured cron schedule.
+
+    Mirrors _maybe_run_scheduled_backup's cheap-gate pattern. Config lives in
+    config.json under `report_schedule` ({enabled, cron, recipients}). The
+    once-per-minute claim is done under a file lock so concurrent heartbeats in
+    the same matching minute don't each fire an email."""
+    cfg = load(CONFIG_FILE) or {}
+    rs = cfg.get('report_schedule') or {}
+    if not rs.get('enabled'):
+        return
+    cron = rs.get('cron')
+    if not cron or not _valid_cron(cron):
+        return
+    now = int(time.time())
+    if not _cron_matches(cron, now):
+        return
+    current_minute = now // 60
+    state_file = DATA_DIR / 'report_schedule_state.json'
+    # Claim the minute atomically; bail if another heartbeat already sent.
+    with _LockedUpdate(state_file) as state:
+        if state.get('last_fired_minute') == current_minute:
+            return
+        state['last_fired_minute'] = current_minute
+        state['last_run'] = now
+    recipients = rs.get('recipients') or _smtp_recipients_list(cfg)
+    if not recipients:
+        return
+    try:
+        report = _build_fleet_report()
+        subject, body = _render_report_email(report)
+        smtp_notifier.send_email(cfg, recipients, subject, body)
+        _log_email('fleet_report', recipients, 'ok', '')
+    except smtp_notifier.SmtpError as e:
+        _log_email('fleet_report', recipients, 'error', str(e))
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] scheduled report failed: {e}\n')
+
+
+def handle_report_schedule_get():
+    """GET /api/report/schedule — current scheduled-report config + last run."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    rs = dict(cfg.get('report_schedule') or {})
+    state_file = DATA_DIR / 'report_schedule_state.json'
+    state = load(state_file) if state_file.exists() else {}
+    respond(200, {
+        'enabled':    bool(rs.get('enabled')),
+        'cron':       rs.get('cron', ''),
+        'recipients': rs.get('recipients') or [],
+        'last_run':   state.get('last_run') or 0,
+    })
+
+
+def handle_report_schedule_set():
+    """PUT /api/report/schedule — configure the scheduled report. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    enabled = bool(body.get('enabled'))
+    cron = str(body.get('cron', '')).strip()
+    if enabled and not _valid_cron(cron):
+        respond(400, {'error': 'invalid cron expression (5 fields: min hour dom month dow)'})
+    raw_recips = body.get('recipients') or []
+    if not isinstance(raw_recips, list):
+        respond(400, {'error': 'recipients must be a list'})
+    recipients = [_sanitize_str(r, 254) for r in raw_recips
+                  if isinstance(r, str) and '@' in r][:50]
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['report_schedule'] = {
+            'enabled':    enabled,
+            'cron':       cron,
+            'recipients': recipients,
+        }
+    audit_log(actor, 'report_schedule_set',
+              f'enabled={enabled} cron="{cron}" recipients={len(recipients)}')
+    respond(200, {'ok': True, 'enabled': enabled, 'cron': cron,
+                  'recipients': recipients})
 
 
 
@@ -18132,6 +18427,114 @@ def handle_fleet_events():
 
     # Newest first
     respond(200, list(reversed(events))[:limit])
+
+
+def _timeline_event_detail(event, payload):
+    """One-line human detail for a timeline row, pulled from the event payload.
+
+    The fleet-event payload is a heterogeneous summary dict (path, unit,
+    cve_id, port, count, …). Rather than special-case every event type we
+    surface the first populated field from a priority list — good enough for a
+    glanceable timeline, and it degrades gracefully for events we don't know
+    about (returns '')."""
+    p = payload or {}
+    # Highest-signal fields first; whichever is present wins.
+    for key in ('summary', 'message', 'detail', 'path', 'unit', 'service',
+                'cve_id', 'container', 'image', 'port', 'src_ip', 'domain',
+                'mount', 'disk'):
+        v = p.get(key)
+        if v not in (None, '', [], {}):
+            return str(v)[:200]
+    # CVE-style count rollup has no single field — synthesise one.
+    if event == 'cve_found':
+        bits = [f"{p.get(k)} {k}" for k in ('critical', 'high', 'medium')
+                if int(p.get(k) or 0) > 0]
+        if bits:
+            return ', '.join(bits)
+    return ''
+
+
+def handle_device_timeline(dev_id):
+    """GET /api/devices/<id>/timeline — unified chronological history for a host.
+
+    Binds together stores that are otherwise scoped to separate pages into one
+    newest-first stream for a single device:
+      - fleet events (every fired event whose payload names this device)
+      - command runs (operator/scheduled output — these are NOT fleet events,
+        so a host history would otherwise miss every command ever run on it)
+
+    Each row is normalised to {ts, kind, severity, title, detail}. Severity
+    reuses the alert vocabulary (critical/high/medium/low) via _alert_severity,
+    falling back to 'info' for non-alertable events so the UI's sev-pill set
+    covers every row.
+
+    Query: ?limit=N (default 100, max 500), ?kinds=a,b,c (CSV filter on kind).
+    Auth: require_auth — same rationale as the fleet event log (operationally
+    useful to viewers; no delivery URLs or secrets exposed)."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    if not isinstance(dev, dict):
+        respond(404, {'error': 'device not found'})
+        return
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        limit = int((qs.get('limit') or ['100'])[0])
+    except ValueError:
+        limit = 100
+    limit = max(1, min(500, limit))
+    kind_filter = set()
+    for raw in qs.get('kinds') or []:
+        for k in raw.split(','):
+            k = k.strip()
+            if k:
+                kind_filter.add(k)
+
+    items = []
+
+    # 1) Fleet events for this device — the canonical "what happened".
+    store = load(FLEET_EVENTS_FILE) or {}
+    for e in (store.get('events') or []):
+        pl = e.get('payload') or {}
+        if pl.get('device_id') != dev_id:
+            continue
+        ev = e.get('event', '') or 'event'
+        items.append({
+            'ts':       int(e.get('ts') or 0),
+            'kind':     ev,
+            'severity': _alert_severity(ev, pl) or 'info',
+            'title':    _webhook_title(ev),
+            'detail':   _timeline_event_detail(ev, pl),
+        })
+
+    # 2) Command runs — not represented in the fleet event log, so they'd be
+    #    invisible on a per-host history without this. rc != 0 → warning.
+    outputs = load(CMD_OUTPUT_FILE) or {}
+    for c in (outputs.get(dev_id) or []):
+        rc = c.get('rc')
+        failed = isinstance(rc, int) and rc != 0
+        items.append({
+            'ts':       int(c.get('ts') or 0),
+            'kind':     'command',
+            'severity': 'warning' if failed else 'info',
+            'title':    'Command failed' if failed else 'Command executed',
+            'detail':   (c.get('cmd') or '')[:200],
+        })
+
+    if kind_filter:
+        items = [i for i in items if i['kind'] in kind_filter]
+
+    # Distinct kinds across the *unsliced* set so the UI's filter chips stay
+    # stable regardless of the limit window.
+    kinds_present = sorted({i['kind'] for i in items})
+    items.sort(key=lambda i: i['ts'], reverse=True)
+    respond(200, {
+        'device_id':   dev_id,
+        'device_name': dev.get('name', dev_id),
+        'items':       items[:limit],
+        'kinds':       kinds_present,
+        'total':       len(items),
+    })
 
 
 def handle_webhook_log():
@@ -22572,6 +22975,15 @@ def _dispatch(pi, m):
     elif pi == '/api/webhook/log' and m == 'DELETE': handle_webhook_log_clear()
     # v2.2.4: fleet event log (every fired event, regardless of destinations)
     elif pi == '/api/fleet/events' and m == 'GET': handle_fleet_events()
+    # v3.4.1: per-device unified timeline (fleet events + command runs)
+    elif pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET':
+        handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
+    # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
+    elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
+    # v3.4.1: fleet posture report (patches + CVE + health + compliance)
+    elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
+    elif pi == '/api/report/schedule' and m == 'GET': handle_report_schedule_get()
+    elif pi == '/api/report/schedule' and m == 'PUT': handle_report_schedule_set()
     # ── v1.8.6: SMTP + LDAP test endpoints ─────────────────────────────────────
     elif pi == '/api/sessions/revoke' and m == 'POST': handle_revoke_sessions()
 
@@ -22792,6 +23204,8 @@ def main():
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     _safe(process_schedule,    'process_schedule')
+    # v3.4.1: send the scheduled fleet posture report when its cron is due.
+    _safe(_maybe_send_scheduled_report, '_maybe_send_scheduled_report')
     # v3.3.0: ping Healthchecks.io (or compatible) when configured.
     # External watchdog over the server itself — if RemotePower stops
     # serving requests, hc.io flips to red and pages someone.

@@ -2,9 +2,40 @@
 
 All notable changes to RemotePower. Newest first.
 
-## v3.4.0 — unreleased (dev)
+## v3.4.1 — unreleased (dev)
 
-In development.
+**Theme: bind it together.** Three cohesion features that connect data which
+previously lived on separate pages, plus a smarter command palette.
+
+- **Per-device Timeline (Monitoring → Timeline).** A single chronological
+  history for one host — fleet events (offline, drift, CVEs, services, SMART, …)
+  and command runs merged into one newest-first stream, with severity pills and
+  per-category filter chips. Pick a device from the selector, or jump straight
+  in from the command palette or the home health panel. New
+  `GET /api/devices/<id>/timeline?limit=&kinds=`. The command-run rows are the
+  part you couldn't see before: they're not fleet events, so a host's history
+  never showed them until now.
+- **Fleet health score (Home).** A single 0–100 score per device and across the
+  fleet, rolled up from the same Needs Attention signals — so the number can
+  never disagree with the NA list. The home dashboard gets a health panel: big
+  score + grade, a severity breakdown, and the lowest-scoring devices (each a
+  click-through into its timeline). New `GET /api/fleet/health`; also embedded in
+  the `/api/home` bundle so the panel adds no extra request.
+- **Fleet posture Report (Planning → Reports) + scheduled email.** One report
+  that binds patches, CVEs, the health score, and compliance into a single
+  export — download as JSON or CSV on demand, or have it emailed on a cron
+  schedule. New `GET /api/report/fleet?format=json|csv` and
+  `GET`/`PUT /api/report/schedule` (admin-only to configure). Delivery runs on
+  the heartbeat hot path with a once-per-minute lock so a busy fleet never
+  double-sends.
+- **Command palette ties it together.** `Ctrl/Cmd-K` now indexes the new
+  Timeline, Reports, Alerts, Compliance, and Forecast pages, offers a
+  "<device> — timeline" jump for every host, a one-keystroke fleet-report
+  download, and your saved scripts.
+
+## v3.4.0
+
+Released.
 
 - **Security: stronger password hashing, weak-hash path removed.** When bcrypt
   isn't installed, the `remotepower-passwd` tool and the installer now hash

@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.4.1-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -146,6 +146,9 @@ The demo is reset every few hours, so feel free to break things.
 - **Helm releases** *(v3.4)* — read-only visibility into Helm release status where Helm and a kubeconfig are present.
 - **RAG over your infrastructure** *(v3.4)* — the AI assistant retrieves relevant facts from *your* fleet (device state, services, CVEs, containers, CMDB docs, runbooks, recent commands/alerts, and the product docs) and cites their sources. Lexical BM25 works with every provider; semantic search is opt-in with an embedding-capable provider. The credentials vault is never indexed.
 - **On-demand AI insights** *(v3.4)* — fleet anomaly scan, a plain-English cron builder with a locally-validated next-run preview, RAG-aware per-device runbook suggestions, and CMDB doc drafts. All opt-in and disabled by default.
+- **Per-device timeline** *(v3.4.1)* — a single chronological history per host (**Monitoring → Timeline**) that merges fleet events and command runs into one filterable stream, so you can read what happened to a box in order.
+- **Fleet health score** *(v3.4.1)* — one 0–100 score per device and across the fleet on the home dashboard, rolled up from the same Needs Attention signals, with the lowest-scoring devices linking straight into their timelines.
+- **Fleet posture reports** *(v3.4.1)* — one report binding patches, CVEs, the health score, and compliance (**Planning → Reports**): download as JSON/CSV on demand, or email it on a cron schedule.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

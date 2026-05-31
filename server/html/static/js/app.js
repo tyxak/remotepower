@@ -838,6 +838,8 @@ function showPage(name, btn) {
   if (name === 'confirmations') loadConfirmations();
   if (name === 'self')     loadSelfStatus();
   if (name === 'forecast') loadForecast();
+  if (name === 'timeline') enterTimeline();
+  if (name === 'reports')  loadReports();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2382,6 +2384,10 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "Each device has a Timeline (Monitoring → Timeline) that merges its events and command runs into one chronological story.",
+  "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
+  "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
+  "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
   "You can open an SSH session to any device straight from its row using the quick-connect button.",
   "Stuck on an alert? Ask the built-in AI assistant for remediation suggestions tailored to the affected device.",
@@ -7552,6 +7558,64 @@ const EVENT_CLASS = {
   'custom_script_recover': 'ok', 'config_drift': 'warn',
 };
 
+// v3.4.1: fleet health score panel — big score + grade + the lowest-scoring
+// devices, each a deep-link into that device's timeline.
+const _HEALTH_COLOR = { good: 'var(--green)', fair: '#d4a017',
+  poor: '#ff8c00', critical: 'var(--red)' };
+
+function _renderHomeHealth(health) {
+  const body = document.getElementById('home-health-body');
+  if (!body) return;
+  if (!health || typeof health.score !== 'number') {
+    body.innerHTML = '<div class="c-muted">No health data yet.</div>';
+    return;
+  }
+  const grade = health.grade || 'good';
+  const color = _HEALTH_COLOR[grade] || 'var(--muted)';
+  const c = health.counts || {};
+  const worst = (health.devices || []).filter(d => d.score < 100).slice(0, 6);
+  const worstHtml = worst.length
+    ? worst.map(d =>
+        `<button class="hh-dev" data-action="openDeviceTimeline" data-arg="${_escapeHtml(d.device_id)}">`
+        + `<span class="hh-dev-name">${_escapeHtml(d.device_name)}</span>`
+        + `<span class="hh-dev-meta">`
+        +   (d.critical ? `<span class="sev-pill sev-critical">${d.critical}</span>` : '')
+        +   (d.warning ? `<span class="sev-pill sev-medium">${d.warning}</span>` : '')
+        + `</span>`
+        + `<span class="hh-dev-score" data-color="${_HEALTH_COLOR[_gradeFor(d.score)]}">${d.score}</span>`
+        + `</button>`).join('')
+    : '<div class="c-muted fs-13">All devices healthy — nothing needs attention.</div>';
+  body.innerHTML =
+    `<div class="hh-wrap">`
+    + `<div class="hh-score">`
+    +   `<div class="hh-num" data-color="${color}">${health.score}</div>`
+    +   `<div class="hh-grade" data-color="${color}">${_escapeHtml(grade)}</div>`
+    +   `<div class="hh-sub c-muted">${health.total_devices} device(s)</div>`
+    + `</div>`
+    + `<div class="hh-detail">`
+    +   `<div class="hh-bar-track"><div class="hh-bar-fill" data-pct="${health.score}" data-bg="${color}"></div></div>`
+    +   `<div class="hh-counts">`
+    +     `<span class="sev-pill sev-critical">${c.critical || 0} critical</span>`
+    +     `<span class="sev-pill sev-medium">${c.warning || 0} warning</span>`
+    +     `<span class="sev-pill sev-low">${c.info || 0} info</span>`
+    +   `</div>`
+    +   `<div class="hh-worst">${worstHtml}</div>`
+    + `</div>`
+    + `</div>`;
+}
+
+function _gradeFor(score) {
+  if (score >= 90) return 'good';
+  if (score >= 70) return 'fair';
+  if (score >= 40) return 'poor';
+  return 'critical';
+}
+
+function openDeviceTimeline(devId) {
+  window._timelinePendingDevice = devId;
+  showPage('timeline', document.querySelector('.nav-btn[data-page="timeline"]'));
+}
+
 async function loadHome() {
   // v3.3.0: was 7 parallel /api/* requests per 60s refresh — under CGI
   // that's 7 fresh Python processes per dashboard tick per operator.
@@ -7572,6 +7636,7 @@ async function loadHome() {
   // The attention payload is embedded so _renderHomeAttention can use
   // it directly without re-fetching /api/attention.
   _renderHomeTiles(devs, drift, cves, mailwatch);
+  _renderHomeHealth(home.health);
   _renderHomeAttention(home.attention);
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
@@ -12053,6 +12118,195 @@ function forecastSelect(idx) {
   _renderForecastChart();
 }
 
+// ── Timeline page (v3.4.1) ───────────────────────────────────────────────────
+// Per-device chronological history: fleet events + command runs merged into one
+// stream by GET /api/devices/<id>/timeline. The device <select> drives it; the
+// kind chips filter the already-fetched rows client-side (no re-fetch).
+let _timelineItems = [];
+let _timelineKindFilter = new Set();
+const _TIMELINE_SEV = { critical: 'sev-critical', high: 'sev-high',
+  medium: 'sev-medium', low: 'sev-low', warning: 'sev-medium', info: 'sev-low' };
+
+function _timelineFillDevices(list) {
+  const sel = document.getElementById('timeline-device');
+  if (!sel) return;
+  const prev = sel.value;
+  const opts = ['<option value="">Select a device…</option>'];
+  (list || []).slice()
+    .sort((a, b) => (a.name || a.id || '').localeCompare(b.name || b.id || ''))
+    .forEach(d => {
+      const id = d.id || d.device_id;
+      if (!id) return;
+      opts.push(`<option value="${_escapeHtml(id)}">${_escapeHtml(d.name || id)}</option>`);
+    });
+  sel.innerHTML = opts.join('');
+  if (prev) sel.value = prev;
+}
+
+function enterTimeline() {
+  const sel = document.getElementById('timeline-device');
+  if (!sel) return;
+  if (window._devicesCache && window._devicesCache.length) {
+    _timelineFillDevices(window._devicesCache);
+  } else {
+    api('GET', '/devices').then(d => {
+      if (d) { window._devicesCache = d; _timelineFillDevices(d); }
+    }).catch(() => {});
+  }
+  // v3.4.1: command palette / drawer can deep-link a device into the timeline.
+  if (window._timelinePendingDevice) {
+    sel.value = window._timelinePendingDevice;
+    window._timelinePendingDevice = null;
+  }
+  if (sel.value) loadTimeline();
+}
+
+async function loadTimeline() {
+  const sel = document.getElementById('timeline-device');
+  const body = document.getElementById('timeline-body');
+  const summary = document.getElementById('timeline-summary');
+  if (!sel || !body) return;
+  const devId = sel.value;
+  if (!devId) {
+    body.innerHTML = '<div class="c-muted">Select a device to see its timeline.</div>';
+    const k = document.getElementById('timeline-kinds'); if (k) k.innerHTML = '';
+    if (summary) summary.textContent = '';
+    return;
+  }
+  body.innerHTML = '<div class="c-muted">Loading…</div>';
+  const r = await api('GET', `/devices/${encodeURIComponent(devId)}/timeline?limit=300`).catch(() => null);
+  if (!r || !Array.isArray(r.items)) {
+    body.innerHTML = '<div class="c-red">Failed to load timeline.</div>';
+    return;
+  }
+  _timelineItems = r.items;
+  // Drop active filters that don't apply to this device's kind set.
+  _timelineKindFilter = new Set([..._timelineKindFilter].filter(k => (r.kinds || []).includes(k)));
+  if (summary) summary.textContent = `${r.total} event(s) for ${r.device_name}`;
+  _renderTimelineKinds(r.kinds || []);
+  _renderTimeline();
+}
+
+function _renderTimelineKinds(kinds) {
+  const wrap = document.getElementById('timeline-kinds');
+  if (!wrap) return;
+  if (!kinds.length) { wrap.innerHTML = ''; return; }
+  const chip = (k, label, active) =>
+    `<button class="tl-chip${active ? ' active' : ''}" data-action="timelineToggleKind" data-arg="${_escapeHtml(k)}">${_escapeHtml(label)}</button>`;
+  const parts = [chip('', 'All', _timelineKindFilter.size === 0)];
+  kinds.forEach(k => parts.push(chip(k, k.replace(/_/g, ' '), _timelineKindFilter.has(k))));
+  wrap.innerHTML = parts.join('');
+}
+
+function timelineToggleKind(kind) {
+  if (!kind) _timelineKindFilter.clear();
+  else if (_timelineKindFilter.has(kind)) _timelineKindFilter.delete(kind);
+  else _timelineKindFilter.add(kind);
+  _renderTimelineKinds([...new Set(_timelineItems.map(i => i.kind))]);
+  _renderTimeline();
+}
+
+function _renderTimeline() {
+  const body = document.getElementById('timeline-body');
+  if (!body) return;
+  let items = _timelineItems;
+  if (_timelineKindFilter.size) items = items.filter(i => _timelineKindFilter.has(i.kind));
+  if (!items.length) {
+    body.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('clock', 28)}</div>`
+      + `<div class="empty-title">No timeline entries</div>`
+      + `<div class="empty-text">No events or command runs recorded for this device yet${_timelineKindFilter.size ? ' in the selected categories' : ''}.</div></div>`;
+    return;
+  }
+  const rows = items.map(it => {
+    const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
+    const whenAbs = new Date((it.ts || 0) * 1000).toLocaleString();
+    return `<div class="tl-row">`
+      + `<div class="tl-dot ${sev}"></div>`
+      + `<div class="tl-main">`
+      +   `<div class="tl-head"><span class="tl-title">${_escapeHtml(it.title || it.kind)}</span>`
+      +   `<span class="sev-pill ${sev}">${_escapeHtml(it.severity)}</span>`
+      +   `<span class="tl-kind">${_escapeHtml((it.kind || '').replace(/_/g, ' '))}</span></div>`
+      +   (it.detail ? `<div class="tl-detail">${_escapeHtml(it.detail)}</div>` : '')
+      + `</div>`
+      + `<div class="tl-time" title="${_escapeHtml(whenAbs)}">${_escapeHtml(timeAgo(it.ts))}</div>`
+      + `</div>`;
+  });
+  body.innerHTML = `<div class="tl-list">${rows.join('')}</div>`;
+}
+
+// ── Reports page (v3.4.1) ────────────────────────────────────────────────────
+// On-demand fleet posture export (JSON/CSV) + scheduled email delivery config.
+async function loadReports() {
+  const preview = document.getElementById('reports-preview');
+  // Posture summary preview (reuses the same report the export downloads).
+  if (preview) {
+    const rep = await api('GET', '/report/fleet').catch(() => null);
+    if (!rep) {
+      preview.innerHTML = '<div class="c-red">Failed to load report summary.</div>';
+    } else {
+      const h = rep.health || {}; const c = rep.cve || {};
+      const p = rep.patches || {}; const d = rep.devices || {};
+      const fws = (rep.compliance && rep.compliance.frameworks) || {};
+      const fwPills = Object.keys(fws).map(fw =>
+        `<span class="sev-pill sev-low">${_escapeHtml(fw.toUpperCase())}: ${fws[fw].score != null ? fws[fw].score + '%' : 'N/A'}</span>`).join(' ');
+      preview.innerHTML =
+        `<div class="rep-grid">`
+        + `<div class="rep-cell"><div class="rep-k">Health</div><div class="rep-v" data-color="${_HEALTH_COLOR[h.grade] || 'var(--muted)'}">${h.score != null ? h.score : '—'}<span class="rep-unit">/100</span></div><div class="rep-sub c-muted">${_escapeHtml(h.grade || '')}</div></div>`
+        + `<div class="rep-cell"><div class="rep-k">Devices</div><div class="rep-v">${d.online || 0}<span class="rep-unit">/${d.total || 0} online</span></div></div>`
+        + `<div class="rep-cell"><div class="rep-k">Patches</div><div class="rep-v">${p.total_pending || 0}</div><div class="rep-sub c-muted">${p.devices_with_patches || 0} device(s)</div></div>`
+        + `<div class="rep-cell"><div class="rep-k">CVEs</div><div class="rep-v">${(c.critical || 0) + (c.high || 0)}</div><div class="rep-sub c-muted">${c.critical || 0} crit · ${c.high || 0} high</div></div>`
+        + `</div>`
+        + (fwPills ? `<div class="rep-compliance">${fwPills}</div>` : '');
+    }
+  }
+  // Schedule config.
+  const sch = await api('GET', '/report/schedule').catch(() => null);
+  if (sch) {
+    const en = document.getElementById('report-sched-enabled');
+    const cron = document.getElementById('report-sched-cron');
+    const rec = document.getElementById('report-sched-recipients');
+    const status = document.getElementById('report-sched-status');
+    if (en) en.checked = !!sch.enabled;
+    if (cron) cron.value = sch.cron || '';
+    if (rec) rec.value = (sch.recipients || []).join(', ');
+    if (status) status.textContent = sch.last_run
+      ? `Last sent ${timeAgo(sch.last_run)}` : 'Never sent yet.';
+  }
+}
+
+function downloadFleetReport(format) {
+  const fmt = (format === 'csv') ? 'csv' : 'json';
+  fetch(`/api/report/fleet?format=${fmt}`, { headers: { 'X-Token': getToken() } })
+    .then(r => { if (!r.ok) throw new Error('failed'); return r.blob(); })
+    .then(blob => {
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `fleet-report-${new Date().toISOString().slice(0, 10)}.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(u);
+      toast(`${fmt.toUpperCase()} downloaded`, 'success');
+    })
+    .catch(() => toast('Export failed', 'error'));
+}
+
+async function saveReportSchedule() {
+  const enabled = document.getElementById('report-sched-enabled').checked;
+  const cron = document.getElementById('report-sched-cron').value.trim();
+  const recipients = document.getElementById('report-sched-recipients').value
+    .split(',').map(s => s.trim()).filter(s => s.includes('@'));
+  if (enabled && !cron) { toast('Enter a cron schedule (or disable the schedule)', 'error'); return; }
+  const r = await api('PUT', '/report/schedule', { enabled, cron, recipients }).catch(() => null);
+  if (!r || r.error) {
+    toast((r && r.error) || 'Save failed', 'error');
+    return;
+  }
+  toast('Report schedule saved', 'success');
+  const status = document.getElementById('report-sched-status');
+  if (status) status.textContent = enabled
+    ? `Scheduled (${cron})` : 'Disabled.';
+}
+
 function _renderForecastTable() {
   const body = document.getElementById('forecast-body');
   if (!body) return;
@@ -15500,6 +15754,9 @@ function _palBuildIndex() {
     ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
     ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
     ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
+    // v3.4.1: new + previously-missing destinations
+    ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
+    ['Compliance', 'compliance'], ['Forecast', 'forecast'],
   ];
   for (const [label, page] of pages) {
     items.push({label, kind: 'page', sub: 'Go to page',
@@ -15515,6 +15772,10 @@ function _palBuildIndex() {
   items.push({label: 'Run backup now', kind: 'action',
               sub: 'Snapshot /var/lib/remotepower',
               action: () => { showPage('self'); setTimeout(runBackupNow, 400); }});
+  // v3.4.1: download the fleet posture report straight from the palette.
+  items.push({label: 'Download fleet report (JSON)', kind: 'action',
+              sub: 'Health · patches · CVEs · compliance',
+              action: () => downloadFleetReport('json')});
   // Devices — pulled live from the cached devices list if loaded
   const cached = window._devicesCache || [];
   for (const d of cached) {
@@ -15523,6 +15784,25 @@ function _palBuildIndex() {
       kind: 'device',
       sub: `${d.os || 'device'} · ${d.ip || ''}`,
       action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id), 100); },
+    });
+    // v3.4.1: jump straight to this device's timeline.
+    items.push({
+      label: `${d.name || d.id} — timeline`,
+      kind: 'timeline',
+      sub: 'Chronological history for this host',
+      action: () => openDeviceTimeline(d.id),
+    });
+  }
+  // v3.4.1: saved scripts — jump to the Scripts page to run/edit one.
+  // _scriptsCache is a top-level binding (shared global lexical env), populated
+  // once the Scripts page has been visited; empty array until then.
+  for (const s of (typeof _scriptsCache !== 'undefined' ? _scriptsCache : [])) {
+    if (!s || !s.name) continue;
+    items.push({
+      label: `Script: ${s.name}`,
+      kind: 'script',
+      sub: 'Open in Scripts',
+      action: () => showPage('scripts'),
     });
   }
   return items;
