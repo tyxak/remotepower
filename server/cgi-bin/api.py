@@ -12131,13 +12131,17 @@ def handle_exec_batch_status(job_id):
     outputs = load(CMD_OUTPUT_FILE)
     enriched = {}
     job_created = int(job.get('created', 0))
+    # cmd_output stores the command as _sanitize_str(cmd, 512) — truncated — so we
+    # must compare against the same truncated form, not the full command (a long
+    # install/script command would otherwise never match and stay "pending").
+    match_key = _sanitize_str(body_match, 512).strip() if body_match else None
     for dev_id, entry in job['per_device'].items():
         out = dict(entry)
-        if entry.get('queued') and body_match:
+        if entry.get('queued') and match_key:
             # Find the newest cmd_output for this device that matches the
-            # script body AND was recorded after the job was created.
+            # command AND was recorded after the job was created.
             for rec in reversed(outputs.get(dev_id, [])):
-                if rec.get('cmd', '').strip() == body_match.strip() and int(rec.get('ts', 0)) >= job_created:
+                if rec.get('cmd', '').strip() == match_key and int(rec.get('ts', 0)) >= job_created:
                     out['status']     = 'done'
                     out['rc']         = rec.get('rc', -1)
                     out['output']     = rec.get('output', '')[:8192]
@@ -12204,6 +12208,17 @@ def handle_batch_jobs_list():
                     'done': done, 'failed': failed, 'pending': pending, 'total': total})
     out.sort(key=lambda j: -j['created'])
     respond(200, {'jobs': out[:50]})
+
+
+def handle_batch_jobs_clear():
+    """DELETE /api/exec/batch — clear the recent batch/install job tracker. Only
+    clears the records; anything already queued on a device still runs."""
+    actor = require_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    save(BATCH_JOBS_FILE, {'jobs': {}})
+    audit_log(actor, 'batch_jobs_clear', '')
+    respond(200, {'ok': True})
 
 
 # ── v2.1.3: AI assistant ────────────────────────────────────────────────────
@@ -25886,6 +25901,7 @@ def _build_exact_routes():
         ('POST', '/api/exec'): handle_custom_cmd,
         ('POST', '/api/exec/batch'): handle_exec_batch,
         ('GET', '/api/exec/batch'): handle_batch_jobs_list,
+        ('DELETE', '/api/exec/batch'): handle_batch_jobs_clear,
         ('POST', '/api/exec/wait'): handle_longpoll_exec,
         ('GET', '/api/export'): handle_export,
         ('GET', '/api/health'): handle_health,

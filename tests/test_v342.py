@@ -747,6 +747,28 @@ class TestV342SettingsActions(unittest.TestCase):
                 'b': [{'cmd': 'exec:X', 'rc': 5, 'ts': now}]}  # c: no output → pending
         self.assertEqual(api._batch_job_progress(job, outs), (1, 1, 1, 3))
 
+    def test_batch_progress_long_command_truncation(self):
+        # regression: a >512-char install command is stored truncated in
+        # cmd_output, so the matcher must compare against the truncated form
+        # (else the job is stuck "pending" forever despite rc=0).
+        import importlib, time
+        api = importlib.import_module('api')
+        queued = 'exec:' + api._build_install_cmd(['atop'])
+        self.assertGreater(len(queued), 512)
+        stored = api._sanitize_str(queued, 512)            # what cmd_output keeps
+        now = int(time.time())
+        job = {'match_cmd': queued, 'created': now - 10, 'per_device': {'d1': {'queued': True}}}
+        self.assertEqual(api._batch_job_progress(job, {'d1': [{'cmd': stored, 'rc': 0, 'ts': now}]}),
+                         (1, 0, 0, 1))
+        # both match sites use the truncated key
+        self.assertIn('_sanitize_str(body_match, 512)', self.API)
+        self.assertIn('_sanitize_str(match, 512)', self.API)
+
+    def test_batch_jobs_clear(self):
+        self.assertEqual(routes_to('DELETE', '/api/exec/batch'), 'handle_batch_jobs_clear')
+        self.assertIn('data-action="clearBatchJobs"', self.HTML)
+        self.assertIn('function clearBatchJobs(', self.APP)
+
     def test_install_tracker_ui(self):
         self.assertIn('id="batch-jobs"', self.HTML)
         self.assertIn('function loadBatchJobs(', self.APP)

@@ -20,7 +20,11 @@ In development.
   on the exec-batch job machinery; `GET /api/exec/batch` lists jobs,
   `GET /api/exec/batch/<id>` gives per-host status. Fixed: the apt install path
   now applies the `APT::Sandbox::User "root"` workaround (same as upgrades), so
-  installs no longer fail with `seteuid 105 failed` on hardened hosts.
+  installs no longer fail with `seteuid 105 failed` on hardened hosts. Fixed: the
+  job tracker matched the *full* command but `cmd_output` stores it truncated to
+  512 chars, so long installs/scripts were stuck "pending" forever despite a
+  successful `rc=0` — the matcher now compares against the same truncated form.
+  Added a **Clear** button on the tracker (`DELETE /api/exec/batch`).
 - **OpenSCAP scans now target a tag/group** (not just a device): the scan form
   gained a target-type selector (all / group / tag / device); the profile is the
   parameter. (The API already accepted tag/group; this surfaces it.)

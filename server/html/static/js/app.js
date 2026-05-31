@@ -4296,6 +4296,13 @@ function toggleJobDetail(id) {
   loadBatchJobs();
 }
 
+async function clearBatchJobs() {
+  if (!confirm('Clear the recent jobs list? This only clears the tracker — anything already queued on a device still runs.')) return;
+  const r = await api('DELETE', '/exec/batch').catch(() => null);
+  if (r?.ok) { _batchExpanded.clear(); clearTimeout(_batchPollTimer); loadBatchJobs(); toast('Jobs cleared', 'info'); }
+  else toast(r?.error || 'Failed to clear', 'error');
+}
+
 async function _renderJobDetail(id) {
   const box = document.getElementById('batch-detail-' + id);
   if (!box) return;
