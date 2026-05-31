@@ -2573,6 +2573,7 @@ const _DYK_TIPS = [
   "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
   "Patches → Install software installs repo packages on one host or a whole group/tag at once — it auto-detects apt/dnf/yum/zypper/pacman/apk.",
   "Rollouts → One-time install is the un-staged shortcut: install a package on one device or a tag right away, no rings.",
+  "After queuing an install, follow it under Rollouts → Recent installs & jobs — each host gets a checkmark when it finishes (red on a non-zero exit).",
   "OpenSCAP scans (and software installs) can target a tag or group, not just one device — pick the target type in the form.",
   "New to RemotePower? Settings → Install is a live checklist of the essentials — admin password, first device, alerts, backups, 2FA.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
@@ -4242,12 +4243,71 @@ const _ROLLOUT_STATE_CLASS = {
 };
 
 async function loadRollouts() {
+  loadBatchJobs();   // v3.4.2: refresh the install/job tracker alongside rollouts
   const out = document.getElementById('rollouts-list');
   if (!out) return;
   const r = await api('GET', '/rollouts').catch(() => null);
   if (!r || !Array.isArray(r.rollouts)) { out.innerHTML = '<div class="c-red">Failed to load rollouts.</div>'; return; }
   if (!r.rollouts.length) { out.innerHTML = '<div class="empty-state">No rollouts yet. Click <strong>New rollout</strong> to stage one.</div>'; return; }
   out.innerHTML = r.rollouts.map(_renderRollout).join('');
+}
+
+// v3.4.2: install / batch-job tracker — per-host checkmarks, live while running.
+let _batchPollTimer = null;
+const _batchExpanded = new Set();
+const _JOB_ICON = {
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  fail: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2.5" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  pending: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 8 12 12 14 14"/></svg>',
+  skip: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="9"/></svg>',
+};
+
+async function loadBatchJobs() {
+  const out = document.getElementById('batch-jobs');
+  if (!out) return;
+  const r = await api('GET', '/exec/batch').catch(() => null);
+  if (!r || !Array.isArray(r.jobs)) { out.innerHTML = '<div class="c-red">Failed to load jobs.</div>'; return; }
+  if (!r.jobs.length) { out.innerHTML = '<div class="empty-state">No recent jobs. Queue a one-time install above and follow it here.</div>'; clearTimeout(_batchPollTimer); return; }
+  out.innerHTML = r.jobs.map(j => {
+    const badge = j.failed
+      ? `<span class="ro-badge rs-failed">${j.done}/${j.total} ok · ${j.failed} failed</span>`
+      : j.pending === 0 ? `<span class="ro-badge rs-done">${j.done}/${j.total} done</span>`
+      : `<span class="ro-badge rs-running">${j.done}/${j.total} · ${j.pending} pending</span>`;
+    const det = _batchExpanded.has(j.id) ? `<div class="batch-detail mt-8" id="batch-detail-${escAttr(j.id)}"><div class="c-muted fs-12">Loading…</div></div>` : '';
+    return `<div class="dash-card mb-8">
+      <div class="row-8-center">
+        <strong>${escHtml(j.label || j.kind)}</strong>
+        <span class="c-muted fs-12">${escHtml(timeAgo(j.created))}${j.actor ? ' · ' + escHtml(j.actor) : ''}</span>
+        ${badge}
+        <button class="btn-icon fs-12" data-action="toggleJobDetail" data-arg="${escAttr(j.id)}">${_batchExpanded.has(j.id) ? 'Hide hosts' : 'Hosts'}</button>
+      </div>${det}
+    </div>`;
+  }).join('');
+  for (const id of _batchExpanded) _renderJobDetail(id);
+  clearTimeout(_batchPollTimer);
+  const active = (document.getElementById('page-rollouts') || {}).classList;
+  if (r.jobs.some(j => j.pending > 0) && active && active.contains('active')) {
+    _batchPollTimer = setTimeout(loadBatchJobs, 5000);
+  }
+}
+
+function toggleJobDetail(id) {
+  if (_batchExpanded.has(id)) _batchExpanded.delete(id); else _batchExpanded.add(id);
+  loadBatchJobs();
+}
+
+async function _renderJobDetail(id) {
+  const box = document.getElementById('batch-detail-' + id);
+  if (!box) return;
+  const r = await api('GET', '/exec/batch/' + encodeURIComponent(id)).catch(() => null);
+  if (!r || !r.per_device) { box.innerHTML = '<div class="c-red fs-12">Failed to load hosts.</div>'; return; }
+  box.innerHTML = Object.entries(r.per_device).map(([dev, p]) => {
+    if (!p.queued) return `<div class="batch-host">${_JOB_ICON.skip} <span>${escHtml(p.name || dev)}</span> <span class="c-muted fs-11">(${escHtml(p.reason || 'skipped')})</span></div>`;
+    const st = p.status || 'pending';
+    const ico = st === 'done' ? (p.rc === 0 ? _JOB_ICON.ok : _JOB_ICON.fail) : _JOB_ICON.pending;
+    const note = st === 'done' ? (p.rc === 0 ? 'installed' : `exit ${p.rc}`) : 'pending…';
+    return `<div class="batch-host">${ico} <span>${escHtml(p.name || dev)}</span> <span class="c-muted fs-11">${escHtml(note)}</span></div>`;
+  }).join('');
 }
 
 function _renderRollout(roll) {
@@ -13729,7 +13789,7 @@ async function runInstall() {
   if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
-  if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s)`, 'success');
+  if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue install', 'error');
 }
 
@@ -13771,8 +13831,12 @@ async function runOneTimeInstall() {
   if (!confirm(`Install "${pkgs}" now on ${scope}?`)) return;
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
-  if (r?.ok) { toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s)`, 'success'); closeModal('one-time-install-modal'); }
-  else toast(r?.error || 'Failed to queue install', 'error');
+  if (r?.ok) {
+    toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow it below`, 'success');
+    closeModal('one-time-install-modal');
+    if (r.job_id) _batchExpanded.add(r.job_id);   // auto-expand so the user sees per-host progress
+    loadBatchJobs();
+  } else toast(r?.error || 'Failed to queue install', 'error');
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────

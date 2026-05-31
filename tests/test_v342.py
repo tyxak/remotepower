@@ -711,6 +711,8 @@ class TestV342SettingsActions(unittest.TestCase):
         cmd = api._build_install_cmd(['nginx', 'htop'])
         self.assertIn('apt-get install -y nginx htop', cmd)
         self.assertIn('pacman -Sy --noconfirm nginx htop', cmd)
+        # apt sandbox workaround (seteuid 105 fix) must be present, like _UPGRADE_CMD
+        self.assertIn('APT::Sandbox::User "root"', cmd)
         # gated on the exec permission
         i = self.API.find('def handle_install_packages(')
         self.assertIn("require_perm('exec'", self.API[i:i + 1600])
@@ -724,6 +726,34 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('id="scap-target-type"', self.HTML)
         self.assertIn('<option value="tag">Tag</option>', self.HTML)
         self.assertIn('function onScapTargetChange(', self.APP)
+
+    def test_install_creates_tracked_job(self):
+        i = self.API.find('def handle_install_packages(')
+        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        self.assertIn('BATCH_JOBS_FILE', body)
+        self.assertIn("'job_id'", body)
+        self.assertIn("'match_cmd'", body)
+        # the status endpoint correlates install output via match_cmd
+        self.assertIn("body_match = job.get('match_cmd')", self.API)
+        self.assertEqual(routes_to('GET', '/api/exec/batch'), 'handle_batch_jobs_list')
+
+    def test_batch_progress_logic(self):
+        import importlib, time
+        api = importlib.import_module('api')
+        now = int(time.time())
+        job = {'match_cmd': 'exec:X', 'created': now - 5,
+               'per_device': {'a': {'queued': True}, 'b': {'queued': True}, 'c': {'queued': True}}}
+        outs = {'a': [{'cmd': 'exec:X', 'rc': 0, 'ts': now}],
+                'b': [{'cmd': 'exec:X', 'rc': 5, 'ts': now}]}  # c: no output → pending
+        self.assertEqual(api._batch_job_progress(job, outs), (1, 1, 1, 3))
+
+    def test_install_tracker_ui(self):
+        self.assertIn('id="batch-jobs"', self.HTML)
+        self.assertIn('function loadBatchJobs(', self.APP)
+        self.assertIn('function toggleJobDetail(', self.APP)
+        self.assertIn('function _renderJobDetail(', self.APP)
+        # one-time install auto-expands its new job to show per-host progress
+        self.assertIn('_batchExpanded.add(r.job_id)', self.APP)
 
     def test_one_time_install_on_rollouts(self):
         # button on the Rollouts page + dedicated modal + handlers

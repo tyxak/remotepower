@@ -4297,3 +4297,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .setup-step-ico { flex: 0 0 auto; margin-top: 1px; }
 .setup-step-body { flex: 1 1 auto; min-width: 0; }
 .setup-step .btn-secondary { flex: 0 0 auto; align-self: center; }
+
+/* v3.4.2: install / batch-job tracker */
+.batch-detail { border-top: 1px solid var(--border); padding-top: 8px; }
+.batch-host { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.batch-host svg { flex: 0 0 auto; }

@@ -3754,6 +3754,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
         <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
+
+        <div class="section-header mt-24"><div class="section-title">Recent installs &amp; jobs</div></div>
+        <div class="page-subtitle mb-8">Follow one-time installs and batch script runs here — each host shows a checkmark when it finishes (red on a non-zero exit). Updates live while anything is still running.</div>
+        <div id="batch-jobs"><div class="c-muted">No recent jobs.</div></div>
       </div>
 
       <!-- ── v1.8.3: Calendar page ────────────────────────────────────────── -->

@@ -7033,7 +7033,16 @@ def _build_install_cmd(packages):
     return (
         'set -e; '
         'if command -v apt-get >/dev/null 2>&1; then '
-        '  export DEBIAN_FRONTEND=noninteractive; '
+        # v3.4.2: under systemd hardening apt's HTTP method can't seteuid to the
+        # unprivileged _apt sandbox user ("seteuid 105 failed → 400 URI Failure"),
+        # so installs fail with rc=100. Same fix as _UPGRADE_CMD: pin the apt
+        # sandbox user to root via a temp APT_CONFIG.
+        '  APT_CONFIG=$(mktemp); '
+        '  trap "rm -f $APT_CONFIG" EXIT; '
+        '  printf \'APT::Sandbox::User "root";\\n'
+        'Dpkg::Options:: "--force-confdef";\\n'
+        'Dpkg::Options:: "--force-confold";\\n\' > "$APT_CONFIG"; '
+        '  export APT_CONFIG DEBIAN_FRONTEND=noninteractive; '
         '  apt-get update && apt-get install -y ' + pkgs + '; '
         'elif command -v dnf >/dev/null 2>&1; then dnf install -y ' + pkgs + '; '
         'elif command -v yum >/dev/null 2>&1; then yum install -y ' + pkgs + '; '
@@ -7070,23 +7079,41 @@ def handle_install_packages():
     queued = f'exec:{_build_install_cmd(names)}'
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
-    results = {}
+    now = int(time.time())
+    per_device = {}
     for dev_id in ids:
         dev = devices.get(dev_id)
         if not dev:
-            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+            per_device[dev_id] = {'queued': False, 'reason': 'not_found'}; continue
         if _device_quarantined(dev):
-            results[dev_id] = {'ok': False, 'error': 'quarantined'}; continue
+            per_device[dev_id] = {'queued': False, 'reason': 'quarantined',
+                                  'name': dev.get('name', dev_id)}; continue
         cmds.setdefault(dev_id, [])
         if queued not in cmds[dev_id]:
             cmds[dev_id].append(queued)
         log_command(actor, dev_id, dev.get('name', dev_id), f'install {" ".join(names)[:60]}')
-        results[dev_id] = {'ok': True}
+        per_device[dev_id] = {'queued': True, 'name': dev.get('name', dev_id), 'queued_at': now}
     save(CMDS_FILE, cmds)
-    audit_log(actor, 'install_packages', f'pkgs={",".join(names)} targets={len(ids)}')
-    respond(200, {'ok': True, 'packages': names,
-                  'queued': sum(1 for r in results.values() if r.get('ok')),
-                  'results': results})
+    # v3.4.2: track it as a batch job so the operator can follow per-host
+    # progress (queued → done ✓ / failed ✗) on the Rollouts page. Reuses the
+    # exec-batch machinery; `match_cmd` lets the status endpoint correlate the
+    # install command's output back to this job.
+    jobs_data = load(BATCH_JOBS_FILE)
+    _purge_expired_batch_jobs(jobs_data)
+    jobs = jobs_data.setdefault('jobs', {})
+    job_id = secrets.token_hex(8)
+    jobs[job_id] = {
+        'id': job_id, 'kind': 'install', 'label': 'install ' + ' '.join(names),
+        'packages': names, 'match_cmd': queued, 'actor': actor, 'created': now,
+        'targets': [d for d, p in per_device.items() if p.get('queued')],
+        'per_device': per_device,
+    }
+    save(BATCH_JOBS_FILE, jobs_data)
+    audit_log(actor, 'install_packages',
+              f'job={job_id} pkgs={",".join(names)} targets={len(ids)}')
+    respond(202, {'ok': True, 'packages': names, 'job_id': job_id,
+                  'queued': sum(1 for p in per_device.values() if p.get('queued')),
+                  'total': len(ids), 'per_device': per_device})
 
 
 def handle_wol():
@@ -12093,15 +12120,16 @@ def handle_exec_batch_status(job_id):
     # script body. We match against the queued payload (exec:<body>) so a
     # device that ran the same body via another path doesn't get falsely
     # attributed.
-    sdata = load(SCRIPTS_FILE)
-    script = None
-    for s in sdata.get('scripts', []):
-        if s.get('id') == job['script_id']:
-            script = s
-            break
+    # v3.4.2: install jobs carry the exact queued command in `match_cmd`; script
+    # jobs match the saved-script body. Either way we correlate cmd_output rows.
+    body_match = job.get('match_cmd')
+    if not body_match and job.get('script_id'):
+        for s in load(SCRIPTS_FILE).get('scripts', []):
+            if s.get('id') == job['script_id']:
+                body_match = 'exec:' + s.get('body', '')
+                break
     outputs = load(CMD_OUTPUT_FILE)
     enriched = {}
-    body_match = ('exec:' + script['body']) if script else None
     job_created = int(job.get('created', 0))
     for dev_id, entry in job['per_device'].items():
         out = dict(entry)
@@ -12121,13 +12149,61 @@ def handle_exec_batch_status(job_id):
 
     respond(200, {
         'job_id':     job_id,
-        'script_id':  job['script_id'],
-        'script_name': job['script_name'],
+        'kind':       job.get('kind', 'script'),
+        'label':      job.get('label') or job.get('script_name', ''),
+        'script_id':  job.get('script_id'),
+        'script_name': job.get('script_name', ''),
+        'packages':   job.get('packages'),
         'created':    job_created,
-        'actor':      job['actor'],
+        'actor':      job.get('actor'),
         'per_device': enriched,
         'dangerous':  job.get('dangerous', []),
     })
+
+
+def _batch_job_progress(job, outputs):
+    """(done, failed, pending, total) for a batch job by correlating cmd_output
+    against the job's match command. done == rc 0, failed == rc != 0."""
+    match = job.get('match_cmd')
+    if not match and job.get('script_id'):
+        for s in load(SCRIPTS_FILE).get('scripts', []):
+            if s.get('id') == job['script_id']:
+                match = 'exec:' + s.get('body', ''); break
+    created = int(job.get('created', 0))
+    done = failed = pending = total = 0
+    for dev_id, entry in (job.get('per_device') or {}).items():
+        if not entry.get('queued'):
+            continue
+        total += 1
+        st = 'pending'
+        if match:
+            for rec in reversed(outputs.get(dev_id, [])):
+                if rec.get('cmd', '').strip() == match.strip() and int(rec.get('ts', 0)) >= created:
+                    st = 'done' if rec.get('rc', -1) == 0 else 'failed'
+                    break
+        done += st == 'done'
+        failed += st == 'failed'
+        pending += st == 'pending'
+    return done, failed, pending, total
+
+
+def handle_batch_jobs_list():
+    """GET /api/exec/batch — recent batch jobs (script + install) with a per-host
+    done/failed/pending summary, for the Rollouts activity tracker."""
+    require_auth()
+    jobs_data = load(BATCH_JOBS_FILE)
+    _purge_expired_batch_jobs(jobs_data)
+    save(BATCH_JOBS_FILE, jobs_data)
+    outputs = load(CMD_OUTPUT_FILE)
+    out = []
+    for jid, job in jobs_data.get('jobs', {}).items():
+        done, failed, pending, total = _batch_job_progress(job, outputs)
+        out.append({'id': jid, 'kind': job.get('kind', 'script'),
+                    'label': job.get('label') or job.get('script_name', ''),
+                    'created': int(job.get('created', 0)), 'actor': job.get('actor'),
+                    'done': done, 'failed': failed, 'pending': pending, 'total': total})
+    out.sort(key=lambda j: -j['created'])
+    respond(200, {'jobs': out[:50]})
 
 
 # ── v2.1.3: AI assistant ────────────────────────────────────────────────────
@@ -25809,6 +25885,7 @@ def _build_exact_routes():
         ('POST', '/api/enrollment-tokens'): handle_enroll_token_create,
         ('POST', '/api/exec'): handle_custom_cmd,
         ('POST', '/api/exec/batch'): handle_exec_batch,
+        ('GET', '/api/exec/batch'): handle_batch_jobs_list,
         ('POST', '/api/exec/wait'): handle_longpoll_exec,
         ('GET', '/api/export'): handle_export,
         ('GET', '/api/health'): handle_health,

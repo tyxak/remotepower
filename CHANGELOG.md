@@ -14,7 +14,13 @@ In development.
   gated on the `exec` permission and subject to quarantine + change-windows.
   `POST /api/install`. Available both as the "Install software" card (Patches)
   and a **one-time install** button on the Rollouts page (the un-staged sibling
-  of a ring rollout) — target a single device or a tag.
+  of a ring rollout) — target a single device or a tag. Each install is now a
+  **tracked job**: the Rollouts page shows a "Recent installs & jobs" list with a
+  live per-host **checkmark** when each finishes (red on a non-zero exit). Built
+  on the exec-batch job machinery; `GET /api/exec/batch` lists jobs,
+  `GET /api/exec/batch/<id>` gives per-host status. Fixed: the apt install path
+  now applies the `APT::Sandbox::User "root"` workaround (same as upgrades), so
+  installs no longer fail with `seteuid 105 failed` on hardened hosts.
 - **OpenSCAP scans now target a tag/group** (not just a device): the scan form
   gained a target-type selector (all / group / tag / device); the profile is the
   parameter. (The API already accepted tag/group; this surfaces it.)
