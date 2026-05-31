@@ -1470,13 +1470,19 @@ async function loadRoles() {
   const custom = r.roles.filter(x => !x.builtin);
   if (!custom.length) { out.innerHTML = '<div class="empty-state">No custom roles. Built-in admin / viewer always exist. Click <strong>Add role</strong> to define a scoped operator role.</div>'; return; }
   const scopeLabel = s => (s && s.type && s.type !== 'all') ? `${s.type}: ${escHtml((s.values || []).join(', '))}` : 'all devices';
-  const rows = custom.map(role => `<tr>
+  const sorted = tableCtl.sortRows('roles', custom.slice(), role => ({
+    role: role.name,
+    permissions: (role.permissions || []).join(','),
+    scope: (role.scope && role.scope.type) || 'all',
+  }));
+  const rows = sorted.map(role => `<tr>
     <td><strong>${escHtml(role.name)}</strong></td>
     <td class="fs-12">${escHtml((role.permissions || []).join(', ') || '—')}</td>
     <td class="fs-12 c-muted">${scopeLabel(role.scope)}</td>
     <td class="ta-right"><button class="btn-icon fs-12" data-action="editRole" data-arg="${escAttr(role.name)}">Edit</button><button class="btn-icon fs-12 c-red" data-action="deleteRole" data-arg="${escAttr(role.name)}">Delete</button></td>
   </tr>`).join('');
-  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Role</th><th>Permissions</th><th>Scope</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="roles-thead"><tr><th data-col="role">Role</th><th data-col="permissions">Permissions</th><th data-col="scope">Scope</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('roles-thead', 'roles', loadRoles);
 }
 
 let _roleEditing = null;
@@ -3632,10 +3638,14 @@ async function loadPatchCatalog() {
       }).join('');
   }
   if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted fs-13">No pending updates across the fleet.</div>'); return; }
-  const rows = r.packages.map(p =>
+  const sorted = tableCtl.sortRows('patch_catalog', r.packages.slice(), p => ({
+    package: p.package, hosts: p.count,
+  }));
+  const rows = sorted.map(p =>
     `<tr><td class="mono-12">${escHtml(p.package)}</td><td class="ta-center fw-500">${p.count}</td>`
     + `<td class="fs-12 c-muted">${escHtml(p.devices.join(', '))}${p.count > p.devices.length ? ', …' : ''}</td></tr>`).join('');
-  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Package</th><th class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>` + tpHtml;
+  body.innerHTML = `<div class="table-card"><table><thead id="patch-catalog-thead"><tr><th data-col="package">Package</th><th data-col="hosts" class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>` + tpHtml;
+  tableCtl.wireSortOnly('patch-catalog-thead', 'patch_catalog', loadPatchCatalog);
 }
 
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }
@@ -12912,7 +12922,10 @@ async function loadReportsMetering() {
   const r = await api('GET', '/inventory/metering').catch(() => null);
   if (!r) { out.innerHTML = ''; return; }
   if (!r.meters.length) { out.innerHTML = '<div class="c-muted fs-13">No software meters configured yet.</div>'; return; }
-  const rows = r.meters.map(m => {
+  const sorted = tableCtl.sortRows('metering', r.meters.slice(), m => ({
+    software: m.name, installed: m.installed, reclaim: m.reclaimable || 0,
+  }));
+  const rows = sorted.map(m => {
     const cls = m.over ? 'c-red fw-500' : '';
     const lim = m.limit ? ` / ${m.limit}` : '';
     const aliasNote = (m.aliases && m.aliases.length) ? `<div class="fs-11 c-muted">+ ${escHtml(m.aliases.join(', '))}</div>` : '';
@@ -12923,8 +12936,9 @@ async function loadReportsMetering() {
       + `<td class="fs-12">${reclaim}</td>`
       + `<td class="fs-12 c-muted">${escHtml(m.devices.join(', '))}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Software</th><th>Installed</th><th>Reclaim</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`
+  out.innerHTML = `<div class="table-card"><table><thead id="metering-thead"><tr><th data-col="software">Software</th><th data-col="installed">Installed</th><th data-col="reclaim">Reclaim</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`
     + `<div class="fs-11 c-muted mt-4">Reclaimable = installed but not seen in running processes / listening ports. Syntax: <code>name = limit | alias1, alias2</code> (aliases map name variants onto one entry).</div>`;
+  tableCtl.wireSortOnly('metering-thead', 'metering', loadReportsMetering);
 }
 
 async function saveMetering() {
@@ -13197,14 +13211,21 @@ async function runFleetQuery() {
   const r = await api('GET', '/fleet/query?' + params.toString()).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Query failed.</div>'; return; }
   if (!r.devices.length) { out.innerHTML = '<div class="c-muted fs-13">No devices match.</div>'; return; }
-  const rows = r.devices.map(d =>
+  const sorted = tableCtl.sortRows('fleet_query', r.devices.slice(), d => ({
+    device: d.name, group: d.group || '', os: d.os || '',
+    status: d.online ? 1 : 0,
+    pending: (d.pending == null ? -1 : d.pending),
+    cve: (d.cve_high == null ? -1 : d.cve_high),
+  }));
+  const rows = sorted.map(d =>
     `<tr><td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}">${escHtml(d.name)}</button></td>`
     + `<td class="hint">${escHtml(d.group || '—')}</td><td class="fs-12">${escHtml((d.os || '').substring(0, 28))}</td>`
     + `<td><span class="mon-status ${d.online ? 'up' : 'down'}">${d.online ? 'Online' : 'Offline'}</span></td>`
     + `<td class="ta-center">${d.pending == null ? '—' : d.pending}</td>`
     + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
   out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} device(s)</div>`
-    + `<div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Status</th><th class="ta-center">Pending</th><th class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);
 }
 
 // ── Release signing (v3.4.2) ─────────────────────────────────────────────────
@@ -13527,21 +13548,31 @@ async function loadComplianceBaseline() {
   if (trend) trend.innerHTML = _cisSparkline(r.history || []);
   // Per-check table — every available check, with an enable/disable toggle.
   const byId = {}; (r.checks || []).forEach(c => { byId[c.id] = c; });
-  const rows = (r.available_checks || []).map(ac => {
+  const _sevRank = { high: 3, medium: 2, low: 1 };
+  const rowObjs = (r.available_checks || []).map(ac => {
     const c = byId[ac.id] || { pass: 0, fail: 0, na: 0, failing: [] };
-    const on = !_cisDisabled.has(ac.id);
+    return { id: ac.id, title: ac.title, severity: ac.severity,
+             pass: c.pass || 0, fail: c.fail || 0, na: c.na || 0,
+             failing: c.failing || [], on: !_cisDisabled.has(ac.id) };
+  });
+  const sorted = tableCtl.sortRows('cis_baseline', rowObjs, r => ({
+    check: r.title, severity: _sevRank[r.severity] || 0,
+    pass: r.pass, fail: r.fail, na: r.na,
+  }));
+  const rows = sorted.map(c => {
     const failing = (c.failing || []).slice(0, 8).join(', ');
-    return `<tr class="${on ? '' : 'o-50'}">
-      <td><label class="click-row-6"><input type="checkbox" data-change="toggleCisCheck" data-change-arg="${escAttr(ac.id)}" ${on ? 'checked' : ''}><span>${escHtml(ac.title)}</span></label></td>
-      <td><span class="sev-pill sev-${ac.severity === 'high' ? 'critical' : ac.severity === 'medium' ? 'medium' : 'low'}">${escHtml(ac.severity)}</span></td>
-      <td class="c-green">${c.pass || 0}</td>
-      <td class="c-red">${c.fail || 0}</td>
-      <td class="c-muted">${c.na || 0}</td>
+    return `<tr class="${c.on ? '' : 'o-50'}">
+      <td><label class="click-row-6"><input type="checkbox" data-change="toggleCisCheck" data-change-arg="${escAttr(c.id)}" ${c.on ? 'checked' : ''}><span>${escHtml(c.title)}</span></label></td>
+      <td><span class="sev-pill sev-${c.severity === 'high' ? 'critical' : c.severity === 'medium' ? 'medium' : 'low'}">${escHtml(c.severity)}</span></td>
+      <td class="c-green">${c.pass}</td>
+      <td class="c-red">${c.fail}</td>
+      <td class="c-muted">${c.na}</td>
       <td class="fs-11 c-muted">${escHtml(failing)}${(c.failing || []).length > 8 ? '…' : ''}</td>
     </tr>`;
   }).join('');
   body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} device(s) evaluated.</div>
-    <div class="table-card"><table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th><th>N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="table-card"><table><thead id="cis-baseline-thead"><tr><th data-col="check">Check</th><th data-col="severity">Severity</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th data-col="na">N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('cis-baseline-thead', 'cis_baseline', loadComplianceBaseline);
 }
 
 function _cisSparkline(hist) {
@@ -13581,7 +13612,13 @@ async function loadScap() {
     avg.className = 'ro-badge ' + (r.avg_score == null ? '' : r.avg_score >= 80 ? 'rs-done' : r.avg_score >= 50 ? 'rs-paused' : 'rs-failed');
   }
   if (!r.devices || !r.devices.length) { out.innerHTML = '<div class="empty-state">No scans yet. Pick a profile and click <strong>Run scan</strong>.</div>'; return; }
-  const rows = r.devices.map(d => {
+  const sorted = tableCtl.sortRows('scap', r.devices.slice(), d => ({
+    device: d.name,
+    score: (d.score == null ? -1 : d.score),
+    pass: d.pass || 0, fail: d.fail || 0,
+    when: d.ts || 0,
+  }));
+  const rows = sorted.map(d => {
     if (!d.available) {
       return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
     }
@@ -13590,7 +13627,8 @@ async function loadScap() {
     const top = (d.failed_top || []).slice(0, 6).map(f => escHtml(f.id)).join(', ');
     return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Device</th><th>Score</th><th>Pass</th><th>Fail</th><th>Profile / top failures</th><th>When</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('scap-thead', 'scap', loadScap);
 }
 
 async function runScapScan() {

@@ -612,6 +612,36 @@ class TestV342RBACv2(unittest.TestCase):
             self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body, fn)
 
 
+class TestV342SortableTables(unittest.TestCase):
+    """CLAUDE.md rule: every new table wires tableCtl sort. Guards against the
+    sort-regression class that has shipped before."""
+    APP = client_js()
+
+    def _fn_body(self, name):
+        i = self.APP.find('function ' + name + '(')
+        self.assertGreater(i, 0, name)
+        # crude but sufficient: slice to the next top-level 'async function'/'function'
+        j = self.APP.find('\nasync function ', i + 1)
+        k = self.APP.find('\nfunction ', i + 1)
+        ends = [x for x in (j, k) if x > 0]
+        return self.APP[i:min(ends) if ends else i + 4000]
+
+    def test_session_tables_wire_sort(self):
+        # (renderer, sort-prefs name, thead id)
+        for fn, prefs, thead in (
+                ('loadPatchCatalog', 'patch_catalog', 'patch-catalog-thead'),
+                ('loadReportsMetering', 'metering', 'metering-thead'),
+                ('runFleetQuery', 'fleet_query', 'fq-thead'),
+                ('loadComplianceBaseline', 'cis_baseline', 'cis-baseline-thead'),
+                ('loadScap', 'scap', 'scap-thead'),
+                ('loadRoles', 'roles', 'roles-thead')):
+            body = self._fn_body(fn)
+            self.assertIn(f"tableCtl.sortRows('{prefs}'", body, f'{fn} sortRows')
+            self.assertIn(f"wireSortOnly('{thead}', '{prefs}'", body, f'{fn} wireSortOnly')
+            self.assertIn(f'id="{thead}"', body, f'{fn} thead id')
+            self.assertIn('data-col=', body, f'{fn} data-col headers')
+
+
 class TestV342ForecastVolatile(unittest.TestCase):
     """Forecast: ephemeral mounts excluded; noisy trends don't get a fake date."""
 
