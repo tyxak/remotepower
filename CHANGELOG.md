@@ -35,8 +35,16 @@ In development.
   roster is filtered to that scope. Server config, user/role/key management and
   saved scripts stay admin-only. Enforced at the command/exec/reboot/upgrade
   dispatch chokepoints via a central `require_perm`. `GET/POST /api/roles`,
-  `PUT/DELETE /api/roles/<name>`. (Action-scoping + roster visibility; read
-  endpoints addressed by id are not yet scoped — documented.)
+  `PUT/DELETE /api/roles/<name>`.
+- **RBAC v2 — per-endpoint read scoping.** Scoping now covers reads, not just
+  actions: a dispatch-level guard blocks a scoped role from any
+  `/api/devices/<id>/…` request for an out-of-scope device, the per-device
+  endpoints outside that prefix carry the same guard, and every fleet aggregate
+  that emits per-device rows (patch report/catalog, CVE findings, fleet
+  query/timeline/events/health/SLA/capacity/anomalies, agent integrity, drift,
+  containers, inventory, compliance, network map, log rules, alerts inbox)
+  filters to the caller's scope. Fleet posture report + Prometheus stay
+  aggregate-only and fleet-wide by design.
 
 - **Bake & sign in the UI (Admin → Release Signing).** A one-click,
   server-side path to signed releases: generate a server-held signing key,

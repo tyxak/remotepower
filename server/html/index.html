@@ -1930,7 +1930,7 @@
 
               <h4>Granular RBAC (Users &amp; Roles)</h4>
               <ul>
-                <li>Beyond the built-in <strong>admin</strong> / <strong>viewer</strong> roles, define <strong>custom roles</strong> that grant a subset of actions — <code>exec</code>, <code>reboot</code>, <code>upgrade</code> — limited to a <strong>scope</strong> (all devices, or only named groups / tags). Members act on their scope only, and the Devices roster is filtered to it. Config, user/role/key management and saved scripts stay admin-only. Enforced centrally at the command dispatch chokepoint.</li>
+                <li>Beyond the built-in <strong>admin</strong> / <strong>viewer</strong> roles, define <strong>custom roles</strong> that grant a subset of actions — <code>exec</code>, <code>reboot</code>, <code>upgrade</code> — limited to a <strong>scope</strong> (all devices, or only named groups / tags). Members act on their scope only, and — with RBAC v2 read scoping — see only their in-scope devices everywhere: a dispatch-level guard blocks out-of-scope <code>/api/devices/&lt;id&gt;</code> reads and every fleet aggregate (patches, CVE, query, timeline, health, drift, alerts, network map, …) filters its per-device rows to scope. Config, user/role/key management and saved scripts stay admin-only.</li>
               </ul>
 
               <h4>Linux-RMM additions</h4>

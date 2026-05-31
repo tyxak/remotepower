@@ -516,6 +516,102 @@ class TestV342RBAC(unittest.TestCase):
         self.assertIn("filter(x => !x.builtin)", self.APP)
 
 
+class TestV342RBACv2(unittest.TestCase):
+    """RBAC v2: per-endpoint read scoping — no out-of-scope device data leaks."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+
+    def _api(self):
+        import importlib, tempfile, json
+        from pathlib import Path as _P
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = _P(d)
+        for attr, fn in (('ROLES_FILE', 'roles.json'), ('DEVICES_FILE', 'devices.json')):
+            setattr(api, attr, _P(d) / fn)
+        (_P(d) / 'roles.json').write_text(json.dumps({'roles': [
+            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]}))
+        (_P(d) / 'devices.json').write_text(json.dumps({
+            'd1': {'name': 's', 'group': 'staging'}, 'd2': {'name': 'p', 'group': 'prod'}}))
+        api._LOAD_CACHE.clear()
+        api.get_token_from_request = lambda: 't'
+        return api, _P(d)
+
+    def test_dispatch_guard_wired(self):
+        # the guard runs before route dispatch
+        i = self.API.find('def main(')
+        j = self.API.find('_dispatch(pi, m)', i)
+        self.assertIn('_enforce_device_scope()', self.API[i:j])
+
+    def test_scope_filter(self):
+        import json
+        api, d = self._api()
+        api.verify_token = lambda t: ('bob', 'ops')
+        filt = api._scope_filter_devices(json.loads((d / 'devices.json').read_text()))
+        self.assertEqual(sorted(filt), ['d1'])
+        # admin sees everything (None scope → unchanged)
+        api.verify_token = lambda t: ('root', 'admin')
+        self.assertEqual(sorted(api._scope_filter_devices(json.loads((d / 'devices.json').read_text()))), ['d1', 'd2'])
+
+    def test_enforce_device_scope(self):
+        import os
+        api, _ = self._api()
+        api.verify_token = lambda t: ('bob', 'ops')
+        # out-of-scope device → 403
+        os.environ['PATH_INFO'] = '/api/devices/d2/sysinfo'
+        with self.assertRaises(api.HTTPError) as cm:
+            api._enforce_device_scope()
+        self.assertEqual(cm.exception.status, 403)
+        # in-scope device → pass
+        os.environ['PATH_INFO'] = '/api/devices/d1/sysinfo'
+        api._enforce_device_scope()
+        # unknown id → pass through (handler 404s; nothing to leak)
+        os.environ['PATH_INFO'] = '/api/devices/zzz/sysinfo'
+        api._enforce_device_scope()
+        # admin → bypass
+        api.verify_token = lambda t: ('root', 'admin')
+        os.environ['PATH_INFO'] = '/api/devices/d2/sysinfo'
+        api._enforce_device_scope()
+        os.environ.pop('PATH_INFO', None)
+
+    def test_scope_block_device(self):
+        api, _ = self._api()
+        api.verify_token = lambda t: ('bob', 'ops')
+        with self.assertRaises(api.HTTPError) as cm:
+            api._scope_block_device('d2')
+        self.assertEqual(cm.exception.status, 403)
+        api._scope_block_device('d1')          # in scope → ok
+        api._scope_block_device('nope')        # unknown → ok
+
+    def test_explicit_per_device_guards(self):
+        for fn in ('handle_patch_report_device', 'handle_cmdb_get',
+                   'handle_cmdb_credentials_list', 'handle_acme_detail'):
+            i = self.API.find('def ' + fn + '(')
+            nxt = self.API.find('\ndef ', i + 1)
+            self.assertIn('_scope_block_device(', self.API[i:nxt if nxt > 0 else i + 1200], fn)
+        # health-history per-device series gated
+        i = self.API.find('def handle_fleet_health_history(')
+        self.assertIn('_scope_block_device(dev_id)', self.API[i:i + 600])
+
+    def test_aggregates_scoped(self):
+        # each aggregate that emits per-device rows must scope-filter
+        for fn in ('handle_patch_report', 'handle_cve_findings', 'handle_agent_integrity',
+                   'handle_fleet_query', 'handle_fleet_sla', 'handle_fleet_capacity',
+                   'handle_fleet_anomalies', 'handle_inventory_search', 'handle_inventory_metering',
+                   'handle_drift_overview', 'handle_patch_catalog', 'handle_network_map',
+                   'handle_log_rules', 'handle_fleet_timeline'):
+            i = self.API.find('def ' + fn + '(')
+            nxt = self.API.find('\ndef ', i + 1)
+            body = self.API[i:nxt if nxt > 0 else i + 2500]
+            self.assertIn('_scope_filter_devices', body, f'{fn} should scope-filter devices')
+        # fleet health + events + compliance + alerts use _caller_scope directly
+        for fn in ('handle_fleet_health', 'handle_fleet_events', 'handle_alerts_list',
+                   'handle_compliance_baseline'):
+            i = self.API.find('def ' + fn + '(')
+            nxt = self.API.find('\ndef ', i + 1)
+            body = self.API[i:nxt if nxt > 0 else i + 2500]
+            self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body, fn)
+
+
 class TestV342NinjaParity(unittest.TestCase):
     """Linux-RMM Tier-A batch: OpenSCAP scans, third-party patching, on-call /
     escalation, and zero-dep trend charts."""

@@ -2035,6 +2035,51 @@ def _caller_scope():
     return None if (rd['admin'] or sc.get('type') == 'all') else sc
 
 
+def _scope_filter_devices(devices, scope=None):
+    """v3.5.0 RBAC v2: return only the devices visible to the current caller.
+    Pass an explicit `scope` to avoid recomputing it; None scope = no filtering
+    (admin / viewer / all-scope), returns the dict unchanged."""
+    scope = scope if scope is not None else _caller_scope()
+    if scope is None:
+        return devices
+    return {k: v for k, v in (devices or {}).items()
+            if isinstance(v, dict) and _device_in_scope(scope, v)}
+
+
+def _enforce_device_scope():
+    """v3.5.0 RBAC v2: a scoped role must not read or act on a device outside its
+    scope. Applies to any `/api/devices/<id>[/...]` request. Fail-safe: only
+    blocks when the path's first segment is a REAL device that's out of scope —
+    non-device sub-paths and unknown ids fall through to the handler (which 404s),
+    so this never breaks a legitimate route. Admin / all-scope roles pass."""
+    pi = path_info()
+    if not pi.startswith('/api/devices/'):
+        return
+    seg = pi[len('/api/devices/'):].split('/', 1)[0]
+    if not seg or not _validate_id(seg):
+        return
+    scope = _caller_scope()
+    if scope is None:
+        return
+    dev = (load(DEVICES_FILE) or {}).get(seg)
+    if dev is None:
+        return
+    if not _device_in_scope(scope, dev):
+        respond(403, {'error': 'Device outside your role scope'})
+
+
+def _scope_block_device(dev_id):
+    """For per-device read endpoints NOT under /api/devices/ (cmdb, acme,
+    patch-report/device, …). 403s only if dev_id names a real out-of-scope
+    device; otherwise returns (so the handler keeps its own 404 behaviour)."""
+    scope = _caller_scope()
+    if scope is None:
+        return
+    dev = (load(DEVICES_FILE) or {}).get(dev_id)
+    if dev is not None and not _device_in_scope(scope, dev):
+        respond(403, {'error': 'Device outside your role scope'})
+
+
 def get_mcp_attribution():
     """Extract MCP attribution headers from the current request.
 
@@ -8842,6 +8887,7 @@ def handle_agent_integrity():
     require_auth()
     canonical = _get_agent_sha256()
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     counts = {'verified': 0, 'mismatch': 0, 'unknown': 0}
     rows = []
     for dev_id, dev in devices.items():
@@ -9403,6 +9449,7 @@ def handle_fleet_sla():
     window_start = now - days * 86400
     uptime = load(UPTIME_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     rows = []
     groups = {}
     covered_pcts = []
@@ -9437,6 +9484,7 @@ def handle_fleet_capacity():
     consumers. Auth: require_auth."""
     require_auth()
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     now = int(time.time())
     ttl = get_online_ttl()
     cpu, mem, swap = [], [], []
@@ -9504,6 +9552,7 @@ def handle_fleet_anomalies():
     z = max(1.5, min(6.0, z))
     hist = load(METRICS_HIST_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
     for dev_id, rec in hist.items():
         dev = devices.get(dev_id)
@@ -10490,6 +10539,7 @@ def handle_containers_overview() -> None:
     """
     require_auth()
     devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     store = load(CONTAINERS_FILE)
     ttl = get_container_stale_ttl()
     now = int(time.time())
@@ -11129,7 +11179,7 @@ def handle_network_map() -> None:
     (a device may have been deleted since the link/tunnel was set).
     """
     require_auth()
-    devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(load(DEVICES_FILE))   # v3.5.0 RBAC v2
     now = int(time.time())
     nodes = []
     for dev_id, dev in devices.items():
@@ -15347,7 +15397,18 @@ def handle_fleet_health():
     Built on the Needs Attention digest, so it's cheap (shares the 10s NA cache)
     and always consistent with the NA list. Auth: require_auth."""
     require_auth()
-    respond(200, _fleet_health())
+    h = _fleet_health()
+    # v3.5.0 RBAC v2: filter per-device rows to the caller's scope and recompute
+    # the headline score/total over just those devices.
+    scope = _caller_scope()
+    if scope is not None:
+        devs = load(DEVICES_FILE) or {}
+        rows = [d for d in (h.get('devices') or [])
+                if _device_in_scope(scope, devs.get(d.get('device_id'), {}))]
+        scores = [d['score'] for d in rows if isinstance(d.get('score'), (int, float))]
+        h = {**h, 'devices': rows, 'total_devices': len(rows),
+             'score': round(sum(scores) / len(scores)) if scores else None}
+    respond(200, h)
 
 
 _HEALTH_HIST_MAX = 180   # keep ~6 months of daily samples per series
@@ -15404,6 +15465,7 @@ def handle_fleet_health_history():
     dev_id = (qs.get('device') or [''])[0].strip()
     store = load(HEALTH_HIST_FILE) or {}
     if dev_id:
+        _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device series
         series = (store.get('devices') or {}).get(dev_id) or []
         respond(200, {'device_id': dev_id, 'series': series})
     respond(200, {'series': store.get('fleet') or []})
@@ -16015,8 +16077,11 @@ def handle_drift_overview():
     require_auth()
     state = load(DRIFT_STATE_FILE)
     devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     rows = []
     for dev_id, dev_state in state.items():
+        if dev_id not in devices:
+            continue   # v3.5.0 RBAC v2: out of caller scope
         files = (dev_state or {}).get('files') or {}
         n_total   = len(files)
         # v2.2.6: a dormant file (one that's been absent from the host
@@ -16638,6 +16703,7 @@ def handle_inventory_metering():
     meters = (load(CONFIG_FILE) or {}).get('software_meters') or []
     store = load(PACKAGES_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     out = []
     for m in meters[:100]:
         raw = (m.get('name') or '').strip()
@@ -16651,6 +16717,8 @@ def handle_inventory_metering():
         hosts = []
         reclaimable = []
         for did, entry in store.items():
+            if did not in devices:
+                continue   # v3.5.0 RBAC v2: out of caller scope
             if not any(any(n in (p.get('name') or '').lower() for n in needles)
                        for p in (entry or {}).get('packages') or []):
                 continue
@@ -16696,6 +16764,7 @@ def handle_fleet_query():
     now = int(time.time())
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     canonical = _get_agent_sha256() if integ else None
     cve = None
     if cve_min is not None:
@@ -16744,6 +16813,7 @@ def handle_patch_catalog():
     view is honest about coverage. Auth: require_auth."""
     require_auth()
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     cve_fixable = _cve_fixable_by_device()
     catalog = {}          # package -> set(device_name)
     no_detail = []        # devices with a pending count but no name list
@@ -17277,7 +17347,8 @@ def _compute_compliance(devices=None):
 def handle_compliance_baseline():
     """GET /api/compliance/baseline — evaluate the active CIS-style baseline."""
     require_auth()
-    rep = _compute_compliance()
+    # v3.5.0 RBAC v2: evaluate only the caller's in-scope devices.
+    rep = _compute_compliance(_scope_filter_devices(load(DEVICES_FILE) or {}))
     rep['history'] = ((load(COMPLIANCE_HIST_FILE) or {}).get('fleet') or [])[-90:]
     rep['available_checks'] = [{'id': cid, 'title': t, 'severity': s}
                                for cid, t, s, _ in _cis_checks()]
@@ -17430,10 +17501,13 @@ def handle_inventory_search():
     target = (qs.get('version') or [''])[0].strip()
     store = load(PACKAGES_FILE) or {}
     devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     CAP = 2000
     results = []
     truncated = False
     for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue   # v3.5.0 RBAC v2: out of caller scope
         eco = (entry or {}).get('ecosystem', '')
         dname = (devices.get(dev_id) or {}).get('name', dev_id)
         for p in (entry or {}).get('packages') or []:
@@ -17479,6 +17553,7 @@ def handle_patch_report():
     """Return detailed patch information across all devices."""
     require_auth()
     devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     snmp_data = load(SNMP_DATA_FILE)   # v3.4.0: Synology DSM update status
     cve_fixable = _cve_fixable_by_device()   # v3.4.1: CVE↔patch cross-link
     now = int(time.time())
@@ -17605,6 +17680,7 @@ def handle_patch_report():
 def handle_patch_report_device(dev_id):
     """Return detailed patch report for a single device."""
     require_auth()
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE)
     if dev_id not in devices: respond(404, {'error': 'Device not found'})
@@ -18057,6 +18133,14 @@ def handle_alerts_list():
         limit = 200
     al = load(ALERTS_FILE)
     all_alerts = al.get('alerts', [])
+    # v3.5.0 RBAC v2: a scoped role only sees alerts for its in-scope devices
+    # (alerts with no device_id — fleet-level — stay visible).
+    _scope = _caller_scope()
+    if _scope is not None:
+        _devs = load(DEVICES_FILE) or {}
+        all_alerts = [a for a in all_alerts
+                      if not a.get('device_id')
+                      or _device_in_scope(_scope, _devs.get(a.get('device_id'), {}))]
     if status == 'all':
         filtered = list(all_alerts)
     elif status == 'ack':
@@ -21080,6 +21164,14 @@ def handle_fleet_events():
         events = [e for e in events
                   if (e.get('payload') or {}).get('device_id') not in unmonitored]
 
+    # v3.5.0 RBAC v2: a scoped role only sees events for its in-scope devices
+    # (fleet-wide events with no device_id stay visible).
+    _scope = _caller_scope()
+    if _scope is not None:
+        events = [e for e in events
+                  if not (e.get('payload') or {}).get('device_id')
+                  or _device_in_scope(_scope, devices.get((e.get('payload') or {}).get('device_id'), {}))]
+
     # v3.2.3: routing matrix filter — Recent Activity only shows events
     # whose kind has recent_activity=true. Centralised here so the home
     # feed, mobile app, and any other reader of /api/fleet/events all
@@ -21222,7 +21314,7 @@ def handle_fleet_timeline():
     ?device=<id> (restrict to one host), ?severity=critical,high (CSV).
     Auth: require_auth."""
     require_auth()
-    devices = load(DEVICES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})   # v3.5.0 RBAC v2
     name_map = {did: d.get('name', did) for did, d in devices.items()
                 if isinstance(d, dict) and d.get('monitored') is not False}
     qs, limit, kind_filter = _timeline_parse_qs()
@@ -21591,6 +21683,7 @@ def handle_cve_findings():
     ignore_data  = load(CVE_IGNORE_FILE)
     pkg_store    = load(PACKAGES_FILE)
     devices      = load(DEVICES_FILE)
+    devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     now = int(time.time())
 
     report = {
@@ -23538,7 +23631,7 @@ def handle_log_device(dev_id):
 def handle_log_rules():
     """GET /api/logs/rules — cross-fleet view of all per-device log_watch rules."""
     require_auth()
-    devices = load(DEVICES_FILE)
+    devices = _scope_filter_devices(load(DEVICES_FILE))   # v3.5.0 RBAC v2
     out = []
     for dev_id, dev in devices.items():
         for rule in (dev.get('log_watch') or []):
@@ -24437,6 +24530,7 @@ def handle_cmdb_get(dev_id: str) -> None:
         device is unknown.
     """
     require_auth()
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
     devices = load(DEVICES_FILE)
@@ -24963,6 +25057,7 @@ def handle_cmdb_credentials_list(dev_id: str) -> None:
         dev_id: The enrolled device's ID.
     """
     require_auth()
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id):
         respond(404, {'error': 'device not found'})
     devices = load(DEVICES_FILE)
@@ -26219,6 +26314,10 @@ def main():
     # password-change route (and the bare server-info endpoint the
     # login page reads) until must_change_password is cleared.
     _enforce_password_change()
+
+    # v3.5.0 RBAC v2: block scoped roles from any out-of-scope /api/devices/<id>
+    # request (read or write) at a single chokepoint, before route dispatch.
+    _enforce_device_scope()
 
     pi = path_info(); m = method()
 
@@ -27656,6 +27755,7 @@ def handle_acme_dns_credentials_set():
 def handle_acme_detail(dev_id, domain):
     """GET /api/acme/<dev_id>/<domain> — single-cert detail + recent log files."""
     require_auth()
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
     if not _acme_validate_domain(domain):
