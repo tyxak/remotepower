@@ -32,7 +32,7 @@ extensions. Those are struck from the backlog below.
 | Per-device timeline | 🔴 Large | ✅ v3.4.1 | New merge endpoint + UI |
 | Fleet-wide timeline | 🔴 Large | ✅ v3.4.1 | Per-device merge logic |
 | Automation rules engine | 🔴 Large | ✅ v3.4.2 | Event registry + channels + scripts |
-| [Device dependency map](#device-dependency-map) | 🔴 Large | — | Netmap |
+| Device dependency map | 🔴 Large | ✅ v3.4.2 | Netmap |
 | [Anomaly baselining](#anomaly-baselining) | 🔴 Large | — | AI anomaly scan |
 | [Agent integrity / signed binaries](#agent-integrity--signed-binaries) | 🔴 Large | — | Agent packaging |
 

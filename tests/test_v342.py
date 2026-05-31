@@ -146,5 +146,38 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342Dependencies(unittest.TestCase):
+    """Device dependency map — depends_on + downstream alert suppression."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    NET = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'app-network.js').read_text()
+
+    def test_route_and_handlers(self):
+        self.assertEqual(routes_to('PUT', '/api/devices/d1/depends-on'),
+                         'handle_device_depends_on')
+        for fn in ('def handle_device_depends_on(', 'def _upstream_down('):
+            self.assertIn(fn, self.API)
+        # Suppression gate present in the dispatch path.
+        self.assertIn('_upstream_down(dev_id', self.API)
+        # Map exposes dependency edges.
+        self.assertIn("'dep_edges'", self.API)
+
+    def test_upstream_down_behaviour(self):
+        import importlib, sys as _s
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        import time as _t
+        now = int(_t.time())
+        devs = {'sw': {'name': 'switch', 'last_seen': now - 99999, 'monitored': True},
+                'web': {'name': 'web', 'last_seen': now, 'depends_on': ['sw']},
+                'db': {'name': 'db', 'last_seen': now}}
+        self.assertEqual(api._upstream_down('web', devs, now, 180), 'switch')
+        self.assertIsNone(api._upstream_down('db', devs, now, 180))
+
+    def test_frontend_renders_dep_edges(self):
+        self.assertIn('dep_edges', self.NET)
+        self.assertIn('netmap-dep-sel', self.NET)
+        self.assertIn('depends-on', self.NET)
+
+
 if __name__ == '__main__':
     unittest.main()

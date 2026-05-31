@@ -2396,6 +2396,7 @@ const _DYK_TIPS = [
   "Share a read-only public status page (status.html?token=…) showing fleet health and monitor status — no login required.",
   "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
   "Automation rules (Admin → Automation) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
+  "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",

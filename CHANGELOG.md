@@ -6,6 +6,13 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Device dependency map.** Declare that a device *depends on* upstreams
+  (e.g. web → switch) on the Network Map. When an upstream is offline, alerts
+  for the downstream devices are **held** — they're collateral, not the root
+  cause, so you get the upstream's alert instead of twenty downstream ones. The
+  map draws dependency edges (dashed violet, red when the upstream is down). New
+  `PUT /api/devices/<id>/depends-on`; suppression is delivery-only (the event
+  still lands in the inbox) and never holds a recovery event.
 - **Automation rules engine (Admin → Automation).** Turn the events RemotePower
   already fires into actions: *"when event X (at severity S) on devices matching
   group/tags/id → run a saved script and/or notify a destination."* Rules are

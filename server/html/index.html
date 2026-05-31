@@ -1804,6 +1804,12 @@
             <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
             <div class="doc-body">
               <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
+              <h4>Device dependency map</h4>
+              <ul>
+                <li>On the Network Map, declare that a device <strong>depends on</strong> upstreams. When an upstream is offline, downstream alerts are <strong>held</strong> — you get the root-cause alert, not a storm of collateral ones. Dependency edges draw dashed violet (red when the upstream is down).</li>
+                <li>Suppression is delivery-only (events still hit the inbox) and never holds a recovery. Edit via <strong>Network Map → Edit links</strong>.</li>
+              </ul>
+
               <h4>Automation rules (Admin → Automation)</h4>
               <ul>
                 <li>Turn the events RemotePower already fires into actions: <strong>when</strong> an event (optionally at a given severity) fires on devices matching a group / tags / id, <strong>then</strong> run a saved script and/or notify a destination.</li>

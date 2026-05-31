@@ -3240,6 +3240,23 @@ def fire_webhook(event, payload):
             _log_webhook(event, u, 'suppressed', f'quiet hours ({qh_reason})')
         return
 
+    # v3.4.2: dependency suppression. If this device depends on an upstream that
+    # is currently offline, hold the alert — it's collateral damage, not the
+    # root cause (you want the upstream's alert, not 20 downstream ones).
+    # Recover events (device_online, *_recover/*_up) are never suppressed, so a
+    # device coming back always clears. The event is still recorded above.
+    if dev_id and event not in _ALERT_RECOVER and not event.endswith(('_up', '_online', '_recover', '_recovered')):
+        try:
+            up_name = _upstream_down(dev_id, load(DEVICES_FILE) or {},
+                                     int(time.time()), get_online_ttl())
+        except Exception:
+            up_name = None
+        if up_name:
+            u = _suppression_log_url()
+            if u:
+                _log_webhook(event, u, 'suppressed', f'upstream "{up_name}" is down')
+            return
+
     # Build the human-readable message once — used by both channels
     server_name = get_server_name()
     payload_with_branding = dict(payload)
@@ -10361,6 +10378,58 @@ def handle_device_connected_to(dev_id: str) -> None:
     respond(200, {'ok': True})
 
 
+def handle_device_depends_on(dev_id: str) -> None:
+    """``PUT /api/devices/{id}/depends-on`` — set this device's upstream service
+    dependencies. Body: ``{depends_on: [<device_id>, ...]}``.
+
+    Unlike ``connected_to`` (a physical/wired link), this is a *logical*
+    dependency: "this host needs those to function". When an upstream is offline,
+    alerts for this device are held (it's collateral, not the root cause)."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    body = get_json_body()
+    raw = body.get('depends_on') or []
+    if not isinstance(raw, list):
+        respond(400, {'error': 'depends_on must be a list of device ids'})
+    ups = []
+    for u in raw[:50]:
+        u = _sanitize_str(u, 64)
+        if u == dev_id:
+            respond(400, {'error': 'a device cannot depend on itself'})
+        if u and u in devices and u not in ups:
+            ups.append(u)
+    devices[dev_id]['depends_on'] = ups
+    save(DEVICES_FILE, devices)
+    audit_log(actor, 'device_depends_on', detail=f'{dev_id} → {ups or "(cleared)"}')
+    respond(200, {'ok': True, 'depends_on': ups})
+
+
+def _upstream_down(dev_id, devices, now, ttl):
+    """Return the name of the first offline upstream this device depends on, or
+    None. Used to suppress collateral downstream alerts. One hop only — keeps it
+    cheap and avoids cycle headaches; a deep chain still suppresses level by
+    level as each tier's own upstream check fires."""
+    dev = (devices or {}).get(dev_id)
+    if not isinstance(dev, dict):
+        return None
+    for up in (dev.get('depends_on') or []):
+        u = devices.get(up)
+        if not isinstance(u, dict):
+            continue
+        if u.get('agentless'):
+            if not _agentless_online(u):
+                return u.get('name', up)
+        elif (now - u.get('last_seen', 0)) >= ttl:
+            return u.get('name', up)
+    return None
+
+
 def handle_network_map() -> None:
     """``GET /api/network-map`` — nodes, edges, tunnels, positions.
 
@@ -10415,12 +10484,21 @@ def handle_network_map() -> None:
             'online':    online,
             'pos_x':     int(px) if isinstance(px, (int, float)) else None,
             'pos_y':     int(py) if isinstance(py, (int, float)) else None,
+            # v3.4.2: logical service dependencies (upstreams this device needs).
+            'depends_on': [u for u in (dev.get('depends_on') or []) if u in devices],
         })
     edges = []
     for dev_id, dev in devices.items():
         target = dev.get('connected_to', '')
         if target and target in devices:
             edges.append({'from': dev_id, 'to': target})
+    # v3.4.2: dependency edges (downstream → upstream), distinct from physical
+    # links. Powers the netmap overlay and the alert-suppression logic.
+    dep_edges = []
+    for dev_id, dev in devices.items():
+        for up in (dev.get('depends_on') or []):
+            if up in devices:
+                dep_edges.append({'from': dev_id, 'to': up})
     nodes.sort(key=lambda n: (n['type'], n['name'].lower()))
 
     # v1.11.1: tunnels (peer relationships, second-class edges)
@@ -10437,7 +10515,8 @@ def handle_network_map() -> None:
                 continue
             tunnels.append({'id': tid, 'endpoints': [ends[0], ends[1]]})
 
-    respond(200, {'nodes': nodes, 'edges': edges, 'tunnels': tunnels})
+    respond(200, {'nodes': nodes, 'edges': edges, 'tunnels': tunnels,
+                  'dep_edges': dep_edges})
 
 
 # ── v1.11.1: persisted node positions ─────────────────────────────────────────
@@ -24272,6 +24351,9 @@ def _dispatch(pi, m):
     # ── v1.11.0: network map + agentless device link ──────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/connected-to') and m == 'PUT':
         handle_device_connected_to(pi[len('/api/devices/'):-len('/connected-to')])
+    # v3.4.2: logical service dependencies (upstreams) for alert suppression
+    elif pi.startswith('/api/devices/') and pi.endswith('/depends-on') and m == 'PUT':
+        handle_device_depends_on(pi[len('/api/devices/'):-len('/depends-on')])
 
     # ── v1.11.1: positions + tunnels ───────────────────────────────────────
     elif pi.startswith('/api/network-map/tunnels/') and m == 'DELETE':

@@ -27,6 +27,7 @@ async function loadNetmap() {
     nodes:   Array.isArray(data.nodes)   ? data.nodes   : [],
     edges:   Array.isArray(data.edges)   ? data.edges   : [],
     tunnels: Array.isArray(data.tunnels) ? data.tunnels : [],
+    dep_edges: Array.isArray(data.dep_edges) ? data.dep_edges : [],
   };
   _netmapDirty.clear();
   // Auto-layout for nodes without a saved position. We keep saved positions
@@ -82,6 +83,14 @@ function renderNetmap() {
     if (!a || !b) return '';
     return `<line data-edge-from="${escHtml(t.endpoints[0])}" data-edge-to="${escHtml(t.endpoints[1])}" data-edge-kind="tun" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="6 4" opacity="0.85"><title>Tunnel: ${escHtml(a.name)} ↔ ${escHtml(b.name)}</title></line>`;
   }).join('');
+  // v3.4.2: dependency edges (downstream → upstream), dashed violet. A red glow
+  // when the upstream is offline flags the root cause at a glance.
+  const depMarkup = (_netmapData.dep_edges || []).map(e => {
+    const a = lookup[e.from], b = lookup[e.to];
+    if (!a || !b) return '';
+    const col = b.online ? '#a855f7' : 'var(--red)';
+    return `<line data-edge-from="${escHtml(e.from)}" data-edge-to="${escHtml(e.to)}" data-edge-kind="dep" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${col}" stroke-width="2" stroke-dasharray="2 4" opacity="0.85"><title>${escHtml(a.name)} depends on ${escHtml(b.name)}${b.online ? '' : ' (UPSTREAM DOWN)'}</title></line>`;
+  }).join('');
   // Nodes — single <g class="netmap-node"> per device. The shapes inside use
   // coordinates relative to the node's centre (0,0); the <g> itself is
   // positioned via `transform="translate(x, y)"`. This way a drag updates
@@ -97,7 +106,7 @@ function renderNetmap() {
       <text x="0" y="${r + 28}" font-size="10" fill="currentColor" opacity="0.55" text-anchor="middle" pointer-events="none">${escHtml(n.ip || '')}</text>
     </g>`;
   }).join('');
-  svg.innerHTML = edgeMarkup + tunnelMarkup + nodeMarkup;
+  svg.innerHTML = edgeMarkup + tunnelMarkup + depMarkup + nodeMarkup;
   netmapInstallDrag(svg);
 }
 
@@ -256,7 +265,7 @@ async function netmapEditOpen() {
   // Build an option list of all devices for the dropdowns
   const optsHtml = '<option value="">— none —</option>' +
     nodes.map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name)} (${escHtml(n.type || 'host')})</option>`).join('');
-  body.innerHTML = `<table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Device</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th></tr></thead><tbody>${
+  body.innerHTML = `<table class="w-full"><thead><tr class="isl-468"><th class="cell-m">Device</th><th class="cell-m">Type</th><th class="cell-m">Connected to (upstream)</th><th class="cell-m">Depends on <span class="meta-sm-nm">(alerts suppressed when down)</span></th></tr></thead><tbody>${
     nodes.map(n => {
       const cur = (_netmapData.edges.find(e => e.from === n.id) || {}).to || '';
       // Build per-row options where the current value is selected and self-link is removed
@@ -264,10 +273,14 @@ async function netmapEditOpen() {
         nodes.filter(o => o.id !== n.id).map(o =>
           `<option value="${escHtml(o.id)}"${o.id === cur ? ' selected' : ''}>${escHtml(o.name)} (${escHtml(o.type || 'host')})</option>`
         ).join('');
+      const deps = (n.depends_on || []);
+      const depOpts = nodes.filter(o => o.id !== n.id).map(o =>
+        `<option value="${escHtml(o.id)}"${deps.includes(o.id) ? ' selected' : ''}>${escHtml(o.name)}</option>`).join('');
       return `<tr>
         <td class="isl-469">${escHtml(n.name)}</td>
         <td class="isl-470">${escHtml(n.type || 'host')}</td>
         <td class="cell-m"><select class="form-input netmap-link-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(cur)}">${rowOpts}</select></td>
+        <td class="cell-m"><select multiple class="form-input netmap-dep-sel w-full" data-device-id="${escHtml(n.id)}" data-original="${escHtml(deps.join(','))}" size="3">${depOpts}</select></td>
       </tr>`;
     }).join('')
   }</tbody></table>`;
@@ -289,6 +302,17 @@ async function netmapEditSaveAll() {
     } else {
       failed++;
     }
+  }
+  // v3.4.2: save dependency changes (multi-select per row).
+  const depSels = Array.from(document.querySelectorAll('.netmap-dep-sel'));
+  for (const s of depSels) {
+    const deviceId = s.getAttribute('data-device-id');
+    const orig = (s.getAttribute('data-original') || '').split(',').filter(Boolean).sort().join(',');
+    const chosen = Array.from(s.selectedOptions).map(o => o.value).filter(Boolean);
+    if (chosen.slice().sort().join(',') === orig) continue;
+    const r = await api('PUT', `/devices/${encodeURIComponent(deviceId)}/depends-on`, {depends_on: chosen});
+    if (r && r.ok) { changed++; s.setAttribute('data-original', chosen.join(',')); }
+    else { failed++; }
   }
   if (changed) toast(`${changed} link(s) updated`, 'success');
   if (failed) toast(`${failed} link(s) failed to update`, 'error');
