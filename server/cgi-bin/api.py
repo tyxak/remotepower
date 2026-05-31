@@ -12173,6 +12173,9 @@ def _batch_job_progress(job, outputs):
         for s in load(SCRIPTS_FILE).get('scripts', []):
             if s.get('id') == job['script_id']:
                 match = 'exec:' + s.get('body', ''); break
+    # cmd_output stores the command truncated to 512 chars — compare against the
+    # same truncated form or a long install/script command never matches.
+    match_key = _sanitize_str(match, 512).strip() if match else None
     created = int(job.get('created', 0))
     done = failed = pending = total = 0
     for dev_id, entry in (job.get('per_device') or {}).items():
@@ -12180,9 +12183,9 @@ def _batch_job_progress(job, outputs):
             continue
         total += 1
         st = 'pending'
-        if match:
+        if match_key:
             for rec in reversed(outputs.get(dev_id, [])):
-                if rec.get('cmd', '').strip() == match.strip() and int(rec.get('ts', 0)) >= created:
+                if rec.get('cmd', '').strip() == match_key and int(rec.get('ts', 0)) >= created:
                     st = 'done' if rec.get('rc', -1) == 0 else 'failed'
                     break
         done += st == 'done'
