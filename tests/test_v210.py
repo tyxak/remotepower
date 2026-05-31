@@ -97,9 +97,12 @@ def _set_request(method='GET', body=None, query=''):
 
 
 def _stub_auth(username='admin'):
-    """Make require_auth + require_admin_auth return a fixed username."""
+    """Make require_auth + require_admin_auth + require_perm return a fixed user."""
     api.require_auth = lambda **kw: username
     api.require_admin_auth = lambda: username
+    # v3.4.2 RBAC: action handlers gate on require_perm(perm, ids); stub it to
+    # the same fixed user so these pre-RBAC exec-batch tests stay valid.
+    api.require_perm = lambda *a, **k: username
 
 
 class _TestBase(unittest.TestCase):

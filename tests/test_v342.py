@@ -385,6 +385,137 @@ class TestV342Deployment(unittest.TestCase):
         self.assertNotIn('document.write', self.APP)
 
 
+class TestV342RBAC(unittest.TestCase):
+    """Granular RBAC: custom roles with per-action permissions + device scope."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_routes(self):
+        self.assertEqual(routes_to('GET', '/api/roles'), 'handle_roles_list')
+        self.assertEqual(routes_to('POST', '/api/roles'), 'handle_role_create')
+        self.assertEqual(routes_to('PUT', '/api/roles/ops'), 'handle_role_update')
+        self.assertEqual(routes_to('DELETE', '/api/roles/ops'), 'handle_role_delete')
+
+    def test_action_handlers_use_require_perm(self):
+        # the device-action chokepoints must gate on a permission, not bare admin
+        for fn, perm in (('handle_custom_cmd', 'exec'), ('handle_reboot', 'reboot'),
+                         ('handle_shutdown', 'reboot'), ('handle_upgrade_device', 'upgrade'),
+                         ('handle_update_device', 'upgrade'), ('handle_exec_batch', 'exec')):
+            i = self.API.find('def ' + fn + '(')
+            self.assertGreater(i, 0, fn)
+            # slice up to the next top-level def so the perm call is in range
+            nxt = self.API.find('\ndef ', i + 1)
+            body = self.API[i:nxt if nxt > 0 else i + 3000]
+            self.assertIn(f"require_perm('{perm}'", body, f'{fn} should require_perm({perm})')
+
+    def test_device_list_scoped(self):
+        i = self.API.find('def handle_devices_list(')
+        nxt = self.API.find('\ndef ', i + 1)
+        body = self.API[i:nxt if nxt > 0 else i + 4000]
+        self.assertIn('_caller_scope()', body)
+        self.assertIn('_device_in_scope(_scope', body)
+
+    def test_role_mgmt_admin_only(self):
+        for fn in ('handle_role_create', 'handle_role_update', 'handle_role_delete'):
+            i = self.API.find('def ' + fn + '(')
+            self.assertIn('require_admin_auth()', self.API[i:i + 400], fn)
+
+    # ── behaviour ────────────────────────────────────────────────────────────
+    def _fresh_api(self):
+        import importlib, tempfile, json
+        from pathlib import Path as _P
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = _P(d)
+        for attr, fn in (('ROLES_FILE', 'roles.json'), ('DEVICES_FILE', 'devices.json'),
+                         ('USERS_FILE', 'users.json')):
+            setattr(api, attr, _P(d) / fn)
+        api._LOAD_CACHE.clear()
+        return api, _P(d)
+
+    def test_resolve_role(self):
+        import json
+        api, d = self._fresh_api()
+        (d / 'roles.json').write_text(json.dumps({'roles': [
+            {'name': 'ops', 'permissions': ['exec', 'reboot', 'bogus'],
+             'scope': {'type': 'groups', 'values': ['staging']}}]}))
+        api._LOAD_CACHE.clear()
+        self.assertTrue(api._resolve_role('admin')['admin'])
+        self.assertEqual(api._resolve_role('viewer')['permissions'], set())
+        ops = api._resolve_role('ops')
+        self.assertEqual(ops['permissions'], {'exec', 'reboot'})   # 'bogus' filtered
+        self.assertFalse(ops['admin'])
+        self.assertEqual(api._resolve_role('nope')['permissions'], set())  # fail closed
+
+    def test_device_in_scope(self):
+        api, _ = self._fresh_api()
+        self.assertTrue(api._device_in_scope({'type': 'all'}, {'group': 'x'}))
+        self.assertTrue(api._device_in_scope({'type': 'groups', 'values': ['p']}, {'group': 'p'}))
+        self.assertFalse(api._device_in_scope({'type': 'groups', 'values': ['p']}, {'group': 'q'}))
+        self.assertTrue(api._device_in_scope({'type': 'tags', 'values': ['web']}, {'tags': ['web', 'db']}))
+        self.assertFalse(api._device_in_scope({'type': 'tags', 'values': ['web']}, {'tags': ['db']}))
+
+    def test_clean_role_body(self):
+        api, _ = self._fresh_api()
+        _, err = api._clean_role_body({'name': 'BAD NAME'})
+        self.assertIsNotNone(err)
+        _, err = api._clean_role_body({'name': 'admin'})
+        self.assertIn('built-in', err)
+        _, err = api._clean_role_body({'name': 'ops', 'scope': {'type': 'groups', 'values': []}})
+        self.assertIsNotNone(err)   # groups scope needs a value
+        clean, err = api._clean_role_body({'name': 'ops', 'permissions': ['exec', 'x'],
+                                           'scope': {'type': 'tags', 'values': ['web']}})
+        self.assertIsNone(err)
+        self.assertEqual(clean['permissions'], ['exec'])
+
+    def test_require_perm_scope(self):
+        import json
+        api, d = self._fresh_api()
+        (d / 'roles.json').write_text(json.dumps({'roles': [
+            {'name': 'ops', 'permissions': ['exec'], 'scope': {'type': 'groups', 'values': ['staging']}}]}))
+        (d / 'devices.json').write_text(json.dumps({'d1': {'group': 'staging'}, 'd2': {'group': 'prod'}}))
+        api._LOAD_CACHE.clear()
+        api.get_token_from_request = lambda: 'tok'
+        api.verify_token = lambda t: ('bob', 'ops')
+        # in-scope exec passes
+        self.assertEqual(api.require_perm('exec', ['d1']), 'bob')
+        # out-of-scope exec → 403
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_perm('exec', ['d2'])
+        self.assertEqual(cm.exception.status, 403)
+        # missing permission → 403
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_perm('upgrade', ['d1'])
+        self.assertEqual(cm.exception.status, 403)
+        # admin passes anything
+        api.verify_token = lambda t: ('root', 'admin')
+        self.assertEqual(api.require_perm('upgrade', ['d2']), 'root')
+
+    def test_assignable_role(self):
+        import json
+        api, d = self._fresh_api()
+        (d / 'roles.json').write_text(json.dumps({'roles': [{'name': 'ops', 'permissions': [], 'scope': {'type': 'all'}}]}))
+        api._LOAD_CACHE.clear()
+        self.assertTrue(api._assignable_role('admin'))
+        self.assertTrue(api._assignable_role('viewer'))
+        self.assertTrue(api._assignable_role('ops'))
+        self.assertFalse(api._assignable_role('mcp'))   # reserved for API keys
+        self.assertFalse(api._assignable_role('ghost'))
+
+    # ── frontend ─────────────────────────────────────────────────────────────
+    def test_frontend(self):
+        self.assertIn('id="role-add-modal"', self.HTML)
+        self.assertIn('id="roles-list"', self.HTML)
+        self.assertIn('function loadRoles(', self.APP)
+        self.assertIn('function saveRole(', self.APP)
+        self.assertIn('function openRoleAdd(', self.APP)
+        self.assertIn('function deleteRole(', self.APP)
+        self.assertIn('function onRoleScopeChange(', self.APP)
+        # user-add dropdown is populated with custom roles
+        self.assertIn("filter(x => !x.builtin)", self.APP)
+
+
 class TestV342ReviewFixes(unittest.TestCase):
     """Review round: disable-signing password gate, SNMP live-threshold fix,
     cron-builder → Planning, anomaly-scan → Security."""

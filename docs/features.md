@@ -79,6 +79,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **CIS-style compliance baseline** | Compliance page: pass/fail checks (patches/reboot/units/disk/CVE/integrity), severity-weighted score + daily trend. `GET /api/compliance/baseline` (v3.4.2) |
 | **Metering normalization + reclamation** | Meter aliases map name variants onto one entry; flags installs not seen running as reclaimable (v3.4.2) |
 | **Print / Save as PDF** | Reports page: clean self-contained posture report for the browser's native print/PDF, zero dependency (v3.4.2) |
+| **Granular RBAC** | Users & Roles: custom roles granting exec/reboot/upgrade scoped to device groups/tags; roster filtered to scope. `GET/POST /api/roles` (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

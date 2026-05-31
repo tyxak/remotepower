@@ -4279,3 +4279,6 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   #print-report th, #print-report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }
   #print-report th { color: #444; font-size: 11px; text-transform: uppercase; }
 }
+
+/* v3.4.2 */
+.mt-24 { margin-top: 24px; }

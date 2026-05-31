@@ -27,6 +27,7 @@ SERVER_VERSION = '3.4.2'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
+ROLES_FILE       = DATA_DIR / 'roles.json'        # v3.4.2: custom RBAC roles
 DEVICES_FILE     = DATA_DIR / 'devices.json'
 PINS_FILE        = DATA_DIR / 'pins.json'
 # v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
@@ -1954,6 +1955,80 @@ def require_mcp_action(action_name):
             'allowed_actions': sorted(MCP_ACTION_ALLOWLIST),
         })
     return username
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.2: granular RBAC — custom roles with per-action permissions + device scope
+# ─────────────────────────────────────────────────────────────────────────────
+# The built-in roles (admin = everything, viewer = read-only) are unchanged. On
+# top of them, an admin can define CUSTOM roles that grant a subset of action
+# permissions (exec / reboot / upgrade) limited to a SCOPE — all devices, or
+# only those in named groups / tags. A user assigned a custom role can act on
+# its scope and nothing else; server config, user/role/key management and saved
+# scripts stay admin-only. This is action-scoping (an "operator" role), and the
+# device roster view is filtered to scope; it is not full per-endpoint data
+# isolation (read endpoints addressed by id are not yet scoped — documented).
+_RBAC_PERMS = ('exec', 'reboot', 'upgrade')
+
+
+def _resolve_role(role_name):
+    """Resolve a role name to {permissions:set, scope:dict, admin:bool}.
+    Built-ins: 'admin' (all perms, all scope), 'viewer'/'mcp' (no action perms).
+    Unknown / custom names fall through to roles.json; an unrecognised name
+    fails closed (no action permissions)."""
+    if role_name == 'admin':
+        return {'permissions': set(_RBAC_PERMS), 'scope': {'type': 'all'}, 'admin': True}
+    if role_name in ('viewer', 'mcp'):
+        return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
+    for r in (load(ROLES_FILE) or {}).get('roles', []):
+        if r.get('name') == role_name:
+            return {'permissions': {p for p in (r.get('permissions') or []) if p in _RBAC_PERMS},
+                    'scope': r.get('scope') or {'type': 'all'}, 'admin': False}
+    return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
+
+
+def _device_in_scope(scope, dev):
+    """True if device `dev` falls within a role scope dict."""
+    t = (scope or {}).get('type', 'all')
+    if t == 'all':
+        return True
+    vals = (scope or {}).get('values') or []
+    if t == 'groups':
+        return (dev.get('group') or '') in vals
+    if t == 'tags':
+        return bool(set(dev.get('tags') or []) & set(vals))
+    return False
+
+
+def require_perm(perm, device_ids=None):
+    """RBAC gate for a fleet ACTION. Admin passes everything. Otherwise the
+    caller's role must hold `perm`, and — if device_ids are given — every target
+    must be inside the role's scope. Returns the username (like require_auth)."""
+    token = get_token_from_request()
+    username, role = verify_token(token)
+    if not username:
+        respond(401, {'error': 'Unauthorized'})
+    rd = _resolve_role(role)
+    if rd['admin']:
+        return username
+    if perm not in rd['permissions']:
+        respond(403, {'error': f"Your role lacks the '{perm}' permission"})
+    if device_ids and rd['scope'].get('type') != 'all':
+        devices = load(DEVICES_FILE)
+        for did in device_ids:
+            if not _device_in_scope(rd['scope'], devices.get(did) or {}):
+                respond(403, {'error': 'One or more targets are outside your role scope'})
+    return username
+
+
+def _caller_scope():
+    """The current caller's device scope if it restricts visibility, else None
+    (admin and any all-scope role — including viewer — see the whole fleet)."""
+    token = get_token_from_request()
+    _, role = verify_token(token)
+    rd = _resolve_role(role)
+    sc = rd.get('scope') or {'type': 'all'}
+    return None if (rd['admin'] or sc.get('type') == 'all') else sc
 
 
 def get_mcp_attribution():
@@ -4568,6 +4643,7 @@ def _bf_active(dev_bf, cutoff, threshold):
 
 def handle_devices_list():
     require_auth()
+    _scope   = _caller_scope()   # v3.4.2 RBAC: filter roster to role scope
     devices  = load(DEVICES_FILE)
     now      = int(time.time())
     # v3.3.0: ?slim=1 omits the heavy fields (sysinfo, listening_ports,
@@ -4608,6 +4684,8 @@ def handle_devices_list():
     bf_cutoff = now - _bf_window
     result = []
     for dev_id, dev in devices.items():
+        if _scope is not None and not _device_in_scope(_scope, dev):
+            continue   # v3.4.2 RBAC: outside this role's device scope
         last_ping = dev.get('last_seen', 0)
         # v1.11.0: agentless devices don't have a heartbeat. They're "online"
         # if the user marked them so manually; offline_reason is None either way.
@@ -6682,28 +6760,28 @@ def _check_exec_allowlist(dev_id, cmd_str, devices):
 
 
 def handle_shutdown():
-    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('reboot', ids)   # v3.4.2 RBAC: power action
     if len(ids) == 1: _queue_command(ids[0], 'shutdown', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'shutdown', actor)})
 
 
 def handle_reboot():
-    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('reboot', ids)
     if len(ids) == 1: _queue_command(ids[0], 'reboot', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'reboot', actor)})
 
 
 def handle_update_device():
-    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('upgrade', ids)
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
 
@@ -6827,10 +6905,10 @@ def handle_upgrade_device():
     so it works even before the agent has sent its first sysinfo poll.
     Output arrives on the next heartbeat via the existing exec: channel.
     """
-    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('upgrade', ids)   # v3.4.2 RBAC
 
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
     queued_str = f'exec:{_UPGRADE_CMD}'
@@ -7999,8 +8077,8 @@ def handle_user_create():
     # v3.1.0: USER_ROLES = {'admin', 'viewer'}. The 'mcp' role is for API
     # keys consumed by AI hosts — humans never log in as MCP. Rejecting
     # it here keeps the human-vs-machine separation crisp.
-    if role not in USER_ROLES:
-        respond(400, {'error': "role must be 'admin' or 'viewer' "
+    if not _assignable_role(role):
+        respond(400, {'error': "role must be 'admin', 'viewer', or a defined custom role "
                                "(the 'mcp' role is reserved for API keys)"})
     if not username or not re.match(r'^[a-zA-Z0-9_\-]{2,32}$', username):
         respond(400, {'error': 'Invalid username (2-32 chars, alphanumeric/_/-)'})
@@ -8041,8 +8119,8 @@ def handle_user_update(username):
         respond(404, {'error': 'User not found'})
     body = get_json_body() or {}
     new_role = (body.get('role') or '').strip().lower()
-    if new_role not in ('admin', 'viewer'):
-        respond(400, {'error': 'role must be admin or viewer'})
+    if not _assignable_role(new_role):
+        respond(400, {'error': 'role must be admin, viewer, or a defined custom role'})
     with _LockedUpdate(USERS_FILE) as users:
         if username not in users:
             respond(404, {'error': 'User not found'})
@@ -8057,6 +8135,99 @@ def handle_user_update(username):
     audit_log(requester, 'user_role_update',
               detail=f'username={username} {cur_role}→{new_role}')
     respond(200, {'ok': True, 'username': username, 'role': new_role})
+
+
+# ── v3.4.2: custom RBAC role management (admin-only) ─────────────────────────
+def _custom_role_names():
+    return {r.get('name') for r in (load(ROLES_FILE) or {}).get('roles', [])}
+
+
+def _assignable_role(role):
+    """A role a user account may hold: built-in admin/viewer or a custom role."""
+    return role in USER_ROLES or role in _custom_role_names()
+
+
+def _clean_role_body(body):
+    """Validate a custom-role payload → clean dict, or (None, error)."""
+    name = _sanitize_str((body.get('name') or '').strip(), 32)
+    if not name or not re.match(r'^[a-z0-9_\-]{2,32}$', name):
+        return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
+    if name in ('admin', 'viewer', 'mcp'):
+        return None, "name collides with a built-in role"
+    perms = [p for p in (body.get('permissions') or []) if p in _RBAC_PERMS]
+    sc = body.get('scope') or {'type': 'all'}
+    stype = sc.get('type', 'all')
+    if stype not in ('all', 'groups', 'tags'):
+        return None, "scope.type must be all, groups, or tags"
+    vals = []
+    if stype != 'all':
+        vals = [_sanitize_str(v, 64) for v in (sc.get('values') or []) if _sanitize_str(v, 64)][:100]
+        if not vals:
+            return None, f"scope.type '{stype}' requires at least one value"
+    return {'name': name, 'permissions': perms,
+            'scope': {'type': stype, 'values': vals}}, None
+
+
+def handle_roles_list():
+    """GET /api/roles — built-in + custom roles (admin-only)."""
+    require_admin_auth()
+    builtin = [
+        {'name': 'admin', 'builtin': True, 'permissions': list(_RBAC_PERMS), 'scope': {'type': 'all'}},
+        {'name': 'viewer', 'builtin': True, 'permissions': [], 'scope': {'type': 'all'}},
+    ]
+    custom = (load(ROLES_FILE) or {}).get('roles', [])
+    respond(200, {'roles': builtin + custom, 'permissions': list(_RBAC_PERMS)})
+
+
+def handle_role_create():
+    """POST /api/roles — create a custom role."""
+    actor = require_admin_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    clean, err = _clean_role_body(get_json_body() or {})
+    if err: respond(400, {'error': err})
+    with _LockedUpdate(ROLES_FILE) as store:
+        roles = store.setdefault('roles', [])
+        if any(r.get('name') == clean['name'] for r in roles):
+            respond(400, {'error': 'role already exists'})
+        if len(roles) >= 50:
+            respond(400, {'error': 'too many roles (max 50)'})
+        roles.append(clean)
+    audit_log(actor, 'role_create', f"name={clean['name']} perms={','.join(clean['permissions'])}")
+    respond(200, {'ok': True, 'role': clean})
+
+
+def handle_role_update(name):
+    """PUT /api/roles/<name> — replace a custom role's permissions/scope."""
+    actor = require_admin_auth()
+    if method() != 'PUT': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    body['name'] = name   # name comes from the path; not renamable
+    clean, err = _clean_role_body(body)
+    if err: respond(400, {'error': err})
+    with _LockedUpdate(ROLES_FILE) as store:
+        roles = store.get('roles', [])
+        if not any(r.get('name') == name for r in roles):
+            respond(404, {'error': 'role not found'})
+        store['roles'] = [clean if r.get('name') == name else r for r in roles]
+    audit_log(actor, 'role_update', f"name={name}")
+    respond(200, {'ok': True, 'role': clean})
+
+
+def handle_role_delete(name):
+    """DELETE /api/roles/<name> — remove a custom role (refused if assigned)."""
+    actor = require_admin_auth()
+    users = load(USERS_FILE)
+    assigned = [u for u, d in users.items() if d.get('role') == name]
+    if assigned:
+        respond(400, {'error': f'role is assigned to {len(assigned)} user(s); reassign them first'})
+    with _LockedUpdate(ROLES_FILE) as store:
+        roles = store.get('roles', [])
+        remaining = [r for r in roles if r.get('name') != name]
+        if len(remaining) == len(roles):
+            respond(404, {'error': 'role not found'})
+        store['roles'] = remaining
+    audit_log(actor, 'role_delete', f"name={name}")
+    respond(200, {'ok': True})
 
 
 def handle_user_passwd():
@@ -9585,7 +9756,6 @@ def process_schedule():
 
 
 def handle_custom_cmd():
-    actor = require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body    = get_json_body()
     cmd_str = str(body.get('cmd', '')).strip()
@@ -9595,6 +9765,7 @@ def handle_custom_cmd():
     # Support batch targets (device_ids, tag, group) just like shutdown/reboot
     ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('exec', ids)   # v3.4.2 RBAC: arbitrary exec
 
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
@@ -11618,7 +11789,7 @@ def _purge_expired_batch_jobs(data):
 
 
 def handle_exec_batch():
-    actor = require_admin_auth()
+    require_auth()   # must be logged in; per-target exec perm checked below
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
@@ -11664,6 +11835,7 @@ def handle_exec_batch():
         respond(400, {'error': 'no valid targets'})
     if len(targets) > MAX_BATCH_TARGETS:
         respond(400, {'error': f'too many targets (max {MAX_BATCH_TARGETS})'})
+    actor = require_perm('exec', targets)   # v3.4.2 RBAC: scoped batch exec
 
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
@@ -25116,6 +25288,8 @@ def _build_exact_routes():
         (None, '/api/upgrade-device'): handle_upgrade_device,
         ('GET', '/api/users'): handle_users_list,
         ('POST', '/api/users'): handle_user_create,
+        ('GET', '/api/roles'): handle_roles_list,
+        ('POST', '/api/roles'): handle_role_create,
         ('GET', '/api/version'): handle_version_check,
         ('GET', '/api/webhook/log'): handle_webhook_log,
         ('POST', '/api/webhook/test'): handle_webhook_test,
@@ -25286,6 +25460,11 @@ def _dispatch(pi, m):
     elif pi.startswith('/api/users/') and not pi.endswith('/passwd') and m == 'PATCH':
         handle_user_update(pi[len('/api/users/'):])
     elif pi == '/api/users/passwd' and m == 'POST': handle_user_passwd()
+    # v3.4.2: custom RBAC role management
+    elif pi.startswith('/api/roles/') and m == 'PUT':
+        handle_role_update(pi[len('/api/roles/'):])
+    elif pi.startswith('/api/roles/') and m == 'DELETE':
+        handle_role_delete(pi[len('/api/roles/'):])
     # v1.11.5: per-user UI preferences (density / filter / sort persistence)
     elif pi.startswith('/api/devices/') and pi.endswith('/agent/force-upgrade') and m == 'POST':
         handle_force_agent_upgrade(pi[len('/api/devices/'):-len('/agent/force-upgrade')])

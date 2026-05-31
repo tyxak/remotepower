@@ -1454,8 +1454,100 @@ async function loadUsers() {
   const data = await api('GET', '/users');
   if (!data) return;
   tableCtl.render('users', data);
+  loadRoles();
 }
-function openUserAdd() { document.getElementById('new-username').value = ''; document.getElementById('new-password').value = ''; openModal('user-add-modal'); }
+
+// v3.4.2: custom RBAC roles
+let _rolesCache = [];
+
+async function loadRoles() {
+  const out = document.getElementById('roles-list');
+  if (!out) return;
+  const r = await api('GET', '/roles').catch(() => null);
+  if (!r || !Array.isArray(r.roles)) { out.innerHTML = '<div class="c-red">Failed to load roles.</div>'; return; }
+  _rolesCache = r.roles;
+  const custom = r.roles.filter(x => !x.builtin);
+  if (!custom.length) { out.innerHTML = '<div class="empty-state">No custom roles. Built-in admin / viewer always exist. Click <strong>Add role</strong> to define a scoped operator role.</div>'; return; }
+  const scopeLabel = s => (s && s.type && s.type !== 'all') ? `${s.type}: ${escHtml((s.values || []).join(', '))}` : 'all devices';
+  const rows = custom.map(role => `<tr>
+    <td><strong>${escHtml(role.name)}</strong></td>
+    <td class="fs-12">${escHtml((role.permissions || []).join(', ') || '—')}</td>
+    <td class="fs-12 c-muted">${scopeLabel(role.scope)}</td>
+    <td class="ta-right"><button class="btn-icon fs-12" data-action="editRole" data-arg="${escAttr(role.name)}">Edit</button><button class="btn-icon fs-12 c-red" data-action="deleteRole" data-arg="${escAttr(role.name)}">Delete</button></td>
+  </tr>`).join('');
+  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Role</th><th>Permissions</th><th>Scope</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+let _roleEditing = null;
+
+function openRoleAdd() {
+  _roleEditing = null;
+  document.getElementById('role-modal-title').textContent = 'Add custom role';
+  const nameEl = document.getElementById('role-name');
+  nameEl.value = ''; nameEl.disabled = false;
+  document.querySelectorAll('.role-perm').forEach(cb => cb.checked = false);
+  document.getElementById('role-scope-type').value = 'all';
+  const v = document.getElementById('role-scope-values'); v.value = ''; v.classList.add('d-none');
+  openModal('role-add-modal');
+}
+
+function editRole(name) {
+  const role = _rolesCache.find(r => r.name === name);
+  if (!role) return;
+  _roleEditing = name;
+  document.getElementById('role-modal-title').textContent = 'Edit role — ' + name;
+  const nameEl = document.getElementById('role-name');
+  nameEl.value = name; nameEl.disabled = true;
+  const perms = new Set(role.permissions || []);
+  document.querySelectorAll('.role-perm').forEach(cb => cb.checked = perms.has(cb.value));
+  const st = (role.scope && role.scope.type) || 'all';
+  document.getElementById('role-scope-type').value = st;
+  const v = document.getElementById('role-scope-values');
+  v.value = ((role.scope && role.scope.values) || []).join(', ');
+  v.classList.toggle('d-none', st === 'all');
+  openModal('role-add-modal');
+}
+
+function onRoleScopeChange() {
+  const st = document.getElementById('role-scope-type').value;
+  document.getElementById('role-scope-values').classList.toggle('d-none', st === 'all');
+}
+
+async function saveRole() {
+  const name = document.getElementById('role-name').value.trim();
+  const permissions = Array.from(document.querySelectorAll('.role-perm')).filter(c => c.checked).map(c => c.value);
+  const stype = document.getElementById('role-scope-type').value;
+  const values = stype === 'all' ? [] :
+    document.getElementById('role-scope-values').value.split(',').map(s => s.trim()).filter(Boolean);
+  if (stype !== 'all' && !values.length) { toast('Add at least one ' + stype.slice(0, -1) + ' value', 'error'); return; }
+  const body = { name, permissions, scope: { type: stype, values } };
+  const r = _roleEditing
+    ? await api('PUT', `/roles/${encodeURIComponent(_roleEditing)}`, body).catch(() => null)
+    : await api('POST', '/roles', body).catch(() => null);
+  if (r?.ok) { toast(_roleEditing ? 'Role updated' : 'Role created', 'success'); closeModal('role-add-modal'); loadRoles(); }
+  else toast(r?.error || 'Failed to save role', 'error');
+}
+
+async function deleteRole(name) {
+  if (!confirm(`Delete role "${name}"?`)) return;
+  const r = await api('DELETE', `/roles/${encodeURIComponent(name)}`).catch(() => null);
+  if (r?.ok) { toast('Role deleted', 'info'); loadRoles(); }
+  else toast(r?.error || 'Failed to delete role', 'error');
+}
+
+async function openUserAdd() {
+  document.getElementById('new-username').value = '';
+  document.getElementById('new-password').value = '';
+  // Populate the role dropdown with built-ins + any custom roles.
+  const sel = document.getElementById('new-role');
+  if (sel) {
+    if (!_rolesCache.length) { const r = await api('GET', '/roles').catch(() => null); _rolesCache = (r && r.roles) || []; }
+    const custom = _rolesCache.filter(x => !x.builtin);
+    sel.innerHTML = '<option value="admin">Admin (full access)</option><option value="viewer">Viewer (read-only dashboard)</option>'
+      + custom.map(r => `<option value="${escAttr(r.name)}">${escHtml(r.name)} (custom)</option>`).join('');
+  }
+  openModal('user-add-modal');
+}
 async function createUser() { const username = document.getElementById('new-username').value.trim(); const password = document.getElementById('new-password').value; const role = document.getElementById('new-role').value; if (!username || !password) { toast('Both fields required', 'error'); return; } const data = await api('POST', '/users', {username, password, role}); if (data?.ok) { toast(`User ${username} created (${data.role})`, 'success'); closeModal('user-add-modal'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteUser(username) { if (!confirm(`Delete user "${username}"?`)) return; const data = await api('DELETE', '/users/' + username); if (data?.ok) { toast(`${username} deleted`, 'info'); loadUsers(); } else toast(data?.error || 'Failed', 'error'); }
 
@@ -2427,6 +2519,7 @@ const _DYK_TIPS = [
   "A maintenance window can gate command/upgrade execution, not just suppress alerts: tick 'gate execution' so changes are held until the window opens.",
   "The Compliance page scores a CIS-style baseline (patches, reboot, failed units, disk, CVEs, agent integrity) and tracks the trend day over day.",
   "Software meters take aliases — 'openssl = 0 | libssl3, openssl-libs' — and flag installs not seen running as reclaimable licenses.",
+  "Under Users & Roles you can define custom roles — e.g. an operator who can reboot and upgrade only the 'staging' group, and sees only those devices.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",

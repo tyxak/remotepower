@@ -6,6 +6,18 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+### Access control
+- **Granular RBAC — custom roles with device scoping (Users & Roles).** On top
+  of the built-in `admin` (full) and `viewer` (read-only) roles, an admin can now
+  define **custom roles** that grant a subset of actions — `exec`, `reboot`,
+  `upgrade` — limited to a **scope**: all devices, or only those in named groups
+  or tags. A member can act on their scope and nothing else, and the Devices
+  roster is filtered to that scope. Server config, user/role/key management and
+  saved scripts stay admin-only. Enforced at the command/exec/reboot/upgrade
+  dispatch chokepoints via a central `require_perm`. `GET/POST /api/roles`,
+  `PUT/DELETE /api/roles/<name>`. (Action-scoping + roster visibility; read
+  endpoints addressed by id are not yet scoped — documented.)
+
 - **Bake & sign in the UI (Admin → Release Signing).** A one-click,
   server-side path to signed releases: generate a server-held signing key,
   **Sign current agent**, toggle enforcement, and copy the public key to pin on
