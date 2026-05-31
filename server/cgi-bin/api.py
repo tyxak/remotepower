@@ -7018,6 +7018,77 @@ def handle_upgrade_device():
     respond(200, {'ok': True, 'results': results})
 
 
+# v3.4.2: install software from the host's own repos, targeted at a single
+# device or a whole tag/group. Package names are the parameter — strictly
+# validated (no shell metacharacters) so they interpolate safely into the
+# package-manager-agnostic command below.
+_INSTALL_PKG_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._+:@/-]{0,127}$')
+
+
+def _build_install_cmd(packages):
+    """A self-detecting `install <packages>` command spanning the common Linux
+    package managers. `packages` must already be validated against
+    _INSTALL_PKG_RE so this string interpolation can't inject shell."""
+    pkgs = ' '.join(packages)
+    return (
+        'set -e; '
+        'if command -v apt-get >/dev/null 2>&1; then '
+        '  export DEBIAN_FRONTEND=noninteractive; '
+        '  apt-get update && apt-get install -y ' + pkgs + '; '
+        'elif command -v dnf >/dev/null 2>&1; then dnf install -y ' + pkgs + '; '
+        'elif command -v yum >/dev/null 2>&1; then yum install -y ' + pkgs + '; '
+        'elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install ' + pkgs + '; '
+        'elif command -v pacman >/dev/null 2>&1; then pacman -Sy --noconfirm ' + pkgs + '; '
+        'elif command -v apk >/dev/null 2>&1; then apk add ' + pkgs + '; '
+        'else echo "no supported package manager (apt/dnf/yum/zypper/pacman/apk)" >&2; exit 2; fi')
+
+
+def handle_install_packages():
+    """POST /api/install — install one or more repo packages on the target
+    device(s). Body: {device_id|device_ids|tag|group, packages:"nginx htop"}.
+    Auth: 'exec' permission (scoped); honours quarantine + change-windows like
+    any other queued command."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    raw = body.get('packages')
+    if isinstance(raw, list):
+        names = [str(x).strip() for x in raw]
+    else:
+        names = [n for n in re.split(r'[\s,]+', str(raw or '').strip()) if n]
+    names = [n for n in names if n][:30]
+    if not names:
+        respond(400, {'error': 'no package names given'})
+    bad = [n for n in names if not _INSTALL_PKG_RE.match(n)]
+    if bad:
+        respond(400, {'error': 'invalid package name(s): ' + ', '.join(bad[:5])
+                               + ' — allowed: letters, digits, . _ + : @ / -'})
+    ids = _resolve_targets(body)
+    if not ids:
+        respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('exec', ids)   # installing software is an exec action
+    queued = f'exec:{_build_install_cmd(names)}'
+    devices = load(DEVICES_FILE)
+    cmds = load(CMDS_FILE)
+    results = {}
+    for dev_id in ids:
+        dev = devices.get(dev_id)
+        if not dev:
+            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+        if _device_quarantined(dev):
+            results[dev_id] = {'ok': False, 'error': 'quarantined'}; continue
+        cmds.setdefault(dev_id, [])
+        if queued not in cmds[dev_id]:
+            cmds[dev_id].append(queued)
+        log_command(actor, dev_id, dev.get('name', dev_id), f'install {" ".join(names)[:60]}')
+        results[dev_id] = {'ok': True}
+    save(CMDS_FILE, cmds)
+    audit_log(actor, 'install_packages', f'pkgs={",".join(names)} targets={len(ids)}')
+    respond(200, {'ok': True, 'packages': names,
+                  'queued': sum(1 for r in results.values() if r.get('ok')),
+                  'results': results})
+
+
 def handle_wol():
     require_admin_auth()
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
@@ -8819,6 +8890,13 @@ def handle_signing_sign():
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
+    # v3.4.2: signing the release is security-sensitive (it's what agents trust)
+    # — re-verify the admin password, mirroring handle_signing_toggle. Externally
+    # authenticated admins (OIDC/LDAP, no local hash) are exempt but audited.
+    _body = get_json_body() or {}
+    _stored = ((load(USERS_FILE) or {}).get(actor) or {}).get('password_hash') or ''
+    if _stored and not verify_password(str(_body.get('password') or ''), _stored):
+        respond(403, {'error': 'password required to sign the agent release'})
     gpg = shutil.which('gpg')
     fpr, _ = _signing_key_info()
     if not gpg or not fpr:
@@ -16744,28 +16822,44 @@ def handle_inventory_metering():
 
 def handle_fleet_query():
     """GET /api/fleet/query — filter devices by ad-hoc criteria over the JSON
-    stores (params ANDed): group, tag, os (substring), online=1|0,
-    pending_gt=<n>, integrity=verified|mismatch|unknown, cve_min=<n>
-    (critical+high). Auth: require_auth."""
+    stores. All params are ANDed:
+      group, tag, os (substr), version (agent, substr), pkg_manager (substr),
+      has_package (substr of an installed package name),
+      online=1|0, monitored=1|0, agentless=1|0, quarantined=1|0,
+      reboot=1 (reboot-required), failed=1 (failed systemd units),
+      tp_pending=1 (flatpak/snap/pip/npm updates), kernel_outdated=1,
+      pending_gt=<n>, cve_min=<n> (critical+high),
+      disk_gt=<pct> (busiest mount), mem_gt=<pct>, offline_days=<n>,
+      integrity=verified|mismatch|unknown.
+    Auth: require_auth (scoped to the caller's devices)."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     def q(k):
         return (qs.get(k) or [''])[0].strip()
+    def qi(k):
+        try:
+            return int(q(k)) if q(k) else None
+        except ValueError:
+            return None
+    def qbool(k):
+        v = q(k).lower()
+        return True if v in ('1', 'true') else False if v in ('0', 'false') else None
     group, tag, os_q = q('group'), q('tag').lower(), q('os').lower()
+    version_q, pkgmgr_q, has_pkg = q('version').lower(), q('pkg_manager').lower(), q('has_package').lower()
     online_q, integ = q('online'), q('integrity')
-    try:
-        pending_gt = int(q('pending_gt')) if q('pending_gt') else None
-    except ValueError:
-        pending_gt = None
-    try:
-        cve_min = int(q('cve_min')) if q('cve_min') else None
-    except ValueError:
-        cve_min = None
+    monitored_q, agentless_q, quar_q = qbool('monitored'), qbool('agentless'), qbool('quarantined')
+    reboot_q = q('reboot') in ('1', 'true')
+    failed_q = q('failed') in ('1', 'true')
+    tp_q = q('tp_pending') in ('1', 'true')
+    kernel_q = q('kernel_outdated') in ('1', 'true')
+    pending_gt, cve_min = qi('pending_gt'), qi('cve_min')
+    disk_gt, mem_gt, offline_days = qi('disk_gt'), qi('mem_gt'), qi('offline_days')
     now = int(time.time())
     ttl = get_online_ttl()
     devices = load(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
     canonical = _get_agent_sha256() if integ else None
+    pkg_store = (load(PACKAGES_FILE) or {}) if has_pkg else {}
     cve = None
     if cve_min is not None:
         cve = {}
@@ -16776,26 +16870,71 @@ def handle_fleet_query():
     for did, d in devices.items():
         if not isinstance(d, dict):
             continue
+        si = d.get('sysinfo') or {}
+        pkg = si.get('packages') or {}
         if group and d.get('group') != group:
             continue
         if tag and tag not in [t.lower() for t in (d.get('tags') or [])]:
             continue
         if os_q and os_q not in (d.get('os') or '').lower():
             continue
+        if version_q and version_q not in (d.get('version') or '').lower():
+            continue
+        if pkgmgr_q and pkgmgr_q not in (pkg.get('manager') or '').lower():
+            continue
         online = (now - d.get('last_seen', 0)) < ttl
         if online_q in ('1', 'true') and not online:
             continue
         if online_q in ('0', 'false') and online:
             continue
-        pend = ((d.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+        if monitored_q is True and d.get('monitored') is False:
+            continue
+        if monitored_q is False and d.get('monitored') is not False:
+            continue
+        if agentless_q is True and not d.get('agentless'):
+            continue
+        if agentless_q is False and d.get('agentless'):
+            continue
+        if quar_q is True and not d.get('quarantined'):
+            continue
+        if quar_q is False and d.get('quarantined'):
+            continue
+        if reboot_q and not si.get('reboot_required'):
+            continue
+        if failed_q and not (si.get('failed_units') or []):
+            continue
+        if kernel_q and not si.get('kernel_outdated'):
+            continue
+        pend = pkg.get('upgradable')
         if pending_gt is not None and not (isinstance(pend, int) and pend > pending_gt):
             continue
+        if tp_q:
+            tp = pkg.get('third_party') or {}
+            if not any((v or {}).get('count') for v in tp.values()):
+                continue
+        if disk_gt is not None:
+            busiest = max((m.get('percent', 0) for m in (si.get('mounts') or [])), default=None)
+            if not (isinstance(busiest, (int, float)) and busiest > disk_gt):
+                continue
+        if mem_gt is not None:
+            mp = si.get('mem_percent')
+            if not (isinstance(mp, (int, float)) and mp > mem_gt):
+                continue
+        if offline_days is not None:
+            ls = d.get('last_seen', 0)
+            if not (ls and (now - ls) / 86400 > offline_days):
+                continue
+        if has_pkg:
+            names = [(p.get('name') or '').lower() for p in (pkg_store.get(did) or {}).get('packages') or []]
+            if not any(has_pkg in n for n in names):
+                continue
         if integ and _agent_integrity_status(d, canonical, SERVER_VERSION) != integ:
             continue
         if cve_min is not None and (cve.get(did, 0) < cve_min):
             continue
         rows.append({'device_id': did, 'name': d.get('name', did),
                      'group': d.get('group', ''), 'os': d.get('os', ''),
+                     'version': d.get('version', ''),
                      'online': online,
                      'pending': pend if isinstance(pend, int) else None,
                      'cve_high': cve.get(did, 0) if cve is not None else None})
@@ -18407,6 +18546,47 @@ def handle_oncall():
         'oncall': cfg.get('oncall') or {'enabled': False, 'contacts': [], 'rotation_days': 7},
         'escalation': cfg.get('escalation') or {'enabled': False, 'tiers': [], 'severities': ['critical', 'high']},
     })
+
+
+def handle_setup_status():
+    """GET /api/setup-status — onboarding checklist for Settings → Install. Each
+    step reflects the live state (done / todo) so a fresh operator can see what's
+    left to configure. Read-only; auth: require_auth."""
+    user = require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    users = load(USERS_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+
+    pw_done = bool(users) and not any(u.get('must_change_password') for u in users.values())
+    notif_done = bool((cfg.get('webhook_url') or '').strip()
+                      or (cfg.get('webhook_urls') or [])
+                      or (cfg.get('smtp_enabled') and cfg.get('smtp_host')))
+    backup_done = bool(cfg.get('backup'))
+    twofa_done = bool((users.get(user) or {}).get('totp_secret'))
+    n_dev = sum(1 for d in devices.values() if isinstance(d, dict))
+
+    steps = [
+        {'id': 'admin-password', 'title': 'Set a strong admin password',
+         'detail': 'Change the seeded/default admin credentials before going further.',
+         'page': 'users', 'required': True, 'done': pw_done},
+        {'id': 'first-device', 'title': 'Enroll your first device',
+         'detail': 'Install the agent on a host and enroll it with a PIN, or add an agentless device.',
+         'page': 'devices', 'required': True, 'done': n_dev > 0,
+         'count': n_dev},
+        {'id': 'notifications', 'title': 'Configure a notification channel',
+         'detail': 'Add a webhook (Slack/Discord/ntfy/PagerDuty) or SMTP email so alerts reach you.',
+         'page': 'settings', 'tab': 'notifs', 'required': False, 'done': notif_done},
+        {'id': 'backups', 'title': 'Enable scheduled backups',
+         'detail': 'Turn on automatic config/state backups so you can recover the server.',
+         'page': 'settings', 'tab': 'advanced', 'required': False, 'done': backup_done},
+        {'id': 'two-factor', 'title': 'Turn on two-factor auth for your account',
+         'detail': 'Add TOTP 2FA to your own login for defence in depth.',
+         'page': 'settings', 'tab': 'security', 'required': False, 'done': twofa_done},
+    ]
+    done = sum(1 for s in steps if s['done'])
+    req_left = [s['title'] for s in steps if s['required'] and not s['done']]
+    respond(200, {'steps': steps, 'done': done, 'total': len(steps),
+                  'complete': done == len(steps), 'required_remaining': req_left})
 
 
 def handle_alerts_clear():
@@ -25582,6 +25762,7 @@ def _build_exact_routes():
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
         ('GET', '/api/oncall'): handle_oncall,
+        ('GET', '/api/setup-status'): handle_setup_status,
         ('GET', '/api/apikeys'): handle_apikeys_list,
         ('POST', '/api/apikeys'): handle_apikeys_create,
         ('GET', '/api/attention'): handle_attention,
@@ -25707,6 +25888,7 @@ def _build_exact_routes():
         ('POST', '/api/ui-prefs'): handle_ui_prefs_set,
         (None, '/api/update-device'): handle_update_device,
         (None, '/api/upgrade-device'): handle_upgrade_device,
+        ('POST', '/api/install'): handle_install_packages,
         ('GET', '/api/users'): handle_users_list,
         ('POST', '/api/users'): handle_user_create,
         ('GET', '/api/roles'): handle_roles_list,

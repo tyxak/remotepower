@@ -84,6 +84,10 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Third-party patching** | Agent reports flatpak/snap/pip/npm updates; patch catalog aggregates them by manager (v3.4.2) |
 | **On-call & escalation** | Settings → Notifications: escalation tiers re-notify unacked alerts; on-call rotation names the contact. `GET /api/oncall` (v3.4.2) |
 | **Trends charts** | Planning → Trends: zero-dep multi-series SVG — fleet health, compliance %, per-device resources. `GET /api/devices/<id>/metrics-history` (v3.4.2) |
+| **Install software** | Patches page: install repo packages on a host or whole tag/group (apt/dnf/yum/zypper/pacman/apk). `POST /api/install` (v3.4.2) |
+| **OpenSCAP by tag/group** | Scan form targets all / group / tag / device; profile is the parameter (v3.4.2) |
+| **Setup checklist** | Settings → Install: live getting-started checklist. `GET /api/setup-status` (v3.4.2) |
+| **Expanded Fleet Query** | + version, pkg-manager, has-package, monitored/agentless/quarantined, reboot, failed units, disk/mem %, offline-days (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

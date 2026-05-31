@@ -4289,3 +4289,11 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .ts-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .ts-leg { display: inline-flex; align-items: center; gap: 6px; }
 .ts-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* v3.4.2: Settings → Install checklist */
+.setup-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+.setup-step.done { opacity: 0.75; }
+.setup-step-ico { flex: 0 0 auto; margin-top: 1px; }
+.setup-step-body { flex: 1 1 auto; min-width: 0; }
+.setup-step .btn-secondary { flex: 0 0 auto; align-self: center; }

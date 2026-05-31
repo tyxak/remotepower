@@ -612,6 +612,112 @@ class TestV342RBACv2(unittest.TestCase):
             self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body, fn)
 
 
+class TestV342SettingsActions(unittest.TestCase):
+    """Sign-password gate, install wizard, expanded fleet query, settings
+    re-categorization, and tag/group-targeted software install + SCAP."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    # ── sign requires admin password ─────────────────────────────────────────
+    def test_sign_requires_password(self):
+        i = self.API.find('def handle_signing_sign(')
+        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        self.assertIn('verify_password(', body)
+        self.assertIn('password required to sign', body)
+        self.assertIn("api('POST', '/signing/sign', { password: pw })", self.APP)
+
+    # ── install wizard ───────────────────────────────────────────────────────
+    def test_setup_status_route_and_ui(self):
+        self.assertEqual(routes_to('GET', '/api/setup-status'), 'handle_setup_status')
+        self.assertIn('id="settings-pane-install"', self.HTML)
+        self.assertIn('data-tab="install"', self.HTML)
+        self.assertIn('function loadSetup(', self.APP)
+        self.assertIn('function gotoSetupStep(', self.APP)
+
+    def test_setup_status_behaviour(self):
+        import importlib, tempfile, json
+        from pathlib import Path as _P
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp(); api.DATA_DIR = _P(d)
+        for a, fn in (('CONFIG_FILE', 'config.json'), ('USERS_FILE', 'users.json'),
+                      ('DEVICES_FILE', 'devices.json')):
+            setattr(api, a, _P(d) / fn)
+        api.require_auth = lambda **k: 'admin'
+        captured = {}
+        api.respond = lambda code, body=None: (_ for _ in ()).throw(_StopResp(code, body))
+        (_P(d) / 'users.json').write_text(json.dumps({'admin': {'must_change_password': True}}))
+        (_P(d) / 'config.json').write_text('{}')
+        (_P(d) / 'devices.json').write_text('{}')
+        api._LOAD_CACHE.clear()
+        try:
+            api.handle_setup_status()
+        except _StopResp as e:
+            rep = e.body
+        self.assertIn('steps', rep)
+        self.assertEqual(rep['total'], 5)
+        pw = [s for s in rep['steps'] if s['id'] == 'admin-password'][0]
+        self.assertFalse(pw['done'])           # must_change_password → not done
+        self.assertIn('admin-password', rep.get('required_remaining_ids', []) or
+                      [s['id'] for s in rep['steps'] if s['required'] and not s['done']])
+
+    # ── expanded fleet query ─────────────────────────────────────────────────
+    def test_fleet_query_new_filters(self):
+        i = self.API.find('def handle_fleet_query(')
+        body = self.API[i:self.API.find('\ndef ', i + 1)]
+        for p in ('version', 'pkg_manager', 'has_package', 'reboot', 'failed',
+                  'quarantined', 'monitored', 'agentless', 'disk_gt', 'mem_gt', 'offline_days'):
+            self.assertIn(f"'{p}'", body, f'fleet query missing {p}')
+        for fid in ('fq-version', 'fq-pkgmgr', 'fq-haspkg', 'fq-disk', 'fq-offline-days'):
+            self.assertIn(f'id="{fid}"', self.HTML, fid)
+        self.assertIn('_FQ_FIELDS', self.APP)
+
+    # ── settings re-categorization ───────────────────────────────────────────
+    def test_settings_recategorized(self):
+        sec = self.HTML.find('id="settings-pane-security"')
+        ai = self.HTML.find('id="settings-pane-ai"')
+        cve = self.HTML.find('cfg-cve-cache-days')
+        self.assertTrue(sec < cve < ai, 'CVE cache should now sit inside the Security pane')
+        # the duplicate raw-seconds session card is gone
+        self.assertNotIn('id="session-ttl-short"', self.HTML)
+        # status endpoint moved into Integrations
+        intg = self.HTML.find('id="settings-pane-integrations"')
+        adv = self.HTML.find('id="settings-pane-security"')
+        stat = self.HTML.find('id="status-token-box"')
+        self.assertTrue(intg < stat < adv, 'Status endpoint should be in Integrations')
+
+    # ── install software (tag/group/host) ────────────────────────────────────
+    def test_install_route_and_safety(self):
+        self.assertEqual(routes_to('POST', '/api/install'), 'handle_install_packages')
+        import importlib
+        api = importlib.import_module('api')
+        self.assertTrue(api._INSTALL_PKG_RE.match('nginx'))
+        self.assertTrue(api._INSTALL_PKG_RE.match('lib32-foo+'))
+        self.assertFalse(api._INSTALL_PKG_RE.match('a; rm -rf /'))
+        self.assertFalse(api._INSTALL_PKG_RE.match('$(reboot)'))
+        cmd = api._build_install_cmd(['nginx', 'htop'])
+        self.assertIn('apt-get install -y nginx htop', cmd)
+        self.assertIn('pacman -Sy --noconfirm nginx htop', cmd)
+        # gated on the exec permission
+        i = self.API.find('def handle_install_packages(')
+        self.assertIn("require_perm('exec'", self.API[i:i + 1600])
+
+    def test_install_and_scap_targeting_ui(self):
+        self.assertIn('id="install-card"', self.HTML)
+        self.assertIn('id="install-target-type"', self.HTML)
+        self.assertIn('function runInstall(', self.APP)
+        self.assertIn('function _fleetTargetBody(', self.APP)
+        # SCAP scan can now target a tag/group/host explicitly
+        self.assertIn('id="scap-target-type"', self.HTML)
+        self.assertIn('<option value="tag">Tag</option>', self.HTML)
+        self.assertIn('function onScapTargetChange(', self.APP)
+
+
+class _StopResp(Exception):
+    def __init__(self, code, body):
+        self.code, self.body = code, body
+
+
 class TestV342SortableTables(unittest.TestCase):
     """CLAUDE.md rule: every new table wires tableCtl sort. Guards against the
     sort-regression class that has shipped before."""

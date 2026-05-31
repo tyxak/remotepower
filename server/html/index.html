@@ -764,6 +764,7 @@
 
         <!-- v1.8.4: tab switcher -->
         <div class="settings-tabs">
+          <button class="settings-tab"        data-tab="install"  data-action="switchSettingsTab" data-arg="install" data-action2="loadSetup" >Install</button>
           <button class="settings-tab active" data-tab="general"  data-action="switchSettingsTab" data-arg="general" >General</button>
           <button class="settings-tab"        data-tab="notifs"   data-action="switchSettingsTab" data-arg="notifs" >Notifications</button>
           <button class="settings-tab"        data-tab="integrations" data-action="switchSettingsTab" data-arg="integrations" data-action2="loadIntegrationsTab" >Integrations</button>
@@ -777,6 +778,15 @@
         </div>
 
         <!-- ── General ──────────────────────────────────────────────────── -->
+        <div class="settings-pane" id="settings-pane-install">
+          <div class="settings-section">
+            <h3>Getting started</h3>
+            <p class="hint">A quick checklist of the essentials for a new RemotePower install. Each step reflects your current state and links straight to where to do it.</p>
+            <div id="setup-progress" class="mb-12"></div>
+            <div id="setup-steps"><div class="c-muted">Loading…</div></div>
+          </div>
+        </div>
+
         <div class="settings-pane active" id="settings-pane-general">
           <div class="settings-section">
             <h3>Server identity</h3>
@@ -825,17 +835,6 @@
             </div>
           </div>
 
-          <div class="settings-section">
-            <h3>CVE details cache</h3>
-            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
-            <div class="settings-row">
-              <div class="form-group mw-160">
-                <label class="form-label">Days</label>
-                <input type="number" id="cfg-cve-cache-days" class="form-input" min="1" max="90" placeholder="7">
-              </div>
-              <div class="isl-22">1–90 (default 7)</div>
-            </div>
-          </div>
 
           <div class="settings-section">
             <h3>Wake-on-LAN</h3>
@@ -995,6 +994,14 @@
 
         <!-- ── Integrations (v3.2.0) ────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-integrations">
+          <!-- v3.4.2: moved here from Advanced — it's an external-access integration. -->
+          <div class="settings-section">
+            <h3>Status endpoint</h3>
+            <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
+            <div id="status-token-box">
+              <button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>
+            </div>
+          </div>
           <div class="settings-section">
             <h3>Inbound webhooks &amp; syslog</h3>
             <p class="hint">Two token types share this table:</p>
@@ -1053,6 +1060,17 @@
 
         <!-- ── Security ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-security">
+          <div class="settings-section">
+            <h3>CVE details cache</h3>
+            <p class="hint">How long OSV.dev vulnerability details are cached before being re-fetched. Higher = fewer external requests, lower = newer descriptions on existing CVEs.</p>
+            <div class="settings-row">
+              <div class="form-group mw-160">
+                <label class="form-label">Days</label>
+                <input type="number" id="cfg-cve-cache-days" class="form-input" min="1" max="90" placeholder="7">
+              </div>
+              <div class="isl-22">1–90 (default 7)</div>
+            </div>
+          </div>
           <div class="settings-section">
             <h3>IP allowlist</h3>
             <p class="hint">Restrict UI/API access to specific source IPs. Loopback (127.0.0.1, ::1) is always allowed so the local MCP sidecar keeps working. Agent paths (heartbeat, enrollment, agent download) are exempt — enabling this never blocks an agent. Off by default.</p>
@@ -1221,20 +1239,9 @@
 
         <!-- ── Advanced ─────────────────────────────────────────────────── -->
         <div class="settings-pane" id="settings-pane-advanced">
-          <!-- v3.0.2: session timeout -->
-          <div class="settings-section">
-            <h3>Session timeout</h3>
-            <p class="hint">How long a login session lasts before re-authentication. Two values: the short timeout (default 24h) applies when "remember me" is unchecked at login; the long timeout (default 30d) applies when checked. Lowering these tightens security but means more frequent logins.</p>
-            <div class="settings-row">
-              <label class="form-label" for="session-ttl-short">Short session (s)</label>
-              <input type="number" id="session-ttl-short" class="form-input mw-160" min="900" max="2592000" placeholder="86400">
-            </div>
-            <div class="settings-row">
-              <label class="form-label" for="session-ttl-long">Long session (s)</label>
-              <input type="number" id="session-ttl-long" class="form-input mw-160" min="3600" max="31536000" placeholder="2592000">
-            </div>
-            <p class="hint fs-11">Existing sessions keep their original TTL — changes apply only to logins after Save.</p>
-          </div>
+          <!-- v3.4.2: "Session timeout" (raw seconds) was a duplicate of
+               Security → Session length (hours/days), writing the same
+               session_ttl_short/long keys. Consolidated into Security. -->
 
           <!-- v3.0.2: audit log retention -->
           <div class="settings-section">
@@ -1283,15 +1290,6 @@
             <h3>Backup &amp; export</h3>
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
             <button class="btn-icon" data-action="exportBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
-          </div>
-
-          <!-- v2.4.7: status endpoint for external dashboards -->
-          <div class="settings-section">
-            <h3>Status endpoint</h3>
-            <p class="hint">A machine-readable fleet summary at <code>/api/status</code> for external dashboards — Uptime Kuma, Homepage, Grafana. It needs a status token (not a login), so a monitoring tool can poll it, but it is not public. Generate a token to enable it.</p>
-            <div id="status-token-box">
-              <button class="btn-primary" data-action="generateStatusToken" >Generate status token</button>
-            </div>
           </div>
         </div>
 
@@ -3291,8 +3289,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="hint">Runs <code>oscap xccdf eval</code> on the endpoint against its SCAP Security Guide datastream (CIS / STIG / PCI-DSS profiles) and reports the score, pass/fail tallies and failing rule ids. Requires <code>openscap-scanner</code> + <code>scap-security-guide</code> on the host; hosts without them report "not available" cleanly. Scans run in the background and report on the next heartbeat.</div>
           <div class="row-8-center mt-8 mb-8">
-            <select id="scap-profile" class="form-input input-auto"></select>
-            <input type="text" id="scap-target" class="form-input input-auto" placeholder="device id / group (blank = all)">
+            <select id="scap-profile" class="form-input input-auto" title="Scan profile (the parameter)"></select>
+            <select id="scap-target-type" class="form-input input-auto" data-change="onScapTargetChange">
+              <option value="group">Group</option>
+              <option value="tag">Tag</option>
+              <option value="device">Device id</option>
+              <option value="all">All devices</option>
+            </select>
+            <input type="text" id="scap-target-value" class="form-input input-auto" placeholder="group name">
             <button class="btn-primary fs-12" data-action="runScapScan">Run scan</button>
           </div>
           <div id="scap-body"><div class="c-muted">Loading…</div></div>
@@ -3452,6 +3456,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <div class="form-group"><label class="form-label">Pending &gt;</label><input type="number" id="fq-pending" class="form-input" min="0" placeholder="—"></div>
             <div class="form-group"><label class="form-label">Integrity</label><select id="fq-integrity" class="form-input"><option value="">any</option><option value="verified">verified</option><option value="mismatch">mismatch</option><option value="unknown">unknown</option></select></div>
             <div class="form-group"><label class="form-label">CVE (crit+high) ≥</label><input type="number" id="fq-cve" class="form-input" min="0" placeholder="—"></div>
+            <div class="form-group"><label class="form-label">Agent version contains</label><input type="text" id="fq-version" class="form-input" placeholder="any"></div>
+            <div class="form-group"><label class="form-label">Pkg manager</label><input type="text" id="fq-pkgmgr" class="form-input" placeholder="apt / dnf / pacman"></div>
+            <div class="form-group"><label class="form-label">Has package</label><input type="text" id="fq-haspkg" class="form-input" placeholder="package name"></div>
+            <div class="form-group"><label class="form-label">Monitored</label><select id="fq-monitored" class="form-input"><option value="">any</option><option value="1">monitored</option><option value="0">unmonitored</option></select></div>
+            <div class="form-group"><label class="form-label">Agentless</label><select id="fq-agentless" class="form-input"><option value="">any</option><option value="1">agentless</option><option value="0">agent</option></select></div>
+            <div class="form-group"><label class="form-label">Quarantined</label><select id="fq-quarantined" class="form-input"><option value="">any</option><option value="1">quarantined</option><option value="0">not</option></select></div>
+            <div class="form-group"><label class="form-label">Reboot required</label><select id="fq-reboot" class="form-input"><option value="">any</option><option value="1">yes</option></select></div>
+            <div class="form-group"><label class="form-label">Failed units</label><select id="fq-failed" class="form-input"><option value="">any</option><option value="1">has failed</option></select></div>
+            <div class="form-group"><label class="form-label">Kernel outdated</label><select id="fq-kernel" class="form-input"><option value="">any</option><option value="1">yes</option></select></div>
+            <div class="form-group"><label class="form-label">3rd-party updates</label><select id="fq-tp" class="form-input"><option value="">any</option><option value="1">pending</option></select></div>
+            <div class="form-group"><label class="form-label">Disk % &gt; (busiest)</label><input type="number" id="fq-disk" class="form-input" min="0" max="100" placeholder="—"></div>
+            <div class="form-group"><label class="form-label">Memory % &gt;</label><input type="number" id="fq-mem" class="form-input" min="0" max="100" placeholder="—"></div>
+            <div class="form-group"><label class="form-label">Offline &gt; days</label><input type="number" id="fq-offline-days" class="form-input" min="0" placeholder="—"></div>
           </div>
           <div class="row-8-center mt-8">
             <button class="btn-primary fs-12" data-action="runFleetQuery">Run</button>
@@ -3580,6 +3597,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
           <div class="page-subtitle mb-12">Pending updates aggregated by package — which update is waiting, and on how many hosts. The inverse of the device table above.</div>
           <div id="patch-catalog-body"><div class="c-muted">Loading…</div></div>
+        </div>
+
+        <!-- v3.4.2: install software from repos, targeted at a host or tag/group -->
+        <div class="dash-card mt-16" id="install-card">
+          <h3 class="m-0 mb-6">Install software</h3>
+          <div class="page-subtitle mb-12">Install one or more packages from the host's own repositories — on a single device, or across a whole group or tag. Detects the package manager (apt / dnf / yum / zypper / pacman / apk). Requires the <code>exec</code> permission; honours quarantine and change-windows.</div>
+          <div class="row-8-center mb-8">
+            <select id="install-target-type" class="form-input input-auto" data-change="onInstallTargetChange">
+              <option value="group">Group</option>
+              <option value="tag">Tag</option>
+              <option value="device">Device id</option>
+              <option value="all">All devices</option>
+            </select>
+            <input type="text" id="install-target-value" class="form-input input-auto" placeholder="group name">
+            <input type="text" id="install-pkgs" class="form-input" placeholder="packages, e.g. nginx htop">
+            <button class="btn-primary fs-12" data-action="runInstall">Install</button>
+          </div>
+          <div class="fs-11 c-muted">Package names only (no shell). Space- or comma-separated, up to 30.</div>
         </div>
       </div>
 

@@ -6,6 +6,30 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+### Operations, onboarding & UX
+- **Install software from repos, by host or tag/group.** A new "Install software"
+  action (Patches page) installs one or more repo packages — detecting the
+  package manager (apt/dnf/yum/zypper/pacman/apk) — on a single device or across
+  a whole group/tag. Package names are strictly validated (no shell injection);
+  gated on the `exec` permission and subject to quarantine + change-windows.
+  `POST /api/install`.
+- **OpenSCAP scans now target a tag/group** (not just a device): the scan form
+  gained a target-type selector (all / group / tag / device); the profile is the
+  parameter. (The API already accepted tag/group; this surfaces it.)
+- **Settings → Install** — a getting-started checklist that reflects live state
+  (admin password set, first device enrolled, a notification channel, scheduled
+  backups, 2FA) with a link to each. `GET /api/setup-status`.
+- **Signing the agent release now re-verifies the admin password** (mirrors
+  disabling enforcement) — it's what every agent trusts.
+- **Fleet Query — many more filters.** Added agent version, package manager,
+  has-package, monitored / agentless / quarantined, reboot-required, failed
+  units, kernel-outdated, third-party updates pending, disk % / memory %
+  thresholds, and offline-for-N-days — on top of the existing group/tag/OS/
+  online/pending/integrity/CVE.
+- **Settings re-categorized.** CVE details cache moved to **Security**; the
+  Status endpoint moved to **Integrations**; the duplicate raw-seconds "Session
+  timeout" card was consolidated into Security's "Session length" (same keys).
+
 ### Linux-RMM additions (deepening the self-hosted Linux story)
 - **OpenSCAP deep compliance scans (Compliance page).** Auditor-grade complement
   to the lightweight CIS baseline: the agent runs `oscap xccdf eval` against its

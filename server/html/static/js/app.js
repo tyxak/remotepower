@@ -1589,6 +1589,45 @@ function switchSettingsTab(tab) {
   if (tab === 'security') loadSshUsername();
   // v2.4.4: load the mailbox monitor config when its pane opens.
   if (tab === 'mailbox') loadMailwatchSettings();
+  // v3.4.2: Install / getting-started checklist.
+  if (tab === 'install') loadSetup();
+}
+
+// v3.4.2: Settings → Install — onboarding checklist driven by live state.
+async function loadSetup() {
+  const out = document.getElementById('setup-steps');
+  const prog = document.getElementById('setup-progress');
+  if (!out) return;
+  const r = await api('GET', '/setup-status').catch(() => null);
+  if (!r || !Array.isArray(r.steps)) { out.innerHTML = '<div class="c-red">Failed to load setup status.</div>'; return; }
+  if (prog) {
+    const pct = r.total ? Math.round(100 * r.done / r.total) : 0;
+    prog.innerHTML = `<div class="row-8-center"><strong>${r.done}/${r.total} complete</strong>`
+      + (r.complete ? ' <span class="ro-badge rs-done">all set</span>'
+         : (r.required_remaining && r.required_remaining.length ? ` <span class="ro-badge rs-failed">${r.required_remaining.length} required left</span>` : ''))
+      + `</div><div class="hh-bar-track mt-6"><div class="hh-bar-fill" data-pct="${pct}" data-bg="${pct === 100 ? 'var(--green)' : 'var(--accent)'}"></div></div>`;
+  }
+  const check = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" width="18" height="18" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  const circ = '<svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="9"/></svg>';
+  out.innerHTML = r.steps.map(s => {
+    const tag = s.done ? '<span class="ro-badge rs-done">done</span>'
+      : s.required ? '<span class="ro-badge rs-failed">required</span>'
+      : '<span class="ro-badge rs-paused">recommended</span>';
+    const cnt = (s.id === 'first-device' && s.count != null) ? ` <span class="c-muted">(${s.count})</span>` : '';
+    return `<div class="setup-step${s.done ? ' done' : ''}">
+      <div class="setup-step-ico">${s.done ? check : circ}</div>
+      <div class="setup-step-body">
+        <div class="row-8-center"><strong>${escHtml(s.title)}</strong>${cnt} ${tag}</div>
+        <div class="hint">${escHtml(s.detail)}</div>
+      </div>
+      <button class="btn-secondary fs-12" data-action="gotoSetupStep" data-arg="${escAttr(s.page)}" data-arg2="${escAttr(s.tab || '')}">${s.done ? 'Review' : 'Set up'}</button>
+    </div>`;
+  }).join('');
+}
+
+function gotoSetupStep(page, tab) {
+  showPage(page);
+  if (page === 'settings' && tab) switchSettingsTab(tab);
 }
 
 function renderEventToggleTable(events, descriptions, emailEvents) {
@@ -2532,6 +2571,9 @@ const _DYK_TIPS = [
   "Set escalation tiers under Settings → Notifications so an unacknowledged critical alert re-notifies after N minutes and names whoever is on call.",
   "Planning → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
   "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
+  "Patches → Install software installs repo packages on one host or a whole group/tag at once — it auto-detects apt/dnf/yum/zypper/pacman/apk.",
+  "OpenSCAP scans (and software installs) can target a tag or group, not just one device — pick the target type in the form.",
+  "New to RemotePower? Settings → Install is a live checklist of the essentials — admin password, first device, alerts, backups, 2FA.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -13154,16 +13196,21 @@ async function deleteAutomationRule(id) {
 }
 
 // ── Fleet query (v3.4.2) — ad-hoc device filter + saved queries (localStorage) ─
+const _FQ_FIELDS = {
+  group: 'fq-group', tag: 'fq-tag', os: 'fq-os', online: 'fq-online',
+  pending_gt: 'fq-pending', integrity: 'fq-integrity', cve_min: 'fq-cve',
+  version: 'fq-version', pkg_manager: 'fq-pkgmgr', has_package: 'fq-haspkg',
+  monitored: 'fq-monitored', agentless: 'fq-agentless', quarantined: 'fq-quarantined',
+  reboot: 'fq-reboot', failed: 'fq-failed', kernel_outdated: 'fq-kernel',
+  tp_pending: 'fq-tp', disk_gt: 'fq-disk', mem_gt: 'fq-mem', offline_days: 'fq-offline-days',
+};
 function _fqFields() {
-  return {
-    group: document.getElementById('fq-group').value.trim(),
-    tag: document.getElementById('fq-tag').value.trim(),
-    os: document.getElementById('fq-os').value.trim(),
-    online: document.getElementById('fq-online').value,
-    pending_gt: document.getElementById('fq-pending').value.trim(),
-    integrity: document.getElementById('fq-integrity').value,
-    cve_min: document.getElementById('fq-cve').value.trim(),
-  };
+  const out = {};
+  for (const [param, id] of Object.entries(_FQ_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) out[param] = (el.value || '').trim();
+  }
+  return out;
 }
 function loadFleetQuery() { _renderSavedQueries(); }
 function _savedQueries() {
@@ -13188,13 +13235,10 @@ function saveFleetQuery() {
 function applyFleetQuery(i) {
   const q = _savedQueries()[i]; if (!q) return;
   const f = q.f || {};
-  document.getElementById('fq-group').value = f.group || '';
-  document.getElementById('fq-tag').value = f.tag || '';
-  document.getElementById('fq-os').value = f.os || '';
-  document.getElementById('fq-online').value = f.online || '';
-  document.getElementById('fq-pending').value = f.pending_gt || '';
-  document.getElementById('fq-integrity').value = f.integrity || '';
-  document.getElementById('fq-cve').value = f.cve_min || '';
+  for (const [param, id] of Object.entries(_FQ_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = f[param] || '';
+  }
   runFleetQuery();
 }
 function deleteFleetQuery(i) {
@@ -13292,8 +13336,11 @@ async function signingGenerate(force) {
 }
 
 async function signingSignNow() {
+  // Signing is what every agent trusts — re-verify the admin password.
+  const pw = prompt('Signing the agent release. Enter your admin password to confirm:');
+  if (pw == null) return;   // cancelled
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Signing…';
-  const r = await api('POST', '/signing/sign', {}).catch(() => null);
+  const r = await api('POST', '/signing/sign', { password: pw }).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
   toast('Agent release signed', 'success');
   loadSigning();
@@ -13631,24 +13678,54 @@ async function loadScap() {
   tableCtl.wireSortOnly('scap-thead', 'scap', loadScap);
 }
 
+// v3.4.2: shared target resolver for fleet actions (scan, install). Returns the
+// body fragment _resolve_targets understands. `all` expands to the visible
+// device ids client-side.
+async function _fleetTargetBody(type, value) {
+  if (type === 'group') return { group: value };
+  if (type === 'tag') return { tag: value };
+  if (type === 'device') return { device_ids: [value] };
+  const devs = await api('GET', '/devices?slim=1').catch(() => []);
+  return { device_ids: (Array.isArray(devs) ? devs : []).map(d => d.id).filter(Boolean) };
+}
+function _targetPlaceholder(sel, input) {
+  const t = document.getElementById(sel).value;
+  const el = document.getElementById(input);
+  if (!el) return;
+  el.classList.toggle('d-none', t === 'all');
+  el.placeholder = t === 'group' ? 'group name' : t === 'tag' ? 'tag' : 'device id';
+}
+function onScapTargetChange() { _targetPlaceholder('scap-target-type', 'scap-target-value'); }
+function onInstallTargetChange() { _targetPlaceholder('install-target-type', 'install-target-value'); }
+
 async function runScapScan() {
   const profile = document.getElementById('scap-profile').value || 'cis';
-  const target = document.getElementById('scap-target').value.trim();
-  const body = { profile };
-  if (!target) {
-    if (!confirm('Run an OpenSCAP scan on the ENTIRE fleet? Each host runs oscap in the background.')) return;
-    // resolve "all" client-side via the devices list
-    const devs = await api('GET', '/devices?slim=1').catch(() => []);
-    body.device_ids = (Array.isArray(devs) ? devs : []).map(d => d.id).filter(Boolean);
-    if (!body.device_ids.length) { toast('No devices', 'error'); return; }
-  } else if (/^[a-z]+$/i.test(target) && target.length < 40 && !target.includes('-')) {
-    body.group = target;
-  } else {
-    body.device_ids = [target];
-  }
+  const type = document.getElementById('scap-target-type').value;
+  const value = document.getElementById('scap-target-value').value.trim();
+  if (type !== 'all' && !value) { toast('Enter a ' + type, 'error'); return; }
+  if (type === 'all' && !confirm('Run an OpenSCAP scan on the ENTIRE fleet? Each host runs oscap in the background.')) return;
+  const body = await _fleetTargetBody(type, value);
+  if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching devices', 'error'); return; }
+  body.profile = profile;
   const r = await api('POST', '/scap/scan', body).catch(() => null);
   if (r?.ok) toast(`OpenSCAP scan queued on ${r.queued} host(s) — results arrive on next heartbeat`, 'success');
   else toast(r?.error || 'Failed to queue scan', 'error');
+}
+
+async function runInstall() {
+  const pkgs = document.getElementById('install-pkgs').value.trim();
+  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  const type = document.getElementById('install-target-type').value;
+  const value = document.getElementById('install-target-value').value.trim();
+  if (type !== 'all' && !value) { toast('Enter a ' + type, 'error'); return; }
+  const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
+  if (!confirm(`Install "${pkgs}" on ${scopeLabel}?`)) return;
+  const body = await _fleetTargetBody(type, value);
+  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  body.packages = pkgs;
+  const r = await api('POST', '/install', body).catch(() => null);
+  if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s)`, 'success');
+  else toast(r?.error || 'Failed to queue install', 'error');
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────
