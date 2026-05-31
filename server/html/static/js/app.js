@@ -13337,9 +13337,11 @@ async function signingGenerate(force) {
 }
 
 async function signingSignNow() {
-  // Signing is what every agent trusts — re-verify the admin password.
-  const pw = prompt('Signing the agent release. Enter your admin password to confirm:');
-  if (pw == null) return;   // cancelled
+  // Signing is what every agent trusts — re-verify the admin password. uiPrompt
+  // with type:'password' masks the input (the native prompt() showed cleartext).
+  const pw = await uiPrompt({ title: 'Sign agent release', type: 'password', confirmText: 'Sign',
+    message: 'Enter your admin password to confirm — this signature is what every agent trusts.' });
+  if (!pw) return;   // cancelled or empty
   const st = document.getElementById('signing-action-status'); if (st) st.textContent = 'Signing…';
   const r = await api('POST', '/signing/sign', { password: pw }).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); if (st) st.textContent = ''; return; }
@@ -13351,9 +13353,11 @@ async function signingToggle(on) {
   const enable = on === '1' || on === 1;
   const body = { enabled: enable };
   if (!enable) {
-    // Disabling enforcement is a security downgrade — re-verify the admin password.
-    const pw = prompt('Disabling signature enforcement. Enter your admin password to confirm:');
-    if (pw == null) return;            // cancelled
+    // Disabling enforcement is a security downgrade — re-verify the admin password (masked).
+    const pw = await uiPrompt({ title: 'Disable signing enforcement', type: 'password',
+      confirmText: 'Disable', danger: true,
+      message: 'Enter your admin password to confirm this security downgrade.' });
+    if (!pw) return;            // cancelled or empty
     body.password = pw;
   }
   const r = await api('POST', '/signing/toggle', body).catch(() => null);

@@ -627,6 +627,19 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('password required to sign', body)
         self.assertIn("api('POST', '/signing/sign', { password: pw })", self.APP)
 
+    def test_sign_password_is_masked(self):
+        # the password must be entered through the masked uiPrompt({type:'password'}),
+        # not the native prompt() which renders cleartext.
+        for fn in ('signingSignNow', 'signingToggle'):
+            j = self.APP.find('function ' + fn + '(')
+            seg = self.APP[j:self.APP.find('\nasync function ', j + 1)]
+            self.assertIn("uiPrompt({", seg, f'{fn} should use uiPrompt')
+            self.assertIn("type: 'password'", seg, f'{fn} should mask the input')
+            # no native prompt() *call* (ignore comment prose)
+            code = '\n'.join(l for l in seg.splitlines() if not l.strip().startswith('//'))
+            self.assertNotIn('await prompt(', code)
+            self.assertNotIn('= prompt(', code)
+
     # ── install wizard ───────────────────────────────────────────────────────
     def test_setup_status_route_and_ui(self):
         self.assertEqual(routes_to('GET', '/api/setup-status'), 'handle_setup_status')
