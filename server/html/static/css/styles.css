@@ -4205,6 +4205,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-dev-meta { display: flex; gap: 4px; }
 .hh-dev-score { font-weight: 700; font-size: 15px; min-width: 28px; text-align: right; }
 .hh-trend { margin-top: 12px; }
+/* v3.4.2: fleet heat map */
+.heatmap-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.heatmap-cell { width: 22px; height: 22px; border-radius: 4px; border: none; cursor: pointer; opacity: 0.85; padding: 0; }
+.heatmap-cell:hover { opacity: 1; outline: 2px solid var(--text); }
 .hh-spark { display: block; width: 120px; height: 32px; opacity: 0.9; }
 @media (max-width: 600px) {
   .hh-wrap { grid-template-columns: 1fr; gap: 12px; }
@@ -4221,6 +4225,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 @media (max-width: 700px) { .rep-grid { grid-template-columns: repeat(2, 1fr); } }
 .m-0 { margin: 0; }
 .ml-8 { margin-left: 8px; }
+/* v3.4.2: agent signed/integrity badge next to the version */
+.agent-sig { display: inline-flex; vertical-align: middle; cursor: help; }
+.agent-sig.agent-verified { color: var(--green); }
+.agent-sig.agent-mismatch { color: var(--red); }
 /* v3.4.2: automation rules list */
 .auto-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; }
 .auto-rule.auto-off { opacity: 0.6; }

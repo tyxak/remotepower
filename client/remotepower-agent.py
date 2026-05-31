@@ -422,6 +422,29 @@ def get_journal(lines=100):
     except Exception:
         return []
 
+_MAX_UPGRADABLE_NAMES = 300
+def _parse_upgradable_names(manager, text):
+    """v3.4.2: extract upgradable package names so the server can build a
+    fleet-wide patch catalog ("package X pending on N hosts"). Best-effort,
+    deduped + sorted + capped; an empty list just means we couldn't parse."""
+    names = []
+    for line in (text or '').splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if manager == 'apt':
+            if line.startswith('Inst ') and len(line.split()) > 1:
+                names.append(line.split()[1])
+        elif manager == 'dnf':
+            if line.startswith(' ') or s.startswith(('Last', 'Obsoleting')):
+                continue
+            tok = s.split()[0]
+            names.append(tok.rsplit('.', 1)[0] if '.' in tok else tok)
+        elif manager == 'pacman':
+            names.append(s.split()[0])
+    return sorted(set(names))[:_MAX_UPGRADABLE_NAMES]
+
+
 def get_patch_info():
     result = {'manager': 'unknown', 'upgradable': None}
     if Path('/usr/bin/apt-get').exists():
@@ -430,6 +453,7 @@ def get_patch_info():
             out = subprocess.check_output(['apt-get', '--simulate', '--quiet', 'upgrade'],
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
             result['upgradable'] = sum(1 for l in out.splitlines() if l.startswith('Inst '))
+            result['upgradable_names'] = _parse_upgradable_names('apt', out)
         except Exception: pass
     elif Path('/usr/bin/dnf').exists() or Path('/usr/bin/dnf5').exists():
         result['manager'] = 'dnf'
@@ -437,9 +461,11 @@ def get_patch_info():
             out = subprocess.check_output(['dnf', 'check-update', '--quiet'],
                 text=True, timeout=30, stderr=subprocess.DEVNULL)
             result['upgradable'] = sum(1 for l in out.splitlines() if l and not l.startswith(' ') and not l.startswith('Last'))
+            result['upgradable_names'] = _parse_upgradable_names('dnf', out)
         except subprocess.CalledProcessError as e:
             if e.returncode == 100 and e.output:
                 result['upgradable'] = sum(1 for l in e.output.splitlines() if l and not l.startswith(' ') and not l.startswith('Last'))
+                result['upgradable_names'] = _parse_upgradable_names('dnf', e.output)
         except Exception: pass
     # v3.0.1: yum (RHEL 7, older CentOS) — same rpm-based ecosystem as dnf.
     # Report manager='dnf' so the OSV ecosystem detection (Rocky/Alma/Red Hat)
@@ -454,11 +480,13 @@ def get_patch_info():
             result['upgradable'] = sum(
                 1 for l in out.splitlines()
                 if l.strip() and not l.startswith(' ') and not l.startswith('Obsoleting'))
+            result['upgradable_names'] = _parse_upgradable_names('dnf', out)
         except subprocess.CalledProcessError as e:
             if e.returncode == 100 and e.output:
                 result['upgradable'] = sum(
                     1 for l in e.output.splitlines()
                     if l.strip() and not l.startswith(' ') and not l.startswith('Obsoleting'))
+                result['upgradable_names'] = _parse_upgradable_names('dnf', e.output)
         except Exception: pass
     elif Path('/usr/bin/pacman').exists():
         result['manager'] = 'pacman'
@@ -509,6 +537,7 @@ def get_patch_info():
             out = subprocess.check_output(['pacman', '-Qu'], text=True, timeout=10,
                                           stderr=subprocess.DEVNULL)
             result['upgradable'] = len(out.strip().splitlines()) if out.strip() else 0
+            result['upgradable_names'] = _parse_upgradable_names('pacman', out)
         except subprocess.CalledProcessError:
             # rc=1 with empty stdout is the normal "no upgrades available" path
             result['upgradable'] = 0

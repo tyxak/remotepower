@@ -67,6 +67,13 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Agent integrity attestation** | Agents report their running binary hash each heartbeat; server flags a mismatch vs the canonical build (tamper/corruption) as a critical NA item. `GET /api/fleet/agent-integrity` (v3.4.2) |
 | **Cryptographic release signing** | Detached GPG signature over the agent release (`tools/sign-agent-release.sh`); agents with a pinned public key refuse unsigned/invalid self-updates. Opt-in, fail-closed, `gpg`-based (v3.4.2) |
 | **Bake & sign UI** | Admin → Release Signing: server-held key generate/sign/toggle + public-key distribution + a list of agents that refused an unsigned update. Convenient (server-side) mode (v3.4.2) |
+| **Patch catalog** | Pending updates aggregated by package ("package X on N hosts") on the Patches page. `GET /api/patch-catalog` (v3.4.2) |
+| **Post-deploy verification** | After an upgrade, confirm the pending count actually dropped (ok/stalled/pending) on the Patches table (v3.4.2) |
+| **Software metering** | Named-software install counts vs an allowance, over-deployment flagged. Reports page. `GET /api/inventory/metering` (v3.4.2) |
+| **Fleet heat map** | Home grid of device cells coloured by health score (v3.4.2) |
+| **After-hours detection** | Flag selected events firing outside business hours as a NA item (Settings → Dashboard) (v3.4.2) |
+| **Ad-hoc fleet query** | Fleet → Query: filter by group/tag/OS/online/pending/integrity/CVE, with saved queries. `GET /api/fleet/query` (v3.4.2) |
+| **Signed-agent badge** | Green ✓ / red ⚠ next to a device's version showing whether it runs the canonical signed build (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

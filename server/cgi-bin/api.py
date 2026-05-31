@@ -213,6 +213,8 @@ HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
 HEALTH_ALERT_STATE_FILE = DATA_DIR / 'health_alert_state.json'
 # v3.4.2: automation rules (when event matches → run script / notify).
 RULES_FILE       = DATA_DIR / 'automation_rules.json'
+# v3.4.2: rolling log of selected events that fired outside business hours.
+AFTER_HOURS_FILE = DATA_DIR / 'after_hours_hits.json'
 # v3.4.0: global webhook send-rate limiter state (sliding window of send ts).
 # The cap is a runaway-loop backstop, NOT a fleet-size limit: a single
 # fleet-wide event (e.g. a CVE flagged on every host, or a kernel rollout)
@@ -2412,6 +2414,7 @@ CHANNEL_KINDS = [
     ('agent_version', 'Stale agent version (NA)', 'informational', []),
     ('os_eol',      'End-of-life OS (NA)',      'informational', []),
     ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
+    ('after_hours',  'After-hours activity (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
     ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
 ]
@@ -2876,6 +2879,33 @@ def _quiet_hours_active(event, payload, cfg, now=None):
     return None
 
 
+def _record_after_hours(event, payload, cfg):
+    """v3.4.2: if a watched event fired OUTSIDE business hours, log it. A login,
+    new port, or command run at 3am is more suspicious than during the workday.
+    Surfaced as a Needs-Attention item (rolling 24h). Best-effort; never raises."""
+    ah = (cfg or {}).get('after_hours') or {}
+    if not ah.get('enabled') or event not in (ah.get('events') or []):
+        return
+    start, end = ah.get('start', ''), ah.get('end', '')
+    if len(start) != 5 or len(end) != 5:
+        return
+    import datetime as _dt
+    lt = _dt.datetime.fromtimestamp(int(time.time()))
+    workdays = ah.get('workdays') or [0, 1, 2, 3, 4]
+    in_business = lt.weekday() in workdays and _in_time_window(lt.strftime('%H:%M'), start, end)
+    if in_business:
+        return
+    p = payload or {}
+    try:
+        with _LockedUpdate(AFTER_HOURS_FILE) as store:
+            hits = store.setdefault('hits', [])
+            hits.append({'ts': int(time.time()), 'event': event,
+                         'device': p.get('device_name') or p.get('device_id') or ''})
+            store['hits'] = hits[-500:]
+    except Exception:
+        pass
+
+
 def _device_matches_rule(dm, dev_id, devices_cache):
     """True if dev_id satisfies a rule's device_match {device_id|group|tags}."""
     if not dm:
@@ -3170,6 +3200,13 @@ def fire_webhook(event, payload):
         _run_automation_rules(event, payload, cfg)
     except Exception as _ar:
         sys.stderr.write(f'[remotepower] automation rules error: {_ar}\n')
+
+    # v3.4.2: after-hours activity log (security visibility). Independent of the
+    # notification gates — we want to record it even if delivery is suppressed.
+    try:
+        _record_after_hours(event, payload, cfg)
+    except Exception:
+        pass
 
     # v3.0.2 helper: find SOME URL to attribute a suppression-log entry to.
     # Legacy code paths assumed `webhook_url` was always the truth; with
@@ -4561,6 +4598,8 @@ def handle_devices_list():
         # (SMART failure / kernel reboot needed). Full detail lives behind
         # GET /api/devices/<id>/hardware.
         hw_store = load(HARDWARE_FILE) if HARDWARE_FILE.exists() else {}
+    # v3.4.2: canonical agent hash for the per-device signed/integrity badge.
+    _canon_sha = _get_agent_sha256() if not slim else None
     _, _bf_thresh, _bf_window = _brute_config()
     bf_cutoff = now - _bf_window
     result = []
@@ -4617,6 +4656,11 @@ def handle_devices_list():
                 'smart_failed':  _smart_bad,
                 'kernel_reboot': bool((_hwrec.get('kernel') or {}).get('reboot_for_kernel')),
             }
+            # v3.4.2: agent integrity for the version badge (skip agentless —
+            # they have no agent binary to attest).
+            if not agentless:
+                row['agent_integrity'] = _agent_integrity_status(dev, _canon_sha, SERVER_VERSION)
+                row['agent_sha256'] = (dev.get('agent_sha256') or '')[:12]
         result.append(row)
         if slim:
             # v3.3.0: skip the SNMP-status block in slim mode. Home + nav
@@ -5815,6 +5859,11 @@ def handle_heartbeat():
                 safe_pkg['manager'] = _sanitize_str(pkg.get('manager', ''), 32)
                 upg = pkg.get('upgradable')
                 safe_pkg['upgradable'] = int(upg) if isinstance(upg, int) and 0 <= upg <= 100000 else None
+                # v3.4.2: upgradable package names for the fleet patch catalog.
+                names = pkg.get('upgradable_names')
+                if isinstance(names, list):
+                    safe_pkg['upgradable_names'] = [_sanitize_str(n, 128) for n in names[:300]
+                                                    if isinstance(n, str) and n][:300]
                 safe_si['packages'] = safe_pkg
             if 'network' in si and isinstance(si['network'], list):
                 safe_net = []
@@ -6784,12 +6833,19 @@ def handle_upgrade_device():
             cmds[dev_id] = []
         if queued_str not in cmds[dev_id]:
             cmds[dev_id].append(queued_str)
+        # v3.4.2: post-deploy verification — snapshot the pending count now and
+        # force a package re-scan, so the patch report can confirm the upgrade
+        # actually took (pending dropped) vs stalled.
+        dev['upgrade_queued_at'] = int(time.time())
+        dev['upgrade_pending_before'] = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+        dev['force_package_scan'] = True
         log_command(actor, dev_id, dev.get('name', dev_id), 'upgrade packages')
         fire_webhook('command_queued', {
             'device_id': dev_id, 'name': dev.get('name', dev_id),
             'command': 'upgrade packages', 'actor': actor,
         })
         results[dev_id] = {'ok': True}
+    save(DEVICES_FILE, devices)
     save(CMDS_FILE, cmds)
     if len(ids) == 1:
         r = results[ids[0]]
@@ -7627,6 +7683,45 @@ def handle_config_save():
     if 'release_key_fingerprint' in body:
         fpr = re.sub(r'[^0-9A-Fa-f]', '', str(body.get('release_key_fingerprint', '')))[:40]
         cfg['release_key_fingerprint'] = fpr.upper()
+
+    # v3.4.2: software metering — [{name, limit}] tracked software + allowance.
+    if 'software_meters' in body:
+        raw = body['software_meters'] if isinstance(body['software_meters'], list) else []
+        meters = []
+        for m in raw[:100]:
+            if not isinstance(m, dict):
+                continue
+            nm = _sanitize_str(m.get('name', ''), 128)
+            if not nm:
+                continue
+            try:
+                lim = max(0, min(1000000, int(m.get('limit') or 0)))
+            except (TypeError, ValueError):
+                lim = 0
+            meters.append({'name': nm, 'limit': lim})
+        cfg['software_meters'] = meters
+
+    # v3.4.2: after-hours activity detection.
+    if 'after_hours' in body:
+        ah = body['after_hours'] if isinstance(body['after_hours'], dict) else {}
+        import re as _re2
+        _hhmm = _re2.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+        start = _sanitize_str(ah.get('start', ''), 5)
+        end = _sanitize_str(ah.get('end', ''), 5)
+        if ah.get('enabled') and not (_hhmm.match(start) and _hhmm.match(end)):
+            respond(400, {'error': 'after_hours start/end must be HH:MM (business hours)'})
+        evs = [e for e in (ah.get('events') or []) if isinstance(e, str) and e in WEBHOOK_EVENT_NAMES][:30]
+        try:
+            days = [int(x) for x in (ah.get('workdays') or [0, 1, 2, 3, 4]) if isinstance(x, int) and 0 <= x <= 6][:7]
+        except (TypeError, ValueError):
+            days = [0, 1, 2, 3, 4]
+        cfg['after_hours'] = {
+            'enabled':  bool(ah.get('enabled')),
+            'start':    start,
+            'end':      end,
+            'events':   evs,
+            'workdays': days or [0, 1, 2, 3, 4],
+        }
 
     # v2.8.1: backup file monitors [{path, label, max_age_hours}]
     if 'backup_monitors' in body:
@@ -14585,6 +14680,18 @@ def _compute_attention():
                               'device': dev.get('name', dev_id),
                               'summary': 'Agent binary hash does not match the published build'})
 
+    # v3.4.2: after-hours activity (fleet-level security signal, last 24h). No
+    # device_id, so it shows in NA without dinging any single device's health.
+    if (cfg.get('after_hours') or {}).get('enabled'):
+        try:
+            ah_hits = (load(AFTER_HOURS_FILE) or {}).get('hits') or []
+            recent_ah = [h for h in ah_hits if h.get('ts', 0) >= now - 86400]
+        except Exception:
+            recent_ah = []
+        if recent_ah:
+            items.append({'severity': 'warning', 'kind': 'after_hours', 'device': '',
+                          'summary': f'{len(recent_ah)} event(s) fired outside business hours (last 24h)'})
+
     # v3.0.1 (attention audit): services_watched that are NOT active right now.
     # Recent Activity gets a `service_down` event when the transition happens,
     # but the previous version of this function never surfaced the ongoing
@@ -16201,6 +16308,138 @@ def _inventory_version_match(installed, op, target, eco):
     return True
 
 
+def handle_inventory_metering():
+    """GET /api/inventory/metering — installed count vs allowance for tracked
+    software (config `software_meters`: [{name, limit}]); flags over-deployment.
+    Matches package names (substring) in the collected inventory. Auth:
+    require_auth."""
+    require_auth()
+    meters = (load(CONFIG_FILE) or {}).get('software_meters') or []
+    store = load(PACKAGES_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    out = []
+    for m in meters[:100]:
+        raw = (m.get('name') or '').strip()
+        if not raw:
+            continue
+        needle = raw.lower()
+        try:
+            limit = int(m.get('limit') or 0)
+        except (TypeError, ValueError):
+            limit = 0
+        hosts = []
+        for did, entry in store.items():
+            for p in (entry or {}).get('packages') or []:
+                if needle in (p.get('name') or '').lower():
+                    hosts.append((devices.get(did) or {}).get('name', did))
+                    break
+        cnt = len(hosts)
+        out.append({'name': raw, 'limit': limit, 'installed': cnt,
+                    'over': bool(limit and cnt > limit),
+                    'devices': sorted(hosts)[:60]})
+    out.sort(key=lambda r: (not r['over'], -r['installed']))
+    respond(200, {'meters': out})
+
+
+def handle_fleet_query():
+    """GET /api/fleet/query — filter devices by ad-hoc criteria over the JSON
+    stores (params ANDed): group, tag, os (substring), online=1|0,
+    pending_gt=<n>, integrity=verified|mismatch|unknown, cve_min=<n>
+    (critical+high). Auth: require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    def q(k):
+        return (qs.get(k) or [''])[0].strip()
+    group, tag, os_q = q('group'), q('tag').lower(), q('os').lower()
+    online_q, integ = q('online'), q('integrity')
+    try:
+        pending_gt = int(q('pending_gt')) if q('pending_gt') else None
+    except ValueError:
+        pending_gt = None
+    try:
+        cve_min = int(q('cve_min')) if q('cve_min') else None
+    except ValueError:
+        cve_min = None
+    now = int(time.time())
+    ttl = get_online_ttl()
+    devices = load(DEVICES_FILE) or {}
+    canonical = _get_agent_sha256() if integ else None
+    cve = None
+    if cve_min is not None:
+        cve = {}
+        for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+            cve[did] = sum(1 for f in (rec or {}).get('findings') or []
+                           if str(f.get('severity', '')).lower() in ('critical', 'high'))
+    rows = []
+    for did, d in devices.items():
+        if not isinstance(d, dict):
+            continue
+        if group and d.get('group') != group:
+            continue
+        if tag and tag not in [t.lower() for t in (d.get('tags') or [])]:
+            continue
+        if os_q and os_q not in (d.get('os') or '').lower():
+            continue
+        online = (now - d.get('last_seen', 0)) < ttl
+        if online_q in ('1', 'true') and not online:
+            continue
+        if online_q in ('0', 'false') and online:
+            continue
+        pend = ((d.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+        if pending_gt is not None and not (isinstance(pend, int) and pend > pending_gt):
+            continue
+        if integ and _agent_integrity_status(d, canonical, SERVER_VERSION) != integ:
+            continue
+        if cve_min is not None and (cve.get(did, 0) < cve_min):
+            continue
+        rows.append({'device_id': did, 'name': d.get('name', did),
+                     'group': d.get('group', ''), 'os': d.get('os', ''),
+                     'online': online,
+                     'pending': pend if isinstance(pend, int) else None,
+                     'cve_high': cve.get(did, 0) if cve is not None else None})
+    rows.sort(key=lambda r: r['name'].lower())
+    respond(200, {'total': len(rows), 'devices': rows})
+
+
+def handle_patch_catalog():
+    """GET /api/patch-catalog — fleet-wide pending updates aggregated BY PACKAGE.
+
+    The Patches page is device-centric ("host X has N pending"); this is the
+    inverse view ops act on for a rollout: "package P is pending on N hosts, and
+    here they are". Built from the agent-reported upgradable package names.
+    Devices on an older agent (count but no names) are reported separately so the
+    view is honest about coverage. Auth: require_auth."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    cve_fixable = _cve_fixable_by_device()
+    catalog = {}          # package -> set(device_name)
+    no_detail = []        # devices with a pending count but no name list
+    cve_hosts = 0
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('monitored') is False:
+            continue
+        pkg = (dev.get('sysinfo') or {}).get('packages') or {}
+        names = pkg.get('upgradable_names')
+        nm = dev.get('name', dev_id)
+        if isinstance(names, list) and names:
+            for n in names:
+                catalog.setdefault(n, set()).add(nm)
+        elif isinstance(pkg.get('upgradable'), int) and pkg['upgradable'] > 0:
+            no_detail.append(nm)
+        if cve_fixable.get(dev_id):
+            cve_hosts += 1
+    rows = [{'package': n, 'count': len(hosts), 'devices': sorted(hosts)[:60]}
+            for n, hosts in catalog.items()]
+    rows.sort(key=lambda r: (-r['count'], r['package'].lower()))
+    respond(200, {
+        'generated_ts':          int(time.time()),
+        'packages':              rows,
+        'total_packages':        len(rows),
+        'devices_without_detail': sorted(no_detail),
+        'cve_fixable_hosts':     cve_hosts,
+    })
+
+
 def handle_inventory_search():
     """GET /api/inventory/search?q=<name>&op=<lt|le|eq|ge|gt|any>&version=<v>&exact=0|1
 
@@ -16242,6 +16481,25 @@ def handle_inventory_search():
     respond(200, {'query': q, 'op': op, 'version': target,
                   'results': results, 'total': len(results),
                   'truncated': truncated})
+
+
+def _upgrade_verify_status(dev, now):
+    """v3.4.2: did a queued upgrade actually take? Compares the pending-update
+    count snapshotted when the upgrade was queued against the latest count.
+    Returns 'ok' (dropped), 'stalled' (unchanged after >1h), 'pending', or None
+    (no recent upgrade). Cleared implicitly once the marker ages out (7 days)."""
+    qa = dev.get('upgrade_queued_at')
+    if not qa or (now - qa) > 7 * 86400:
+        return None
+    before = dev.get('upgrade_pending_before')
+    cur = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+    if not isinstance(before, int) or not isinstance(cur, int):
+        return 'pending'
+    if cur < before:
+        return 'ok'
+    if (now - qa) > 3600:
+        return 'stalled'
+    return 'pending'
 
 
 def handle_patch_report():
@@ -16337,6 +16595,8 @@ def handle_patch_report():
             'reboot_required': bool(si.get('reboot_required', False)),
             # v3.4.1: how many outstanding critical/high CVEs a patch would fix.
             'cve_fixable': cve_fixable.get(dev_id, 0),
+            # v3.4.2: post-deploy verification status (ok/stalled/pending/None).
+            'upgrade_verify': _upgrade_verify_status(dev, now),
         }
 
         if upgradable is None or not is_online:
@@ -24522,6 +24782,12 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
     # v3.4.1: software inventory search across the fleet's package lists
     elif pi == '/api/inventory/search' and m == 'GET': handle_inventory_search()
+    # v3.4.2: fleet-wide patch catalog (pending updates by package)
+    elif pi == '/api/patch-catalog' and m == 'GET': handle_patch_catalog()
+    # v3.4.2: software metering / license compliance
+    elif pi == '/api/inventory/metering' and m == 'GET': handle_inventory_metering()
+    # v3.4.2: ad-hoc fleet query
+    elif pi == '/api/fleet/query' and m == 'GET': handle_fleet_query()
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()

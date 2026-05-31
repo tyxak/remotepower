@@ -148,6 +148,63 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342FleetMgmt(unittest.TestCase):
+    """octofleet-inspired batch: patch catalog, post-deploy verify, metering,
+    heat map, after-hours, fleet query, signed-agent badge on Devices."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_routes(self):
+        for method, path, handler in (
+                ('GET', '/api/patch-catalog',       'handle_patch_catalog'),
+                ('GET', '/api/inventory/metering',  'handle_inventory_metering'),
+                ('GET', '/api/fleet/query',         'handle_fleet_query')):
+            self.assertEqual(routes_to(method, path), handler)
+
+    def test_agent_reports_upgradable_names(self):
+        self.assertIn('def _parse_upgradable_names(', self.AGENT)
+        self.assertIn("result['upgradable_names']", self.AGENT)
+        # server stores them
+        self.assertIn("safe_pkg['upgradable_names']", self.API)
+
+    def test_patch_catalog_and_verify(self):
+        self.assertIn('def handle_patch_catalog(', self.API)
+        self.assertIn('def _upgrade_verify_status(', self.API)
+        self.assertIn("'upgrade_verify'", self.API)
+        self.assertIn('function loadPatchCatalog(', self.APP)
+        self.assertIn('id="patch-catalog-body"', self.HTML)
+
+    def test_metering(self):
+        self.assertIn('def handle_inventory_metering(', self.API)
+        self.assertIn("'software_meters'", self.API)
+        self.assertIn('function saveMetering(', self.APP)
+
+    def test_heatmap(self):
+        self.assertIn('function _renderHomeHeatmap(', self.APP)
+        self.assertIn('id="home-heatmap"', self.HTML)
+        self.assertIn('.heatmap-cell', (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text())
+
+    def test_after_hours(self):
+        self.assertIn('def _record_after_hours(', self.API)
+        self.assertRegex(self.API, r"'kind': 'after_hours'")
+        self.assertIn("'after_hours'", self.API)   # config + channel kind
+        self.assertIn('function saveAfterHours(', self.APP)
+
+    def test_fleet_query(self):
+        self.assertIn('def handle_fleet_query(', self.API)
+        self.assertIn('function runFleetQuery(', self.APP)
+        self.assertIn('id="page-query"', self.HTML)
+        self.assertIn('data-page="query"', self.HTML)
+
+    def test_devices_signed_badge(self):
+        self.assertIn('function _signedBadge(', self.APP)
+        self.assertIn('agent-verified', self.APP)
+        # devices list ships the integrity verdict
+        self.assertIn("row['agent_integrity']", self.API)
+
+
 class TestV342ReviewFixes(unittest.TestCase):
     """Review round: disable-signing password gate, SNMP live-threshold fix,
     cron-builder → Planning, anomaly-scan → Security."""

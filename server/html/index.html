@@ -165,6 +165,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7.4" y1="7.4" x2="10.6" y2="10.6"/><line x1="13.4" y1="13.4" x2="16.6" y2="16.6"/><line x1="16.6" y1="7.4" x2="13.4" y2="10.6"/><line x1="10.6" y1="13.4" x2="7.4" y2="16.6"/></svg>
           <span>Network</span>
         </button>
+        <button class="nav-btn" data-page="query" title="Filter the fleet by ad-hoc criteria">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span>Query</span>
+        </button>
       </div>
     </div>
 
@@ -397,6 +401,12 @@
             <div class="skeleton skeleton-line med mb-6"></div>
             <div class="skeleton skeleton-line long"></div>
           </div>
+        </div>
+
+        <!-- Fleet heat map (v3.4.2) -->
+        <div class="dash-card mb-16" id="home-heatmap-card">
+          <div class="row-8-center mb-6"><h3 class="m-0">Fleet heat map</h3><span class="fs-12 c-muted">health score per device — green healthy, red needs attention</span></div>
+          <div id="home-heatmap"></div>
         </div>
 
         <!-- Two-column: needs attention | recent activity -->
@@ -1576,6 +1586,22 @@
         </div>
 
         <div class="settings-section">
+          <h3>After-hours activity detection</h3>
+          <p class="hint">Flag selected events that fire <strong>outside</strong> business hours (a login, a new port, a command at 3am is more suspicious). Surfaces as a Needs Attention item. Applies Mon–Fri within the window below; anything outside it counts as after-hours.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label">Enabled</label>
+              <select id="ah-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
+            </div>
+            <div class="form-group"><label class="form-label">Business start</label><input type="time" id="ah-start" class="form-input isl-80" value="08:00"></div>
+            <div class="form-group"><label class="form-label">Business end</label><input type="time" id="ah-end" class="form-input isl-80" value="18:00"></div>
+          </div>
+          <div class="mb-12"><label class="form-label">Watch these events <span class="meta-sm-nm">(comma-separated)</span></label>
+            <input type="text" id="ah-events" class="form-input input-wide" placeholder="ssh_key_added, new_port_detected, command_executed, brute_force_detected"></div>
+          <button class="btn-primary mt-8" data-action="saveAfterHours" >Save</button>
+        </div>
+
+        <div class="settings-section">
           <h3>Backup file monitoring</h3>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
           <div id="backup-monitors-list" class="mb-12"></div>
@@ -1847,6 +1873,16 @@
                 <li>Turn the events RemotePower already fires into actions: <strong>when</strong> an event (optionally at a given severity) fires on devices matching a group / tags / id, <strong>then</strong> run a saved script and/or notify a destination.</li>
                 <li><strong>Run a saved script</strong> auto-remediates (e.g. restart a unit on <code>service_down</code>) — it goes through the normal command queue, so device <strong>quarantine still blocks it</strong>. <strong>Notify</strong> escalates a specific event to a chosen webhook destination past its normal routing (e.g. straight to PagerDuty).</li>
                 <li>Each rule has a <strong>cooldown</strong> (default 60s) so a flapping event can't hammer the action. Rules run after the unmonitored-device guard (never touch a silenced host) and independently of who gets paged. Mutations are admin-only and audited.</li>
+              </ul>
+              <h4>Fleet management additions</h4>
+              <ul>
+                <li><strong>Patch catalog</strong> (Patches page) — pending updates aggregated <strong>by package</strong> ("package X is pending on N hosts"), the inverse of the device table. Agents now report upgradable package names (capped). <code>GET /api/patch-catalog</code>.</li>
+                <li><strong>Post-deployment verification</strong> — queuing an upgrade snapshots the pending count and forces a re-scan; the Patches table then shows whether it <strong>took</strong> (dropped), stalled, or is still pending.</li>
+                <li><strong>Software metering / license compliance</strong> (Reports page) — track install counts of named software fleet-wide against an allowance; over-deployment is flagged. <code>GET /api/inventory/metering</code>.</li>
+                <li><strong>Fleet heat map</strong> (Home) — a grid of device cells coloured by health score, scaling visually where tables don't.</li>
+                <li><strong>After-hours activity detection</strong> (Settings → Dashboard) — flag selected events that fire outside business hours (a 3am login / new port / command) as a Needs-Attention item.</li>
+                <li><strong>Ad-hoc fleet query</strong> (Fleet → Query) — filter devices by group / tag / OS / online / pending-count / integrity / CVE count, with saved queries. <code>GET /api/fleet/query</code>.</li>
+                <li><strong>Signed-agent badge on Devices</strong> — a green ✓ next to the version when the running binary matches the canonical signed build, a red ⚠ on a hash mismatch; hover shows the status and short hash.</li>
               </ul>
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
             </div>
@@ -3253,6 +3289,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="reports-anomalies"><div class="c-muted">Loading…</div></div>
         </div>
 
+        <!-- v3.4.2: software metering / license compliance -->
+        <div class="dash-card mb-16">
+          <h3>Software metering</h3>
+          <div class="page-subtitle mb-12">Track install counts of named software across the fleet against an allowance. One per line as <span class="ff-mono">name = limit</span> (limit 0 = just count). Matches package names in the collected inventory.</div>
+          <div class="mb-12"><textarea id="metering-config" class="form-input ff-mono fs-12" rows="3" placeholder="nginx = 10&#10;mysql-server = 4&#10;teamviewer = 0"></textarea></div>
+          <div class="row-8-center mb-12"><button class="btn-primary fs-12" data-action="saveMetering">Save &amp; scan</button><span id="metering-status" class="fs-12 c-muted"></span></div>
+          <div id="metering-results"></div>
+        </div>
+
         <!-- v3.4.1: SLA / uptime -->
         <div class="dash-card mb-16">
           <div class="row-8-center mb-12"><h3 class="m-0">Uptime (SLA)</h3>
@@ -3286,6 +3331,29 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <span id="report-sched-status" class="fs-12 c-muted"></span>
           </div>
         </div>
+      </div>
+
+      <!-- ── Fleet query page (v3.4.2) ────────────────────────────────────── -->
+      <div id="page-query" class="page">
+        <div class="page-title">Fleet Query</div>
+        <div class="page-subtitle">Filter the fleet by ad-hoc criteria (all conditions are ANDed). Save the ones you run often. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="settings-section">
+          <div class="settings-row isl-57">
+            <div class="form-group"><label class="form-label">Group</label><input type="text" id="fq-group" class="form-input" placeholder="any"></div>
+            <div class="form-group"><label class="form-label">Tag</label><input type="text" id="fq-tag" class="form-input" placeholder="any"></div>
+            <div class="form-group"><label class="form-label">OS contains</label><input type="text" id="fq-os" class="form-input" placeholder="any"></div>
+            <div class="form-group"><label class="form-label">Online</label><select id="fq-online" class="form-input"><option value="">any</option><option value="1">online</option><option value="0">offline</option></select></div>
+            <div class="form-group"><label class="form-label">Pending &gt;</label><input type="number" id="fq-pending" class="form-input" min="0" placeholder="—"></div>
+            <div class="form-group"><label class="form-label">Integrity</label><select id="fq-integrity" class="form-input"><option value="">any</option><option value="verified">verified</option><option value="mismatch">mismatch</option><option value="unknown">unknown</option></select></div>
+            <div class="form-group"><label class="form-label">CVE (crit+high) ≥</label><input type="number" id="fq-cve" class="form-input" min="0" placeholder="—"></div>
+          </div>
+          <div class="row-8-center mt-8">
+            <button class="btn-primary fs-12" data-action="runFleetQuery">Run</button>
+            <button class="btn-secondary fs-12" data-action="saveFleetQuery">Save query</button>
+            <span id="fq-saved" class="row-8-center"></span>
+          </div>
+        </div>
+        <div id="fq-results"><div class="c-muted">Set criteria and Run.</div></div>
       </div>
 
       <!-- ── Automation rules page (v3.4.2) ───────────────────────────────── -->
@@ -3396,6 +3464,16 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-primary fs-12" data-action="runInventorySearch">Search</button>
           </div>
           <div id="inv-results"></div>
+        </div>
+
+        <!-- v3.4.2: fleet-wide patch catalog (by package) -->
+        <div class="dash-card mt-16">
+          <div class="row-8-center mb-6"><h3 class="m-0">Patch catalog</h3>
+            <button class="btn-icon fs-12" data-action="loadPatchCatalog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+            <span id="patch-catalog-summary" class="fs-12 c-muted"></span>
+          </div>
+          <div class="page-subtitle mb-12">Pending updates aggregated by package — which update is waiting, and on how many hosts. The inverse of the device table above.</div>
+          <div id="patch-catalog-body"><div class="c-muted">Loading…</div></div>
         </div>
       </div>
 

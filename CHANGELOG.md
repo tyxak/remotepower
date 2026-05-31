@@ -56,6 +56,28 @@ In development.
   action. New `GET`/`POST /api/automation/rules` and
   `PUT`/`DELETE /api/automation/rules/<id>` (mutations admin-only, audited).
 
+### Fleet management additions
+- **Patch catalog (Patches page).** Pending updates aggregated *by package* —
+  "package X is pending on N hosts" — the inverse of the device table. The agent
+  now reports upgradable package names (capped). `GET /api/patch-catalog`.
+- **Post-deployment verification.** Queuing an upgrade snapshots the pending
+  count and forces a re-scan; the Patches table then shows whether it took
+  (dropped), stalled, or is pending.
+- **Software metering / license compliance (Reports page).** Track install
+  counts of named software fleet-wide against an allowance; flags
+  over-deployment. `GET /api/inventory/metering`.
+- **Fleet heat map (Home).** A grid of device cells coloured by health score —
+  scales visually where tables don't.
+- **After-hours activity detection (Settings → Dashboard).** Flag selected
+  events that fire outside business hours (a 3am login/new port/command);
+  surfaces as a Needs Attention item.
+- **Ad-hoc fleet query (Fleet → Query).** Filter devices by group / tag / OS /
+  online / pending-count / integrity / CVE count, with saved queries.
+  `GET /api/fleet/query`.
+- **Signed-agent badge on Devices.** A green ✓ next to the version when the
+  running binary matches the canonical (signed) build, a red ⚠ on a hash
+  mismatch — hover shows the status + short hash.
+
 ### Fixes & polish
 - **SNMP thresholds intermittently ignored — fixed.** The SNMP poll sweep loads
   devices once, then polls each target over the network (seconds). A threshold

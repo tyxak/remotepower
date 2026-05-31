@@ -842,6 +842,7 @@ function showPage(name, btn) {
   if (name === 'reports')  loadReports();
   if (name === 'automation') loadAutomation();
   if (name === 'signing')    loadSigning();
+  if (name === 'query')      loadFleetQuery();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -901,6 +902,21 @@ async function loadDevices() {
     toast('Failed to load devices', 'error');
   }
 }
+// v3.4.2: signed/integrity badge next to a device's version. Green check =
+// running binary matches the canonical (signed) build; red warning = hash
+// mismatch (tamper / partial update). Hover shows the status + short hash.
+function _signedBadge(d) {
+  if (d.agent_integrity === 'verified') {
+    const h = d.agent_sha256 ? ` (sha256 ${d.agent_sha256}…)` : '';
+    return ` <span class="agent-sig agent-verified" title="Signed release verified — running binary matches the canonical build${h}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>`;
+  }
+  if (d.agent_integrity === 'mismatch') {
+    const h = d.agent_sha256 ? ` (running sha256 ${d.agent_sha256}…)` : '';
+    return ` <span class="agent-sig agent-mismatch" title="Agent binary hash does NOT match the published build${h} — possible tamper or partial update"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>`;
+  }
+  return '';
+}
+
 function renderDevices() {
   const container = document.getElementById('devices-container');
   // v1.11.5: apply density class so card padding/font-size match the
@@ -1050,7 +1066,7 @@ function renderDevices() {
         </div>
         <div class="status-badge ${isOnline ? 'online' : 'offline'}"><div class="status-badge-dot"></div>${isOnline ? 'Online' : 'Offline'}${missedHtml}</div>
       </div>
-      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
+      <div class="device-meta"><div class="meta-item"><div class="meta-label">OS</div><div class="meta-value">${escHtml(d.os || '—')}</div></div><div class="meta-item"><div class="meta-label">IP</div><div class="meta-value">${escHtml(d.ip || '—')}</div></div><div class="meta-item"><div class="meta-label">Version</div><div class="meta-value">${escHtml(d.version || '—')}${_signedBadge(d)} ${patchHtml}</div></div><div class="meta-item"><div class="meta-label">Poll / Enrolled</div><div class="meta-value">${d.poll_interval||60}s · ${d.enrolled ? timeAgo(d.enrolled) : '—'}</div></div>${rootMount ? `<div class="meta-item"><div class="meta-label">Disk /</div><div class="meta-value">${rootMount.percent}% ${diskSpark}</div></div>` : ''}${memPct != null ? `<div class="meta-item"><div class="meta-label">Memory</div><div class="meta-value">${memPct}% ${memSpark}</div></div>` : ''}${snmpMeta}</div>
       ${deviceDropdownHtml(d, isMonitored)}
       ${(d.tags||[]).length ? `<div class="mt-8">${(d.tags||[]).map(t=>`<span class="tag-pill">${escHtml(t)}</span>`).join('')}</div>` : ''}
       <div class="last-seen">Last seen: ${lastSeen}</div>
@@ -1177,7 +1193,7 @@ function _registerDevicesMinimalTable() {
         <td class="dev-group-cell">${groupHtml}</td>
         <td class="dev-os-cell fs-12">${escHtml(d.os || '—')}</td>
         <td class="dev-ip-cell mono-12">${escHtml(d.ip || '—')}</td>
-        <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${patchHtml}</td>
+        <td class="dev-version-cell fs-12">${escHtml(d.version || '—')}${_signedBadge(d)}${patchHtml}</td>
         <td class="dev-lastseen-cell hint">${lastSeen}</td>
         <td class="dev-actions-cell ta-right">${dropdownHtml}</td>
       </tr>`;
@@ -2403,6 +2419,9 @@ const _DYK_TIPS = [
   "Sign your agent releases with GPG (tools/sign-agent-release.sh) and pin the public key on hosts — agents then refuse any self-update that isn't validly signed.",
   "Turn alerts into help-desk tickets with zero setup: point the email channel at a self-hosted osTicket (or Zammad / RT / FreeScout) inbound address.",
   "Admin → Release Signing: sign agent releases so agents reject any tampered or unsigned self-update, and see which agents refused one.",
+  "The Patches page has a patch catalog — see which update is pending across how many hosts, the inverse of the per-device view.",
+  "Fleet → Query lets you filter devices by group, tags, OS, pending updates, CVE count or integrity — and save the queries you reuse.",
+  "A green check next to a device's version means it's running the canonical signed agent build; a red mark means the hash doesn't match.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -3442,7 +3461,13 @@ function _registerPatchTable() {
       const cveBadge = d.cve_fixable > 0
         ? `<button class="patch-cve-badge" data-action="openDeviceCVE" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" title="${d.cve_fixable} critical/high CVE(s) a pending patch would fix — view them">${d.cve_fixable} CVE${d.cve_fixable === 1 ? '' : 's'} fixable</button>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      // v3.4.2: post-deploy verification badge.
+      const vmap = { ok: ['ok', 'verified', 'pending count dropped after upgrade'],
+                     stalled: ['warn', 'didn’t take', 'pending count unchanged >1h after the upgrade'],
+                     pending: ['', 'verifying…', 'upgrade queued — waiting for the post-upgrade re-scan'] };
+      const v = vmap[d.upgrade_verify];
+      const verifyBadge = v ? ` <span class="patch-badge ${v[0]}" title="${escAttr(v[2])}">${v[1]}</span>` : '';
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
@@ -3482,7 +3507,24 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); }
+
+// v3.4.2: fleet-wide patch catalog (pending updates aggregated by package).
+async function loadPatchCatalog() {
+  const body = document.getElementById('patch-catalog-body');
+  if (!body) return;
+  const r = await api('GET', '/patch-catalog').catch(() => null);
+  if (!r) { body.innerHTML = '<div class="c-red">Failed to load patch catalog.</div>'; return; }
+  const sum = document.getElementById('patch-catalog-summary');
+  if (sum) sum.textContent = `${r.total_packages} package(s) pending`
+    + (r.devices_without_detail.length ? ` · ${r.devices_without_detail.length} host(s) report a count only (older agent)` : '');
+  if (!r.packages.length) { body.innerHTML = '<div class="c-muted fs-13">No pending updates across the fleet.</div>'; return; }
+  const rows = r.packages.map(p =>
+    `<tr><td class="mono-12">${escHtml(p.package)}</td><td class="ta-center fw-500">${p.count}</td>`
+    + `<td class="fs-12 c-muted">${escHtml(p.devices.join(', '))}${p.count > p.devices.length ? ', …' : ''}</td></tr>`).join('');
+  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Package</th><th class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }
 function renderPatchTable() {
   if (!patchReportData) return;
@@ -7676,6 +7718,20 @@ function _renderHomeHealth(health, history) {
     + `</div>`;
 }
 
+// v3.4.2: fleet heat map — one cell per device, coloured by health score.
+function _renderHomeHeatmap(health) {
+  const wrap = document.getElementById('home-heatmap');
+  const card = document.getElementById('home-heatmap-card');
+  if (!wrap) return;
+  const devs = (health && health.devices) || [];
+  if (devs.length < 2) { if (card) card.classList.add('d-none'); return; }
+  if (card) card.classList.remove('d-none');
+  const color = s => s >= 90 ? 'var(--green)' : s >= 70 ? '#d4a017' : s >= 40 ? '#ff8c00' : 'var(--red)';
+  wrap.innerHTML = '<div class="heatmap-grid">' + devs.map(d =>
+    `<button class="heatmap-cell" data-bg="${color(d.score)}" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}" title="${escAttr(d.device_name)} — health ${d.score}/100${d.critical ? ` · ${d.critical} critical` : ''}${d.warning ? ` · ${d.warning} warning` : ''}"></button>`
+  ).join('') + '</div>';
+}
+
 function _gradeFor(score) {
   if (score >= 90) return 'good';
   if (score >= 70) return 'fair';
@@ -7709,6 +7765,7 @@ async function loadHome() {
   // it directly without re-fetching /api/attention.
   _renderHomeTiles(devs, drift, cves, mailwatch);
   _renderHomeHealth(home.health, home.health_history);
+  _renderHomeHeatmap(home.health);
   _renderHomeAttention(home.attention);
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
@@ -10414,6 +10471,14 @@ async function loadDashboardSettings() {
   const qhSev = document.getElementById('qh-min-sev');
   if (qhSev && qh.min_severity) qhSev.value = qh.min_severity;
 
+  // v3.4.2: after-hours detection
+  const ah = cfg.after_hours || {};
+  const ahEn = document.getElementById('ah-enabled');
+  if (ahEn) ahEn.value = ah.enabled ? '1' : '0';
+  if (document.getElementById('ah-start') && ah.start) document.getElementById('ah-start').value = ah.start;
+  if (document.getElementById('ah-end') && ah.end) document.getElementById('ah-end').value = ah.end;
+  if (document.getElementById('ah-events')) document.getElementById('ah-events').value = (ah.events || []).join(', ');
+
   // v3.2.3: channel routing matrix — replaces the two legacy
   // kind/activity panes. Server is the source of truth for the kind
   // roster; we just render the table and POST diffs back.
@@ -10504,6 +10569,18 @@ async function saveBruteForceSettings() {
     brute_force_window_seconds: windowMin * 60,
   });
   if (r?.ok) toast('Brute-force settings saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveAfterHours() {
+  const enabled = document.getElementById('ah-enabled').value === '1';
+  const start = document.getElementById('ah-start').value;
+  const end = document.getElementById('ah-end').value;
+  const events = document.getElementById('ah-events').value.split(',').map(s => s.trim()).filter(Boolean);
+  if (enabled && (!start || !end)) { toast('Set business start and end times', 'error'); return; }
+  if (enabled && !events.length) { toast('List at least one event to watch', 'error'); return; }
+  const r = await api('POST', '/config', { after_hours: { enabled, start, end, events } }).catch(() => null);
+  if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
   else toast(r?.error || 'Failed', 'error');
 }
 
@@ -12402,6 +12479,7 @@ async function loadReports() {
   loadReportsCapacity();
   loadReportsIntegrity();
   loadReportsAnomalies();
+  loadReportsMetering();
   loadReportsSla();
   // Schedule config.
   const sch = await api('GET', '/report/schedule').catch(() => null);
@@ -12463,6 +12541,42 @@ async function loadReportsIntegrity() {
   out.innerHTML = pills + (rows
     ? `<div class="table-card"><table><thead><tr><th>Device</th><th>Version</th><th>Status</th><th>Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="c-muted fs-13">All reporting agents verified.</div>');
+}
+
+// v3.4.2: software metering / license compliance.
+async function loadReportsMetering() {
+  const out = document.getElementById('metering-results');
+  if (!out) return;
+  // Prefill the config textarea from /config.
+  const cfg = await api('GET', '/config').catch(() => null);
+  const ta = document.getElementById('metering-config');
+  if (ta && cfg && Array.isArray(cfg.software_meters)) {
+    ta.value = cfg.software_meters.map(m => `${m.name} = ${m.limit || 0}`).join('\n');
+  }
+  const r = await api('GET', '/inventory/metering').catch(() => null);
+  if (!r) { out.innerHTML = ''; return; }
+  if (!r.meters.length) { out.innerHTML = '<div class="c-muted fs-13">No software meters configured yet.</div>'; return; }
+  const rows = r.meters.map(m => {
+    const cls = m.over ? 'c-red fw-500' : '';
+    const lim = m.limit ? ` / ${m.limit}` : '';
+    return `<tr><td>${escHtml(m.name)}</td><td class="${cls}">${m.installed}${lim}${m.over ? ' ⚠' : ''}</td>`
+      + `<td class="fs-12 c-muted">${escHtml(m.devices.join(', '))}</td></tr>`;
+  }).join('');
+  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Software</th><th>Installed</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function saveMetering() {
+  const ta = document.getElementById('metering-config');
+  const meters = (ta.value || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const m = l.split('=');
+    const name = (m[0] || '').trim();
+    const limit = parseInt((m[1] || '0').trim(), 10) || 0;
+    return name ? { name, limit } : null;
+  }).filter(Boolean);
+  const r = await api('POST', '/config', { software_meters: meters }).catch(() => null);
+  if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
+  const st = document.getElementById('metering-status'); if (st) st.textContent = `${meters.length} meter(s) saved`;
+  loadReportsMetering();
 }
 
 async function loadReportsAnomalies() {
@@ -12654,6 +12768,74 @@ async function deleteAutomationRule(id) {
   if (!r || r.error) { toast((r && r.error) || 'Delete failed', 'error'); return; }
   toast('Rule deleted', 'success');
   loadAutomation();
+}
+
+// ── Fleet query (v3.4.2) — ad-hoc device filter + saved queries (localStorage) ─
+function _fqFields() {
+  return {
+    group: document.getElementById('fq-group').value.trim(),
+    tag: document.getElementById('fq-tag').value.trim(),
+    os: document.getElementById('fq-os').value.trim(),
+    online: document.getElementById('fq-online').value,
+    pending_gt: document.getElementById('fq-pending').value.trim(),
+    integrity: document.getElementById('fq-integrity').value,
+    cve_min: document.getElementById('fq-cve').value.trim(),
+  };
+}
+function loadFleetQuery() { _renderSavedQueries(); }
+function _savedQueries() {
+  try { return JSON.parse(localStorage.getItem('rp_fleet_queries') || '[]'); } catch (_) { return []; }
+}
+function _renderSavedQueries() {
+  const wrap = document.getElementById('fq-saved');
+  if (!wrap) return;
+  const qs = _savedQueries();
+  wrap.innerHTML = qs.map((q, i) =>
+    `<span class="tl-chip" data-action="applyFleetQuery" data-arg="${i}">${escHtml(q.name)}</span>`
+    + `<button class="btn-icon fs-11" data-action="deleteFleetQuery" data-arg="${i}" title="Delete saved query">✕</button>`).join('');
+}
+function saveFleetQuery() {
+  const name = prompt('Name this query:');
+  if (!name) return;
+  const qs = _savedQueries();
+  qs.push({ name: name.slice(0, 40), f: _fqFields() });
+  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs.slice(0, 50)));
+  _renderSavedQueries();
+}
+function applyFleetQuery(i) {
+  const q = _savedQueries()[i]; if (!q) return;
+  const f = q.f || {};
+  document.getElementById('fq-group').value = f.group || '';
+  document.getElementById('fq-tag').value = f.tag || '';
+  document.getElementById('fq-os').value = f.os || '';
+  document.getElementById('fq-online').value = f.online || '';
+  document.getElementById('fq-pending').value = f.pending_gt || '';
+  document.getElementById('fq-integrity').value = f.integrity || '';
+  document.getElementById('fq-cve').value = f.cve_min || '';
+  runFleetQuery();
+}
+function deleteFleetQuery(i) {
+  const qs = _savedQueries(); qs.splice(i, 1);
+  localStorage.setItem('rp_fleet_queries', JSON.stringify(qs));
+  _renderSavedQueries();
+}
+async function runFleetQuery() {
+  const out = document.getElementById('fq-results');
+  const f = _fqFields();
+  const params = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) params.set(k, v); });
+  out.innerHTML = '<div class="c-muted">Querying…</div>';
+  const r = await api('GET', '/fleet/query?' + params.toString()).catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Query failed.</div>'; return; }
+  if (!r.devices.length) { out.innerHTML = '<div class="c-muted fs-13">No devices match.</div>'; return; }
+  const rows = r.devices.map(d =>
+    `<tr><td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}">${escHtml(d.name)}</button></td>`
+    + `<td class="hint">${escHtml(d.group || '—')}</td><td class="fs-12">${escHtml((d.os || '').substring(0, 28))}</td>`
+    + `<td><span class="mon-status ${d.online ? 'up' : 'down'}">${d.online ? 'Online' : 'Offline'}</span></td>`
+    + `<td class="ta-center">${d.pending == null ? '—' : d.pending}</td>`
+    + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
+  out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} device(s)</div>`
+    + `<div class="table-card"><table><thead><tr><th>Device</th><th>Group</th><th>OS</th><th>Status</th><th class="ta-center">Pending</th><th class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 // ── Release signing (v3.4.2) ─────────────────────────────────────────────────
