@@ -1527,6 +1527,18 @@
         </div>
 
         <div class="settings-section">
+          <h3>Health-score alerts</h3>
+          <p class="hint">Fires <code>health_degraded</code> (and a <code>health_recovered</code> follow-up) when a device's fleet health score drops below the threshold. Edge-triggered — one alert per crossing, not every heartbeat. Set to <strong>0</strong> to disable.</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label">Alert below score (0 = off)</label>
+              <input type="number" id="health-alert-threshold" class="form-input isl-80" min="0" max="100" value="0">
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveHealthAlertSettings" >Save</button>
+        </div>
+
+        <div class="settings-section">
           <h3>Backup file monitoring</h3>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
           <div id="backup-monitors-list" class="mb-12"></div>
@@ -1769,8 +1781,9 @@
 
               <h4>Fleet health score (Home)</h4>
               <ul>
-                <li>A single <strong>0–100 score</strong> per device and across the fleet, with a letter grade. The home dashboard gets a health panel: score + grade, a severity breakdown, and the lowest-scoring devices — each a click-through into its timeline.</li>
+                <li>A single <strong>0–100 score</strong> per device and across the fleet, with a letter grade. The home dashboard gets a health panel: score + grade, a severity breakdown, a <strong>trend sparkline</strong>, and the lowest-scoring devices — each a click-through into its timeline.</li>
                 <li>It's a weighted rollup of the <strong>same Needs Attention signals</strong> the app already computes, so the number can never disagree with the NA list. Only monitored devices count.</li>
+                <li><strong>History &amp; alerts.</strong> The score is sampled daily into a time series (<code>GET /api/fleet/health/history</code>). Set an opt-in threshold under <strong>Settings → Dashboard → Health-score alerts</strong> and a device dropping below it fires an edge-triggered <code>health_degraded</code> event (with a <code>health_recovered</code> follow-up). <code>0</code> disables it.</li>
               </ul>
 
               <h4>Fleet posture Report + scheduled email (Planning → Reports)</h4>

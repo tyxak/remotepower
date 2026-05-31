@@ -2386,6 +2386,7 @@ async function sendExecCmd() { const id = document.getElementById('exec-device-i
 const _DYK_TIPS = [
   "Each device has a Timeline (Monitoring → Timeline) that merges its events and command runs into one chronological story.",
   "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
+  "Set a health-score alert threshold in Settings → Dashboard and get notified the moment a device's score drops below it.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -7563,7 +7564,24 @@ const EVENT_CLASS = {
 const _HEALTH_COLOR = { good: 'var(--green)', fair: '#d4a017',
   poor: '#ff8c00', critical: 'var(--red)' };
 
-function _renderHomeHealth(health) {
+function _healthSparkline(history) {
+  // Build a tiny inline SVG trend from the fleet score series (0-100). Returns
+  // '' for <2 points. Stroke colour comes from CSS (.hh-spark), CSP-safe.
+  const pts = (history || []).map(s => s.score).filter(n => typeof n === 'number');
+  if (pts.length < 2) return '';
+  const W = 120, H = 32, n = pts.length;
+  const coords = pts.map((v, i) => {
+    const x = (i / (n - 1)) * W;
+    const y = H - (Math.max(0, Math.min(100, v)) / 100) * H;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="hh-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" `
+    + `width="${W}" height="${H}" aria-hidden="true">`
+    + `<polyline points="${coords}" fill="none" stroke="currentColor" `
+    + `stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function _renderHomeHealth(health, history) {
   const body = document.getElementById('home-health-body');
   if (!body) return;
   if (!health || typeof health.score !== 'number') {
@@ -7573,6 +7591,7 @@ function _renderHomeHealth(health) {
   const grade = health.grade || 'good';
   const color = _HEALTH_COLOR[grade] || 'var(--muted)';
   const c = health.counts || {};
+  const spark = _healthSparkline(history);
   const worst = (health.devices || []).filter(d => d.score < 100).slice(0, 6);
   const worstHtml = worst.length
     ? worst.map(d =>
@@ -7599,6 +7618,7 @@ function _renderHomeHealth(health) {
     +     `<span class="sev-pill sev-medium">${c.warning || 0} warning</span>`
     +     `<span class="sev-pill sev-low">${c.info || 0} info</span>`
     +   `</div>`
+    +   (spark ? `<div class="hh-trend" data-color="${color}" title="Fleet score, last ${(history || []).length} day(s)">${spark}</div>` : '')
     +   `<div class="hh-worst">${worstHtml}</div>`
     + `</div>`
     + `</div>`;
@@ -7636,7 +7656,7 @@ async function loadHome() {
   // The attention payload is embedded so _renderHomeAttention can use
   // it directly without re-fetching /api/attention.
   _renderHomeTiles(devs, drift, cves, mailwatch);
-  _renderHomeHealth(home.health);
+  _renderHomeHealth(home.health, home.health_history);
   _renderHomeAttention(home.attention);
   _renderHomeActivity(fleetEvents);
   _renderHomeFleet(devs);
@@ -8008,6 +8028,8 @@ function _renderHomeActivity(fleetEvents) {
     'mcp_confirmation_expired',
     // v3.4.0: hardware health
     'smart_failure', 'kernel_outdated',
+    // v3.4.1: device health score dropped below threshold
+    'health_degraded',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -8143,6 +8165,9 @@ function _homeActivityAttrs(event, p) {
     case 'smart_failure': case 'kernel_outdated':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    case 'health_degraded':
+      // v3.4.1: health-score alert → that device's timeline.
+      return `${base} data-home-act="${devId ? 'timeline' : 'home'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -10321,6 +10346,10 @@ async function loadDashboardSettings() {
   document.getElementById('dash-bf-threshold').value  = bfThreshold;
   document.getElementById('dash-bf-window').value     = bfWindow;
 
+  // v3.4.1: health-score alert threshold (0 = disabled)
+  const hat = document.getElementById('health-alert-threshold');
+  if (hat) hat.value = parseInt(cfg.health_alert_threshold, 10) || 0;
+
   // v3.2.3: channel routing matrix — replaces the two legacy
   // kind/activity panes. Server is the source of truth for the kind
   // roster; we just render the table and POST diffs back.
@@ -10411,6 +10440,15 @@ async function saveBruteForceSettings() {
     brute_force_window_seconds: windowMin * 60,
   });
   if (r?.ok) toast('Brute-force settings saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveHealthAlertSettings() {
+  let threshold = parseInt(document.getElementById('health-alert-threshold').value, 10);
+  if (isNaN(threshold) || threshold < 0) threshold = 0;
+  threshold = Math.min(100, threshold);
+  const r = await api('POST', '/config', { health_alert_threshold: threshold });
+  if (r?.ok) toast(threshold ? `Health alerts on: below ${threshold}` : 'Health alerts disabled', 'success');
   else toast(r?.error || 'Failed', 'error');
 }
 
@@ -15340,6 +15378,12 @@ function _homeNavAction(btn) {
     case 'tls':      showPage('tls',             document.querySelector('.nav-btn[data-section-page="tls"]')); break;
     case 'virtualization': showPage('virtualization', document.querySelector('.nav-btn[data-page="virtualization"]')); break;
     case 'self':     showPage('self',            document.querySelector('.nav-btn[data-page="self"]')); break;
+    case 'timeline':
+      // v3.4.1: open the device's timeline (deep-link via pending-device).
+      if (devId) openDeviceTimeline(devId);
+      else showPage('timeline', document.querySelector('.nav-btn[data-page="timeline"]'));
+      break;
+    case 'home':     showPage('home',            document.querySelector('.nav-btn[data-page="home"]')); break;
     default:
       if (devId) openDetail(devId, devName);
       else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));

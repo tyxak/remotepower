@@ -208,6 +208,9 @@ SPEEDTEST_FILE   = DATA_DIR / 'speedtest.json'
 DISCOVERY_FILE   = DATA_DIR / 'discovery.json'
 METRICS_HIST_FILE = DATA_DIR / 'metrics_history.json'
 HELM_FILE        = DATA_DIR / 'helm.json'
+# v3.4.1: fleet/per-device health-score time series (one sample per UTC day).
+HEALTH_HIST_FILE = DATA_DIR / 'health_history.json'
+HEALTH_ALERT_STATE_FILE = DATA_DIR / 'health_alert_state.json'
 # v3.4.0: global webhook send-rate limiter state (sliding window of send ts).
 # The cap is a runaway-loop backstop, NOT a fleet-size limit: a single
 # fleet-wide event (e.g. a CVE flagged on every host, or a kernel rollout)
@@ -621,6 +624,8 @@ WEBHOOK_EVENTS = (
     # v3.4.0: hardware / health
     ('smart_failure',         'A disk reported SMART failure or pre-fail',   True),
     ('kernel_outdated',       'Running kernel is older than newest installed', True),
+    # v3.4.1: fleet health score dropped below the configured threshold
+    ('health_degraded',       'Device health score dropped below threshold', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -2324,6 +2329,9 @@ _ALERT_RULES = {
     # is a reboot nudge (matches reboot_required's medium).
     'smart_failure':          ('high',     None),
     'kernel_outdated':        ('medium',   None),
+    # v3.4.1: health score crossed the alert threshold. Severity is derived
+    # from the score in _alert_severity (lower score → more severe).
+    'health_degraded':        (None,       None),
 }
 
 # Map recover event → firing event it resolves
@@ -2338,6 +2346,9 @@ _ALERT_RECOVER = {
     # v3.3.4: once every host running an image has pulled the registry's
     # current digest, image_updated clears the open image_update_available.
     'image_updated':           'image_update_available',
+    # v3.4.1: a device climbing back above the alert threshold resolves its
+    # open health_degraded alert.
+    'health_recovered':        'health_degraded',
     # snmp_recover also resolves any snmp_dead alert (same device).
     # _auto_resolve_alerts walks once per recovered event, so we register
     # both here. The trick: dict keys must be unique, so the second
@@ -2385,6 +2396,7 @@ CHANNEL_KINDS = [
     ('snmp',        'SNMP polling',             'operational',   ['snmp_unreachable', 'snmp_dead', 'snmp_recover']),
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
     ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'kernel_outdated']),
+    ('health',      'Device health score',      'operational',   ['health_degraded', 'health_recovered']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -2583,6 +2595,17 @@ def _alert_severity(event, payload):
         if lvl in ('warning', 'warn', 'medium'):
             return 'medium'
         return 'medium'
+    if event == 'health_degraded':
+        # Lower score → more severe. Mirrors the _health_grade bands.
+        try:
+            score = int(p.get('score'))
+        except (TypeError, ValueError):
+            return 'high'
+        if score < 40:
+            return 'critical'
+        if score < 70:
+            return 'high'
+        return 'medium'
     return None
 
 
@@ -2644,6 +2667,10 @@ def _alert_title(event, payload):
         return f'SNMP DEAD ({p.get("hours", "?")}h silent): {name} ({p.get("host", "?")})'
     if event == 'mcp_confirmation_expired':
         return f'MCP confirmation expired: {p.get("action", "?")} on {name or "(no device)"}'
+    if event == 'health_degraded':
+        return f'Health degraded on {name}: score {p.get("score", "?")}/100'
+    if event == 'health_recovered':
+        return f'Health recovered on {name}: score {p.get("score", "?")}/100'
     # v3.2.3: titles for the newly-wired alerts. Use the most
     # operator-relevant fields from each event's payload.
     if event == 'monitor_down':
@@ -3048,6 +3075,8 @@ def _webhook_title(event):
         'drift_detected':        'Configuration Drift',
         'smart_failure':         'Disk SMART Failure',
         'kernel_outdated':       'Kernel Reboot Required',
+        'health_degraded':       'Device Health Degraded',
+        'health_recovered':      'Device Health Recovered',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -7188,6 +7217,15 @@ def handle_config_save():
             cfg['brute_force_window_seconds'] = max(60, min(3600, w))
         except (ValueError, TypeError):
             respond(400, {'error': 'brute_force_window_seconds must be an integer'})
+
+    # v3.4.1: health-score alert threshold (0 disables; 1-100 enables
+    # edge-triggered health_degraded / health_recovered events).
+    if 'health_alert_threshold' in body:
+        try:
+            h = int(body['health_alert_threshold'])
+            cfg['health_alert_threshold'] = max(0, min(100, h))
+        except (ValueError, TypeError):
+            respond(400, {'error': 'health_alert_threshold must be an integer'})
 
     # v2.8.1: backup file monitors [{path, label, max_age_hours}]
     if 'backup_monitors' in body:
@@ -13931,6 +13969,112 @@ def handle_fleet_health():
     respond(200, _fleet_health())
 
 
+_HEALTH_HIST_MAX = 180   # keep ~6 months of daily samples per series
+
+
+def _maybe_sample_health(now=None):
+    """Record at most one health-score sample per UTC day (fleet + per device).
+
+    Daily-gated like _maybe_sample_metrics: the first heartbeat of a new day
+    computes _fleet_health() once and appends {date, ts, score} to the fleet
+    series and each device's series; later heartbeats that day exit after a
+    single date comparison. Stored in health_history.json:
+        {'fleet': [{date, ts, score, grade}, ...],
+         'devices': {dev_id: [{date, ts, score}, ...]}}
+    Series are trimmed to _HEALTH_HIST_MAX. Failures never raise (best-effort,
+    called from the heartbeat hot path)."""
+    now = int(now or time.time())
+    import datetime as _dt
+    day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+    try:
+        with _LockedUpdate(HEALTH_HIST_FILE) as store:
+            fleet = store.setdefault('fleet', [])
+            if fleet and fleet[-1].get('date') == day:
+                return  # already sampled today
+            health = _fleet_health()
+            fleet.append({'date': day, 'ts': now,
+                          'score': health['score'], 'grade': health['grade']})
+            store['fleet'] = fleet[-_HEALTH_HIST_MAX:]
+            devices = store.setdefault('devices', {})
+            live_ids = set()
+            for d in health.get('devices', []):
+                did = d['device_id']
+                live_ids.add(did)
+                series = devices.setdefault(did, [])
+                if series and series[-1].get('date') == day:
+                    continue
+                series.append({'date': day, 'ts': now, 'score': d['score']})
+                devices[did] = series[-_HEALTH_HIST_MAX:]
+            # Drop series for devices that no longer exist so the file doesn't
+            # grow unbounded with deleted hosts.
+            for gone in [k for k in devices if k not in live_ids]:
+                del devices[gone]
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] health sample failed: {e}\n')
+
+
+def handle_fleet_health_history():
+    """GET /api/fleet/health/history?device=<id> — health-score time series.
+
+    Without ?device, returns the fleet series. With it, that device's series.
+    Auth: require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    dev_id = (qs.get('device') or [''])[0].strip()
+    store = load(HEALTH_HIST_FILE) or {}
+    if dev_id:
+        series = (store.get('devices') or {}).get(dev_id) or []
+        respond(200, {'device_id': dev_id, 'series': series})
+    respond(200, {'series': store.get('fleet') or []})
+
+
+def _check_health_webhooks():
+    """Edge-triggered health-score alerting (heartbeat hook).
+
+    Opt-in: does nothing unless `health_alert_threshold` is a positive int in
+    config. Fires `health_degraded` the first beat a device's score drops below
+    the threshold and `health_recovered` when it climbs back — tracked in a
+    per-device state file so each transition fires exactly once, not on every
+    heartbeat. Only monitored devices are scored (via _fleet_health)."""
+    cfg = load(CONFIG_FILE) or {}
+    try:
+        threshold = int(cfg.get('health_alert_threshold') or 0)
+    except (TypeError, ValueError):
+        threshold = 0
+    if threshold <= 0:
+        return
+    health = _fleet_health()
+    state = load(HEALTH_ALERT_STATE_FILE) or {}
+    prev = state.get('degraded') or {}
+    new_degraded = {}
+    for d in health.get('devices', []):
+        did = d['device_id']
+        is_deg = d['score'] < threshold
+        was_deg = bool(prev.get(did))
+        if is_deg:
+            new_degraded[did] = True
+            if not was_deg:
+                fire_webhook('health_degraded', {
+                    'device_id':   did,
+                    'device_name': d['device_name'],
+                    'score':       d['score'],
+                    'grade':       _health_grade(d['score']),
+                    'threshold':   threshold,
+                    'critical':    d.get('critical', 0),
+                    'warning':     d.get('warning', 0),
+                })
+        elif was_deg:
+            fire_webhook('health_recovered', {
+                'device_id':   did,
+                'device_name': d['device_name'],
+                'score':       d['score'],
+                'threshold':   threshold,
+            })
+    if new_degraded != prev:
+        state['degraded'] = new_degraded
+        save(HEALTH_ALERT_STATE_FILE, state)
+
+
 def handle_home():
     """GET /api/home — single round-trip for the Home dashboard.
 
@@ -14090,6 +14234,9 @@ def handle_home():
         # v3.4.1: fleet health score. Reuses the cached attention payload above
         # (same 10s cache) so it adds one cheap DEVICES_FILE read, not a recompute.
         'health':       _fleet_health(),
+        # v3.4.1: compact fleet score trend (last 30 daily samples) for the
+        # home health panel's sparkline — one cheap file read, no recompute.
+        'health_history': (load(HEALTH_HIST_FILE) or {}).get('fleet', [])[-30:],
         # Echo the few config flags the Home renderer reads, so the page
         # doesn't need a separate /api/config round-trip.
         'config': {
@@ -22979,6 +23126,7 @@ def _dispatch(pi, m):
     elif pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET':
         handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
+    elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
     # v3.4.1: fleet posture report (patches + CVE + health + compliance)
     elif pi == '/api/report/fleet' and m == 'GET': handle_fleet_report()
@@ -23206,6 +23354,10 @@ def main():
     _safe(process_schedule,    'process_schedule')
     # v3.4.1: send the scheduled fleet posture report when its cron is due.
     _safe(_maybe_send_scheduled_report, '_maybe_send_scheduled_report')
+    # v3.4.1: sample the fleet health score (once per UTC day) + fire
+    # health_degraded / health_recovered alerts on threshold crossings.
+    _safe(_maybe_sample_health, '_maybe_sample_health')
+    _safe(_check_health_webhooks, '_check_health_webhooks')
     # v3.3.0: ping Healthchecks.io (or compatible) when configured.
     # External watchdog over the server itself — if RemotePower stops
     # serving requests, hc.io flips to red and pages someone.

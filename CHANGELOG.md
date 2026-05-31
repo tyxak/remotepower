@@ -21,6 +21,12 @@ previously lived on separate pages, plus a smarter command palette.
   score + grade, a severity breakdown, and the lowest-scoring devices (each a
   click-through into its timeline). New `GET /api/fleet/health`; also embedded in
   the `/api/home` bundle so the panel adds no extra request.
+- **Health-score history + alerts.** The fleet/per-device score is sampled once
+  per UTC day into a time series (`GET /api/fleet/health/history`), rendered as a
+  trend sparkline on the home panel. An opt-in threshold (Settings → Dashboard →
+  Health-score alerts, `0` = off) fires a new edge-triggered **`health_degraded`**
+  event when a device drops below it — and a `health_recovered` follow-up that
+  auto-resolves the alert when it climbs back. Severity scales with the score.
 - **Fleet posture Report (Planning → Reports) + scheduled email.** One report
   that binds patches, CVEs, the health score, and compliance into a single
   export — download as JSON or CSV on demand, or have it emailed on a cron

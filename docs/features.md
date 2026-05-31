@@ -50,6 +50,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | ⟳ **Pending Reboot indicator** | Amber ⟳ Reboot badge next to hostname on the Patches page when `/run/reboot-required` exists on the host (Debian/Ubuntu). Tooltip explains the source (v2.4.14) |
 | **Per-device timeline** | One chronological history per host (**Monitoring → Timeline**): fleet events + command runs merged into a filterable, newest-first stream. `GET /api/devices/<id>/timeline` (v3.4.1) |
 | **Fleet health score** | A single 0–100 score per device and across the fleet on the home dashboard, weighted from the Needs Attention signals; worst devices link into their timelines. `GET /api/fleet/health` (v3.4.1) |
+| **Health-score history & alerts** | Daily score samples with a home-panel trend sparkline (`GET /api/fleet/health/history`), plus an opt-in threshold that fires the edge-triggered `health_degraded` / `health_recovered` events (v3.4.1) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

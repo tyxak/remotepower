@@ -84,11 +84,62 @@ class TestV341Routes(unittest.TestCase):
         for method, path, handler in (
                 ('GET', '/api/devices/abc/timeline', 'handle_device_timeline'),
                 ('GET', '/api/fleet/health',         'handle_fleet_health'),
+                ('GET', '/api/fleet/health/history', 'handle_fleet_health_history'),
                 ('GET', '/api/report/fleet',         'handle_fleet_report'),
                 ('GET', '/api/report/schedule',      'handle_report_schedule_get'),
                 ('PUT', '/api/report/schedule',      'handle_report_schedule_set')):
             self.assertEqual(routes_to(method, path), handler,
                              f'{method} {path} must route to {handler}')
+
+
+class TestV341HealthHistoryAndAlerts(unittest.TestCase):
+    """Health-score history sampler + edge-triggered health_degraded alerting.
+
+    The health_degraded event must be wired through every registry — the three
+    silent ones (_ALERT_RULES, CHANNEL_KINDS, _webhook_title) are verified here
+    by source-pin; the guardrail tests (test_v184/v223/v225) cover the rest."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+
+    def test_history_handlers_defined(self):
+        for fn in ('def _maybe_sample_health(',
+                   'def handle_fleet_health_history(',
+                   'def _check_health_webhooks('):
+            self.assertIn(fn, self.API, f'{fn} missing from api.py')
+
+    def test_sampler_and_check_wired_into_heartbeat(self):
+        self.assertIn("_safe(_maybe_sample_health", self.API)
+        self.assertIn("_safe(_check_health_webhooks", self.API)
+
+    def test_health_degraded_in_all_server_registries(self):
+        # WEBHOOK_EVENTS
+        self.assertIn("'health_degraded'", self.API)
+        # _ALERT_RULES (silent if missed → never lands in Alerts inbox)
+        self.assertRegex(self.API, r"'health_degraded':\s*\(None,\s*None\)")
+        # CHANNEL_KINDS (silent if missed → no routing row)
+        self.assertRegex(self.API, r"'health',.*\['health_degraded',\s*'health_recovered'\]")
+        # _webhook_title (silent-ish if missed → falls back to raw event)
+        self.assertIn("'health_degraded':       'Device Health Degraded'", self.API)
+        # recover mapping
+        self.assertRegex(self.API, r"'health_recovered':\s*'health_degraded'")
+
+    def test_health_degraded_severity_from_score(self):
+        # _alert_severity must derive severity from the score, not return None
+        # (None would skip the alert).
+        self.assertIn("if event == 'health_degraded':", self.API)
+
+    def test_threshold_is_config_gated_and_opt_in(self):
+        # health_alert_threshold accepted by the config POST + default-off check.
+        self.assertIn("'health_alert_threshold'", self.API)
+        self.assertIn('if threshold <= 0:', self.API)
+
+    def test_frontend_wiring(self):
+        # health_degraded must be in the frontend FLEET_EVENTS set (v223 pins
+        # equality with the server) AND have a _homeActivityAttrs case (v225).
+        self.assertIn("'health_degraded'", self.APP)
+        self.assertIn("case 'health_degraded':", self.APP)
+        self.assertIn('function _healthSparkline(', self.APP)
+        self.assertIn('function saveHealthAlertSettings(', self.APP)
 
 
 class TestV341Backend(unittest.TestCase):
@@ -144,7 +195,7 @@ class TestV341Frontend(unittest.TestCase):
     def test_health_panel_present(self):
         self.assertIn('id="home-health"', self.HTML)
         self.assertIn('function _renderHomeHealth(', self.APP)
-        self.assertIn('_renderHomeHealth(home.health)', self.APP)
+        self.assertIn('_renderHomeHealth(home.health', self.APP)
         self.assertIn('function openDeviceTimeline(', self.APP)
 
     def test_reports_page_present(self):

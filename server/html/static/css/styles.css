@@ -4168,6 +4168,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .hh-dev-name { color: var(--text); font-size: 13px; font-weight: 500; }
 .hh-dev-meta { display: flex; gap: 4px; }
 .hh-dev-score { font-weight: 700; font-size: 15px; min-width: 28px; text-align: right; }
+.hh-trend { margin-top: 12px; }
+.hh-spark { display: block; width: 120px; height: 32px; opacity: 0.9; }
 @media (max-width: 600px) {
   .hh-wrap { grid-template-columns: 1fr; gap: 12px; }
 }

@@ -280,6 +280,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mcp_confirmation_expired',
             # v3.4.0: hardware health
             'smart_failure', 'kernel_outdated',
+            # v3.4.1: health-score threshold alert
+            'health_degraded',
         }
         self.assertEqual(names, expected)
 
