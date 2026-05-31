@@ -1539,6 +1539,34 @@
         </div>
 
         <div class="settings-section">
+          <h3>Quiet hours</h3>
+          <p class="hint">Hold non-critical webhook/email notifications during a daily window — events still land in the Alerts inbox and Recent Activity, they just don't page you overnight. Anything at or above the chosen severity always goes through. The window may cross midnight (e.g. 22:00–07:00).</p>
+          <div class="settings-row isl-57">
+            <div class="form-group">
+              <label class="form-label">Enabled</label>
+              <select id="qh-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Start (HH:MM)</label>
+              <input type="time" id="qh-start" class="form-input isl-80" value="22:00">
+            </div>
+            <div class="form-group">
+              <label class="form-label">End (HH:MM)</label>
+              <input type="time" id="qh-end" class="form-input isl-80" value="07:00">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Always deliver at/above</label>
+              <select id="qh-min-sev" class="form-input isl-79">
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn-primary mt-8" data-action="saveQuietHours" >Save</button>
+        </div>
+
+        <div class="settings-section">
           <h3>Backup file monitoring</h3>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
           <div id="backup-monitors-list" class="mb-12"></div>
@@ -1801,6 +1829,9 @@
                 <li><strong>CVE ↔ patch cross-link.</strong> The Patches page shows per device how many critical/high CVEs a pending patch would fix — click the badge to jump to that device's CVE list.</li>
                 <li><strong>Software inventory search.</strong> A search card on the Patches page answers "which hosts run <span class="ff-mono">openssl</span> older than X?" across the collected package inventory (name + optional version compare).</li>
                 <li><strong>End-of-life OS detection.</strong> Hosts on an out-of-support OS show up in Needs Attention (lowering the health score) and fail a new PCI/HIPAA/SOC 2 compliance control — using os-release data already collected, no agent change.</li>
+                <li><strong>Richer Prometheus metrics.</strong> <code>/api/metrics</code> now exports the fleet + per-device health score, needs-attention counts, 24h event counts by kind, and the CVE-fixable total.</li>
+                <li><strong>iCal feed.</strong> <code>/api/schedule.ics?token=…</code> publishes scheduled jobs + maintenance windows as a calendar subscription (recurring jobs as RRULEs).</li>
+                <li><strong>Quiet hours.</strong> Settings → Dashboard → Quiet hours holds non-critical webhook/email overnight (events still hit the inbox); critical always pages through.</li>
               </ul>
 
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.1.md</code>.</p>

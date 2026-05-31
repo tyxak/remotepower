@@ -52,6 +52,16 @@ previously lived on separate pages, plus a smarter command palette.
     Needs Attention (so they pull down the fleet health score) and fail a new
     compliance control (PCI/HIPAA/SOC 2). Uses os-release data already sent at
     package-scan time — no agent change.
+  - **Richer Prometheus metrics.** `/api/metrics` now also exports the fleet and
+    per-device health score, needs-attention counts by severity, 24-hour fleet
+    event counts by kind, and the CVE-fixable-by-patching total.
+  - **iCal feed.** `GET /api/schedule.ics?token=<status token>` publishes your
+    scheduled jobs + maintenance windows as a calendar subscription (one-shot
+    events exactly; recurring jobs as daily/weekly/monthly RRULEs).
+  - **Quiet hours.** Optionally hold non-critical webhook/email notifications
+    during a daily window (Settings → Dashboard → Quiet hours; may cross
+    midnight). Events still land in the Alerts inbox and Recent Activity;
+    anything at/above the chosen severity always pages through.
 
 ## v3.4.0
 

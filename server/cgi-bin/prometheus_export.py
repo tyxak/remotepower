@@ -287,6 +287,46 @@ def generate_metrics(ctx: dict) -> str:
     lines.append('# TYPE remotepower_webhook_log_size gauge')
     lines.append(f'remotepower_webhook_log_size {len(wlog)}')
 
+    # ── v3.4.1: fleet health score ──────────────────────────────────────────────
+    health = ctx.get('health') or {}
+    if health:
+        lines.append('# HELP remotepower_fleet_health_score Fleet health score (0-100).')
+        lines.append('# TYPE remotepower_fleet_health_score gauge')
+        lines.append(f"remotepower_fleet_health_score {health.get('score', 100)}")
+        lines.append('# HELP remotepower_device_health_score Per-device health score (0-100).')
+        lines.append('# TYPE remotepower_device_health_score gauge')
+        for d in health.get('devices', []):
+            lines.append(_metric('remotepower_device_health_score',
+                         {'device': d.get('device_name') or d.get('device_id', '')},
+                         d.get('score', 100)))
+        counts = health.get('counts') or {}
+        lines.append('# HELP remotepower_attention_items Needs-attention items by severity.')
+        lines.append('# TYPE remotepower_attention_items gauge')
+        for sev in ('critical', 'warning', 'info'):
+            lines.append(_metric('remotepower_attention_items', {'severity': sev},
+                                 counts.get(sev, 0)))
+
+    # ── v3.4.1: timeline event counts (last 24h, by kind) ────────────────────────
+    evs = (ctx.get('fleet_events') or {}).get('events') or []
+    cutoff = now - 86400
+    by_kind = {}
+    for e in evs:
+        if (e.get('ts') or 0) >= cutoff:
+            k = e.get('event', '') or 'unknown'
+            by_kind[k] = by_kind.get(k, 0) + 1
+    if by_kind:
+        lines.append('# HELP remotepower_timeline_events_24h Fleet events in the last 24h by kind.')
+        lines.append('# TYPE remotepower_timeline_events_24h gauge')
+        for k, v in sorted(by_kind.items()):
+            lines.append(_metric('remotepower_timeline_events_24h', {'event': k}, v))
+
+    # ── v3.4.1: CVEs a pending patch would fix ───────────────────────────────────
+    cf = ctx.get('cve_fixable_total')
+    if cf is not None:
+        lines.append('# HELP remotepower_cve_fixable_total Critical/high CVEs a pending patch would fix.')
+        lines.append('# TYPE remotepower_cve_fixable_total gauge')
+        lines.append(f'remotepower_cve_fixable_total {cf}')
+
     # Trailing newline per spec
     lines.append('')
     return '\n'.join(lines)

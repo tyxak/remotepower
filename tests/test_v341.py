@@ -87,6 +87,7 @@ class TestV341Routes(unittest.TestCase):
                 ('GET', '/api/fleet/health/history', 'handle_fleet_health_history'),
                 ('GET', '/api/fleet/timeline',       'handle_fleet_timeline'),
                 ('GET', '/api/inventory/search',     'handle_inventory_search'),
+                ('GET', '/api/schedule.ics',         'handle_schedule_ics'),
                 ('GET', '/api/report/fleet',         'handle_fleet_report'),
                 ('GET', '/api/report/schedule',      'handle_report_schedule_get'),
                 ('PUT', '/api/report/schedule',      'handle_report_schedule_set')):
@@ -296,6 +297,56 @@ class TestV341QuickWins(unittest.TestCase):
         self.assertIn('def _eol_control(', self.COMPLIANCE)
         self.assertIn('_eol_control', self.COMPLIANCE)   # registered in _CONTROLS
         self.assertIn("facts['eol_os']", self.API)
+
+
+class TestV341SmallTrio(unittest.TestCase):
+    """Richer Prometheus exporters, iCal feed, quiet hours."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    PROM = (REPO_ROOT / 'server' / 'cgi-bin' / 'prometheus_export.py').read_text()
+
+    def test_prometheus_health_metrics(self):
+        for name in ('remotepower_fleet_health_score',
+                     'remotepower_device_health_score',
+                     'remotepower_attention_items',
+                     'remotepower_timeline_events_24h',
+                     'remotepower_cve_fixable_total'):
+            self.assertIn(name, self.PROM, f'{name} missing from prometheus_export')
+        # The metrics handler must feed health/fleet_events/cve into the ctx.
+        self.assertIn("'health':            _fleet_health()", self.API)
+        self.assertIn("'fleet_events':      load(FLEET_EVENTS_FILE)", self.API)
+
+    def test_ical_feed(self):
+        self.assertIn('def handle_schedule_ics(', self.API)
+        self.assertIn('def _cron_to_ics(', self.API)
+        self.assertIn('BEGIN:VCALENDAR', self.API)
+        # Auth via status token (so calendar apps can subscribe).
+        idx = self.API.find('def handle_schedule_ics')
+        self.assertIn('status_token', self.API[idx:idx + 1200])
+
+    def test_quiet_hours(self):
+        self.assertIn('def _quiet_hours_active(', self.API)
+        self.assertIn('def _in_time_window(', self.API)
+        # Gated in the dispatch path, after maintenance suppression.
+        self.assertIn('qh_reason = _quiet_hours_active(', self.API)
+        # Config accepted + validated.
+        self.assertIn("'quiet_hours'", self.API)
+        # Settings UI + save.
+        self.assertIn('id="qh-enabled"', self.HTML)
+        self.assertIn('function saveQuietHours(', self.APP)
+
+    def test_quiet_hours_window_wraps_midnight(self):
+        # Behavioural check on the pure helper (load api via the routing harness'
+        # already-imported module path).
+        import importlib, sys as _s
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        self.assertTrue(api._in_time_window('23:30', '22:00', '07:00'))
+        self.assertTrue(api._in_time_window('02:00', '22:00', '07:00'))
+        self.assertFalse(api._in_time_window('12:00', '22:00', '07:00'))
+        self.assertTrue(api._in_time_window('09:00', '08:00', '17:00'))
+        self.assertFalse(api._in_time_window('19:00', '08:00', '17:00'))
 
 
 if __name__ == '__main__':

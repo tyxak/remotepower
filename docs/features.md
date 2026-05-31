@@ -54,6 +54,9 @@ The complete list. Items marked with a version number indicate when they were ad
 | **CVE ↔ patch cross-link** | The Patches page shows per device how many critical/high CVEs a pending patch would fix (`cve_fixable`), linking to the device's CVE list (v3.4.1) |
 | **Software inventory search** | "Which hosts run openssl < X" over the collected package inventory — name + ecosystem-aware version compare. `GET /api/inventory/search` (v3.4.1) |
 | **End-of-life OS detection** | Built-in vendor-EOL table flags out-of-support hosts in Needs Attention (lowering the health score) and as a PCI/HIPAA/SOC 2 compliance control (v3.4.1) |
+| **Prometheus health metrics** | `/api/metrics` exports fleet + per-device health score, needs-attention counts, 24h event counts by kind, and CVE-fixable total (v3.4.1) |
+| **iCal feed** | `GET /api/schedule.ics?token=<status token>` — scheduled jobs + maintenance windows as a calendar subscription, recurring jobs as RRULEs (v3.4.1) |
+| **Quiet hours** | Hold non-critical webhook/email delivery during a daily window (may cross midnight); events still recorded, critical always pages (v3.4.1) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

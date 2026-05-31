@@ -17,9 +17,9 @@ extensions. Those are struck from the backlog below.
 | Cross-link CVEs ↔ patches | 🟢 Small | ✅ v3.4.1 | Patches + CVE pages |
 | Software inventory search | 🟢 Small | ✅ v3.4.1 | Package inventory |
 | End-of-life OS detection | 🟢 Small | ✅ v3.4.1 | Compliance + health |
-| [Richer Grafana/Prometheus exporters](#richer-grafanaprometheus-exporters) | 🟢 Small | — | `prometheus_export.py` |
-| [iCal feed of scheduled jobs](#ical-feed-of-scheduled-jobs) | 🟢 Small | — | Scheduler |
-| [Quiet hours / notification schedules](#quiet-hours--notification-schedules) | 🟢 Small | — | Channels |
+| Richer Grafana/Prometheus exporters | 🟢 Small | ✅ v3.4.1 | `prometheus_export.py` |
+| iCal feed of scheduled jobs | 🟢 Small | ✅ v3.4.1 | Scheduler |
+| Quiet hours / notification schedules | 🟢 Small | ✅ v3.4.1 | Channels |
 | Command palette extensions | 🟢 Small | ✅ v3.4.1 | Existing palette |
 | Fleet health score | 🟡 Medium | ✅ v3.4.1 | `_compute_attention()` |
 | [Health-score history](#health-score-history) | 🟡 Medium | — | Forecast regression chart |
@@ -42,16 +42,9 @@ extensions. Those are struck from the backlog below.
 
 Extensions to existing surfaces; mostly additive logic, little or no new UI scaffolding.
 
-*(Cross-link CVEs ↔ patches, software inventory search, and end-of-life OS detection shipped in v3.4.1.)*
-
-### Richer Grafana/Prometheus exporters
-Add health score and timeline counts to the existing `/metrics` endpoint. New gauges/counters in `prometheus_export.py` — no new infra.
-
-### iCal feed of scheduled jobs
-Expose scheduled jobs + maintenance windows as a tokened `.ics` feed. Serialize `process_schedule` entries to VEVENTs behind a read-only token.
-
-### Quiet hours / notification schedules
-Suppress non-critical channel sends overnight, fleet- or device-scoped. A time-window gate in the channel-send path with a priority threshold.
+*All six 🟢 Small items shipped in v3.4.1 (CVE↔patch cross-link, software
+inventory search, end-of-life OS detection, richer Prometheus exporters, iCal
+feed, quiet hours).*
 
 ---
 

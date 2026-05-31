@@ -2389,6 +2389,8 @@ const _DYK_TIPS = [
   "Set a health-score alert threshold in Settings → Dashboard and get notified the moment a device's score drops below it.",
   "The Patches page shows how many CVEs each pending update would fix, and a search box to find which hosts run a given package version.",
   "RemotePower flags hosts on an end-of-life OS — they show in Needs Attention and fail a compliance control until you upgrade.",
+  "Subscribe your calendar to /api/schedule.ics to see scheduled jobs and maintenance windows alongside your other events.",
+  "Set quiet hours in Settings → Dashboard to mute non-critical alerts overnight — critical ones still page through.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -10388,6 +10390,15 @@ async function loadDashboardSettings() {
   const hat = document.getElementById('health-alert-threshold');
   if (hat) hat.value = parseInt(cfg.health_alert_threshold, 10) || 0;
 
+  // v3.4.1: quiet hours
+  const qh = cfg.quiet_hours || {};
+  const qhEn = document.getElementById('qh-enabled');
+  if (qhEn) qhEn.value = qh.enabled ? '1' : '0';
+  if (document.getElementById('qh-start') && qh.start) document.getElementById('qh-start').value = qh.start;
+  if (document.getElementById('qh-end') && qh.end) document.getElementById('qh-end').value = qh.end;
+  const qhSev = document.getElementById('qh-min-sev');
+  if (qhSev && qh.min_severity) qhSev.value = qh.min_severity;
+
   // v3.2.3: channel routing matrix — replaces the two legacy
   // kind/activity panes. Server is the source of truth for the kind
   // roster; we just render the table and POST diffs back.
@@ -10478,6 +10489,17 @@ async function saveBruteForceSettings() {
     brute_force_window_seconds: windowMin * 60,
   });
   if (r?.ok) toast('Brute-force settings saved', 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveQuietHours() {
+  const enabled = document.getElementById('qh-enabled').value === '1';
+  const start = document.getElementById('qh-start').value;
+  const end = document.getElementById('qh-end').value;
+  const min_severity = document.getElementById('qh-min-sev').value;
+  if (enabled && (!start || !end)) { toast('Set both a start and end time', 'error'); return; }
+  const r = await api('POST', '/config', { quiet_hours: { enabled, start, end, min_severity } });
+  if (r?.ok) toast(enabled ? `Quiet hours ${start}–${end}` : 'Quiet hours off', 'success');
   else toast(r?.error || 'Failed', 'error');
 }
 

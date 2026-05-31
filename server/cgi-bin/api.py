@@ -2839,6 +2839,39 @@ def _auto_resolve_alerts(event, payload):
         pass
 
 
+_QH_SEV_RANK = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1, 'info': 0}
+
+
+def _in_time_window(hhmm, start, end):
+    """True if HH:MM string `hhmm` is within [start, end). Handles windows that
+    wrap past midnight (e.g. 22:00–07:00). Zero-padded strings compare directly."""
+    if start <= end:
+        return start <= hhmm < end
+    return hhmm >= start or hhmm < end
+
+
+def _quiet_hours_active(event, payload, cfg, now=None):
+    """Return a reason string if outbound delivery for this event should be held
+    by quiet hours, else None. Events at or above `min_severity` always bypass.
+    Only delivery is suppressed — the event is still recorded in fleet_events
+    and the alerts inbox (those run before the gates in fire_webhook)."""
+    qh = (cfg or {}).get('quiet_hours') or {}
+    if not qh.get('enabled'):
+        return None
+    start = (qh.get('start') or '').strip()
+    end = (qh.get('end') or '').strip()
+    if len(start) != 5 or len(end) != 5:
+        return None
+    min_sev = (qh.get('min_severity') or 'critical').lower()
+    sev = _alert_severity(event, payload or {}) or 'info'
+    if _QH_SEV_RANK.get(sev, 0) >= _QH_SEV_RANK.get(min_sev, 4):
+        return None  # important enough to page through quiet hours
+    hhmm = time.strftime('%H:%M', time.localtime(now or time.time()))
+    if _in_time_window(hhmm, start, end):
+        return f'{start}-{end}'
+    return None
+
+
 def fire_webhook(event, payload):
     """
     v1.8.6: Despite the historical name, this is now the single dispatch point
@@ -2966,6 +2999,16 @@ def fire_webhook(event, payload):
         u = _suppression_log_url()
         if u:
             _log_webhook(event, u, 'suppressed', f'maintenance: {mw.get("reason", "")}')
+        return
+
+    # v3.4.1: quiet hours — hold non-critical outbound notifications during the
+    # configured window. The event is already recorded above (fleet_events +
+    # alerts inbox); only webhook/email delivery is suppressed.
+    qh_reason = _quiet_hours_active(event, payload, cfg)
+    if qh_reason:
+        u = _suppression_log_url()
+        if u:
+            _log_webhook(event, u, 'suppressed', f'quiet hours ({qh_reason})')
         return
 
     # Build the human-readable message once — used by both channels
@@ -7227,6 +7270,25 @@ def handle_config_save():
             cfg['health_alert_threshold'] = max(0, min(100, h))
         except (ValueError, TypeError):
             respond(400, {'error': 'health_alert_threshold must be an integer'})
+
+    # v3.4.1: quiet hours — hold non-critical notifications in a daily window.
+    if 'quiet_hours' in body:
+        qh = body['quiet_hours'] if isinstance(body['quiet_hours'], dict) else {}
+        import re as _re
+        start = _sanitize_str(qh.get('start', ''), 5)
+        end = _sanitize_str(qh.get('end', ''), 5)
+        _hhmm = _re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+        if qh.get('enabled') and not (_hhmm.match(start) and _hhmm.match(end)):
+            respond(400, {'error': 'quiet_hours start/end must be HH:MM (24h)'})
+        sev = str(qh.get('min_severity', 'critical')).lower()
+        if sev not in _QH_SEV_RANK:
+            sev = 'critical'
+        cfg['quiet_hours'] = {
+            'enabled':      bool(qh.get('enabled')),
+            'start':        start,
+            'end':          end,
+            'min_severity': sev,
+        }
 
     # v2.8.1: backup file monitors [{path, label, max_age_hours}]
     if 'backup_monitors' in body:
@@ -19436,6 +19498,151 @@ def handle_cve_ignore_list():
 
 # ─── v1.7.0: Prometheus metrics exporter ──────────────────────────────────────
 
+def _ics_escape(s):
+    return str(s or '').replace('\\', '\\\\').replace(';', '\\;') \
+        .replace(',', '\\,').replace('\n', '\\n')
+
+
+def _ics_dt(ts):
+    import datetime as _dt
+    return _dt.datetime.utcfromtimestamp(int(ts)).strftime('%Y%m%dT%H%M%SZ')
+
+
+def _cron_to_ics(cron, now):
+    """Best-effort (dtstart_ts, RRULE) for simple 5-field crons with a concrete
+    minute and hour (daily / weekly / monthly). Returns None for patterns we
+    can't cleanly map to an RRULE — those jobs are simply omitted from the feed
+    (they still appear on the in-app Schedule page)."""
+    parts = (cron or '').split()
+    if len(parts) != 5:
+        return None
+    mn, hr, dom, mon, dow = parts
+    if not (mn.isdigit() and hr.isdigit()):
+        return None
+    minute, hour = int(mn), int(hr)
+    if not (0 <= minute < 60 and 0 <= hour < 24):
+        return None
+    import datetime as _dt
+    base = _dt.datetime.fromtimestamp(now)
+    cand = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if dom == '*' and mon == '*' and dow == '*':
+        if cand <= base:
+            cand += _dt.timedelta(days=1)
+        return int(cand.timestamp()), 'FREQ=DAILY'
+    if dom == '*' and mon == '*' and dow.isdigit():
+        days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+        cron_dow = int(dow) % 7                 # cron: 0=Sun..6=Sat
+        py_target = (cron_dow - 1) % 7          # python weekday: Mon=0..Sun=6
+        ahead = (py_target - base.weekday()) % 7
+        cand = (base + _dt.timedelta(days=ahead)).replace(
+            hour=hour, minute=minute, second=0, microsecond=0)
+        if cand <= base:
+            cand += _dt.timedelta(days=7)
+        return int(cand.timestamp()), f'FREQ=WEEKLY;BYDAY={days[cron_dow]}'
+    if mon == '*' and dow == '*' and dom.isdigit():
+        d = int(dom)
+        try:
+            cand = base.replace(day=d, hour=hour, minute=minute, second=0, microsecond=0)
+        except ValueError:
+            return None
+        if cand <= base:
+            mm = base.month % 12 + 1
+            yy = base.year + (1 if base.month == 12 else 0)
+            try:
+                cand = base.replace(year=yy, month=mm, day=d, hour=hour,
+                                    minute=minute, second=0, microsecond=0)
+            except ValueError:
+                return None
+        return int(cand.timestamp()), f'FREQ=MONTHLY;BYMONTHDAY={d}'
+    return None
+
+
+def handle_schedule_ics():
+    """GET /api/schedule.ics?token=<status_token> — calendar feed of scheduled
+    jobs + maintenance windows as VEVENTs. Auth via the status token (so a
+    calendar app that can't send headers can subscribe) or a normal session.
+
+    One-shot jobs and maintenance windows render exactly; recurring jobs render
+    with an RRULE for the common daily/weekly/monthly patterns."""
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    qs_token = (qs.get('token') or [''])[0]
+    authed = False
+    if qs_token:
+        cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
+        authed = bool(cfg_token and hmac.compare_digest(qs_token, cfg_token))
+    else:
+        token = get_token_from_request()
+        if not token:
+            auth = os.environ.get('HTTP_AUTHORIZATION', '')
+            if auth.lower().startswith('bearer '):
+                token = auth[7:].strip()
+        username, _role = verify_token(token)
+        authed = bool(username)
+    if not authed:
+        print('Status: 401 Unauthorized')
+        print('Content-Type: text/plain; charset=utf-8')
+        print('Cache-Control: no-store')
+        print()
+        print('Unauthorized')
+        sys.exit(0)
+
+    now = int(time.time())
+    lines = ['BEGIN:VCALENDAR', 'VERSION:2.0',
+             'PRODID:-//RemotePower//Schedule//EN', 'CALSCALE:GREGORIAN',
+             f'X-WR-CALNAME:{_ics_escape(get_server_name())} schedule']
+
+    def _vevent(uid, dtstart, summary, desc='', dtend=None, rrule=None):
+        ev = ['BEGIN:VEVENT', f'UID:{_ics_escape(uid)}@remotepower',
+              f'DTSTAMP:{_ics_dt(now)}', f'DTSTART:{dtstart}']
+        if dtend:
+            ev.append(f'DTEND:{dtend}')
+        if rrule:
+            ev.append(f'RRULE:{rrule}')
+        ev.append(f'SUMMARY:{_ics_escape(summary)}')
+        if desc:
+            ev.append(f'DESCRIPTION:{_ics_escape(desc)}')
+        ev.append('END:VEVENT')
+        return ev
+
+    for job in (load(SCHEDULE_FILE) or {}).get('jobs') or []:
+        dn = job.get('device_name') or job.get('device_id', '')
+        summ = f"{job.get('command', '')} — {dn}"
+        if job.get('recurring') and job.get('cron'):
+            mapped = _cron_to_ics(job['cron'], now)
+            if mapped:
+                ts0, rrule = mapped
+                lines += _vevent(f"job-{job.get('id', '')}", _ics_dt(ts0), summ,
+                                 f"Recurring: {job['cron']}", rrule=rrule)
+        elif job.get('run_at'):
+            lines += _vevent(f"job-{job.get('id', '')}", _ics_dt(job['run_at']),
+                             summ, 'One-shot scheduled command',
+                             dtend=_ics_dt(int(job['run_at']) + 900))
+
+    for w in (load(MAINT_FILE) or {}).get('windows') or []:
+        if w.get('start') and w.get('end'):
+            try:
+                s = int(_parse_iso(w['start'])); e = int(_parse_iso(w['end']))
+            except Exception:
+                continue
+            lines += _vevent(f"maint-{w.get('id', '')}", _ics_dt(s),
+                             f"Maintenance: {w.get('reason', 'window')}",
+                             f"Scope {w.get('scope', '')} {w.get('target', '')}".strip(),
+                             dtend=_ics_dt(e))
+
+    lines.append('END:VCALENDAR')
+    body = ('\r\n'.join(lines) + '\r\n').encode('utf-8')
+    print('Status: 200 OK')
+    print('Content-Type: text/calendar; charset=utf-8')
+    print('Content-Disposition: attachment; filename=remotepower-schedule.ics')
+    print('Cache-Control: no-store')
+    print(f'Content-Length: {len(body)}')
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
 def handle_prometheus_metrics():
     """
     GET /api/metrics — Prometheus text exposition.
@@ -19526,6 +19733,10 @@ def handle_prometheus_metrics():
         'cve_ignore':      load(CVE_IGNORE_FILE),
         'services':        load(SERVICES_FILE),
         'maintenance_active_count': maint_active,
+        # v3.4.1: health score, recent-activity counts, CVE↔patch rollup.
+        'health':            _fleet_health(),
+        'fleet_events':      load(FLEET_EVENTS_FILE),
+        'cve_fixable_total': sum(_cve_fixable_by_device().values()),
     }
     body = prometheus_export.generate_metrics(ctx)
 
@@ -23437,6 +23648,8 @@ def _dispatch(pi, m):
 
     # ── v1.7.0: Prometheus metrics endpoint ────────────────────────────────────
     elif pi == '/api/metrics' and m == 'GET': handle_prometheus_metrics()
+    # v3.4.1: iCal feed of scheduled jobs + maintenance windows
+    elif pi == '/api/schedule.ics' and m == 'GET': handle_schedule_ics()
 
     # ── v1.8.0: Service monitoring ─────────────────────────────────────────────
     elif pi.startswith('/api/devices/') and pi.endswith('/services') and m == 'GET':
