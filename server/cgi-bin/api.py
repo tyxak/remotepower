@@ -147,6 +147,10 @@ LOG_WATCH_FILE      = DATA_DIR / 'log_watch.json'         # captured log buffer 
 MAINT_FILE          = DATA_DIR / 'maintenance.json'       # active + scheduled windows
 MAINT_SUPPRESS_LOG  = DATA_DIR / 'maint_suppressed.json'  # audit trail for suppressions
 
+# v3.4.2: staged/ring rollouts + compliance-baseline trend history
+ROLLOUTS_FILE       = DATA_DIR / 'rollouts.json'          # canary->pilot->broad rollouts
+COMPLIANCE_HIST_FILE = DATA_DIR / 'compliance_history.json'  # daily baseline % samples
+
 # v1.8.2: fleet-wide log alert rules (per-device rules still live on device.log_watch)
 LOG_RULES_GLOBAL_FILE = DATA_DIR / 'log_rules_global.json'
 DEBUG_LOG_FILE         = DATA_DIR / 'debug.log'
@@ -6554,7 +6558,7 @@ def handle_heartbeat():
     if saved_dev.get('force_acme_rescan'):
         common_resp['force_acme_rescan'] = True
     if pending:
-        cmd = pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
+        cmd = pending[0]
         # v3.4.0: quarantine enforcement (defence-in-depth). A quarantined
         # device must not act, no matter which handler queued the command —
         # _queue_command rejects at queue time, but action paths that write
@@ -6563,9 +6567,16 @@ def handle_heartbeat():
         # doesn't fire the instant quarantine is lifted, and only ever forward
         # poll-interval changes (purely local, no side effects on the host).
         if saved_dev.get('quarantined') and not str(cmd).startswith('poll_interval:'):
+            pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
             audit_log('system', 'quarantine_blocked',
                       f'dev={dev_id} dropped queued command while quarantined')
             respond(200, {'command': None, **common_resp})
+        # v3.4.2: maintenance change-window gating. Unlike quarantine we HOLD
+        # the command (leave it queued) so it dispatches when the window opens.
+        # poll_interval is always allowed (purely local, no host side effect).
+        if not str(cmd).startswith('poll_interval:') and _exec_gated(dev_id, saved_dev):
+            respond(200, {'command': None, **common_resp})
+        pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
         respond(200, {'command': cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
@@ -7698,8 +7709,26 @@ def handle_config_save():
                 lim = max(0, min(1000000, int(m.get('limit') or 0)))
             except (TypeError, ValueError):
                 lim = 0
-            meters.append({'name': nm, 'limit': lim})
+            # v3.4.2: optional normalization aliases (map name variants → one
+            # catalog entry). Sanitised, de-duped, capped.
+            aliases = []
+            for a in (m.get('aliases') or [])[:20]:
+                a = _sanitize_str(a, 128)
+                if a and a not in aliases:
+                    aliases.append(a)
+            entry = {'name': nm, 'limit': lim}
+            if aliases:
+                entry['aliases'] = aliases
+            meters.append(entry)
         cfg['software_meters'] = meters
+
+    # v3.4.2: CIS-style compliance baseline — which built-in checks are disabled.
+    if 'compliance_baseline' in body:
+        cb = body['compliance_baseline'] if isinstance(body['compliance_baseline'], dict) else {}
+        valid_ids = {cid for cid, _, _, _ in _cis_checks()}
+        disabled = [c for c in (cb.get('disabled') or [])
+                    if isinstance(c, str) and c in valid_ids][:50]
+        cfg['compliance_baseline'] = {'disabled': disabled}
 
     # v3.4.2: after-hours activity detection.
     if 'after_hours' in body:
@@ -16308,10 +16337,40 @@ def _inventory_version_match(installed, op, target, eco):
     return True
 
 
+def _meter_needles(m):
+    """All lower-cased match strings for a meter: its name plus any aliases
+    (v3.4.2 normalization — map name variations onto one catalog entry, e.g.
+    'openssl' also matching 'libssl3' / 'openssl-libs')."""
+    needles = [(m.get('name') or '').strip().lower()]
+    for a in (m.get('aliases') or [])[:20]:
+        a = str(a).strip().lower()
+        if a:
+            needles.append(a)
+    return [n for n in needles if n]
+
+
+def _software_in_use(dev, needles):
+    """Heuristic: is any of the meter's software actively in use on this device?
+    True if a needle appears in a running process name or a listening-port
+    process. Used to flag reclamation candidates (installed but idle)."""
+    sysinfo = dev.get('sysinfo') or {}
+    for p in (sysinfo.get('top_processes') or []):
+        nm = (p.get('name') or '').lower()
+        if any(n in nm for n in needles):
+            return True
+    for lp in (sysinfo.get('listening_ports') or []):
+        nm = (lp.get('process') or '').lower()
+        if any(n in nm for n in needles):
+            return True
+    return False
+
+
 def handle_inventory_metering():
     """GET /api/inventory/metering — installed count vs allowance for tracked
-    software (config `software_meters`: [{name, limit}]); flags over-deployment.
-    Matches package names (substring) in the collected inventory. Auth:
+    software (config `software_meters`: [{name, limit, aliases?}]); flags
+    over-deployment. Matches package names (substring, plus normalization
+    aliases) in the collected inventory, and flags reclamation candidates —
+    hosts where the software is installed but not seen running. Auth:
     require_auth."""
     require_auth()
     meters = (load(CONFIG_FILE) or {}).get('software_meters') or []
@@ -16322,20 +16381,32 @@ def handle_inventory_metering():
         raw = (m.get('name') or '').strip()
         if not raw:
             continue
-        needle = raw.lower()
+        needles = _meter_needles(m)
         try:
             limit = int(m.get('limit') or 0)
         except (TypeError, ValueError):
             limit = 0
         hosts = []
+        reclaimable = []
         for did, entry in store.items():
-            for p in (entry or {}).get('packages') or []:
-                if needle in (p.get('name') or '').lower():
-                    hosts.append((devices.get(did) or {}).get('name', did))
-                    break
+            if not any(any(n in (p.get('name') or '').lower() for n in needles)
+                       for p in (entry or {}).get('packages') or []):
+                continue
+            dev = devices.get(did) or {}
+            label = dev.get('name', did)
+            hosts.append(label)
+            # Reclamation: installed but not seen running. Only judge it when we
+            # actually have process/port telemetry, else it's not a candidate.
+            sysinfo = dev.get('sysinfo') or {}
+            if (sysinfo.get('top_processes') or sysinfo.get('listening_ports')) \
+                    and not _software_in_use(dev, needles):
+                reclaimable.append(label)
         cnt = len(hosts)
         out.append({'name': raw, 'limit': limit, 'installed': cnt,
                     'over': bool(limit and cnt > limit),
+                    'aliases': [a for a in (m.get('aliases') or []) if str(a).strip()][:20],
+                    'reclaimable': len(reclaimable),
+                    'reclaim_hosts': sorted(reclaimable)[:60],
                     'devices': sorted(hosts)[:60]})
     out.sort(key=lambda r: (not r['over'], -r['installed']))
     respond(200, {'meters': out})
@@ -16438,6 +16509,521 @@ def handle_patch_catalog():
         'devices_without_detail': sorted(no_detail),
         'cve_fixable_hosts':     cve_hosts,
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.2: staged / ring rollouts (canary → pilot → broad)
+# ─────────────────────────────────────────────────────────────────────────────
+# A rollout pushes ONE action (an OS package upgrade, or a saved script) to the
+# fleet in ordered RINGS. Ring N is dispatched, its devices are watched until
+# they verify, and only then is ring N+1 released — manually, or automatically
+# when auto_promote is set. This is the orchestration layer over the existing
+# command queue + the v3.4.2 post-deploy verification (`_upgrade_verify_status`).
+#
+# No new webhook events: state changes land on the rollout's own history + the
+# audit log, and the dedicated Rollouts page polls for progress. Advancement is
+# driven by `_rollout_tick()` from the cheap-when-not-due periodic block, and
+# lazily on GET so the UI always sees fresh state. Storage (rollouts.json):
+#   {'rollouts': [ {id, name, action, rings:[...], rings_state:[...], state, ...} ]}
+_ROLLOUT_VERIFY_MIN_DEFAULT = 30      # minutes to allow a ring to verify
+_ROLLOUT_VERIFY_MIN_MAX     = 1440
+_ROLLOUT_TICK_INTERVAL      = 20      # seconds between periodic advances
+_last_rollout_tick          = [0.0]
+
+
+def _rollout_script_body(script_id):
+    """Body of a saved script by id, or '' if not found."""
+    for s in (load(SCRIPTS_FILE) or {}).get('scripts', []):
+        if s.get('id') == script_id:
+            return s.get('body', '')
+    return ''
+
+
+def _rollout_log(roll, msg):
+    h = roll.setdefault('history', [])
+    h.append({'ts': int(time.time()), 'msg': str(msg)[:200]})
+    roll['history'] = h[-100:]
+    roll['updated_at'] = int(time.time())
+
+
+def _rollout_resolve_ring(selector, devices):
+    """Resolve a ring selector ({'type':'group'|'tag'|'ids', 'value'/'ids'}) to a
+    de-duped list of valid device ids that currently exist."""
+    t = (selector or {}).get('type')
+    out = []
+    if t == 'ids':
+        for d in (selector.get('ids') or [])[:500]:
+            d = str(d).strip()
+            if _validate_id(d) and d in devices:
+                out.append(d)
+    elif t == 'group':
+        g = str(selector.get('value') or '')
+        out = [did for did, dev in devices.items()
+               if isinstance(dev, dict) and (dev.get('group') or '') == g]
+    elif t == 'tag':
+        tag = str(selector.get('value') or '')
+        out = [did for did, dev in devices.items()
+               if isinstance(dev, dict) and tag in (dev.get('tags') or [])]
+    seen, uniq = set(), []
+    for d in out:
+        if d not in seen:
+            seen.add(d); uniq.append(d)
+    return uniq
+
+
+def _rollout_dispatch_ring(roll, idx, devices, cmds):
+    """Queue the rollout action onto ring `idx`'s devices. Mutates devices+cmds
+    in place (caller saves). Skips quarantined devices. Returns (dispatched_ids,
+    queued_command_string)."""
+    ring = roll['rings'][idx]
+    ids = _rollout_resolve_ring(ring.get('selector'), devices)
+    now = int(time.time())
+    if roll.get('action') == 'upgrade':
+        queued = f'exec:{_UPGRADE_CMD}'
+    else:
+        queued = f'exec:{roll.get("_script_body", "")}'
+    dispatched = []
+    actor = roll.get('created_by', 'system')
+    for dev_id in ids:
+        dev = devices.get(dev_id)
+        if not dev or _device_quarantined(dev):
+            continue
+        cmds.setdefault(dev_id, [])
+        if queued not in cmds[dev_id]:
+            cmds[dev_id].append(queued)
+        if roll.get('action') == 'upgrade':
+            dev['upgrade_queued_at'] = now
+            dev['upgrade_pending_before'] = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+            dev['force_package_scan'] = True
+        dispatched.append(dev_id)
+        log_command(actor, dev_id, dev.get('name', dev_id),
+                    f'rollout "{roll.get("name","")[:30]}" ring {ring.get("name","")[:20]}')
+    return dispatched, queued
+
+
+def _rollout_ring_progress(roll, rstate, devices, cmds):
+    """(ok, failed, total) for a dispatched ring. For upgrades, ok == verified
+    'ok' and failed == 'stalled' (real post-deploy verification). For scripts we
+    can only confirm delivery, so ok == command consumed from the queue."""
+    ids = rstate.get('dispatched_ids') or []
+    total = len(ids)
+    now = int(time.time())
+    ok = failed = 0
+    if roll.get('action') == 'upgrade':
+        for dev_id in ids:
+            st = _upgrade_verify_status(devices.get(dev_id) or {}, now)
+            if st == 'ok':
+                ok += 1
+            elif st == 'stalled':
+                failed += 1
+    else:
+        q = rstate.get('queued')
+        for dev_id in ids:
+            if q and q not in (cmds.get(dev_id) or []):
+                ok += 1
+    return ok, failed, total
+
+
+def _rollout_advance(roll, devices, cmds):
+    """Advance a single running rollout by at most one transition. Returns True
+    if devices/cmds were mutated (a ring was dispatched)."""
+    if roll.get('state') != 'running':
+        return False
+    idx = roll.get('current_ring', 0)
+    rings = roll.get('rings') or []
+    rs = roll.get('rings_state') or []
+    if idx >= len(rings) or idx >= len(rs):
+        roll['state'] = 'done'; return False
+    rstate = rs[idx]
+    now = int(time.time())
+    mutated = False
+    if rstate.get('state') == 'pending':
+        dispatched, queued = _rollout_dispatch_ring(roll, idx, devices, cmds)
+        rstate['dispatched_ids'] = dispatched
+        rstate['dispatched_at'] = now
+        rstate['total'] = len(dispatched)
+        rstate['queued'] = queued
+        rstate['state'] = 'verifying' if dispatched else 'done'
+        _rollout_log(roll, f'ring {idx+1}/{len(rings)} "{rings[idx].get("name")}" '
+                           f'dispatched to {len(dispatched)} device(s)')
+        if not dispatched:
+            rstate['done_at'] = now
+        mutated = True
+    if rstate.get('state') == 'verifying':
+        ok, failed, total = _rollout_ring_progress(roll, rstate, devices, cmds)
+        rstate['ok_count'] = ok
+        rstate['failed_count'] = failed
+        elapsed_min = (now - (rstate.get('dispatched_at') or now)) / 60.0
+        verify_min = roll.get('verify_minutes', _ROLLOUT_VERIFY_MIN_DEFAULT)
+        if ok >= total or elapsed_min >= verify_min:
+            if total > 0 and ok == 0:
+                rstate['state'] = 'failed'
+                roll['state'] = 'failed'
+                _rollout_log(roll, f'ring {idx+1} FAILED — 0/{total} verified after '
+                                   f'{int(elapsed_min)}m; rollout halted')
+            else:
+                rstate['state'] = 'done'
+                rstate['done_at'] = now
+                _rollout_log(roll, f'ring {idx+1} done — {ok}/{total} verified'
+                                   + (f', {failed} stalled' if failed else ''))
+                if idx + 1 >= len(rings):
+                    roll['state'] = 'done'
+                    _rollout_log(roll, 'rollout complete')
+                elif roll.get('auto_promote'):
+                    roll['current_ring'] = idx + 1
+                    _rollout_log(roll, f'auto-promoting to ring {idx+2}')
+                else:
+                    roll['state'] = 'paused'
+                    _rollout_log(roll, f'ring {idx+1} done — awaiting manual promote')
+    return mutated
+
+
+def _rollout_tick():
+    """Advance every running rollout. Cheap early-out when none are running."""
+    try:
+        rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
+    except Exception:
+        return
+    if not any(r.get('state') == 'running' for r in rolls):
+        return
+    try:
+        with _LockedUpdate(ROLLOUTS_FILE) as store:
+            rolls = store.get('rollouts') or []
+            if not any(r.get('state') == 'running' for r in rolls):
+                return
+            devices = load(DEVICES_FILE)
+            cmds = load(CMDS_FILE)
+            dirty = False
+            for roll in rolls:
+                if roll.get('state') != 'running':
+                    continue
+                if roll.get('action') == 'script' and roll.get('script_id'):
+                    roll['_script_body'] = _rollout_script_body(roll['script_id'])
+                if _rollout_advance(roll, devices, cmds):
+                    dirty = True
+                roll.pop('_script_body', None)
+            if dirty:
+                save(DEVICES_FILE, devices)
+                save(CMDS_FILE, cmds)
+            store['rollouts'] = rolls
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] rollout tick failed: {e}\n')
+
+
+def _rollout_tick_if_due():
+    now = time.time()
+    if now - _last_rollout_tick[0] < _ROLLOUT_TICK_INTERVAL:
+        return
+    _last_rollout_tick[0] = now
+    _rollout_tick()
+
+
+def _rollout_public(roll):
+    """Strip internal (underscore-prefixed) keys for the API."""
+    return {k: v for k, v in roll.items() if not k.startswith('_')}
+
+
+def handle_rollouts_list():
+    """GET /api/rollouts — list rollouts, advancing running ones first."""
+    require_auth()
+    _rollout_tick()
+    rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
+    rolls = sorted(rolls, key=lambda r: -(r.get('created_at') or 0))
+    respond(200, {'rollouts': [_rollout_public(r) for r in rolls]})
+
+
+def handle_rollouts_create():
+    """POST /api/rollouts — create a draft rollout."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    name = _sanitize_str(body.get('name', ''), 80)
+    if not name:
+        respond(400, {'error': 'name required'})
+    action = body.get('action') or 'upgrade'
+    if action not in ('upgrade', 'script'):
+        respond(400, {'error': 'action must be upgrade or script'})
+    script_id = ''
+    if action == 'script':
+        script_id = _sanitize_str(body.get('script_id', ''), 64)
+        if not _rollout_script_body(script_id):
+            respond(400, {'error': 'script_id not found'})
+    raw_rings = body.get('rings') if isinstance(body.get('rings'), list) else []
+    rings = []
+    for r in raw_rings[:10]:
+        if not isinstance(r, dict):
+            continue
+        sel = r.get('selector') or {}
+        st = sel.get('type')
+        if st not in ('group', 'tag', 'ids'):
+            continue
+        clean = {'type': st}
+        if st == 'ids':
+            clean['ids'] = [str(x).strip() for x in (sel.get('ids') or [])[:500]
+                            if _validate_id(str(x).strip())]
+            if not clean['ids']:
+                continue
+        else:
+            clean['value'] = _sanitize_str(sel.get('value', ''), 128)
+            if not clean['value']:
+                continue
+        rings.append({'name': _sanitize_str(r.get('name', ''), 40) or f'ring {len(rings)+1}',
+                      'selector': clean})
+    if not rings:
+        respond(400, {'error': 'at least one ring with a valid selector required'})
+    try:
+        vmin = max(1, min(_ROLLOUT_VERIFY_MIN_MAX,
+                          int(body.get('verify_minutes') or _ROLLOUT_VERIFY_MIN_DEFAULT)))
+    except (TypeError, ValueError):
+        vmin = _ROLLOUT_VERIFY_MIN_DEFAULT
+    roll = {
+        'id': secrets.token_hex(8),
+        'name': name,
+        'action': action,
+        'script_id': script_id,
+        'rings': rings,
+        'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0,
+                         'ok_count': 0, 'failed_count': 0} for _ in rings],
+        'auto_promote': bool(body.get('auto_promote')),
+        'verify_minutes': vmin,
+        'state': 'draft',
+        'current_ring': 0,
+        'history': [],
+        'created_by': actor,
+        'created_at': int(time.time()),
+        'updated_at': int(time.time()),
+    }
+    _rollout_log(roll, f'created — {action}, {len(rings)} ring(s), '
+                       f'{"auto" if roll["auto_promote"] else "manual"} promote')
+    with _LockedUpdate(ROLLOUTS_FILE) as store:
+        rl = store.setdefault('rollouts', [])
+        if len(rl) >= 100:
+            respond(400, {'error': 'too many rollouts (max 100) — delete old ones'})
+        rl.append(roll)
+    audit_log(actor, 'rollout_create', f'id={roll["id"]} action={action} rings={len(rings)}')
+    respond(200, {'ok': True, 'rollout': _rollout_public(roll)})
+
+
+def handle_rollout_action(roll_id, action):
+    """POST /api/rollouts/<id>/<start|pause|resume|cancel|promote>."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    err_box = [None]
+    with _LockedUpdate(ROLLOUTS_FILE) as store:
+        rolls = store.get('rollouts') or []
+        roll = next((r for r in rolls if r.get('id') == roll_id), None)
+        if not roll:
+            respond(404, {'error': 'rollout not found'})
+        st = roll.get('state')
+        if action == 'start':
+            if st not in ('draft', 'paused'):
+                err_box[0] = f'cannot start from state {st}'
+            else:
+                roll['state'] = 'running'
+                _rollout_log(roll, 'started' if st == 'draft' else 'resumed')
+        elif action == 'pause':
+            if st != 'running':
+                err_box[0] = 'only a running rollout can be paused'
+            else:
+                roll['state'] = 'paused'; _rollout_log(roll, 'paused')
+        elif action == 'resume':
+            if st != 'paused':
+                err_box[0] = 'only a paused rollout can be resumed'
+            else:
+                roll['state'] = 'running'; _rollout_log(roll, 'resumed')
+        elif action == 'cancel':
+            if st in ('done', 'cancelled'):
+                err_box[0] = f'already {st}'
+            else:
+                roll['state'] = 'cancelled'; _rollout_log(roll, 'cancelled')
+        elif action == 'promote':
+            idx = roll.get('current_ring', 0)
+            rs = roll.get('rings_state') or []
+            if st not in ('running', 'paused'):
+                err_box[0] = f'cannot promote from {st}'
+            elif idx >= len(rs) or rs[idx].get('state') != 'done':
+                err_box[0] = 'current ring is not done yet'
+            elif idx + 1 >= len(roll.get('rings') or []):
+                err_box[0] = 'no further ring to promote to'
+            else:
+                roll['current_ring'] = idx + 1
+                roll['state'] = 'running'
+                _rollout_log(roll, f'manually promoted to ring {idx+2}')
+        else:
+            err_box[0] = 'unknown action'
+        store['rollouts'] = rolls
+    if err_box[0]:
+        respond(400, {'error': err_box[0]})
+    audit_log(actor, f'rollout_{action}', f'id={roll_id}')
+    _rollout_tick()   # dispatch/advance immediately so the UI reflects it
+    rolls = (load(ROLLOUTS_FILE) or {}).get('rollouts') or []
+    fresh = next((r for r in rolls if r.get('id') == roll_id), None)
+    respond(200, {'ok': True, 'rollout': _rollout_public(fresh) if fresh else None})
+
+
+def handle_rollout_delete(roll_id):
+    """DELETE /api/rollouts/<id>."""
+    actor = require_admin_auth()
+    with _LockedUpdate(ROLLOUTS_FILE) as store:
+        rolls = store.get('rollouts') or []
+        remaining = [r for r in rolls if r.get('id') != roll_id]
+        if len(remaining) == len(rolls):
+            respond(404, {'error': 'rollout not found'})
+        store['rollouts'] = remaining
+    audit_log(actor, 'rollout_delete', f'id={roll_id}')
+    respond(200, {'ok': True})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.2: CIS-style compliance baselines
+# ─────────────────────────────────────────────────────────────────────────────
+# A named baseline is a set of pass/fail CHECKS evaluated against each device's
+# reported sysinfo (+ CVE / agent-integrity data). Each check returns True
+# (pass), False (fail), or None (not applicable / no data). The fleet compliance
+# score is the severity-weighted pass ratio over applicable checks. A daily
+# sample feeds a trend sparkline. Disabled checks live in config
+# (`compliance_baseline.disabled`). No agent change — checks reuse existing data.
+_CIS_SEVERITY_WEIGHT = {'high': 5, 'medium': 3, 'low': 1}
+
+
+def _cis_checks():
+    """The built-in Linux baseline. Each entry: (id, title, severity, fn) where
+    fn(ctx) -> True|False|None. ctx carries the device + precomputed facts."""
+    def _patches(ctx):
+        pend = ((ctx['sysinfo'].get('packages')) or {}).get('upgradable')
+        return None if not isinstance(pend, int) else pend == 0
+    def _reboot(ctx):
+        si = ctx['sysinfo']
+        return None if 'reboot_required' not in si else not si.get('reboot_required')
+    def _failed_units(ctx):
+        fu = ctx['sysinfo'].get('failed_units')
+        return None if fu is None else len(fu) == 0
+    def _disk(ctx):
+        d = ctx['sysinfo'].get('disk_percent')
+        return None if not isinstance(d, (int, float)) else d < 90
+    def _swap(ctx):
+        s = ctx['sysinfo'].get('swap_percent')
+        return None if not isinstance(s, (int, float)) else s < 80
+    def _cve(ctx):
+        return ctx['cve_high'] == 0 if ctx['cve_high'] is not None else None
+    def _integrity(ctx):
+        st = ctx['integrity']
+        return None if st in (None, 'unknown', 'na') else st == 'verified'
+    return [
+        ('cis-patches',   'No pending package updates',          'high',   _patches),
+        ('cis-reboot',    'No pending reboot',                   'medium', _reboot),
+        ('cis-failed',    'No failed systemd units',             'medium', _failed_units),
+        ('cis-disk',      'Root filesystem under 90% used',      'high',   _disk),
+        ('cis-swap',      'Swap usage under 80%',                'low',    _swap),
+        ('cis-cve',       'No critical/high CVEs',               'high',   _cve),
+        ('cis-integrity', 'Agent binary matches signed build',  'medium', _integrity),
+    ]
+
+
+def _cis_disabled():
+    cb = (load(CONFIG_FILE) or {}).get('compliance_baseline') or {}
+    return set(cb.get('disabled') or [])
+
+
+def _compute_compliance(devices=None):
+    """Evaluate the active baseline across monitored devices. Returns the full
+    report dict (per-check counts, per-device results, fleet score)."""
+    devices = devices if devices is not None else (load(DEVICES_FILE) or {})
+    disabled = _cis_disabled()
+    checks = [c for c in _cis_checks() if c[0] not in disabled]
+    canonical = _get_agent_sha256()
+    cve_counts = {}
+    for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
+        cve_counts[did] = sum(1 for f in (rec or {}).get('findings') or []
+                              if str(f.get('severity', '')).lower() in ('critical', 'high'))
+    per_check = {cid: {'pass': 0, 'fail': 0, 'na': 0,
+                       'title': title, 'severity': sev, 'failing': []}
+                 for cid, title, sev, _ in checks}
+    dev_results = []
+    tot_w = tot_pass_w = 0
+    counted_devices = 0
+    for did, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
+            continue
+        sysinfo = dev.get('sysinfo') or {}
+        if not sysinfo:
+            continue
+        counted_devices += 1
+        ctx = {'dev': dev, 'sysinfo': sysinfo,
+               'cve_high': cve_counts.get(did),
+               'integrity': _agent_integrity_status(dev, canonical, SERVER_VERSION)}
+        passed = applicable = 0
+        fails = []
+        for cid, title, sev, fn in checks:
+            try:
+                res = fn(ctx)
+            except Exception:
+                res = None
+            w = _CIS_SEVERITY_WEIGHT.get(sev, 1)
+            if res is None:
+                per_check[cid]['na'] += 1
+                continue
+            applicable += 1
+            tot_w += w
+            if res:
+                per_check[cid]['pass'] += 1
+                passed += 1
+                tot_pass_w += w
+            else:
+                per_check[cid]['fail'] += 1
+                fails.append(cid)
+                if len(per_check[cid]['failing']) < 60:
+                    per_check[cid]['failing'].append(dev.get('name', did))
+        dev_results.append({
+            'device_id': did, 'name': dev.get('name', did),
+            'group': dev.get('group', ''),
+            'passed': passed, 'applicable': applicable,
+            'pct': round(100 * passed / applicable) if applicable else None,
+            'fails': fails,
+        })
+    score = round(100 * tot_pass_w / tot_w) if tot_w else None
+    dev_results.sort(key=lambda r: (r['pct'] if r['pct'] is not None else 101))
+    return {
+        'generated_ts': int(time.time()),
+        'score': score,
+        'devices_evaluated': counted_devices,
+        'checks': [{'id': cid, **{k: v for k, v in per_check[cid].items()}}
+                   for cid, _, _, _ in checks],
+        'devices': dev_results,
+    }
+
+
+def handle_compliance_baseline():
+    """GET /api/compliance/baseline — evaluate the active CIS-style baseline."""
+    require_auth()
+    rep = _compute_compliance()
+    rep['history'] = ((load(COMPLIANCE_HIST_FILE) or {}).get('fleet') or [])[-90:]
+    rep['available_checks'] = [{'id': cid, 'title': t, 'severity': s}
+                               for cid, t, s, _ in _cis_checks()]
+    rep['disabled'] = sorted(_cis_disabled())
+    respond(200, rep)
+
+
+def _maybe_sample_compliance(now=None):
+    """Record at most one fleet compliance-% sample per UTC day (mirrors
+    _maybe_sample_health). Best-effort; never raises."""
+    now = int(now or time.time())
+    import datetime as _dt
+    day = _dt.datetime.fromtimestamp(now, _dt.timezone.utc).strftime('%Y-%m-%d')
+    try:
+        with _LockedUpdate(COMPLIANCE_HIST_FILE) as store:
+            fleet = store.setdefault('fleet', [])
+            if fleet and fleet[-1].get('date') == day:
+                return
+            score = _compute_compliance().get('score')
+            if score is None:
+                return
+            fleet.append({'date': day, 'ts': now, 'score': score})
+            store['fleet'] = fleet[-180:]
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] compliance sample failed: {e}\n')
 
 
 def handle_inventory_search():
@@ -21041,6 +21627,34 @@ def in_maintenance(event, payload):
     return None
 
 
+def _exec_gated(dev_id, dev, now=None):
+    """v3.4.2: change-window gating. If a device is covered by one or more
+    maintenance windows flagged ``gate_exec``, its exec/upgrade commands are HELD
+    until one of those windows is active. Returns True == hold the command.
+    Devices not covered by any gate_exec window are never gated (returns False),
+    so this is opt-in per window and inert by default."""
+    now = now or int(time.time())
+    try:
+        windows = (load(MAINT_FILE) or {}).get('windows') or []
+    except Exception:
+        return False
+    dev_group = (dev or {}).get('group') or ''
+    covered = False
+    for w in windows:
+        if not w.get('gate_exec'):
+            continue
+        scope = (w.get('scope') or 'device').lower()
+        applies = (scope == 'global'
+                   or (scope == 'group' and dev_group and w.get('target') == dev_group)
+                   or (scope == 'device' and dev_id and w.get('target') == dev_id))
+        if not applies:
+            continue
+        covered = True
+        if _window_active(w, now):
+            return False   # an applicable change-window is open → allow now
+    return covered          # covered but none active → hold
+
+
 def log_suppression(event, payload, info):
     """Append an entry to the maintenance-suppression audit trail."""
     try:
@@ -21143,6 +21757,10 @@ def handle_maintenance_add():
         'cron':     cron,
         'duration': duration,
         'events':   events,
+        # v3.4.2: when set, exec/upgrade commands for covered devices are HELD
+        # until one of the device's gating windows is active (change-window
+        # gating — distinct from the alert suppression above).
+        'gate_exec': bool(body.get('gate_exec')),
         'created_by': actor,
         'created_at': int(time.time()),
     }
@@ -21200,6 +21818,7 @@ def _validate_maintenance_body(body):
         'reason': reason, 'scope': scope, 'target': target,
         'start': start, 'end': end, 'cron': cron,
         'duration': duration, 'events': events,
+        'gate_exec': bool(body.get('gate_exec')),
     }
 
 
@@ -24788,6 +25407,16 @@ def _dispatch(pi, m):
     elif pi == '/api/inventory/metering' and m == 'GET': handle_inventory_metering()
     # v3.4.2: ad-hoc fleet query
     elif pi == '/api/fleet/query' and m == 'GET': handle_fleet_query()
+    # v3.4.2: staged / ring rollouts (canary → pilot → broad)
+    elif pi == '/api/rollouts' and m == 'GET': handle_rollouts_list()
+    elif pi == '/api/rollouts' and m == 'POST': handle_rollouts_create()
+    elif pi.startswith('/api/rollouts/') and pi.count('/') == 4 and m == 'POST':
+        _seg = pi[len('/api/rollouts/'):].split('/')
+        handle_rollout_action(_seg[0], _seg[1])
+    elif pi.startswith('/api/rollouts/') and m == 'DELETE':
+        handle_rollout_delete(pi[len('/api/rollouts/'):])
+    # v3.4.2: CIS-style compliance baseline
+    elif pi == '/api/compliance/baseline' and m == 'GET': handle_compliance_baseline()
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
@@ -25041,6 +25670,10 @@ def main():
     # health_degraded / health_recovered alerts on threshold crossings.
     _safe(_maybe_sample_health, '_maybe_sample_health')
     _safe(_check_health_webhooks, '_check_health_webhooks')
+    # v3.4.2: sample fleet compliance % (once per UTC day) for the trend chart,
+    # and advance any running staged rollouts (cheap-when-none-running).
+    _safe(_maybe_sample_compliance, '_maybe_sample_compliance')
+    _safe(_rollout_tick_if_due, '_rollout_tick_if_due')
     # v3.3.0: ping Healthchecks.io (or compatible) when configured.
     # External watchdog over the server itself — if RemotePower stops
     # serving requests, hc.io flips to red and pages someone.

@@ -56,6 +56,32 @@ In development.
   action. New `GET`/`POST /api/automation/rules` and
   `PUT`/`DELETE /api/automation/rules/<id>` (mutations admin-only, audited).
 
+### Deployment & compliance additions
+- **Staged / ring rollouts (Planning → Rollouts).** Push an OS upgrade or a saved
+  script to the fleet in ordered rings — canary → pilot → broad. Each ring is
+  dispatched and watched; upgrades use real post-deploy verification, and the
+  next ring releases automatically (auto-promote) or on your approval. A ring
+  that fails to verify halts the rollout. Pause / resume / cancel / promote, with
+  per-rollout history. `GET/POST /api/rollouts`, `POST /api/rollouts/<id>/<action>`.
+- **Maintenance change-windows.** A maintenance window can now also **gate
+  command/upgrade execution** (new "gate execution" checkbox): exec/upgrade
+  commands for covered devices are *held* at the dispatch chokepoint until the
+  window is active — distinct from the alert-suppression role. Pairs with staged
+  rollouts so changes only land inside an approved window.
+- **CIS-style compliance baseline (Compliance page).** A named set of pass/fail
+  checks evaluated against each host's reported state — patches, reboot, failed
+  units, disk, swap, CVEs, agent integrity. Severity-weighted fleet score, a
+  daily trend sparkline, per-check failing-host lists, and per-check enable/
+  disable. `GET /api/compliance/baseline`.
+- **Software metering: normalization + reclamation.** Meters take optional
+  **aliases** (`name = limit | alias1, alias2`) so name variants map onto one
+  catalog entry, and the report flags **reclamation candidates** — hosts where
+  the software is installed but not seen running.
+- **Print-friendly PDF report (Reports page).** A "Print / Save as PDF" button
+  renders a clean, self-contained posture report (health, devices, patches,
+  CVEs, compliance frameworks + baseline) for the browser's native print/PDF —
+  no new dependency.
+
 ### Fleet management additions
 - **Patch catalog (Patches page).** Pending updates aggregated *by package* —
   "package X is pending on N hosts" — the inverse of the device table. The agent

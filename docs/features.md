@@ -74,6 +74,11 @@ The complete list. Items marked with a version number indicate when they were ad
 | **After-hours detection** | Flag selected events firing outside business hours as a NA item (Settings → Dashboard) (v3.4.2) |
 | **Ad-hoc fleet query** | Fleet → Query: filter by group/tag/OS/online/pending/integrity/CVE, with saved queries. `GET /api/fleet/query` (v3.4.2) |
 | **Signed-agent badge** | Green ✓ / red ⚠ next to a device's version showing whether it runs the canonical signed build (v3.4.2) |
+| **Staged / ring rollouts** | Planning → Rollouts: push an upgrade/script canary → pilot → broad, verified per ring, auto- or manual-promote. `GET/POST /api/rollouts` (v3.4.2) |
+| **Maintenance change-windows** | A maintenance window can gate command/upgrade execution (held until the window is active), not just suppress alerts (v3.4.2) |
+| **CIS-style compliance baseline** | Compliance page: pass/fail checks (patches/reboot/units/disk/CVE/integrity), severity-weighted score + daily trend. `GET /api/compliance/baseline` (v3.4.2) |
+| **Metering normalization + reclamation** | Meter aliases map name variants onto one entry; flags installs not seen running as reclaimable (v3.4.2) |
+| **Print / Save as PDF** | Reports page: clean self-contained posture report for the browser's native print/PDF, zero dependency (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

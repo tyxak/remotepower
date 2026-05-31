@@ -284,6 +284,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
           <span>Maintenance</span>
         </button>
+        <button class="nav-btn" data-page="rollouts" title="Staged canary → pilot → broad rollouts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 6h6a4 4 0 0 1 4 4v0"/><path d="M7 18h6a4 4 0 0 0 4-4v0"/></svg>
+          <span>Rollouts</span>
+        </button>
         <button class="nav-btn" data-page="history" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
           <span>History</span>
@@ -1842,7 +1846,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity">
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity patch catalog metering license heat map after hours fleet query signed agent badge staged ring rollout canary pilot broad promote maintenance change window gate execution cis compliance baseline benchmark drift print pdf report reclamation normalization aliases">
             <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
             <div class="doc-body">
               <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
@@ -1883,6 +1887,15 @@
                 <li><strong>After-hours activity detection</strong> (Settings → Dashboard) — flag selected events that fire outside business hours (a 3am login / new port / command) as a Needs-Attention item.</li>
                 <li><strong>Ad-hoc fleet query</strong> (Fleet → Query) — filter devices by group / tag / OS / online / pending-count / integrity / CVE count, with saved queries. <code>GET /api/fleet/query</code>.</li>
                 <li><strong>Signed-agent badge on Devices</strong> — a green ✓ next to the version when the running binary matches the canonical signed build, a red ⚠ on a hash mismatch; hover shows the status and short hash.</li>
+              </ul>
+
+              <h4>Deployment &amp; compliance additions</h4>
+              <ul>
+                <li><strong>Staged / ring rollouts</strong> (Planning &rarr; Rollouts) — push an upgrade or saved script in ordered rings (canary &rarr; pilot &rarr; broad). Each ring is verified (upgrades use real post-deploy verification) before the next releases, automatically or on your approval; a ring that fails to verify <strong>halts</strong> the rollout. Pause / resume / cancel / promote, with per-rollout history.</li>
+                <li><strong>Maintenance change-windows</strong> — a maintenance window can now <strong>gate command/upgrade execution</strong> (the new checkbox): covered devices' exec/upgrade commands are held until the window is active. Opt-in per window; pairs with staged rollouts so changes land only in an approved window.</li>
+                <li><strong>CIS-style compliance baseline</strong> (Compliance page) — pass/fail checks (patches, reboot, failed units, disk, swap, CVEs, agent integrity) with a severity-weighted fleet score, a daily trend, failing-host lists, and per-check enable/disable.</li>
+                <li><strong>Software metering: normalization + reclamation</strong> — meter <strong>aliases</strong> (<code>name = limit | alias1, alias2</code>) fold name variants onto one entry, and the report flags <strong>reclamation candidates</strong> (installed but not seen running).</li>
+                <li><strong>Print / Save as PDF</strong> (Reports page) — a clean, self-contained posture report for the browser's native print/PDF. No new dependency.</li>
               </ul>
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
             </div>
@@ -3214,6 +3227,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
 
+        <!-- v3.4.2: CIS-style configuration baseline -->
+        <div class="settings-section mt-16" id="cis-baseline-card">
+          <div class="row-8-center mb-8">
+            <div class="section-label">Configuration baseline (CIS-style)</div>
+            <span id="cis-score" class="ro-badge"></span>
+            <button class="btn-secondary fs-12" data-action="loadComplianceBaseline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div class="hint">A named set of pass/fail checks evaluated against each host's reported state — patches, reboot, failed units, disk, CVEs, agent integrity. Severity-weighted across applicable checks; the daily trend is below. Toggle a check off to exclude it fleet-wide.</div>
+          <div id="cis-trend" class="mb-8"></div>
+          <div id="cis-baseline-body"><div class="c-muted">Loading…</div></div>
+        </div>
+
         <!-- v3.4.2: fleet anomaly scan relocated here (Security). -->
         <div class="settings-section ai-tool-card mt-16">
           <div class="ai-tool-head">
@@ -3266,6 +3291,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="row-8-center">
             <button class="btn-secondary fs-12" data-action="downloadFleetReport" data-arg="json"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download JSON</button>
             <button class="btn-secondary fs-12" data-action="downloadFleetReport" data-arg="csv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download CSV</button>
+            <button class="btn-secondary fs-12" data-action="printFleetReport"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg> Print / Save as PDF</button>
           </div>
         </div>
 
@@ -3293,7 +3319,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <h3>Software metering</h3>
           <div class="page-subtitle mb-12">Track install counts of named software across the fleet against an allowance. One per line as <span class="ff-mono">name = limit</span> (limit 0 = just count). Matches package names in the collected inventory.</div>
-          <div class="mb-12"><textarea id="metering-config" class="form-input ff-mono fs-12" rows="3" placeholder="nginx = 10&#10;mysql-server = 4&#10;teamviewer = 0"></textarea></div>
+          <div class="mb-12"><textarea id="metering-config" class="form-input ff-mono fs-12" rows="3" placeholder="nginx = 10&#10;teamviewer = 0&#10;openssl = 0 | libssl3, openssl-libs"></textarea></div>
           <div class="row-8-center mb-12"><button class="btn-primary fs-12" data-action="saveMetering">Save &amp; scan</button><span id="metering-status" class="fs-12 c-muted"></span></div>
           <div id="metering-results"></div>
         </div>
@@ -3600,6 +3626,17 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="page-title isl-154">Recent Suppressions</div>
           <div class="table-card"><table><thead id="maint-supp-thead"><tr><th data-col="ts">When</th><th data-col="event">Event</th><th data-col="device">Device</th><th data-col="window">Window</th><th data-col="reason">Reason</th></tr></thead><tbody id="maint-supp-tbody"></tbody></table></div>
         </div>
+      </div>
+
+      <!-- ── v3.4.2: Rollouts page (staged canary → pilot → broad) ─────────── -->
+      <div id="page-rollouts" class="page">
+        <div class="page-title">Rollouts</div>
+        <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
+        <div class="row-8-center mb-12">
+          <button class="btn-primary" data-action="openRolloutModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rollout</button>
+          <button class="btn-icon" data-action="loadRollouts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        </div>
+        <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
       </div>
 
       <!-- ── v1.8.3: Calendar page ────────────────────────────────────────── -->
@@ -5272,7 +5309,33 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label><input type="checkbox" class="maint-event-cb" value="log_alert"> log_alert</label>
     </div>
   </div>
+  <div class="form-group"><label class="row-8-center"><input type="checkbox" id="maint-gate-exec"> <span>Gate command/upgrade execution to this window</span></label>
+    <div class="page-subtitle mt-4">When checked, exec/upgrade commands for covered devices are <strong>held</strong> until this window is active — a change window, not just alert suppression.</div>
+  </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-maint-modal" >Cancel</button><button class="btn-primary" data-action="saveMaintenance" >Create</button></div>
+</div></div>
+
+<div class="modal-overlay" id="new-rollout-modal"><div class="modal"><div class="modal-title">New rollout</div>
+  <div class="form-group"><label>Name</label><input type="text" id="ro-name" placeholder="May security patches" maxlength="80"></div>
+  <div class="form-group"><label>Action</label>
+    <select id="ro-action" data-change="onRolloutActionChange">
+      <option value="upgrade">OS package upgrade (verified)</option>
+      <option value="script">Run a saved script</option>
+    </select>
+  </div>
+  <div class="form-group d-none" id="ro-script-row"><label>Saved script</label><select id="ro-script"></select>
+    <div class="page-subtitle mt-4">Scripts can only be confirmed as <em>delivered</em>, not verified for success — upgrades get true post-deploy verification.</div>
+  </div>
+  <div class="form-group"><label>Rings (top to bottom; empty rings are skipped)</label>
+    <div id="ro-rings">
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="canary" maxlength="40"><select class="form-input input-auto ro-ring-type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id"></div>
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="pilot" maxlength="40"><select class="form-input input-auto ro-ring-type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id"></div>
+      <div class="row-8-center mb-8 ro-ring"><input type="text" class="form-input ro-ring-name" placeholder="broad" maxlength="40"><select class="form-input input-auto ro-ring-type"><option value="group">group</option><option value="tag">tag</option><option value="ids">device ids</option></select><input type="text" class="form-input ro-ring-value" placeholder="group / tag / id,id"></div>
+    </div>
+  </div>
+  <div class="form-group"><label>Verify window per ring (minutes)</label><input type="number" id="ro-verify" min="1" max="1440" value="30"></div>
+  <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-auto"> <span>Auto-promote to the next ring when the current one verifies</span></label></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-rollout-modal">Cancel</button><button class="btn-primary" data-action="saveRollout">Create</button></div>
 </div></div>
 <div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
 
@@ -5457,6 +5520,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 </div>
 
 <div class="toast-container" id="toast-container"></div>
+<!-- v3.4.2: print-only posture report target (filled by printFleetReport) -->
+<div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
 <script src="static/js/app.js?v=3.4.2"></script>

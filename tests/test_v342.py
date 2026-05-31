@@ -205,6 +205,186 @@ class TestV342FleetMgmt(unittest.TestCase):
         self.assertIn("row['agent_integrity']", self.API)
 
 
+class TestV342Deployment(unittest.TestCase):
+    """Second octofleet batch: staged rollouts, maintenance change-windows,
+    CIS-style compliance baselines, metering normalization/reclamation, PDF."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    CSS = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+
+    # ── routes ──────────────────────────────────────────────────────────────
+    def test_routes(self):
+        self.assertEqual(routes_to('GET', '/api/rollouts'), 'handle_rollouts_list')
+        self.assertEqual(routes_to('POST', '/api/rollouts'), 'handle_rollouts_create')
+        self.assertEqual(routes_to('POST', '/api/rollouts/abc123/start'), 'handle_rollout_action')
+        self.assertEqual(routes_to('DELETE', '/api/rollouts/abc123'), 'handle_rollout_delete')
+        self.assertEqual(routes_to('GET', '/api/compliance/baseline'), 'handle_compliance_baseline')
+
+    def test_periodic_hooks(self):
+        self.assertIn("_safe(_rollout_tick_if_due", self.API)
+        self.assertIn("_safe(_maybe_sample_compliance", self.API)
+
+    # ── behaviour: staged rollout ring lifecycle ─────────────────────────────
+    def _fresh_api(self):
+        import importlib, tempfile, json, os
+        from pathlib import Path as _P
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = _P(d)
+        for attr, fn in (('ROLLOUTS_FILE', 'rollouts.json'), ('SCRIPTS_FILE', 'scripts.json'),
+                         ('CMDS_FILE', 'commands.json'), ('DEVICES_FILE', 'devices.json'),
+                         ('CONFIG_FILE', 'config.json'), ('MAINT_FILE', 'maintenance.json'),
+                         ('PACKAGES_FILE', 'packages.json'), ('CVE_FINDINGS_FILE', 'cve.json'),
+                         ('COMPLIANCE_HIST_FILE', 'comp.json')):
+            setattr(api, attr, _P(d) / fn)
+        api.audit_log = lambda *a, **k: None
+        api.log_command = lambda *a, **k: None
+        api._get_agent_sha256 = lambda: 'canon'
+        api._LOAD_CACHE.clear()
+        return api, _P(d)
+
+    def test_rollout_ring_advance_and_verify(self):
+        import json, time
+        api, d = self._fresh_api()
+        devs = {'d1': {'name': 'web1', 'group': 'prod', 'monitored': True,
+                       'sysinfo': {'packages': {'upgradable': 5}}}}
+        (d / 'devices.json').write_text(json.dumps(devs))
+        api._LOAD_CACHE.clear()
+        now = int(time.time())
+        roll = {'id': 'r1', 'name': 'p', 'action': 'upgrade', 'script_id': '', 'current_ring': 0,
+                'rings': [{'name': 'canary', 'selector': {'type': 'ids', 'ids': ['d1']}},
+                          {'name': 'broad', 'selector': {'type': 'group', 'value': 'prod'}}],
+                'rings_state': [{'state': 'pending', 'dispatched_ids': [], 'total': 0, 'ok_count': 0, 'failed_count': 0},
+                                {'state': 'pending', 'dispatched_ids': [], 'total': 0, 'ok_count': 0, 'failed_count': 0}],
+                'auto_promote': False, 'verify_minutes': 30, 'state': 'running', 'history': [], 'created_by': 't'}
+        devices = json.loads((d / 'devices.json').read_text())
+        cmds = {}
+        api._rollout_advance(roll, devices, cmds)
+        # ring 0 dispatched the upgrade to d1 and is now verifying
+        self.assertEqual(roll['rings_state'][0]['state'], 'verifying')
+        self.assertEqual(roll['rings_state'][0]['dispatched_ids'], ['d1'])
+        self.assertTrue(any('exec:' in c for c in cmds['d1']))
+        # simulate d1's upgrade verified ok (pending dropped to 0)
+        devices['d1']['upgrade_pending_before'] = 5
+        devices['d1']['upgrade_queued_at'] = now
+        devices['d1']['sysinfo']['packages']['upgradable'] = 0
+        self.assertEqual(api._upgrade_verify_status(devices['d1'], now), 'ok')
+        api._rollout_advance(roll, devices, cmds)
+        # ring 0 done; manual promote → rollout paused awaiting approval
+        self.assertEqual(roll['rings_state'][0]['state'], 'done')
+        self.assertEqual(roll['state'], 'paused')
+
+    def test_rollout_ring_failure_halts(self):
+        import json, time
+        api, d = self._fresh_api()
+        (d / 'devices.json').write_text(json.dumps(
+            {'d1': {'name': 'x', 'group': 'prod', 'monitored': True, 'sysinfo': {'packages': {'upgradable': 3}}}}))
+        api._LOAD_CACHE.clear()
+        now = int(time.time())
+        roll = {'id': 'r2', 'name': 'p', 'action': 'upgrade', 'current_ring': 0,
+                'rings': [{'name': 'canary', 'selector': {'type': 'ids', 'ids': ['d1']}}],
+                'rings_state': [{'state': 'verifying', 'dispatched_ids': ['d1'], 'total': 1,
+                                 'ok_count': 0, 'failed_count': 0, 'dispatched_at': now - 7200}],
+                'auto_promote': True, 'verify_minutes': 30, 'state': 'running', 'history': [], 'created_by': 't'}
+        devices = json.loads((d / 'devices.json').read_text())
+        # never verified, window elapsed → ring failed, rollout halted
+        api._rollout_advance(roll, devices, {})
+        self.assertEqual(roll['state'], 'failed')
+
+    # ── behaviour: maintenance change-window gating ──────────────────────────
+    def test_exec_gated(self):
+        import json, time
+        api, d = self._fresh_api()
+        now = int(time.time())
+        (d / 'maintenance.json').write_text(json.dumps({'windows': [
+            {'id': 'w1', 'scope': 'group', 'target': 'prod', 'gate_exec': True,
+             'cron': '0 2 * * *', 'duration': 3600}]}))
+        api._LOAD_CACHE.clear()
+        # covered by a gate_exec window that is not active right now → hold
+        self.assertTrue(api._exec_gated('d1', {'group': 'prod'}, now))
+        # device not covered by any gate_exec window → never gated
+        self.assertFalse(api._exec_gated('dz', {'group': 'other'}, now))
+
+    def test_gate_exec_field_persisted(self):
+        # add + validate both carry gate_exec through to the stored window
+        self.assertIn("'gate_exec': bool(body.get('gate_exec'))", self.API)
+
+    # ── behaviour: CIS compliance baseline ───────────────────────────────────
+    def test_compliance_scoring(self):
+        api, d = self._fresh_api()
+        devs = {
+            'ok': {'name': 'good', 'monitored': True, 'agent_sha256': 'canon',
+                   'sysinfo': {'packages': {'upgradable': 0}, 'failed_units': [],
+                               'reboot_required': False, 'disk_percent': 30, 'swap_percent': 5}},
+            'bad': {'name': 'bad', 'monitored': True,
+                    'sysinfo': {'packages': {'upgradable': 9}, 'failed_units': ['a.service'],
+                                'reboot_required': True, 'disk_percent': 97, 'swap_percent': 5}},
+        }
+        rep = api._compute_compliance(devs)
+        self.assertEqual(rep['devices_evaluated'], 2)
+        self.assertIsInstance(rep['score'], int)
+        ids = {c['id'] for c in rep['checks']}
+        self.assertIn('cis-patches', ids)
+        self.assertIn('cis-disk', ids)
+        # disabling a check drops it from the report
+        api._cis_disabled = lambda: {'cis-disk'}
+        rep2 = api._compute_compliance(devs)
+        self.assertNotIn('cis-disk', {c['id'] for c in rep2['checks']})
+
+    def test_compliance_config_key(self):
+        self.assertIn("cfg['compliance_baseline'] = {'disabled': disabled}", self.API)
+
+    # ── behaviour: metering normalization + reclamation ──────────────────────
+    def test_meter_normalization(self):
+        api, _ = self._fresh_api()
+        self.assertEqual(api._meter_needles({'name': 'OpenSSL', 'aliases': ['libssl3', '']}),
+                         ['openssl', 'libssl3'])
+
+    def test_software_in_use_heuristic(self):
+        api, _ = self._fresh_api()
+        running = {'sysinfo': {'top_processes': [{'name': 'nginx'}]}}
+        idle = {'sysinfo': {'top_processes': [{'name': 'bash'}], 'listening_ports': []}}
+        self.assertTrue(api._software_in_use(running, ['nginx']))
+        self.assertFalse(api._software_in_use(idle, ['nginx']))
+
+    def test_metering_aliases_config(self):
+        self.assertIn("entry['aliases'] = aliases", self.API)
+
+    # ── frontend wiring ──────────────────────────────────────────────────────
+    def test_frontend_rollouts(self):
+        self.assertIn('data-page="rollouts"', self.HTML)
+        self.assertIn('id="page-rollouts"', self.HTML)
+        self.assertIn('id="new-rollout-modal"', self.HTML)
+        self.assertIn('function loadRollouts(', self.APP)
+        self.assertIn('function saveRollout(', self.APP)
+        self.assertIn('function rolloutAction(', self.APP)
+        self.assertIn("name === 'rollouts'", self.APP)
+
+    def test_frontend_maintenance_gate(self):
+        self.assertIn('id="maint-gate-exec"', self.HTML)
+        self.assertIn('gate_exec: gateExec', self.APP)
+
+    def test_frontend_compliance_baseline(self):
+        self.assertIn('id="cis-baseline-card"', self.HTML)
+        self.assertIn('function loadComplianceBaseline(', self.APP)
+        self.assertIn('function toggleCisCheck(', self.APP)
+        self.assertIn('.cis-spark-bar', self.CSS)
+
+    def test_frontend_metering_reclaim(self):
+        self.assertIn('reclaimable', self.APP)
+        self.assertIn('reclaim_hosts', self.APP)
+
+    def test_frontend_pdf(self):
+        self.assertIn('function printFleetReport(', self.APP)
+        self.assertIn('data-action="printFleetReport"', self.HTML)
+        self.assertIn('window.print()', self.APP)
+        self.assertIn('id="print-report"', self.HTML)
+        self.assertIn('@media print', self.CSS)
+        # CSP / lint: must not use document.write
+        self.assertNotIn('document.write', self.APP)
+
+
 class TestV342ReviewFixes(unittest.TestCase):
     """Review round: disable-signing password gate, SNMP live-threshold fix,
     cron-builder → Planning, anomaly-scan → Security."""

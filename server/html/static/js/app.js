@@ -843,6 +843,7 @@ function showPage(name, btn) {
   if (name === 'automation') loadAutomation();
   if (name === 'signing')    loadSigning();
   if (name === 'query')      loadFleetQuery();
+  if (name === 'rollouts')   loadRollouts();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2422,6 +2423,10 @@ const _DYK_TIPS = [
   "The Patches page has a patch catalog — see which update is pending across how many hosts, the inverse of the per-device view.",
   "Fleet → Query lets you filter devices by group, tags, OS, pending updates, CVE count or integrity — and save the queries you reuse.",
   "A green check next to a device's version means it's running the canonical signed agent build; a red mark means the hash doesn't match.",
+  "Planning → Rollouts pushes an upgrade or script in rings — canary, then pilot, then broad — and won't release the next ring until the current one verifies.",
+  "A maintenance window can gate command/upgrade execution, not just suppress alerts: tick 'gate execution' so changes are held until the window opens.",
+  "The Compliance page scores a CIS-style baseline (patches, reboot, failed units, disk, CVEs, agent integrity) and tracks the trend day over day.",
+  "Software meters take aliases — 'openssl = 0 | libssl3, openssl-libs' — and flag installs not seen running as reclaimable licenses.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -3955,6 +3960,7 @@ async function openNewMaintModal() {
   document.getElementById('maint-type').value = 'oneshot';
   document.getElementById('maint-cron').value = '';
   document.getElementById('maint-duration').value = 60;
+  const _ge = document.getElementById('maint-gate-exec'); if (_ge) _ge.checked = false;
   document.querySelectorAll('.maint-event-cb').forEach(cb => cb.checked = false);
   // Default start/end: now+5min, now+65min
   const pad = n => n.toString().padStart(2,'0');
@@ -3988,6 +3994,7 @@ async function _editMaintenanceBtn(btn) {
   if (titleEl) titleEl.textContent = 'Edit maintenance window';
   document.getElementById('maint-reason').value = w.reason || '';
   document.getElementById('maint-scope').value  = w.scope  || 'device';
+  const _ge = document.getElementById('maint-gate-exec'); if (_ge) _ge.checked = !!w.gate_exec;
   if (w.scope === 'device') sel.value = w.target || '';
   else if (w.scope === 'group') document.getElementById('maint-target-group').value = w.target || '';
   const isCron = !!(w.cron && w.duration);
@@ -4041,7 +4048,8 @@ async function saveMaintenance() {
   const events = Array.from(document.querySelectorAll('.maint-event-cb'))
     .filter(cb => cb.checked).map(cb => cb.value);
 
-  const body = {reason, scope, target, events};
+  const gateExec = !!(document.getElementById('maint-gate-exec') || {}).checked;
+  const body = {reason, scope, target, events, gate_exec: gateExec};
   if (type === 'oneshot') {
     const s = document.getElementById('maint-start').value;
     const e = document.getElementById('maint-end').value;
@@ -4064,6 +4072,127 @@ async function saveMaintenance() {
   } else {
     toast(result?.error || 'Failed to save window', 'error');
   }
+}
+
+// ─── v3.4.2: Rollouts (staged canary → pilot → broad) ────────────────────────
+const _ROLLOUT_STATE_CLASS = {
+  draft: 'rs-draft', running: 'rs-running', paused: 'rs-paused',
+  done: 'rs-done', cancelled: 'rs-cancelled', failed: 'rs-failed',
+};
+
+async function loadRollouts() {
+  const out = document.getElementById('rollouts-list');
+  if (!out) return;
+  const r = await api('GET', '/rollouts').catch(() => null);
+  if (!r || !Array.isArray(r.rollouts)) { out.innerHTML = '<div class="c-red">Failed to load rollouts.</div>'; return; }
+  if (!r.rollouts.length) { out.innerHTML = '<div class="empty-state">No rollouts yet. Click <strong>New rollout</strong> to stage one.</div>'; return; }
+  out.innerHTML = r.rollouts.map(_renderRollout).join('');
+}
+
+function _renderRollout(roll) {
+  const rings = (roll.rings || []).map((ring, i) => {
+    const st = (roll.rings_state || [])[i] || {};
+    const cur = roll.current_ring === i && roll.state === 'running';
+    const cls = 'ro-ring-pill ' + (st.state === 'done' ? 'rs-done'
+      : st.state === 'failed' ? 'rs-failed'
+      : st.state === 'verifying' ? 'rs-running' : 'rs-draft');
+    const prog = (st.total ? ` ${st.ok_count || 0}/${st.total}` : '')
+      + (st.failed_count ? ` · ${st.failed_count} stalled` : '');
+    return `<span class="${cls}" title="${escAttr(st.state || 'pending')}">${cur ? '▶ ' : ''}${escHtml(ring.name || ('ring ' + (i + 1)))}<span class="ro-ring-prog">${escHtml(st.state || 'pending')}${escHtml(prog)}</span></span>`;
+  }).join('<span class="ro-arrow">→</span>');
+  const last = (roll.history || []).slice(-1)[0];
+  const sc = _ROLLOUT_STATE_CLASS[roll.state] || '';
+  const canStart = roll.state === 'draft';
+  const canPause = roll.state === 'running';
+  const canResume = roll.state === 'paused';
+  const canPromote = (roll.state === 'running' || roll.state === 'paused');
+  const canCancel = !['done', 'cancelled'].includes(roll.state);
+  const btn = (label, act) => `<button class="btn-icon fs-12" data-action="rolloutAction" data-arg="${escAttr(roll.id)}" data-arg2="${act}">${label}</button>`;
+  let actions = '';
+  if (canStart)   actions += btn('Start', 'start');
+  if (canResume)  actions += btn('Resume', 'resume');
+  if (canPause)   actions += btn('Pause', 'pause');
+  if (canPromote) actions += btn('Promote', 'promote');
+  if (canCancel)  actions += btn('Cancel', 'cancel');
+  actions += `<button class="btn-icon fs-12 c-red" data-action="deleteRollout" data-arg="${escAttr(roll.id)}">Delete</button>`;
+  return `<div class="dash-card mb-12">
+    <div class="row-8-center mb-8">
+      <strong>${escHtml(roll.name || '(unnamed)')}</strong>
+      <span class="ro-badge ${sc}">${escHtml(roll.state)}</span>
+      <span class="c-muted fs-12">${escHtml(roll.action === 'script' ? 'saved script' : 'package upgrade')}${roll.auto_promote ? ' · auto-promote' : ' · manual promote'}</span>
+    </div>
+    <div class="ro-rings mb-8">${rings || '<span class="c-muted">no rings</span>'}</div>
+    ${last ? `<div class="c-muted fs-12">${escHtml(timeAgo(last.ts))} — ${escHtml(last.msg)}</div>` : ''}
+    <div class="row-8-center mt-8">${actions}</div>
+  </div>`;
+}
+
+async function openRolloutModal() {
+  document.getElementById('ro-name').value = '';
+  document.getElementById('ro-action').value = 'upgrade';
+  document.getElementById('ro-verify').value = 30;
+  document.getElementById('ro-auto').checked = false;
+  document.querySelectorAll('#ro-rings .ro-ring').forEach((row, i) => {
+    row.querySelector('.ro-ring-name').value = ['canary', 'pilot', 'broad'][i] || '';
+    row.querySelector('.ro-ring-type').value = 'group';
+    row.querySelector('.ro-ring-value').value = '';
+  });
+  // Populate the saved-script dropdown
+  const sel = document.getElementById('ro-script');
+  const scripts = await api('GET', '/scripts').catch(() => []);
+  sel.innerHTML = (Array.isArray(scripts) ? scripts : []).map(s =>
+    `<option value="${escAttr(s.id)}">${escHtml(s.name)}</option>`).join('') || '<option value="">(no saved scripts)</option>';
+  onRolloutActionChange();
+  openModal('new-rollout-modal');
+}
+
+function onRolloutActionChange() {
+  const isScript = document.getElementById('ro-action').value === 'script';
+  document.getElementById('ro-script-row').classList.toggle('d-none', !isScript);
+}
+
+async function saveRollout() {
+  const name = document.getElementById('ro-name').value.trim();
+  if (!name) { toast('Name is required', 'error'); return; }
+  const action = document.getElementById('ro-action').value;
+  const rings = [];
+  document.querySelectorAll('#ro-rings .ro-ring').forEach(row => {
+    const rname = row.querySelector('.ro-ring-name').value.trim();
+    const type = row.querySelector('.ro-ring-type').value;
+    const value = row.querySelector('.ro-ring-value').value.trim();
+    if (!value) return;
+    const selector = type === 'ids'
+      ? { type: 'ids', ids: value.split(',').map(s => s.trim()).filter(Boolean) }
+      : { type, value };
+    rings.push({ name: rname || ('ring ' + (rings.length + 1)), selector });
+  });
+  if (!rings.length) { toast('Add at least one ring with a target', 'error'); return; }
+  const body = {
+    name, action, rings,
+    verify_minutes: parseInt(document.getElementById('ro-verify').value) || 30,
+    auto_promote: document.getElementById('ro-auto').checked,
+  };
+  if (action === 'script') {
+    body.script_id = document.getElementById('ro-script').value;
+    if (!body.script_id) { toast('Pick a saved script', 'error'); return; }
+  }
+  const r = await api('POST', '/rollouts', body).catch(() => null);
+  if (r?.ok) { toast('Rollout created (draft) — press Start to begin', 'success'); closeModal('new-rollout-modal'); loadRollouts(); }
+  else toast(r?.error || 'Failed to create rollout', 'error');
+}
+
+async function rolloutAction(id, action) {
+  if (action === 'cancel' && !confirm('Cancel this rollout? Already-dispatched rings keep running on their devices.')) return;
+  const r = await api('POST', `/rollouts/${id}/${action}`, {}).catch(() => null);
+  if (r?.ok) { toast(`Rollout ${action} ok`, 'success'); loadRollouts(); }
+  else toast(r?.error || `Failed to ${action}`, 'error');
+}
+
+async function deleteRollout(id) {
+  if (!confirm('Delete this rollout? This removes its record only; it does not undo dispatched changes.')) return;
+  const r = await api('DELETE', `/rollouts/${id}`).catch(() => null);
+  if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
+  else toast(r?.error || 'Failed to delete', 'error');
 }
 
 // ─── v1.8.1: Logs page ───────────────────────────────────────────────────────
@@ -12551,7 +12680,12 @@ async function loadReportsMetering() {
   const cfg = await api('GET', '/config').catch(() => null);
   const ta = document.getElementById('metering-config');
   if (ta && cfg && Array.isArray(cfg.software_meters)) {
-    ta.value = cfg.software_meters.map(m => `${m.name} = ${m.limit || 0}`).join('\n');
+    // Syntax: "name = limit" with optional "| alias1, alias2" normalization.
+    ta.value = cfg.software_meters.map(m => {
+      const base = `${m.name} = ${m.limit || 0}`;
+      const al = (m.aliases || []).filter(Boolean);
+      return al.length ? `${base} | ${al.join(', ')}` : base;
+    }).join('\n');
   }
   const r = await api('GET', '/inventory/metering').catch(() => null);
   if (!r) { out.innerHTML = ''; return; }
@@ -12559,19 +12693,32 @@ async function loadReportsMetering() {
   const rows = r.meters.map(m => {
     const cls = m.over ? 'c-red fw-500' : '';
     const lim = m.limit ? ` / ${m.limit}` : '';
-    return `<tr><td>${escHtml(m.name)}</td><td class="${cls}">${m.installed}${lim}${m.over ? ' ⚠' : ''}</td>`
+    const aliasNote = (m.aliases && m.aliases.length) ? `<div class="fs-11 c-muted">+ ${escHtml(m.aliases.join(', '))}</div>` : '';
+    const reclaim = m.reclaimable
+      ? `<span class="c-amber" title="Installed but not seen running on: ${escAttr((m.reclaim_hosts || []).join(', '))}">${m.reclaimable} reclaimable</span>`
+      : '<span class="c-muted">—</span>';
+    return `<tr><td>${escHtml(m.name)}${aliasNote}</td><td class="${cls}">${m.installed}${lim}${m.over ? ' ⚠' : ''}</td>`
+      + `<td class="fs-12">${reclaim}</td>`
       + `<td class="fs-12 c-muted">${escHtml(m.devices.join(', '))}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Software</th><th>Installed</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Software</th><th>Installed</th><th>Reclaim</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    + `<div class="fs-11 c-muted mt-4">Reclaimable = installed but not seen in running processes / listening ports. Syntax: <code>name = limit | alias1, alias2</code> (aliases map name variants onto one entry).</div>`;
 }
 
 async function saveMetering() {
   const ta = document.getElementById('metering-config');
   const meters = (ta.value || '').split('\n').map(l => l.trim()).filter(Boolean).map(l => {
-    const m = l.split('=');
+    // "name = limit | alias1, alias2"
+    const pipe = l.split('|');
+    const left = pipe[0];
+    const aliases = (pipe[1] || '').split(',').map(s => s.trim()).filter(Boolean);
+    const m = left.split('=');
     const name = (m[0] || '').trim();
     const limit = parseInt((m[1] || '0').trim(), 10) || 0;
-    return name ? { name, limit } : null;
+    if (!name) return null;
+    const entry = { name, limit };
+    if (aliases.length) entry.aliases = aliases;
+    return entry;
   }).filter(Boolean);
   const r = await api('POST', '/config', { software_meters: meters }).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
@@ -12940,6 +13087,41 @@ function downloadFleetReport(format) {
     .catch(() => toast('Export failed', 'error'));
 }
 
+// v3.4.2: print-friendly report. Fills a hidden #print-report section, then the
+// @media print stylesheet hides everything else and shows just that section so
+// the browser's native print dialog ("Save as PDF") produces a clean report —
+// zero new dependency, no popup, no doc writes into a new window (CSP-safe).
+async function printFleetReport() {
+  const rep = await api('GET', '/report/fleet').catch(() => null);
+  if (!rep) { toast('Failed to load report', 'error'); return; }
+  const cis = await api('GET', '/compliance/baseline').catch(() => null);
+  const h = rep.health || {}, c = rep.cve || {}, p = rep.patches || {}, d = rep.devices || {};
+  const fws = (rep.compliance && rep.compliance.frameworks) || {};
+  const card = (k, v, sub) => `<div class="pr-card"><div class="pr-k">${escHtml(k)}</div><div class="pr-v">${escHtml(v)}</div><div class="pr-sub">${escHtml(sub || '')}</div></div>`;
+  const fwRows = Object.keys(fws).map(fw =>
+    `<tr><td>${escHtml(fw.toUpperCase())}</td><td>${fws[fw].score != null ? fws[fw].score + '%' : 'N/A'}</td></tr>`).join('');
+  let cisBlock = '';
+  if (cis && Array.isArray(cis.checks)) {
+    const rows = cis.checks.map(ch =>
+      `<tr><td>${escHtml(ch.title)}</td><td>${escHtml(ch.severity)}</td><td>${ch.pass || 0}</td><td>${ch.fail || 0}</td><td>${ch.na || 0}</td></tr>`).join('');
+    cisBlock = `<h2>Configuration baseline${cis.score != null ? ' — ' + cis.score + '%' : ''}</h2>`
+      + `<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th><th>N/A</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  const el = document.getElementById('print-report');
+  if (!el) return;
+  el.innerHTML = `<h1>RemotePower — Fleet posture report</h1>`
+    + `<div class="pr-meta">Generated ${escHtml(new Date().toLocaleString())}</div>`
+    + `<div class="pr-cards">`
+    + card('Health', (h.score != null ? h.score : '—') + '/100', h.grade || '')
+    + card('Devices', (d.online || 0) + '/' + (d.total || 0), 'online')
+    + card('Patches', p.total_pending || 0, (p.devices_with_patches || 0) + ' device(s)')
+    + card('CVEs', (c.critical || 0) + (c.high || 0), (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high')
+    + `</div>`
+    + (fwRows ? `<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th><th>Score</th></tr></thead><tbody>${fwRows}</tbody></table>` : '')
+    + cisBlock;
+  window.print();
+}
+
 async function saveReportSchedule() {
   const enabled = document.getElementById('report-sched-enabled').checked;
   const cron = document.getElementById('report-sched-cron').value.trim();
@@ -13096,6 +13278,64 @@ async function loadCompliance() {
       </tr>`; }).join('') + `</tbody></table></div>`;
   }
   body.innerHTML = h;
+  loadComplianceBaseline();
+}
+
+// ── v3.4.2: CIS-style configuration baseline ───────────────────────────────
+let _cisDisabled = new Set();
+
+async function loadComplianceBaseline() {
+  const body = document.getElementById('cis-baseline-body');
+  if (!body) return;
+  const r = await api('GET', '/compliance/baseline').catch(() => null);
+  if (!r || !Array.isArray(r.checks)) { body.innerHTML = '<div class="c-red">Failed to load baseline.</div>'; return; }
+  _cisDisabled = new Set(r.disabled || []);
+  const scoreEl = document.getElementById('cis-score');
+  if (scoreEl) {
+    const s = r.score;
+    scoreEl.textContent = s != null ? s + '%' : 'no data';
+    scoreEl.className = 'ro-badge ' + (s == null ? '' : s >= 80 ? 'rs-done' : s >= 50 ? 'rs-paused' : 'rs-failed');
+  }
+  // Trend sparkline (last ~30 daily samples)
+  const trend = document.getElementById('cis-trend');
+  if (trend) trend.innerHTML = _cisSparkline(r.history || []);
+  // Per-check table — every available check, with an enable/disable toggle.
+  const byId = {}; (r.checks || []).forEach(c => { byId[c.id] = c; });
+  const rows = (r.available_checks || []).map(ac => {
+    const c = byId[ac.id] || { pass: 0, fail: 0, na: 0, failing: [] };
+    const on = !_cisDisabled.has(ac.id);
+    const failing = (c.failing || []).slice(0, 8).join(', ');
+    return `<tr class="${on ? '' : 'o-50'}">
+      <td><label class="click-row-6"><input type="checkbox" data-change="toggleCisCheck" data-change-arg="${escAttr(ac.id)}" ${on ? 'checked' : ''}><span>${escHtml(ac.title)}</span></label></td>
+      <td><span class="sev-pill sev-${ac.severity === 'high' ? 'critical' : ac.severity === 'medium' ? 'medium' : 'low'}">${escHtml(ac.severity)}</span></td>
+      <td class="c-green">${c.pass || 0}</td>
+      <td class="c-red">${c.fail || 0}</td>
+      <td class="c-muted">${c.na || 0}</td>
+      <td class="fs-11 c-muted">${escHtml(failing)}${(c.failing || []).length > 8 ? '…' : ''}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="fs-12 c-muted mb-6">${r.devices_evaluated} device(s) evaluated.</div>
+    <div class="table-card"><table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th><th>N/A</th><th>Failing hosts</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function _cisSparkline(hist) {
+  if (!hist.length) return '<span class="c-muted fs-11">No trend yet — a daily sample is recorded automatically.</span>';
+  const pts = hist.map(h => h.score).filter(s => typeof s === 'number');
+  if (!pts.length) return '';
+  const max = 100, min = 0, w = 4, h = 28;
+  const bars = pts.slice(-40).map(s => {
+    const ph = Math.max(2, Math.round((s - min) / (max - min) * h));
+    const col = s >= 80 ? 'var(--green)' : s >= 50 ? 'var(--amber)' : 'var(--red)';
+    return `<span class="cis-spark-bar" data-h="${ph}" data-bg="${col}" title="${s}%"></span>`;
+  }).join('');
+  return `<div class="cis-spark" data-barw="${w}">${bars}</div>`;
+}
+
+async function toggleCisCheck(id, checked) {
+  if (checked) _cisDisabled.delete(id); else _cisDisabled.add(id);
+  const r = await api('POST', '/config', { compliance_baseline: { disabled: Array.from(_cisDisabled) } }).catch(() => null);
+  if (r?.ok) loadComplianceBaseline();
+  else toast(r?.error || 'Failed to update baseline', 'error');
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────
@@ -17027,6 +17267,8 @@ const _dynColorObserver = new MutationObserver((muts) => {
       }
       // v3.2.0: data-pct → percentage width (Server Status performance bars)
       if (node.dataset?.pct) node.style.width = node.dataset.pct + '%';
+      // v3.4.2: data-h → pixel height (compliance trend spark bars)
+      if (node.dataset?.h) node.style.height = node.dataset.h + 'px';
       if (node.querySelectorAll) {
         node.querySelectorAll('[data-color]').forEach(el => { el.style.color = el.dataset.color; });
         node.querySelectorAll('[data-bg]').forEach(el => { el.style.background = el.dataset.bg; });
@@ -17035,6 +17277,7 @@ const _dynColorObserver = new MutationObserver((muts) => {
           el.style.border = '1px ' + el.dataset.bdStyle + ' ' + el.dataset.bdColor;
         });
         node.querySelectorAll('[data-pct]').forEach(el => { el.style.width = el.dataset.pct + '%'; });
+        node.querySelectorAll('[data-h]').forEach(el => { el.style.height = el.dataset.h + 'px'; });
       }
     }
   }
