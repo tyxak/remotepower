@@ -2572,6 +2572,7 @@ const _DYK_TIPS = [
   "Planning → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
   "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
   "Patches → Install software installs repo packages on one host or a whole group/tag at once — it auto-detects apt/dnf/yum/zypper/pacman/apk.",
+  "Rollouts → One-time install is the un-staged shortcut: install a package on one device or a tag right away, no rings.",
   "OpenSCAP scans (and software installs) can target a tag or group, not just one device — pick the target type in the form.",
   "New to RemotePower? Settings → Install is a live checklist of the essentials — admin password, first device, alerts, backups, 2FA.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
@@ -13725,6 +13726,48 @@ async function runInstall() {
   body.packages = pkgs;
   const r = await api('POST', '/install', body).catch(() => null);
   if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s)`, 'success');
+  else toast(r?.error || 'Failed to queue install', 'error');
+}
+
+// v3.4.2: one-time install from the Rollouts page — target one device or a tag.
+async function openInstallModal() {
+  document.getElementById('oti-pkgs').value = '';
+  document.getElementById('oti-target-type').value = 'device';
+  document.getElementById('oti-target-value').value = '';
+  const sel = document.getElementById('oti-device');
+  const devs = await api('GET', '/devices?slim=1').catch(() => []);
+  sel.innerHTML = (Array.isArray(devs) ? devs : []).map(d =>
+    `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('') || '<option value="">(no devices)</option>';
+  onOtiTargetChange();
+  openModal('one-time-install-modal');
+}
+function onOtiTargetChange() {
+  const t = document.getElementById('oti-target-type').value;
+  document.getElementById('oti-device').classList.toggle('d-none', t !== 'device');
+  const v = document.getElementById('oti-target-value');
+  v.classList.toggle('d-none', t === 'device');
+  v.placeholder = t === 'tag' ? 'tag' : 'group name';
+}
+async function runOneTimeInstall() {
+  const pkgs = document.getElementById('oti-pkgs').value.trim();
+  if (!pkgs) { toast('Enter one or more package names', 'error'); return; }
+  const type = document.getElementById('oti-target-type').value;
+  let body, scope;
+  if (type === 'device') {
+    const id = document.getElementById('oti-device').value;
+    if (!id) { toast('Pick a device', 'error'); return; }
+    body = { device_ids: [id] };
+    scope = 'this device';
+  } else {
+    const val = document.getElementById('oti-target-value').value.trim();
+    if (!val) { toast('Enter a ' + type, 'error'); return; }
+    body = type === 'tag' ? { tag: val } : { group: val };
+    scope = `${type} "${val}"`;
+  }
+  if (!confirm(`Install "${pkgs}" now on ${scope}?`)) return;
+  body.packages = pkgs;
+  const r = await api('POST', '/install', body).catch(() => null);
+  if (r?.ok) { toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s)`, 'success'); closeModal('one-time-install-modal'); }
   else toast(r?.error || 'Failed to queue install', 'error');
 }
 

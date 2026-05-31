@@ -12,7 +12,9 @@ In development.
   package manager (apt/dnf/yum/zypper/pacman/apk) — on a single device or across
   a whole group/tag. Package names are strictly validated (no shell injection);
   gated on the `exec` permission and subject to quarantine + change-windows.
-  `POST /api/install`.
+  `POST /api/install`. Available both as the "Install software" card (Patches)
+  and a **one-time install** button on the Rollouts page (the un-staged sibling
+  of a ring rollout) — target a single device or a tag.
 - **OpenSCAP scans now target a tag/group** (not just a device): the scan form
   gained a target-type selector (all / group / tag / device); the profile is the
   parameter. (The API already accepted tag/group; this surfaces it.)

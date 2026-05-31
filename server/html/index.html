@@ -3749,8 +3749,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
         <div class="row-8-center mb-12">
           <button class="btn-primary" data-action="openRolloutModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rollout</button>
+          <button class="btn-secondary" data-action="openInstallModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> One-time install</button>
           <button class="btn-icon" data-action="loadRollouts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
+        <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
         <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
       </div>
 
@@ -5463,6 +5465,23 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group"><label>Verify window per ring (minutes)</label><input type="number" id="ro-verify" min="1" max="1440" value="30"></div>
   <div class="form-group"><label class="row-8-center"><input type="checkbox" id="ro-auto"> <span>Auto-promote to the next ring when the current one verifies</span></label></div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="new-rollout-modal">Cancel</button><button class="btn-primary" data-action="saveRollout">Create</button></div>
+</div></div>
+
+<div class="modal-overlay" id="one-time-install-modal"><div class="modal"><div class="modal-title">One-time install</div>
+  <div class="modal-subtitle">Install a package immediately via each target's own package manager (apt / dnf / yum / zypper / pacman / apk). Not staged — it runs as soon as the target heartbeats.</div>
+  <div class="form-group"><label>Package(s)</label><input type="text" id="oti-pkgs" class="form-input" placeholder="e.g. nginx htop"><div class="page-subtitle mt-4">Package names only (no shell). Space- or comma-separated, up to 30.</div></div>
+  <div class="form-group"><label>Target</label>
+    <div class="row-8-center">
+      <select id="oti-target-type" class="form-input input-auto" data-change="onOtiTargetChange">
+        <option value="device">Single device</option>
+        <option value="tag">Tag</option>
+        <option value="group">Group</option>
+      </select>
+      <select id="oti-device" class="form-input"></select>
+      <input type="text" id="oti-target-value" class="form-input d-none" placeholder="tag">
+    </div>
+  </div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="one-time-install-modal">Cancel</button><button class="btn-primary" data-action="runOneTimeInstall">Install now</button></div>
 </div></div>
 <div class="modal-overlay" id="icon-modal"><div class="modal"><div class="modal-title">Set device icon</div><div class="modal-subtitle">Pick an icon for this device, or clear to use the default.</div><input type="hidden" id="icon-device-id"><div id="icon-picker" class="isl-285"></div><div class="form-group"><label class="form-label">Or type a custom icon name (from the Lucide set)</label><input type="text" id="icon-custom" class="form-input isl-286" placeholder="e.g. monitor, server, cloud" maxlength="32"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="icon-modal" >Cancel</button><button class="btn-secondary" id="btn-device-icon-clear" data-action-icon="clear">Clear</button><button class="btn-primary" id="btn-device-icon-save" data-action-icon="save">Save</button></div></div></div>
 

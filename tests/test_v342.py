@@ -712,6 +712,17 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('<option value="tag">Tag</option>', self.HTML)
         self.assertIn('function onScapTargetChange(', self.APP)
 
+    def test_one_time_install_on_rollouts(self):
+        # button on the Rollouts page + dedicated modal + handlers
+        self.assertIn('data-action="openInstallModal"', self.HTML)
+        self.assertIn('id="one-time-install-modal"', self.HTML)
+        self.assertIn('id="oti-pkgs"', self.HTML)
+        self.assertIn('id="oti-target-type"', self.HTML)
+        self.assertIn('function openInstallModal(', self.APP)
+        self.assertIn('function runOneTimeInstall(', self.APP)
+        # routes through the same validated install endpoint
+        self.assertIn("api('POST', '/install', body)", self.APP)
+
 
 class _StopResp(Exception):
     def __init__(self, code, body):
