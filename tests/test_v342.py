@@ -148,6 +148,66 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342ReviewFixes(unittest.TestCase):
+    """Review round: disable-signing password gate, SNMP live-threshold fix,
+    cron-builder → Planning, anomaly-scan → Security."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_disable_signing_requires_password(self):
+        idx = self.API.find('def handle_signing_toggle')
+        body = self.API[idx:idx + 900]
+        self.assertIn('verify_password', body)
+        self.assertIn('if not enabled:', body)
+        # Frontend prompts for the password on disable.
+        self.assertIn('admin password', self.APP)
+
+    def test_snmp_threshold_uses_live_device(self):
+        # The fix resolves thresholds + state under the lock on the fresh device.
+        idx = self.API.find('def process_snmp_metric_thresholds')
+        body = self.API[idx:idx + 3600]
+        self.assertIn('_invalidate_load_cache(DEVICES_FILE)', body)
+        self.assertIn('_LockedUpdate(DEVICES_FILE) as store', body)
+        self.assertIn('_snmp_threshold_warn_crit(d,', body)   # resolves from fresh `d`
+
+    def test_snmp_threshold_behaviour(self):
+        import importlib, sys as _s, tempfile, json, os as _os
+        from pathlib import Path as _P
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = _P(d)
+        api.DEVICES_FILE = _P(d) / 'devices.json'
+        api._snmp_cpu_avg_pct = lambda e: None
+        api._snmp_memory_used_pct = lambda e: None
+        api._snmp_temp_celsius = lambda e, source=None: None
+        api._snmp_storage_mounts = lambda e: [{'descr': '/', 'used_pct': 80}]
+        fired = []
+        api._fire_metric_webhook = lambda ev, did, dev, k, t, v, thr, extra=None: fired.append(ev)
+        # LIVE threshold is high (95) → 80% must NOT alert even though the passed
+        # (stale) snapshot has a low threshold.
+        api.DEVICES_FILE.write_text(json.dumps({'d1': {'name': 'sw', 'monitored': True,
+            'metric_thresholds': {'disk_warn_percent': 95, 'disk_crit_percent': 99}}}))
+        stale = {'name': 'sw', 'monitored': True,
+                 'metric_thresholds': {'disk_warn_percent': 70, 'disk_crit_percent': 90}}
+        api._LOAD_CACHE.clear()
+        api.process_snmp_metric_thresholds('d1', stale, {})
+        self.assertEqual(fired, [])
+
+    def test_cron_builder_under_planning(self):
+        # Cron builder card now lives on the Schedule page (Planning), not AI.
+        sched = self.HTML.find('id="page-schedule"')
+        end = self.HTML.find('id="page-', sched + 10)
+        self.assertIn('aiCronBuild', self.HTML[sched:end])
+        self.assertIn('id="ai-page-tools" class="d-none"></div>', self.HTML)  # emptied
+
+    def test_anomaly_scan_under_security(self):
+        comp = self.HTML.find('id="page-compliance"')
+        end = self.HTML.find('id="page-', comp + 10)
+        self.assertIn('aiAnomalyScan', self.HTML[comp:end])
+
+
 class TestV342UxFixes(unittest.TestCase):
     """Home health spacing, persistent activity-clear, forecast + timeline paging."""
     APP = client_js()

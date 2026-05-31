@@ -12728,7 +12728,15 @@ async function signingSignNow() {
 }
 
 async function signingToggle(on) {
-  const r = await api('POST', '/signing/toggle', { enabled: on === '1' || on === 1 }).catch(() => null);
+  const enable = on === '1' || on === 1;
+  const body = { enabled: enable };
+  if (!enable) {
+    // Disabling enforcement is a security downgrade — re-verify the admin password.
+    const pw = prompt('Disabling signature enforcement. Enter your admin password to confirm:');
+    if (pw == null) return;            // cancelled
+    body.password = pw;
+  }
+  const r = await api('POST', '/signing/toggle', body).catch(() => null);
   if (!r || r.error) { toast((r && r.error) || 'Failed', 'error'); return; }
   toast(r.enabled ? 'Signature enforcement on' : 'Enforcement off', 'success');
   loadSigning();

@@ -1788,6 +1788,17 @@
         <!-- v1.11.5: filter -->
         <div class="mb-16"><input type="text" id="schedule-filter" class="form-input input-wide" placeholder="Filter by device, command, or actor…"></div>
         <div class="table-card"><table><thead id="schedule-thead"><tr><th data-col="device_name">Device</th><th data-col="command">Command</th><th data-col="run_at">Scheduled for</th><th data-col="actor">By</th><th></th></tr></thead><tbody id="schedule-tbody"><tr><td colspan="5" class="empty-state">No scheduled jobs. </td></tr></tbody></table></div>
+
+        <!-- v3.4.2: cron builder relocated here (Planning) — turns plain English into a cron expression for the jobs above. -->
+        <div class="settings-section ai-tool-card mt-16">
+          <div class="section-label mb-6">Cron builder</div>
+          <div class="ai-cron-row">
+            <input type="text" id="ai-cron-input" class="form-input" maxlength="500" placeholder="e.g. every weekday at 6am, or the 1st of each month at midnight">
+            <button class="btn-secondary fs-12" data-action="aiCronBuild" id="ai-cron-btn">Build</button>
+          </div>
+          <div class="hint">Plain English → a standard 5-field cron expression, validated and previewed with its next runs. Requires the AI assistant to be configured.</div>
+          <div id="ai-cron-result" class="ai-tool-body"></div>
+        </div>
       </div>
 
       <!-- ── About page (unchanged) ───────────────────────────────────────── -->
@@ -3110,30 +3121,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </div>
         </div>
 
-        <!-- v3.4.0: on-demand AI tools (fleet anomaly scan + cron builder) -->
-        <div id="ai-page-tools" class="d-none">
-          <div class="settings-section ai-tool-card">
-            <div class="ai-tool-head">
-              <div class="section-label">Fleet anomaly scan</div>
-              <button class="btn-secondary fs-12" data-action="aiAnomalyScan" id="ai-anomaly-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
-                Scan now
-              </button>
-            </div>
-            <div class="hint">Sends a compact live snapshot of the fleet to the model and ranks anomalies. On-demand — costs one AI request.</div>
-            <div id="ai-anomaly-results" class="ai-tool-body"></div>
-          </div>
-
-          <div class="settings-section ai-tool-card">
-            <div class="section-label mb-6">Cron builder</div>
-            <div class="ai-cron-row">
-              <input type="text" id="ai-cron-input" class="form-input" maxlength="500" placeholder="e.g. every weekday at 6am, or the 1st of each month at midnight">
-              <button class="btn-secondary fs-12" data-action="aiCronBuild" id="ai-cron-btn">Build</button>
-            </div>
-            <div class="hint">Plain English → a standard 5-field cron expression, validated and previewed with its next runs.</div>
-            <div id="ai-cron-result" class="ai-tool-body"></div>
-          </div>
-        </div>
+        <!-- v3.4.0 AI tools relocated in v3.4.2: cron builder → Planning →
+             Schedule; fleet anomaly scan → Security → Compliance. The wrapper
+             stays (AI-page JS toggles its visibility) but is intentionally empty. -->
+        <div id="ai-page-tools" class="d-none"></div>
 
         <!-- Chat -->
         <div id="ai-page-chat-wrap" class="d-none">
@@ -3186,6 +3177,19 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-secondary fs-12" data-action="loadCompliance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
         </div>
         <div id="compliance-body"><div class="c-muted">Loading…</div></div>
+
+        <!-- v3.4.2: fleet anomaly scan relocated here (Security). -->
+        <div class="settings-section ai-tool-card mt-16">
+          <div class="ai-tool-head">
+            <div class="section-label">Fleet anomaly scan</div>
+            <button class="btn-secondary fs-12" data-action="aiAnomalyScan" id="ai-anomaly-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+              Scan now
+            </button>
+          </div>
+          <div class="hint">Sends a compact live snapshot of the fleet to the model and ranks anomalies. On-demand — costs one AI request. Requires the AI assistant to be configured.</div>
+          <div id="ai-anomaly-results" class="ai-tool-body"></div>
+        </div>
       </div>
 
       <!-- ── Forecast page (v3.4.0): disk-fill projection across the fleet ──── -->

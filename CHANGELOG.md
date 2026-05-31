@@ -57,6 +57,18 @@ In development.
   `PUT`/`DELETE /api/automation/rules/<id>` (mutations admin-only, audited).
 
 ### Fixes & polish
+- **SNMP thresholds intermittently ignored — fixed.** The SNMP poll sweep loads
+  devices once, then polls each target over the network (seconds). A threshold
+  saved *during* a sweep was evaluated against the stale snapshot for that whole
+  cycle, so it looked "not applied" and could leave a spurious alert until the
+  next sweep (re-saving cleared it). SNMP threshold resolution + alert-state now
+  read the **live** device record under the lock, so a saved change takes effect
+  immediately. (The agent metric path never had this — it evaluates the same
+  locked device it persists.)
+- **Disabling signature enforcement now re-verifies the admin password** (a
+  security downgrade shouldn't be one accidental click).
+- **Cron builder** moved to **Planning → Schedule** (next to the jobs it builds);
+  **Fleet anomaly scan** moved to **Security → Compliance**.
 - **Home:** the Fleet health panel now has proper spacing above Needs attention /
   Recent activity (was flush against them).
 - **Recent activity → Clear now persists.** It used session storage, so cleared

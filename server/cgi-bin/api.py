@@ -8437,11 +8437,23 @@ def handle_signing_sign():
 
 
 def handle_signing_toggle():
-    """POST /api/signing/toggle — enable/disable signing advertisement. Admin-only."""
+    """POST /api/signing/toggle — enable/disable signing advertisement. Admin-only.
+
+    Disabling is a security downgrade, so it re-verifies the admin's password
+    (body `password`). Externally-authenticated admins (OIDC/LDAP, no local
+    password hash) can't re-verify a password, so the check is skipped for them
+    — they're already authenticated as admin and the action is audited."""
     actor = require_admin_auth()
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
-    enabled = bool((get_json_body() or {}).get('enabled'))
+    body = get_json_body() or {}
+    enabled = bool(body.get('enabled'))
+    if not enabled:
+        urec = (load(USERS_FILE) or {}).get(actor) or {}
+        stored = urec.get('password_hash') or ''
+        if stored:   # local-password admin → must re-verify
+            if not verify_password(str(body.get('password') or ''), stored):
+                respond(403, {'error': 'password required to disable signing enforcement'})
     with _LockedUpdate(CONFIG_FILE) as cfg:
         cfg['agent_signing_enabled'] = enabled
     audit_log(actor, 'signing_toggle', f'enabled={enabled}')
@@ -21463,66 +21475,69 @@ def process_snmp_metric_thresholds(dev_id, dev, snmp_entry):
     if not dev.get('monitored', True):
         return
 
-    state = dev.get('metric_state') or {}
-    if not isinstance(state, dict):
-        state = {}
-
-    def _check(kind, target, value, kind_for_threshold=None):
-        """value=current measurement; kind_for_threshold lets disk_* re-use
-        the agent's per-mount threshold table when needed."""
-        if value is None:
-            return
-        warn, crit = _snmp_threshold_warn_crit(dev, kind_for_threshold or kind)
-        if warn is None:
-            return
-        new_level = _classify_metric(value, warn, crit)
-        key = f'{kind}:{target}'
-        prev_level = state.get(key, 'ok')
-        if new_level == prev_level:
-            if prev_level != 'ok' and _below_recovery(value, warn):
-                _fire_metric_webhook('metric_recovered', dev_id, dev,
-                                      kind, target, value, warn,
-                                      extra={'source': 'snmp'})
-                state[key] = 'ok'
-            return
-        if new_level == 'critical':
-            _fire_metric_webhook('metric_critical', dev_id, dev, kind, target,
-                                  value, crit, extra={'source': 'snmp'})
-        elif new_level == 'warning':
-            _fire_metric_webhook('metric_warning', dev_id, dev, kind, target,
-                                  value, warn, extra={'source': 'snmp'})
-        else:
-            if _below_recovery(value, warn):
-                _fire_metric_webhook('metric_recovered', dev_id, dev,
-                                      kind, target, value, warn,
-                                      extra={'source': 'snmp'})
-            else:
-                return
-        state[key] = new_level
-
-    # CPU %
-    _check('snmp_cpu', '', _snmp_cpu_avg_pct(snmp_entry))
-    # Memory %
-    _check('snmp_mem', '', _snmp_memory_used_pct(snmp_entry))
-    # Per-storage % (filesystem-like entries only)
-    seen = set()
+    # Pre-compute the polled measurements — these come from snmp_entry and don't
+    # depend on the device record. (kind, target, value, kind_for_threshold)
+    measurements = [
+        ('snmp_cpu', '', _snmp_cpu_avg_pct(snmp_entry), 'snmp_cpu'),
+        ('snmp_mem', '', _snmp_memory_used_pct(snmp_entry), 'snmp_mem'),
+    ]
+    disk_keys = set()
     for s in _snmp_storage_mounts(snmp_entry):
-        descr = s['descr']
-        key = f'snmp_disk:{descr}'
-        seen.add(key)
-        _check('snmp_disk', descr, s['used_pct'], kind_for_threshold='snmp_disk')
-    # Clean stale per-disk state (storage entry vanished)
-    for k in list(state.keys()):
-        if k.startswith('snmp_disk:') and k not in seen:
-            state.pop(k, None)
-    # Temperature (Mikrotik vendor MIB)
-    _check('temp_board', '', _snmp_temp_celsius(snmp_entry, source='board'))
-    _check('temp_cpu',   '', _snmp_temp_celsius(snmp_entry, source='cpu'))
+        measurements.append(('snmp_disk', s['descr'], s['used_pct'], 'snmp_disk'))
+        disk_keys.add(f"snmp_disk:{s['descr']}")
+    measurements.append(('temp_board', '', _snmp_temp_celsius(snmp_entry, source='board'), 'temp_board'))
+    measurements.append(('temp_cpu', '', _snmp_temp_celsius(snmp_entry, source='cpu'), 'temp_cpu'))
 
-    # Persist the updated metric_state on the device record
+    # v3.4.2 bugfix: resolve thresholds + read/modify metric_state against the
+    # LIVE device record under the lock, not the `dev` snapshot the poll sweep
+    # loaded once. The sweep is network-bound and can run for seconds across
+    # many SNMP targets; a threshold saved mid-sweep was previously evaluated
+    # against the stale snapshot for that whole cycle, persisting a spurious
+    # alert until the next sweep ("re-saving fixes it"). Invalidate the per-
+    # process load cache first so __enter__ re-reads from disk. Events are
+    # collected and fired AFTER the lock (webhooks do network I/O — never hold
+    # the devices lock across them).
+    pending = []
+    _invalidate_load_cache(DEVICES_FILE)
     with _LockedUpdate(DEVICES_FILE) as store:
-        if dev_id in store:
-            store[dev_id]['metric_state'] = state
+        d = store.get(dev_id)
+        if not isinstance(d, dict) or not d.get('monitored', True):
+            return
+        state = d.get('metric_state') or {}
+        if not isinstance(state, dict):
+            state = {}
+        for kind, target, value, kft in measurements:
+            if value is None:
+                continue
+            warn, crit = _snmp_threshold_warn_crit(d, kft)
+            if warn is None:
+                continue
+            new_level = _classify_metric(value, warn, crit)
+            key = f'{kind}:{target}'
+            prev_level = state.get(key, 'ok')
+            if new_level == prev_level:
+                if prev_level != 'ok' and _below_recovery(value, warn):
+                    pending.append(('metric_recovered', kind, target, value, warn))
+                    state[key] = 'ok'
+                continue
+            if new_level == 'critical':
+                pending.append(('metric_critical', kind, target, value, crit))
+            elif new_level == 'warning':
+                pending.append(('metric_warning', kind, target, value, warn))
+            elif _below_recovery(value, warn):
+                pending.append(('metric_recovered', kind, target, value, warn))
+            else:
+                continue
+            state[key] = new_level
+        # Clean stale per-disk state (storage entry vanished).
+        for k in list(state.keys()):
+            if k.startswith('snmp_disk:') and k not in disk_keys:
+                state.pop(k, None)
+        d['metric_state'] = state
+
+    for event, kind, target, value, ref in pending:
+        _fire_metric_webhook(event, dev_id, dev, kind, target, value, ref,
+                             extra={'source': 'snmp'})
 
 
 def _container_is_running(status_str):
