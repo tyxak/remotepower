@@ -4142,6 +4142,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tl-title { font-weight: 600; color: var(--text); }
 .tl-kind { font-size: 11px; color: var(--muted); text-transform: capitalize; }
+.tl-devchip {
+  font-size: 11px; font-weight: 600; color: var(--accent);
+  background: transparent; border: 1px solid var(--border); border-radius: 10px;
+  padding: 1px 8px; cursor: pointer;
+}
+.tl-devchip:hover { border-color: var(--accent); }
 .tl-detail { font-size: 13px; color: var(--muted); margin-top: 2px; word-break: break-word; }
 .tl-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
 @media (max-width: 480px) {

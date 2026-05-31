@@ -2384,7 +2384,7 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
-  "Each device has a Timeline (Monitoring → Timeline) that merges its events and command runs into one chronological story.",
+  "The Timeline page (Monitoring → Timeline) merges events and command runs into one story — for the whole fleet or a single device.",
   "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
   "Set a health-score alert threshold in Settings → Dashboard and get notified the moment a device's score drops below it.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
@@ -12162,6 +12162,7 @@ function forecastSelect(idx) {
 // kind chips filter the already-fetched rows client-side (no re-fetch).
 let _timelineItems = [];
 let _timelineKindFilter = new Set();
+let _timelineFleet = true;   // '*' scope (whole fleet) vs a single device
 const _TIMELINE_SEV = { critical: 'sev-critical', high: 'sev-high',
   medium: 'sev-medium', low: 'sev-low', warning: 'sev-medium', info: 'sev-low' };
 
@@ -12169,7 +12170,8 @@ function _timelineFillDevices(list) {
   const sel = document.getElementById('timeline-device');
   if (!sel) return;
   const prev = sel.value;
-  const opts = ['<option value="">Select a device…</option>'];
+  // v3.4.1: the first option is the whole-fleet view; the rest are devices.
+  const opts = ['<option value="*">Whole fleet</option>'];
   (list || []).slice()
     .sort((a, b) => (a.name || a.id || '').localeCompare(b.name || b.id || ''))
     .forEach(d => {
@@ -12196,7 +12198,8 @@ function enterTimeline() {
     sel.value = window._timelinePendingDevice;
     window._timelinePendingDevice = null;
   }
-  if (sel.value) loadTimeline();
+  if (!sel.value) sel.value = '*';   // default to the whole-fleet view
+  loadTimeline();
 }
 
 async function loadTimeline() {
@@ -12204,23 +12207,23 @@ async function loadTimeline() {
   const body = document.getElementById('timeline-body');
   const summary = document.getElementById('timeline-summary');
   if (!sel || !body) return;
-  const devId = sel.value;
-  if (!devId) {
-    body.innerHTML = '<div class="c-muted">Select a device to see its timeline.</div>';
-    const k = document.getElementById('timeline-kinds'); if (k) k.innerHTML = '';
-    if (summary) summary.textContent = '';
-    return;
-  }
+  const scope = sel.value || '*';
+  _timelineFleet = (scope === '*');
   body.innerHTML = '<div class="c-muted">Loading…</div>';
-  const r = await api('GET', `/devices/${encodeURIComponent(devId)}/timeline?limit=300`).catch(() => null);
+  const url = _timelineFleet
+    ? '/fleet/timeline?limit=300'
+    : `/devices/${encodeURIComponent(scope)}/timeline?limit=300`;
+  const r = await api('GET', url).catch(() => null);
   if (!r || !Array.isArray(r.items)) {
     body.innerHTML = '<div class="c-red">Failed to load timeline.</div>';
     return;
   }
   _timelineItems = r.items;
-  // Drop active filters that don't apply to this device's kind set.
+  // Drop active filters that don't apply to this scope's kind set.
   _timelineKindFilter = new Set([..._timelineKindFilter].filter(k => (r.kinds || []).includes(k)));
-  if (summary) summary.textContent = `${r.total} event(s) for ${r.device_name}`;
+  if (summary) summary.textContent = _timelineFleet
+    ? `${r.total} event(s) across ${(r.devices || []).length} device(s)`
+    : `${r.total} event(s) for ${r.device_name}`;
   _renderTimelineKinds(r.kinds || []);
   _renderTimeline();
 }
@@ -12250,18 +12253,23 @@ function _renderTimeline() {
   let items = _timelineItems;
   if (_timelineKindFilter.size) items = items.filter(i => _timelineKindFilter.has(i.kind));
   if (!items.length) {
+    const where = _timelineFleet ? 'across the fleet' : 'for this device';
     body.innerHTML = `<div class="empty-state"><div class="empty-icon">${_icon('clock', 28)}</div>`
       + `<div class="empty-title">No timeline entries</div>`
-      + `<div class="empty-text">No events or command runs recorded for this device yet${_timelineKindFilter.size ? ' in the selected categories' : ''}.</div></div>`;
+      + `<div class="empty-text">No events or command runs recorded ${where} yet${_timelineKindFilter.size ? ' in the selected categories' : ''}.</div></div>`;
     return;
   }
   const rows = items.map(it => {
     const sev = _TIMELINE_SEV[it.severity] || 'sev-low';
     const whenAbs = new Date((it.ts || 0) * 1000).toLocaleString();
+    // In fleet mode each row names its device (clickable → that device's timeline).
+    const devChip = (_timelineFleet && it.device_id)
+      ? `<button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${_escapeHtml(it.device_id)}" title="Open ${_escapeHtml(it.device_name || it.device_id)}'s timeline">${_escapeHtml(it.device_name || it.device_id)}</button>`
+      : '';
     return `<div class="tl-row">`
       + `<div class="tl-dot ${sev}"></div>`
       + `<div class="tl-main">`
-      +   `<div class="tl-head"><span class="tl-title">${_escapeHtml(it.title || it.kind)}</span>`
+      +   `<div class="tl-head">${devChip}<span class="tl-title">${_escapeHtml(it.title || it.kind)}</span>`
       +   `<span class="sev-pill ${sev}">${_escapeHtml(it.severity)}</span>`
       +   `<span class="tl-kind">${_escapeHtml((it.kind || '').replace(/_/g, ' '))}</span></div>`
       +   (it.detail ? `<div class="tl-detail">${_escapeHtml(it.detail)}</div>` : '')

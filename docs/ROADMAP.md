@@ -30,7 +30,7 @@ extensions. Those are struck from the backlog below.
 | [Capacity dashboard](#capacity-dashboard) | 🟡 Medium | — | Per-device forecast |
 | [Read-only public status page](#read-only-public-status-page) | 🟡 Medium | — | Report / health data |
 | Per-device timeline | 🔴 Large | ✅ v3.4.1 | New merge endpoint + UI |
-| [Fleet-wide timeline](#fleet-wide-timeline) | 🔴 Large | — | Per-device merge logic |
+| Fleet-wide timeline | 🔴 Large | ✅ v3.4.1 | Per-device merge logic |
 | [Automation rules engine](#automation-rules-engine) | 🔴 Large | — | Event registry + channels + scripts |
 | [Device dependency map](#device-dependency-map) | 🔴 Large | — | Netmap |
 | [Anomaly baselining](#anomaly-baselining) | 🔴 Large | — | AI anomaly scan |
@@ -89,9 +89,6 @@ A tokened external page showing fleet health score + monitor status, served from
 ## 🔴 Large
 
 Net-new surfaces, new data models, or cross-cutting engines.
-
-### Fleet-wide timeline
-Same merge logic as the per-device timeline (`handle_device_timeline`), but across all hosts with device + kind filters. Share the merge core, add filtering + a fleet view.
 
 ### Automation rules engine
 "When event X on devices matching Y → run script / notify channel / open ticket." Composes the existing event registry, channels, and saved scripts into a rule model + evaluation loop + a rule-builder UI.

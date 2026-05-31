@@ -7,14 +7,16 @@ All notable changes to RemotePower. Newest first.
 **Theme: bind it together.** Three cohesion features that connect data which
 previously lived on separate pages, plus a smarter command palette.
 
-- **Per-device Timeline (Monitoring → Timeline).** A single chronological
-  history for one host — fleet events (offline, drift, CVEs, services, SMART, …)
-  and command runs merged into one newest-first stream, with severity pills and
-  per-category filter chips. Pick a device from the selector, or jump straight
-  in from the command palette or the home health panel. New
-  `GET /api/devices/<id>/timeline?limit=&kinds=`. The command-run rows are the
-  part you couldn't see before: they're not fleet events, so a host's history
-  never showed them until now.
+- **Timeline (Monitoring → Timeline) — whole-fleet or per-device.** A single
+  chronological stream — fleet events (offline, drift, CVEs, services, SMART, …)
+  and command runs merged newest-first, with severity pills and per-category
+  filter chips. The scope selector defaults to **Whole fleet** (every monitored
+  host, each row tagged with its device and click-through to that device's
+  timeline) and switches to any single device. Jump straight in from the command
+  palette or the home health panel. New `GET /api/fleet/timeline` (with
+  `?device/kinds/severity/limit` filters) and `GET /api/devices/<id>/timeline`,
+  sharing one merge core. The command-run rows are the part you couldn't see
+  before: they're not fleet events, so a host's history never showed them.
 - **Fleet health score (Home).** A single 0–100 score per device and across the
   fleet, rolled up from the same Needs Attention signals — so the number can
   never disagree with the NA list. The home dashboard gets a health panel: big

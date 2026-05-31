@@ -1773,10 +1773,10 @@
             <div class="doc-body">
               <p>Additive release — no breaking changes, no schema changes. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.1</code>). Three cohesion features that connect data which used to live on separate pages.</p>
 
-              <h4>Per-device Timeline (Monitoring → Timeline)</h4>
+              <h4>Timeline (Monitoring → Timeline) — fleet or device</h4>
               <ul>
-                <li>A single chronological history for one host — <strong>fleet events</strong> (offline, drift, CVEs, services, SMART, ports, …) and <strong>command runs</strong> merged into one newest-first stream. The command runs are the part you couldn't see before: they aren't fleet events, so a host's history never showed them until now.</li>
-                <li>Pick a device from the selector, filter by category with the chips, and read top-down. Jump straight in from the command palette or the home health panel.</li>
+                <li>A single chronological stream — <strong>fleet events</strong> (offline, drift, CVEs, services, SMART, ports, …) and <strong>command runs</strong> merged newest-first. The command runs are the part you couldn't see before: they aren't fleet events, so a host's history never showed them until now.</li>
+                <li>The scope selector defaults to <strong>Whole fleet</strong> (every monitored host, each row tagged with its device — click the tag to open that device's timeline) and switches to any single device. Filter by category with the chips. Jump straight in from the command palette or the home health panel.</li>
               </ul>
 
               <h4>Fleet health score (Home)</h4>
@@ -3112,14 +3112,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── Timeline page (v3.4.1) ───────────────────────────────────────── -->
       <div id="page-timeline" class="page">
         <div class="page-title">Timeline</div>
-        <div class="page-subtitle">A single chronological history per device — fleet events and command runs merged into one stream, so you can read what happened to a host in order. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">A single chronological history — fleet events and command runs merged into one stream — for the whole fleet or one device. Pick the scope below. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
-          <select id="timeline-device" class="form-input input-wide-sm" data-change="loadTimeline"><option value="">Select a device…</option></select>
+          <select id="timeline-device" class="form-input input-wide-sm" data-change="loadTimeline"><option value="*">Whole fleet</option></select>
           <button class="btn-secondary fs-12" data-action="loadTimeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="timeline-summary" class="fs-12 c-muted"></span>
         </div>
         <div id="timeline-kinds" class="mb-16 row-8-center"></div>
-        <div id="timeline-body"><div class="c-muted">Select a device to see its timeline.</div></div>
+        <div id="timeline-body"><div class="c-muted">Loading…</div></div>
       </div>
 
       <!-- ── Reports page (v3.4.1) ────────────────────────────────────────── -->

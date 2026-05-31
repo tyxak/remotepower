@@ -85,6 +85,7 @@ class TestV341Routes(unittest.TestCase):
                 ('GET', '/api/devices/abc/timeline', 'handle_device_timeline'),
                 ('GET', '/api/fleet/health',         'handle_fleet_health'),
                 ('GET', '/api/fleet/health/history', 'handle_fleet_health_history'),
+                ('GET', '/api/fleet/timeline',       'handle_fleet_timeline'),
                 ('GET', '/api/report/fleet',         'handle_fleet_report'),
                 ('GET', '/api/report/schedule',      'handle_report_schedule_get'),
                 ('PUT', '/api/report/schedule',      'handle_report_schedule_set')):
@@ -147,6 +148,8 @@ class TestV341Backend(unittest.TestCase):
 
     def test_handlers_defined(self):
         for fn in ('def handle_device_timeline(',
+                   'def handle_fleet_timeline(',
+                   'def _timeline_collect(',
                    'def _timeline_event_detail(',
                    'def handle_fleet_health(',
                    'def _fleet_health(',
@@ -159,6 +162,19 @@ class TestV341Backend(unittest.TestCase):
                    'def handle_report_schedule_get(',
                    'def handle_report_schedule_set('):
             self.assertIn(fn, self.API, f'{fn} missing from api.py')
+
+    def test_both_timelines_share_the_collector(self):
+        # The roadmap's intent: fleet-wide reuses the per-device merge core.
+        for fn in ('def handle_device_timeline', 'def handle_fleet_timeline'):
+            idx = self.API.find(fn)
+            self.assertGreater(idx, 0, f'{fn} missing')
+            self.assertIn('_timeline_collect(', self.API[idx:idx + 1400],
+                          f'{fn} should call the shared _timeline_collect')
+
+    def test_fleet_timeline_excludes_unmonitored(self):
+        idx = self.API.find('def handle_fleet_timeline')
+        body = self.API[idx:idx + 1400]
+        self.assertIn("monitored') is not False", body)
 
     def test_health_in_home_bundle(self):
         # The home bundle must carry the health rollup so the dashboard panel
@@ -191,6 +207,12 @@ class TestV341Frontend(unittest.TestCase):
         self.assertIn('function enterTimeline(', self.APP)
         self.assertIn('function loadTimeline(', self.APP)
         self.assertIn("name === 'timeline'", self.APP)
+
+    def test_timeline_has_fleet_scope(self):
+        # The Timeline page does whole-fleet OR a single device.
+        self.assertIn("'/fleet/timeline?limit=", self.APP)
+        self.assertIn('Whole fleet', self.APP)
+        self.assertIn('tl-devchip', self.APP)
 
     def test_health_panel_present(self):
         self.assertIn('id="home-health"', self.HTML)

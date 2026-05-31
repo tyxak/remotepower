@@ -18601,29 +18601,55 @@ def _timeline_event_detail(event, payload):
     return ''
 
 
-def handle_device_timeline(dev_id):
-    """GET /api/devices/<id>/timeline — unified chronological history for a host.
+def _timeline_collect(include_ids, name_map):
+    """Shared merge core for the per-device and fleet-wide timelines.
 
-    Binds together stores that are otherwise scoped to separate pages into one
-    newest-first stream for a single device:
-      - fleet events (every fired event whose payload names this device)
-      - command runs (operator/scheduled output — these are NOT fleet events,
-        so a host history would otherwise miss every command ever run on it)
+    Merges two stores into one normalised, *unsorted* item list for the given
+    set of device ids:
+      - fleet events (every fired event whose payload names an included device)
+      - command runs (operator/scheduled output — NOT fleet events, so a host
+        history would otherwise miss every command ever run on it)
 
-    Each row is normalised to {ts, kind, severity, title, detail}. Severity
-    reuses the alert vocabulary (critical/high/medium/low) via _alert_severity,
-    falling back to 'info' for non-alertable events so the UI's sev-pill set
-    covers every row.
+    Each row: {ts, kind, severity, title, detail, device_id, device_name}.
+    Severity reuses the alert vocabulary (critical/high/medium/low) via
+    _alert_severity, falling back to 'info' so the UI's sev-pill set covers
+    every row. `name_map` labels each row; `include_ids` is the set to keep."""
+    items = []
+    store = load(FLEET_EVENTS_FILE) or {}
+    for e in (store.get('events') or []):
+        pl = e.get('payload') or {}
+        did = pl.get('device_id')
+        if did not in include_ids:
+            continue
+        ev = e.get('event', '') or 'event'
+        items.append({
+            'ts':          int(e.get('ts') or 0),
+            'kind':        ev,
+            'severity':    _alert_severity(ev, pl) or 'info',
+            'title':       _webhook_title(ev),
+            'detail':      _timeline_event_detail(ev, pl),
+            'device_id':   did,
+            'device_name': name_map.get(did, did),
+        })
+    outputs = load(CMD_OUTPUT_FILE) or {}
+    for did in include_ids:
+        for c in (outputs.get(did) or []):
+            rc = c.get('rc')
+            failed = isinstance(rc, int) and rc != 0
+            items.append({
+                'ts':          int(c.get('ts') or 0),
+                'kind':        'command',
+                'severity':    'warning' if failed else 'info',
+                'title':       'Command failed' if failed else 'Command executed',
+                'detail':      (c.get('cmd') or '')[:200],
+                'device_id':   did,
+                'device_name': name_map.get(did, did),
+            })
+    return items
 
-    Query: ?limit=N (default 100, max 500), ?kinds=a,b,c (CSV filter on kind).
-    Auth: require_auth — same rationale as the fleet event log (operationally
-    useful to viewers; no delivery URLs or secrets exposed)."""
-    require_auth()
-    devices = load(DEVICES_FILE) or {}
-    dev = devices.get(dev_id)
-    if not isinstance(dev, dict):
-        respond(404, {'error': 'device not found'})
-        return
+
+def _timeline_parse_qs():
+    """Shared ?limit/?kinds parsing for the timeline endpoints."""
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     try:
         limit = int((qs.get('limit') or ['100'])[0])
@@ -18636,44 +18662,30 @@ def handle_device_timeline(dev_id):
             k = k.strip()
             if k:
                 kind_filter.add(k)
+    return qs, limit, kind_filter
 
-    items = []
 
-    # 1) Fleet events for this device — the canonical "what happened".
-    store = load(FLEET_EVENTS_FILE) or {}
-    for e in (store.get('events') or []):
-        pl = e.get('payload') or {}
-        if pl.get('device_id') != dev_id:
-            continue
-        ev = e.get('event', '') or 'event'
-        items.append({
-            'ts':       int(e.get('ts') or 0),
-            'kind':     ev,
-            'severity': _alert_severity(ev, pl) or 'info',
-            'title':    _webhook_title(ev),
-            'detail':   _timeline_event_detail(ev, pl),
-        })
+def handle_device_timeline(dev_id):
+    """GET /api/devices/<id>/timeline — unified chronological history for a host.
 
-    # 2) Command runs — not represented in the fleet event log, so they'd be
-    #    invisible on a per-host history without this. rc != 0 → warning.
-    outputs = load(CMD_OUTPUT_FILE) or {}
-    for c in (outputs.get(dev_id) or []):
-        rc = c.get('rc')
-        failed = isinstance(rc, int) and rc != 0
-        items.append({
-            'ts':       int(c.get('ts') or 0),
-            'kind':     'command',
-            'severity': 'warning' if failed else 'info',
-            'title':    'Command failed' if failed else 'Command executed',
-            'detail':   (c.get('cmd') or '')[:200],
-        })
-
+    The single-device view over the shared timeline merge core. Query: ?limit=N
+    (default 100, max 500), ?kinds=a,b,c (CSV filter on kind). Auth: require_auth
+    — same rationale as the fleet event log (operationally useful to viewers; no
+    delivery URLs or secrets exposed)."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    dev = devices.get(dev_id)
+    if not isinstance(dev, dict):
+        respond(404, {'error': 'device not found'})
+        return
+    _qs, limit, kind_filter = _timeline_parse_qs()
+    name_map = {dev_id: dev.get('name', dev_id)}
+    items = _timeline_collect({dev_id}, name_map)
+    # Distinct kinds across the full (unfiltered) set so the UI's filter chips
+    # stay stable regardless of the kind filter or limit window.
+    kinds_present = sorted({i['kind'] for i in items})
     if kind_filter:
         items = [i for i in items if i['kind'] in kind_filter]
-
-    # Distinct kinds across the *unsliced* set so the UI's filter chips stay
-    # stable regardless of the limit window.
-    kinds_present = sorted({i['kind'] for i in items})
     items.sort(key=lambda i: i['ts'], reverse=True)
     respond(200, {
         'device_id':   dev_id,
@@ -18681,6 +18693,51 @@ def handle_device_timeline(dev_id):
         'items':       items[:limit],
         'kinds':       kinds_present,
         'total':       len(items),
+    })
+
+
+def handle_fleet_timeline():
+    """GET /api/fleet/timeline — the same merge core across the whole fleet.
+
+    Sibling of the per-device timeline: every monitored host's events + command
+    runs in one newest-first stream, each row tagged with its device. Unmonitored
+    devices are excluded (silenced everywhere else, so they stay out here too).
+
+    Query: ?limit=N (default 100, max 500), ?kinds=a,b (CSV kind filter),
+    ?device=<id> (restrict to one host), ?severity=critical,high (CSV).
+    Auth: require_auth."""
+    require_auth()
+    devices = load(DEVICES_FILE) or {}
+    name_map = {did: d.get('name', did) for did, d in devices.items()
+                if isinstance(d, dict) and d.get('monitored') is not False}
+    qs, limit, kind_filter = _timeline_parse_qs()
+    sev_filter = set()
+    for raw in qs.get('severity') or []:
+        for s in raw.split(','):
+            s = s.strip().lower()
+            if s:
+                sev_filter.add(s)
+    dev_q = (qs.get('device') or [''])[0].strip()
+    if dev_q:
+        include = {dev_q} & set(name_map)
+    else:
+        include = set(name_map)
+
+    items = _timeline_collect(include, name_map)
+    # Distinct kinds across the full set (before kind/severity filters) so the
+    # UI's filter chips are stable.
+    kinds_present = sorted({i['kind'] for i in items})
+    if kind_filter:
+        items = [i for i in items if i['kind'] in kind_filter]
+    if sev_filter:
+        items = [i for i in items if i['severity'] in sev_filter]
+    items.sort(key=lambda i: i['ts'], reverse=True)
+    respond(200, {
+        'items':   items[:limit],
+        'kinds':   kinds_present,
+        'devices': [{'id': did, 'name': nm} for did, nm in sorted(
+                        name_map.items(), key=lambda kv: kv[1].lower())],
+        'total':   len(items),
     })
 
 
@@ -23125,6 +23182,8 @@ def _dispatch(pi, m):
     # v3.4.1: per-device unified timeline (fleet events + command runs)
     elif pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET':
         handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
+    # v3.4.1: fleet-wide timeline (same merge core, all monitored hosts)
+    elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
