@@ -64,9 +64,9 @@ Net-new surfaces, new data models, or cross-cutting engines.
 *All 🔴 Large items shipped in v3.4.2 (automation rules engine, device dependency
 map, anomaly baselining, agent integrity attestation).*
 
-**Possible follow-ups:** Jira/Linear ticketing adapters; cryptographic release
-signing (detached GPG signatures over the agent artifact) to complement the
-hash-based agent attestation shipped in v3.4.2.
+**Possible follow-ups:** Jira/Linear ticketing adapters (PagerDuty + Opsgenie
+shipped in v3.4.1). *(Cryptographic release signing — detached GPG signatures
+over the agent artifact — shipped in v3.4.2.)*
 
 ---
 

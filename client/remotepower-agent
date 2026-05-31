@@ -45,6 +45,63 @@ def _agent_self_sha256():
             _AGENT_SELF_SHA = ''
     return _AGENT_SELF_SHA
 
+
+# v3.4.2: cryptographic release-signature verification (opt-in, fail-closed).
+# Pin the release PUBLIC key here and the agent will refuse any self-update
+# whose detached signature doesn't verify against it — defending against a
+# compromised server that swaps both the binary and its advertised hash.
+RELEASE_PUBKEY_FILE = CONF_DIR / 'release.pub'
+
+
+def _release_pubkey():
+    """Armored release public key pinned on this host, or None (→ no enforcement)."""
+    try:
+        if RELEASE_PUBKEY_FILE.exists():
+            txt = RELEASE_PUBKEY_FILE.read_text().strip()
+            return txt or None
+    except Exception:
+        pass
+    return None
+
+
+def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
+    """Verify a detached signature over data_bytes using an ephemeral gpg keyring
+    seeded only with the pinned public key. Returns (ok, detail). Fails closed.
+    Mirrors the server's _gpg_verify_detached — no Python crypto dependency."""
+    gpg = shutil.which('gpg')
+    if not gpg:
+        return False, 'gpg not available'
+    home = tempfile.mkdtemp(prefix='rp-relverify-')
+    try:
+        os.chmod(home, 0o700)
+        env = dict(os.environ, GNUPGHOME=home)
+        imp = subprocess.run([gpg, '--batch', '--import'],
+                             input=(pubkey_armored or '').encode(),
+                             env=env, capture_output=True, timeout=20)
+        if imp.returncode != 0:
+            return False, 'public key import failed'
+        art = os.path.join(home, 'art')
+        sig = os.path.join(home, 'art.asc')
+        with open(art, 'wb') as f:
+            f.write(data_bytes)
+        with open(sig, 'w') as f:
+            f.write(sig_text or '')
+        r = subprocess.run([gpg, '--batch', '--status-fd', '1', '--verify', sig, art],
+                           env=env, capture_output=True, timeout=20)
+        out = r.stdout.decode('utf-8', 'replace')
+        valid = [ln for ln in out.splitlines() if ln.startswith('[GNUPG:] VALIDSIG')]
+        if not valid:
+            return False, 'signature not valid'
+        if expected_fpr:
+            want = expected_fpr.upper().replace(' ', '')
+            if valid[0].split()[2].upper() != want:
+                return False, 'signing key fingerprint mismatch'
+        return True, 'verified'
+    except Exception as e:
+        return False, f'verify error: {e}'
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
 # v3.0.2: agent state directory. Used for files that should survive a
 # /tmp wipe (boot-reason marker, poll interval override) and that must
 # NOT be writable by non-root users. Previously these lived in /tmp/
@@ -2417,6 +2474,28 @@ def check_for_update(server_url, force=False):
             f"expected {remote_sha256[:12]}…. Refusing to install."
         )
         return False
+
+    # v3.4.2: cryptographic release-signature gate (opt-in, fail-closed). When a
+    # release public key is pinned, the downloaded binary MUST carry a valid
+    # detached signature from that key before we install it. No key pinned →
+    # behaviour unchanged (sha256-only). With a key pinned, a missing or invalid
+    # signature aborts the update.
+    pubkey = _release_pubkey()
+    if pubkey:
+        try:
+            sig = http_get_binary(f"{server_url}/api/agent/signature", timeout=15)
+            import json as _json
+            sig_text = _json.loads(sig.decode('utf-8')).get('signature', '')
+        except Exception as e:
+            log.error(f"Release signature required but unavailable ({e}). Refusing to install.")
+            return False
+        ok, detail = _verify_detached_sig(data, sig_text, pubkey,
+                                          (info.get('key_fingerprint') or ''))
+        if not ok:
+            log.error(f"Release signature verification FAILED ({detail}). Refusing to install.")
+            return False
+        log.info("Release signature verified — installing.")
+
     try:
         fd, tmp_path = tempfile.mkstemp(dir=AGENT_BINARY.parent, prefix='.rp-update-')
         try: os.write(fd, data)

@@ -7613,6 +7613,15 @@ def handle_config_save():
             'min_severity': sev,
         }
 
+    # v3.4.2: release-signing public key + expected signer fingerprint. The
+    # server holds the PUBLIC key only (to self-verify the published signature);
+    # signing happens out-of-band with the private key via tools/sign-agent-release.sh.
+    if 'release_pubkey' in body:
+        cfg['release_pubkey'] = _sanitize_str(body['release_pubkey'], 20000, allow_empty=True) or ''
+    if 'release_key_fingerprint' in body:
+        fpr = re.sub(r'[^0-9A-Fa-f]', '', str(body.get('release_key_fingerprint', '')))[:40]
+        cfg['release_key_fingerprint'] = fpr.upper()
+
     # v2.8.1: backup file monitors [{path, label, max_age_hours}]
     if 'backup_monitors' in body:
         raw_bm = body['backup_monitors']
@@ -8229,7 +8238,92 @@ def handle_agent_version():
         'version': cfg.get('agent_version', 'unknown'),
         'sha256':  sha,
         'size':    size,
+        # v3.4.2: cryptographic release signing. Advertise whether a detached
+        # signature is published and the expected signing-key fingerprint so an
+        # agent with a pinned key knows to require + check it.
+        'signed':          _AGENT_SIG_PATH.exists(),
+        'key_fingerprint': (cfg.get('release_key_fingerprint') or '').upper(),
     })
+
+
+# v3.4.2: detached release signature lives next to the served binary.
+_AGENT_SIG_PATH = _AGENT_BINARY_PATH.parent / 'remotepower-agent.asc'
+
+
+def handle_agent_signature():
+    """GET /api/agent/signature — the armored detached signature over the
+    canonical agent binary, or 404 if the release isn't signed. Public-ish like
+    the binary download; the signature itself is not a secret."""
+    require_auth()
+    if not _AGENT_SIG_PATH.exists():
+        respond(404, {'error': 'agent release is not signed'})
+    try:
+        sig = _AGENT_SIG_PATH.read_text()
+    except OSError:
+        respond(404, {'error': 'agent release is not signed'})
+    respond(200, {'signature': sig,
+                  'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
+
+
+def _release_signature_status():
+    """Server-side self-check: is the published agent signature valid against the
+    configured release public key? Returns 'valid' | 'invalid' | 'unsigned' |
+    'unverifiable' (no key/gpg). Surfaced in the agent-integrity report so an
+    operator can confirm the release they're serving is properly signed."""
+    if not _AGENT_SIG_PATH.exists():
+        return 'unsigned'
+    cfg = load(CONFIG_FILE) or {}
+    pubkey = cfg.get('release_pubkey') or ''
+    gpg = shutil.which('gpg')
+    if not pubkey or not gpg or not _AGENT_BINARY_PATH.exists():
+        return 'unverifiable'
+    ok, _ = _gpg_verify_detached(_AGENT_BINARY_PATH.read_bytes(),
+                                 _AGENT_SIG_PATH.read_text(), pubkey,
+                                 (cfg.get('release_key_fingerprint') or ''))
+    return 'valid' if ok else 'invalid'
+
+
+def _gpg_verify_detached(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
+    """Verify a detached signature over data_bytes using an ephemeral gpg
+    keyring seeded only with the pinned public key. Returns (ok, detail).
+
+    Shared by the server self-check and (vendored copy) the agent. Uses the gpg
+    binary — no Python crypto dependency. Fails closed on any error."""
+    import tempfile
+    gpg = shutil.which('gpg')
+    if not gpg:
+        return False, 'gpg not available'
+    home = tempfile.mkdtemp(prefix='rp-gpgv-')
+    try:
+        os.chmod(home, 0o700)
+        env = dict(os.environ, GNUPGHOME=home)
+        imp = subprocess.run([gpg, '--batch', '--import'],
+                             input=(pubkey_armored or '').encode(),
+                             env=env, capture_output=True, timeout=20)
+        if imp.returncode != 0:
+            return False, 'public key import failed'
+        art = os.path.join(home, 'art')
+        sig = os.path.join(home, 'art.asc')
+        with open(art, 'wb') as f:
+            f.write(data_bytes)
+        with open(sig, 'w') as f:
+            f.write(sig_text or '')
+        r = subprocess.run([gpg, '--batch', '--status-fd', '1', '--verify', sig, art],
+                           env=env, capture_output=True, timeout=20)
+        out = r.stdout.decode('utf-8', 'replace')
+        valid = [ln for ln in out.splitlines() if ln.startswith('[GNUPG:] VALIDSIG')]
+        if not valid:
+            return False, 'signature not valid'
+        if expected_fpr:
+            want = expected_fpr.upper().replace(' ', '')
+            got = valid[0].split()[2].upper()
+            if got != want:
+                return False, f'signing key {got[:16]}… != pinned {want[:16]}…'
+        return True, 'verified'
+    except Exception as e:
+        return False, f'verify error: {e}'
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
 
 
 def _agent_integrity_status(dev, canonical_sha, canonical_ver):
@@ -8271,10 +8365,12 @@ def handle_agent_integrity():
     order = {'mismatch': 0, 'unknown': 1, 'verified': 2}
     rows.sort(key=lambda r: (order.get(r['status'], 3), r['name'].lower()))
     respond(200, {
-        'canonical_sha256': (canonical or '')[:12],
-        'server_version':   SERVER_VERSION,
-        'counts':           counts,
-        'devices':          rows,
+        'canonical_sha256':  (canonical or '')[:12],
+        'server_version':    SERVER_VERSION,
+        'counts':            counts,
+        'devices':           rows,
+        # v3.4.2: is the served release cryptographically signed + valid?
+        'release_signature': _release_signature_status(),
     })
 
 
@@ -23858,6 +23954,7 @@ def _build_exact_routes():
         ('POST', '/api/acme/dns-credentials'): handle_acme_dns_credentials_set,
         ('GET', '/api/agent/download'): handle_agent_download,
         ('GET', '/api/agent/version'): handle_agent_version,
+        ('GET', '/api/agent/signature'): handle_agent_signature,
         ('POST', '/api/ai/chat'): handle_ai_chat,
         ('GET', '/api/ai/config'): handle_ai_config_get,
         ('POST', '/api/ai/config'): handle_ai_config_set,

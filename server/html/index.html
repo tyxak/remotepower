@@ -1814,6 +1814,11 @@
                 <li>Each agent reports its own binary hash; the server attests it matches the canonical published build. A <strong>mismatch</strong> on the current version (tamper / corruption / partial update) is a critical Needs-Attention item and lowers the health score. Shown on the Reports page.</li>
               </ul>
 
+              <h4>Cryptographic release signing</h4>
+              <ul>
+                <li>Sign the agent release with a detached GPG signature (<code>tools/sign-agent-release.sh</code>). Pin the public key on a host (<code>/etc/remotepower/release.pub</code>) and the agent <strong>refuses any self-update</strong> whose signature doesn't verify against it — defending against a compromised server. Opt-in and fail-closed (no pinned key → unchanged sha256-only behaviour). No new dependency — uses <code>gpg</code>.</li>
+              </ul>
+
               <h4>Device dependency map</h4>
               <ul>
                 <li>On the Network Map, declare that a device <strong>depends on</strong> upstreams. When an upstream is offline, downstream alerts are <strong>held</strong> — you get the root-cause alert, not a storm of collateral ones. Dependency edges draw dashed violet (red when the upstream is down).</li>

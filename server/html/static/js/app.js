@@ -2399,6 +2399,7 @@ const _DYK_TIPS = [
   "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
   "The Reports page flags resource anomalies — when a host's memory, swap, or disk jumps far outside its own normal range.",
   "Agents report their own binary hash every heartbeat — RemotePower flags any agent whose code doesn't match the canonical build it serves.",
+  "Sign your agent releases with GPG (tools/sign-agent-release.sh) and pin the public key on hosts — agents then refuse any self-update that isn't validly signed.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",

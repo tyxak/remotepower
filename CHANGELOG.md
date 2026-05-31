@@ -6,6 +6,16 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Cryptographic release signing.** The agent release can now carry a detached
+  GPG signature (`tools/sign-agent-release.sh`). An agent with a pinned release
+  public key (`/etc/remotepower/release.pub`) verifies that signature before
+  installing any self-update and **refuses** on a missing/invalid/wrong-key
+  signature — defending against a compromised server that swaps both the binary
+  and its advertised hash. Opt-in and fail-closed: no pinned key → behaviour is
+  unchanged (sha256-only). The server advertises `signed` + the key fingerprint
+  on `/api/agent/version`, serves the signature at `/api/agent/signature`, and
+  self-verifies the published signature (shown as `release_signature` in the
+  agent-integrity report). Uses the `gpg` binary — no new dependency.
 - **Agent integrity attestation.** Each agent now reports the sha256 of its own
   running binary on every heartbeat, and the server attests it against the
   canonical copy it serves. An agent on the current version reporting a

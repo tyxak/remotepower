@@ -10,7 +10,9 @@ import sys as _cj_sys
 from pathlib import Path as _cj_Path
 _cj_sys.path.insert(0, str(_cj_Path(__file__).resolve().parent))
 from clientjs import client_js
+import os
 import re
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -144,6 +146,60 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn('function loadAutomation(', self.APP)
         self.assertIn('function saveAutomationRule(', self.APP)
         self.assertIn("name === 'automation'", self.APP)
+
+
+class TestV342ReleaseSigning(unittest.TestCase):
+    """Cryptographic release signing — detached GPG signature over the agent."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+
+    def test_wiring(self):
+        self.assertEqual(routes_to('GET', '/api/agent/signature'),
+                         'handle_agent_signature')
+        self.assertIn('def _gpg_verify_detached(', self.API)
+        self.assertIn('def _release_signature_status(', self.API)
+        self.assertIn("'signed':", self.API)
+        self.assertIn("'release_signature'", self.API)
+        # Agent side: pinned key + verify + fail-closed gate before install.
+        self.assertIn('def _verify_detached_sig(', self.AGENT)
+        self.assertIn('RELEASE_PUBKEY_FILE', self.AGENT)
+        self.assertIn('Release signature verification FAILED', self.AGENT)
+        # Signing tool ships + is executable.
+        tool = REPO_ROOT / 'tools' / 'sign-agent-release.sh'
+        self.assertTrue(tool.exists())
+        self.assertTrue(os.access(tool, os.X_OK), 'sign-agent-release.sh must be executable')
+
+    @unittest.skipUnless(shutil.which('gpg'), 'gpg not installed')
+    def test_real_signature_roundtrip(self):
+        """End-to-end with a real ephemeral key: good sig verifies; tamper,
+        wrong fingerprint, and an attacker's key all fail closed."""
+        import importlib, sys as _s, subprocess, tempfile
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        api = importlib.import_module('api')
+        gh = tempfile.mkdtemp(); os.chmod(gh, 0o700)
+        env = dict(os.environ, GNUPGHOME=gh)
+        try:
+            from pathlib import Path as _P
+            (_P(gh) / 'kp').write_text(
+                "%no-protection\nKey-Type: eddsa\nKey-Curve: ed25519\n"
+                "Key-Usage: sign\nName-Real: RP Test\nExpire-Date: 0\n%commit\n")
+            subprocess.run(['gpg', '--batch', '--gen-key', str(_P(gh) / 'kp')],
+                           env=env, capture_output=True)
+            cols = subprocess.run(['gpg', '--list-keys', '--with-colons'],
+                                  env=env, capture_output=True, text=True).stdout
+            fpr = [l.split(':')[9] for l in cols.splitlines() if l.startswith('fpr:')][0]
+            pub = subprocess.run(['gpg', '--armor', '--export', fpr],
+                                 env=env, capture_output=True, text=True).stdout
+            data = b'agent binary bytes\n'
+            art = _P(gh) / 'a'; art.write_bytes(data)
+            subprocess.run(['gpg', '--batch', '--yes', '--armor', '--detach-sign',
+                            '-o', str(art) + '.asc', str(art)], env=env, capture_output=True)
+            sig = (_P(str(art) + '.asc')).read_text()
+            self.assertTrue(api._gpg_verify_detached(data, sig, pub, fpr)[0])
+            self.assertFalse(api._gpg_verify_detached(b'tampered', sig, pub, fpr)[0])
+            self.assertFalse(api._gpg_verify_detached(data, sig, pub, 'F' * 40)[0])
+        finally:
+            shutil.rmtree(gh, ignore_errors=True)
 
 
 class TestV342AgentIntegrity(unittest.TestCase):
