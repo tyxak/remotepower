@@ -28,6 +28,7 @@ SERVER_VERSION = '3.4.2'
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
 ROLES_FILE       = DATA_DIR / 'roles.json'        # v3.4.2: custom RBAC roles
+SCAP_FILE        = DATA_DIR / 'scap.json'          # v3.4.2: OpenSCAP scan results
 DEVICES_FILE     = DATA_DIR / 'devices.json'
 PINS_FILE        = DATA_DIR / 'pins.json'
 # v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
@@ -1694,6 +1695,9 @@ _IP_ALLOWLIST_EXEMPT_PATHS = (
     # without being on the operator's IP allowlist.
     '/api/metrics',
     '/api/status',
+    # v3.4.2: agents POST OpenSCAP results here (self-authenticated by device
+    # token); exempt so a host on a dynamic IP can still report.
+    '/api/scap/report',
 )
 
 
@@ -5946,6 +5950,22 @@ def handle_heartbeat():
                 if isinstance(names, list):
                     safe_pkg['upgradable_names'] = [_sanitize_str(n, 128) for n in names[:300]
                                                     if isinstance(n, str) and n][:300]
+                # v3.4.2: third-party (flatpak/snap/pip/npm) available updates.
+                tp = pkg.get('third_party')
+                if isinstance(tp, dict):
+                    safe_tp = {}
+                    for mgr in ('flatpak', 'snap', 'pip', 'npm'):
+                        ent = tp.get(mgr)
+                        if isinstance(ent, dict):
+                            cnt = ent.get('count')
+                            nms = ent.get('names')
+                            safe_tp[mgr] = {
+                                'count': int(cnt) if isinstance(cnt, int) and 0 <= cnt <= 100000 else 0,
+                                'names': [_sanitize_str(n, 128) for n in (nms or [])[:100]
+                                          if isinstance(n, str) and n][:100],
+                            }
+                    if safe_tp:
+                        safe_pkg['third_party'] = safe_tp
                 safe_si['packages'] = safe_pkg
             if 'network' in si and isinstance(si['network'], list):
                 safe_net = []
@@ -6152,6 +6172,12 @@ def handle_heartbeat():
         if dev.get('force_acme_rescan'):
             saved_dev['force_acme_rescan'] = True
             dev.pop('force_acme_rescan', None)
+        # v3.4.2: OpenSCAP scan one-shot flag (+ chosen profile) — same pattern.
+        if dev.get('force_scap_scan'):
+            saved_dev['force_scap_scan'] = True
+            saved_dev['scap_profile'] = dev.get('scap_profile', 'cis')
+            dev.pop('force_scap_scan', None)
+            dev.pop('scap_profile', None)
         # v3.0.0: ingest iac_data submitted by the agent in this heartbeat.
         # Stash into IAC_COLLECTION_DIR/{request_id}.json so the
         # /api/iac/status endpoint can find it.
@@ -6635,6 +6661,10 @@ def handle_heartbeat():
     # as "scan ~/.acme.sh on this poll regardless of the scan interval".
     if saved_dev.get('force_acme_rescan'):
         common_resp['force_acme_rescan'] = True
+    # v3.4.2: deliver the one-shot OpenSCAP scan request + chosen profile.
+    if saved_dev.get('force_scap_scan'):
+        common_resp['force_scap_scan'] = True
+        common_resp['scap_profile'] = saved_dev.get('scap_profile', 'cis')
     if pending:
         cmd = pending[0]
         # v3.4.0: quarantine enforcement (defence-in-depth). A quarantined
@@ -7807,6 +7837,37 @@ def handle_config_save():
         disabled = [c for c in (cb.get('disabled') or [])
                     if isinstance(c, str) and c in valid_ids][:50]
         cfg['compliance_baseline'] = {'disabled': disabled}
+
+    # v3.4.2: escalation policy (tiered re-notification of unacked alerts).
+    if 'escalation' in body:
+        es = body['escalation'] if isinstance(body['escalation'], dict) else {}
+        tiers = []
+        for t in (es.get('tiers') or [])[:10]:
+            if not isinstance(t, dict):
+                continue
+            try:
+                mins = max(1, min(10080, int(t.get('after_minutes') or 0)))
+            except (TypeError, ValueError):
+                continue
+            tiers.append({'after_minutes': mins})
+        tiers.sort(key=lambda t: t['after_minutes'])
+        sevs = [s for s in (es.get('severities') or ['critical', 'high'])
+                if s in ('critical', 'high', 'medium', 'low', 'info')][:5]
+        cfg['escalation'] = {'enabled': bool(es.get('enabled')),
+                             'tiers': tiers,
+                             'severities': sevs or ['critical', 'high']}
+
+    # v3.4.2: on-call rotation.
+    if 'oncall' in body:
+        oc = body['oncall'] if isinstance(body['oncall'], dict) else {}
+        contacts = [_sanitize_str(c, 80) for c in (oc.get('contacts') or [])
+                    if _sanitize_str(c, 80)][:50]
+        try:
+            rot = max(1, min(365, int(oc.get('rotation_days') or 7)))
+        except (TypeError, ValueError):
+            rot = 7
+        cfg['oncall'] = {'enabled': bool(oc.get('enabled')),
+                         'contacts': contacts, 'rotation_days': rot}
 
     # v3.4.2: after-hours activity detection.
     if 'after_hours' in body:
@@ -15348,6 +15409,35 @@ def handle_fleet_health_history():
     respond(200, {'series': store.get('fleet') or []})
 
 
+def handle_device_metrics_history(dev_id):
+    """GET /api/devices/<id>/metrics-history — daily memory / swap / busiest-mount
+    series for the Trends charts. Reuses the forecaster's metrics_history samples.
+    Auth: require_auth, scoped (a scoped role only sees its own devices)."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    scope = _caller_scope()
+    if scope is not None:
+        dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+        if not _device_in_scope(scope, dev):
+            respond(403, {'error': 'Device outside your role scope'})
+    samples = (load(METRICS_HIST_FILE) or {}).get(dev_id) or []
+    mem, swap, disk = [], [], []
+    for s in samples[-120:]:
+        ts = s.get('ts')
+        if isinstance(s.get('mem_percent'), (int, float)):
+            mem.append({'ts': ts, 'v': s['mem_percent']})
+        if isinstance(s.get('swap_percent'), (int, float)):
+            swap.append({'ts': ts, 'v': s['swap_percent']})
+        busiest = max((m.get('percent', 0) for m in (s.get('mounts') or [])), default=None)
+        if isinstance(busiest, (int, float)):
+            disk.append({'ts': ts, 'v': busiest})
+    respond(200, {'device_id': dev_id,
+                  'series': [{'name': 'memory %', 'points': mem},
+                             {'name': 'swap %', 'points': swap},
+                             {'name': 'disk % (busiest)', 'points': disk}]})
+
+
 def _check_health_webhooks():
     """Edge-triggered health-score alerting (heartbeat hook).
 
@@ -16658,6 +16748,8 @@ def handle_patch_catalog():
     catalog = {}          # package -> set(device_name)
     no_detail = []        # devices with a pending count but no name list
     cve_hosts = 0
+    # v3.4.2: aggregate third-party (flatpak/snap/pip/npm) updates by manager.
+    third_party = {}   # manager -> {'hosts': set, 'packages': {pkg: set(host)}}
     for dev_id, dev in devices.items():
         if not isinstance(dev, dict) or dev.get('monitored') is False:
             continue
@@ -16669,17 +16761,32 @@ def handle_patch_catalog():
                 catalog.setdefault(n, set()).add(nm)
         elif isinstance(pkg.get('upgradable'), int) and pkg['upgradable'] > 0:
             no_detail.append(nm)
+        tp = pkg.get('third_party')
+        if isinstance(tp, dict):
+            for mgr, ent in tp.items():
+                if not isinstance(ent, dict) or not ent.get('count'):
+                    continue
+                slot = third_party.setdefault(mgr, {'hosts': set(), 'packages': {}})
+                slot['hosts'].add(nm)
+                for pn in (ent.get('names') or []):
+                    slot['packages'].setdefault(pn, set()).add(nm)
         if cve_fixable.get(dev_id):
             cve_hosts += 1
     rows = [{'package': n, 'count': len(hosts), 'devices': sorted(hosts)[:60]}
             for n, hosts in catalog.items()]
     rows.sort(key=lambda r: (-r['count'], r['package'].lower()))
+    tp_out = []
+    for mgr, slot in sorted(third_party.items()):
+        pkgs = sorted(({'package': p, 'count': len(h)} for p, h in slot['packages'].items()),
+                      key=lambda r: (-r['count'], r['package'].lower()))[:50]
+        tp_out.append({'manager': mgr, 'hosts': len(slot['hosts']), 'packages': pkgs})
     respond(200, {
         'generated_ts':          int(time.time()),
         'packages':              rows,
         'total_packages':        len(rows),
         'devices_without_detail': sorted(no_detail),
         'cve_fixable_hosts':     cve_hosts,
+        'third_party':           tp_out,
     })
 
 
@@ -17196,6 +17303,114 @@ def _maybe_sample_compliance(now=None):
             store['fleet'] = fleet[-180:]
     except Exception as e:
         sys.stderr.write(f'[remotepower] compliance sample failed: {e}\n')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.2: OpenSCAP (oscap) deep compliance scans
+# ─────────────────────────────────────────────────────────────────────────────
+# The lightweight CIS baseline scores what every heartbeat already reports; this
+# is the auditor-grade complement. The operator queues a scan (a profile like
+# 'cis' / 'stig' / 'pci-dss'); the agent runs `oscap xccdf eval` against its SSG
+# datastream and POSTs a compact result (score, pass/fail tallies, failed rule
+# ids). oscap runs on the endpoint, so there is no new server dependency, and it
+# degrades gracefully when oscap / SCAP content is absent. Storage (scap.json):
+#   {dev_id: {available, profile, score, pass, fail, counts, failed_rules, ts}}
+_SCAP_PROFILES = ('cis', 'cis_level1_server', 'cis_level2_server', 'stig', 'pci-dss',
+                  'anssi_bp28_high', 'standard', 'ospp')
+
+
+def handle_scap_scan():
+    """POST /api/scap/scan — queue an OpenSCAP scan on the target device(s).
+    Body: {device_id|device_ids|group|tag, profile}. Sets a one-shot flag the
+    agent reads on its next heartbeat. Auth: 'upgrade' permission (a privileged
+    fleet action), scoped."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    ids = _resolve_targets(body)
+    if not ids:
+        respond(400, {'error': 'No valid device targets'})
+    actor = require_perm('upgrade', ids)
+    profile = _sanitize_str(body.get('profile', 'cis'), 80) or 'cis'
+    with _LockedUpdate(DEVICES_FILE) as devices:
+        for did in ids:
+            dev = devices.get(did)
+            if dev:
+                dev['force_scap_scan'] = True
+                dev['scap_profile'] = profile
+    audit_log(actor, 'scap_scan', f'targets={len(ids)} profile={profile}')
+    respond(200, {'ok': True, 'queued': len(ids), 'profile': profile})
+
+
+def handle_scap_report():
+    """POST /api/scap/report — agent submits an OpenSCAP scan result.
+    Authenticated by device_id + token (like /api/packages)."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body()
+    dev_id = str(body.get('device_id', '')).strip()
+    dev_token = str(body.get('token', '')).strip()
+    if not _validate_id(dev_id):
+        respond(403, {'error': 'Unauthorized device'})
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
+        respond(403, {'error': 'Unauthorized device'})
+    rec = {
+        'ts': int(time.time()),
+        'profile': _sanitize_str(body.get('profile', ''), 80),
+        'available': bool(body.get('available')),
+        'reason': _sanitize_str(body.get('reason', ''), 200),
+        'datastream': _sanitize_str(body.get('datastream', ''), 120),
+    }
+    if rec['available']:
+        sc = body.get('score')
+        rec['score'] = round(float(sc), 1) if isinstance(sc, (int, float)) else None
+        counts = body.get('counts') if isinstance(body.get('counts'), dict) else {}
+        rec['counts'] = {k: int(v) for k, v in counts.items()
+                         if isinstance(v, int) and 0 <= v <= 100000}
+        rec['pass'] = rec['counts'].get('pass', 0)
+        rec['fail'] = rec['counts'].get('fail', 0)
+        rec['failed_rules'] = []
+        for r in (body.get('failed_rules') or [])[:200]:
+            if isinstance(r, dict):
+                rec['failed_rules'].append({
+                    'id': _sanitize_str(r.get('id', ''), 200),
+                    'severity': _sanitize_str(r.get('severity', 'unknown'), 16),
+                })
+    with _LockedUpdate(SCAP_FILE) as store:
+        store[dev_id] = rec
+    respond(200, {'ok': True})
+
+
+def handle_scap_overview():
+    """GET /api/scap — latest OpenSCAP result per (in-scope) device + summary."""
+    require_auth()
+    scope = _caller_scope()
+    devices = load(DEVICES_FILE) or {}
+    store = load(SCAP_FILE) or {}
+    rows = []
+    for did, rec in store.items():
+        dev = devices.get(did)
+        if not dev:
+            continue
+        if scope is not None and not _device_in_scope(scope, dev):
+            continue
+        rows.append({
+            'device_id': did, 'name': dev.get('name', did),
+            'group': dev.get('group', ''),
+            **{k: rec.get(k) for k in ('ts', 'profile', 'available', 'reason',
+                                       'score', 'pass', 'fail', 'datastream')},
+            'failed_top': (rec.get('failed_rules') or [])[:20],
+        })
+    rows.sort(key=lambda r: (r.get('score') if isinstance(r.get('score'), (int, float)) else 999))
+    scored = [r['score'] for r in rows if isinstance(r.get('score'), (int, float))]
+    respond(200, {
+        'devices': rows,
+        'profiles': list(_SCAP_PROFILES),
+        'avg_score': round(sum(scored) / len(scored), 1) if scored else None,
+        'scanned': len(rows),
+    })
 
 
 def handle_inventory_search():
@@ -18001,6 +18216,113 @@ def handle_alerts_summary():
     require_auth()
     al = load(ALERTS_FILE)
     respond(200, _alerts_summary(al.get('alerts', [])))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v3.4.2: on-call schedule + escalation policy
+# ─────────────────────────────────────────────────────────────────────────────
+# An alert that nobody acknowledges should get louder, not sit silent. An
+# escalation policy is a list of tiers ({after_minutes}); a periodic tick
+# re-notifies the configured webhook destinations for any open, unacknowledged
+# alert that has aged past a tier it hasn't fired yet, naming the current on-call
+# person. The on-call schedule is a simple contact rotation (N days each). No new
+# webhook event — escalation re-fires the original alert's event through the
+# existing channel fan-out, so it lands wherever that alert already routes.
+_last_escalation_tick = [0.0]
+_ESCALATION_INTERVAL = 60   # seconds
+
+
+def _oncall_now(cfg, now=None):
+    """Current on-call contact from the rotation, or '' if not configured."""
+    oc = (cfg or {}).get('oncall') or {}
+    contacts = [c for c in (oc.get('contacts') or []) if c]
+    if not oc.get('enabled') or not contacts:
+        return ''
+    try:
+        days = max(1, int(oc.get('rotation_days') or 7))
+    except (TypeError, ValueError):
+        days = 7
+    now = int(now or time.time())
+    idx = (now // (days * 86400)) % len(contacts)
+    return contacts[idx]
+
+
+def _escalation_tick(now=None):
+    """Re-notify open, unacknowledged alerts that have aged past an escalation
+    tier. Idempotent per (alert, tier) via the alert's `escalated_tiers` list.
+    Best-effort; never raises into the caller."""
+    now = int(now or time.time())
+    try:
+        cfg = load(CONFIG_FILE) or {}
+        esc = cfg.get('escalation') or {}
+        if not esc.get('enabled'):
+            return
+        tiers = sorted(
+            [t for t in (esc.get('tiers') or []) if isinstance(t, dict)],
+            key=lambda t: int(t.get('after_minutes') or 0))
+        if not tiers:
+            return
+        sevs = esc.get('severities') or ['critical', 'high']
+        oncall = _oncall_now(cfg, now)
+        fired_any = False
+        with _LockedUpdate(ALERTS_FILE) as store:
+            for a in store.get('alerts', []):
+                if a.get('acknowledged_at') or a.get('resolved_at'):
+                    continue
+                if a.get('severity') not in sevs:
+                    continue
+                age_min = (now - int(a.get('ts') or now)) / 60.0
+                done = set(a.get('escalated_tiers') or [])
+                for i, tier in enumerate(tiers):
+                    if i in done:
+                        continue
+                    try:
+                        after = int(tier.get('after_minutes') or 0)
+                    except (TypeError, ValueError):
+                        after = 0
+                    if age_min < after:
+                        continue
+                    msg = (f"ESCALATION tier {i + 1} — unacknowledged {int(age_min)}m: "
+                           f"{a.get('title', a.get('event', 'alert'))}"
+                           + (f" · on-call: {oncall}" if oncall else ""))
+                    try:
+                        _send_webhook_to_url(a.get('event', 'alert_escalated'),
+                                             dict(a.get('payload') or {}), msg, cfg)
+                    except Exception:
+                        pass
+                    done.add(i)
+                    fired_any = True
+                a['escalated_tiers'] = sorted(done)
+            if not fired_any:
+                # nothing changed — avoid an unnecessary write
+                raise _NoEscalationChange()
+    except _NoEscalationChange:
+        pass
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] escalation tick failed: {e}\n')
+
+
+class _NoEscalationChange(Exception):
+    """Sentinel to abort the _LockedUpdate write when nothing escalated."""
+
+
+def _escalation_tick_if_due():
+    now = time.time()
+    if now - _last_escalation_tick[0] < _ESCALATION_INTERVAL:
+        return
+    _last_escalation_tick[0] = now
+    _escalation_tick()
+
+
+def handle_oncall():
+    """GET /api/oncall — current on-call contact + the rotation + escalation cfg."""
+    require_auth()
+    cfg = load(CONFIG_FILE) or {}
+    respond(200, {
+        'current': _oncall_now(cfg),
+        'oncall': cfg.get('oncall') or {'enabled': False, 'contacts': [], 'rotation_days': 7},
+        'escalation': cfg.get('escalation') or {'enabled': False, 'tiers': [], 'severities': ['critical', 'high']},
+    })
 
 
 def handle_alerts_clear():
@@ -25164,6 +25486,7 @@ def _build_exact_routes():
         ('GET', '/api/alerts'): handle_alerts_list,
         ('POST', '/api/alerts/bulk-resolve'): handle_alerts_bulk_resolve,
         ('GET', '/api/alerts/summary'): handle_alerts_summary,
+        ('GET', '/api/oncall'): handle_oncall,
         ('GET', '/api/apikeys'): handle_apikeys_list,
         ('POST', '/api/apikeys'): handle_apikeys_create,
         ('GET', '/api/attention'): handle_attention,
@@ -25251,6 +25574,9 @@ def _build_exact_routes():
         ('POST', '/api/network-map/tunnels'): handle_tunnel_add,
         ('GET', '/api/openapi.json'): handle_openapi_spec,
         ('POST', '/api/packages'): handle_packages_submit,
+        ('POST', '/api/scap/scan'): handle_scap_scan,
+        ('POST', '/api/scap/report'): handle_scap_report,
+        ('GET', '/api/scap'): handle_scap_overview,
         ('GET', '/api/patch-report'): handle_patch_report,
         ('GET', '/api/patch-report/csv'): handle_patch_report_csv,
         ('GET', '/api/patch-report/xml'): handle_patch_report_xml,
@@ -25576,6 +25902,9 @@ def _dispatch(pi, m):
     # v3.4.1: per-device unified timeline (fleet events + command runs)
     elif pi.startswith('/api/devices/') and pi.endswith('/timeline') and m == 'GET':
         handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
+    # v3.4.2: per-device metrics time-series for the Trends charts
+    elif pi.startswith('/api/devices/') and pi.endswith('/metrics-history') and m == 'GET':
+        handle_device_metrics_history(pi[len('/api/devices/'):-len('/metrics-history')])
     # v3.4.1: fleet-wide timeline (same merge core, all monitored hosts)
     elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
     # v3.4.1: software inventory search across the fleet's package lists
@@ -25853,6 +26182,8 @@ def main():
     # and advance any running staged rollouts (cheap-when-none-running).
     _safe(_maybe_sample_compliance, '_maybe_sample_compliance')
     _safe(_rollout_tick_if_due, '_rollout_tick_if_due')
+    # v3.4.2: re-notify unacknowledged alerts that have aged past a tier.
+    _safe(_escalation_tick_if_due, '_escalation_tick_if_due')
     # v3.3.0: ping Healthchecks.io (or compatible) when configured.
     # External watchdog over the server itself — if RemotePower stops
     # serving requests, hc.io flips to red and pages someone.

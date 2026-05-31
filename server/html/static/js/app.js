@@ -844,6 +844,7 @@ function showPage(name, btn) {
   if (name === 'signing')    loadSigning();
   if (name === 'query')      loadFleetQuery();
   if (name === 'rollouts')   loadRollouts();
+  if (name === 'trends')     loadTrends();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2520,6 +2521,10 @@ const _DYK_TIPS = [
   "The Compliance page scores a CIS-style baseline (patches, reboot, failed units, disk, CVEs, agent integrity) and tracks the trend day over day.",
   "Software meters take aliases — 'openssl = 0 | libssl3, openssl-libs' — and flag installs not seen running as reclaimable licenses.",
   "Under Users & Roles you can define custom roles — e.g. an operator who can reboot and upgrade only the 'staging' group, and sees only those devices.",
+  "The Compliance page can run a real OpenSCAP scan (CIS/STIG/PCI) on a host — score, pass/fail and the exact failing rule ids — if oscap is installed there.",
+  "Patch catalog now counts flatpak, snap, pip and npm updates too, not just apt/dnf/pacman.",
+  "Set escalation tiers under Settings → Notifications so an unacknowledged critical alert re-notifies after N minutes and names whoever is on call.",
+  "Planning → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -3616,11 +3621,20 @@ async function loadPatchCatalog() {
   const sum = document.getElementById('patch-catalog-summary');
   if (sum) sum.textContent = `${r.total_packages} package(s) pending`
     + (r.devices_without_detail.length ? ` · ${r.devices_without_detail.length} host(s) report a count only (older agent)` : '');
-  if (!r.packages.length) { body.innerHTML = '<div class="c-muted fs-13">No pending updates across the fleet.</div>'; return; }
+  // v3.4.2: third-party (flatpak/snap/pip/npm) updates section.
+  let tpHtml = '';
+  if (r.third_party && r.third_party.length) {
+    tpHtml = '<div class="mt-16 mb-8 fw-500 fs-13">Third-party updates (non-OS)</div>'
+      + r.third_party.map(m => {
+        const pk = (m.packages || []).slice(0, 30).map(p => `${escHtml(p.package)} <span class="c-muted">×${p.count}</span>`).join(', ');
+        return `<div class="mb-8"><span class="ro-badge rs-paused">${escHtml(m.manager)}</span> <span class="c-muted fs-12">${m.hosts} host(s)</span><div class="fs-12 mt-4">${pk || '<span class="c-muted">—</span>'}</div></div>`;
+      }).join('');
+  }
+  if (!r.packages.length) { body.innerHTML = (tpHtml || '<div class="c-muted fs-13">No pending updates across the fleet.</div>'); return; }
   const rows = r.packages.map(p =>
     `<tr><td class="mono-12">${escHtml(p.package)}</td><td class="ta-center fw-500">${p.count}</td>`
     + `<td class="fs-12 c-muted">${escHtml(p.devices.join(', '))}${p.count > p.devices.length ? ', …' : ''}</td></tr>`).join('');
-  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Package</th><th class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Package</th><th class="ta-center">Hosts</th><th>Devices</th></tr></thead><tbody>${rows}</tbody></table></div>` + tpHtml;
 }
 
 function getFilteredPatchDevices() { if (!patchReportData) return []; let devs = patchReportData.devices; const gf = document.getElementById('patch-group-filter')?.value || 'all'; const df = document.getElementById('patch-device-filter')?.value || 'all'; const search = (document.getElementById('patch-search-input')?.value || '').toLowerCase(); if (gf !== 'all') devs = devs.filter(d => d.group === gf); if (df !== 'all') devs = devs.filter(d => d.device_id === df); if (search) devs = devs.filter(d => (d.name||'').toLowerCase().includes(search) || (d.hostname||'').toLowerCase().includes(search) || (d.os||'').toLowerCase().includes(search) || (d.group||'').toLowerCase().includes(search) || (d.pkg_manager||'').toLowerCase().includes(search) || (d.tags||[]).some(t => t.toLowerCase().includes(search))); return devs; }
@@ -4286,6 +4300,89 @@ async function deleteRollout(id) {
   const r = await api('DELETE', `/rollouts/${id}`).catch(() => null);
   if (r?.ok) { toast('Rollout deleted', 'success'); loadRollouts(); }
   else toast(r?.error || 'Failed to delete', 'error');
+}
+
+// ─── v3.4.2: Trends — zero-dependency multi-series time-series charts ─────────
+const _CHART_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4'];
+
+// Render a multi-series line chart as inline SVG (presentation via SVG
+// attributes, not CSS — CSP-safe). `series` = [{name, points:[{x,y}]}], where x
+// is an epoch second and y a number. opts: {yMin, yMax, yUnit}.
+function renderTimeSeries(elId, series, opts) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  opts = opts || {};
+  const all = [].concat(...series.map(s => s.points || []));
+  if (!all.length) { el.innerHTML = '<div class="c-muted fs-13">No samples yet — a daily point is recorded automatically.</div>'; return; }
+  const W = 720, H = 220, padL = 40, padR = 12, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const xs = all.map(p => p.x), ys = all.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const yMin = opts.yMin != null ? opts.yMin : Math.min(...ys);
+  const yMax = opts.yMax != null ? opts.yMax : Math.max(...ys) || 1;
+  const spanX = (maxX - minX) || 1, spanY = (yMax - yMin) || 1;
+  const sx = x => padL + (x - minX) / spanX * plotW;
+  const sy = y => padT + plotH - (y - yMin) / spanY * plotH;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="ts-chart" preserveAspectRatio="xMidYMid meet" role="img">`;
+  // y gridlines + labels (5 ticks)
+  for (let i = 0; i <= 4; i++) {
+    const yv = yMin + spanY * i / 4;
+    const py = sy(yv);
+    svg += `<line x1="${padL}" y1="${py.toFixed(1)}" x2="${W - padR}" y2="${py.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+    svg += `<text x="${padL - 6}" y="${(py + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(yv)}${opts.yUnit || ''}</text>`;
+  }
+  // x end labels (first + last date)
+  const fmtD = ts => new Date(ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  svg += `<text x="${padL}" y="${H - 8}" font-size="10" fill="var(--muted)">${fmtD(minX)}</text>`;
+  svg += `<text x="${W - padR}" y="${H - 8}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtD(maxX)}</text>`;
+  series.forEach((s, i) => {
+    const pts = (s.points || []).slice().sort((a, b) => a.x - b.x);
+    if (!pts.length) return;
+    const color = _CHART_COLORS[i % _CHART_COLORS.length];
+    const d = pts.map((p, j) => `${j ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(' ');
+    svg += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    pts.forEach(p => { svg += `<circle cx="${sx(p.x).toFixed(1)}" cy="${sy(p.y).toFixed(1)}" r="2" fill="${color}"/>`; });
+  });
+  svg += '</svg>';
+  // legend (only when >1 series)
+  let legend = '';
+  if (series.length > 1) {
+    legend = '<div class="ts-legend">' + series.map((s, i) =>
+      `<span class="ts-leg"><span class="ts-dot" data-bg="${_CHART_COLORS[i % _CHART_COLORS.length]}"></span>${escHtml(s.name)}</span>`).join('') + '</div>';
+  }
+  el.innerHTML = svg + legend;
+}
+
+async function loadTrends() {
+  // Fleet health history
+  const h = await api('GET', '/fleet/health/history').catch(() => null);
+  renderTimeSeries('trend-health',
+    [{ name: 'health', points: (h && h.series || []).map(s => ({ x: s.ts, y: s.score })) }],
+    { yMin: 0, yMax: 100 });
+  // Fleet compliance history (from the baseline endpoint)
+  const c = await api('GET', '/compliance/baseline').catch(() => null);
+  renderTimeSeries('trend-compliance',
+    [{ name: 'compliance', points: (c && c.history || []).map(s => ({ x: s.ts, y: s.score })) }],
+    { yMin: 0, yMax: 100, yUnit: '%' });
+  // Populate device dropdown once
+  const sel = document.getElementById('trend-device');
+  if (sel && !sel.dataset.filled) {
+    const devs = await api('GET', '/devices?slim=1').catch(() => []);
+    sel.innerHTML = '<option value="">Pick a device…</option>'
+      + (Array.isArray(devs) ? devs : []).map(d => `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('');
+    sel.dataset.filled = '1';
+  }
+}
+
+async function loadTrendDevice() {
+  const id = document.getElementById('trend-device').value;
+  const out = document.getElementById('trend-resources');
+  if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk history.</div>'; return; }
+  const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics-history`).catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load device metrics.</div>'; return; }
+  renderTimeSeries('trend-resources',
+    (r.series || []).map(s => ({ name: s.name, points: (s.points || []).map(p => ({ x: p.ts, y: p.v })) })),
+    { yMin: 0, yMax: 100, yUnit: '%' });
 }
 
 // ─── v1.8.1: Logs page ───────────────────────────────────────────────────────
@@ -10701,6 +10798,17 @@ async function loadDashboardSettings() {
   if (document.getElementById('ah-end') && ah.end) document.getElementById('ah-end').value = ah.end;
   if (document.getElementById('ah-events')) document.getElementById('ah-events').value = (ah.events || []).join(', ');
 
+  // v3.4.2: on-call + escalation
+  const oc = cfg.oncall || {}, es = cfg.escalation || {};
+  const setVal = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  setVal('oncall-enabled', oc.enabled ? '1' : '0');
+  setVal('oncall-rotation', oc.rotation_days || 7);
+  setVal('oncall-contacts', (oc.contacts || []).join(', '));
+  setVal('esc-enabled', es.enabled ? '1' : '0');
+  setVal('esc-severities', (es.severities || ['critical', 'high']).join(', '));
+  setVal('esc-tiers', (es.tiers || []).map(t => t.after_minutes).join(', '));
+  api('GET', '/oncall').then(r => { const e = document.getElementById('oncall-current'); if (e && r) e.textContent = r.current || '(rotation off)'; }).catch(() => {});
+
   // v3.2.3: channel routing matrix — replaces the two legacy
   // kind/activity panes. Server is the source of truth for the kind
   // roster; we just render the table and POST diffs back.
@@ -10804,6 +10912,26 @@ async function saveAfterHours() {
   const r = await api('POST', '/config', { after_hours: { enabled, start, end, events } }).catch(() => null);
   if (r?.ok) toast(enabled ? `After-hours watch on (${start}–${end})` : 'After-hours watch off', 'success');
   else toast(r?.error || 'Failed', 'error');
+}
+
+async function saveOncall() {
+  const oncall = {
+    enabled: document.getElementById('oncall-enabled').value === '1',
+    rotation_days: parseInt(document.getElementById('oncall-rotation').value) || 7,
+    contacts: document.getElementById('oncall-contacts').value.split(',').map(s => s.trim()).filter(Boolean),
+  };
+  const escalation = {
+    enabled: document.getElementById('esc-enabled').value === '1',
+    severities: document.getElementById('esc-severities').value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
+    tiers: document.getElementById('esc-tiers').value.split(',').map(s => parseInt(s.trim())).filter(n => n > 0).map(after_minutes => ({ after_minutes })),
+  };
+  if (escalation.enabled && !escalation.tiers.length) { toast('Add at least one escalation tier (minutes)', 'error'); return; }
+  if (oncall.enabled && !oncall.contacts.length) { toast('Add at least one on-call contact', 'error'); return; }
+  const r = await api('POST', '/config', { oncall, escalation }).catch(() => null);
+  if (r?.ok) {
+    toast('On-call & escalation saved', 'success');
+    api('GET', '/oncall').then(rr => { const e = document.getElementById('oncall-current'); if (e && rr) e.textContent = rr.current || '(rotation off)'; }).catch(() => {});
+  } else toast(r?.error || 'Failed', 'error');
 }
 
 async function saveQuietHours() {
@@ -13372,6 +13500,7 @@ async function loadCompliance() {
   }
   body.innerHTML = h;
   loadComplianceBaseline();
+  loadScap();
 }
 
 // ── v3.4.2: CIS-style configuration baseline ───────────────────────────────
@@ -13429,6 +13558,55 @@ async function toggleCisCheck(id, checked) {
   const r = await api('POST', '/config', { compliance_baseline: { disabled: Array.from(_cisDisabled) } }).catch(() => null);
   if (r?.ok) loadComplianceBaseline();
   else toast(r?.error || 'Failed to update baseline', 'error');
+}
+
+// v3.4.2: OpenSCAP deep scans
+async function loadScap() {
+  const out = document.getElementById('scap-body');
+  if (!out) return;
+  const r = await api('GET', '/scap').catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load OpenSCAP results.</div>'; return; }
+  const sel = document.getElementById('scap-profile');
+  if (sel && !sel.dataset.filled) {
+    sel.innerHTML = (r.profiles || ['cis']).map(p => `<option value="${escAttr(p)}">${escHtml(p)}</option>`).join('');
+    sel.dataset.filled = '1';
+  }
+  const avg = document.getElementById('scap-avg');
+  if (avg) {
+    avg.textContent = r.avg_score != null ? `avg ${r.avg_score}%` : 'no scans';
+    avg.className = 'ro-badge ' + (r.avg_score == null ? '' : r.avg_score >= 80 ? 'rs-done' : r.avg_score >= 50 ? 'rs-paused' : 'rs-failed');
+  }
+  if (!r.devices || !r.devices.length) { out.innerHTML = '<div class="empty-state">No scans yet. Pick a profile and click <strong>Run scan</strong>.</div>'; return; }
+  const rows = r.devices.map(d => {
+    if (!d.available) {
+      return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
+    }
+    const sc = d.score == null ? '—' : d.score + '%';
+    const scCls = d.score == null ? '' : d.score >= 80 ? 'c-green' : d.score >= 50 ? 'c-amber' : 'c-red';
+    const top = (d.failed_top || []).slice(0, 6).map(f => escHtml(f.id)).join(', ');
+    return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
+  }).join('');
+  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Device</th><th>Score</th><th>Pass</th><th>Fail</th><th>Profile / top failures</th><th>When</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function runScapScan() {
+  const profile = document.getElementById('scap-profile').value || 'cis';
+  const target = document.getElementById('scap-target').value.trim();
+  const body = { profile };
+  if (!target) {
+    if (!confirm('Run an OpenSCAP scan on the ENTIRE fleet? Each host runs oscap in the background.')) return;
+    // resolve "all" client-side via the devices list
+    const devs = await api('GET', '/devices?slim=1').catch(() => []);
+    body.device_ids = (Array.isArray(devs) ? devs : []).map(d => d.id).filter(Boolean);
+    if (!body.device_ids.length) { toast('No devices', 'error'); return; }
+  } else if (/^[a-z]+$/i.test(target) && target.length < 40 && !target.includes('-')) {
+    body.group = target;
+  } else {
+    body.device_ids = [target];
+  }
+  const r = await api('POST', '/scap/scan', body).catch(() => null);
+  if (r?.ok) toast(`OpenSCAP scan queued on ${r.queued} host(s) — results arrive on next heartbeat`, 'success');
+  else toast(r?.error || 'Failed to queue scan', 'error');
 }
 
 // ── v3.3.4: RouterOS (MikroTik) card ───────────────────────────────────────

@@ -4282,3 +4282,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 
 /* v3.4.2 */
 .mt-24 { margin-top: 24px; }
+
+/* v3.4.2: Trends charts */
+.trend-chart { width: 100%; overflow-x: auto; }
+.ts-chart { width: 100%; height: auto; display: block; }
+.ts-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.ts-leg { display: inline-flex; align-items: center; gap: 6px; }
+.ts-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }

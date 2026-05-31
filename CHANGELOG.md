@@ -6,6 +6,26 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+### Linux-RMM additions (deepening the self-hosted Linux story)
+- **OpenSCAP deep compliance scans (Compliance page).** Auditor-grade complement
+  to the lightweight CIS baseline: the agent runs `oscap xccdf eval` against its
+  SCAP Security Guide datastream (CIS / STIG / PCI-DSS profiles) and reports the
+  score, pass/fail tallies and failing rule ids. Runs on the endpoint (no new
+  server dependency); hosts without `openscap-scanner` / `scap-security-guide`
+  report "not available" cleanly. Scans run in a background thread and report on
+  the next heartbeat. `POST /api/scap/scan`, `GET /api/scap`.
+- **Third-party (non-OS) patch detection.** The agent now also reports available
+  updates from **flatpak, snap, pip and npm**; the patch catalog aggregates them
+  by manager alongside OS packages.
+- **On-call & escalation (Settings → Notifications).** Define escalation **tiers**
+  (re-notify your webhook destinations after N minutes a critical/high alert
+  stays unacknowledged) and an **on-call rotation** (the named person is included
+  in the escalation message). Escalations re-fire the original alert through its
+  existing channels — no new event wiring. `GET /api/oncall`.
+- **Trends (Planning → Trends).** Zero-dependency multi-series SVG charts over the
+  daily samples RemotePower already keeps — fleet health, fleet compliance %, and
+  per-device memory / swap / disk history. `GET /api/devices/<id>/metrics-history`.
+
 ### Access control
 - **Granular RBAC — custom roles with device scoping (Users & Roles).** On top
   of the built-in `admin` (full) and `viewer` (read-only) roles, an admin can now

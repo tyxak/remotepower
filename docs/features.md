@@ -80,6 +80,10 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Metering normalization + reclamation** | Meter aliases map name variants onto one entry; flags installs not seen running as reclaimable (v3.4.2) |
 | **Print / Save as PDF** | Reports page: clean self-contained posture report for the browser's native print/PDF, zero dependency (v3.4.2) |
 | **Granular RBAC** | Users & Roles: custom roles granting exec/reboot/upgrade scoped to device groups/tags; roster filtered to scope. `GET/POST /api/roles` (v3.4.2) |
+| **OpenSCAP scans** | Compliance page: agent runs `oscap xccdf eval` (CIS/STIG/PCI profiles), reports score + failing rules. `POST /api/scap/scan`, `GET /api/scap` (v3.4.2) |
+| **Third-party patching** | Agent reports flatpak/snap/pip/npm updates; patch catalog aggregates them by manager (v3.4.2) |
+| **On-call & escalation** | Settings → Notifications: escalation tiers re-notify unacked alerts; on-call rotation names the contact. `GET /api/oncall` (v3.4.2) |
+| **Trends charts** | Planning → Trends: zero-dep multi-series SVG — fleet health, compliance %, per-device resources. `GET /api/devices/<id>/metrics-history` (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

@@ -296,6 +296,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
           <span>Reports</span>
         </button>
+        <button class="nav-btn" data-page="trends" title="Time-series charts: health, compliance, resources">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M19 9l-5 5-4-4-3 3"/></svg>
+          <span>Trends</span>
+        </button>
       </div>
     </div>
 
@@ -1610,6 +1614,27 @@
           <button class="btn-primary mt-8" data-action="saveAfterHours" >Save</button>
         </div>
 
+        <div class="settings-section" id="oncall-card">
+          <h3>On-call &amp; escalation</h3>
+          <p class="hint">An unacknowledged critical/high alert should get louder. Define escalation <strong>tiers</strong> (re-notify your webhook destinations after N minutes unacked) and an <strong>on-call rotation</strong> (the named person is included in the escalation message). Escalations re-fire the original alert through its existing channels — no extra setup.</p>
+          <div class="mb-8 fs-13">Currently on call: <strong id="oncall-current">—</strong></div>
+          <div class="settings-row isl-57">
+            <div class="form-group"><label class="form-label">On-call rotation</label>
+              <select id="oncall-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
+            <div class="form-group"><label class="form-label">Rotate every (days)</label><input type="number" id="oncall-rotation" class="form-input isl-80" min="1" max="365" value="7"></div>
+          </div>
+          <div class="mb-12"><label class="form-label">Contacts <span class="meta-sm-nm">(comma-separated, rotate in order)</span></label>
+            <input type="text" id="oncall-contacts" class="form-input input-wide" placeholder="alice, bob, carol"></div>
+          <div class="settings-row isl-57">
+            <div class="form-group"><label class="form-label">Escalation</label>
+              <select id="esc-enabled" class="form-input isl-79"><option value="0">Off</option><option value="1">On</option></select></div>
+            <div class="form-group"><label class="form-label">Severities</label><input type="text" id="esc-severities" class="form-input isl-80" placeholder="critical, high"></div>
+          </div>
+          <div class="mb-12"><label class="form-label">Tiers — minutes unacked before re-notify <span class="meta-sm-nm">(comma-separated, e.g. 15, 60, 240)</span></label>
+            <input type="text" id="esc-tiers" class="form-input input-wide" placeholder="15, 60, 240"></div>
+          <button class="btn-primary mt-8" data-action="saveOncall">Save</button>
+        </div>
+
         <div class="settings-section">
           <h3>Backup file monitoring</h3>
           <p class="hint">Agent checks the mtime of each configured path on every heartbeat. Fires <code>backup_stale</code> and shows in Needs Attention when a file is older than the threshold.</p>
@@ -1851,7 +1876,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity patch catalog metering license heat map after hours fleet query signed agent badge staged ring rollout canary pilot broad promote maintenance change window gate execution cis compliance baseline benchmark drift print pdf report reclamation normalization aliases rbac roles permissions scope custom role operator access control device group tag exec reboot upgrade users">
+          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity patch catalog metering license heat map after hours fleet query signed agent badge staged ring rollout canary pilot broad promote maintenance change window gate execution cis compliance baseline benchmark drift print pdf report reclamation normalization aliases rbac roles permissions scope custom role operator access control device group tag exec reboot upgrade users openscap oscap scap stig cis benchmark scan flatpak snap pip npm third party patch on-call oncall escalation tier rotation trends charts graphs time series metrics history">
             <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
             <div class="doc-body">
               <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
@@ -1906,6 +1931,14 @@
               <h4>Granular RBAC (Users &amp; Roles)</h4>
               <ul>
                 <li>Beyond the built-in <strong>admin</strong> / <strong>viewer</strong> roles, define <strong>custom roles</strong> that grant a subset of actions — <code>exec</code>, <code>reboot</code>, <code>upgrade</code> — limited to a <strong>scope</strong> (all devices, or only named groups / tags). Members act on their scope only, and the Devices roster is filtered to it. Config, user/role/key management and saved scripts stay admin-only. Enforced centrally at the command dispatch chokepoint.</li>
+              </ul>
+
+              <h4>Linux-RMM additions</h4>
+              <ul>
+                <li><strong>OpenSCAP deep scans</strong> (Compliance page) — the agent runs <code>oscap xccdf eval</code> against its SCAP Security Guide datastream (CIS / STIG / PCI-DSS) and reports the score, pass/fail tallies and failing rule ids. Runs on the endpoint; degrades cleanly where oscap / SCAP content is absent.</li>
+                <li><strong>Third-party patch detection</strong> — available updates from <strong>flatpak / snap / pip / npm</strong> are reported and aggregated by manager in the patch catalog, alongside OS packages.</li>
+                <li><strong>On-call &amp; escalation</strong> (Settings &rarr; Notifications) — escalation <strong>tiers</strong> re-notify your destinations when a critical/high alert stays unacknowledged, naming the current <strong>on-call</strong> contact from a rotation.</li>
+                <li><strong>Trends</strong> (Planning &rarr; Trends) — zero-dependency multi-series SVG charts of fleet health, compliance %, and per-device memory / swap / disk over time.</li>
               </ul>
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
             </div>
@@ -3249,6 +3282,22 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div id="cis-baseline-body"><div class="c-muted">Loading…</div></div>
         </div>
 
+        <!-- v3.4.2: OpenSCAP deep compliance scan -->
+        <div class="settings-section mt-16" id="scap-card">
+          <div class="row-8-center mb-8">
+            <div class="section-label">OpenSCAP scan (auditor-grade)</div>
+            <span id="scap-avg" class="ro-badge"></span>
+            <button class="btn-secondary fs-12" data-action="loadScap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div class="hint">Runs <code>oscap xccdf eval</code> on the endpoint against its SCAP Security Guide datastream (CIS / STIG / PCI-DSS profiles) and reports the score, pass/fail tallies and failing rule ids. Requires <code>openscap-scanner</code> + <code>scap-security-guide</code> on the host; hosts without them report "not available" cleanly. Scans run in the background and report on the next heartbeat.</div>
+          <div class="row-8-center mt-8 mb-8">
+            <select id="scap-profile" class="form-input input-auto"></select>
+            <input type="text" id="scap-target" class="form-input input-auto" placeholder="device id / group (blank = all)">
+            <button class="btn-primary fs-12" data-action="runScapScan">Run scan</button>
+          </div>
+          <div id="scap-body"><div class="c-muted">Loading…</div></div>
+        </div>
+
         <!-- v3.4.2: fleet anomaly scan relocated here (Security). -->
         <div class="settings-section ai-tool-card mt-16">
           <div class="ai-tool-head">
@@ -3366,6 +3415,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-primary fs-12" data-action="saveReportSchedule">Save schedule</button>
             <span id="report-sched-status" class="fs-12 c-muted"></span>
           </div>
+        </div>
+      </div>
+
+      <!-- ── Trends page (v3.4.2): time-series charts ────────────────────── -->
+      <div id="page-trends" class="page">
+        <div class="page-title">Trends</div>
+        <div class="page-subtitle">Time-series charts from the daily samples RemotePower already keeps — fleet health, compliance, and per-device resource history. Zero-dependency SVG.</div>
+        <div class="dash-card mb-16">
+          <h3>Fleet health score</h3>
+          <div id="trend-health" class="trend-chart"><div class="c-muted">Loading…</div></div>
+        </div>
+        <div class="dash-card mb-16">
+          <h3>Fleet compliance %</h3>
+          <div id="trend-compliance" class="trend-chart"><div class="c-muted">Loading…</div></div>
+        </div>
+        <div class="dash-card mb-16">
+          <div class="row-8-center mb-8">
+            <h3 class="m-0">Device resources</h3>
+            <select id="trend-device" class="form-input input-auto" data-change="loadTrendDevice"><option value="">Pick a device…</option></select>
+          </div>
+          <div id="trend-resources" class="trend-chart"><div class="c-muted">Pick a device to see its memory / swap / disk history.</div></div>
         </div>
       </div>
 

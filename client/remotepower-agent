@@ -22,6 +22,7 @@ import hashlib
 import shutil
 import stat
 import tempfile
+import threading
 from pathlib import Path
 from urllib import request, error
 
@@ -447,6 +448,14 @@ def _parse_upgradable_names(manager, text):
 
 def get_patch_info():
     result = {'manager': 'unknown', 'upgradable': None}
+    # v3.4.2: non-OS package managers (flatpak/snap/pip/npm). Same periodic
+    # cadence as the OS patch check; absent managers are simply omitted.
+    try:
+        tp = get_third_party_updates()
+        if tp:
+            result['third_party'] = tp
+    except Exception:
+        pass
     if Path('/usr/bin/apt-get').exists():
         result['manager'] = 'apt'
         try:
@@ -545,6 +554,176 @@ def get_patch_info():
             result['upgradable'] = None
             log.warning(f'pacman patch check failed: {e}')
     return result
+
+
+# ─── v3.4.2: third-party (non-OS) package updates ─────────────────────────────
+
+def _tp_count(cmd, parse, timeout=30):
+    """Run `cmd`; return (count, names[]) via `parse(stdout)`, or (None, []) if
+    the tool is missing / errors. Best-effort — never raises."""
+    if not shutil.which(cmd[0]):
+        return None, []
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+        names = parse(out) or []
+        return len(names), names[:100]
+    except Exception:
+        return None, []
+
+
+def get_third_party_updates():
+    """Available updates from non-OS package managers (flatpak/snap/pip/npm).
+    Each entry is {count, names} or omitted when the manager isn't present.
+    Counts feed the patch catalog; the OS package manager stays separate."""
+    result = {}
+
+    def _flatpak(out):
+        return [l.split('\t')[0].strip() for l in out.splitlines()
+                if l.strip() and not l.lower().startswith('looking')]
+    c, n = _tp_count(['flatpak', 'remote-ls', '--updates', '--columns=application'], _flatpak)
+    if c is not None:
+        result['flatpak'] = {'count': c, 'names': n}
+
+    def _snap(out):
+        lines = [l for l in out.splitlines() if l.strip()]
+        # skip the "Name Version Rev ..." header; first column is the snap name
+        return [l.split()[0] for l in lines[1:] if l.split()]
+    c, n = _tp_count(['snap', 'refresh', '--list'], _snap)
+    if c is not None:
+        result['snap'] = {'count': c, 'names': n}
+
+    def _pip(out):
+        try:
+            return [p.get('name', '') for p in json.loads(out or '[]')]
+        except Exception:
+            return []
+    c, n = _tp_count(['pip', 'list', '--outdated', '--format=json'], _pip, timeout=45)
+    if c is None:
+        c, n = _tp_count(['pip3', 'list', '--outdated', '--format=json'], _pip, timeout=45)
+    if c is not None:
+        result['pip'] = {'count': c, 'names': n}
+
+    def _npm(out):
+        try:
+            return list(json.loads(out or '{}').keys())
+        except Exception:
+            return []
+    c, n = _tp_count(['npm', 'outdated', '-g', '--json'], _npm, timeout=45)
+    if c is not None:
+        result['npm'] = {'count': c, 'names': n}
+
+    return result
+
+
+# ─── v3.4.2: OpenSCAP (oscap) compliance scan ─────────────────────────────────
+_SSG_DIRS = ('/usr/share/xml/scap/ssg/content', '/usr/local/share/xml/scap/ssg/content')
+_oscap_running = threading.Lock()
+
+
+def _find_ssg_datastream():
+    """Pick the SCAP Security Guide datastream matching this host, or any
+    available ssg-*-ds.xml. Returns a path string or None."""
+    osr = get_os_release()
+    oid = (osr.get('ID') or '').lower()
+    ver = (osr.get('VERSION_ID') or '').replace('.', '')
+    candidates = []
+    for d in _SSG_DIRS:
+        p = Path(d)
+        if p.is_dir():
+            candidates += sorted(str(f) for f in p.glob('ssg-*-ds.xml'))
+    if not candidates:
+        return None
+    # Prefer a datastream whose name mentions our distro id (+ version).
+    for c in candidates:
+        base = os.path.basename(c).lower()
+        if oid and oid in base and (not ver or ver in base):
+            return c
+    for c in candidates:
+        if oid and oid in os.path.basename(c).lower():
+            return c
+    return candidates[0]
+
+
+def _full_profile_id(profile, datastream):
+    """Accept a short profile ('cis', 'stig', 'pci-dss') or a full
+    xccdf_..._profile_<x> id. Short ids map onto the SSG naming convention."""
+    if profile.startswith('xccdf_'):
+        return profile
+    return f'xccdf_org.ssgproject.content_profile_{profile}'
+
+
+def run_oscap_scan(profile, creds):
+    """Run `oscap xccdf eval` against the SSG datastream and POST a compact
+    result to /api/scap/report. Heavy + slow, so callers run this in a thread.
+    Degrades gracefully: if oscap or SCAP content is absent, posts
+    {available: False, reason}. Never raises."""
+    report = {'device_id': creds['device_id'], 'token': creds['token'],
+              'ts': int(time.time()), 'profile': profile}
+    try:
+        if not shutil.which('oscap'):
+            report.update(available=False, reason='oscap (openscap-scanner) not installed')
+        else:
+            ds = _find_ssg_datastream()
+            if not ds:
+                report.update(available=False,
+                              reason='no SCAP content (install scap-security-guide)')
+            else:
+                pid = _full_profile_id(profile, ds)
+                with tempfile.NamedTemporaryFile(suffix='.xml', delete=False) as tf:
+                    res_path = tf.name
+                try:
+                    subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
+                                    '--results', res_path, ds],
+                                   capture_output=True, text=True, timeout=900)
+                    report.update(_parse_oscap_results(res_path))
+                    report['available'] = True
+                    report['datastream'] = os.path.basename(ds)
+                finally:
+                    try:
+                        os.unlink(res_path)
+                    except OSError:
+                        pass
+    except Exception as e:
+        report.update(available=False, reason=f'scan error: {e}')
+    try:
+        http_post(f"{creds['server_url']}/api/scap/report", report, timeout=30)
+        log.info(f"OpenSCAP scan reported (available={report.get('available')}, "
+                 f"score={report.get('score')})")
+    except Exception as e:
+        log.warning(f'OpenSCAP report submission failed: {e}')
+
+
+def _parse_oscap_results(path):
+    """Parse an XCCDF results XML: overall score + rule-result tallies + up to
+    200 failed rule ids/severities. Namespace-agnostic (matches on local tag)."""
+    import xml.etree.ElementTree as ET
+    counts = {'pass': 0, 'fail': 0, 'error': 0, 'notapplicable': 0,
+              'notchecked': 0, 'notselected': 0, 'unknown': 0, 'informational': 0}
+    failed = []
+    score = None
+    root = ET.parse(path).getroot()
+    for el in root.iter():
+        tag = el.tag.rsplit('}', 1)[-1]
+        if tag == 'rule-result':
+            res = ''
+            for ch in el:
+                if ch.tag.rsplit('}', 1)[-1] == 'result':
+                    res = (ch.text or '').strip().lower()
+                    break
+            if res in counts:
+                counts[res] += 1
+            if res == 'fail' and len(failed) < 200:
+                rid = (el.get('idref') or '').rsplit('content_rule_', 1)[-1]
+                failed.append({'id': rid, 'severity': el.get('severity', 'unknown')})
+        elif tag == 'score' and score is None:
+            try:
+                score = round(float((el.text or '').strip()), 1)
+            except (ValueError, TypeError):
+                pass
+    total = sum(counts.values())
+    return {'score': score, 'counts': counts, 'total': total,
+            'pass': counts['pass'], 'fail': counts['fail'],
+            'failed_rules': failed}
 
 
 # ─── v1.7.0: Package inventory for CVE scanning ───────────────────────────────
@@ -4126,6 +4305,22 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             if resp.get('force_acme_rescan'):
                 force_acme_rescan = True
                 log.info('Server requested an ACME rescan')
+            # v3.4.2: one-shot OpenSCAP scan request. oscap is slow (minutes),
+            # so run it in a daemon thread and POST results when done — the
+            # heartbeat loop keeps running. The lock prevents overlap.
+            if resp.get('force_scap_scan'):
+                prof = resp.get('scap_profile') or 'cis'
+                if _oscap_running.acquire(blocking=False):
+                    log.info(f'Server requested OpenSCAP scan (profile={prof})')
+
+                    def _run_scap(p=prof):
+                        try:
+                            run_oscap_scan(p, creds)
+                        finally:
+                            _oscap_running.release()
+                    threading.Thread(target=_run_scap, daemon=True).start()
+                else:
+                    log.info('OpenSCAP scan already running; ignoring request')
             # v3.0.1: one-shot force-upgrade flag — re-download the agent
             # binary regardless of version match. Used for re-deploys or
             # corrupt-binary recovery; the server clears the flag after one

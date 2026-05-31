@@ -516,6 +516,137 @@ class TestV342RBAC(unittest.TestCase):
         self.assertIn("filter(x => !x.builtin)", self.APP)
 
 
+class TestV342NinjaParity(unittest.TestCase):
+    """Linux-RMM Tier-A batch: OpenSCAP scans, third-party patching, on-call /
+    escalation, and zero-dep trend charts."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    CSS = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+
+    def _api(self):
+        import importlib, tempfile, json
+        from pathlib import Path as _P
+        api = importlib.import_module('api')
+        d = tempfile.mkdtemp()
+        api.DATA_DIR = _P(d)
+        for attr, fn in (('CONFIG_FILE', 'config.json'), ('ALERTS_FILE', 'alerts.json'),
+                         ('DEVICES_FILE', 'devices.json'), ('SCAP_FILE', 'scap.json'),
+                         ('METRICS_HIST_FILE', 'metrics_history.json')):
+            setattr(api, attr, _P(d) / fn)
+        api._LOAD_CACHE.clear()
+        return api, _P(d)
+
+    # ── OpenSCAP ─────────────────────────────────────────────────────────────
+    def test_scap_routes(self):
+        self.assertEqual(routes_to('POST', '/api/scap/scan'), 'handle_scap_scan')
+        self.assertEqual(routes_to('POST', '/api/scap/report'), 'handle_scap_report')
+        self.assertEqual(routes_to('GET', '/api/scap'), 'handle_scap_overview')
+
+    def test_scap_agent_and_heartbeat(self):
+        self.assertIn('def run_oscap_scan(', self.AGENT)
+        self.assertIn('def _parse_oscap_results(', self.AGENT)
+        self.assertIn('def _find_ssg_datastream(', self.AGENT)
+        self.assertIn("resp.get('force_scap_scan')", self.AGENT)
+        # server delivers + clears the one-shot flag
+        self.assertIn("common_resp['force_scap_scan']", self.API)
+        self.assertIn("saved_dev['force_scap_scan']", self.API)
+        # report endpoint is exempt from the IP allowlist (agent traffic)
+        self.assertIn("'/api/scap/report'", self.API)
+
+    def test_scap_parse_results(self):
+        import importlib.util, tempfile, os
+        spec = importlib.util.spec_from_file_location('rpagent', REPO_ROOT / 'client' / 'remotepower-agent.py')
+        ag = importlib.util.module_from_spec(spec); spec.loader.exec_module(ag)
+        xml = ('<TestResult xmlns="http://checklists.nist.gov/xccdf/1.2">'
+               '<rule-result idref="xccdf_org.ssgproject.content_rule_a" severity="high"><result>pass</result></rule-result>'
+               '<rule-result idref="xccdf_org.ssgproject.content_rule_b" severity="medium"><result>fail</result></rule-result>'
+               '<score>83.5</score></TestResult>')
+        with tempfile.NamedTemporaryFile('w', suffix='.xml', delete=False) as f:
+            f.write(xml); path = f.name
+        try:
+            r = ag._parse_oscap_results(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(r['score'], 83.5)
+        self.assertEqual(r['pass'], 1)
+        self.assertEqual(r['fail'], 1)
+        self.assertEqual(r['failed_rules'], [{'id': 'b', 'severity': 'medium'}])
+
+    def test_scap_frontend(self):
+        self.assertIn('id="scap-card"', self.HTML)
+        self.assertIn('function loadScap(', self.APP)
+        self.assertIn('function runScapScan(', self.APP)
+
+    # ── third-party patching ─────────────────────────────────────────────────
+    def test_third_party_agent(self):
+        self.assertIn('def get_third_party_updates(', self.AGENT)
+        for mgr in ('flatpak', 'snap', 'pip', 'npm'):
+            self.assertIn(mgr, self.AGENT)
+        self.assertIn("result['third_party'] = tp", self.AGENT)
+        # server sanitises + aggregates
+        self.assertIn("safe_pkg['third_party']", self.API)
+        self.assertIn("'third_party':           tp_out", self.API)
+
+    def test_third_party_frontend(self):
+        self.assertIn('Third-party updates', self.APP)
+
+    # ── on-call / escalation ─────────────────────────────────────────────────
+    def test_oncall_route_and_periodic(self):
+        self.assertEqual(routes_to('GET', '/api/oncall'), 'handle_oncall')
+        self.assertIn('_safe(_escalation_tick_if_due', self.API)
+
+    def test_oncall_rotation(self):
+        api, _ = self._api()
+        cfg = {'oncall': {'enabled': True, 'contacts': ['alice', 'bob', 'carol'], 'rotation_days': 7}}
+        # deterministic for a fixed timestamp
+        who = api._oncall_now(cfg, now=7 * 86400)   # week 1 → index 1
+        self.assertEqual(who, 'bob')
+        self.assertEqual(api._oncall_now({'oncall': {'enabled': False, 'contacts': ['x']}}), '')
+
+    def test_escalation_tick(self):
+        import json, time
+        api, d = self._api()
+        sent = []
+        api._send_webhook_to_url = lambda ev, pl, msg, cfg: sent.append((ev, msg))
+        now = int(time.time())
+        (d / 'config.json').write_text(json.dumps({'escalation': {
+            'enabled': True, 'severities': ['critical'], 'tiers': [{'after_minutes': 10}]}}))
+        (d / 'alerts.json').write_text(json.dumps({'alerts': [
+            {'id': 'a1', 'ts': now - 3600, 'event': 'device_offline', 'severity': 'critical',
+             'title': 'x down', 'acknowledged_at': None, 'resolved_at': None, 'payload': {}},
+            {'id': 'a2', 'ts': now - 3600, 'event': 'device_offline', 'severity': 'critical',
+             'title': 'acked', 'acknowledged_at': now, 'resolved_at': None, 'payload': {}}]}))
+        api._LOAD_CACHE.clear()
+        api._escalation_tick(now=now)
+        self.assertEqual(len(sent), 1)          # only the unacked one
+        # tier recorded → idempotent on a second pass
+        api._LOAD_CACHE.clear()
+        api._escalation_tick(now=now)
+        self.assertEqual(len(sent), 1)
+        store = json.loads((d / 'alerts.json').read_text())
+        a1 = [a for a in store['alerts'] if a['id'] == 'a1'][0]
+        self.assertEqual(a1['escalated_tiers'], [0])
+
+    def test_oncall_config_and_frontend(self):
+        self.assertIn("cfg['escalation'] =", self.API)
+        self.assertIn("cfg['oncall'] =", self.API)
+        self.assertIn('function saveOncall(', self.APP)
+        self.assertIn('id="oncall-card"', self.HTML)
+
+    # ── trends charts ────────────────────────────────────────────────────────
+    def test_trends_route_and_frontend(self):
+        self.assertEqual(routes_to('GET', '/api/devices/d1/metrics-history'),
+                         'handle_device_metrics_history')
+        self.assertIn('function renderTimeSeries(', self.APP)
+        self.assertIn('function loadTrends(', self.APP)
+        self.assertIn('id="page-trends"', self.HTML)
+        self.assertIn('data-page="trends"', self.HTML)
+        self.assertIn("name === 'trends'", self.APP)
+        self.assertIn('.ts-chart', self.CSS)
+
+
 class TestV342ReviewFixes(unittest.TestCase):
     """Review round: disable-signing password gate, SNMP live-threshold fix,
     cron-builder → Planning, anomaly-scan → Security."""
