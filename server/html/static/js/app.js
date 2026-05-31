@@ -2387,6 +2387,8 @@ const _DYK_TIPS = [
   "The Timeline page (Monitoring → Timeline) merges events and command runs into one story — for the whole fleet or a single device.",
   "The home dashboard shows a single fleet health score, 0–100, rolled up from everything that needs attention.",
   "Set a health-score alert threshold in Settings → Dashboard and get notified the moment a device's score drops below it.",
+  "The Patches page shows how many CVEs each pending update would fix, and a search box to find which hosts run a given package version.",
+  "RemotePower flags hosts on an end-of-life OS — they show in Needs Attention and fail a compliance control until you upgrade.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -3423,11 +3425,47 @@ function _registerPatchTable() {
       const rebootBadge = d.reboot_required
         ? `<span title="Pending reboot — /run/reboot-required exists on this host" class="isl-372"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="isl-373"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>Reboot</span>`
         : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      const cveBadge = d.cve_fixable > 0
+        ? `<button class="patch-cve-badge" data-action="openDeviceCVE" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" title="${d.cve_fixable} critical/high CVE(s) a pending patch would fix — view them">${d.cve_fixable} CVE${d.cve_fixable === 1 ? '' : 's'} fixable</button>`
+        : '';
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span></td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
   });
+}
+
+// v3.4.1: software inventory search (Patches page card).
+let _invResults = [];
+let _invTruncated = false;
+async function runInventorySearch() {
+  const out = document.getElementById('inv-results');
+  if (!out) return;
+  const q = (document.getElementById('inv-q').value || '').trim();
+  if (!q) { out.innerHTML = '<div class="c-muted fs-13">Enter a package name.</div>'; _invResults = []; return; }
+  const op = document.getElementById('inv-op').value;
+  const version = (document.getElementById('inv-version').value || '').trim();
+  const exact = document.getElementById('inv-exact').checked ? '1' : '0';
+  out.innerHTML = '<div class="c-muted">Searching…</div>';
+  const params = new URLSearchParams({ q, op, version, exact });
+  const r = await api('GET', '/inventory/search?' + params.toString()).catch(() => null);
+  if (!r || !Array.isArray(r.results)) { out.innerHTML = '<div class="c-red">Search failed.</div>'; _invResults = []; return; }
+  _invResults = r.results;
+  _invTruncated = !!r.truncated;
+  _renderInventoryResults();
+}
+function _renderInventoryResults() {
+  const out = document.getElementById('inv-results');
+  if (!out) return;
+  if (!_invResults.length) { out.innerHTML = '<div class="c-muted fs-13">No hosts have a matching package.</div>'; return; }
+  const sorted = tableCtl.sortRows('inventory', _invResults.slice(), r => ({
+    device: r.device_name, package: r.package, version: r.version,
+  }));
+  const rows = sorted.map(x =>
+    `<tr><td>${escHtml(x.device_name)}</td><td class="mono-12">${escHtml(x.package)}</td><td class="mono-12">${escHtml(x.version)}</td></tr>`).join('');
+  out.innerHTML = `<div class="fs-12 c-muted mb-6">${_invResults.length} match(es)${_invTruncated ? ' (capped at 2000)' : ''}</div>`
+    + `<div class="table-card"><table><thead id="inv-thead"><tr><th data-col="device">Device</th><th data-col="package">Package</th><th data-col="version">Version</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
 async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); }

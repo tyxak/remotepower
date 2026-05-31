@@ -4148,6 +4148,15 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   padding: 1px 8px; cursor: pointer;
 }
 .tl-devchip:hover { border-color: var(--accent); }
+
+/* v3.4.1: CVE↔patch cross-link badge on the Patches table */
+.patch-cve-badge {
+  margin-left: 8px; font-size: 11px; font-weight: 600;
+  color: var(--red); background: rgba(239,68,68,0.12);
+  border: 1px solid var(--red); border-radius: 10px;
+  padding: 1px 8px; cursor: pointer;
+}
+.patch-cve-badge:hover { background: rgba(239,68,68,0.22); }
 .tl-detail { font-size: 13px; color: var(--muted); margin-top: 2px; word-break: break-word; }
 .tl-time { font-size: 12px; color: var(--muted); white-space: nowrap; }
 @media (max-width: 480px) {

@@ -86,6 +86,7 @@ class TestV341Routes(unittest.TestCase):
                 ('GET', '/api/fleet/health',         'handle_fleet_health'),
                 ('GET', '/api/fleet/health/history', 'handle_fleet_health_history'),
                 ('GET', '/api/fleet/timeline',       'handle_fleet_timeline'),
+                ('GET', '/api/inventory/search',     'handle_inventory_search'),
                 ('GET', '/api/report/fleet',         'handle_fleet_report'),
                 ('GET', '/api/report/schedule',      'handle_report_schedule_get'),
                 ('PUT', '/api/report/schedule',      'handle_report_schedule_set')):
@@ -247,6 +248,54 @@ class TestV341Frontend(unittest.TestCase):
             window = self.HTML[idx:idx + 1200]
             self.assertNotIn('style=', window,
                              f'inline style= found near {marker} (CSP violation)')
+
+
+class TestV341QuickWins(unittest.TestCase):
+    """CVE↔patch cross-link, software inventory search, end-of-life OS."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+    HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+    CSS = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+    COMPLIANCE = (REPO_ROOT / 'server' / 'cgi-bin' / 'compliance.py').read_text()
+
+    # ── CVE ↔ patch cross-link ──
+    def test_cross_link_backend(self):
+        self.assertIn('def _cve_fixable_by_device(', self.API)
+        self.assertIn("'cve_fixable'", self.API)
+        self.assertIn("'cve_fixable_total'", self.API)
+
+    def test_cross_link_frontend(self):
+        self.assertIn('patch-cve-badge', self.APP)
+        self.assertIn('patch-cve-badge', self.CSS)
+        # The badge links to the device's CVE view.
+        self.assertIn("data-action=\"openDeviceCVE\"", self.APP)
+
+    # ── Software inventory search ──
+    def test_inventory_backend(self):
+        for fn in ('def handle_inventory_search(', 'def _inventory_version_match('):
+            self.assertIn(fn, self.API)
+
+    def test_inventory_frontend_sortable(self):
+        self.assertIn('function runInventorySearch(', self.APP)
+        self.assertIn('id="inv-q"', self.HTML)
+        # Sortable-tables rule: the results table must wire sort + data-col.
+        self.assertIn("wireSortOnly('inv-thead'", self.APP)
+        self.assertIn('data-col="package"', self.APP)
+
+    # ── End-of-life OS ──
+    def test_eol_backend(self):
+        self.assertIn('_OS_EOL', self.API)
+        self.assertIn('def _device_os_eol(', self.API)
+        # Persisted from the package-scan ecosystem_hint (no agent change).
+        self.assertIn("'os_id':        safe_hint['ID']", self.API)
+        # NA item → flows into the health score; routing kind present.
+        self.assertRegex(self.API, r"'kind': 'os_eol'")
+        self.assertIn("('os_eol',", self.API)
+
+    def test_eol_compliance_control(self):
+        self.assertIn('def _eol_control(', self.COMPLIANCE)
+        self.assertIn('_eol_control', self.COMPLIANCE)   # registered in _CONTROLS
+        self.assertIn("facts['eol_os']", self.API)
 
 
 if __name__ == '__main__':

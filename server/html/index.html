@@ -1796,6 +1796,13 @@
                 <li><code>Ctrl/Cmd-K</code> (or <code>/</code>) now also indexes the Timeline, Reports, Alerts, Compliance, and Forecast pages; offers a <strong>"&lt;device&gt; — timeline"</strong> jump for every host, a one-keystroke <strong>fleet report download</strong>, and your saved scripts.</li>
               </ul>
 
+              <h4>Quick wins</h4>
+              <ul>
+                <li><strong>CVE ↔ patch cross-link.</strong> The Patches page shows per device how many critical/high CVEs a pending patch would fix — click the badge to jump to that device's CVE list.</li>
+                <li><strong>Software inventory search.</strong> A search card on the Patches page answers "which hosts run <span class="ff-mono">openssl</span> older than X?" across the collected package inventory (name + optional version compare).</li>
+                <li><strong>End-of-life OS detection.</strong> Hosts on an out-of-support OS show up in Needs Attention (lowering the health score) and fail a new PCI/HIPAA/SOC 2 compliance control — using os-release data already collected, no agent change.</li>
+              </ul>
+
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.1.md</code>.</p>
             </div>
           </details>
@@ -3193,6 +3200,27 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="toolbar-mb24"><span class="hint">Export (filtered):</span><button class="btn-icon" data-action="exportPatchFiltered" data-arg="csv" >CSV</button><button class="btn-icon" data-action="exportPatchFiltered" data-arg="xml" >XML</button></div>
         <div class="stats-row isl-134" id="patch-summary"><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div><div><div class="stat-value" id="patch-total">—</div><div class="stat-label">Total</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div><div><div class="stat-value c-green" id="patch-patched">—</div><div class="stat-label">Fully Patched</div></div></div><div class="stat-card"><div class="stat-icon red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div><div class="stat-value c-amber" id="patch-pending">—</div><div class="stat-label">With Patches</div></div></div><div class="stat-card"><div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-value c-red" id="patch-count">—</div><div class="stat-label">Total Pending</div></div></div><div class="stat-card"><div class="stat-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg></div><div><div class="stat-value c-green" id="patch-pct">—</div><div class="stat-label">Patch Rate</div></div></div></div>
         <div class="table-card"><table><thead id="patch-thead"><tr><th data-col="name">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pkg_manager">Pkg Manager</th><th data-col="upgradable">Pending</th><th data-col="patch_status">Patch Status</th><th>Recent Patch Cmds</th><th></th></tr></thead><tbody id="patch-tbody"><tr><td colspan="9" class="empty-state">Click Refresh to load patch report. </td></tr></tbody></table></div>
+
+        <!-- v3.4.1: software inventory search -->
+        <div class="dash-card mt-16">
+          <h3>Software inventory search</h3>
+          <div class="page-subtitle mb-12">Find which hosts have a package — e.g. <span class="ff-mono">openssl</span> older than a version. Searches the collected package inventory.</div>
+          <div class="row-8-center mb-12">
+            <input type="text" id="inv-q" class="form-input input-wide-sm" placeholder="package name (e.g. openssl)" autocomplete="off">
+            <select id="inv-op" class="form-input input-auto">
+              <option value="any">any version</option>
+              <option value="lt">version &lt;</option>
+              <option value="le">version ≤</option>
+              <option value="eq">version =</option>
+              <option value="ge">version ≥</option>
+              <option value="gt">version &gt;</option>
+            </select>
+            <input type="text" id="inv-version" class="form-input input-auto" placeholder="version" autocomplete="off">
+            <label class="form-label"><input type="checkbox" id="inv-exact"> exact name</label>
+            <button class="btn-primary fs-12" data-action="runInventorySearch">Search</button>
+          </div>
+          <div id="inv-results"></div>
+        </div>
       </div>
 
       <div id="page-cve" class="page">

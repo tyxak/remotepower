@@ -51,6 +51,9 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Timeline (fleet or device)** | One chronological stream (**Monitoring → Timeline**): fleet events + command runs merged newest-first, filterable. Scope selector does whole-fleet (rows tagged by device) or a single host. `GET /api/fleet/timeline`, `GET /api/devices/<id>/timeline` (v3.4.1) |
 | **Fleet health score** | A single 0–100 score per device and across the fleet on the home dashboard, weighted from the Needs Attention signals; worst devices link into their timelines. `GET /api/fleet/health` (v3.4.1) |
 | **Health-score history & alerts** | Daily score samples with a home-panel trend sparkline (`GET /api/fleet/health/history`), plus an opt-in threshold that fires the edge-triggered `health_degraded` / `health_recovered` events (v3.4.1) |
+| **CVE ↔ patch cross-link** | The Patches page shows per device how many critical/high CVEs a pending patch would fix (`cve_fixable`), linking to the device's CVE list (v3.4.1) |
+| **Software inventory search** | "Which hosts run openssl < X" over the collected package inventory — name + ecosystem-aware version compare. `GET /api/inventory/search` (v3.4.1) |
+| **End-of-life OS detection** | Built-in vendor-EOL table flags out-of-support hosts in Needs Attention (lowering the health score) and as a PCI/HIPAA/SOC 2 compliance control (v3.4.1) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

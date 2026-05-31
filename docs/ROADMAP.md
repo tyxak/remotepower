@@ -14,9 +14,9 @@ extensions. Those are struck from the backlog below.
 
 | Feature | Effort | Status | Builds On |
 |---|:---:|:---:|---|
-| [Cross-link CVEs ↔ patches](#cross-link-cves--patches) | 🟢 Small | — | Patches + CVE pages |
-| [Software inventory search](#software-inventory-search) | 🟢 Small | — | Package inventory |
-| [End-of-life OS detection](#end-of-life-os-detection) | 🟢 Small | — | Compliance + health |
+| Cross-link CVEs ↔ patches | 🟢 Small | ✅ v3.4.1 | Patches + CVE pages |
+| Software inventory search | 🟢 Small | ✅ v3.4.1 | Package inventory |
+| End-of-life OS detection | 🟢 Small | ✅ v3.4.1 | Compliance + health |
 | [Richer Grafana/Prometheus exporters](#richer-grafanaprometheus-exporters) | 🟢 Small | — | `prometheus_export.py` |
 | [iCal feed of scheduled jobs](#ical-feed-of-scheduled-jobs) | 🟢 Small | — | Scheduler |
 | [Quiet hours / notification schedules](#quiet-hours--notification-schedules) | 🟢 Small | — | Channels |
@@ -42,14 +42,7 @@ extensions. Those are struck from the backlog below.
 
 Extensions to existing surfaces; mostly additive logic, little or no new UI scaffolding.
 
-### Cross-link CVEs ↔ patches
-Show "this pending patch fixes these N CVEs" on both the Patches and CVE pages. Join the existing `cve_findings.json` against pending-patch data; surface the count on each side with drill-down.
-
-### Software inventory search
-"Which hosts run `openssl < X`" across the package inventory already collected (dpkg-query / rpm / pacman / apk). A query layer over `packages.json` — version-comparison matching + a results view.
-
-### End-of-life OS detection
-Flag distros past EOL in both compliance and health. Static EOL table keyed on distro + version, evaluated at heartbeat; feeds a compliance flag and the health score.
+*(Cross-link CVEs ↔ patches, software inventory search, and end-of-life OS detection shipped in v3.4.1.)*
 
 ### Richer Grafana/Prometheus exporters
 Add health score and timeline counts to the existing `/metrics` endpoint. New gauges/counters in `prometheus_export.py` — no new infra.

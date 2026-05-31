@@ -2407,6 +2407,7 @@ CHANNEL_KINDS = [
     ('swap',        'Swap pressure (NA)',       'informational', []),
     ('cpu',         'CPU loadavg (NA)',         'informational', []),
     ('agent_version', 'Stale agent version (NA)', 'informational', []),
+    ('os_eol',      'End-of-life OS (NA)',      'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
     ('command',     'Command queued/executed',  'informational', ['command_queued', 'command_executed']),
 ]
@@ -11898,6 +11899,20 @@ def _compliance_facts():
         facts['failed_backups'] = []
         facts['backup_monitors'] = 0
 
+    # v3.4.1: end-of-life operating systems (no longer receiving patches).
+    try:
+        _eol_pkg = load(PACKAGES_FILE) or {}
+        eol_hosts = []
+        for _did, _d in devices.items():
+            if not isinstance(_d, dict) or _d.get('monitored') is False:
+                continue
+            _v = _device_os_eol(_d, _eol_pkg.get(_did) or {})
+            if _v and _v['status'] == 'eol':
+                eol_hosts.append(f"{_d.get('name', _did)} ({_v['label']})")
+        facts['eol_os'] = eol_hosts
+    except Exception:
+        facts['eol_os'] = []
+
     # Console posture.
     facts['mfa_enabled'] = bool(cfg.get('oidc_enabled') and cfg.get('oidc_issuer')) or _any_user_has_totp()
     facts['audit_log_enabled'] = True       # always on in this build
@@ -13208,6 +13223,79 @@ def handle_custom_scripts_results():
 _ATTN_RANK = {'critical': 3, 'warning': 2, 'info': 1}
 
 
+# v3.4.1: end-of-life OS table. Keyed by os-release ID → {VERSION_ID: eol_date}.
+# Dates are the end of *standard* vendor support (ESM/paid extensions ignored —
+# the point is "no more free security patches"). Approximate by design; this is
+# a nudge, not an SLA. Unknown distro/version → no signal (fail-quiet).
+_OS_EOL = {
+    'ubuntu':    {'16.04': '2021-04-30', '18.04': '2023-05-31', '20.04': '2025-05-29',
+                  '22.04': '2027-06-01', '23.04': '2024-01-25', '23.10': '2024-07-11',
+                  '24.04': '2029-05-31'},
+    'debian':    {'9': '2022-06-30', '10': '2024-06-30', '11': '2026-08-15',
+                  '12': '2028-06-30'},
+    'centos':    {'7': '2024-06-30', '8': '2021-12-31'},
+    'rhel':      {'7': '2024-06-30', '8': '2029-05-31', '9': '2032-05-31'},
+    'fedora':    {'37': '2023-12-05', '38': '2024-05-21', '39': '2024-11-12',
+                  '40': '2025-05-13', '41': '2025-11-01'},
+    'rocky':     {'8': '2029-05-31', '9': '2032-05-31'},
+    'almalinux': {'8': '2029-05-31', '9': '2032-05-31'},
+}
+
+# Map common PRETTY_NAME words → our _OS_EOL keys, for the fallback parse path.
+_OS_EOL_NAME_HINTS = (
+    ('ubuntu', 'ubuntu'), ('debian', 'debian'), ('centos', 'centos'),
+    ('red hat', 'rhel'), ('rhel', 'rhel'), ('rocky', 'rocky'),
+    ('almalinux', 'almalinux'), ('alma', 'almalinux'), ('fedora', 'fedora'),
+)
+
+
+def _device_distro_version(dev, pkg_entry):
+    """Best (distro_id, version) for a device. Prefers the structured os-release
+    ID/VERSION_ID captured at package-scan time; falls back to parsing the
+    PRETTY_NAME string in dev['os']. Returns ('', '') when undeterminable."""
+    oid = (pkg_entry or {}).get('os_id') or ''
+    ver = (pkg_entry or {}).get('version_id') or ''
+    if oid and ver:
+        return oid.strip().lower(), ver.strip()
+    pretty = (dev.get('os') or '').lower()
+    if not pretty:
+        return '', ''
+    distro = ''
+    for needle, key in _OS_EOL_NAME_HINTS:
+        if needle in pretty:
+            distro = key
+            break
+    if not distro:
+        return '', ''
+    import re as _re
+    if distro == 'ubuntu':
+        m = _re.search(r'(\d+\.\d+)', pretty)
+        return ('ubuntu', m.group(1)) if m else ('ubuntu', '')
+    m = _re.search(r'(\d+)', pretty)
+    return (distro, m.group(1)) if m else (distro, '')
+
+
+def _device_os_eol(dev, pkg_entry):
+    """EOL verdict for a device, or None when unknown. Status is 'eol' (past),
+    'soon' (≤90 days), or 'ok'."""
+    distro, version = _device_distro_version(dev, pkg_entry)
+    if not distro or not version:
+        return None
+    eol_date = (_OS_EOL.get(distro) or {}).get(version)
+    if not eol_date:
+        return None
+    import datetime as _dt
+    try:
+        eol_dt = _dt.date.fromisoformat(eol_date)
+    except ValueError:
+        return None
+    days = (eol_dt - _dt.date.today()).days
+    label = f"{distro.capitalize()} {version}"
+    status = 'eol' if days < 0 else ('soon' if days <= 90 else 'ok')
+    return {'distro': distro, 'version': version, 'label': label,
+            'eol_date': eol_date, 'days': days, 'status': status}
+
+
 def _compute_attention():
     """Build the fleet-wide list of things needing attention.
 
@@ -13572,6 +13660,26 @@ def _compute_attention():
             items.append({'severity': 'info', 'kind': 'agent_version',
                           'device': dev.get('name', dev_id),
                           'summary': f'Agent v{agent_ver} — server is v{SERVER_VERSION}'})
+
+    # v3.4.1: end-of-life OS. Past-EOL → warning; within 90 days → info. Flows
+    # into the fleet health score (same as every NA item) and the EOL count
+    # also feeds a compliance control.
+    try:
+        _eol_pkg_store = load(PACKAGES_FILE) or {}
+    except Exception:
+        _eol_pkg_store = {}
+    for dev_id, dev in monitored.items():
+        eol = _device_os_eol(dev, _eol_pkg_store.get(dev_id) or {})
+        if not eol or eol['status'] == 'ok':
+            continue
+        if eol['status'] == 'eol':
+            items.append({'severity': 'warning', 'kind': 'os_eol',
+                          'device': dev.get('name', dev_id),
+                          'summary': f"{eol['label']} reached end-of-life {eol['eol_date']}"})
+        else:  # soon
+            items.append({'severity': 'info', 'kind': 'os_eol',
+                          'device': dev.get('name', dev_id),
+                          'summary': f"{eol['label']} end-of-life in ~{eol['days']}d ({eol['eol_date']})"})
 
     # v3.0.1 (attention audit): services_watched that are NOT active right now.
     # Recent Activity gets a `service_down` event when the transition happens,
@@ -15089,11 +15197,116 @@ def handle_digest():
 
 
 # ── Patch report ─────────────────────────────────────────────────────────────
+def _cve_fixable_by_device():
+    """v3.4.1: per-device count of outstanding critical/high CVE findings that
+    carry a known fixed version — i.e. CVEs a pending patch would resolve.
+
+    Powers the Patches↔CVE cross-link. The scanner already suppresses findings
+    whose installed version is past the fix, so a remaining finding with a
+    fixed_version is genuinely 'patch this to clear it'. Honours CVE ignores."""
+    findings_all = load(CVE_FINDINGS_FILE) or {}
+    ignore_data  = load(CVE_IGNORE_FILE) or {}
+    out = {}
+    for dev_id, entry in findings_all.items():
+        n = 0
+        for f in (entry or {}).get('findings') or []:
+            if str(f.get('severity', '')).lower() not in ('critical', 'high'):
+                continue
+            if not f.get('fixed_version'):
+                continue
+            vid = f.get('vuln_id')
+            ig = ignore_data.get(vid) if vid else None
+            if ig and ig.get('scope') in ('global', dev_id):
+                continue
+            n += 1
+        if n:
+            out[dev_id] = n
+    return out
+
+
+def _inventory_version_match(installed, op, target, eco):
+    """Best-effort version comparison for inventory search. Uses dpkg ordering
+    for Debian/Ubuntu when the binary is present, else the CVE scanner's tuple
+    comparator (unlike CVE suppression, which fail-safe *keeps* findings, here
+    an unparseable version is shown rather than silently hidden). `op` ∈
+    lt|le|eq|ge|gt; unknown ops / blank target match everything."""
+    if not target or op == 'any':
+        return True
+
+    def _ge(a, b):
+        """a >= b, or None if genuinely uncomparable."""
+        try:
+            is_deb = eco == 'Ubuntu' or (eco or '').startswith('Debian')
+            if is_deb:
+                try:
+                    return cve_scanner._dpkg_ge(a, b)
+                except Exception:
+                    return cve_scanner._tuple_ge(a, b)
+            return cve_scanner._tuple_ge(a, b)
+        except Exception:
+            return None
+
+    ge_it = _ge(installed, target)   # installed >= target
+    ge_ti = _ge(target, installed)   # target >= installed
+    if ge_it is None or ge_ti is None:
+        return True                  # uncomparable → don't hide it
+    if op == 'lt':  return not ge_it
+    if op == 'le':  return ge_ti
+    if op == 'ge':  return ge_it
+    if op == 'gt':  return not ge_ti
+    if op == 'eq':  return ge_it and ge_ti
+    return True
+
+
+def handle_inventory_search():
+    """GET /api/inventory/search?q=<name>&op=<lt|le|eq|ge|gt|any>&version=<v>&exact=0|1
+
+    Find which hosts have a package — e.g. "which hosts run openssl < 3.0.2".
+    Searches the stored package inventory (packages.json). Name match is a
+    case-insensitive substring unless ?exact=1. The optional version filter is
+    best-effort (per the device's ecosystem). Auth: require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    q = (qs.get('q') or [''])[0].strip().lower()
+    if not q:
+        respond(200, {'query': '', 'results': [], 'total': 0, 'truncated': False})
+    exact = (qs.get('exact') or ['0'])[0] == '1'
+    op = (qs.get('op') or ['any'])[0].strip().lower()
+    target = (qs.get('version') or [''])[0].strip()
+    store = load(PACKAGES_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    CAP = 2000
+    results = []
+    truncated = False
+    for dev_id, entry in store.items():
+        eco = (entry or {}).get('ecosystem', '')
+        dname = (devices.get(dev_id) or {}).get('name', dev_id)
+        for p in (entry or {}).get('packages') or []:
+            name = p.get('name') or ''
+            nl = name.lower()
+            if (nl == q) if exact else (q in nl):
+                ver = p.get('version') or ''
+                if not _inventory_version_match(ver, op, target, eco):
+                    continue
+                results.append({'device_id': dev_id, 'device_name': dname,
+                                'package': name, 'version': ver})
+                if len(results) >= CAP:
+                    truncated = True
+                    break
+        if truncated:
+            break
+    results.sort(key=lambda r: (r['package'].lower(), r['device_name'].lower()))
+    respond(200, {'query': q, 'op': op, 'version': target,
+                  'results': results, 'total': len(results),
+                  'truncated': truncated})
+
+
 def handle_patch_report():
     """Return detailed patch information across all devices."""
     require_auth()
     devices = load(DEVICES_FILE)
     snmp_data = load(SNMP_DATA_FILE)   # v3.4.0: Synology DSM update status
+    cve_fixable = _cve_fixable_by_device()   # v3.4.1: CVE↔patch cross-link
     now = int(time.time())
     report = {
         'generated_at': now,
@@ -15105,6 +15318,8 @@ def handle_patch_report():
             'devices_fully_patched': 0,
             'devices_no_data': 0,
             'total_pending_patches': 0,
+            # v3.4.1: total critical/high CVEs across the fleet that a patch fixes.
+            'cve_fixable_total': 0,
         }
     }
     for dev_id, dev in devices.items():
@@ -15177,6 +15392,8 @@ def handle_patch_report():
             # reboot_required: True when /run/reboot-required exists on the host
             # (Debian/Ubuntu); False or absent on other distros / older agents.
             'reboot_required': bool(si.get('reboot_required', False)),
+            # v3.4.1: how many outstanding critical/high CVEs a patch would fix.
+            'cve_fixable': cve_fixable.get(dev_id, 0),
         }
 
         if upgradable is None or not is_online:
@@ -15204,6 +15421,7 @@ def handle_patch_report():
     report['summary']['online_with_data'] = online_with_data
     report['summary']['patch_percentage'] = round((patched / online_with_data * 100) if online_with_data > 0 else 0, 1)
 
+    report['summary']['cve_fixable_total'] = sum(cve_fixable.values())
     report['devices'].sort(key=lambda x: (-(x.get('upgradable') or 0), x['name'].lower()))
     respond(200, report)
 
@@ -18961,6 +19179,10 @@ def handle_packages_submit():
         'pkg_manager':  pkg_manager,
         'count':        len(packages),
         'packages':     packages,
+        # v3.4.1: structured os-release for EOL detection. The agent already
+        # sends these in ecosystem_hint; persisting them avoids an agent change.
+        'os_id':        safe_hint['ID'],
+        'version_id':   safe_hint['VERSION_ID'],
     }
     save(PACKAGES_FILE, store)
 
@@ -23184,6 +23406,8 @@ def _dispatch(pi, m):
         handle_device_timeline(pi[len('/api/devices/'):-len('/timeline')])
     # v3.4.1: fleet-wide timeline (same merge core, all monitored hosts)
     elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
+    # v3.4.1: software inventory search across the fleet's package lists
+    elif pi == '/api/inventory/search' and m == 'GET': handle_inventory_search()
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()

@@ -40,6 +40,18 @@ previously lived on separate pages, plus a smarter command palette.
   Timeline, Reports, Alerts, Compliance, and Forecast pages, offers a
   "<device> — timeline" jump for every host, a one-keystroke fleet-report
   download, and your saved scripts.
+- **Quick wins — three small joins over data we already collect.**
+  - **CVE ↔ patch cross-link.** The Patches page now shows, per device, how many
+    outstanding critical/high CVEs a pending patch would fix (badge → the
+    device's CVE list). New `cve_fixable` in the patch report.
+  - **Software inventory search.** "Which hosts run `openssl` < 3.0.2?" — a
+    search card on the Patches page queries the collected package inventory by
+    name (+ optional, ecosystem-aware version compare). New
+    `GET /api/inventory/search`.
+  - **End-of-life OS detection.** Hosts on an out-of-support OS now surface in
+    Needs Attention (so they pull down the fleet health score) and fail a new
+    compliance control (PCI/HIPAA/SOC 2). Uses os-release data already sent at
+    package-scan time — no agent change.
 
 ## v3.4.0
 

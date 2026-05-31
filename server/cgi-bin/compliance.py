@@ -40,6 +40,15 @@ def _cve_control(facts):
     return PASS, "No outstanding critical or high CVEs."
 
 
+def _eol_control(facts):
+    """v3.4.1 — hosts running an end-of-life OS no longer get security patches."""
+    bad = facts.get('eol_os') or []
+    if bad:
+        return FAIL, f"{len(bad)} host(s) on an end-of-life OS: " + \
+               ", ".join(bad[:10]) + ("…" if len(bad) > 10 else "")
+    return PASS, "No hosts are running an end-of-life OS version."
+
+
 def _tls_control(facts):
     exp = facts.get('tls_expiring') or []
     if exp:
@@ -134,6 +143,8 @@ _CONTROLS = [
      'Apply pending updates on the listed hosts.'),
     ('pci', '6.3.1',  'Identify and rank known vulnerabilities',    _cve_control,
      'Remediate outstanding critical/high CVEs.'),
+    ('pci', '6.3.3b', 'Run vendor-supported (non-EOL) software',    _eol_control,
+     'Upgrade or replace hosts on end-of-life OS versions.'),
     ('pci', '4.2.1',  'Strong cryptography for transmission (TLS)', _tls_control,
      'Renew expiring certificates.'),
     ('pci', '1.2.1',  'Restrict inbound/outbound traffic',          _traffic_restrict_control,
@@ -150,6 +161,8 @@ _CONTROLS = [
      'Apply pending security updates.'),
     ('hipaa', '164.308(a)(1)(ii)(A)', 'Risk analysis (known vulnerabilities)', _cve_control,
      'Remediate outstanding critical/high CVEs.'),
+    ('hipaa', '164.308(a)(5)(ii)(B)-eol', 'Supported (non-EOL) operating systems', _eol_control,
+     'Upgrade or replace hosts on end-of-life OS versions.'),
     ('hipaa', '164.312(e)(1)',        'Transmission security (encryption)',    _tls_control,
      'Renew expiring certificates.'),
     ('hipaa', '164.308(a)(7)(ii)(A)', 'Data backup plan',                      _backup_control,
@@ -174,6 +187,8 @@ _CONTROLS = [
      'Apply pending updates.'),
     ('soc2', 'CC6.8', 'Prevent/detect unauthorized software (CVEs)', _cve_control,
      'Remediate outstanding CVEs.'),
+    ('soc2', 'CC7.1b', 'Run supported (non-EOL) operating systems',  _eol_control,
+     'Upgrade or replace hosts on end-of-life OS versions.'),
     ('soc2', 'CC4.1', 'Audit logging of control operation',          _audit_control,
      'Enable audit logging.'),
     ('soc2', 'A1.2',  'Availability — recoverability (backups)',     _backup_control,
