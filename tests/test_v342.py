@@ -146,6 +146,37 @@ class TestV342Automation(unittest.TestCase):
         self.assertIn("name === 'automation'", self.APP)
 
 
+class TestV342Anomaly(unittest.TestCase):
+    """Statistical resource anomaly detection (anomaly_stats.py)."""
+    API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
+    APP = client_js()
+
+    def test_route_and_module(self):
+        self.assertEqual(routes_to('GET', '/api/fleet/anomalies'),
+                         'handle_fleet_anomalies')
+        self.assertTrue((REPO_ROOT / 'server' / 'cgi-bin' / 'anomaly_stats.py').exists())
+        self.assertIn('import anomaly_stats', self.API)
+        self.assertIn('def handle_fleet_anomalies(', self.API)
+        self.assertIn('function loadReportsAnomalies(', self.APP)
+
+    def test_detect_behaviour(self):
+        import importlib, sys as _s
+        _s.path.insert(0, str(REPO_ROOT / 'server' / 'cgi-bin'))
+        A = importlib.import_module('anomaly_stats')
+        # flat baseline + sharp spike → flagged
+        spike = [{'mem_percent': 50} for _ in range(8)] + [{'mem_percent': 95}]
+        res = A.detect_device(spike, z=2.5)
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]['metric'], 'mem_percent')
+        self.assertEqual(res[0]['direction'], 'high')
+        # stable → nothing; too-few samples → nothing
+        self.assertEqual(A.detect_device([{'mem_percent': 50}] * 10, z=2.5), [])
+        self.assertEqual(A.detect_device([{'mem_percent': 99}] * 3, z=2.5), [])
+        # disk derived from busiest mount
+        ds = [{'mounts': [{'percent': 40}]} for _ in range(8)] + [{'mounts': [{'percent': 92}]}]
+        self.assertEqual(A.detect_device(ds, z=2.5)[0]['metric'], 'disk_percent')
+
+
 class TestV342Dependencies(unittest.TestCase):
     """Device dependency map — depends_on + downstream alert suppression."""
     API = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()

@@ -2397,6 +2397,7 @@ const _DYK_TIPS = [
   "Route alerts to PagerDuty or Opsgenie: add them as notification destinations in Settings → Notifications.",
   "Automation rules (Admin → Automation) can auto-run a script or notify a destination when an event fires — e.g. restart a service the moment it goes down.",
   "Map device dependencies on the Network Map — when an upstream goes down, RemotePower mutes the downstream noise so you see the root cause.",
+  "The Reports page flags resource anomalies — when a host's memory, swap, or disk jumps far outside its own normal range.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -12372,6 +12373,7 @@ async function loadReports() {
     }
   }
   loadReportsCapacity();
+  loadReportsAnomalies();
   loadReportsSla();
   // Schedule config.
   const sch = await api('GET', '/report/schedule').catch(() => null);
@@ -12410,6 +12412,24 @@ async function loadReportsCapacity() {
     + `</div>`
     + `<div class="fs-12 c-muted mt-6">${r.devices_counted || 0} online device(s) counted</div>`
     + `<div class="cap-tops">${tops('Top CPU', r.top_cpu, '%')}${tops('Top memory', r.top_memory, '%')}${tops('Top disk', r.top_disk, '%')}</div>`;
+}
+
+async function loadReportsAnomalies() {
+  const out = document.getElementById('reports-anomalies');
+  if (!out) return;
+  const r = await api('GET', '/fleet/anomalies').catch(() => null);
+  if (!r) { out.innerHTML = '<div class="c-red">Failed to load anomalies.</div>'; return; }
+  const a = r.anomalies || [];
+  if (!a.length) { out.innerHTML = '<div class="c-muted fs-13">No resource anomalies detected.</div>'; return; }
+  const rows = a.map(x => {
+    const arrow = x.direction === 'high' ? '▲' : '▼';
+    const cls = x.direction === 'high' ? 'c-red' : 'c-amber';
+    return `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.label)}</td>`
+      + `<td class="${cls} fw-500">${arrow} ${x.value}</td>`
+      + `<td class="mono-12">${x.mean} ±${x.stdev}</td>`
+      + `<td class="mono-12">z=${x.z}</td></tr>`;
+  }).join('');
+  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Device</th><th>Metric</th><th>Latest</th><th>Baseline</th><th>Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 let _slaRows = [];

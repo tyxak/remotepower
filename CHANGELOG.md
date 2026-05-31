@@ -6,6 +6,12 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+- **Statistical resource anomalies.** A model-free complement to the AI anomaly
+  scan: for each device, RemotePower fits a mean/stdev baseline over its daily
+  metric history and flags the latest memory / swap / disk reading when it
+  deviates sharply (default ≥ 2.5σ) from that host's own norm. Surfaced on the
+  Reports page. New `GET /api/fleet/anomalies?z=` (new pure module
+  `anomaly_stats.py`).
 - **Device dependency map.** Declare that a device *depends on* upstreams
   (e.g. web → switch) on the Network Map. When an upstream is offline, alerts
   for the downstream devices are **held** — they're collateral, not the root

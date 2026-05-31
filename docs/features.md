@@ -63,6 +63,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **PagerDuty / Opsgenie** | On-call notification destinations: PagerDuty Events API v2 (trigger + auto-resolve) and Opsgenie Alerts API v2 (v3.4.1) |
 | **Automation rules engine** | When an event (at a severity) fires on matching devices → run a saved script and/or notify a destination; per-rule cooldown, admin-only, audited. `GET/POST /api/automation/rules` (v3.4.2) |
 | **Device dependency map** | Declare device→upstream dependencies on the Network Map; downstream alerts are held while an upstream is offline (delivery-only, recoveries never held). `PUT /api/devices/<id>/depends-on` (v3.4.2) |
+| **Statistical resource anomalies** | Model-free per-host mean/stdev baselines over metric history flag sharp memory/swap/disk deviations (≥2.5σ). `GET /api/fleet/anomalies` (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
 
 ### Custom monitoring scripts *(v2.5.0)*

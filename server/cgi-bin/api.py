@@ -470,6 +470,7 @@ import rag_index
 import forecast
 import compliance
 import ai_insights
+import anomaly_stats
 # Pure input-sanitisation leaf helpers (extracted from this file). Imported back
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
 from sanitize import (
@@ -8847,6 +8848,36 @@ def handle_fleet_capacity():
         'top_memory': _top(top_mem),
         'top_disk':   _top(top_disk),
     })
+
+
+def handle_fleet_anomalies():
+    """GET /api/fleet/anomalies?z=N — statistical resource anomalies across the
+    fleet. For each monitored device, fits a mean/stdev baseline over its daily
+    metric history and flags the latest value when it deviates >= z standard
+    deviations. A model-free complement to the AI anomaly scan. Auth:
+    require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    try:
+        z = float((qs.get('z') or ['2.5'])[0])
+    except ValueError:
+        z = 2.5
+    z = max(1.5, min(6.0, z))
+    hist = load(METRICS_HIST_FILE) or {}
+    devices = load(DEVICES_FILE) or {}
+    out = []
+    for dev_id, rec in hist.items():
+        dev = devices.get(dev_id)
+        if not isinstance(dev, dict) or dev.get('monitored') is False:
+            continue
+        for a in anomaly_stats.detect_device((rec or {}).get('samples') or [], z=z):
+            a = dict(a)
+            a['device_id'] = dev_id
+            a['device_name'] = dev.get('name', dev_id)
+            out.append(a)
+    out.sort(key=lambda a: -abs(a['z']))
+    respond(200, {'threshold_z': z, 'generated_ts': int(time.time()),
+                  'anomalies': out})
 
 
 def _day_status_from_events(events, day_start, day_end):
@@ -24194,6 +24225,8 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
     elif pi == '/api/public/status' and m == 'GET': handle_public_status()
     elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
+    # v3.4.2: statistical resource anomalies (per-host metric baselines)
+    elif pi == '/api/fleet/anomalies' and m == 'GET': handle_fleet_anomalies()
     # v3.4.2: automation rules engine (when event → run script / notify)
     elif pi == '/api/automation/rules' and m == 'GET': handle_automation_rules_list()
     elif pi == '/api/automation/rules' and m == 'POST': handle_automation_rule_create()

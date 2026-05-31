@@ -1804,6 +1804,11 @@
             <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
             <div class="doc-body">
               <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
+              <h4>Statistical resource anomalies</h4>
+              <ul>
+                <li>A model-free complement to the AI anomaly scan: each device's latest memory / swap / disk reading is compared to a mean/stdev baseline of its own recent history, and flagged when it deviates sharply (≥2.5σ). Shown on the Reports page.</li>
+              </ul>
+
               <h4>Device dependency map</h4>
               <ul>
                 <li>On the Network Map, declare that a device <strong>depends on</strong> upstreams. When an upstream is offline, downstream alerts are <strong>held</strong> — you get the root-cause alert, not a storm of collateral ones. Dependency edges draw dashed violet (red when the upstream is down).</li>
@@ -3210,6 +3215,13 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="dash-card mb-16">
           <h3>Capacity</h3>
           <div id="reports-capacity"><div class="c-muted">Loading…</div></div>
+        </div>
+
+        <!-- v3.4.2: statistical resource anomalies -->
+        <div class="dash-card mb-16">
+          <h3>Resource anomalies</h3>
+          <div class="page-subtitle mb-12">Hosts whose latest memory / swap / disk reading deviates sharply from their own recent baseline (statistical, model-free).</div>
+          <div id="reports-anomalies"><div class="c-muted">Loading…</div></div>
         </div>
 
         <!-- v3.4.1: SLA / uptime -->
