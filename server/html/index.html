@@ -3315,7 +3315,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <!-- ── Forecast page (v3.4.0): disk-fill projection across the fleet ──── -->
       <div id="page-forecast" class="page">
         <div class="page-title">Forecast</div>
-        <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
+        <div class="page-subtitle">Per-mount disk-fill projection across the fleet, from each host's daily metrics history. A least-squares trend on observed usage, extrapolated to capacity — lead time, not a guarantee. Ephemeral mounts (<code>/tmp</code>, <code>/run</code>, <code>/dev/shm</code>, …) are excluded, and a heavily-fluctuating mount shows <em>fluctuating</em> instead of a misleading date. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="mb-16 row-8-center">
           <button class="btn-secondary fs-12" data-action="loadForecast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <input type="text" id="forecast-filter" class="form-input input-auto" placeholder="Filter device or mount…" data-input="renderForecastTable" data-input-value="1" autocomplete="off">

@@ -612,6 +612,63 @@ class TestV342RBACv2(unittest.TestCase):
             self.assertTrue('_caller_scope' in body or '_scope_filter_devices' in body, fn)
 
 
+class TestV342ForecastVolatile(unittest.TestCase):
+    """Forecast: ephemeral mounts excluded; noisy trends don't get a fake date."""
+
+    def _f(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'forecast', REPO_ROOT / 'server' / 'cgi-bin' / 'forecast.py')
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        return m
+
+    def _samples(self):
+        DAY = 86400; t0 = 1_700_000_000
+        s = []
+        for d in range(10):
+            s.append({'ts': t0 + d * DAY, 'mounts': [
+                {'path': '/',     'used_gb': 10.0 + d, 'total_gb': 30.0},          # clean climb
+                {'path': '/tmp',  'used_gb': 0.5 + (d % 2) * 1.5, 'total_gb': 4.0},  # volatile
+                {'path': '/data', 'used_gb': 5.0 + d * 0.5 + (3 if d % 3 == 0 else -2), 'total_gb': 50.0}],  # noisy
+            })
+        return s
+
+    def test_volatile_excluded(self):
+        f = self._f()
+        rows = f.forecast_mounts(self._samples())
+        paths = {r['path'] for r in rows}
+        self.assertNotIn('/tmp', paths)
+        self.assertIn('/', paths)
+        # the default exclusion set names the usual tmpfs mounts
+        self.assertIn('/tmp', f.VOLATILE_MOUNTS)
+        self.assertIn('/dev/shm', f.VOLATILE_MOUNTS)
+
+    def test_clean_trend_projects(self):
+        f = self._f()
+        root = [r for r in f.forecast_mounts(self._samples()) if r['path'] == '/'][0]
+        self.assertIsNotNone(root['days_to_full'])
+        self.assertFalse(root['noisy'])
+        self.assertGreaterEqual(root['r2'], 0.9)
+
+    def test_noisy_trend_no_date(self):
+        f = self._f()
+        data = [r for r in f.forecast_mounts(self._samples()) if r['path'] == '/data'][0]
+        self.assertTrue(data['noisy'])
+        self.assertIsNone(data['days_to_full'])   # no misleading projection
+        self.assertIsNone(data['fill_date_ts'])
+
+    def test_run_submounts_excluded(self):
+        f = self._f()
+        self.assertTrue(f._is_volatile_mount('/run/user/1000', f.VOLATILE_MOUNTS))
+        self.assertTrue(f._is_volatile_mount('/dev/shm', f.VOLATILE_MOUNTS))
+        self.assertFalse(f._is_volatile_mount('/var/lib/docker', f.VOLATILE_MOUNTS))
+
+    def test_frontend_shows_fluctuating(self):
+        app = client_js()
+        self.assertIn('fluctuating', app)
+        self.assertIn('m.noisy', app)
+
+
 class TestV342NinjaParity(unittest.TestCase):
     """Linux-RMM Tier-A batch: OpenSCAP scans, third-party patching, on-call /
     escalation, and zero-dep trend charts."""

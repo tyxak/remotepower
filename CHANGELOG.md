@@ -145,6 +145,13 @@ In development.
   mismatch — hover shows the status + short hash.
 
 ### Fixes & polish
+- **Disk-fill forecast ignores volatile mounts.** Ephemeral / tmpfs-style mounts
+  (`/tmp`, `/var/tmp`, `/run`, `/dev/shm`, and `/run/*` `/dev/*` sub-mounts) churn
+  as temp files come and go, so a linear "days to full" over them was noise —
+  they're now excluded from the forecast entirely. For the mounts that remain, a
+  fill date is only shown when the least-squares fit is reasonably clean (R² ≥
+  0.5); a heavily-fluctuating mount shows **fluctuating** with no (misleading)
+  date instead. `forecast_mounts` gained `noisy` + `r2` fields.
 - **SNMP thresholds intermittently ignored — fixed.** The SNMP poll sweep loads
   devices once, then polls each target over the network (seconds). A threshold
   saved *during* a sweep was evaluated against the stale snapshot for that whole

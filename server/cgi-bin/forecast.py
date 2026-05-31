@@ -17,6 +17,36 @@ A sample (written by api._maybe_sample_metrics) looks like:
 
 DAY = 86400
 
+# v3.4.2: ephemeral / tmpfs-style mounts whose usage sawtooths as temp files
+# churn. A linear "days to full" projection over them is noise, so they are
+# excluded from the forecast by default. Callers may override via `exclude`.
+VOLATILE_MOUNTS = ('/tmp', '/var/tmp', '/run', '/dev/shm', '/run/lock', '/run/user')
+# Below this least-squares R² the trend is too noisy to trust a fill date.
+_MIN_R2 = 0.5
+
+
+def _is_volatile_mount(path, exclude):
+    p = (path or '').rstrip('/') or '/'
+    for v in exclude:
+        v = v.rstrip('/')
+        if p == v or p.startswith(v + '/'):
+            return True
+    # any sub-mount of /run or /dev (tmpfs territory) is volatile too
+    return p.startswith('/run/') or p.startswith('/dev/')
+
+
+def _r_squared(xs, ys, slope, intercept):
+    """Coefficient of determination of the fit. 1.0 = perfect line, ~0 = noise."""
+    n = len(ys)
+    if n < 2:
+        return 0.0
+    mean_y = sum(ys) / n
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    if ss_tot == 0:
+        return 1.0  # flat line, perfectly explained
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    return max(0.0, 1.0 - ss_res / ss_tot)
+
 
 def linear_fit(xs, ys):
     """Ordinary least-squares slope + intercept for y = slope*x + intercept.
@@ -36,7 +66,7 @@ def linear_fit(xs, ys):
     return slope, intercept
 
 
-def forecast_mounts(samples, min_points=3):
+def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
     """Project days-until-full for every mount with a rising trend.
 
     Fits used_gb against time (in days) and extrapolates to the mount's
@@ -44,10 +74,18 @@ def forecast_mounts(samples, min_points=3):
     first; mounts that are flat or shrinking get days_to_full = None.
 
         {path, current_gb, total_gb, current_percent,
-         trend_gb_per_day, days_to_full, fill_date_ts, points}
+         trend_gb_per_day, days_to_full, fill_date_ts, points, noisy, r2}
+
+    v3.4.2: ephemeral mounts (`exclude`, default VOLATILE_MOUNTS — /tmp, /run,
+    /dev/shm, …) are dropped entirely; a linear fill date over a sawtoothing
+    tmpfs is meaningless. For the mounts that remain, a fill date is only
+    reported when the least-squares fit is reasonably clean (R² ≥ min_r2);
+    a noisy/fluctuating trend keeps the row (current usage is still useful) but
+    sets days_to_full = None and noisy = True instead of inventing a date.
     """
     if not samples:
         return []
+    exclude = VOLATILE_MOUNTS if exclude is None else tuple(exclude)
 
     # Gather a per-mount time series: {path: [(ts, used_gb, total_gb), ...]}.
     series = {}
@@ -61,6 +99,8 @@ def forecast_mounts(samples, min_points=3):
             total = m.get('total_gb')
             if not path or not isinstance(used, (int, float)) or not isinstance(total, (int, float)):
                 continue
+            if _is_volatile_mount(path, exclude):
+                continue   # v3.4.2: skip ephemeral / tmpfs-style mounts
             series.setdefault(path, []).append((ts, float(used), float(total)))
 
     out = []
@@ -74,14 +114,21 @@ def forecast_mounts(samples, min_points=3):
         total = pts[-1][2]
         cur = pts[-1][1]
         slope, intercept = linear_fit(xs, ys)  # GB per day
+        r2 = _r_squared(xs, ys, slope, intercept)
 
         days_to_full = None
         fill_ts = None
+        noisy = False
         # Only forecast a fill when usage is genuinely climbing (>1 MB/day)
         # and there's headroom left.
         if slope > 0.001 and total > cur:
-            days_to_full = (total - cur) / slope
-            fill_ts = int(pts[-1][0] + days_to_full * DAY)
+            if r2 >= min_r2:
+                days_to_full = (total - cur) / slope
+                fill_ts = int(pts[-1][0] + days_to_full * DAY)
+            else:
+                # v3.4.2: trend too noisy to trust a date — show the row, skip
+                # the (misleading) projection. e.g. a disk that fluctuates heavily.
+                noisy = True
 
         out.append({
             'path':             path,
@@ -91,6 +138,8 @@ def forecast_mounts(samples, min_points=3):
             'trend_gb_per_day': round(slope, 3),
             'days_to_full':     round(days_to_full, 1) if days_to_full is not None else None,
             'fill_date_ts':     fill_ts,
+            'noisy':            noisy,
+            'r2':               round(r2, 2),
             'points':           len(pts),
             # Chartable raw series + fitted line (v3.4.0 Forecast page). `series`
             # is the observed samples as [unix_ts, used_gb]; the least-squares

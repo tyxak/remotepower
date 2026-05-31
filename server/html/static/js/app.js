@@ -2525,6 +2525,7 @@ const _DYK_TIPS = [
   "Patch catalog now counts flatpak, snap, pip and npm updates too, not just apt/dnf/pacman.",
   "Set escalation tiers under Settings → Notifications so an unacknowledged critical alert re-notifies after N minutes and names whoever is on call.",
   "Planning → Trends draws fleet health, compliance % and per-device resource history as proper time-series charts — no external library.",
+  "The disk-fill Forecast skips volatile mounts like /tmp and won't show a fill date for a mount whose usage fluctuates too much to project reliably.",
   "The Reports page exports one posture report — patches, CVEs, health, and compliance — or emails it to you on a schedule.",
   "Press Ctrl/Cmd-K for the command palette: jump to any page or device, open a device's timeline, or download the fleet report.",
   "The CMDB has a built-in credential vault — store per-device SSH logins and secrets right next to your documentation.",
@@ -13387,9 +13388,12 @@ function _renderForecastTable() {
   const rows = page.map(m => {
     const idx = _forecastRows.indexOf(m);
     const d2f = m.days_to_full;
-    const daysCls = d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
-    const daysTxt = d2f == null ? 'no fill' : _fmtDays(d2f);
-    const fill = m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—';
+    const daysCls = m.noisy ? 'c-amber' : d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
+    // v3.4.2: a heavily-fluctuating mount gets no (misleading) date.
+    const daysTxt = m.noisy
+      ? `<span title="Usage fluctuates too much for a reliable projection (R²=${m.r2})">fluctuating</span>`
+      : d2f == null ? 'no fill' : _fmtDays(d2f);
+    const fill = m.noisy ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
     const sel = idx === _forecastSel ? ' is-selected' : '';
     return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
       <td class="fw-500">${escHtml(m.device_name)}</td>
