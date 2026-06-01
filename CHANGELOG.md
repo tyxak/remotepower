@@ -92,11 +92,17 @@ collecting but the detail view didn't show:
 - **CVE attention items show what's fixable.** A CVE Needs-Attention item now
   notes how many of the findings carry a known fixed version — e.g. "30
   high-severity CVEs · 12 fixable" — so you can see at a glance whether a package
-  upgrade would actually clear any of them.
-- **Print / PDF posture report is readable and branded.** The report forced no
-  background, so on the dark theme it could print white-on-white. It now forces a
-  light page with dark text (`print-color-adjust: exact`), adds the RemotePower
-  logo to the header, colours the baseline pass/fail counts, and adds a footer.
+  upgrade would actually clear any of them. The count is over critical/high
+  findings only, so it matches the "fixable" figure on the Patches page.
+- **Print / PDF posture report is readable and branded.** On the dark theme the
+  report could print as a blank / unreadable page. It now forces a light page —
+  dark text on transparent (→ white) element backgrounds, so neither the theme's
+  light text (white-on-white) nor its dark element backgrounds (dark-on-dark)
+  survive into the PDF. Adds the RemotePower logo to the header, colours the
+  baseline pass/fail counts, and adds a footer.
+- **UI: separate cards.** The Rollouts page now puts "Rollouts" and "Recent
+  installs & jobs" in their own boxes, and the Users page puts "Custom roles" in
+  its own box, instead of running the sections together.
 - **More in the RAG index.** Added focused docs (`docs/sla.md`,
   `docs/forecast.md`, `docs/health-score.md`) so the AI assistant and fleet
   search can answer questions about SLA targets, the disk forecast, and how the

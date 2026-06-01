@@ -15049,8 +15049,12 @@ def _compute_attention():
         high = sum(1 for f in findings if f.get('severity') == 'high')
         # How many of these have a known fixed version — i.e. a package upgrade
         # would actually clear them. Surfaced in the summary so the operator can
-        # see at a glance whether there's anything actionable to patch.
-        fixable = sum(1 for f in findings if f.get('fixed_version'))
+        # see at a glance whether there's anything actionable to patch. Counted
+        # over critical/high findings only, matching _cve_fixable_by_device (the
+        # Patches↔CVE cross-link) so the two numbers agree.
+        fixable = sum(1 for f in findings
+                      if str(f.get('severity', '')).lower() in ('critical', 'high')
+                      and f.get('fixed_version'))
         name = monitored[dev_id].get('name', dev_id)
         if crit:
             summary = f'{crit} critical CVE{"s" if crit != 1 else ""}'

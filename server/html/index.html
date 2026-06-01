@@ -754,9 +754,11 @@
         <div class="table-card"><table><thead id="users-thead"><tr><th data-col="username">Username</th><th data-col="created">Created</th><th data-col="role">Role</th><th></th></tr></thead><tbody id="users-tbody"><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="4"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
 
         <!-- v3.4.2: custom RBAC roles -->
-        <div class="section-header mt-24"><div class="section-title">Custom roles</div><button class="enroll-btn" data-action="openRoleAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add role</button></div>
-        <div class="page-subtitle mb-12">A custom role grants a subset of actions — <strong>exec</strong>, <strong>reboot</strong>, <strong>upgrade</strong> — limited to a <strong>scope</strong> (all devices, or only named groups/tags). Members can act on their scope and see only those devices on the Devices roster; server config, user/role management and saved scripts stay admin-only.</div>
-        <div id="roles-list"><div class="c-muted">Loading…</div></div>
+        <div class="dash-card mt-24">
+          <div class="section-header"><div class="section-title">Custom roles</div><button class="enroll-btn" data-action="openRoleAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add role</button></div>
+          <div class="page-subtitle mb-12">A custom role grants a subset of actions — <strong>exec</strong>, <strong>reboot</strong>, <strong>upgrade</strong> — limited to a <strong>scope</strong> (all devices, or only named groups/tags). Members can act on their scope and see only those devices on the Devices roster; server config, user/role management and saved scripts stay admin-only.</div>
+          <div id="roles-list"><div class="c-muted">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── Settings page (unchanged) ────────────────────────────────────── -->
@@ -3766,19 +3768,23 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-rollouts" class="page">
         <div class="page-title">Rollouts</div>
         <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
-        <div class="row-8-center mb-12">
-          <button class="btn-primary" data-action="openRolloutModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rollout</button>
-          <button class="btn-secondary" data-action="openInstallModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> One-time install</button>
-          <button class="btn-icon" data-action="loadRollouts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+        <div class="dash-card mb-16">
+          <div class="row-8-center mb-12">
+            <button class="btn-primary" data-action="openRolloutModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rollout</button>
+            <button class="btn-secondary" data-action="openInstallModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> One-time install</button>
+            <button class="btn-icon" data-action="loadRollouts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
+          <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
         </div>
-        <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
-        <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
 
-        <div class="section-header mt-24"><div class="section-title">Recent installs &amp; jobs</div>
-          <button class="btn-icon fs-12" data-action="clearBatchJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear</button>
+        <div class="dash-card">
+          <div class="section-header"><div class="section-title">Recent installs &amp; jobs</div>
+            <button class="btn-icon fs-12" data-action="clearBatchJobs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Clear</button>
+          </div>
+          <div class="page-subtitle mb-8">Follow one-time installs and batch script runs here — each host shows a checkmark when it finishes (red on a non-zero exit). Updates live while anything is still running.</div>
+          <div id="batch-jobs"><div class="c-muted">No recent jobs.</div></div>
         </div>
-        <div class="page-subtitle mb-8">Follow one-time installs and batch script runs here — each host shows a checkmark when it finishes (red on a non-zero exit). Updates live while anything is still running.</div>
-        <div id="batch-jobs"><div class="c-muted">No recent jobs.</div></div>
       </div>
 
       <!-- ── v1.8.3: Calendar page ────────────────────────────────────────── -->

@@ -4309,9 +4309,11 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.4.2: print-friendly fleet report (Reports → Print / Save as PDF) */
 .print-only { display: none; }
 @media print {
-  /* Force a light page regardless of the app theme, and make the browser
-     actually print our colours — otherwise the dark theme's light text prints
-     on a white page (white-on-white) when "background graphics" is off. */
+  /* Force a light document regardless of the app theme. We do NOT use
+     print-color-adjust:exact — that makes the browser print the dark theme's
+     element backgrounds, which then hides our dark text (dark-on-dark). Instead
+     we let the browser drop backgrounds to white (its default) and force every
+     report element to dark text on a transparent (→ white) background. */
   html, body { background: #fff !important; }
   body > *:not(#print-report) { display: none !important; }
   #print-report {
@@ -4320,10 +4322,9 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     background: #fff !important;
     padding: 0;
     font-size: 14px;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
   }
-  #print-report * { color: #111; }   /* neutralise any inherited theme colour */
+  /* Dark text, no inherited dark theme background, on every descendant. */
+  #print-report * { color: #111; background: transparent !important; }
   #print-report .pr-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
   #print-report .pr-logo { height: 40px; width: auto; }
   #print-report h1 { font-size: 22px; margin: 0 0 2px; }

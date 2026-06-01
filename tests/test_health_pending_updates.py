@@ -98,13 +98,16 @@ class TestHealthPendingUpdates(unittest.TestCase):
             {"id": "CVE-1", "severity": "high", "fixed_version": "1.2.3"},
             {"id": "CVE-2", "severity": "high", "fixed_version": ""},
             {"id": "CVE-3", "severity": "high"},
+            # medium with a fix must NOT count — fixable is crit/high only, to
+            # match the Patches page's "fixable" number.
+            {"id": "CVE-4", "severity": "medium", "fixed_version": "9.9.9"},
         ]}})
         api._LOAD_CACHE.clear()
         items = api._compute_attention()
         cve = [i for i in items if i.get("kind") == "cve" and i.get("device") == "d1"]
         self.assertTrue(cve, "a device with high CVEs should get a 'cve' attention item")
         self.assertIn("3 high", cve[0]["summary"])
-        self.assertIn("1 fixable", cve[0]["summary"])
+        self.assertIn("1 fixable", cve[0]["summary"])   # only the high one, not the medium
 
 
 if __name__ == "__main__":
