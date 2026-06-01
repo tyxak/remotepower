@@ -878,9 +878,28 @@ def run_oscap_scan(profile, creds):
                         suffix='.xml', delete=False).name
                 if res_path is not None:
                     try:
-                        proc = subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
+                        # --fetch-remote-resources: several SSG checks (platform
+                        # applicability / OVAL, CVE feeds) reference remote
+                        # content; without this oscap silently skips them, which
+                        # can land at 0 applicable rules. The host needs outbound
+                        # network for it — if offline, oscap still runs and just
+                        # skips the remote checks (no hard failure).
+                        #
+                        # OSCAP_CPE_PATH: point oscap at the datastream's matching
+                        # CPE dictionary (ssg-<os><ver>-cpe-dictionary.xml, sits
+                        # next to the -ds.xml). Without it some builds fail with
+                        # "Failed to add default CPE to newly created CPE Session
+                        # [cpe_session.c:58]" and report 0 — setting it fixes that.
+                        scan_env = dict(os.environ)
+                        cpe = ds.replace('-ds.xml', '-cpe-dictionary.xml')
+                        if cpe != ds and os.path.exists(cpe):
+                            scan_env['OSCAP_CPE_PATH'] = cpe
+                        proc = subprocess.run(['oscap', 'xccdf', 'eval',
+                                               '--fetch-remote-resources',
+                                               '--profile', pid,
                                                '--results', res_path, ds],
-                                              capture_output=True, text=True, timeout=900)
+                                              capture_output=True, text=True, timeout=900,
+                                              env=scan_env)
                         # oscap exit codes: 0 = all rules pass, 2 = some rules failed
                         # (both are a SUCCESSFUL scan with a results file); 1 = error
                         # (bad profile, unreadable datastream, …) and NO usable

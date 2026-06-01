@@ -195,6 +195,24 @@ class TestDeployResignsAgent(unittest.TestCase):
         self.assertIn("release_key_fingerprint", sh)
 
 
+class TestOscapInvocationFlags(unittest.TestCase):
+    """The raw-oscap path must pass --fetch-remote-resources (several SSG checks
+    reference remote content; without it oscap silently skips them → 0 rules)
+    and point OSCAP_CPE_PATH at the datastream's CPE dictionary (fixes the
+    'Failed to add default CPE … cpe_session.c:58' → 0-score failure)."""
+
+    AGENT = (Path(__file__).resolve().parent.parent
+             / "client" / "remotepower-agent.py").read_text()
+
+    def test_fetch_remote_resources_flag_present(self):
+        self.assertIn("--fetch-remote-resources", self.AGENT)
+
+    def test_cpe_path_env_set_from_datastream(self):
+        self.assertIn("OSCAP_CPE_PATH", self.AGENT)
+        # derived from the datastream name, not hard-coded
+        self.assertIn("-cpe-dictionary.xml", self.AGENT)
+
+
 class TestUsgScan(unittest.TestCase):
     """On Ubuntu the agent prefers Canonical's `usg` (release-correct CIS/STIG
     content) over raw oscap, parsing its XCCDF results into a real score."""

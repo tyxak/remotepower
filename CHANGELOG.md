@@ -125,6 +125,14 @@ collecting but the detail view didn't show:
   It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
   `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
   `ssg-debian12`), falling back to the newest available rather than the oldest.
+- **OpenSCAP: fetch remote resources + correct CPE dictionary.** The raw-oscap
+  scan now passes `--fetch-remote-resources` (several SSG checks reference remote
+  OVAL/CVE content; without it oscap silently skips them and can report 0
+  applicable rules) and sets `OSCAP_CPE_PATH` to the datastream's matching
+  `*-cpe-dictionary.xml`. The missing CPE path was the cause of the "Failed to
+  add default CPE to newly created CPE Session [cpe_session.c:58]" → 0-score
+  failures on some hosts (e.g. Debian 13). Remote fetch needs host outbound
+  network; offline, oscap still runs and just skips the remote checks.
 - **OpenSCAP on Ubuntu uses `usg` (Ubuntu Security Guide).** Canonical's `usg`
   ships CIS/STIG content built for the *exact* Ubuntu release — including 24.04,
   where the distro `ssg-ubuntu` datastream lags and a raw oscap run scores 0
