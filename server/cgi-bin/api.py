@@ -17976,7 +17976,8 @@ def _maybe_sample_compliance(now=None):
 # ids). oscap runs on the endpoint, so there is no new server dependency, and it
 # degrades gracefully when oscap / SCAP content is absent. Storage (scap.json):
 #   {dev_id: {available, profile, score, pass, fail, counts, failed_rules, ts}}
-_SCAP_PROFILES = ('cis', 'cis_level1_server', 'cis_level2_server', 'stig', 'pci-dss',
+_SCAP_PROFILES = ('cis', 'cis_level1_server', 'cis_level1_workstation',
+                  'cis_level2_server', 'cis_level2_workstation', 'stig', 'pci-dss',
                   'anssi_bp28_high', 'standard', 'ospp')
 
 

@@ -774,15 +774,83 @@ def _oscap_zero_reason(profile, datastream):
             f"cis_level1_server on Ubuntu, or the ANSSI BP-028 profiles on Debian.")
 
 
+_USG_PROFILES = ('cis_level1_server', 'cis_level1_workstation',
+                 'cis_level2_server', 'cis_level2_workstation',
+                 'stig')   # Ubuntu Security Guide (Canonical) profile names
+
+
+def _run_usg_scan(profile):
+    """On Ubuntu, prefer Canonical's `usg` (Ubuntu Security Guide) over raw
+    oscap. usg ships CIS/STIG content built for the EXACT Ubuntu release (incl.
+    24.04, where the distro ssg-ubuntu datastream lags), wraps oscap, and writes
+    a standard XCCDF results XML we can parse. Returns a parsed result dict (with
+    'available': True), or a dict with available=False+reason, or None if usg
+    can't be used (so the caller falls back to plain oscap).
+
+    `usg audit <profile>` writes /var/lib/usg/usg-results-<ts>.xml. We capture
+    stdout to find the exact path it reports, falling back to the newest results
+    file in /var/lib/usg."""
+    if not shutil.which('usg'):
+        return None
+    short = profile.rsplit('content_profile_', 1)[-1]
+    if short not in _USG_PROFILES:
+        # usg only knows CIS/STIG; let oscap handle anything else (e.g. ANSSI).
+        return None
+    try:
+        proc = subprocess.run(['usg', 'audit', short],
+                              capture_output=True, text=True, timeout=1800)
+    except Exception as e:
+        return {'available': False, 'reason': f'usg audit failed to run: {e}',
+                'datastream': 'usg'}
+    out = (proc.stdout or '') + (proc.stderr or '')
+    # Find the results XML usg wrote. usg prints the path; match a
+    # usg-results-*.xml anywhere on the line (don't hard-code /var/lib/usg —
+    # the location is configurable), then fall back to the newest results file
+    # in the usual directory.
+    res = None
+    m = re.search(r'(\S*usg-results-[^\s"\']+\.xml)', out)
+    if m and os.path.exists(m.group(1)):
+        res = m.group(1)
+    if not res:
+        try:
+            cand = sorted(Path('/var/lib/usg').glob('usg-results-*.xml'),
+                          key=lambda p: p.stat().st_mtime)
+            res = str(cand[-1]) if cand else None
+        except Exception:
+            res = None
+    if not res or not os.path.exists(res) or os.path.getsize(res) == 0:
+        tail = (out.strip().splitlines() or ['no output'])[-1]
+        return {'available': False, 'datastream': 'usg',
+                'reason': f'usg audit produced no results XML — {tail[:160]}'}
+    parsed = _parse_oscap_results(res)
+    parsed['datastream'] = 'usg (Ubuntu Security Guide)'
+    parsed['available_profiles'] = list(_USG_PROFILES)
+    applicable = (parsed.get('pass') or 0) + (parsed.get('fail') or 0)
+    if applicable == 0:
+        return {'available': False, 'datastream': 'usg',
+                'available_profiles': list(_USG_PROFILES),
+                'reason': (f"usg profile '{short}' evaluated no applicable rules "
+                           f"on this host")}
+    parsed['available'] = True
+    return parsed
+
+
 def run_oscap_scan(profile, creds):
-    """Run `oscap xccdf eval` against the SSG datastream and POST a compact
-    result to /api/scap/report. Heavy + slow, so callers run this in a thread.
-    Degrades gracefully: if oscap or SCAP content is absent, posts
-    {available: False, reason}. Never raises."""
+    """Run an OpenSCAP-style compliance scan and POST a compact result to
+    /api/scap/report. Heavy + slow, so callers run this in a thread.
+
+    On Ubuntu, prefers Canonical's `usg` (correct content for the exact release)
+    when it's installed and the profile is a CIS/STIG one; otherwise runs raw
+    `oscap` against the best-matching SSG datastream. Degrades gracefully and
+    never raises."""
     report = {'device_id': creds['device_id'], 'token': creds['token'],
               'ts': int(time.time()), 'profile': profile}
     try:
-        if not shutil.which('oscap'):
+        # Ubuntu fast path: usg ships release-correct CIS/STIG content.
+        usg = _run_usg_scan(profile)
+        if usg is not None:
+            report.update(usg)
+        elif not shutil.which('oscap'):
             report.update(available=False, reason='oscap (openscap-scanner) not installed')
         else:
             ds = _find_ssg_datastream()

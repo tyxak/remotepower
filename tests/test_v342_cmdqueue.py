@@ -195,6 +195,54 @@ class TestDeployResignsAgent(unittest.TestCase):
         self.assertIn("release_key_fingerprint", sh)
 
 
+class TestUsgScan(unittest.TestCase):
+    """On Ubuntu the agent prefers Canonical's `usg` (release-correct CIS/STIG
+    content) over raw oscap, parsing its XCCDF results into a real score."""
+
+    def _agent(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "rp_agent_usg",
+            Path(__file__).resolve().parent.parent / "client" / "remotepower-agent.py")
+        ag = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(ag)
+        except SystemExit:
+            pass
+        return ag
+
+    def test_usg_cis_produces_score(self):
+        ag = self._agent()
+        d = tempfile.mkdtemp()
+        resf = os.path.join(d, "usg-results-20260601.1348.xml")
+        with open(resf, "w") as f:
+            f.write('<B xmlns="x"><TestResult>'
+                    '<rule-result idref="r1"><result>pass</result></rule-result>'
+                    '<rule-result idref="r2" severity="high"><result>fail</result></rule-result>'
+                    '<rule-result idref="r3"><result>pass</result></rule-result>'
+                    '<score>66.7</score></TestResult></B>')
+        ag.shutil.which = lambda n: "/usr/sbin/usg" if n == "usg" else None
+        ag.subprocess.run = lambda a, **k: type(
+            "R", (), {"returncode": 0, "stdout": "Saving to %s\n" % resf, "stderr": ""})()
+        r = ag._run_usg_scan("cis_level1_server")
+        self.assertTrue(r["available"])
+        self.assertEqual(r["score"], 66.7)
+        self.assertEqual(r["pass"], 2)
+        self.assertEqual(r["fail"], 1)
+        self.assertIn("usg", r["datastream"])
+
+    def test_usg_skipped_for_non_cis_profile(self):
+        # ANSSI isn't a usg profile → returns None so oscap handles it.
+        ag = self._agent()
+        ag.shutil.which = lambda n: "/usr/sbin/usg" if n == "usg" else None
+        self.assertIsNone(ag._run_usg_scan("anssi_np_nt28_minimal"))
+
+    def test_usg_absent_returns_none(self):
+        ag = self._agent()
+        ag.shutil.which = lambda n: None
+        self.assertIsNone(ag._run_usg_scan("cis_level1_server"))
+
+
 class TestOscapZeroReason(unittest.TestCase):
     """A 0-applicable-rules scan must explain the real cause: usually the host's
     OS doesn't match the installed SCAP content. Name the package to install."""

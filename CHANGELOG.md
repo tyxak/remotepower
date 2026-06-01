@@ -125,6 +125,14 @@ collecting but the detail view didn't show:
   It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
   `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
   `ssg-debian12`), falling back to the newest available rather than the oldest.
+- **OpenSCAP on Ubuntu uses `usg` (Ubuntu Security Guide).** Canonical's `usg`
+  ships CIS/STIG content built for the *exact* Ubuntu release — including 24.04,
+  where the distro `ssg-ubuntu` datastream lags and a raw oscap run scores 0
+  (every rule "not applicable"). When `usg` is installed and the requested
+  profile is a CIS/STIG one, the agent now runs `usg audit <profile>`, parses its
+  XCCDF results, and reports a real score; non-CIS profiles (e.g. ANSSI) and
+  non-Ubuntu hosts fall back to raw oscap unchanged. So on Ubuntu the fix is
+  simply `sudo apt install usg` + run a `cis_level1_server` scan.
 - **OpenSCAP "0 rules" now tells you the real cause.** The most common reason a
   scan scores 0 is an OS↔content mismatch: oscap's CPE applicability check marks
   every rule "not applicable" when the only installed SCAP content targets a
