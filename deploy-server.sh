@@ -115,6 +115,41 @@ install -m 755 "$SCRIPT_DIR/server/remotepower-passwd" /var/www/remotepower/cgi-
 info "Publishing agent binary..."
 install -m 755 "$SCRIPT_DIR/client/remotepower-agent" /var/www/remotepower/agent/remotepower-agent
 
+# Re-sign the freshly-published binary if a server signing key exists. Publishing
+# a new binary leaves the previous detached signature stale, which the Release
+# Signing page (correctly) flags as "signed but INVALID" after every deploy. If
+# the operator set up server-side signing, keep it valid automatically: re-sign
+# the new binary with the held key and re-sync the public key + fingerprint into
+# config so the self-check passes. (CI/off-server signing is unaffected — there's
+# no server key, so this is a no-op and the operator re-signs in their pipeline.)
+SIGNING_HOME="$RP_DATA_DIR_DEPLOY/signing-gpg"
+AGENT_PUB="/var/www/remotepower/agent/remotepower-agent"
+if command -v gpg >/dev/null 2>&1 && [[ -d "$SIGNING_HOME" ]]; then
+    FPR="$(GNUPGHOME="$SIGNING_HOME" gpg --batch --list-secret-keys --with-colons 2>/dev/null \
+           | awk -F: '/^fpr:/{print $10; exit}')"
+    if [[ -n "$FPR" ]]; then
+        info "Re-signing published agent with server key ${FPR:0:16}…"
+        if GNUPGHOME="$SIGNING_HOME" gpg --batch --yes --armor --detach-sign \
+               -u "$FPR" -o "${AGENT_PUB}.asc" "$AGENT_PUB" 2>/dev/null; then
+            # Re-sync release_pubkey + fingerprint into config so the server
+            # self-check verifies against the key we just signed with.
+            PUB="$(GNUPGHOME="$SIGNING_HOME" gpg --batch --armor --export "$FPR" 2>/dev/null)" \
+            FPR="$FPR" CFG="$RP_DATA_DIR_DEPLOY/config.json" python3 - << 'PYEOF'
+import json, os
+from pathlib import Path
+p = Path(os.environ['CFG'])
+c = json.loads(p.read_text()) if p.exists() else {}
+c['release_pubkey'] = os.environ.get('PUB', '') or c.get('release_pubkey', '')
+c['release_key_fingerprint'] = os.environ.get('FPR', '').upper()
+p.write_text(json.dumps(c, indent=2))
+PYEOF
+            echo "      → agent re-signed; release signature valid"
+        else
+            echo "      → WARNING: re-sign failed; Release Signing will show INVALID until you re-sign in the UI" >&2
+        fi
+    fi
+fi
+
 info "Updating versions in config.json..."
 python3 - << 'PYEOF'
 import json, re

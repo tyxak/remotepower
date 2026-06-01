@@ -164,6 +164,13 @@ collecting but the detail view didn't show:
   with fully external assets — it opens in a new tab, reuses the session token to
   fetch the report JSON, and renders a light document. It can't inherit the app
   theme, so it prints black-on-white.
+- **Release signing stays valid across deploys.** `deploy-server.sh` republishes
+  the agent binary on every run, which left the previous detached signature
+  stale → the Release Signing page flagged "signed but INVALID" after each
+  deploy. When a server-side signing key exists, deploy now **re-signs** the
+  freshly-published binary automatically and re-syncs the public key +
+  fingerprint into config, so signing stays valid without a manual click.
+  (CI/off-server signing is untouched — no server key means this is a no-op.)
 - **Release-signing "INVALID" — re-signing now actually fixes it.** Two parts:
   (1) the page now explains *why* it's invalid (`signature_detail` on
   `GET /api/signing/status`); (2) more importantly, **signing is now

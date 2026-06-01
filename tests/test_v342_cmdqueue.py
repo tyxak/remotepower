@@ -173,6 +173,28 @@ class TestScapProfileFiltering(_Base):
         self.assertIn("cis", body["profiles"])   # built-in fallback
 
 
+class TestDeployResignsAgent(unittest.TestCase):
+    """Publishing a new agent binary leaves the old detached signature stale →
+    "signed but INVALID" after every deploy. deploy-server.sh must re-sign the
+    freshly-published binary when a server signing key exists, and re-sync the
+    public key + fingerprint into config so the self-check passes."""
+
+    def test_deploy_resigns_after_publish(self):
+        sh = (Path(__file__).resolve().parent.parent / "deploy-server.sh").read_text()
+        # publishes the binary
+        self.assertIn("/var/www/remotepower/agent/remotepower-agent", sh)
+        # re-signs with the held key when one exists
+        self.assertIn("--detach-sign", sh)
+        self.assertIn("signing-gpg", sh)
+        # the re-sign must come AFTER the binary is published, not before
+        pub_at = sh.find("Publishing agent binary")
+        sign_at = sh.find("--detach-sign")
+        self.assertGreater(sign_at, pub_at)
+        # re-syncs the pinned pubkey + fingerprint into config
+        self.assertIn("release_pubkey", sh)
+        self.assertIn("release_key_fingerprint", sh)
+
+
 class TestOscapProfileParsing(unittest.TestCase):
     """_oscap_profiles must parse BOTH oscap-info output formats — the modern
     'Title:/Id:' layout (real ssg-debian12 output) and the older 'Profile:' one."""
