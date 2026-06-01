@@ -26,6 +26,16 @@ In development.
 - **CSV report hardening** — the patch report CSV (`GET /api/patch-report.csv`)
   now neutralizes spreadsheet formula injection: any cell starting with `=`, `+`,
   `-`, `@`, tab or CR is prefixed with a single quote so it opens as literal text.
+- **OIDC SSRF guard** — the OIDC back-channel fetches (the discovery document and
+  the token endpoint) now reject non-`http(s)` URLs and any target that resolves
+  to a link-local / cloud-metadata address (e.g. `169.254.169.254`). RFC1918 and
+  loopback stay allowed so internal and dev identity providers keep working —
+  the same policy the webhook sender uses.
+- Fixed: a re-issued software install could be de-duplicated against an
+  already-completed identical command, leaving the new job stuck **"pending"
+  forever** (its run had already happened, so no fresh output ever arrived). The
+  job tracker now resolves such a job from the prior run once the command is no
+  longer queued, while a command still waiting to run stays pending as before.
 
 ### Bind it together — device detail
 The device drawer's **System Info** tab now surfaces data the agent was already

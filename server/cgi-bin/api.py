@@ -12105,6 +12105,30 @@ def handle_exec_batch():
                   'total': len(targets), 'per_device': per_device})
 
 
+def _batch_match_record(dev_outputs, match_key, created, still_queued):
+    """Resolve a batch/install job's per-device result against cmd_output.
+
+    Normal case: return the newest matching record recorded at/after the job was
+    created (the run this job triggered). If none exists *and* the command is no
+    longer queued on the device — so no future run will produce fresh output, e.g.
+    a re-issued install that was de-duplicated against an already-completed
+    identical command (`handle_install_packages` skips re-queuing a command that's
+    still pending) — fall back to the newest matching record regardless of
+    timestamp, so the job resolves instead of hanging 'pending' forever. Returns
+    the record dict, or None when nothing has run yet (genuinely still pending)."""
+    if not match_key:
+        return None
+    newest_prior = None
+    for rec in reversed(dev_outputs or []):
+        if rec.get('cmd', '').strip() != match_key:
+            continue
+        if int(rec.get('ts', 0)) >= created:
+            return rec                      # the run this job triggered
+        if newest_prior is None:
+            newest_prior = rec              # latest prior run of the same command
+    return None if still_queued else newest_prior
+
+
 def handle_exec_batch_status(job_id):
     require_auth()
     if not _validate_id(job_id):
@@ -12129,6 +12153,7 @@ def handle_exec_batch_status(job_id):
                 body_match = 'exec:' + s.get('body', '')
                 break
     outputs = load(CMD_OUTPUT_FILE)
+    cmds = load(CMDS_FILE)   # to tell "waiting to run" from "de-duped, won't re-run"
     enriched = {}
     job_created = int(job.get('created', 0))
     # cmd_output stores the command as _sanitize_str(cmd, 512) — truncated — so we
@@ -12145,15 +12170,13 @@ def handle_exec_batch_status(job_id):
             continue
         out = dict(entry)
         if entry.get('queued') and match_key:
-            # Find the newest cmd_output for this device that matches the
-            # command AND was recorded after the job was created.
-            for rec in reversed(outputs.get(dev_id, [])):
-                if rec.get('cmd', '').strip() == match_key and int(rec.get('ts', 0)) >= job_created:
-                    out['status']     = 'done'
-                    out['rc']         = rec.get('rc', -1)
-                    out['output']     = rec.get('output', '')[:8192]
-                    out['finished_at'] = rec.get('ts')
-                    break
+            still_queued = body_match in (cmds.get(dev_id) or [])
+            rec = _batch_match_record(outputs.get(dev_id, []), match_key, job_created, still_queued)
+            if rec is not None:
+                out['status']     = 'done'
+                out['rc']         = rec.get('rc', -1)
+                out['output']     = rec.get('output', '')[:8192]
+                out['finished_at'] = rec.get('ts')
             else:
                 out['status'] = 'pending'
         enriched[dev_id] = out
@@ -12172,13 +12195,16 @@ def handle_exec_batch_status(job_id):
     })
 
 
-def _batch_job_progress(job, outputs, scope=None, devices_roster=None):
+def _batch_job_progress(job, outputs, scope=None, devices_roster=None, cmds=None):
     """(done, failed, pending, total) for a batch job by correlating cmd_output
     against the job's match command. done == rc 0, failed == rc != 0.
 
     RBAC: when `scope` is non-None, only targets inside the caller's device
     scope are counted (out-of-scope hosts are invisible). `devices_roster` is
-    the device map used for the scope test; pass it to avoid a reload per job."""
+    the device map used for the scope test; pass it to avoid a reload per job.
+    `cmds` (the pending command queue) lets a re-issued, de-duplicated job
+    resolve from a prior run instead of hanging 'pending' — see
+    _batch_match_record."""
     match = job.get('match_cmd')
     if not match and job.get('script_id'):
         for s in load(SCRIPTS_FILE).get('scripts', []):
@@ -12188,6 +12214,7 @@ def _batch_job_progress(job, outputs, scope=None, devices_roster=None):
     # same truncated form or a long install/script command never matches.
     match_key = _sanitize_str(match, 512).strip() if match else None
     created = int(job.get('created', 0))
+    cmds = cmds or {}
     done = failed = pending = total = 0
     for dev_id, entry in (job.get('per_device') or {}).items():
         if not entry.get('queued'):
@@ -12197,10 +12224,10 @@ def _batch_job_progress(job, outputs, scope=None, devices_roster=None):
         total += 1
         st = 'pending'
         if match_key:
-            for rec in reversed(outputs.get(dev_id, [])):
-                if rec.get('cmd', '').strip() == match_key and int(rec.get('ts', 0)) >= created:
-                    st = 'done' if rec.get('rc', -1) == 0 else 'failed'
-                    break
+            still_queued = bool(match) and match in (cmds.get(dev_id) or [])
+            rec = _batch_match_record(outputs.get(dev_id, []), match_key, created, still_queued)
+            if rec is not None:
+                st = 'done' if rec.get('rc', -1) == 0 else 'failed'
         done += st == 'done'
         failed += st == 'failed'
         pending += st == 'pending'
@@ -12215,6 +12242,7 @@ def handle_batch_jobs_list():
     _purge_expired_batch_jobs(jobs_data)
     save(BATCH_JOBS_FILE, jobs_data)
     outputs = load(CMD_OUTPUT_FILE)
+    cmds = load(CMDS_FILE)   # lets de-duped re-issues resolve instead of hanging
     # RBAC: a scoped caller only sees jobs that touch its in-scope devices, with
     # counts recomputed over those targets. Jobs with no in-scope target are
     # omitted entirely (their label may name a package). Unrestricted callers
@@ -12224,7 +12252,7 @@ def handle_batch_jobs_list():
     out = []
     for jid, job in jobs_data.get('jobs', {}).items():
         done, failed, pending, total = _batch_job_progress(
-            job, outputs, scope=scope, devices_roster=devices_roster)
+            job, outputs, scope=scope, devices_roster=devices_roster, cmds=cmds)
         if scope is not None and total == 0:
             continue
         out.append({'id': jid, 'kind': job.get('kind', 'script'),
@@ -19624,6 +19652,21 @@ def _decode_id_token(id_token):
     return payload
 
 
+def _oidc_assert_safe_url(url, what='OIDC endpoint'):
+    """SSRF guard for OIDC back-channel fetches. The issuer is admin-configured,
+    but the discovery document's endpoints (token / userinfo / jwks) come from
+    the IdP, so a hostile or compromised IdP could still point them at the cloud
+    metadata service (169.254.169.254). Reject non-http(s) URLs and any target
+    that resolves to a link-local / metadata / unspecified address; RFC1918 and
+    loopback stay allowed so internal and dev IdPs keep working — the same policy
+    the webhook sender uses. Raises ValueError (callers turn it into a 5xx)."""
+    parsed = urllib.parse.urlparse(url or '')
+    if parsed.scheme not in ('http', 'https'):
+        raise ValueError(f'{what} must be an http(s) URL')
+    if _url_targets_local_or_meta(parsed, allow_loopback=True):
+        raise ValueError(f'{what} resolves to a blocked (metadata/link-local) address')
+
+
 def _oidc_discover(issuer):
     """Fetch + cache the IdP's /.well-known/openid-configuration."""
     now = int(time.time())
@@ -19631,6 +19674,7 @@ def _oidc_discover(issuer):
     if cached and cached[0] > now:
         return cached[1]
     url = issuer.rstrip('/') + '/.well-known/openid-configuration'
+    _oidc_assert_safe_url(url, 'OIDC issuer')   # SSRF guard
     req = urllib.request.Request(url, headers={'Accept': 'application/json'})
     with urllib.request.urlopen(req, timeout=10) as resp:
         meta = json.loads(resp.read().decode('utf-8'))
@@ -19846,6 +19890,10 @@ def handle_oidc_callback():
     token_endpoint = meta.get('token_endpoint')
     if not token_endpoint:
         respond(502, {'error': 'OIDC issuer metadata missing token_endpoint'})
+    try:
+        _oidc_assert_safe_url(token_endpoint, 'OIDC token endpoint')   # SSRF guard
+    except ValueError as e:
+        respond(502, {'error': str(e)})
 
     # Exchange code for tokens
     data = urllib.parse.urlencode({
