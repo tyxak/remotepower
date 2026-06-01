@@ -8977,7 +8977,7 @@ def handle_signing_sign():
     if _stored and not verify_password(str(_body.get('password') or ''), _stored):
         respond(403, {'error': 'password required to sign the agent release'})
     gpg = shutil.which('gpg')
-    fpr, _ = _signing_key_info()
+    fpr, pub = _signing_key_info()
     if not gpg or not fpr:
         respond(400, {'error': 'no server signing key — generate one first'})
     if not _AGENT_BINARY_PATH.exists():
@@ -8989,6 +8989,17 @@ def handle_signing_sign():
     if r.returncode != 0:
         respond(500, {'error': 'signing failed: '
                                + r.stderr.decode('utf-8', 'replace')[:200]})
+    # Re-sync the configured release public key + fingerprint to the key we just
+    # signed with. The self-check (and the verify status) compares the signature
+    # against cfg['release_pubkey']; if that ever drifted from the actual signing
+    # key (an earlier key, a half-finished generate, or an externally-set CI
+    # pubkey), the freshly-made server signature would never verify and the UI
+    # would stay "signed but INVALID" no matter how many times you re-sign. Make
+    # signing authoritative for the server-side pin so re-sign always converges.
+    if pub:
+        with _LockedUpdate(CONFIG_FILE) as cfg:
+            cfg['release_pubkey'] = pub
+            cfg['release_key_fingerprint'] = (fpr or '').upper()
     audit_log(actor, 'agent_release_signed',
               f'fingerprint={fpr} sha={(_get_agent_sha256() or "")[:12]}')
     respond(200, {'ok': True, 'signature_status': _release_signature_status()})

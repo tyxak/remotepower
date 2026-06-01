@@ -128,11 +128,16 @@ collecting but the detail view didn't show:
   with fully external assets — it opens in a new tab, reuses the session token to
   fetch the report JSON, and renders a light document. It can't inherit the app
   theme, so it prints black-on-white.
-- **Release-signing "INVALID" now explains itself.** When the published agent
-  binary changed after it was signed (the usual cause), the Release Signing page
-  said only "signed but INVALID". It now shows why — "the published agent binary
-  changed since it was signed — re-sign it" — with a pointer to the Sign button.
-  `signature_detail` added to `GET /api/signing/status`.
+- **Release-signing "INVALID" — re-signing now actually fixes it.** Two parts:
+  (1) the page now explains *why* it's invalid (`signature_detail` on
+  `GET /api/signing/status`); (2) more importantly, **signing is now
+  authoritative for the server-side pinned key.** Previously only *generate*
+  wrote `release_pubkey`, so if that config value ever drifted from the live
+  signing key (an earlier key, a half-finished generate, an externally-set CI
+  pubkey), a freshly-made server signature could never verify and the page
+  stayed "signed but INVALID" no matter how many times you re-signed. Signing now
+  re-exports the signing key's public key + fingerprint into config, so re-sign
+  always converges to valid.
 - **Button feedback audit.** Swept every `data-action` handler for ones that
   mutate state without acknowledging it; added a confirmation toast to
   "Save query" (Fleet Query). Running an OpenSCAP scan already confirms; install

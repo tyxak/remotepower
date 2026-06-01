@@ -1200,6 +1200,18 @@ class TestV342BakeSign(unittest.TestCase):
         # regenerate without force is refused
         s, dd = run(api.handle_signing_generate, 'POST', {})
         self.assertEqual(s, 400)
+        # Signing must be authoritative for the server-side pin: even if
+        # config.release_pubkey has drifted to a wrong/foreign key, re-signing
+        # re-syncs it to the actual signing key so the self-check converges to
+        # 'valid' (the "re-sign does nothing, stays INVALID" bug).
+        cfg = json.loads(api.CONFIG_FILE.read_text())
+        cfg['release_pubkey'] = '-----BEGIN PGP PUBLIC KEY BLOCK-----\nbogus\n-----END PGP PUBLIC KEY BLOCK-----'
+        cfg['release_key_fingerprint'] = '0' * 40
+        api.CONFIG_FILE.write_text(json.dumps(cfg))
+        s, dd = run(api.handle_signing_status, 'GET')
+        self.assertEqual(dd['signature_status'], 'invalid')   # drifted pin
+        s, dd = run(api.handle_signing_sign, 'POST', {})
+        self.assertEqual(s, 200); self.assertEqual(dd['signature_status'], 'valid')
 
 
 class TestV342ReleaseSigning(unittest.TestCase):
