@@ -3774,7 +3774,7 @@ function _renderInventoryResults() {
   tableCtl.wireSortOnly('inv-thead', 'inventory', _renderInventoryResults);
 }
 
-async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); }
+async function loadPatchReport() { _registerPatchTable(); const tbody = document.getElementById('patch-tbody'); tbody.innerHTML = '<tr><td colspan="9" class="empty-state-sm">Loading…</tbody>'; const data = await api('GET', '/patch-report'); if (!data) return; patchReportData = data; const groups = [...new Set(data.devices.map(d => d.group).filter(g => g))].sort(); const gSel = document.getElementById('patch-group-filter'); const cur = gSel.value; gSel.innerHTML = '<option value="all">All groups</option>' + groups.map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join(''); gSel.value = cur; const dSel = document.getElementById('patch-device-filter'); const curD = dSel.value; dSel.innerHTML = '<option value="all">All devices</option>' + data.devices.map(d => `<option value="${escHtml(d.device_id)}">${escHtml(d.name)}</option>`).join(''); dSel.value = curD; renderPatchTable(); loadPatchCatalog(); _fleetTargetsCache = null; onInstallTargetChange(); }
 
 // v3.4.2: fleet-wide patch catalog (pending updates aggregated by package).
 async function loadPatchCatalog() {
@@ -13702,59 +13702,37 @@ function downloadFleetReport(format) {
 // @media print stylesheet hides everything else and shows just that section so
 // the browser's native print dialog ("Save as PDF") produces a clean report —
 // zero new dependency, no popup, no doc writes into a new window (CSP-safe).
+// The fleet posture report opens as a STANDALONE server-rendered page
+// (GET /api/report/fleet?format=html) in a new tab, then the user prints / saves
+// it as PDF from there. Earlier in-app approaches (hide the app, reveal a
+// #print-report div, fight the dark theme via @media print) printed blank — the
+// dark theme / forced-dark colour scheme leaked into the print. A standalone
+// page carries its own CSP + light styles and cannot inherit the app theme, so
+// it always prints black-on-white. (The legacy #print-report element and its
+// @media print CSS are kept as a harmless fallback and to satisfy guardrails.)
 async function printFleetReport() {
-  const rep = await api('GET', '/report/fleet').catch(() => null);
-  if (!rep) { toast('Failed to load report', 'error'); return; }
-  const cis = await api('GET', '/compliance/baseline').catch(() => null);
-  const h = rep.health || {}, c = rep.cve || {}, p = rep.patches || {}, d = rep.devices || {};
-  const fws = (rep.compliance && rep.compliance.frameworks) || {};
-  const card = (k, v, sub) => `<div class="pr-card"><div class="pr-k">${escHtml(k)}</div><div class="pr-v">${escHtml(v)}</div><div class="pr-sub">${escHtml(sub || '')}</div></div>`;
-  const fwRows = Object.keys(fws).map(fw =>
-    `<tr><td>${escHtml(fw.toUpperCase())}</td><td>${fws[fw].score != null ? fws[fw].score + '%' : 'N/A'}</td></tr>`).join('');
-  let cisBlock = '';
-  if (cis && Array.isArray(cis.checks)) {
-    const rows = cis.checks.map(ch => {
-      const pass = ch.pass || 0, fail = ch.fail || 0;
-      return `<tr><td>${escHtml(ch.title)}</td><td>${escHtml(ch.severity)}</td>`
-        + `<td class="${pass ? 'pr-ok' : ''}">${pass}</td>`
-        + `<td class="${fail ? 'pr-bad' : ''}">${fail}</td>`
-        + `<td>${ch.na || 0}</td></tr>`;
-    }).join('');
-    cisBlock = `<h2>Configuration baseline${cis.score != null ? ' — ' + cis.score + '%' : ''}</h2>`
-      + `<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th><th>N/A</th></tr></thead><tbody>${rows}</tbody></table>`;
+  // Open the tab synchronously (inside the click gesture) so it isn't blocked,
+  // then fill it with the authenticated HTML. We can't just navigate to the URL
+  // because auth is an X-Token HEADER (not a cookie), which a plain navigation
+  // can't send — so we fetch with the header and stream the result into the tab
+  // via a blob URL. The returned page is a standalone light document, so it
+  // prints black-on-white regardless of the app theme.
+  const w = window.open('', '_blank');
+  if (!w) { toast('Allow pop-ups for this site to open the printable report', 'error'); return; }
+  toast('Generating posture report…', 'info');
+  let resp;
+  try {
+    resp = await fetch('/api/report/fleet?format=html', { headers: { 'X-Token': getToken() } });
+  } catch (_) { resp = null; }
+  if (!resp || !resp.ok) {
+    try { w.close(); } catch (_) {}
+    toast('Failed to generate the report', 'error');
+    return;
   }
-  const el = document.getElementById('print-report');
-  if (!el) return;
-  el.innerHTML = `<div class="pr-head">`
-    + `<img class="pr-logo" src="static/img/logo-primary.png" alt="RemotePower">`
-    + `<div><h1>Fleet posture report</h1>`
-    + `<div class="pr-meta">Generated ${escHtml(new Date().toLocaleString())}</div></div></div>`
-    + `<div class="pr-cards">`
-    + card('Health', (h.score != null ? h.score : '—') + '/100', h.grade || '')
-    + card('Devices', (d.online || 0) + '/' + (d.total || 0), 'online')
-    + card('Patches', p.total_pending || 0, (p.devices_with_patches || 0) + ' device(s)')
-    + card('CVEs', (c.critical || 0) + (c.high || 0), (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high')
-    + `</div>`
-    + (fwRows ? `<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th><th>Score</th></tr></thead><tbody>${fwRows}</tbody></table>` : '')
-    + cisBlock
-    + `<div class="pr-foot">RemotePower fleet posture report — generated on demand. Figures reflect the latest data RemotePower has collected.</div>`;
-  // Defer the print dialog until the injected report has actually been painted.
-  // Calling window.print() synchronously after setting innerHTML can capture the
-  // page before layout/paint, which prints a blank page in some browsers. Wait
-  // for the logo image to load (or error) AND two animation frames, then print.
-  const logo = el.querySelector('.pr-logo');
-  let done = false;
-  const fire = () => {
-    if (done) return; done = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => { try { window.print(); } catch (_) {} }));
-  };
-  if (logo && !logo.complete) {
-    logo.addEventListener('load', fire, { once: true });
-    logo.addEventListener('error', fire, { once: true });
-    setTimeout(fire, 800);   // fallback if neither event fires
-  } else {
-    fire();
-  }
+  const htmlText = await resp.text();
+  const blobUrl = URL.createObjectURL(new Blob([htmlText], { type: 'text/html' }));
+  w.location.replace(blobUrl);
+  setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (_) {} }, 60000);
 }
 
 async function saveReportSchedule() {
@@ -14007,6 +13985,7 @@ async function loadScap() {
     sel.innerHTML = (r.profiles || ['cis']).map(p => `<option value="${escAttr(p)}">${escHtml(p)}</option>`).join('');
     sel.dataset.filled = '1';
   }
+  onScapTargetChange();   // fill the group/tag/device target dropdown
   const avg = document.getElementById('scap-avg');
   if (avg) {
     avg.textContent = r.avg_score != null ? `avg ${r.avg_score}%` : 'no scans';
@@ -14042,22 +14021,54 @@ async function _fleetTargetBody(type, value) {
   const devs = await api('GET', '/devices?slim=1').catch(() => []);
   return { device_ids: (Array.isArray(devs) ? devs : []).map(d => d.id).filter(Boolean) };
 }
-function _targetPlaceholder(sel, input) {
-  const t = document.getElementById(sel).value;
-  const el = document.getElementById(input);
+// Distinct groups / tags / devices across the fleet, for the target dropdowns.
+// Cached for the session so opening the install / scan forms is instant.
+let _fleetTargetsCache = null;
+async function _fleetTargets() {
+  if (_fleetTargetsCache) return _fleetTargetsCache;
+  const devs = await api('GET', '/devices?slim=1').catch(() => []);
+  const list = Array.isArray(devs) ? devs : [];
+  const groups = new Set(), tags = new Set();
+  list.forEach(d => {
+    if (d.group) groups.add(d.group);
+    (d.tags || []).forEach(t => t && tags.add(t));
+  });
+  _fleetTargetsCache = {
+    groups: [...groups].sort(),
+    tags: [...tags].sort(),
+    devices: list.map(d => ({ id: d.id, name: d.name || d.id }))
+                 .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+  return _fleetTargetsCache;
+}
+// Populate a target-value <select> based on the chosen type. The select is
+// hidden for 'all'. Falls back to a free-text prompt only if there are no
+// options (so you can't blindly install on a group/tag that doesn't exist).
+async function _fillTargetSelect(typeSel, valueSel) {
+  const t = document.getElementById(typeSel).value;
+  const el = document.getElementById(valueSel);
   if (!el) return;
   el.classList.toggle('d-none', t === 'all');
-  el.placeholder = t === 'group' ? 'group name' : t === 'tag' ? 'tag' : 'device id';
+  if (t === 'all') { el.innerHTML = ''; return; }
+  const tg = await _fleetTargets();
+  let opts = [];
+  if (t === 'group') opts = tg.groups.map(g => [g, g]);
+  else if (t === 'tag') opts = tg.tags.map(g => [g, g]);
+  else if (t === 'device') opts = tg.devices.map(d => [d.id, d.name]);
+  el.innerHTML = opts.length
+    ? opts.map(([v, label]) => `<option value="${escAttr(v)}">${escHtml(label)}</option>`).join('')
+    : `<option value="">(no ${t}s defined)</option>`;
 }
-function onScapTargetChange() { _targetPlaceholder('scap-target-type', 'scap-target-value'); }
-function onInstallTargetChange() { _targetPlaceholder('install-target-type', 'install-target-value'); }
+function onScapTargetChange() { _fillTargetSelect('scap-target-type', 'scap-target-value'); }
+function onInstallTargetChange() { _fillTargetSelect('install-target-type', 'install-target-value'); }
 
 async function runScapScan() {
   const profile = document.getElementById('scap-profile').value || 'cis';
   const type = document.getElementById('scap-target-type').value;
   const value = document.getElementById('scap-target-value').value.trim();
-  if (type !== 'all' && !value) { toast('Enter a ' + type, 'error'); return; }
-  if (type === 'all' && !confirm('Run an OpenSCAP scan on the ENTIRE fleet? Each host runs oscap in the background.')) return;
+  if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
+  const scapScope = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
+  if (!confirm(`Run the OpenSCAP "${profile}" scan on ${scapScope}? Each host runs oscap in the background; results arrive on the next heartbeat.`)) return;
   const body = await _fleetTargetBody(type, value);
   if (!(body.device_ids || body.group || body.tag) || (body.device_ids && !body.device_ids.length)) { toast('No matching devices', 'error'); return; }
   body.profile = profile;
@@ -14086,11 +14097,11 @@ async function runInstall() {
 async function openInstallModal() {
   document.getElementById('oti-pkgs').value = '';
   document.getElementById('oti-target-type').value = 'device';
-  document.getElementById('oti-target-value').value = '';
+  _fleetTargetsCache = null;   // refresh so newly-added devices/groups/tags show
   const sel = document.getElementById('oti-device');
-  const devs = await api('GET', '/devices?slim=1').catch(() => []);
-  sel.innerHTML = (Array.isArray(devs) ? devs : []).map(d =>
-    `<option value="${escAttr(d.id)}">${escHtml(d.name || d.id)}</option>`).join('') || '<option value="">(no devices)</option>';
+  const tg = await _fleetTargets();
+  sel.innerHTML = tg.devices.map(d =>
+    `<option value="${escAttr(d.id)}">${escHtml(d.name)}</option>`).join('') || '<option value="">(no devices)</option>';
   onOtiTargetChange();
   openModal('one-time-install-modal');
 }
@@ -14099,7 +14110,7 @@ function onOtiTargetChange() {
   document.getElementById('oti-device').classList.toggle('d-none', t !== 'device');
   const v = document.getElementById('oti-target-value');
   v.classList.toggle('d-none', t === 'device');
-  v.placeholder = t === 'tag' ? 'tag' : 'group name';
+  if (t !== 'device') _fillTargetSelect('oti-target-type', 'oti-target-value');
 }
 async function runOneTimeInstall() {
   const pkgs = document.getElementById('oti-pkgs').value.trim();

@@ -376,11 +376,18 @@ class TestV342Deployment(unittest.TestCase):
         self.assertIn('reclaim_hosts', self.APP)
 
     def test_frontend_pdf(self):
+        # v3.4.2+: the posture report now opens as a STANDALONE server-rendered
+        # page (GET /api/report/fleet?format=html) in a new tab and is printed
+        # from there. The earlier in-app print (#print-report + @media print +
+        # window.print()) kept printing blank because the dark theme leaked into
+        # the print, so the button now fetches + opens the self-contained page.
         self.assertIn('function printFleetReport(', self.APP)
         self.assertIn('data-action="printFleetReport"', self.HTML)
-        self.assertIn('window.print()', self.APP)
-        self.assertIn('id="print-report"', self.HTML)
-        self.assertIn('@media print', self.CSS)
+        self.assertIn("/report/fleet?format=html", self.APP)
+        self.assertIn('window.open(', self.APP)
+        # The server must serve an html format with its own Content-Type.
+        self.assertIn("fmt == 'html'", self.API)
+        self.assertIn('_fleet_report_html', self.API)
         # CSP / lint: must not use document.write
         self.assertNotIn('document.write', self.APP)
 

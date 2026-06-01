@@ -10,6 +10,7 @@ import re
 import sys
 import json
 import time
+import html as _html
 import hashlib
 import hmac
 import secrets
@@ -18399,14 +18400,132 @@ def _fleet_report_csv_bytes(report):
     return buf.getvalue().encode()
 
 
-def handle_fleet_report():
-    """GET /api/report/fleet?format=json|csv — fleet posture report.
+def _fleet_report_html(report, baseline=None):
+    """Render the fleet posture report as a STANDALONE, self-contained light
+    HTML document. This is served as its own page (its own CSP, its own inline
+    styles, no app theme, no service-worker shell, no @media print juggling), so
+    the browser's print/Save-as-PDF always produces a readable black-on-white
+    document — the in-app print kept coming out blank because the dark theme and
+    forced-dark colour scheme leaked into the print."""
+    e = _html.escape
+    h = report.get('health') or {}
+    c = report.get('cve') or {}
+    p = report.get('patches') or {}
+    d = report.get('devices') or {}
+    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(report.get('generated_ts') or int(time.time())))
+    fws = (report.get('compliance') or {}).get('frameworks') or {}
 
-    Auth: require_auth (read-only summary, no secrets)."""
+    def card(k, v, sub):
+        return (f'<div class="card"><div class="k">{e(str(k))}</div>'
+                f'<div class="v">{e(str(v))}</div><div class="sub">{e(str(sub))}</div></div>')
+
+    cards = (card('Health', f"{h.get('score', '—')}/100", h.get('grade') or '')
+             + card('Devices', f"{d.get('online', 0)}/{d.get('total', 0)}", 'online')
+             + card('Patches', p.get('total_pending', 0), f"{p.get('devices_with_patches', 0)} device(s)")
+             + card('CVEs', (c.get('critical', 0) + c.get('high', 0)),
+                    f"{c.get('critical', 0)} crit · {c.get('high', 0)} high"))
+
+    fw_block = ''
+    if fws:
+        rows = ''.join(
+            f'<tr><td>{e(fw.upper())}</td><td>{(rep.get("score") if rep.get("score") is not None else "N/A")}'
+            f'{"%" if rep.get("score") is not None else ""}</td></tr>'
+            for fw, rep in fws.items())
+        fw_block = (f'<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'
+                    f'<th>Score</th></tr></thead><tbody>{rows}</tbody></table>')
+
+    cis_block = ''
+    if baseline and isinstance(baseline.get('checks'), list):
+        rows = ''
+        for ch in baseline['checks']:
+            pa, fa = ch.get('pass', 0), ch.get('fail', 0)
+            rows += (f'<tr><td>{e(str(ch.get("title", "")))}</td><td>{e(str(ch.get("severity", "")))}</td>'
+                     f'<td class="{"ok" if pa else ""}">{pa}</td>'
+                     f'<td class="{"bad" if fa else ""}">{fa}</td>'
+                     f'<td>{ch.get("na", 0)}</td></tr>')
+        score = baseline.get('score')
+        cis_block = (f'<h2>Configuration baseline{(" — " + str(score) + "%") if score is not None else ""}</h2>'
+                     f'<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th>'
+                     f'<th>N/A</th></tr></thead><tbody>{rows}</tbody></table>')
+
+    title = f"{e(report.get('server_name') or 'RemotePower')} — Fleet posture report"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{title}</title>
+<style>
+  :root {{ color-scheme: light; }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ background: #fff; color: #111; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    margin: 32px; font-size: 14px; line-height: 1.45; }}
+  .head {{ display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }}
+  .head img {{ height: 40px; width: auto; }}
+  h1 {{ font-size: 22px; margin: 0; }}
+  h2 {{ font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }}
+  .meta {{ color: #555; font-size: 12px; margin-bottom: 18px; }}
+  .cards {{ display: flex; gap: 12px; flex-wrap: wrap; }}
+  .card {{ border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 130px; }}
+  .k {{ font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: .04em; }}
+  .v {{ font-size: 24px; font-weight: 600; }}
+  .sub {{ font-size: 11px; color: #555; }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }}
+  th, td {{ text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }}
+  th {{ color: #444; font-size: 11px; text-transform: uppercase; background: #f4f4f4; }}
+  td.ok {{ color: #137333; font-weight: 600; }}
+  td.bad {{ color: #b00020; font-weight: 600; }}
+  .foot {{ margin-top: 28px; color: #777; font-size: 11px; border-top: 1px solid #ddd; padding-top: 8px; }}
+  .toolbar {{ margin-bottom: 18px; }}
+  .toolbar button {{ font: inherit; padding: 7px 14px; border: 1px solid #888; border-radius: 6px;
+    background: #f4f4f4; cursor: pointer; }}
+  @media print {{ body {{ margin: 0; }} .toolbar {{ display: none; }} @page {{ margin: 16mm; }} }}
+</style></head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="head"><img src="/static/img/logo-primary.png" alt="RemotePower"
+    onerror="this.style.display='none'">
+    <div><h1>Fleet posture report</h1></div></div>
+  <div class="meta">Generated {e(when)} · RemotePower {e(str(report.get('server_version') or ''))}</div>
+  <div class="cards">{cards}</div>
+  {fw_block}
+  {cis_block}
+  <div class="foot">RemotePower fleet posture report — generated on demand.
+    Figures reflect the latest data RemotePower has collected.</div>
+</body></html>"""
+
+
+def handle_fleet_report():
+    """GET /api/report/fleet?format=json|csv|html — fleet posture report.
+
+    Auth: require_auth (read-only summary, no secrets). The `html` format returns
+    a standalone, self-contained light page intended for the browser's
+    print / Save-as-PDF — it carries its own CSP and inline styles so the app's
+    dark theme can't leak in and render the print blank."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     report = _build_fleet_report()
+    if fmt == 'html':
+        try:
+            baseline = _compute_compliance(_scope_filter_devices(load(DEVICES_FILE) or {}))
+        except Exception:
+            baseline = None
+        body = _fleet_report_html(report, baseline).encode('utf-8')
+        print("Status: 200 OK")
+        print("Content-Type: text/html; charset=utf-8")
+        print(f"Content-Length: {len(body)}")
+        print("Cache-Control: no-store")
+        print("X-Content-Type-Options: nosniff")
+        # Self-contained page: allow ITS OWN inline <style>/onclick only. No app
+        # assets, no external anything beyond the same-origin logo image.
+        print("Content-Security-Policy: default-src 'none'; img-src 'self' data:; "
+              "style-src 'unsafe-inline'; script-src 'unsafe-inline'")
+        print()
+        sys.stdout.flush()
+        sys.stdout.buffer.write(body)
+        sys.stdout.buffer.flush()
+        sys.exit(0)
     if fmt == 'csv':
         data = _fleet_report_csv_bytes(report)
         ts = time.strftime('%Y%m%d-%H%M%S')

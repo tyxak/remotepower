@@ -652,6 +652,28 @@ def _full_profile_id(profile, datastream):
     return f'xccdf_org.ssgproject.content_profile_{profile}'
 
 
+def _oscap_profiles(datastream):
+    """Return the short profile ids actually present in a datastream (best
+    effort), so a failed scan can tell the operator what IS available rather
+    than just failing. Parses `oscap info` output; returns [] on any trouble."""
+    try:
+        info = subprocess.run(['oscap', 'info', datastream],
+                              capture_output=True, text=True, timeout=60)
+        out = (info.stdout or '') + (info.stderr or '')
+    except Exception:
+        return []
+    profs = []
+    for line in out.splitlines():
+        line = line.strip()
+        # Lines look like: "Profile: xccdf_org.ssgproject.content_profile_cis"
+        if line.startswith('Profile:'):
+            pid = line.split(':', 1)[1].strip()
+            short = pid.rsplit('content_profile_', 1)[-1]
+            if short and short not in profs:
+                profs.append(short)
+    return profs[:20]
+
+
 def run_oscap_scan(profile, creds):
     """Run `oscap xccdf eval` against the SSG datastream and POST a compact
     result to /api/scap/report. Heavy + slow, so callers run this in a thread.
@@ -672,12 +694,29 @@ def run_oscap_scan(profile, creds):
                 with tempfile.NamedTemporaryFile(suffix='.xml', delete=False) as tf:
                     res_path = tf.name
                 try:
-                    subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
-                                    '--results', res_path, ds],
-                                   capture_output=True, text=True, timeout=900)
-                    report.update(_parse_oscap_results(res_path))
-                    report['available'] = True
-                    report['datastream'] = os.path.basename(ds)
+                    proc = subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
+                                           '--results', res_path, ds],
+                                          capture_output=True, text=True, timeout=900)
+                    # oscap exit codes: 0 = all rules pass, 2 = some rules failed
+                    # (both are a SUCCESSFUL scan with a results file); 1 = error
+                    # (bad profile, unreadable datastream, …) and NO usable
+                    # results. Detect that and report oscap's real message plus
+                    # the datastream's valid profiles, instead of letting the
+                    # results parser choke on an empty file with the cryptic
+                    # "no element found: line 1, column 0".
+                    have_results = os.path.exists(res_path) and os.path.getsize(res_path) > 0
+                    if proc.returncode not in (0, 2) or not have_results:
+                        err = (proc.stderr or proc.stdout or '').strip().splitlines()
+                        reason = err[-1] if err else f'oscap exited {proc.returncode} with no results'
+                        valid = _oscap_profiles(ds)
+                        if valid:
+                            reason += ' — available profiles: ' + ', '.join(valid)
+                        report.update(available=False, reason=reason,
+                                      datastream=os.path.basename(ds))
+                    else:
+                        report.update(_parse_oscap_results(res_path))
+                        report['available'] = True
+                        report['datastream'] = os.path.basename(ds)
                 finally:
                     try:
                         os.unlink(res_path)

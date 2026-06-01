@@ -113,6 +113,24 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Posture report PDF — new, reliable approach.** Repeated attempts to fix the
+  blank/invisible print of the in-app report (dark theme leaking into the print)
+  are replaced: the report now opens as a **standalone server-rendered page**
+  (`GET /api/report/fleet?format=html`) with its own CSP and light styles, in a
+  new tab, with a Print / Save-as-PDF button. It can't inherit the app theme, so
+  it always prints black-on-white.
+- **Install / OpenSCAP targets are dropdowns, not free text.** The "Install
+  software" and "OpenSCAP scan" target pickers (and the one-time-install modal)
+  now offer the fleet's actual groups / tags / devices in a dropdown, so you
+  can't queue an action against a group or tag that doesn't exist.
+- **OpenSCAP reports the real failure.** When the chosen profile isn't in the
+  host's datastream (e.g. asking for `cis` against `ssg-debian10`), the scan no
+  longer reports the cryptic "no element found: line 1, column 0" — it now
+  surfaces oscap's actual error and lists the profiles the datastream *does*
+  contain. Docs clarified: Debian/Ubuntu SSG content is `ssg-debian` /
+  `ssg-debderived`, not `scap-security-guide` (which is the RHEL name).
+- **Confirmations.** Running an OpenSCAP scan now asks for confirmation (naming
+  the profile and target) for every scope, not just "all devices".
 - **Sidebar search.** A small search box under the Collapse button finds a page
   by its menu title *or* by a concept it contains — type "SLA" or "uptime" and
   Reports comes up, "metrics" → Device Metrics, "cron" → Schedule, "cve" → CVEs.

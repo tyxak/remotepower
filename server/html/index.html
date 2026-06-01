@@ -3306,7 +3306,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <span id="scap-avg" class="ro-badge"></span>
             <button class="btn-secondary fs-12" data-action="loadScap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           </div>
-          <div class="hint">Runs <code>oscap xccdf eval</code> on the endpoint against its SCAP Security Guide datastream (CIS / STIG / PCI-DSS profiles) and reports the score, pass/fail tallies and failing rule ids. Requires <code>openscap-scanner</code> + <code>scap-security-guide</code> on the host; hosts without them report "not available" cleanly. Scans run in the background and report on the next heartbeat.</div>
+          <div class="hint">Runs <code>oscap xccdf eval</code> on the endpoint against its SCAP Security Guide datastream and reports the score, pass/fail tallies and failing rule ids. Requires <code>openscap-scanner</code> plus the SSG content for the host's OS — on RHEL/Fedora that's <code>scap-security-guide</code>; on Debian/Ubuntu it's <code>ssg-debian</code> / <code>ssg-debderived</code>. <strong>Pick a profile that exists in the host's datastream</strong> — if the chosen profile isn't present, the scan reports "not available" and lists the profiles that are. Hosts without oscap/SSG report "not available" cleanly. Scans run in the background and report on the next heartbeat.</div>
           <div class="row-8-center mt-8 mb-8">
             <select id="scap-profile" class="form-input input-auto" title="Scan profile (the parameter)"></select>
             <select id="scap-target-type" class="form-input input-auto" data-change="onScapTargetChange">
@@ -3315,7 +3315,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="device">Device id</option>
               <option value="all">All devices</option>
             </select>
-            <input type="text" id="scap-target-value" class="form-input input-auto" placeholder="group name">
+            <select id="scap-target-value" class="form-input input-auto"></select>
             <button class="btn-primary fs-12" data-action="runScapScan">Run scan</button>
           </div>
           <div id="scap-body"><div class="c-muted">Loading…</div></div>
@@ -3358,8 +3358,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-secondary fs-12" data-action="loadTimeline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="timeline-summary" class="fs-12 c-muted"></span>
         </div>
-        <div id="timeline-kinds" class="mb-16 row-8-center"></div>
-        <div id="timeline-body"><div class="c-muted">Loading…</div></div>
+        <div class="dash-card">
+          <div id="timeline-kinds" class="mb-16 row-8-center"></div>
+          <div id="timeline-body"><div class="c-muted">Loading…</div></div>
+        </div>
       </div>
 
       <!-- ── Reports page (v3.4.1) ────────────────────────────────────────── -->
@@ -3633,7 +3635,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="device">Device id</option>
               <option value="all">All devices</option>
             </select>
-            <input type="text" id="install-target-value" class="form-input input-auto" placeholder="group name">
+            <select id="install-target-value" class="form-input input-auto"></select>
             <input type="text" id="install-pkgs" class="form-input" placeholder="packages, e.g. nginx htop">
             <button class="btn-primary fs-12" data-action="runInstall">Install</button>
           </div>
@@ -5511,7 +5513,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <option value="group">Group</option>
       </select>
       <select id="oti-device" class="form-input"></select>
-      <input type="text" id="oti-target-value" class="form-input d-none" placeholder="tag">
+      <select id="oti-target-value" class="form-input d-none"></select>
     </div>
   </div>
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="one-time-install-modal">Cancel</button><button class="btn-primary" data-action="runOneTimeInstall">Install now</button></div>
