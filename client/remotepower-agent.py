@@ -832,6 +832,26 @@ def _run_usg_scan(profile):
                 'reason': (f"usg profile '{short}' evaluated no applicable rules "
                            f"on this host")}
     parsed['available'] = True
+    # usg writes a sibling HTML report (usg-report-<ts>.html) next to the
+    # results XML — attach it for download. Try the printed path, then the
+    # results filename with results→report, then newest in the dir.
+    rep = None
+    mh = re.search(r'(\S*usg-report-[^\s"\']+\.html)', out)
+    if mh and os.path.exists(mh.group(1)):
+        rep = mh.group(1)
+    if not rep:
+        cand = res.replace('usg-results-', 'usg-report-').replace('.xml', '.html')
+        if os.path.exists(cand):
+            rep = cand
+    if not rep:
+        try:
+            hs = sorted(Path('/var/lib/usg').glob('usg-report-*.html'),
+                        key=lambda p: p.stat().st_mtime)
+            rep = str(hs[-1]) if hs else None
+        except Exception:
+            rep = None
+    if rep:
+        _attach_report_html(parsed, rep)
     return parsed
 
 
@@ -873,9 +893,12 @@ def run_oscap_scan(profile, creds):
                                           f"{os.path.basename(ds)} — available: "
                                           + ', '.join(valid)))
                     res_path = None
+                    rep_path = None
                 else:
                     res_path = tempfile.NamedTemporaryFile(
                         suffix='.xml', delete=False).name
+                    rep_path = tempfile.NamedTemporaryFile(
+                        suffix='.html', delete=False).name
                 if res_path is not None:
                     try:
                         # --fetch-remote-resources: several SSG checks (platform
@@ -897,7 +920,8 @@ def run_oscap_scan(profile, creds):
                         proc = subprocess.run(['oscap', 'xccdf', 'eval',
                                                '--fetch-remote-resources',
                                                '--profile', pid,
-                                               '--results', res_path, ds],
+                                               '--results', res_path,
+                                               '--report', rep_path, ds],
                                               capture_output=True, text=True, timeout=900,
                                               env=scan_env)
                         # oscap exit codes: 0 = all rules pass, 2 = some rules failed
@@ -932,11 +956,14 @@ def run_oscap_scan(profile, creds):
                             else:
                                 report.update(parsed)
                                 report['available'] = True
+                                _attach_report_html(report, rep_path)
                     finally:
-                        try:
-                            os.unlink(res_path)
-                        except OSError:
-                            pass
+                        for _p in (res_path, rep_path):
+                            try:
+                                if _p:
+                                    os.unlink(_p)
+                            except OSError:
+                                pass
     except Exception as e:
         report.update(available=False, reason=f'scan error: {e}')
     try:
@@ -945,6 +972,24 @@ def run_oscap_scan(profile, creds):
                  f"score={report.get('score')})")
     except Exception as e:
         log.warning(f'OpenSCAP report submission failed: {e}')
+
+
+def _attach_report_html(report, html_path):
+    """Attach a full oscap/usg HTML report to the result payload so the operator
+    can download it from the dashboard. gzip + base64 keeps it compact and
+    JSON-safe; the server stores it verbatim. Skips quietly if the file is
+    missing, empty, or too large (cap well under the server's body limit)."""
+    try:
+        if not html_path or not os.path.exists(html_path):
+            return
+        raw = open(html_path, 'rb').read()
+        if not raw or len(raw) > 25 * 1024 * 1024:   # 25 MB cap, pre-compression
+            return
+        import gzip as _gz, base64 as _b64
+        report['report_html_gz'] = _b64.b64encode(_gz.compress(raw)).decode('ascii')
+        report['report_bytes'] = len(raw)
+    except Exception:
+        pass   # report download is best-effort; never break the scan result
 
 
 def _parse_oscap_results(path):

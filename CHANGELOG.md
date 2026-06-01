@@ -113,6 +113,11 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Download the full OpenSCAP report.** Each successful scan now uploads the
+  complete `oscap` / `usg` HTML report (gzipped); a **Report** link in the
+  Compliance → OpenSCAP results row opens it in the browser. Stored one-per-device
+  (latest scan) under the data dir; `GET /api/scap/<id>/report` serves it
+  (auth + device-scope checked).
 - **AI Investigate now covers CVEs and containers.** Two new mitigation
   playbooks: **CVE findings** (diagnoses the OS's pending security updates +
   kernel and proposes a security upgrade) and **stopped/restarting containers**

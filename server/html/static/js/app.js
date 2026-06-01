@@ -14050,17 +14050,41 @@ async function loadScap() {
     pass: d.pass || 0, fail: d.fail || 0,
     when: d.ts || 0,
   }));
+  const reportCell = (d) => d.has_report
+    ? `<button class="btn-icon fs-12" data-action="downloadScapReport" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}" title="Open the full OpenSCAP HTML report">Report</button>`
+    : '<span class="hint">—</span>';
   const rows = sorted.map(d => {
     if (!d.available) {
-      return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
+      return `<tr><td>${escHtml(d.name)}</td><td colspan="4" class="c-muted fs-12">not available — ${escHtml(d.reason || 'oscap/SCAP content missing')}</td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td><td>${reportCell(d)}</td></tr>`;
     }
     const sc = d.score == null ? '—' : d.score + '%';
     const scCls = d.score == null ? '' : d.score >= 80 ? 'c-green' : d.score >= 50 ? 'c-amber' : 'c-red';
     const top = (d.failed_top || []).slice(0, 6).map(f => escHtml(f.id)).join(', ');
-    return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td></tr>`;
+    return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td><td>${reportCell(d)}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th><th>Report</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('scap-thead', 'scap', loadScap);
+}
+
+// Open the full OpenSCAP/usg HTML report in a new tab. The endpoint needs the
+// X-Token header (a plain link can't send it), so fetch it and stream into the
+// tab via a blob URL — same pattern as the posture report.
+async function downloadScapReport(devId, name) {
+  const w = window.open('', '_blank');
+  if (!w) { toast('Allow pop-ups to open the report', 'error'); return; }
+  let resp;
+  try {
+    resp = await fetch('/api/scap/' + encodeURIComponent(devId) + '/report',
+                       { headers: { 'X-Token': getToken() } });
+  } catch (_) { resp = null; }
+  if (!resp || !resp.ok) {
+    try { w.close(); } catch (_) {}
+    toast('No report available' + (resp ? ' (' + resp.status + ')' : ''), 'error');
+    return;
+  }
+  const blobUrl = URL.createObjectURL(await resp.blob());
+  w.location.replace(blobUrl);
+  setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (_) {} }, 60000);
 }
 
 // v3.4.2: shared target resolver for fleet actions (scan, install). Returns the

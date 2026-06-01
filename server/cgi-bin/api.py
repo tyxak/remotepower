@@ -29,6 +29,7 @@ DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
 ROLES_FILE       = DATA_DIR / 'roles.json'        # v3.4.2: custom RBAC roles
 SCAP_FILE        = DATA_DIR / 'scap.json'          # v3.4.2: OpenSCAP scan results
+SCAP_REPORTS_DIR = DATA_DIR / 'scap_reports'       # v3.4.2: full HTML reports per device (gzip)
 DEVICES_FILE     = DATA_DIR / 'devices.json'
 PINS_FILE        = DATA_DIR / 'pins.json'
 # v1.11.10: pre-shared one-time-use tokens for non-interactive enrollment.
@@ -18046,9 +18047,61 @@ def handle_scap_report():
                     'id': _sanitize_str(r.get('id', ''), 200),
                     'severity': _sanitize_str(r.get('severity', 'unknown'), 16),
                 })
+    # v3.4.2: store the full HTML report (gzipped, base64 over the wire) so the
+    # operator can download it. Kept on disk (one file per device, overwritten by
+    # the latest scan), not in scap.json — it's large. Best-effort.
+    rec['has_report'] = False
+    gz_b64 = body.get('report_html_gz')
+    if rec.get('available') and isinstance(gz_b64, str) and gz_b64:
+        try:
+            import base64 as _b64
+            raw_gz = _b64.b64decode(gz_b64, validate=True)
+            if 0 < len(raw_gz) <= 30 * 1024 * 1024:
+                SCAP_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+                # dev_id is validated [A-Za-z0-9_-]; safe as a filename.
+                (SCAP_REPORTS_DIR / f'{dev_id}.html.gz').write_bytes(raw_gz)
+                rec['has_report'] = True
+                rec['report_ts'] = rec['ts']
+                rb = body.get('report_bytes')
+                if isinstance(rb, int) and rb > 0:
+                    rec['report_bytes'] = rb
+        except Exception as e:
+            sys.stderr.write(f'[remotepower] scap report store failed {dev_id}: {e}\n')
     with _LockedUpdate(SCAP_FILE) as store:
         store[dev_id] = rec
     respond(200, {'ok': True})
+
+
+def handle_scap_report_download(dev_id):
+    """GET /api/scap/<dev_id>/report — download the full OpenSCAP/usg HTML report
+    for one device's latest scan. Auth: require_auth + device scope. Serves the
+    stored gzip, decompressed, as text/html."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'invalid device id'}); return
+    _scope_block_device(dev_id)   # v3.5.0 RBAC v2: per-device read scope
+    path = SCAP_REPORTS_DIR / f'{dev_id}.html.gz'
+    if not path.exists():
+        respond(404, {'error': 'no report on file for this device'}); return
+    try:
+        import gzip as _gz
+        html = _gz.decompress(path.read_bytes())
+    except Exception as e:
+        respond(500, {'error': f'report read failed: {e}'}); return
+    devices = load(DEVICES_FILE) or {}
+    name = (devices.get(dev_id) or {}).get('name', dev_id)
+    safe = re.sub(r'[^A-Za-z0-9_.-]', '_', str(name))
+    print("Status: 200 OK")
+    print("Content-Type: text/html; charset=utf-8")
+    print(f"Content-Length: {len(html)}")
+    print(f'Content-Disposition: inline; filename="scap-report-{safe}.html"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(html)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
 
 
 def handle_scap_overview():
@@ -18070,6 +18123,8 @@ def handle_scap_overview():
             **{k: rec.get(k) for k in ('ts', 'profile', 'available', 'reason',
                                        'score', 'pass', 'fail', 'datastream')},
             'failed_top': (rec.get('failed_rules') or [])[:20],
+            'has_report': bool(rec.get('has_report')),
+            'report_bytes': rec.get('report_bytes'),
         }
         # Defensive: an older agent reports available=True with score 0 / pass 0 /
         # fail 0 when a profile evaluated no applicable rules (e.g. the Debian SSG
@@ -26443,6 +26498,8 @@ def _dispatch(pi, m):
     # check so a POST to /api/devices/agentless doesn't get misrouted.
     elif pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE':
         handle_command_queue_clear(pi[len('/api/devices/'):-len('/command-queue')])
+    elif pi.startswith('/api/scap/') and pi.endswith('/report') and m == 'GET':
+        handle_scap_report_download(pi[len('/api/scap/'):-len('/report')])
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',

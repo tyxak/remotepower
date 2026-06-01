@@ -261,6 +261,65 @@ class TestUsgScan(unittest.TestCase):
         self.assertIsNone(ag._run_usg_scan("cis_level1_server"))
 
 
+class TestScapReportStore(_Base):
+    """Agent attaches a gzipped HTML report; the server stores it to disk and
+    flags has_report, and the download handler exists."""
+    _FILES = ("DEVICES_FILE", "CMDS_FILE", "AUDIT_LOG_FILE", "SCAP_FILE")
+
+    def setUp(self):
+        super().setUp()
+        self.reports_dir = self.tmp / "scap_reports"
+        self._saved_rd = api.SCAP_REPORTS_DIR
+        api.SCAP_REPORTS_DIR = self.reports_dir
+        # report ingest authenticates by device token, not require_admin_auth
+        api.get_json_body = None
+
+    def tearDown(self):
+        api.SCAP_REPORTS_DIR = self._saved_rd
+        super().tearDown()
+
+    def test_report_stored_and_flagged(self):
+        import gzip as _gz, base64 as _b64
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1", "token": "tok1"}})
+        api._LOAD_CACHE.clear()
+        html = b"<html><body>SCAP report</body></html>"
+        body = {
+            "device_id": "d1", "token": "tok1", "profile": "cis_level1_server",
+            "available": True, "score": 88.0, "counts": {"pass": 10, "fail": 2},
+            "datastream": "usg", "failed_rules": [],
+            "report_html_gz": _b64.b64encode(_gz.compress(html)).decode(),
+            "report_bytes": len(html),
+        }
+        api.get_json_body = lambda: dict(body)
+        os.environ["REQUEST_METHOD"] = "POST"
+        st, _ = self.call(api.handle_scap_report)
+        self.assertEqual(st, 200)
+        # stored on disk, gzipped, round-trips
+        f = self.reports_dir / "d1.html.gz"
+        self.assertTrue(f.exists())
+        self.assertEqual(_gz.decompress(f.read_bytes()), html)
+        # has_report surfaced in the overview
+        api._LOAD_CACHE.clear()
+        os.environ["REQUEST_METHOD"] = "GET"; os.environ["QUERY_STRING"] = ""
+        st, ov = self.call(api.handle_scap_overview)
+        row = [r for r in ov["devices"] if r["device_id"] == "d1"][0]
+        self.assertTrue(row["has_report"])
+
+    def test_no_report_flag_when_absent(self):
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1", "token": "tok1"}})
+        api._LOAD_CACHE.clear()
+        api.get_json_body = lambda: {"device_id": "d1", "token": "tok1",
+                                     "available": True, "score": 90.0,
+                                     "counts": {"pass": 5, "fail": 0}}
+        os.environ["REQUEST_METHOD"] = "POST"
+        st, _ = self.call(api.handle_scap_report)
+        self.assertEqual(st, 200)
+        self.assertFalse((self.reports_dir / "d1.html.gz").exists())
+
+    def test_download_handler_exists(self):
+        self.assertTrue(callable(getattr(api, "handle_scap_report_download", None)))
+
+
 class TestOscapZeroReason(unittest.TestCase):
     """A 0-applicable-rules scan must explain the real cause: usually the host's
     OS doesn't match the installed SCAP content. Name the package to install."""
