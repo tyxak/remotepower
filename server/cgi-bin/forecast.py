@@ -24,6 +24,12 @@ VOLATILE_MOUNTS = ('/tmp', '/var/tmp', '/run', '/dev/shm', '/run/lock', '/run/us
 # Below this least-squares R² the trend is too noisy to trust a fill date.
 _MIN_R2 = 0.5
 
+# A fill projection only matters inside an actionable planning window. Past ~2
+# years a linear extrapolation of disk growth is both unreliable and not a
+# "risk" anyone acts on ("/ fills in 62 months / 2031" is noise, not an alert),
+# so beyond this horizon we keep the row but drop the projected date.
+_FORECAST_HORIZON_DAYS = 730
+
 
 def _is_volatile_mount(path, exclude):
     p = (path or '').rstrip('/') or '/'
@@ -103,6 +109,26 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
                 continue   # v3.4.2: skip ephemeral / tmpfs-style mounts
             series.setdefault(path, []).append((ts, float(used), float(total)))
 
+    # Collapse mounts that are the SAME underlying filesystem. btrfs subvolumes
+    # (/, /home, /var/log, /srv, …), bind mounts and the like all report identical
+    # used_gb/total_gb at every sample, so projecting each mountpoint separately
+    # just prints the same disk five times. Group by the latest (used_gb,
+    # total_gb) signature and keep one representative mount per filesystem —
+    # prefer '/', else the shallowest/shortest path. The collapsed mountpoints are
+    # preserved on the row as `shared_mounts` so the UI can still show them.
+    def _sig(pts):
+        last = max(pts, key=lambda p: p[0])
+        return (round(last[1], 2), round(last[2], 2))
+
+    fs_groups = {}
+    for path, pts in series.items():
+        fs_groups.setdefault(_sig(pts), []).append(path)
+    shared = {}
+    for paths in fs_groups.values():
+        rep = '/' if '/' in paths else sorted(paths, key=lambda p: (p.count('/'), len(p), p))[0]
+        shared[rep] = sorted(paths)
+    series = {rep: series[rep] for rep in shared}
+
     out = []
     for path, pts in series.items():
         if len(pts) < min_points:
@@ -119,12 +145,19 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
         days_to_full = None
         fill_ts = None
         noisy = False
+        beyond_horizon = False
         # Only forecast a fill when usage is genuinely climbing (>1 MB/day)
         # and there's headroom left.
         if slope > 0.001 and total > cur:
             if r2 >= min_r2:
-                days_to_full = (total - cur) / slope
-                fill_ts = int(pts[-1][0] + days_to_full * DAY)
+                d2f = (total - cur) / slope
+                if d2f <= _FORECAST_HORIZON_DAYS:
+                    days_to_full = d2f
+                    fill_ts = int(pts[-1][0] + d2f * DAY)
+                else:
+                    # Fills, but so far out (>2y) it isn't an actionable risk —
+                    # keep the row (current usage is useful), drop the date.
+                    beyond_horizon = True
             else:
                 # v3.4.2: trend too noisy to trust a date — show the row, skip
                 # the (misleading) projection. e.g. a disk that fluctuates heavily.
@@ -139,6 +172,10 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
             'days_to_full':     round(days_to_full, 1) if days_to_full is not None else None,
             'fill_date_ts':     fill_ts,
             'noisy':            noisy,
+            'beyond_horizon':   beyond_horizon,
+            # Other mountpoints on the same filesystem that were collapsed into
+            # this row (btrfs subvolumes, bind mounts) — same disk, shown once.
+            'shared_mounts':    shared.get(path, [path]),
             'r2':               round(r2, 2),
             'points':           len(pts),
             # Chartable raw series + fitted line (v3.4.0 Forecast page). `series`

@@ -719,7 +719,8 @@ def run_agentless_reachability_if_due():
     cfg['last_agentless_ping'] = now
     save(CONFIG_FILE, cfg)
 
-    transitions = []   # (dev_id, name, online_bool) fired after the lock
+    transitions = []   # (dev_id, name, online_bool) → fire webhook after the lock
+    states = []        # (dev_id, name, online_bool) for EVERY probed device
     with _LockedUpdate(DEVICES_FILE) as store:
         for dev_id in targets:
             dev = store.get(dev_id)
@@ -739,6 +740,18 @@ def run_agentless_reachability_if_due():
                 if was_reachable and fails >= AGENTLESS_PING_FAIL_THRESHOLD:
                     dev['reachable'] = False
                     transitions.append((dev_id, dev.get('name', dev_id), False))
+            states.append((dev_id, dev.get('name', dev_id), bool(dev.get('reachable', True))))
+
+    # Record the current state for every probed device — not just transitions —
+    # so an agentless / SNMP host that's been continuously reachable still gets a
+    # baseline uptime event and shows real history in the 7-day roster stripe
+    # (instead of being absent and rendering as all-"unknown"). _record_uptime
+    # de-dupes: it only writes when the state actually changes.
+    for dev_id, name, online in states:
+        try:
+            _record_uptime(dev_id, name, online)
+        except Exception:
+            pass
 
     for dev_id, name, online in transitions:
         d = load(DEVICES_FILE).get(dev_id) or {}
@@ -749,10 +762,6 @@ def run_agentless_reachability_if_due():
             fire_webhook(event, {'device_id': dev_id, 'device_name': name, 'name': name})
         except Exception as e:
             sys.stderr.write(f'[remotepower] agentless {event} fire failed {dev_id}: {e}\n')
-        try:
-            _record_uptime(dev_id, name, online)
-        except Exception:
-            pass
 
 
 ROUTEROS_UPDATE_INTERVAL = 12 * 3600   # how often to re-check RouterOS firmware
@@ -9503,12 +9512,29 @@ def handle_uptime(dev_id):
     respond(200, {'device_id': dev_id, 'name': dev.get('name', dev_id), 'events': dev.get('events', [])})
 
 
-def _uptime_pct(events, window_start, now):
-    """v3.4.1: integrate online time over [window_start, now] from a device's
-    uptime transition events. Returns (uptime_pct, downtime_seconds, covered);
-    covered=False means RemotePower has no record covering the window (unknown,
-    not 100%). Each event is a state *transition*, so the state before the first
-    in-window event is the opposite of that event's state."""
+def _overlap_secs(intervals, lo, hi):
+    """Total seconds of the (start,end) `intervals` that fall within [lo, hi]."""
+    tot = 0
+    for s, e in intervals or []:
+        s2, e2 = max(s, lo), min(e, hi)
+        if e2 > s2:
+            tot += e2 - s2
+    return tot
+
+
+def _uptime_pct(events, window_start, now, maint_intervals=None):
+    """Integrate online time from a device's uptime transition events.
+    Returns (uptime_pct, downtime_seconds, covered); covered=False means
+    RemotePower has no record covering the window (unknown — NOT 0%, and not
+    100%). Each event is a state *transition*.
+
+    Coverage starts at window_start when the device's state there is known,
+    otherwise at the first in-window event: the prefix before RemotePower had
+    any data (e.g. before the host was enrolled) is UNKNOWN and is excluded, not
+    counted as downtime — a brand-new deployment must never read as "N days
+    down". Maintenance-window seconds (`maint_intervals`: a list of
+    (start_ts, end_ts)) are removed from BOTH the covered window and the
+    downtime, so planned maintenance never burns the SLA."""
     if now <= window_start:
         return None, 0, False
     events = sorted(events or [], key=lambda e: e.get('ts', 0))
@@ -9521,28 +9547,101 @@ def _uptime_pct(events, window_start, now):
     in_window = [e for e in events if window_start < e.get('ts', 0) <= now]
     if state is None and not in_window:
         return None, 0, False
+    # Effective coverage start: the pre-data prefix is unknown, not down.
     if state is None:
-        state = not bool(in_window[0].get('online'))
-    total = now - window_start
-    down = 0
-    cursor = window_start
-    cur = state
-    for e in in_window:
-        ts = e.get('ts', 0)
-        if not cur:
-            down += ts - cursor
+        cov_start = int(in_window[0].get('ts', window_start))
+        cur = bool(in_window[0].get('online'))
+        rest = in_window[1:]
+    else:
+        cov_start = window_start
+        cur = state
+        rest = in_window
+    down_intervals = []
+    cursor = cov_start
+    for e in rest:
+        ts = int(e.get('ts', cov_start))
+        if not cur and ts > cursor:
+            down_intervals.append((cursor, ts))
         cursor = ts
         cur = bool(e.get('online'))
-    if not cur:
-        down += now - cursor
-    pct = round(100.0 * (total - down) / total, 3) if total > 0 else None
+    if not cur and now > cursor:
+        down_intervals.append((cursor, now))
+    covered = now - cov_start
+    # Exclude planned-maintenance time from downtime AND the covered window.
+    maint = [(int(s), int(e)) for (s, e) in (maint_intervals or []) if e > s]
+    down = sum(e - s for (s, e) in down_intervals)
+    down -= sum(_overlap_secs(maint, s, e) for (s, e) in down_intervals)
+    eff_total = covered - _overlap_secs(maint, cov_start, now)
+    if eff_total <= 0:
+        return None, 0, False
+    down = max(0, down)
+    pct = round(100.0 * (eff_total - down) / eff_total, 3)
     return pct, int(down), True
+
+
+def _as_pct(v):
+    """Coerce a configured SLA target to a float in (0, 100], else None."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if 0 < f <= 100 else None
+
+
+def _maint_oneshot_intervals(windows, dev_id, dev_group, lo, hi):
+    """One-shot (start+end) maintenance windows applicable to a device, as
+    (start_ts, end_ts) tuples. Recurring (cron) windows are not subtracted from
+    the SLA — only explicitly-scheduled one-shot maintenance is."""
+    out = []
+    for w in windows or []:
+        scope = (w.get('scope') or 'device').lower()
+        if scope == 'global':
+            applies = True
+        elif scope == 'group':
+            applies = bool(dev_group) and w.get('target') == dev_group
+        elif scope == 'device':
+            applies = w.get('target') == dev_id
+        else:
+            applies = False
+        if not applies:
+            continue
+        s, e = w.get('start'), w.get('end')
+        if not (s and e):
+            continue
+        try:
+            s2, e2 = _parse_iso(s), _parse_iso(e)
+        except (ValueError, TypeError):
+            continue
+        if e2 > s2:
+            out.append((s2, e2))
+    return out
+
+
+def _resolve_sla_target(targets, dev_id, dev):
+    """Resolve a device's SLA target %, most-specific first:
+    device → tag → group → fleet default. None if none is configured."""
+    if not isinstance(targets, dict):
+        return None
+    if dev_id in (targets.get('devices') or {}):
+        return _as_pct(targets['devices'][dev_id])
+    tagmap = targets.get('tags') or {}
+    for tag in dev.get('tags') or []:
+        if tag in tagmap:
+            return _as_pct(tagmap[tag])
+    grp = dev.get('group')
+    if grp and grp in (targets.get('groups') or {}):
+        return _as_pct(targets['groups'][grp])
+    return _as_pct(targets.get('default'))
 
 
 def handle_fleet_sla():
     """GET /api/fleet/sla?days=N — per-device + per-group uptime % over a window.
 
-    Computed from the uptime transition log. Auth: require_auth."""
+    Computed from the uptime transition log. Time before RemotePower had any
+    record for a device (e.g. before enrollment) is reported as *unknown*, never
+    as downtime; one-shot maintenance windows are excluded; and a configurable
+    SLA target (per device / tag / group / default) is resolved per row.
+    Auth: require_auth."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     try:
@@ -9555,6 +9654,8 @@ def handle_fleet_sla():
     uptime = load(UPTIME_FILE) or {}
     devices = load(DEVICES_FILE) or {}
     devices = _scope_filter_devices(devices)  # v3.5.0 RBAC v2
+    windows = (load(MAINT_FILE) or {}).get('windows') or []
+    targets = (load(CONFIG_FILE) or {}).get('sla_targets') or {}
     rows = []
     groups = {}
     covered_pcts = []
@@ -9562,11 +9663,16 @@ def handle_fleet_sla():
         if not isinstance(dev, dict) or dev.get('monitored') is False:
             continue
         ev = (uptime.get(dev_id) or {}).get('events') or []
-        pct, down, covered = _uptime_pct(ev, window_start, now)
+        maint = _maint_oneshot_intervals(windows, dev_id, dev.get('group') or '',
+                                         window_start, now)
+        pct, down, covered = _uptime_pct(ev, window_start, now, maint_intervals=maint)
+        target = _resolve_sla_target(targets, dev_id, dev)
+        met = (pct >= target) if (covered and pct is not None and target is not None) else None
         grp = dev.get('group') or 'ungrouped'
         rows.append({'device_id': dev_id, 'name': dev.get('name', dev_id),
                      'group': grp, 'uptime_pct': pct,
-                     'downtime_seconds': down, 'covered': covered})
+                     'downtime_seconds': down, 'covered': covered,
+                     'sla_target': target, 'sla_met': met})
         if covered and pct is not None:
             covered_pcts.append(pct)
             g = groups.setdefault(grp, [])
@@ -9575,12 +9681,59 @@ def handle_fleet_sla():
                    'devices': len(v)}
                   for g, v in sorted(groups.items())]
     fleet_pct = round(sum(covered_pcts) / len(covered_pcts), 3) if covered_pcts else None
+    fleet_target = _as_pct(targets.get('default'))
+    fleet_met = (fleet_pct >= fleet_target) if (fleet_pct is not None and fleet_target is not None) else None
     rows.sort(key=lambda r: (r['uptime_pct'] if r['uptime_pct'] is not None else 101))
     respond(200, {
         'days': days, 'generated_ts': now,
         'fleet_uptime_pct': fleet_pct,
+        'fleet_sla_target': fleet_target, 'fleet_sla_met': fleet_met,
         'devices': rows, 'groups': group_rows,
     })
+
+
+def handle_sla_targets_get():
+    """GET /api/fleet/sla-targets — the configured SLA targets (default / per
+    group / tag / device). Auth: require_auth."""
+    require_auth()
+    targets = (load(CONFIG_FILE) or {}).get('sla_targets') or {}
+    respond(200, {
+        'default': targets.get('default'),
+        'groups':  targets.get('groups') or {},
+        'tags':    targets.get('tags') or {},
+        'devices': targets.get('devices') or {},
+    })
+
+
+def handle_sla_targets_put():
+    """PUT /api/fleet/sla-targets — set SLA targets. Admin-only. Body accepts
+    {default, groups:{name:pct}, tags:{name:pct}, devices:{id:pct}}; each pct is
+    validated to (0,100]. A null/absent value clears that level."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    clean = {}
+    d = _as_pct(body.get('default'))
+    if d is not None:
+        clean['default'] = d
+    for level in ('groups', 'tags', 'devices'):
+        src = body.get(level) or {}
+        if not isinstance(src, dict):
+            continue
+        out = {}
+        for k, v in list(src.items())[:500]:
+            p = _as_pct(v)
+            if p is not None:
+                out[_sanitize_str(str(k), 128)] = p
+        if out:
+            clean[level] = out
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['sla_targets'] = clean
+    audit_log(actor, 'sla_targets_set',
+              f"default={clean.get('default')} groups={len(clean.get('groups') or {})} "
+              f"tags={len(clean.get('tags') or {})} devices={len(clean.get('devices') or {})}")
+    respond(200, {'ok': True, 'sla_targets': clean})
 
 
 def handle_fleet_capacity():
@@ -14856,9 +15009,15 @@ def _compute_attention():
                            f'{time.strftime("%H:%M", time.localtime(last))}',
             })
 
-    # Pending-patch pileups.
+    # Pending-patch pileups. The upgradable count lives at
+    # sysinfo.packages.upgradable (what the agent reports and the heatmap reads);
+    # reading only a top-level `dev['upgradable']` (never populated in practice)
+    # meant pending updates never dented the health score. Prefer the nested
+    # count, fall back to a top-level value if present.
     for dev_id, dev in monitored.items():
-        up = dev.get('upgradable')
+        up = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
+        if up is None:
+            up = dev.get('upgradable')
         if isinstance(up, int) and up > 0:
             sev = 'warning' if up >= 20 else 'info'
             items.append({
@@ -26387,6 +26546,8 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
     # v3.4.1: SLA / uptime reporting + fleet capacity rollup
     elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
+    elif pi == '/api/fleet/sla-targets' and m == 'GET': handle_sla_targets_get()
+    elif pi == '/api/fleet/sla-targets' and m == 'PUT': handle_sla_targets_put()
     elif pi == '/api/public/status' and m == 'GET': handle_public_status()
     elif pi == '/api/fleet/capacity' and m == 'GET': handle_fleet_capacity()
     # v3.4.2: statistical resource anomalies (per-host metric baselines)

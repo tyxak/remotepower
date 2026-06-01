@@ -53,6 +53,42 @@ collecting but the detail view didn't show:
 - Fixed: the **Fleet Query** results table wires its sort headers eagerly (the ↕
   indicator shows on loading / empty / failed states too) and no longer throws on
   a malformed response.
+- Fixed: **pending updates now lower the fleet health score** (and colour the
+  heat-map cell). The pending-patch Needs-Attention signal read a non-existent
+  top-level `upgradable` field instead of the agent's real
+  `sysinfo.packages.upgradable` count, so a host with updates waiting kept a
+  perfect 100. A device now loses points for outstanding patches — `info`
+  (−2) below 20 pending, `warning` (−8) at 20 or more — exactly like every other
+  attention item.
+- **Disk forecast — one row per disk, no more 5-year "risks".** Mounts that are
+  the same underlying filesystem (btrfs subvolumes, bind mounts — `/`, `/home`,
+  `/var/log`, `/srv`, … on one pool) reported identical usage and so printed as
+  five identical fill projections; they now collapse into a single row per
+  filesystem (representative mount + a `+N` hover listing the rest). And a mount
+  that only fills more than ~2 years out is no longer shown as a dated risk —
+  the row is kept (current usage is useful) but reads ">2 yr" instead of a
+  spurious "fills 2031" projection.
+
+### Reliability & SLA
+- **Agentless / SNMP devices now build real 7-day status history.** The
+  reachability sweep recorded an uptime event only on a state *change*, so a
+  continuously-reachable agentless or SNMP host never got a baseline event and
+  was absent from the fleet roster stripe (rendering as all-"unknown"). It now
+  records the current state on every probe (de-duplicated), so the stripe fills
+  in like an agent device's.
+- **SLA no longer counts "no data" as downtime.** Uptime % treated the time
+  before RemotePower had any record for a device (e.g. before enrollment) as a
+  giant outage — a freshly-deployed host read as ~27% uptime / "22 days down".
+  That prefix is now reported as *unknown* and excluded; the SLA is computed only
+  over the period actually covered by data.
+- **Maintenance windows no longer burn the SLA.** One-shot maintenance windows
+  (scheduled start/end, scoped to the device, its group, or fleet-wide) are
+  excluded from both downtime and the covered window, so planned work doesn't
+  count against uptime.
+- **Settable SLA targets** — set a target uptime % per **device**, **tag**,
+  **group**, or a fleet **default** (most specific wins) from the Uptime (SLA)
+  card. Each row shows its target and whether it's met or breached.
+  `GET`/`PUT /api/fleet/sla-targets`.
 
 ### Operations, onboarding & UX
 - **Install software from repos, by host or tag/group.** A new "Install software"

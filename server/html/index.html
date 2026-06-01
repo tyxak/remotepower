@@ -3400,7 +3400,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <option value="90">90 days</option>
             </select>
             <span id="sla-fleet" class="fs-12 c-muted"></span>
+            <button class="btn-secondary fs-12 isl-12" data-action="toggleSlaTargets">SLA targets</button>
           </div>
+          <div id="sla-targets-editor" class="hidden mb-12"></div>
           <div id="reports-sla"><div class="c-muted">Loading…</div></div>
         </div>
 

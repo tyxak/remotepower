@@ -13139,7 +13139,14 @@ async function loadReportsSla() {
   const r = await api('GET', '/fleet/sla?days=' + encodeURIComponent(days)).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load uptime.</div>'; return; }
   const fl = document.getElementById('sla-fleet');
-  if (fl) fl.textContent = r.fleet_uptime_pct != null ? `fleet ${r.fleet_uptime_pct}% over ${r.days}d` : 'no data yet';
+  if (fl) {
+    if (r.fleet_uptime_pct != null) {
+      const tgt = r.fleet_sla_target != null ? ` · target ${r.fleet_sla_target}%${r.fleet_sla_met === false ? ' (breached)' : ''}` : '';
+      fl.textContent = `fleet ${r.fleet_uptime_pct}% over ${r.days}d${tgt}`;
+    } else {
+      fl.textContent = 'no data yet';
+    }
+  }
   _slaRows = r.devices || [];
   _renderReportsSla();
 }
@@ -13150,16 +13157,101 @@ function _renderReportsSla() {
   const fmtPct = p => p == null ? '—' : p + '%';
   const fmtDown = s => !s ? '0' : s >= 86400 ? Math.round(s / 86400) + 'd' : s >= 3600 ? Math.round(s / 3600) + 'h' : Math.round(s / 60) + 'm';
   const sorted = tableCtl.sortRows('sla', _slaRows.slice(), r => ({
-    device: r.name, group: r.group, uptime: r.uptime_pct == null ? -1 : r.uptime_pct, downtime: r.downtime_seconds,
+    device: r.name, group: r.group, uptime: r.uptime_pct == null ? -1 : r.uptime_pct,
+    downtime: r.downtime_seconds, target: r.sla_target == null ? -1 : r.sla_target,
   }));
   const rows = sorted.map(r => {
-    const cls = r.uptime_pct == null ? 'c-muted' : r.uptime_pct >= 99.9 ? 'c-green' : r.uptime_pct >= 99 ? 'c-amber' : 'c-red';
+    // Colour uptime against its SLA target when one is set, else the static
+    // 99.9 / 99 thresholds.
+    let cls = 'c-muted';
+    if (r.uptime_pct != null) {
+      if (r.sla_met === true) cls = 'c-green';
+      else if (r.sla_met === false) cls = 'c-red';
+      else cls = r.uptime_pct >= 99.9 ? 'c-green' : r.uptime_pct >= 99 ? 'c-amber' : 'c-red';
+    }
+    let tgt = '<span class="hint">—</span>';
+    if (r.sla_target != null) {
+      const lbl = r.sla_met === false ? ' <span class="c-red fs-11">breached</span>'
+                : r.sla_met === true ? ' <span class="c-green fs-11">met</span>' : '';
+      tgt = `${r.sla_target}%${lbl}`;
+    }
     return `<tr><td>${escHtml(r.name)}</td><td class="hint">${escHtml(r.group || '—')}</td>`
       + `<td class="${cls} fw-500">${r.covered ? fmtPct(r.uptime_pct) : 'unknown'}</td>`
-      + `<td class="mono-12">${r.covered ? fmtDown(r.downtime_seconds) : '—'}</td></tr>`;
+      + `<td class="mono-12">${r.covered ? fmtDown(r.downtime_seconds) : '—'}</td>`
+      + `<td class="mono-12">${tgt}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="sla-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="uptime">Uptime</th><th data-col="downtime">Downtime</th><th data-col="target">SLA target</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('sla-thead', 'sla', _renderReportsSla);
+}
+
+// ── SLA targets editor (set per device / tag / group / default) ──────────────
+let _slaTargets = null;
+let _slaTargetRows = [];   // [{scope:'group'|'tag'|'device', key, pct}]
+async function toggleSlaTargets() {
+  const ed = document.getElementById('sla-targets-editor');
+  if (!ed) return;
+  if (!ed.classList.contains('hidden')) { ed.classList.add('hidden'); return; }
+  ed.classList.remove('hidden');
+  ed.innerHTML = '<div class="c-muted fs-12">Loading…</div>';
+  const r = await api('GET', '/fleet/sla-targets').catch(() => null);
+  _slaTargets = r || { default: null, groups: {}, tags: {}, devices: {} };
+  _slaTargetRows = [];
+  [['groups', 'group'], ['tags', 'tag'], ['devices', 'device']].forEach(([lvl, scope]) => {
+    Object.entries(_slaTargets[lvl] || {}).forEach(([k, v]) => _slaTargetRows.push({ scope, key: k, pct: v }));
+  });
+  _renderSlaTargetsEditor();
+}
+function _readSlaTargetRowsFromDom() {
+  return Array.from(document.querySelectorAll('#sla-targets-editor .sla-tgt-row')).map(el => ({
+    scope: el.querySelector('.sla-tgt-scope').value,
+    key:   el.querySelector('.sla-tgt-key').value.trim(),
+    pct:   el.querySelector('.sla-tgt-pct').value.trim(),
+  }));
+}
+function slaTargetAddRow() { _slaTargetRows = _readSlaTargetRowsFromDom(); _slaTargetRows.push({ scope: 'group', key: '', pct: '' }); _renderSlaTargetsEditor(); }
+function slaTargetRemoveRow(i) { _slaTargetRows = _readSlaTargetRowsFromDom(); _slaTargetRows.splice(Number(i), 1); _renderSlaTargetsEditor(); }
+function _renderSlaTargetsEditor() {
+  const ed = document.getElementById('sla-targets-editor');
+  if (!ed) return;
+  const def = (_slaTargets && _slaTargets.default != null) ? _slaTargets.default : '';
+  const rowsHtml = _slaTargetRows.map((row, i) => `
+    <div class="sla-tgt-row row-8-center mb-6">
+      <select class="sla-tgt-scope form-input input-auto fs-12">
+        <option value="group"${row.scope === 'group' ? ' selected' : ''}>Group</option>
+        <option value="tag"${row.scope === 'tag' ? ' selected' : ''}>Tag</option>
+        <option value="device"${row.scope === 'device' ? ' selected' : ''}>Device id</option>
+      </select>
+      <input class="sla-tgt-key form-input fs-12" placeholder="name / id" value="${escAttr(row.key || '')}">
+      <input class="sla-tgt-pct form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="%" value="${escAttr(String(row.pct == null ? '' : row.pct))}">
+      <button class="btn-secondary fs-12" data-action="slaTargetRemoveRow" data-arg="${i}">Remove</button>
+    </div>`).join('');
+  ed.innerHTML = `<div class="dash-card p-12">
+    <div class="row-8-center mb-8"><strong class="fs-13">SLA targets</strong>
+      <span class="hint fs-11">most specific wins: device → tag → group → default</span></div>
+    <div class="row-8-center mb-8"><label class="fs-12">Default target %</label>
+      <input id="sla-tgt-default" class="form-input input-auto fs-12" type="number" step="0.001" min="0" max="100" placeholder="e.g. 99.9" value="${escAttr(String(def))}"></div>
+    ${rowsHtml}
+    <div class="row-8-center mt-8">
+      <button class="btn-secondary fs-12" data-action="slaTargetAddRow">Add override</button>
+      <button class="btn-primary fs-12" data-action="saveSlaTargets">Save targets</button>
+    </div></div>`;
+}
+async function saveSlaTargets() {
+  const rows = _readSlaTargetRowsFromDom();
+  const body = { default: null, groups: {}, tags: {}, devices: {} };
+  const defv = (document.getElementById('sla-tgt-default')?.value || '').trim();
+  if (defv) body.default = parseFloat(defv);
+  rows.forEach(r => {
+    if (!r.key || r.pct === '') return;
+    const p = parseFloat(r.pct);
+    if (!(p > 0 && p <= 100)) return;
+    const lvl = r.scope === 'group' ? 'groups' : r.scope === 'tag' ? 'tags' : 'devices';
+    body[lvl][r.key] = p;
+  });
+  const res = await api('PUT', '/fleet/sla-targets', body).catch(() => null);
+  if (!res) { toast('Failed to save SLA targets', 'error'); return; }
+  toast('SLA targets saved', 'success');
+  loadReportsSla();
 }
 
 // ── Automation rules (v3.4.2) ────────────────────────────────────────────────
@@ -13573,15 +13665,24 @@ function _renderForecastTable() {
     const idx = _forecastRows.indexOf(m);
     const d2f = m.days_to_full;
     const daysCls = m.noisy ? 'c-amber' : d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
-    // v3.4.2: a heavily-fluctuating mount gets no (misleading) date.
+    // v3.4.2: a heavily-fluctuating mount gets no (misleading) date; a mount that
+    // fills only >2 years out is shown as such rather than as a near-term risk.
     const daysTxt = m.noisy
       ? `<span title="Usage fluctuates too much for a reliable projection (R²=${m.r2})">fluctuating</span>`
-      : d2f == null ? 'no fill' : _fmtDays(d2f);
-    const fill = m.noisy ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
+      : m.beyond_horizon
+        ? `<span title="Fills at the current rate, but more than 2 years out — not an actionable risk">&gt;2 yr</span>`
+        : d2f == null ? 'no fill' : _fmtDays(d2f);
+    const fill = (m.noisy || m.beyond_horizon) ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
+    // Mounts collapsed into this row because they're the same filesystem
+    // (btrfs subvolumes, bind mounts) — show "+N" with the full list on hover.
+    const shared = Array.isArray(m.shared_mounts) ? m.shared_mounts : [m.path];
+    const extra = shared.length > 1
+      ? ` <span class="c-muted fs-11" title="Same filesystem: ${escAttr(shared.join(', '))}">+${shared.length - 1}</span>`
+      : '';
     const sel = idx === _forecastSel ? ' is-selected' : '';
     return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
       <td class="fw-500">${escHtml(m.device_name)}</td>
-      <td><code>${escHtml(m.path)}</code></td>
+      <td><code>${escHtml(m.path)}</code>${extra}</td>
       <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
       <td class="ta-center">${m.current_percent}%</td>
       <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
