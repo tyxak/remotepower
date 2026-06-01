@@ -29257,6 +29257,26 @@ def handle_mitigate_status(dev_id, action_id):
     })
 
 
+def _extract_mitigate_fix(summary):
+    """Pull the proposed fix command out of an AI mitigation summary's
+    BEGIN_FIX / END_FIX markers. Tolerates a MISSING closing END_FIX — models
+    sometimes omit it, or the response is truncated — so a usable command still
+    surfaces instead of the operator getting a summary with no actionable fix
+    (the "AI analysis does nothing" symptom). Returns '' for none/NONE."""
+    if not summary:
+        return ''
+    fm = re.search(r'BEGIN_FIX\s*\n(.*?)\n\s*END_FIX', summary, re.DOTALL)
+    if fm:
+        fix = fm.group(1).strip()
+    else:
+        fm2 = re.search(r'BEGIN_FIX\s*\n(.+)', summary, re.DOTALL)
+        if not fm2:
+            return ''
+        # everything after BEGIN_FIX, up to a blank line or a markdown fence
+        fix = re.split(r'\n\s*\n|\n```', fm2.group(1), maxsplit=1)[0].strip()
+    return '' if fix.upper() == 'NONE' else fix
+
+
 def handle_mitigate_ai(dev_id, action_id):
     """POST /api/mitigate/<dev_id>/ai/<action_id>
     Triggers AI analysis on the captured diagnostic output. Synchronous.
@@ -29326,13 +29346,7 @@ def handle_mitigate_ai(dev_id, action_id):
         sys.stderr.write(f'[remotepower] handle_mitigate_ai AI provider error: {err}\n')
         respond(502, {'error': err}); return
     summary = ai_result.get('text', '') or ''
-    # Extract fix
-    suggested_fix = ''
-    fm = re.search(r'BEGIN_FIX\s*\n(.*?)\n\s*END_FIX', summary, re.DOTALL)
-    if fm:
-        suggested_fix = fm.group(1).strip()
-        if suggested_fix.upper() == 'NONE':
-            suggested_fix = ''
+    suggested_fix = _extract_mitigate_fix(summary)
     # Safety classification of the suggestion
     denylist_match = False
     deny_reason = ''

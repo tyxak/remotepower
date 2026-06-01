@@ -113,6 +113,14 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Mitigation AI: the suggested fix shows even without a closing marker.** The
+  AI analysis pane looked like it "did nothing" when the model's reply was
+  truncated or omitted the closing `END_FIX` marker — the strict
+  `BEGIN_FIX…END_FIX` parser found nothing, so the summary appeared but no
+  actionable fix / Apply-fix option. The parser now falls back to the command(s)
+  after `BEGIN_FIX` (up to a blank line / code fence) when `END_FIX` is missing,
+  so a usable fix surfaces. The Re-run AI button in the pane lets you re-prompt
+  without waiting on the agent again.
 - **Command Queue (Admin).** A new Admin → Command Queue page shows every device
   with commands still waiting to be picked up on its next heartbeat — what kind
   (exec / reboot / poll / compose / …) and a readable summary — so you can see

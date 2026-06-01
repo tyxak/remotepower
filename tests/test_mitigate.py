@@ -147,6 +147,32 @@ class TestMitigateSafety(unittest.TestCase):
         self.assertTrue(str(p).startswith(str(self.api.MITIGATE_LOGS_DIR)))
         self.assertNotIn('..', p.name)
 
+    # ── BEGIN_FIX extraction (AI analysis) ────────────────────────────────
+    def test_fix_fully_delimited(self):
+        s = "Recommended: clean logs.\nBEGIN_FIX\njournalctl --vacuum-time=7d\nEND_FIX"
+        self.assertEqual(self.api._extract_mitigate_fix(s),
+                         'journalctl --vacuum-time=7d')
+
+    def test_fix_missing_end_marker(self):
+        # The real-world bug: model omitted / response truncated before END_FIX.
+        # Must still surface the command, not return ''.
+        s = "Root cause: large logs.\n\nRecommended action: clean up.\n\n" \
+            "BEGIN_FIX\njournalctl --vacuum-size=50M && apt-get clean"
+        self.assertEqual(self.api._extract_mitigate_fix(s),
+                         'journalctl --vacuum-size=50M && apt-get clean')
+
+    def test_fix_multiline_then_prose(self):
+        s = "...\nBEGIN_FIX\njournalctl --vacuum-time=7d\napt-get clean\n\nThis frees space."
+        self.assertEqual(self.api._extract_mitigate_fix(s),
+                         'journalctl --vacuum-time=7d\napt-get clean')
+
+    def test_fix_none(self):
+        self.assertEqual(
+            self.api._extract_mitigate_fix("Nothing.\nBEGIN_FIX\nNONE\nEND_FIX"), '')
+
+    def test_fix_absent(self):
+        self.assertEqual(self.api._extract_mitigate_fix("Just a summary, no markers."), '')
+
 
 if __name__ == '__main__':
     unittest.main()
