@@ -27767,6 +27767,8 @@ _AI_PROMPT_LABELS = {
     'mitigate_disk':          'Mitigation — Disk pressure',
     'mitigate_service':       'Mitigation — Service / runtime issue',
     'mitigate_patches':       'Mitigation — Pending patches',
+    'mitigate_cve':           'Mitigation — CVE findings',
+    'mitigate_container':     'Mitigation — Container stopped / restarting',
 }
 
 def _resolve_system_prompt(key):
@@ -28987,6 +28989,50 @@ _MITIGATE_PLAYBOOKS = {
         ),
         'fix': None,
         'ai_prompt_key': 'mitigate_service',
+        'ai_default': True,
+        'destructive': False,
+    },
+    # v3.4.2: CVE playbook — investigate outstanding critical/high CVEs and what
+    # an upgrade would actually clear. Read-only diagnostic; the suggested fix is
+    # a package upgrade (handled via the existing /upgrade flow, not a raw exec).
+    'cve': {
+        'label': 'CVE findings',
+        'diagnostic': (
+            'set -e; echo "== OS / PACKAGE MANAGER =="; '
+            '(. /etc/os-release 2>/dev/null; echo "$PRETTY_NAME"); '
+            'echo; echo "== PENDING SECURITY UPDATES =="; '
+            'if command -v apt-get >/dev/null 2>&1; then '
+            '  apt-get -s upgrade 2>/dev/null | grep -iE "^Inst .*security" | head -40 || true; '
+            '  echo; echo "(total upgradable:)"; apt list --upgradable 2>/dev/null | grep -c "/" || true; '
+            'elif command -v dnf >/dev/null 2>&1; then dnf updateinfo list security 2>/dev/null | head -40 || true; '
+            'elif command -v yum >/dev/null 2>&1; then yum updateinfo list security 2>/dev/null | head -40 || true; '
+            'else echo "(no apt/dnf/yum)"; fi; '
+            'echo; echo "== KERNEL =="; uname -r'
+        ),
+        'fix': None,   # remediation is a package upgrade via /upgrade, not raw exec
+        'ai_prompt_key': 'mitigate_cve',
+        'ai_default': True,
+        'destructive': False,
+    },
+    # v3.4.2: container playbook — a stopped / restarting container. Read-only
+    # inspection (docker or podman); the AI proposes a restart if appropriate.
+    'container': {
+        'label': 'Container stopped / restarting',
+        'diagnostic': (
+            'set -e; '
+            'if command -v docker >/dev/null 2>&1; then CT=docker; '
+            'elif command -v podman >/dev/null 2>&1; then CT=podman; '
+            'else echo "(no docker/podman)"; exit 0; fi; '
+            'echo "== CONTAINERS (all) =="; '
+            '$CT ps -a --format "{{.Names}}\\t{{.Status}}\\t{{.Image}}" 2>/dev/null | head -40; '
+            'echo; echo "== NON-RUNNING / RESTARTING =="; '
+            'for c in $($CT ps -a --filter "status=exited" --filter "status=restarting" --format "{{.Names}}" 2>/dev/null | head -10); do '
+            '  echo "--- $c ---"; $CT inspect -f "exit={{.State.ExitCode}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}" "$c" 2>/dev/null; '
+            '  echo "(last 30 log lines)"; $CT logs --tail 30 "$c" 2>&1 | tail -30; '
+            'done'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_container',
         'ai_default': True,
         'destructive': False,
     },

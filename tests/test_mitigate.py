@@ -126,6 +126,30 @@ class TestMitigateSafety(unittest.TestCase):
         self.assertTrue(dest)
         self.assertEqual(fix, 'reboot')
 
+    def test_playbook_cve(self):
+        diag, fix, prompt, dest = self.api._mitigate_build_command('cve', '')
+        self.assertIsNotNone(diag)
+        self.assertIn('SECURITY UPDATES', diag)
+        self.assertEqual(prompt, 'mitigate_cve')
+        self.assertFalse(dest)
+        # remediation is an upgrade via /upgrade, not a raw exec fix
+        self.assertIsNone(fix)
+
+    def test_playbook_container(self):
+        diag, fix, prompt, dest = self.api._mitigate_build_command('container', '')
+        self.assertIsNotNone(diag)
+        self.assertIn('docker', diag)
+        self.assertIn('podman', diag)
+        self.assertEqual(prompt, 'mitigate_container')
+        self.assertFalse(dest)
+
+    def test_new_prompt_keys_have_bodies(self):
+        # mitigate_cve / mitigate_container must resolve to a non-empty default
+        # prompt (else the AI call sends an empty system prompt).
+        for key in ('mitigate_cve', 'mitigate_container'):
+            self.assertTrue(self.api._resolve_system_prompt(key).strip(),
+                            f'{key} has no default system prompt')
+
     def test_playbook_unknown_kind(self):
         diag, fix, prompt, dest = self.api._mitigate_build_command('imaginary_kind', '')
         self.assertIsNone(diag); self.assertIsNone(fix)

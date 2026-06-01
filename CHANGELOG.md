@@ -113,6 +113,21 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **AI Investigate now covers CVEs and containers.** Two new mitigation
+  playbooks: **CVE findings** (diagnoses the OS's pending security updates +
+  kernel and proposes a security upgrade) and **stopped/restarting containers**
+  (inspects exit code / restart count / OOM / recent logs of the non-running
+  containers and proposes a restart). Wired across server playbook, AI prompt,
+  and the client `MITIGATE_KINDS`, so the Investigate button appears and works
+  for these Needs-Attention items. Investigate now covers: disk, memory, swap,
+  cpu, patches, drift, service_down, reboot, brute_force, cve, container.
+- **RAG: fleet/agent operations documented for the assistant.** Added
+  `docs/fleet-management.md` covering agent self-update / force-update, restart,
+  release signing (incl. "signed but INVALID"), the command queue, install /
+  uninstall, reboot / WoL, quarantine, SLA targets and OpenSCAP — so the AI
+  assistant and fleet search can answer "how do I re-sign the agent / force an
+  update / see what's queued / uninstall a package". (`deploy-server.sh` syncs
+  `docs/*.md` into the RAG corpus.)
 - **Mitigation AI: the suggested fix shows even without a closing marker.** The
   AI analysis pane looked like it "did nothing" when the model's reply was
   truncated or omitted the closing `END_FIX` marker — the strict

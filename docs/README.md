@@ -22,6 +22,9 @@ holds long-form docs that don't fit there.
 - **[api.md](api.md)** — REST endpoints + auth model. Interactive at
  `/swagger.html`; spec at `/api/openapi.json`.
 - **[agent-commands.md](agent-commands.md)** — CLI for the Linux agent.
+- **[fleet-management.md](fleet-management.md)** — operating the fleet from the
+ dashboard: agent updates, release signing, the command queue, install/uninstall,
+ reboot/WoL, quarantine, SLA targets, OpenSCAP, and AI Investigate.
 - **[windows-client.md](windows-client.md)** — Windows-specific notes,
  install path, service control.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or

@@ -16590,6 +16590,9 @@ const _MITIGATE_KIND_LABELS = {
   memory:       'Memory pressure',
   swap:         'Swap pressure',
   cpu:          'CPU load',
+  // v3.4.2: CVE + container playbooks.
+  cve:          'CVE findings',
+  container:    'Container stopped / restarting',
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
@@ -16599,7 +16602,7 @@ const _MITIGATE_KIND_LABELS = {
 // (labels also need a label) and both have to mention every kind.
 const MITIGATE_KINDS = new Set([
   'patches', 'disk', 'drift', 'service_down', 'reboot', 'brute_force',
-  'memory', 'swap', 'cpu',
+  'memory', 'swap', 'cpu', 'cve', 'container',
 ]);
 
 function openMitigateModal(devId, kind, target, deviceName) {
