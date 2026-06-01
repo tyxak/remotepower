@@ -4193,7 +4193,7 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    the column wider than the card and the row overflows "out of the box". */
 .tl-main { min-width: 0; }
 .tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.tl-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.tl-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; font-size: 13px; }
 .tl-kind { font-size: 11px; color: var(--muted); text-transform: capitalize; }
 .tl-devchip {
   font-size: 11px; font-weight: 600; color: var(--accent);

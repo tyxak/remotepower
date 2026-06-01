@@ -113,6 +113,11 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Timeline polish.** Row titles inherited the ~16px page default while the
+  rest of the row is 11–13px, so titles like "New Listening Port Detected"
+  looked oversized — set `.tl-title` to 13px. The kind-filter chip row now wraps
+  inside the card (scoped `flex-wrap` on `#timeline-kinds`), and long row detail
+  text wraps instead of overflowing.
 - **Timeline rows stay inside their card.** The timeline row is a 3-column grid
   (`14px 1fr auto`) but the middle `.tl-main` column had no CSS, so it defaulted
   to `min-width:auto` and a long unbreakable detail (an `snmp recover` string, a
