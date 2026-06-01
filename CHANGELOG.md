@@ -94,15 +94,18 @@ collecting but the detail view didn't show:
   high-severity CVEs · 12 fixable" — so you can see at a glance whether a package
   upgrade would actually clear any of them. The count is over critical/high
   findings only, so it matches the "fixable" figure on the Patches page.
-- **Print / PDF posture report is readable and branded.** On the dark theme the
-  report could print as a blank / unreadable page. It now forces a light page —
-  dark text on transparent (→ white) element backgrounds, so neither the theme's
-  light text (white-on-white) nor its dark element backgrounds (dark-on-dark)
-  survive into the PDF. Adds the RemotePower logo to the header, colours the
-  baseline pass/fail counts, and adds a footer.
-- **UI: separate cards.** The Rollouts page now puts "Rollouts" and "Recent
-  installs & jobs" in their own boxes, and the Users page puts "Custom roles" in
-  its own box, instead of running the sections together.
+- **Print / PDF posture report now renders reliably.** The report used to print
+  by hiding the app and revealing a hidden div via `@media print`, overriding the
+  dark theme — which printed blank in some browsers when the theme leaked
+  through. It now opens a **standalone window** containing a fully self-contained
+  light HTML document (its own inline styles, can't inherit the app theme), so it
+  always prints black-on-white. Includes the RemotePower logo, colour-coded
+  baseline pass/fail, and a footer. (Allow pop-ups for the site; it warns if
+  they're blocked.)
+- **UI: separate cards.** The Rollouts page puts "Rollouts" and "Recent installs
+  & jobs" in their own boxes, the Users page puts "Custom roles" in its own box,
+  and the Automation page puts "Rules" in its own box — instead of running the
+  sections together.
 - **More in the RAG index.** Added focused docs (`docs/sla.md`,
   `docs/forecast.md`, `docs/health-score.md`) so the AI assistant and fleet
   search can answer questions about SLA targets, the disk forecast, and how the

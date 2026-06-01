@@ -4309,11 +4309,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.4.2: print-friendly fleet report (Reports → Print / Save as PDF) */
 .print-only { display: none; }
 @media print {
-  /* Force a light document regardless of the app theme. We do NOT use
-     print-color-adjust:exact — that makes the browser print the dark theme's
-     element backgrounds, which then hides our dark text (dark-on-dark). Instead
-     we let the browser drop backgrounds to white (its default) and force every
-     report element to dark text on a transparent (→ white) background. */
+  /* Print only the posture report, on a forced-light page. We deliberately do
+     NOT use print-color-adjust:exact — that prints the dark theme's element
+     backgrounds and hides the dark text. Instead: white page, dark text, and
+     every descendant forced to a transparent (→ white) background so nothing
+     from the dark theme survives. Layout is given a frame to settle before
+     window.print() (see printFleetReport) so the injected DOM is painted. */
   html, body { background: #fff !important; }
   body > *:not(#print-report) { display: none !important; }
   #print-report {
@@ -4323,8 +4324,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
     padding: 0;
     font-size: 14px;
   }
-  /* Dark text, no inherited dark theme background, on every descendant. */
-  #print-report * { color: #111; background: transparent !important; }
+  #print-report * { color: #111 !important; background: transparent !important;
+    border-color: #ccc !important; }
   #print-report .pr-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
   #print-report .pr-logo { height: 40px; width: auto; }
   #print-report h1 { font-size: 22px; margin: 0 0 2px; }
@@ -4337,11 +4338,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   #print-report .pr-sub { font-size: 11px; color: #555 !important; }
   #print-report table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }
   #print-report th, #print-report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }
-  #print-report th { color: #444 !important; font-size: 11px; text-transform: uppercase; background: #f4f4f4; }
+  #print-report th { color: #444 !important; font-size: 11px; text-transform: uppercase; }
   #print-report .pr-ok  { color: #137333 !important; font-weight: 600; }
   #print-report .pr-bad { color: #b00020 !important; font-weight: 600; }
   #print-report .pr-foot { margin-top: 24px; color: #777 !important; font-size: 11px;
     border-top: 1px solid #ddd; padding-top: 8px; }
+  @page { margin: 16mm; }
 }
 
 /* v3.4.2 */

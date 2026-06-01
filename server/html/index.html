@@ -3504,8 +3504,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div id="page-automation" class="page">
         <div class="page-title">Automation</div>
         <div class="page-subtitle">When an event fires on matching devices, run a saved script and/or notify a destination. Rules are evaluated on every event; each has a cooldown. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
-        <div class="section-header"><div class="section-title">Rules</div><button class="enroll-btn" data-action="openAutomationEditor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rule</button></div>
-        <div id="automation-list" class="mb-16"><div class="c-muted">Loading…</div></div>
+        <div class="dash-card mb-16">
+          <div class="section-header"><div class="section-title">Rules</div><button class="enroll-btn" data-action="openAutomationEditor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rule</button></div>
+          <div id="automation-list"><div class="c-muted">Loading…</div></div>
+        </div>
 
         <div id="automation-editor" class="dash-card d-none">
           <h3 id="automation-editor-title">New rule</h3>

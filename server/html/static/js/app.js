@@ -13738,7 +13738,23 @@ async function printFleetReport() {
     + (fwRows ? `<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th><th>Score</th></tr></thead><tbody>${fwRows}</tbody></table>` : '')
     + cisBlock
     + `<div class="pr-foot">RemotePower fleet posture report — generated on demand. Figures reflect the latest data RemotePower has collected.</div>`;
-  window.print();
+  // Defer the print dialog until the injected report has actually been painted.
+  // Calling window.print() synchronously after setting innerHTML can capture the
+  // page before layout/paint, which prints a blank page in some browsers. Wait
+  // for the logo image to load (or error) AND two animation frames, then print.
+  const logo = el.querySelector('.pr-logo');
+  let done = false;
+  const fire = () => {
+    if (done) return; done = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => { try { window.print(); } catch (_) {} }));
+  };
+  if (logo && !logo.complete) {
+    logo.addEventListener('load', fire, { once: true });
+    logo.addEventListener('error', fire, { once: true });
+    setTimeout(fire, 800);   // fallback if neither event fires
+  } else {
+    fire();
+  }
 }
 
 async function saveReportSchedule() {
