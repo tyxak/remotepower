@@ -376,19 +376,24 @@ class TestV342Deployment(unittest.TestCase):
         self.assertIn('reclaim_hosts', self.APP)
 
     def test_frontend_pdf(self):
-        # v3.4.2+: the posture report now opens as a STANDALONE server-rendered
-        # page (GET /api/report/fleet?format=html) in a new tab and is printed
-        # from there. The earlier in-app print (#print-report + @media print +
-        # window.print()) kept printing blank because the dark theme leaked into
-        # the print, so the button now fetches + opens the self-contained page.
+        # v3.4.2+: the posture report is a STANDALONE static page (report.html)
+        # with EXTERNAL css/js, opened in a new tab. It's served under the normal
+        # strict CSP (style-src/script-src 'self'), which earlier inline / blob
+        # approaches violated (and so printed blank). report.js reuses the
+        # localStorage token to fetch /api/report/fleet and renders a light doc.
         self.assertIn('function printFleetReport(', self.APP)
         self.assertIn('data-action="printFleetReport"', self.HTML)
-        self.assertIn("/report/fleet?format=html", self.APP)
-        self.assertIn('window.open(', self.APP)
-        # The server must serve an html format with its own Content-Type.
-        self.assertIn("fmt == 'html'", self.API)
-        self.assertIn('_fleet_report_html', self.API)
-        # CSP / lint: must not use document.write
+        self.assertIn("window.open('report.html'", self.APP)
+        # The static page + its assets must exist.
+        report_html = (REPO_ROOT / 'server' / 'html' / 'report.html').read_text()
+        report_js = (REPO_ROOT / 'server' / 'html' / 'static' / 'js' / 'report.js').read_text()
+        self.assertIn('static/js/report.js', report_html)
+        self.assertIn('static/css/report.css', report_html)
+        self.assertIn('/api/report/fleet', report_js)
+        # CSP-clean: no inline handlers / document.write in the report assets.
+        self.assertNotIn('document.write', report_js)
+        self.assertNotIn('onclick=', report_html)
+        # CSP / lint: app must not use document.write
         self.assertNotIn('document.write', self.APP)
 
 
@@ -723,9 +728,22 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('pacman -Sy --noconfirm nginx htop', cmd)
         # apt sandbox workaround (seteuid 105 fix) must be present, like _UPGRADE_CMD
         self.assertIn('APT::Sandbox::User "root"', cmd)
-        # gated on the exec permission
-        i = self.API.find('def handle_install_packages(')
-        self.assertIn("require_perm('exec'", self.API[i:i + 1600])
+        # gated on the exec permission (shared install/uninstall core)
+        i = self.API.find('def _handle_pkg_action(')
+        self.assertIn("require_perm('exec'", self.API[i:i + 1800])
+
+    def test_uninstall_command_and_route(self):
+        # Uninstall mirrors install: package-manager-agnostic remove, validated
+        # names, its own route + UI action.
+        import importlib
+        api = importlib.import_module('api')
+        cmd = api._build_uninstall_cmd(['nginx', 'htop'])
+        self.assertIn('apt-get remove -y nginx htop', cmd)
+        self.assertIn('pacman -R --noconfirm nginx htop', cmd)
+        self.assertIn('dnf remove -y nginx htop', cmd)
+        self.assertEqual(routes_to('POST', '/api/uninstall'), 'handle_uninstall_packages')
+        self.assertIn('function runUninstall(', self.APP)
+        self.assertIn('data-action="runUninstall"', self.HTML)
 
     def test_install_and_scap_targeting_ui(self):
         self.assertIn('id="install-card"', self.HTML)
@@ -738,7 +756,7 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('function onScapTargetChange(', self.APP)
 
     def test_install_creates_tracked_job(self):
-        i = self.API.find('def handle_install_packages(')
+        i = self.API.find('def _handle_pkg_action(')
         body = self.API[i:self.API.find('\ndef ', i + 1)]
         self.assertIn('BATCH_JOBS_FILE', body)
         self.assertIn("'job_id'", body)

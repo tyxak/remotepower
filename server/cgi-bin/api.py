@@ -10,7 +10,6 @@ import re
 import sys
 import json
 import time
-import html as _html
 import hashlib
 import hmac
 import secrets
@@ -7062,11 +7061,32 @@ def _build_install_cmd(packages):
         'else echo "no supported package manager (apt/dnf/yum/zypper/pacman/apk)" >&2; exit 2; fi')
 
 
-def handle_install_packages():
-    """POST /api/install — install one or more repo packages on the target
-    device(s). Body: {device_id|device_ids|tag|group, packages:"nginx htop"}.
-    Auth: 'exec' permission (scoped); honours quarantine + change-windows like
-    any other queued command."""
+def _build_uninstall_cmd(packages):
+    """A self-detecting `remove <packages>` command spanning the common Linux
+    package managers. `packages` must already be validated against
+    _INSTALL_PKG_RE so this string interpolation can't inject shell. Removes the
+    named packages but never auto-removes dependencies or purges config — the
+    operator asked to uninstall specific packages, not to garbage-collect."""
+    pkgs = ' '.join(packages)
+    return (
+        'set -e; '
+        'if command -v apt-get >/dev/null 2>&1; then '
+        '  export DEBIAN_FRONTEND=noninteractive; '
+        '  apt-get remove -y ' + pkgs + '; '
+        'elif command -v dnf >/dev/null 2>&1; then dnf remove -y ' + pkgs + '; '
+        'elif command -v yum >/dev/null 2>&1; then yum remove -y ' + pkgs + '; '
+        'elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive remove ' + pkgs + '; '
+        'elif command -v pacman >/dev/null 2>&1; then pacman -R --noconfirm ' + pkgs + '; '
+        'elif command -v apk >/dev/null 2>&1; then apk del ' + pkgs + '; '
+        'else echo "no supported package manager (apt/dnf/yum/zypper/pacman/apk)" >&2; exit 2; fi')
+
+
+def _handle_pkg_action(kind):
+    """Shared core for install / uninstall. `kind` is 'install' or 'uninstall'.
+    Body: {device_id|device_ids|tag|group, packages:"nginx htop"}. Auth: 'exec'
+    permission (scoped); honours quarantine + change-windows like any queued
+    command. Tracked as a batch job so the Rollouts page can follow per-host
+    progress."""
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     body = get_json_body()
@@ -7085,8 +7105,10 @@ def handle_install_packages():
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('exec', ids)   # installing software is an exec action
-    queued = f'exec:{_build_install_cmd(names)}'
+    actor = require_perm('exec', ids)   # install/uninstall is an exec action
+    verb = 'uninstall' if kind == 'uninstall' else 'install'
+    cmd_body = _build_uninstall_cmd(names) if kind == 'uninstall' else _build_install_cmd(names)
+    queued = f'exec:{cmd_body}'
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
     now = int(time.time())
@@ -7101,29 +7123,37 @@ def handle_install_packages():
         cmds.setdefault(dev_id, [])
         if queued not in cmds[dev_id]:
             cmds[dev_id].append(queued)
-        log_command(actor, dev_id, dev.get('name', dev_id), f'install {" ".join(names)[:60]}')
+        log_command(actor, dev_id, dev.get('name', dev_id), f'{verb} {" ".join(names)[:60]}')
         per_device[dev_id] = {'queued': True, 'name': dev.get('name', dev_id), 'queued_at': now}
     save(CMDS_FILE, cmds)
-    # v3.4.2: track it as a batch job so the operator can follow per-host
-    # progress (queued → done ✓ / failed ✗) on the Rollouts page. Reuses the
-    # exec-batch machinery; `match_cmd` lets the status endpoint correlate the
-    # install command's output back to this job.
     jobs_data = load(BATCH_JOBS_FILE)
     _purge_expired_batch_jobs(jobs_data)
     jobs = jobs_data.setdefault('jobs', {})
     job_id = secrets.token_hex(8)
     jobs[job_id] = {
-        'id': job_id, 'kind': 'install', 'label': 'install ' + ' '.join(names),
+        'id': job_id, 'kind': kind, 'label': verb + ' ' + ' '.join(names),
         'packages': names, 'match_cmd': queued, 'actor': actor, 'created': now,
         'targets': [d for d, p in per_device.items() if p.get('queued')],
         'per_device': per_device,
     }
     save(BATCH_JOBS_FILE, jobs_data)
-    audit_log(actor, 'install_packages',
+    audit_log(actor, f'{verb}_packages',
               f'job={job_id} pkgs={",".join(names)} targets={len(ids)}')
     respond(202, {'ok': True, 'packages': names, 'job_id': job_id,
                   'queued': sum(1 for p in per_device.values() if p.get('queued')),
                   'total': len(ids), 'per_device': per_device})
+
+
+def handle_install_packages():
+    """POST /api/install — install one or more repo packages on the target
+    device(s)."""
+    _handle_pkg_action('install')
+
+
+def handle_uninstall_packages():
+    """POST /api/uninstall — remove one or more packages on the target device(s)
+    via the host's own package manager (apt/dnf/yum/zypper/pacman/apk)."""
+    _handle_pkg_action('uninstall')
 
 
 def handle_wol():
@@ -8780,22 +8810,32 @@ def handle_agent_signature():
                   'key_fingerprint': (load(CONFIG_FILE).get('release_key_fingerprint') or '').upper()})
 
 
-def _release_signature_status():
+def _release_signature_status(with_detail=False):
     """Server-side self-check: is the published agent signature valid against the
     configured release public key? Returns 'valid' | 'invalid' | 'unsigned' |
-    'unverifiable' (no key/gpg). Surfaced in the agent-integrity report so an
-    operator can confirm the release they're serving is properly signed."""
+    'unverifiable' (no key/gpg). With with_detail=True returns (status, detail)
+    where detail explains an 'invalid' result (almost always: the published
+    binary was re-baked/redeployed after it was signed, so its hash no longer
+    matches the signature — the fix is to re-sign). Surfaced so the UI can tell
+    the operator WHY rather than just 'INVALID'."""
+    def ret(status, detail=''):
+        return (status, detail) if with_detail else status
     if not _AGENT_SIG_PATH.exists():
-        return 'unsigned'
+        return ret('unsigned')
     cfg = load(CONFIG_FILE) or {}
     pubkey = cfg.get('release_pubkey') or ''
     gpg = shutil.which('gpg')
     if not pubkey or not gpg or not _AGENT_BINARY_PATH.exists():
-        return 'unverifiable'
-    ok, _ = _gpg_verify_detached(_AGENT_BINARY_PATH.read_bytes(),
-                                 _AGENT_SIG_PATH.read_text(), pubkey,
-                                 (cfg.get('release_key_fingerprint') or ''))
-    return 'valid' if ok else 'invalid'
+        return ret('unverifiable')
+    ok, detail = _gpg_verify_detached(_AGENT_BINARY_PATH.read_bytes(),
+                                      _AGENT_SIG_PATH.read_text(), pubkey,
+                                      (cfg.get('release_key_fingerprint') or ''))
+    if ok:
+        return ret('valid')
+    # Most common cause: the binary changed since it was signed. Say so.
+    hint = ('the published agent binary changed since it was signed — re-sign it '
+            f'(detail: {detail})') if detail else 'signature does not verify'
+    return ret('invalid', hint)
 
 
 def _gpg_verify_detached(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
@@ -8874,6 +8914,7 @@ def handle_signing_status():
     require_auth()
     cfg = load(CONFIG_FILE) or {}
     fpr, pub = _signing_key_info()
+    _sig_status, _sig_detail = _release_signature_status(with_detail=True)
     respond(200, {
         'gpg_available':    bool(shutil.which('gpg')),
         'enabled':          bool(cfg.get('agent_signing_enabled')),
@@ -8881,7 +8922,8 @@ def handle_signing_status():
         'fingerprint':      (fpr or '').upper(),
         'public_key':       pub or '',
         'agent_signed':     _AGENT_SIG_PATH.exists(),
-        'signature_status': _release_signature_status(),
+        'signature_status': _sig_status,
+        'signature_detail': _sig_detail,
     })
 
 
@@ -18400,132 +18442,16 @@ def _fleet_report_csv_bytes(report):
     return buf.getvalue().encode()
 
 
-def _fleet_report_html(report, baseline=None):
-    """Render the fleet posture report as a STANDALONE, self-contained light
-    HTML document. This is served as its own page (its own CSP, its own inline
-    styles, no app theme, no service-worker shell, no @media print juggling), so
-    the browser's print/Save-as-PDF always produces a readable black-on-white
-    document — the in-app print kept coming out blank because the dark theme and
-    forced-dark colour scheme leaked into the print."""
-    e = _html.escape
-    h = report.get('health') or {}
-    c = report.get('cve') or {}
-    p = report.get('patches') or {}
-    d = report.get('devices') or {}
-    when = time.strftime('%Y-%m-%d %H:%M', time.localtime(report.get('generated_ts') or int(time.time())))
-    fws = (report.get('compliance') or {}).get('frameworks') or {}
-
-    def card(k, v, sub):
-        return (f'<div class="card"><div class="k">{e(str(k))}</div>'
-                f'<div class="v">{e(str(v))}</div><div class="sub">{e(str(sub))}</div></div>')
-
-    cards = (card('Health', f"{h.get('score', '—')}/100", h.get('grade') or '')
-             + card('Devices', f"{d.get('online', 0)}/{d.get('total', 0)}", 'online')
-             + card('Patches', p.get('total_pending', 0), f"{p.get('devices_with_patches', 0)} device(s)")
-             + card('CVEs', (c.get('critical', 0) + c.get('high', 0)),
-                    f"{c.get('critical', 0)} crit · {c.get('high', 0)} high"))
-
-    fw_block = ''
-    if fws:
-        rows = ''.join(
-            f'<tr><td>{e(fw.upper())}</td><td>{(rep.get("score") if rep.get("score") is not None else "N/A")}'
-            f'{"%" if rep.get("score") is not None else ""}</td></tr>'
-            for fw, rep in fws.items())
-        fw_block = (f'<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th>'
-                    f'<th>Score</th></tr></thead><tbody>{rows}</tbody></table>')
-
-    cis_block = ''
-    if baseline and isinstance(baseline.get('checks'), list):
-        rows = ''
-        for ch in baseline['checks']:
-            pa, fa = ch.get('pass', 0), ch.get('fail', 0)
-            rows += (f'<tr><td>{e(str(ch.get("title", "")))}</td><td>{e(str(ch.get("severity", "")))}</td>'
-                     f'<td class="{"ok" if pa else ""}">{pa}</td>'
-                     f'<td class="{"bad" if fa else ""}">{fa}</td>'
-                     f'<td>{ch.get("na", 0)}</td></tr>')
-        score = baseline.get('score')
-        cis_block = (f'<h2>Configuration baseline{(" — " + str(score) + "%") if score is not None else ""}</h2>'
-                     f'<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th>'
-                     f'<th>N/A</th></tr></thead><tbody>{rows}</tbody></table>')
-
-    title = f"{e(report.get('server_name') or 'RemotePower')} — Fleet posture report"
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
-<title>{title}</title>
-<style>
-  :root {{ color-scheme: light; }}
-  * {{ box-sizing: border-box; }}
-  html, body {{ background: #fff; color: #111; }}
-  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    margin: 32px; font-size: 14px; line-height: 1.45; }}
-  .head {{ display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }}
-  .head img {{ height: 40px; width: auto; }}
-  h1 {{ font-size: 22px; margin: 0; }}
-  h2 {{ font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }}
-  .meta {{ color: #555; font-size: 12px; margin-bottom: 18px; }}
-  .cards {{ display: flex; gap: 12px; flex-wrap: wrap; }}
-  .card {{ border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 130px; }}
-  .k {{ font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: .04em; }}
-  .v {{ font-size: 24px; font-weight: 600; }}
-  .sub {{ font-size: 11px; color: #555; }}
-  table {{ border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }}
-  th, td {{ text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }}
-  th {{ color: #444; font-size: 11px; text-transform: uppercase; background: #f4f4f4; }}
-  td.ok {{ color: #137333; font-weight: 600; }}
-  td.bad {{ color: #b00020; font-weight: 600; }}
-  .foot {{ margin-top: 28px; color: #777; font-size: 11px; border-top: 1px solid #ddd; padding-top: 8px; }}
-  .toolbar {{ margin-bottom: 18px; }}
-  .toolbar button {{ font: inherit; padding: 7px 14px; border: 1px solid #888; border-radius: 6px;
-    background: #f4f4f4; cursor: pointer; }}
-  @media print {{ body {{ margin: 0; }} .toolbar {{ display: none; }} @page {{ margin: 16mm; }} }}
-</style></head>
-<body>
-  <div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button></div>
-  <div class="head"><img src="/static/img/logo-primary.png" alt="RemotePower"
-    onerror="this.style.display='none'">
-    <div><h1>Fleet posture report</h1></div></div>
-  <div class="meta">Generated {e(when)} · RemotePower {e(str(report.get('server_version') or ''))}</div>
-  <div class="cards">{cards}</div>
-  {fw_block}
-  {cis_block}
-  <div class="foot">RemotePower fleet posture report — generated on demand.
-    Figures reflect the latest data RemotePower has collected.</div>
-</body></html>"""
-
-
 def handle_fleet_report():
-    """GET /api/report/fleet?format=json|csv|html — fleet posture report.
+    """GET /api/report/fleet?format=json|csv — fleet posture report.
 
-    Auth: require_auth (read-only summary, no secrets). The `html` format returns
-    a standalone, self-contained light page intended for the browser's
-    print / Save-as-PDF — it carries its own CSP and inline styles so the app's
-    dark theme can't leak in and render the print blank."""
+    Auth: require_auth (read-only summary, no secrets). The printable view is the
+    static report.html page, which fetches this JSON and renders a light document
+    with external CSS/JS (CSP-clean) for the browser's Print / Save-as-PDF."""
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     fmt = (qs.get('format') or ['json'])[0].lower()
     report = _build_fleet_report()
-    if fmt == 'html':
-        try:
-            baseline = _compute_compliance(_scope_filter_devices(load(DEVICES_FILE) or {}))
-        except Exception:
-            baseline = None
-        body = _fleet_report_html(report, baseline).encode('utf-8')
-        print("Status: 200 OK")
-        print("Content-Type: text/html; charset=utf-8")
-        print(f"Content-Length: {len(body)}")
-        print("Cache-Control: no-store")
-        print("X-Content-Type-Options: nosniff")
-        # Self-contained page: allow ITS OWN inline <style>/onclick only. No app
-        # assets, no external anything beyond the same-origin logo image.
-        print("Content-Security-Policy: default-src 'none'; img-src 'self' data:; "
-              "style-src 'unsafe-inline'; script-src 'unsafe-inline'")
-        print()
-        sys.stdout.flush()
-        sys.stdout.buffer.write(body)
-        sys.stdout.buffer.flush()
-        sys.exit(0)
     if fmt == 'csv':
         data = _fleet_report_csv_bytes(report)
         ts = time.strftime('%Y%m%d-%H%M%S')
@@ -26357,6 +26283,7 @@ def _build_exact_routes():
         (None, '/api/update-device'): handle_update_device,
         (None, '/api/upgrade-device'): handle_upgrade_device,
         ('POST', '/api/install'): handle_install_packages,
+        ('POST', '/api/uninstall'): handle_uninstall_packages,
         ('GET', '/api/users'): handle_users_list,
         ('POST', '/api/users'): handle_user_create,
         ('GET', '/api/roles'): handle_roles_list,

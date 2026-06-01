@@ -1,0 +1,40 @@
+/* Standalone fleet posture report (report.html). Self-contained LIGHT theme —
+   deliberately independent of the app's dark styles.css so the report always
+   prints black-on-white. External file (no inline <style>) to satisfy the
+   strict CSP (style-src 'self'). */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { background: #fff; color: #111; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  margin: 32px; font-size: 14px; line-height: 1.45;
+}
+.hidden { display: none !important; }
+#pr-status { color: #555; font-size: 14px; }
+.toolbar { margin-bottom: 18px; }
+.toolbar button {
+  font: inherit; padding: 7px 14px; border: 1px solid #888; border-radius: 6px;
+  background: #f4f4f4; color: #111; cursor: pointer;
+}
+.toolbar button:hover { background: #e9e9e9; }
+.head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+.head img { height: 40px; width: auto; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 16px; margin: 26px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
+.meta { color: #555; font-size: 12px; margin-bottom: 18px; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.card { border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 130px; }
+.card .k { font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: .04em; }
+.card .v { font-size: 24px; font-weight: 600; }
+.card .sub { font-size: 11px; color: #555; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }
+th { color: #444; font-size: 11px; text-transform: uppercase; background: #f4f4f4; }
+td.ok { color: #137333; font-weight: 600; }
+td.bad { color: #b00020; font-weight: 600; }
+.foot { margin-top: 28px; color: #777; font-size: 11px; border-top: 1px solid #ddd; padding-top: 8px; }
+@media print {
+  body { margin: 0; }
+  .toolbar { display: none; }
+  @page { margin: 16mm; }
+}

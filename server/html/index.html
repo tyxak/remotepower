@@ -3638,8 +3638,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <select id="install-target-value" class="form-input input-auto"></select>
             <input type="text" id="install-pkgs" class="form-input" placeholder="packages, e.g. nginx htop">
             <button class="btn-primary fs-12" data-action="runInstall">Install</button>
+            <button class="btn-secondary fs-12" data-action="runUninstall" title="Remove the named packages via the host's package manager">Uninstall</button>
           </div>
-          <div class="fs-11 c-muted">Package names only (no shell). Space- or comma-separated, up to 30.</div>
+          <div class="fs-11 c-muted">Package names only (no shell). Space- or comma-separated, up to 30. <strong>Uninstall</strong> removes the named packages (no dependency auto-removal or config purge).</div>
         </div>
       </div>
 

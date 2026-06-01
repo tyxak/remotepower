@@ -13545,6 +13545,7 @@ function saveFleetQuery() {
   qs.push({ name: name.slice(0, 40), f: _fqFields() });
   localStorage.setItem('rp_fleet_queries', JSON.stringify(qs.slice(0, 50)));
   _renderSavedQueries();
+  toast(`Saved query "${name.slice(0, 40)}"`, 'success');
 }
 function applyFleetQuery(i) {
   const q = _savedQueries()[i]; if (!q) return;
@@ -13608,9 +13609,14 @@ async function loadSigning() {
     unverifiable: '<span class="sev-pill sev-medium">signed (unverifiable)</span>',
   }[s.signature_status] || '';
   const enPill = s.enabled ? '<span class="sev-pill sev-success">on</span>' : '<span class="sev-pill sev-low">off</span>';
+  // Explain an INVALID result (almost always: binary re-baked after signing).
+  const sigWhy = (s.signature_status === 'invalid' && s.signature_detail)
+    ? `<div class="fs-12 c-red mb-12">${escHtml(s.signature_detail)}. Click <strong>Sign current agent</strong> to re-sign.</div>`
+    : '';
   box.innerHTML = `<div class="settings-section">
     <div class="row-8-center mb-12"><strong>Enforcement</strong> ${enPill}
       <strong class="ml-8">Current release</strong> ${sigPill}</div>
+    ${sigWhy}
     <div class="fs-13 c-muted mb-12">${s.has_key
       ? `Server signing key: <code class="ff-mono">${escHtml(s.fingerprint)}</code>`
       : 'No server signing key yet.'}</div>
@@ -13698,41 +13704,26 @@ function downloadFleetReport(format) {
     .catch(() => toast('Export failed', 'error'));
 }
 
-// v3.4.2: print-friendly report. Fills a hidden #print-report section, then the
-// @media print stylesheet hides everything else and shows just that section so
-// the browser's native print dialog ("Save as PDF") produces a clean report —
-// zero new dependency, no popup, no doc writes into a new window (CSP-safe).
-// The fleet posture report opens as a STANDALONE server-rendered page
-// (GET /api/report/fleet?format=html) in a new tab, then the user prints / saves
-// it as PDF from there. Earlier in-app approaches (hide the app, reveal a
-// #print-report div, fight the dark theme via @media print) printed blank — the
-// dark theme / forced-dark colour scheme leaked into the print. A standalone
-// page carries its own CSP + light styles and cannot inherit the app theme, so
-// it always prints black-on-white. (The legacy #print-report element and its
-// @media print CSS are kept as a harmless fallback and to satisfy guardrails.)
-async function printFleetReport() {
-  // Open the tab synchronously (inside the click gesture) so it isn't blocked,
-  // then fill it with the authenticated HTML. We can't just navigate to the URL
-  // because auth is an X-Token HEADER (not a cookie), which a plain navigation
-  // can't send — so we fetch with the header and stream the result into the tab
-  // via a blob URL. The returned page is a standalone light document, so it
-  // prints black-on-white regardless of the app theme.
-  const w = window.open('', '_blank');
-  if (!w) { toast('Allow pop-ups for this site to open the printable report', 'error'); return; }
-  toast('Generating posture report…', 'info');
-  let resp;
-  try {
-    resp = await fetch('/api/report/fleet?format=html', { headers: { 'X-Token': getToken() } });
-  } catch (_) { resp = null; }
-  if (!resp || !resp.ok) {
-    try { w.close(); } catch (_) {}
-    toast('Failed to generate the report', 'error');
+// v3.4.2: fleet posture report → standalone static page (report.html) opened in
+// a new tab. report.html/report.css/report.js are served under the normal strict
+// CSP with EXTERNAL assets (no inline styles/handlers), so they aren't blocked
+// the way earlier inline / blob attempts were — those printed blank because the
+// CSP stripped their inline styles and the app's dark theme leaked in. The page
+// reuses the localStorage session token to fetch the report JSON and renders a
+// self-contained LIGHT document, so it always prints black-on-white.
+function printFleetReport() {
+  // Open the standalone report page (report.html) in a new tab. It's a real
+  // same-origin page served under the normal CSP with EXTERNAL css/js (no inline
+  // anything), so the strict style-src/script-src 'self' policy is satisfied —
+  // earlier attempts to inject inline HTML/blob documents were blocked by CSP
+  // and printed blank. report.js reuses the session token from localStorage to
+  // fetch the report JSON and renders a light document with a Print button.
+  const w = window.open('report.html', '_blank');
+  if (!w) {
+    toast('Allow pop-ups for this site to open the printable report', 'error');
     return;
   }
-  const htmlText = await resp.text();
-  const blobUrl = URL.createObjectURL(new Blob([htmlText], { type: 'text/html' }));
-  w.location.replace(blobUrl);
-  setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch (_) {} }, 60000);
+  toast('Opened the posture report in a new tab', 'success');
 }
 
 async function saveReportSchedule() {
@@ -14091,6 +14082,22 @@ async function runInstall() {
   const r = await api('POST', '/install', body).catch(() => null);
   if (r?.ok) toast(`Install queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
   else toast(r?.error || 'Failed to queue install', 'error');
+}
+
+async function runUninstall() {
+  const pkgs = document.getElementById('install-pkgs').value.trim();
+  if (!pkgs) { toast('Enter one or more package names to remove', 'error'); return; }
+  const type = document.getElementById('install-target-type').value;
+  const value = document.getElementById('install-target-value').value.trim();
+  if (type !== 'all' && !value) { toast('Select a ' + type, 'error'); return; }
+  const scopeLabel = type === 'all' ? 'the ENTIRE fleet' : `${type} "${value}"`;
+  if (!confirm(`Uninstall "${pkgs}" from ${scopeLabel}? This removes the package(s) via the host's package manager.`)) return;
+  const body = await _fleetTargetBody(type, value);
+  if (body.device_ids && !body.device_ids.length) { toast('No matching devices', 'error'); return; }
+  body.packages = pkgs;
+  const r = await api('POST', '/uninstall', body).catch(() => null);
+  if (r?.ok) toast(`Uninstall queued for ${r.packages.join(', ')} on ${r.queued} host(s) — follow progress on Rollouts → Recent jobs`, 'success');
+  else toast(r?.error || 'Failed to queue uninstall', 'error');
 }
 
 // v3.4.2: one-time install from the Rollouts page — target one device or a tag.

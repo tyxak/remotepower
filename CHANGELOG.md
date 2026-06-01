@@ -113,12 +113,30 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
-- **Posture report PDF — new, reliable approach.** Repeated attempts to fix the
-  blank/invisible print of the in-app report (dark theme leaking into the print)
-  are replaced: the report now opens as a **standalone server-rendered page**
-  (`GET /api/report/fleet?format=html`) with its own CSP and light styles, in a
-  new tab, with a Print / Save-as-PDF button. It can't inherit the app theme, so
-  it always prints black-on-white.
+- **Uninstall software via the package manager.** An "Uninstall" button on the
+  Install-software card removes the named packages on a device / group / tag
+  through the host's own package manager (apt/dnf/yum/zypper/pacman/apk) —
+  tracked as a batch job like install, gated on `exec`, honouring quarantine and
+  change-windows. Removes the named packages only (no dependency auto-removal or
+  config purge). `POST /api/uninstall`.
+- **Posture report PDF — actually fixed this time (static page).** The previous
+  approaches (in-app `@media print`, then a blob document) printed blank because
+  the strict CSP (`style-src/script-src 'self'`, set by nginx on every response
+  and inherited by blobs) blocked their inline styles/handlers, and the dark
+  theme leaked in. The report is now a **static page** (`report.html` +
+  `static/css/report.css` + `static/js/report.js`) served under the normal CSP
+  with fully external assets — it opens in a new tab, reuses the session token to
+  fetch the report JSON, and renders a light document. It can't inherit the app
+  theme, so it prints black-on-white.
+- **Release-signing "INVALID" now explains itself.** When the published agent
+  binary changed after it was signed (the usual cause), the Release Signing page
+  said only "signed but INVALID". It now shows why — "the published agent binary
+  changed since it was signed — re-sign it" — with a pointer to the Sign button.
+  `signature_detail` added to `GET /api/signing/status`.
+- **Button feedback audit.** Swept every `data-action` handler for ones that
+  mutate state without acknowledging it; added a confirmation toast to
+  "Save query" (Fleet Query). Running an OpenSCAP scan already confirms; install
+  / uninstall confirm and toast.
 - **Install / OpenSCAP targets are dropdowns, not free text.** The "Install
   software" and "OpenSCAP scan" target pickers (and the one-time-install modal)
   now offer the fleet's actual groups / tags / devices in a dropdown, so you
