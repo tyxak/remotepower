@@ -131,10 +131,14 @@ collecting but the detail view didn't show:
   different OS than the host (e.g. an Ubuntu 24.04 box with just `ssg-debian12`
   installed). The agent now detects that — a real match needs the host's own
   distro id *and* major version in the datastream name, not just an `ID_LIKE`
-  relative — and reports an actionable reason naming the package to install
-  (Ubuntu → `ssg-debderived`; Debian → `ssg-debian` for its release; RHEL/Fedora
-  → `scap-security-guide`). When the content does match the OS but the chosen
-  profile is just empty, it points at the populated profiles instead.
+  relative — and reports an actionable reason. It distinguishes three causes:
+  (1) **wrong distro** (e.g. `ssg-debian` on Ubuntu) → install `ssg-debderived` /
+  `ssg-debian` / `scap-security-guide`; (2) **right distro, wrong release** (e.g.
+  `ssg-ubuntu2204` content on Ubuntu 24.04, or `ssg-debian12` on Debian 13) →
+  install SSG content built for *this* release (a newer `ssg-*` providing the
+  matching `ssg-<os><ver>-ds.xml`) — re-installing the same package won't help;
+  (3) **content matches but the profile is empty** → pick a profile with real
+  coverage (CIS on Ubuntu, ANSSI on Debian).
 - **OpenSCAP profile detection fixed + ANSSI guidance.** The agent parsed
   `oscap info` by grepping for `Profile:` lines, but modern oscap prints
   profiles as `Title:` / `Id: …content_profile_<x>` — so the profile list came

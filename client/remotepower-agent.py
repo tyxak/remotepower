@@ -727,21 +727,39 @@ def _oscap_zero_reason(profile, datastream):
     osr = get_os_release()
     oid = (osr.get('ID') or '').lower()
     pretty = osr.get('PRETTY_NAME') or osr.get('ID') or 'this host'
-    families = [oid] + [x for x in (osr.get('ID_LIKE') or '').lower().split() if x]
-    # A real applicability match needs the host's OWN id AND its major version in
-    # the datastream name (oscap's CPE check is distro+version specific). An
-    # ID_LIKE-only match (Ubuntu using ssg-debian content) does NOT actually
-    # apply — that's the common 0-rules cause we want to call out.
+    # oscap's CPE applicability check is distro+version specific, so a real match
+    # needs the host's own id AND its major version in the datastream name. We
+    # distinguish three 0-rule causes so the advice is actually correct:
+    #   1. wrong distro entirely  (e.g. ssg-debian on an Ubuntu host)
+    #   2. right distro, WRONG version (e.g. ssg-ubuntu2204 on Ubuntu 24.04) —
+    #      the installed SSG is just too old/new for this release
+    #   3. distro+version match, but the chosen profile selected nothing
     hostmajor = ''
     mm = _re.match(r'(\d+)', (osr.get('VERSION_ID') or ''))
     if mm:
         hostmajor = mm.group(1)
-    matches_os = bool(oid and oid in base and (not hostmajor or hostmajor in base))
-    if not matches_os and base:
-        # Recommend the right SSG package per family.
+    # Ubuntu datastreams encode the version without a dot (ubuntu2404); compare
+    # against the version with dots stripped too.
+    verflat = (osr.get('VERSION_ID') or '').replace('.', '')
+    id_in_base = bool(oid and oid in base)
+    ver_in_base = bool((hostmajor and hostmajor in base) or (verflat and verflat in base))
+
+    if id_in_base and not ver_in_base:
+        # Case 2: right distro family, wrong release. Installing the same package
+        # again won't help — the operator needs SSG content built for THIS
+        # release (often a newer ssg-* package, a backport, or upstream SSG).
+        return (f"no applicable rules: the installed content {base} is for a "
+                f"different {oid} release than {pretty} — oscap treats every rule "
+                f"as not-applicable. Install SCAP Security Guide content built for "
+                f"this release (a newer ssg-* package providing an "
+                f"ssg-{oid}{verflat or hostmajor}-ds.xml datastream), or scan a "
+                f"host whose release the content matches.")
+    if not id_in_base and base:
+        # Case 1: wrong distro entirely. Name the right package per family.
+        families = [oid] + [x for x in (osr.get('ID_LIKE') or '').lower().split() if x]
         if oid == 'ubuntu' or 'ubuntu' in families:
             pkg = 'ssg-debderived (provides ssg-ubuntu* content)'
-        elif oid in ('debian',) or 'debian' in families:
+        elif oid == 'debian' or 'debian' in families:
             pkg = 'ssg-debian (matching this Debian release)'
         elif oid in ('rhel', 'centos', 'fedora', 'rocky', 'almalinux') or 'rhel' in families or 'fedora' in families:
             pkg = 'scap-security-guide'
@@ -750,11 +768,10 @@ def _oscap_zero_reason(profile, datastream):
         return (f"no applicable rules: the only SCAP content here is {base}, which "
                 f"targets a different OS than {pretty}. Install {pkg} so a matching "
                 f"datastream is scanned.")
-    # Content matches the OS but this particular profile still selected nothing
-    # (e.g. the Debian 'standard' stub) — point at the populated profiles.
+    # Case 3: content matches the OS but this profile selected nothing.
     return (f"profile '{profile}' evaluated no applicable rules on {pretty} "
-            f"({base}). Pick a profile with real coverage (on Debian/Ubuntu the "
-            f"ANSSI BP-028 profiles, e.g. anssi_np_nt28_minimal).")
+            f"({base}). Try a profile with real coverage for this OS — e.g. "
+            f"cis_level1_server on Ubuntu, or the ANSSI BP-028 profiles on Debian.")
 
 
 def run_oscap_scan(profile, creds):

@@ -214,18 +214,36 @@ class TestOscapZeroReason(unittest.TestCase):
         self.assertIn("different OS", r)
         self.assertIn("ssg-debderived", r)
 
-    def test_debian13_with_debian12_content_recommends_ssg_debian(self):
+    def test_debian13_with_debian12_content_is_version_mismatch(self):
+        # Debian 13 with ssg-debian12 is right distro / wrong version, so the
+        # message is the release-mismatch one (not "different OS").
         fn = self._make({"ID": "debian", "VERSION_ID": "13",
                          "PRETTY_NAME": "Debian GNU/Linux 13 (trixie)"})
         r = fn("standard", "/x/ssg-debian12-ds.xml")
-        self.assertIn("different OS", r)
-        self.assertIn("ssg-debian", r)
+        self.assertIn("different debian release", r)
+        self.assertIn("ssg-debian13", r)
 
     def test_matching_os_points_at_profile_coverage(self):
         fn = self._make({"ID": "debian", "VERSION_ID": "12", "PRETTY_NAME": "Debian 12"})
         r = fn("standard", "/x/ssg-debian12-ds.xml")
         self.assertNotIn("different OS", r)
-        self.assertIn("ANSSI", r)
+        self.assertNotIn("different ubuntu release", r)
+
+    def test_right_distro_wrong_version_recommends_release_content(self):
+        # Ubuntu 24.04 with only ssg-ubuntu2204 — installing ssg-debderived again
+        # won't help; the advice must point at content for THIS release.
+        fn = self._make({"ID": "ubuntu", "ID_LIKE": "debian", "VERSION_ID": "24.04",
+                         "PRETTY_NAME": "Ubuntu 24.04.4 LTS"})
+        r = fn("cis_level1_server", "/x/ssg-ubuntu2204-ds.xml")
+        self.assertIn("different ubuntu release", r)
+        self.assertIn("ssg-ubuntu2404", r)
+        self.assertNotIn("Install ssg-debderived", r)   # the wrong, looping advice
+
+    def test_debian13_wrong_version(self):
+        fn = self._make({"ID": "debian", "VERSION_ID": "13", "PRETTY_NAME": "Debian 13"})
+        r = fn("anssi_np_nt28_minimal", "/x/ssg-debian12-ds.xml")
+        self.assertIn("different debian release", r)
+        self.assertIn("ssg-debian13", r)
 
 
 class TestOscapProfileParsing(unittest.TestCase):
