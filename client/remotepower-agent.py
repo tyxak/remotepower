@@ -728,38 +728,60 @@ def run_oscap_scan(profile, creds):
                 report.update(available=False,
                               reason='no SCAP content (install scap-security-guide)')
             else:
+                # Always tell the server which profiles this datastream actually
+                # offers, so the UI can present only the ones that exist for this
+                # host's OS (Debian SSG has no cis/pci-dss/ospp — those are RHEL).
+                valid = _oscap_profiles(ds)
+                report['datastream'] = os.path.basename(ds)
+                report['available_profiles'] = valid
                 pid = _full_profile_id(profile, ds)
-                with tempfile.NamedTemporaryFile(suffix='.xml', delete=False) as tf:
-                    res_path = tf.name
-                try:
-                    proc = subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
-                                           '--results', res_path, ds],
-                                          capture_output=True, text=True, timeout=900)
-                    # oscap exit codes: 0 = all rules pass, 2 = some rules failed
-                    # (both are a SUCCESSFUL scan with a results file); 1 = error
-                    # (bad profile, unreadable datastream, …) and NO usable
-                    # results. Detect that and report oscap's real message plus
-                    # the datastream's valid profiles, instead of letting the
-                    # results parser choke on an empty file with the cryptic
-                    # "no element found: line 1, column 0".
-                    have_results = os.path.exists(res_path) and os.path.getsize(res_path) > 0
-                    if proc.returncode not in (0, 2) or not have_results:
-                        err = (proc.stderr or proc.stdout or '').strip().splitlines()
-                        reason = err[-1] if err else f'oscap exited {proc.returncode} with no results'
-                        valid = _oscap_profiles(ds)
-                        if valid:
-                            reason += ' — available profiles: ' + ', '.join(valid)
-                        report.update(available=False, reason=reason,
-                                      datastream=os.path.basename(ds))
-                    else:
-                        report.update(_parse_oscap_results(res_path))
-                        report['available'] = True
-                        report['datastream'] = os.path.basename(ds)
-                finally:
+                if valid and profile not in valid and pid not in valid:
+                    # Asked for a profile this datastream doesn't contain — don't
+                    # run a doomed scan, just say so and list what IS available.
+                    report.update(available=False,
+                                  reason=(f"profile '{profile}' is not in "
+                                          f"{os.path.basename(ds)} — available: "
+                                          + ', '.join(valid)))
+                    res_path = None
+                else:
+                    res_path = tempfile.NamedTemporaryFile(
+                        suffix='.xml', delete=False).name
+                if res_path is not None:
                     try:
-                        os.unlink(res_path)
-                    except OSError:
-                        pass
+                        proc = subprocess.run(['oscap', 'xccdf', 'eval', '--profile', pid,
+                                               '--results', res_path, ds],
+                                              capture_output=True, text=True, timeout=900)
+                        # oscap exit codes: 0 = all rules pass, 2 = some rules failed
+                        # (both are a SUCCESSFUL scan with a results file); 1 = error
+                        # (bad profile, unreadable datastream, …) and NO usable
+                        # results. Detect that and report oscap's real message plus
+                        # the datastream's valid profiles, instead of letting the
+                        # results parser choke on an empty file with the cryptic
+                        # "no element found: line 1, column 0".
+                        have_results = os.path.exists(res_path) and os.path.getsize(res_path) > 0
+                        if proc.returncode not in (0, 2) or not have_results:
+                            err = (proc.stderr or proc.stdout or '').strip().splitlines()
+                            reason = err[-1] if err else f'oscap exited {proc.returncode} with no results'
+                            if valid:
+                                reason += ' — available profiles: ' + ', '.join(valid)
+                            report.update(available=False, reason=reason)
+                        else:
+                            parsed = _parse_oscap_results(res_path)
+                            if (parsed.get('total') or 0) == 0:
+                                # Scan ran but the profile selected no rules for this
+                                # OS (e.g. the Debian SSG 'standard' profile) — a 0%
+                                # "score" is meaningless, so report it as N/A.
+                                report.update(available=False,
+                                              reason=(f"profile '{profile}' has no applicable "
+                                                      f"rules in {os.path.basename(ds)}"))
+                            else:
+                                report.update(parsed)
+                                report['available'] = True
+                    finally:
+                        try:
+                            os.unlink(res_path)
+                        except OSError:
+                            pass
     except Exception as e:
         report.update(available=False, reason=f'scan error: {e}')
     try:

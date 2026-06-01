@@ -109,6 +109,40 @@ class TestCommandQueueView(_Base):
         self.assertEqual(st, 404)
 
 
+class TestScapProfileFiltering(_Base):
+    """The scan-profile dropdown offers only profiles the fleet's datastreams
+    actually contain (union of reported available_profiles)."""
+    _FILES = ("DEVICES_FILE", "CMDS_FILE", "AUDIT_LOG_FILE", "SCAP_FILE")
+
+    def setUp(self):
+        super().setUp()
+        api.require_auth = lambda *a, **k: "admin"
+        self._fns2 = {"require_auth": self._fns.get("require_auth", api.require_auth)}
+
+    def test_profiles_are_intersection_when_reported(self):
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}, "d2": {"name": "h2"}})
+        api.save(api.SCAP_FILE, {
+            "d1": {"ts": 1, "available": True, "available_profiles": ["standard", "anssi_np_nt28_minimal"]},
+            "d2": {"ts": 1, "available": False, "available_profiles": ["standard"]},
+        })
+        api._LOAD_CACHE.clear()
+        os.environ["REQUEST_METHOD"] = "GET"; os.environ["QUERY_STRING"] = ""
+        st, body = self.call(api.handle_scap_overview)
+        self.assertEqual(st, 200)
+        # union of reported, not the RHEL-centric built-in superset
+        self.assertEqual(set(body["profiles"]), {"standard", "anssi_np_nt28_minimal"})
+        self.assertNotIn("pci-dss", body["profiles"])
+
+    def test_falls_back_to_superset_before_any_report(self):
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})
+        api.save(api.SCAP_FILE, {})
+        api._LOAD_CACHE.clear()
+        os.environ["REQUEST_METHOD"] = "GET"; os.environ["QUERY_STRING"] = ""
+        st, body = self.call(api.handle_scap_overview)
+        self.assertEqual(st, 200)
+        self.assertIn("cis", body["profiles"])   # built-in fallback
+
+
 class TestSsgDatastreamSelection(unittest.TestCase):
     """Exercise the agent's _find_ssg_datastream logic in isolation."""
 

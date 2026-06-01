@@ -125,6 +125,15 @@ collecting but the detail view didn't show:
   It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
   `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
   `ssg-debian12`), falling back to the newest available rather than the oldest.
+- **OpenSCAP offers only profiles that exist for the host's OS.** Debian's SSG
+  datastream has no `cis` / `pci-dss` / `ospp` profiles (those ship in RHEL's
+  `scap-security-guide`), so picking them produced confusing "not available" /
+  score-0 results. The agent now reports the profiles its datastream actually
+  contains; the scan-profile dropdown offers the union supported across the
+  in-scope fleet (falling back to the built-in list before the first scan). A
+  scan requested for an absent profile is short-circuited with a clear reason,
+  and a profile that runs but selects **no applicable rules** (e.g. Debian's
+  `standard`) is reported as not-applicable instead of a meaningless 0%.
 - **Uninstall software via the package manager.** An "Uninstall" button on the
   Install-software card removes the named packages on a device / group / tag
   through the host's own package manager (apt/dnf/yum/zypper/pacman/apk) —

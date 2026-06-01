@@ -18024,6 +18024,12 @@ def handle_scap_report():
         'reason': _sanitize_str(body.get('reason', ''), 200),
         'datastream': _sanitize_str(body.get('datastream', ''), 120),
     }
+    # v3.4.2: the profiles this host's datastream actually offers, so the UI can
+    # present only the ones that exist for the fleet's OSes (Debian SSG has no
+    # cis/pci-dss/ospp — those ship in RHEL's scap-security-guide).
+    aprofs = body.get('available_profiles')
+    if isinstance(aprofs, list):
+        rec['available_profiles'] = [_sanitize_str(str(p), 80) for p in aprofs[:40] if p]
     if rec['available']:
         sc = body.get('score')
         rec['score'] = round(float(sc), 1) if isinstance(sc, (int, float)) else None
@@ -18066,9 +18072,23 @@ def handle_scap_overview():
         })
     rows.sort(key=lambda r: (r.get('score') if isinstance(r.get('score'), (int, float)) else 999))
     scored = [r['score'] for r in rows if isinstance(r.get('score'), (int, float))]
+    # Offer profiles that are actually supported across the (in-scope) fleet:
+    # the union of what each host reported its datastream contains. Until any
+    # host has reported (first scan), fall back to the built-in superset so the
+    # dropdown isn't empty. This stops operators picking pci-dss/cis on a
+    # Debian-only fleet where those profiles don't exist.
+    supported = set()
+    for did, rec in store.items():
+        dev = devices.get(did)
+        if not dev or (scope is not None and not _device_in_scope(scope, dev)):
+            continue
+        for p in (rec.get('available_profiles') or []):
+            supported.add(p)
+    profiles = sorted(supported) if supported else list(_SCAP_PROFILES)
     respond(200, {
         'devices': rows,
-        'profiles': list(_SCAP_PROFILES),
+        'profiles': profiles,
+        'all_profiles': list(_SCAP_PROFILES),
         'avg_score': round(sum(scored) / len(scored), 1) if scored else None,
         'scanned': len(rows),
     })
