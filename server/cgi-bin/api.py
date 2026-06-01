@@ -18063,13 +18063,25 @@ def handle_scap_overview():
             continue
         if scope is not None and not _device_in_scope(scope, dev):
             continue
-        rows.append({
+        row = {
             'device_id': did, 'name': dev.get('name', did),
             'group': dev.get('group', ''),
             **{k: rec.get(k) for k in ('ts', 'profile', 'available', 'reason',
                                        'score', 'pass', 'fail', 'datastream')},
             'failed_top': (rec.get('failed_rules') or [])[:20],
-        })
+        }
+        # Defensive: an older agent reports available=True with score 0 / pass 0 /
+        # fail 0 when a profile evaluated no applicable rules (e.g. the Debian SSG
+        # 'standard' profile). A 0% there is meaningless — present it as
+        # not-applicable so the table doesn't show a scary 0%. Newer agents
+        # already send available=False with a reason.
+        if row.get('available') and not (row.get('pass') or 0) and not (row.get('fail') or 0):
+            row['available'] = False
+            row['score'] = None
+            row['reason'] = row.get('reason') or (
+                f"profile '{row.get('profile') or '?'}' evaluated no applicable rules "
+                f"on this host")
+        rows.append(row)
     rows.sort(key=lambda r: (r.get('score') if isinstance(r.get('score'), (int, float)) else 999))
     scored = [r['score'] for r in rows if isinstance(r.get('score'), (int, float))]
     # Offer profiles that are actually supported across the (in-scope) fleet:

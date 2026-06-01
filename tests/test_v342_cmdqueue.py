@@ -133,6 +133,36 @@ class TestScapProfileFiltering(_Base):
         self.assertEqual(set(body["profiles"]), {"standard", "anssi_np_nt28_minimal"})
         self.assertNotIn("pci-dss", body["profiles"])
 
+    def test_zero_applicable_coerced_to_not_available(self):
+        # Old-agent record: available=True but pass=0/fail=0/score=0 → the
+        # overview must present it as not-applicable, not a scary 0%.
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})
+        api.save(api.SCAP_FILE, {"d1": {"ts": 1, "available": True, "score": 0.0,
+                                        "pass": 0, "fail": 0, "profile": "standard",
+                                        "datastream": "ssg-debian12-ds.xml"}})
+        api._LOAD_CACHE.clear()
+        os.environ["REQUEST_METHOD"] = "GET"; os.environ["QUERY_STRING"] = ""
+        st, body = self.call(api.handle_scap_overview)
+        self.assertEqual(st, 200)
+        row = body["devices"][0]
+        self.assertFalse(row["available"])
+        self.assertIsNone(row["score"])
+        self.assertIn("no applicable rules", row["reason"])
+        self.assertIsNone(body["avg_score"])   # not counted in the fleet average
+
+    def test_real_score_preserved(self):
+        api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})
+        api.save(api.SCAP_FILE, {"d1": {"ts": 1, "available": True, "score": 73.0,
+                                        "pass": 40, "fail": 12, "profile": "anssi",
+                                        "datastream": "ssg-debian12-ds.xml"}})
+        api._LOAD_CACHE.clear()
+        os.environ["REQUEST_METHOD"] = "GET"; os.environ["QUERY_STRING"] = ""
+        st, body = self.call(api.handle_scap_overview)
+        row = body["devices"][0]
+        self.assertTrue(row["available"])
+        self.assertEqual(row["score"], 73.0)
+        self.assertEqual(body["avg_score"], 73.0)
+
     def test_falls_back_to_superset_before_any_report(self):
         api.save(api.DEVICES_FILE, {"d1": {"name": "h1"}})
         api.save(api.SCAP_FILE, {})

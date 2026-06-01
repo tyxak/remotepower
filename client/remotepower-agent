@@ -767,13 +767,22 @@ def run_oscap_scan(profile, creds):
                             report.update(available=False, reason=reason)
                         else:
                             parsed = _parse_oscap_results(res_path)
-                            if (parsed.get('total') or 0) == 0:
-                                # Scan ran but the profile selected no rules for this
-                                # OS (e.g. the Debian SSG 'standard' profile) — a 0%
-                                # "score" is meaningless, so report it as N/A.
+                            # "Applicable" = rules that actually evaluated to
+                            # pass or fail. oscap's base score is computed only
+                            # over these; if every rule came back notapplicable /
+                            # notchecked (common for the Debian SSG 'standard'
+                            # profile, whose content is minimal), pass+fail is 0
+                            # and the 0.0 "score" is meaningless — report it as
+                            # not-applicable rather than a scary 0%. (total counts
+                            # those skipped rules too, so we must check pass+fail,
+                            # not total.)
+                            applicable = (parsed.get('pass') or 0) + (parsed.get('fail') or 0)
+                            if applicable == 0:
                                 report.update(available=False,
-                                              reason=(f"profile '{profile}' has no applicable "
-                                                      f"rules in {os.path.basename(ds)}"))
+                                              reason=(f"profile '{profile}' evaluated no "
+                                                      f"applicable rules on this host "
+                                                      f"({os.path.basename(ds)}) — its score "
+                                                      f"would be meaningless"))
                             else:
                                 report.update(parsed)
                                 report['available'] = True

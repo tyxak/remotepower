@@ -133,7 +133,12 @@ collecting but the detail view didn't show:
   in-scope fleet (falling back to the built-in list before the first scan). A
   scan requested for an absent profile is short-circuited with a clear reason,
   and a profile that runs but selects **no applicable rules** (e.g. Debian's
-  `standard`) is reported as not-applicable instead of a meaningless 0%.
+  `standard`) is reported as not-applicable instead of a meaningless 0%. (That
+  "0%" was the XCCDF base score over pass/fail rules — with every rule coming
+  back *notapplicable*, the score is 0 but nothing was actually assessed. The
+  agent now keys off pass+fail, not total, and the server defensively coerces an
+  older agent's `available=True / 0 pass / 0 fail` into a not-applicable row so
+  existing 0% entries read correctly the moment the server is updated.)
 - **Uninstall software via the package manager.** An "Uninstall" button on the
   Install-software card removes the named packages on a device / group / tag
   through the host's own package manager (apt/dnf/yum/zypper/pacman/apk) —
