@@ -722,6 +722,11 @@ installed one (`kernel_outdated` + livepatch status) and collects a
 passive inventory — DIMMs, serial numbers, temperatures, RAID state.
 Everything surfaces in the device drawer's **Health & Hardware** card.
 
+The drawer's **System Info** tab rounds out the per-device picture with the
+host's **top processes** by CPU, each mount's **filesystem type**, a
+**reboot-required** indicator with the reason, the 1-minute **load average**, and
+a container **age** column — all from data the agent already reports.
+
 ### Resource forecasting
 A compact metrics snapshot is written **once per device per UTC day**
 (per-mount used/total GB, memory, swap, plus a state fingerprint) and

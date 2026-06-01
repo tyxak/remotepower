@@ -12135,7 +12135,14 @@ def handle_exec_batch_status(job_id):
     # must compare against the same truncated form, not the full command (a long
     # install/script command would otherwise never match and stay "pending").
     match_key = _sanitize_str(body_match, 512).strip() if body_match else None
+    # RBAC: a scoped caller must not see per-device names/output/return codes for
+    # devices outside its scope. Drop those entries; an unrestricted caller
+    # (scope is None) sees everything, unchanged.
+    scope = _caller_scope()
+    devices_roster = load(DEVICES_FILE) if scope is not None else None
     for dev_id, entry in job['per_device'].items():
+        if scope is not None and not _device_in_scope(scope, (devices_roster or {}).get(dev_id) or {}):
+            continue
         out = dict(entry)
         if entry.get('queued') and match_key:
             # Find the newest cmd_output for this device that matches the
@@ -12165,9 +12172,13 @@ def handle_exec_batch_status(job_id):
     })
 
 
-def _batch_job_progress(job, outputs):
+def _batch_job_progress(job, outputs, scope=None, devices_roster=None):
     """(done, failed, pending, total) for a batch job by correlating cmd_output
-    against the job's match command. done == rc 0, failed == rc != 0."""
+    against the job's match command. done == rc 0, failed == rc != 0.
+
+    RBAC: when `scope` is non-None, only targets inside the caller's device
+    scope are counted (out-of-scope hosts are invisible). `devices_roster` is
+    the device map used for the scope test; pass it to avoid a reload per job."""
     match = job.get('match_cmd')
     if not match and job.get('script_id'):
         for s in load(SCRIPTS_FILE).get('scripts', []):
@@ -12180,6 +12191,8 @@ def _batch_job_progress(job, outputs):
     done = failed = pending = total = 0
     for dev_id, entry in (job.get('per_device') or {}).items():
         if not entry.get('queued'):
+            continue
+        if scope is not None and not _device_in_scope(scope, (devices_roster or {}).get(dev_id) or {}):
             continue
         total += 1
         st = 'pending'
@@ -12202,9 +12215,18 @@ def handle_batch_jobs_list():
     _purge_expired_batch_jobs(jobs_data)
     save(BATCH_JOBS_FILE, jobs_data)
     outputs = load(CMD_OUTPUT_FILE)
+    # RBAC: a scoped caller only sees jobs that touch its in-scope devices, with
+    # counts recomputed over those targets. Jobs with no in-scope target are
+    # omitted entirely (their label may name a package). Unrestricted callers
+    # (scope is None) see everything with counts unchanged.
+    scope = _caller_scope()
+    devices_roster = load(DEVICES_FILE) if scope is not None else None
     out = []
     for jid, job in jobs_data.get('jobs', {}).items():
-        done, failed, pending, total = _batch_job_progress(job, outputs)
+        done, failed, pending, total = _batch_job_progress(
+            job, outputs, scope=scope, devices_roster=devices_roster)
+        if scope is not None and total == 0:
+            continue
         out.append({'id': jid, 'kind': job.get('kind', 'script'),
                     'label': job.get('label') or job.get('script_name', ''),
                     'created': int(job.get('created', 0)), 'actor': job.get('actor'),
@@ -17971,6 +17993,19 @@ def _filter_devices_for_export():
     return filtered
 
 
+def _csv_safe(value):
+    """Neutralize CSV/spreadsheet formula injection. A cell whose first char is
+    one of = + - @ (or a leading tab/CR that a parser may strip back to one of
+    those) is treated as a formula by Excel/Sheets/LibreOffice. Prefix a single
+    quote so the cell is rendered as literal text. Non-string values pass
+    through unchanged (numbers can't carry a formula)."""
+    if not isinstance(value, str) or not value:
+        return value
+    if value[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + value
+    return value
+
+
 def handle_patch_report_csv():
     """Return patch report as CSV."""
     require_auth()
@@ -17989,9 +18024,10 @@ def handle_patch_report_csv():
         status = 'no_data' if (upgradable is None or not is_online) else ('fully_patched' if upgradable == 0 else 'patches_available')
         last_seen_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(dev.get('last_seen', 0))) if dev.get('last_seen') else 'never'
         writer.writerow([
-            dev.get('name', dev_id), dev.get('hostname', ''), dev.get('group', ''),
-            dev.get('os', ''), 'yes' if is_online else 'no',
-            pkg.get('manager', 'unknown'), upgradable if upgradable is not None else 'N/A',
+            _csv_safe(dev.get('name', dev_id)), _csv_safe(dev.get('hostname', '')),
+            _csv_safe(dev.get('group', '')), _csv_safe(dev.get('os', '')),
+            'yes' if is_online else 'no',
+            _csv_safe(pkg.get('manager', 'unknown')), upgradable if upgradable is not None else 'N/A',
             status, last_seen_str
         ])
     data = buf.getvalue().encode()
@@ -28083,6 +28119,9 @@ def handle_acme_detail(dev_id, domain):
 def handle_acme_log(dev_id, action_id):
     """GET /api/acme/<dev_id>/log/<action_id> — full captured stdout for one action."""
     require_auth()
+    # Per-device read NOT under /api/devices/, so the dispatch guard
+    # (_enforce_device_scope) doesn't cover it — block out-of-scope roles here.
+    _scope_block_device(dev_id)
     if not _validate_id(dev_id):
         respond(404, {'error': 'invalid device id'}); return
     log_path = _acme_log_path(dev_id, action_id)
@@ -28734,7 +28773,10 @@ def handle_mitigate_investigate(dev_id):
     Body: {kind: str, target: str (optional, e.g. service unit name)}
     Queues the read-only diagnostic playbook for the given alert kind.
     """
-    require_auth()
+    # Queuing a diagnostic command is an exec action: gate it exactly like
+    # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
+    # any custom role whose scope doesn't include this device.
+    require_perm('exec', [dev_id])
     body = get_json_body() or {}
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
@@ -28755,7 +28797,10 @@ def handle_mitigate_fix(dev_id):
       (b) An AI-suggested command. Subject to the denylist + sensitive checks;
           if either trips, require confirmation==RUN; if denylist trips, refuse.
     """
-    require_auth()
+    # Queuing a remediation command is an exec action: gate it exactly like
+    # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
+    # any custom role whose scope doesn't include this device.
+    require_perm('exec', [dev_id])
     body = get_json_body() or {}
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)

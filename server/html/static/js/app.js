@@ -11659,7 +11659,7 @@ async function _loadAuditSection(key) {
           ['Uptime',    si.uptime],
           ['Platform',  si.platform],
           ['CPU count', si.cpu_count],
-          ['Load avg',  si.loadavg],
+          ['Load avg',  si.loadavg_1m],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
@@ -11672,14 +11672,37 @@ async function _loadAuditSection(key) {
               `<span class="cmd-badge fs-11">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
             ).join('') + `</div>`;
         }
+        // Reboot-required indicator — data already in sysinfo (matches the
+        // home/attention feed at _renderHostHealth).
+        if (si.reboot_required === true) {
+          const rebootIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+          h += `<div class="fs-12 mt-8 c-amber">${rebootIco} <strong>Reboot required</strong>${
+            si.reboot_reason ? ` <span class="c-muted">(${escHtml(String(si.reboot_reason))})</span>` : ''
+          }</div>`;
+        }
         if ((si.mounts||[]).length) {
           h += `<table class="isl-627">
-            <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
+            <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
             <tbody>` + si.mounts.map(m=>
               `<tr><td class="isl-629"><code>${escHtml(m.path)}</code></td>
+                   <td class="fs-11 c-muted">${escHtml(m.fstype || '—')}</td>
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
                    <td class="isl-630 ${m.percent>85?'c-red': m.percent>70?'c-amber': ''}">${m.percent}%</td></tr>`
+            ).join('') + `</tbody></table>`;
+        }
+        // Top processes by CPU — data already in sysinfo (top_processes:
+        // [{pid,name,cpu,mem}]). Shown fleet-wide on the Processes page; surface
+        // a compact view here too.
+        if (Array.isArray(si.top_processes) && si.top_processes.length) {
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Top processes</div>
+            <table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">PID</th><th>Name</th><th class="ta-center">CPU%</th><th class="ta-center">Mem%</th></tr></thead>
+            <tbody>` + si.top_processes.slice(0, 8).map(p=>
+              `<tr><td class="isl-629"><code>${escHtml(String(p.pid != null ? p.pid : '—'))}</code></td>
+                   <td>${escHtml(p.name || '—')}</td>
+                   <td class="ta-center">${p.cpu != null ? escHtml(String(p.cpu)) : '—'}</td>
+                   <td class="ta-center">${p.mem != null ? escHtml(String(p.mem)) : '—'}</td></tr>`
             ).join('') + `</tbody></table>`;
         }
         if (jrnl.length) {
@@ -11937,10 +11960,21 @@ async function _loadAuditSection(key) {
           badge.textContent = 'none'; return;
         }
         badge.textContent = `${ctrs.length} container${ctrs.length!==1?'s':''}`;
+        // Container age from uptime_seconds (preferred) or started_at (epoch).
+        const _fmtDur = (s) => {
+          s = Math.max(0, Math.floor(s));
+          const d = Math.floor(s / 86400);
+          const h = Math.floor((s % 86400) / 3600);
+          const m = Math.floor((s % 3600) / 60);
+          if (d > 0) return `${d}d ${h}h`;
+          if (h > 0) return `${h}h ${m}m`;
+          if (m > 0) return `${m}m`;
+          return `${s}s`;
+        };
         body.innerHTML = `<table class="isl-649">
           <thead><tr class="c-muted">
             <th class="isl-650">Name</th>
-            <th>Status</th><th>Image</th>
+            <th>Status</th><th>Image</th><th>Age</th>
           </tr></thead>
           <tbody>
             ${ctrs.map(c => {
@@ -11948,10 +11982,17 @@ async function _loadAuditSection(key) {
               const up   = stat.includes('up ') || stat.includes('running') || stat === 'running';
               const col  = up ? 'var(--green)' : stat.includes('exit') ? 'var(--red)' : 'var(--muted)';
               const img  = (c.image || c.Image || '—').split(':')[0];
+              let age = '—';
+              if (typeof c.uptime_seconds === 'number' && c.uptime_seconds > 0) {
+                age = _fmtDur(c.uptime_seconds);
+              } else if (typeof c.started_at === 'number' && c.started_at > 0) {
+                age = _fmtDur(Math.floor(Date.now() / 1000) - c.started_at);
+              }
               return `<tr class="border-top">
                 <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code></td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td class="isl-653">${escHtml(img)}</td>
+                <td class="hint">${escHtml(age)}</td>
               </tr>`;
             }).join('')}
           </tbody></table>`;
@@ -13316,13 +13357,16 @@ function deleteFleetQuery(i) {
 }
 async function runFleetQuery() {
   const out = document.getElementById('fq-results');
+  // Eager wire-up (CLAUDE.md): wire sort before the fetch / empty branches so
+  // the ↕ indicator is present even on loading/empty states.
+  tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);
   const f = _fqFields();
   const params = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) params.set(k, v); });
   out.innerHTML = '<div class="c-muted">Querying…</div>';
   const r = await api('GET', '/fleet/query?' + params.toString()).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Query failed.</div>'; return; }
-  if (!r.devices.length) { out.innerHTML = '<div class="c-muted fs-13">No devices match.</div>'; return; }
+  if (!Array.isArray(r.devices) || !r.devices.length) { out.innerHTML = '<div class="c-muted fs-13">No devices match.</div>'; return; }
   const sorted = tableCtl.sortRows('fleet_query', r.devices.slice(), d => ({
     device: d.name, group: d.group || '', os: d.os || '',
     status: d.online ? 1 : 0,

@@ -6,6 +6,44 @@ All notable changes to RemotePower. Newest first.
 
 In development.
 
+### Security & hardening
+- **RBAC read/act scoping now covers per-device endpoints that don't live under
+  `/api/devices/`.** The dispatch-level scope guard only fired for
+  `/api/devices/<id>` paths, so a few per-device routes addressed under other
+  prefixes weren't covered. Closed:
+  - **Mitigate** (`POST /api/mitigate/<id>/investigate` and `/fix`) now require
+    the `exec` permission on an in-scope device — they queue a command on the
+    host, so a read-only viewer or an out-of-scope operator can no longer trigger
+    a diagnostic or remediation run on a device they shouldn't touch. (Previously
+    these only checked that the caller was authenticated.)
+  - **ACME action log** (`GET /api/acme/<id>/log/<action>`) is scope-checked, so a
+    scoped role can't read certificate-action output for an out-of-scope host.
+  - **Batch / install job tracker** (`GET /api/exec/batch` and
+    `/api/exec/batch/<id>`) filters per-host status, return codes, command output,
+    and job labels (which may name installed packages) to the caller's in-scope
+    devices; jobs with no in-scope target are omitted. Unrestricted callers
+    (admin / all-scope) see everything, unchanged.
+- **CSV report hardening** — the patch report CSV (`GET /api/patch-report.csv`)
+  now neutralizes spreadsheet formula injection: any cell starting with `=`, `+`,
+  `-`, `@`, tab or CR is prefixed with a single quote so it opens as literal text.
+
+### Bind it together — device detail
+The device drawer's **System Info** tab now surfaces data the agent was already
+collecting but the detail view didn't show:
+- **Top processes** — the host's top processes by CPU (PID / name / CPU% / mem%),
+  the same data shown fleet-wide on the Processes page, now also per device.
+- **Filesystem type** per mount (ext4 / xfs / zfs / btrfs / nfs …) in the mounts
+  table.
+- **Reboot required** — a clear amber indicator plus the *reason* (the packages
+  that triggered it) when a host needs a reboot, not just on the home feed.
+- **Container age** — an Age column in the per-device container list, from the
+  container's uptime / start time.
+- Fixed: the drawer's **Load avg** pill read the wrong key and was always blank;
+  it now shows the 1-minute load average.
+- Fixed: the **Fleet Query** results table wires its sort headers eagerly (the ↕
+  indicator shows on loading / empty / failed states too) and no longer throws on
+  a malformed response.
+
 ### Operations, onboarding & UX
 - **Install software from repos, by host or tag/group.** A new "Install software"
   action (Patches page) installs one or more repo packages — detecting the

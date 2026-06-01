@@ -658,6 +658,7 @@ class TestV342SettingsActions(unittest.TestCase):
             setattr(api, a, _P(d) / fn)
         api.require_auth = lambda **k: 'admin'
         captured = {}
+        _orig_respond = api.respond
         api.respond = lambda code, body=None: (_ for _ in ()).throw(_StopResp(code, body))
         (_P(d) / 'users.json').write_text(json.dumps({'admin': {'must_change_password': True}}))
         (_P(d) / 'config.json').write_text('{}')
@@ -667,6 +668,8 @@ class TestV342SettingsActions(unittest.TestCase):
             api.handle_setup_status()
         except _StopResp as e:
             rep = e.body
+        finally:
+            api.respond = _orig_respond  # don't leak the patch into later tests
         self.assertIn('steps', rep)
         self.assertEqual(rep['total'], 5)
         pw = [s for s in rep['steps'] if s['id'] == 'admin-password'][0]
@@ -1138,6 +1141,16 @@ class TestV342BakeSign(unittest.TestCase):
         api.require_auth = lambda *a, **k: 't'
         api.require_admin_auth = lambda *a, **k: 'admin'
         api.audit_log = lambda *a, **k: None
+        # Other test modules patch api.respond globally (some without restoring),
+        # so in a full-suite run respond may not be the real HTTPError-raising
+        # function this test's run() helper relies on. Pin it back.
+        api.respond = lambda status, body=None: (_ for _ in ()).throw(api.HTTPError(status, body))
+        # v3.4.2: signing re-verifies the admin password. Point USERS_FILE at the
+        # throwaway dir (no stored hash → the gate short-circuits before calling
+        # verify_password) and stub verify_password too, so the test is robust
+        # regardless of suite ordering / shared module state.
+        api.USERS_FILE = _P(d) / 'users.json'
+        api.verify_password = lambda *a, **k: True
         api._SIGNING_GNUPGHOME = _P(d) / 'signing-gpg'
         ad = _P(d) / 'agent'; ad.mkdir()
         binp = ad / 'remotepower-agent'; binp.write_bytes(b'VERSION="3.4.2"\n')

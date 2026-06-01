@@ -1928,7 +1928,7 @@
 
               <h4>Granular RBAC (Users &amp; Roles)</h4>
               <ul>
-                <li>Beyond the built-in <strong>admin</strong> / <strong>viewer</strong> roles, define <strong>custom roles</strong> that grant a subset of actions — <code>exec</code>, <code>reboot</code>, <code>upgrade</code> — limited to a <strong>scope</strong> (all devices, or only named groups / tags). Members act on their scope only, and — with RBAC v2 read scoping — see only their in-scope devices everywhere: a dispatch-level guard blocks out-of-scope <code>/api/devices/&lt;id&gt;</code> reads and every fleet aggregate (patches, CVE, query, timeline, health, drift, alerts, network map, …) filters its per-device rows to scope. Config, user/role/key management and saved scripts stay admin-only.</li>
+                <li>Beyond the built-in <strong>admin</strong> / <strong>viewer</strong> roles, define <strong>custom roles</strong> that grant a subset of actions — <code>exec</code>, <code>reboot</code>, <code>upgrade</code> — limited to a <strong>scope</strong> (all devices, or only named groups / tags). Members act on their scope only, and — with RBAC v2 read scoping — see only their in-scope devices everywhere: a dispatch-level guard blocks out-of-scope <code>/api/devices/&lt;id&gt;</code> reads and every fleet aggregate (patches, CVE, query, timeline, health, drift, alerts, network map, …) filters its per-device rows to scope — including the per-device routes addressed <em>outside</em> <code>/api/devices/</code> (mitigate, ACME action logs, and the install / batch job tracker, whose per-host output and package labels are scoped too). Triggering a <strong>mitigation</strong> investigate/fix run now requires the <code>exec</code> permission on an in-scope device. Config, user/role/key management and saved scripts stay admin-only.</li>
               </ul>
 
               <h4>Linux-RMM additions</h4>
@@ -1937,6 +1937,10 @@
                 <li><strong>Third-party patch detection</strong> — available updates from <strong>flatpak / snap / pip / npm</strong> are reported and aggregated by manager in the patch catalog, alongside OS packages.</li>
                 <li><strong>On-call &amp; escalation</strong> (Settings &rarr; Notifications) — escalation <strong>tiers</strong> re-notify your destinations when a critical/high alert stays unacknowledged, naming the current <strong>on-call</strong> contact from a rotation.</li>
                 <li><strong>Trends</strong> (Planning &rarr; Trends) — zero-dependency multi-series SVG charts of fleet health, compliance %, and per-device memory / swap / disk over time.</li>
+              </ul>
+              <h4>Device detail — completeness</h4>
+              <ul>
+                <li>The device drawer's <strong>System Info</strong> tab now surfaces data the agent already reports: the host's <strong>top processes</strong> by CPU, the <strong>filesystem type</strong> of each mount, a <strong>reboot-required</strong> indicator with the reason, and a container <strong>Age</strong> column. (Plus fixes: the Load-avg pill now populates, and the Fleet Query table wires its sort headers eagerly.)</li>
               </ul>
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
             </div>

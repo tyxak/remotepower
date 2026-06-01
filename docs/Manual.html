@@ -187,7 +187,7 @@ sudo systemctl enable --now remotepower-agent
 <p>The agent polls the server every <code>poll_interval</code> seconds (default 60). On each heartbeat it sends:</p>
 <ul>
   <li>Identity: <code>device_id</code>, <code>token</code>, OS version, IP, MAC</li>
-  <li>System info: cpu/memory/swap percentages, 1-min load average, cpu count, per-mount disk usage (v1.11.10+)</li>
+  <li>System info: cpu/memory/swap percentages, 1-min load average, cpu count, per-mount disk usage (with filesystem type), top processes by CPU, and reboot-required status with the triggering packages (v1.11.10+)</li>
   <li>Watched services and log-pattern matches (configured server-side, pushed to agent in heartbeat response)</li>
   <li>Container list (Docker/Podman/Kubernetes pods, if available on the host)</li>
   <li>Any pending command output from the previous run (v1.11.7+ uses a dedicated follow-up heartbeat for this)</li>
