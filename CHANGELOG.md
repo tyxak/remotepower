@@ -121,6 +121,12 @@ collecting but the detail view didn't show:
   after `BEGIN_FIX` (up to a blank line / code fence) when `END_FIX` is missing,
   so a usable fix surfaces. The Re-run AI button in the pane lets you re-prompt
   without waiting on the agent again.
+- **Mitigation AI no longer stalls indefinitely.** If the AI provider (or nginx)
+  never responds, the analysis step used to spin forever — the elapsed counter
+  ticked but nothing resolved and there was no clear recovery. It now has a hard
+  4-minute client-side timeout that aborts and shows a clear message, and every
+  terminal state (timeout, abort, network error, server error, empty response)
+  now renders an inline **Re-run AI** button so the step is never a dead end.
 - **Command Queue (Admin).** A new Admin → Command Queue page shows every device
   with commands still waiting to be picked up on its next heartbeat — what kind
   (exec / reboot / poll / compose / …) and a readable summary — so you can see

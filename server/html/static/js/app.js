@@ -16723,8 +16723,28 @@ async function _mitigateRunAi() {
     aborted = true;
     if (controller) { try { controller.abort(); } catch (_) {} }
   };
+  // Shared terminal-state helper: always leave the operator a clear message AND
+  // a Re-run button, so a stalled / failed AI step is never a dead end.
+  const _fail = (msg) => {
+    clearInterval(_tick);
+    if (_hardTimer) clearTimeout(_hardTimer);
+    window.abortMitigateAi = null;
+    statusEl.innerHTML = escHtml(msg) +
+      ' <button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>';
+  };
   _renderStatus();
   const _tick = setInterval(_renderStatus, 1000);
+
+  // v3.4.2: hard client-side timeout. Without it, an AI provider (or nginx)
+  // that never sends a response leaves the await pending forever — the counter
+  // ticks but nothing ever resolves, which is the "it just stalls" report. Abort
+  // after a generous window and surface a Re-run.
+  const _HARD_TIMEOUT_MS = 240000;   // 4 min — longer than any sane model reply
+  let _timedOut = false;
+  const _hardTimer = setTimeout(() => {
+    _timedOut = true;
+    if (controller) { try { controller.abort(); } catch (_) {} }
+  }, _HARD_TIMEOUT_MS);
 
   let r;
   try {
@@ -16733,24 +16753,28 @@ async function _mitigateRunAi() {
       `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
       {}, opts);
   } catch (e) {
-    clearInterval(_tick);
-    window.abortMitigateAi = null;
-    if (aborted) {
-      statusEl.textContent = 'Aborted. Close and retry, or change the AI provider in Settings → AI Assistant.';
+    if (_timedOut) {
+      _fail('AI analysis timed out after 4 min — the provider never responded. '
+          + 'Check Settings → AI Assistant (and nginx fastcgi_read_timeout).');
+    } else if (aborted) {
+      _fail('Aborted. Re-run, or change the AI provider in Settings → AI Assistant.');
     } else {
-      statusEl.textContent = `Network error contacting AI: ${e && e.message ? e.message : e}`;
+      _fail(`Network error contacting AI: ${e && e.message ? e.message : e}`);
     }
     return;
   }
   clearInterval(_tick);
+  if (_hardTimer) clearTimeout(_hardTimer);
   window.abortMitigateAi = null;
   if (!r) {
-    statusEl.textContent = 'AI call failed (no response from server — check Settings → AI Assistant and the nginx error log).';
+    _fail('AI call failed (no response from server — check Settings → AI Assistant and the nginx error log).');
     return;
   }
   if (r.error) {
     statusEl.textContent = '';
-    document.getElementById('mitigate-ai-summary').textContent = `Error: ${r.error}`;
+    document.getElementById('mitigate-ai-summary').innerHTML =
+      `Error: ${escHtml(r.error)} `
+      + '<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>';
     return;
   }
   statusEl.textContent = `Done in ${Math.floor((Date.now() - startedAt) / 1000)}s.`;
