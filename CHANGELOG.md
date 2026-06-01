@@ -113,6 +113,12 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Timeline rows stay inside their card.** The timeline row is a 3-column grid
+  (`14px 1fr auto`) but the middle `.tl-main` column had no CSS, so it defaulted
+  to `min-width:auto` and a long unbreakable detail (an `snmp recover` string, a
+  command line) pushed the column past the card and the row overflowed "out of
+  the box". Added `min-width:0` to `.tl-main`/`.tl-head` and `overflow-wrap` so
+  long content wraps within the card.
 - **CVE "Scan all devices" no longer freezes the browser.** A fleet-wide scan
   does OSV.dev lookups for every device and can run for minutes — long enough
   that the request (or nginx) times out and the page looks hung. The scan button

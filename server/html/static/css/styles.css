@@ -4183,8 +4183,13 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .tl-dot.sev-high     { background: #ff8c00; }
 .tl-dot.sev-medium   { background: #d4a017; }
 .tl-dot.sev-low      { background: var(--muted); }
-.tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.tl-title { font-weight: 600; color: var(--text); }
+/* The middle (1fr) grid column. Without min-width:0 a grid/flex item defaults
+   to min-width:auto and refuses to shrink below its content's intrinsic width,
+   so a long unbreakable detail (an snmp-recover string, a command line) pushes
+   the column wider than the card and the row overflows "out of the box". */
+.tl-main { min-width: 0; }
+.tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.tl-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
 .tl-kind { font-size: 11px; color: var(--muted); text-transform: capitalize; }
 .tl-devchip {
   font-size: 11px; font-weight: 600; color: var(--accent);
