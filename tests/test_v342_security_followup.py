@@ -9,97 +9,90 @@ Regression tests for the two v3.4.2 security follow-ups:
     of hanging 'pending' forever, while a command still waiting in the queue
     stays pending until its own run lands.
 
-Harness: import api.py as a module with its data dir pointed at a throwaway tmp
-dir (mirrors tests/test_authz_mitigate_scope.py).
+Pure stdlib ``unittest`` (no pytest) so it runs under both
+``python -m unittest discover`` (used by ``make dist``) and pytest.
 """
-import importlib.util
 import os
 import sys
 import tempfile
-import pathlib
-import pytest
+import unittest
+from pathlib import Path
 
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 
-REPO = pathlib.Path(__file__).resolve().parents[1]
-APIPY = REPO / "server" / "cgi-bin" / "api.py"
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_ROOT / "server" / "cgi-bin"))
 
-spec = importlib.util.spec_from_file_location("rp_api_secfollowup", APIPY)
-api = importlib.util.module_from_spec(spec)
-sys.modules["rp_api_secfollowup"] = api
-spec.loader.exec_module(api)
+import api  # noqa: E402
 
 
-# ── OIDC SSRF guard ──────────────────────────────────────────────────────────
-@pytest.mark.parametrize("url", [
-    "http://169.254.169.254/.well-known/openid-configuration",  # AWS/GCP/Azure metadata
-    "https://169.254.169.254/token",                            # link-local over https
-    "http://0.0.0.0/",                                          # unspecified
-])
-def test_oidc_url_blocks_metadata_and_linklocal(url):
-    with pytest.raises(ValueError):
-        api._oidc_assert_safe_url(url, "OIDC issuer")
+class TestOidcSsrfGuard(unittest.TestCase):
+    def test_blocks_metadata_and_linklocal(self):
+        for url in ("http://169.254.169.254/.well-known/openid-configuration",  # AWS/GCP/Azure metadata
+                    "https://169.254.169.254/token",                            # link-local over https
+                    "http://0.0.0.0/"):                                         # unspecified
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                api._oidc_assert_safe_url(url, "OIDC issuer")
+
+    def test_blocks_non_http(self):
+        for url in ("ftp://idp.example.com/", "file:///etc/passwd",
+                    "gopher://10.0.0.1/", ""):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                api._oidc_assert_safe_url(url)
+
+    def test_allows_internal_and_public(self):
+        # Legitimate IdP locations for a LAN product — must NOT raise. IP literals
+        # so getaddrinfo resolves them offline (no DNS / network in the test).
+        for url in ("http://10.0.0.5/.well-known/openid-configuration",  # RFC1918 internal IdP
+                    "https://192.168.1.10/token",                         # RFC1918
+                    "http://127.0.0.1:8443/",                             # loopback dev IdP
+                    "https://8.8.8.8/"):                                  # public IP literal
+            with self.subTest(url=url):
+                api._oidc_assert_safe_url(url, "OIDC issuer")
 
 
-@pytest.mark.parametrize("url", [
-    "ftp://idp.example.com/",      # non-http scheme
-    "file:///etc/passwd",          # non-http scheme
-    "gopher://10.0.0.1/",          # non-http scheme
-    "",                            # empty
-])
-def test_oidc_url_blocks_non_http(url):
-    with pytest.raises(ValueError):
-        api._oidc_assert_safe_url(url)
+_KEY = "exec:apt-get install -y nginx"
 
 
-@pytest.mark.parametrize("url", [
-    "http://10.0.0.5/.well-known/openid-configuration",  # RFC1918 internal IdP — allowed
-    "https://192.168.1.10/token",                         # RFC1918 — allowed
-    "http://127.0.0.1:8443/",                             # loopback dev IdP — allowed
-    "https://8.8.8.8/",                                   # public IP literal — allowed
-])
-def test_oidc_url_allows_internal_and_public(url):
-    # Must not raise — these are legitimate IdP locations for a LAN product.
-    api._oidc_assert_safe_url(url, "OIDC issuer")
+class TestBatchMatchRecord(unittest.TestCase):
+    def test_returns_record_after_created(self):
+        rec = api._batch_match_record(
+            [{"cmd": _KEY, "ts": 1000, "rc": 0, "output": "ok"}], _KEY,
+            created=900, still_queued=False)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["rc"], 0)
+
+    def test_pending_while_still_queued(self):
+        # Only a prior run exists (ts < created) and the command is still queued,
+        # so a fresh run is coming — stay pending.
+        rec = api._batch_match_record(
+            [{"cmd": _KEY, "ts": 500, "rc": 0}], _KEY, created=900, still_queued=True)
+        self.assertIsNone(rec)
+
+    def test_resolves_from_prior_run_when_dedup(self):
+        # De-dup case: a prior run exists (ts < created) and the command is NOT
+        # queued anymore (de-duplicated, won't run again) — resolve from it
+        # instead of hanging pending forever.
+        rec = api._batch_match_record(
+            [{"cmd": _KEY, "ts": 500, "rc": 0, "output": "already newest version"}],
+            _KEY, created=900, still_queued=False)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["ts"], 500)
+
+    def test_none_when_never_ran(self):
+        # No matching output and not queued → genuinely never ran → pending.
+        self.assertIsNone(api._batch_match_record([], _KEY, created=900, still_queued=False))
+
+    def test_prefers_newest_after_created(self):
+        outs = [
+            {"cmd": _KEY, "ts": 500, "rc": 0},
+            {"cmd": _KEY, "ts": 1000, "rc": 0},
+            {"cmd": _KEY, "ts": 1500, "rc": 1},   # newest at/after created
+        ]
+        rec = api._batch_match_record(outs, _KEY, created=900, still_queued=False)
+        self.assertEqual(rec["ts"], 1500)
+        self.assertEqual(rec["rc"], 1)
 
 
-# ── batch / install job de-dup resolution ────────────────────────────────────
-KEY = "exec:apt-get install -y nginx"
-
-
-def test_batch_match_returns_record_after_created():
-    outs = [{"cmd": KEY, "ts": 1000, "rc": 0, "output": "ok"}]
-    rec = api._batch_match_record(outs, KEY, created=900, still_queued=False)
-    assert rec is not None and rec["rc"] == 0
-
-
-def test_batch_match_pending_while_still_queued():
-    # Only a prior run exists (ts < created) and the command is still queued, so
-    # a fresh run is coming — stay pending.
-    outs = [{"cmd": KEY, "ts": 500, "rc": 0, "output": "ok"}]
-    rec = api._batch_match_record(outs, KEY, created=900, still_queued=True)
-    assert rec is None
-
-
-def test_batch_match_resolves_from_prior_run_when_dedup():
-    # The de-dup case: a prior run exists (ts < created) and the command is NOT
-    # queued anymore (it was de-duplicated and won't run again) — resolve from
-    # the prior run instead of hanging pending forever.
-    outs = [{"cmd": KEY, "ts": 500, "rc": 0, "output": "already newest version"}]
-    rec = api._batch_match_record(outs, KEY, created=900, still_queued=False)
-    assert rec is not None and rec["ts"] == 500
-
-
-def test_batch_match_none_when_never_ran():
-    # No matching output at all and not queued → genuinely never ran → pending.
-    assert api._batch_match_record([], KEY, created=900, still_queued=False) is None
-
-
-def test_batch_match_prefers_newest_after_created():
-    outs = [
-        {"cmd": KEY, "ts": 500, "rc": 0},
-        {"cmd": KEY, "ts": 1000, "rc": 0},
-        {"cmd": KEY, "ts": 1500, "rc": 1},   # newest at/after created
-    ]
-    rec = api._batch_match_record(outs, KEY, created=900, still_queued=False)
-    assert rec["ts"] == 1500 and rec["rc"] == 1
+if __name__ == "__main__":
+    unittest.main()
