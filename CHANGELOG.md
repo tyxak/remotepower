@@ -113,6 +113,22 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **CVE "Scan all devices" no longer freezes the browser.** A fleet-wide scan
+  does OSV.dev lookups for every device and can run for minutes — long enough
+  that the request (or nginx) times out and the page looks hung. The scan button
+  now uses an AbortController with a generous client timeout (10 min fleet / 2
+  min single) and clear messaging that the scan continues server-side; results
+  refresh when done instead of blocking the UI.
+- **Timeline now shows CVEs.** The timeline is event-sourced, but CVE findings
+  are state — a re-scan of already-known CVEs fires no `cve_found` event, so
+  CVEs never appeared even on hosts that clearly have them. The timeline now
+  surfaces current critical/high (non-ignored) findings as a synthetic `cve` row
+  per device, alongside the event-based rows.
+- **OpenSCAP scan survives an agent self-update.** The scan runs in a daemon
+  thread; if the agent self-updated/restarted mid-scan, the thread was killed and
+  no result was ever reported ("server requests it, then nothing"). The agent now
+  defers its self-update while an OpenSCAP scan is in progress (retried on the
+  next poll once the scan finishes).
 - **Ignored CVEs can be un-ignored.** CVE ignores are stored separately from the
   per-item Needs-Attention/container/device hides, and the "Ignored items"
   settings pane only listed the latter — so a CVE you'd accepted as risk showed

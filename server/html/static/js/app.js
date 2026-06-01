@@ -3941,17 +3941,40 @@ async function triggerCVEScan(devId, btn) {
   const label = devId ? 'device' : 'all devices';
   const origText = btn?.textContent || '';
   if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
-  toast(`Scanning ${label}… may take a minute`, 'info');
-  const body = devId ? {device_id: devId} : {};
-  const result = await api('POST', '/cve/scan', body);
+  // A fleet-wide scan does OSV.dev lookups for every device's packages and can
+  // take minutes — long enough that nginx may 504 and the page looks frozen.
+  // Use an AbortController with a generous client timeout so the request can't
+  // hang the UI indefinitely, and make clear the scan continues server-side.
+  toast(devId ? 'Scanning device… may take a minute'
+              : 'Scanning all devices… this can take several minutes; results update as they finish',
+        'info');
+  const body = devId ? { device_id: devId } : {};
+  const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => { try { controller.abort(); } catch (_) {} },
+                                        devId ? 120000 : 600000) : null;
+  let result, timedOut = false;
+  try {
+    result = await api('POST', '/cve/scan', body,
+                       controller ? { signal: controller.signal } : undefined);
+  } catch (e) {
+    timedOut = true;
+    result = null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (btn) {
     const ok = result && !result.errors?.length;
-    btn.textContent = ok ? '✓ Done' : '✗ Error';
+    btn.textContent = ok ? '✓ Done' : (timedOut ? 'running…' : '✗ Error');
     btn.style.color = ok ? 'var(--green)' : 'var(--red)';
     btn.disabled = false;
     setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
   }
-  if (!result) return;
+  if (!result) {
+    toast(timedOut
+      ? 'Scan is taking a while — it continues on the server. Refresh CVE findings in a few minutes.'
+      : 'CVE scan failed (see server log).', timedOut ? 'info' : 'error');
+    return;
+  }
   const s = result.scanned?.length || 0, k = result.skipped?.length || 0, e = result.errors?.length || 0;
   toast(`Scan complete: ${s} scanned, ${k} skipped, ${e} errors`, e > 0 ? 'error' : 'success');
   loadCVEReport();

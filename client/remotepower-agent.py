@@ -2937,6 +2937,13 @@ def check_for_update(server_url, force=False):
     push a re-download even when hashes match (useful when the local
     binary is suspected of tampering).
     """
+    # Don't self-update while an OpenSCAP scan is running: applying an update
+    # restarts the process, and the scan runs in a daemon thread that dies with
+    # it — the scan never finishes or reports ("server requested scan, then
+    # nothing"). Defer; the next poll retries the update once the scan is done.
+    if _oscap_running.locked() and not force:
+        log.info("Deferring agent self-update — an OpenSCAP scan is in progress")
+        return False
     try:
         info = http_get(f"{server_url}/api/agent/version", timeout=10)
     except Exception as e:

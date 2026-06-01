@@ -320,6 +320,43 @@ class TestScapReportStore(_Base):
         self.assertTrue(callable(getattr(api, "handle_scap_report_download", None)))
 
 
+class TestTimelineSurfacesCVEs(_Base):
+    """The timeline is event-sourced, but CVE findings are state — a re-scan of
+    known CVEs fires no cve_found event. _timeline_collect must still surface
+    current critical/high (non-ignored) findings as a synthetic 'cve' row."""
+    _FILES = ("DEVICES_FILE", "CMDS_FILE", "AUDIT_LOG_FILE",
+              "FLEET_EVENTS_FILE", "CMD_OUTPUT_FILE", "CVE_FINDINGS_FILE",
+              "CVE_IGNORE_FILE")
+
+    def test_cve_row_present_without_event(self):
+        api.save(api.FLEET_EVENTS_FILE, {"events": []})   # no cve_found event
+        api.save(api.CMD_OUTPUT_FILE, {})
+        api.save(api.CVE_FINDINGS_FILE, {"d1": {"scanned_at": 1000, "findings": [
+            {"vuln_id": "CVE-A", "severity": "critical", "package": "p"},
+            {"vuln_id": "CVE-B", "severity": "high", "package": "q"},
+            {"vuln_id": "CVE-C", "severity": "low", "package": "r"},   # excluded
+        ]}})
+        api.save(api.CVE_IGNORE_FILE, {})
+        api._LOAD_CACHE.clear()
+        items = api._timeline_collect({"d1"}, {"d1": "host1"})
+        cve = [i for i in items if i["kind"] == "cve"]
+        self.assertEqual(len(cve), 1)
+        self.assertEqual(cve[0]["severity"], "critical")
+        self.assertIn("CVE-A", cve[0]["detail"])
+        self.assertNotIn("CVE-C", cve[0]["detail"])   # low not surfaced
+
+    def test_ignored_cves_excluded_from_timeline(self):
+        api.save(api.FLEET_EVENTS_FILE, {"events": []})
+        api.save(api.CMD_OUTPUT_FILE, {})
+        api.save(api.CVE_FINDINGS_FILE, {"d1": {"scanned_at": 1000, "findings": [
+            {"vuln_id": "CVE-A", "severity": "critical", "package": "p"},
+        ]}})
+        api.save(api.CVE_IGNORE_FILE, {"CVE-A": {"scope": "global"}})
+        api._LOAD_CACHE.clear()
+        items = api._timeline_collect({"d1"}, {"d1": "host1"})
+        self.assertEqual([i for i in items if i["kind"] == "cve"], [])
+
+
 class TestOscapZeroReason(unittest.TestCase):
     """A 0-applicable-rules scan must explain the real cause: usually the host's
     OS doesn't match the installed SCAP content. Name the package to install."""

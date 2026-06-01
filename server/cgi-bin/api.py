@@ -22007,6 +22007,42 @@ def _timeline_collect(include_ids, name_map):
                 'device_id':   did,
                 'device_name': name_map.get(did, did),
             })
+    # CVE findings are STATE, not events — a re-scan of already-known CVEs fires
+    # no cve_found event, so an event-sourced timeline would never show them even
+    # though the device clearly has CVEs. Surface the current critical/high
+    # findings (minus ignored) as a synthetic per-device row so the timeline
+    # reflects reality. One summary row per device, stamped at the scan time.
+    try:
+        cve_all = load(CVE_FINDINGS_FILE) or {}
+        cve_ignore = load(CVE_IGNORE_FILE) or {}
+        for did in include_ids:
+            rec = cve_all.get(did) or {}
+            findings = rec.get('findings') or []
+            if not findings:
+                continue
+            live = [f for f in cve_scanner.apply_ignore_list(findings, cve_ignore, did)
+                    if not f.get('ignored')
+                    and str(f.get('severity', '')).lower() in ('critical', 'high')]
+            if not live:
+                continue
+            crit = sum(1 for f in live if str(f.get('severity', '')).lower() == 'critical')
+            high = len(live) - crit
+            parts = []
+            if crit: parts.append(f'{crit} critical')
+            if high: parts.append(f'{high} high')
+            items.append({
+                'ts':          int(rec.get('scanned_at') or rec.get('ts') or 0),
+                'kind':        'cve',
+                'severity':    'critical' if crit else 'high',
+                'title':       'CVE findings',
+                'detail':      (', '.join(parts) + ' CVE(s) outstanding — '
+                                + ', '.join(f.get('vuln_id', '?') for f in live[:5])
+                                + ('…' if len(live) > 5 else ''))[:200],
+                'device_id':   did,
+                'device_name': name_map.get(did, did),
+            })
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] timeline cve merge failed: {e}\n')
     return items
 
 
