@@ -121,6 +121,21 @@ collecting but the detail view didn't show:
   after `BEGIN_FIX` (up to a blank line / code fence) when `END_FIX` is missing,
   so a usable fix surfaces. The Re-run AI button in the pane lets you re-prompt
   without waiting on the agent again.
+- **Mitigation AI: render can't freeze the step, plus step-by-step debug.**
+  `_mitigateRenderFixOptions` ran before the "Done" status update, so a throw in
+  it would leave the pane stuck on "Asking the model…" even though the AI call
+  succeeded. It's now wrapped in try/catch and the status is always finalised.
+  Added `dbg()` breadcrumbs across the flow (enable with
+  `localStorage.rp_debug=1`) — start, POST sent, POST returned, render — so a
+  stall on any host can be pinpointed to the exact step instead of guessed at.
+- **Mitigation AI: "nothing to fix" no longer looks like a stall.** When the
+  model judges no fix is needed (it returns `NONE` — common for a transient
+  alert that's already recovered, e.g. swap pressure that's since eased), the
+  pane showed the summary but no fix box, which read as "the AI step did
+  nothing". The status line now states the outcome explicitly — "Done in Ns — no
+  fix command proposed" (with a Re-run button), "suggested fix below", or "empty
+  response" — so a valid no-op is unambiguous. (Verified the backend returns
+  200 in ~16s for this case; the perceived "stall" was the empty fix box.)
 - **Mitigation AI no longer stalls indefinitely.** If the AI provider (or nginx)
   never responds, the analysis step used to spin forever — the elapsed counter
   ticked but nothing resolved and there was no clear recovery. It now has a hard

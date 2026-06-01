@@ -16690,9 +16690,14 @@ async function _mitigatePollDiag() {
 
 // Step 3: AI analysis
 async function _mitigateRunAi() {
-  if (!_mitigateCtx || !_mitigateCtx.actionId) return;
+  if (!_mitigateCtx || !_mitigateCtx.actionId) {
+    try { dbg('runAi: no actionId — aborting (diagnostic not ready?)', 'mitigate'); } catch (_) {}
+    return;
+  }
+  dbg('runAi: start dev=' + _mitigateCtx.devId + ' action=' + _mitigateCtx.actionId, 'mitigate');
   mitigateTab('ai');
   const statusEl = document.getElementById('mitigate-ai-status');
+  if (!statusEl) { try { dbg('runAi: #mitigate-ai-status missing!', 'mitigate'); } catch (_) {} return; }
   document.getElementById('mitigate-ai-summary').textContent = '';
   document.getElementById('mitigate-ai-fix-box').style.display = 'none';
 
@@ -16749,10 +16754,13 @@ async function _mitigateRunAi() {
   let r;
   try {
     const opts = controller ? { signal: controller.signal } : {};
+    dbg('runAi: POST /mitigate/ai …', 'mitigate');
     r = await api('POST',
       `/mitigate/${encodeURIComponent(_mitigateCtx.devId)}/ai/${encodeURIComponent(_mitigateCtx.actionId)}`,
       {}, opts);
+    dbg('runAi: POST returned (r=' + (r ? 'obj' : String(r)) + ')', 'mitigate');
   } catch (e) {
+    dbg('runAi: POST threw: ' + (e && e.message), 'mitigate');
     if (_timedOut) {
       _fail('AI analysis timed out after 4 min — the provider never responded. '
           + 'Check Settings → AI Assistant (and nginx fastcgi_read_timeout).');
@@ -16777,9 +16785,37 @@ async function _mitigateRunAi() {
       + '<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>';
     return;
   }
-  statusEl.textContent = `Done in ${Math.floor((Date.now() - startedAt) / 1000)}s.`;
-  document.getElementById('mitigate-ai-summary').textContent = r.summary || '(empty response)';
-  _mitigateRenderFixOptions(r);
+  const took = Math.floor((Date.now() - startedAt) / 1000);
+  const summary = (r.summary || '').trim();
+  document.getElementById('mitigate-ai-summary').textContent =
+    summary || 'The model returned an empty response.';
+  // Render the fix options DEFENSIVELY: a throw in here must never freeze the
+  // status on "Asking the model…" (the reported "stall"). Run it after the
+  // summary is shown, catch any error, and always fall through to the final
+  // status update below.
+  try {
+    dbg('renderFixOptions: suggested_fix=' + (r.suggested_fix ? 'yes' : 'no'), 'mitigate');
+    _mitigateRenderFixOptions(r);
+  } catch (e) {
+    try { dbg('renderFixOptions threw: ' + (e && e.message), 'mitigate'); } catch (_) {}
+    const fo = document.getElementById('mitigate-fix-options');
+    if (fo) fo.textContent = 'Could not render fix options (' + (e && e.message ? e.message : e) + ').';
+  }
+  // Make the outcome unambiguous in the status line, so a valid "nothing to do"
+  // result never reads as "it stalled / did nothing". Three cases:
+  //   - a fix was proposed  → "Done in Ns — suggested fix below"
+  //   - no fix (model said NONE / read-only) → say so explicitly + Re-run
+  //   - empty response → flag it + Re-run
+  if (r.suggested_fix) {
+    statusEl.textContent = `Done in ${took}s — suggested fix below.`;
+  } else if (summary) {
+    statusEl.innerHTML = `Done in ${took}s — no fix command proposed `
+      + `(the model judged none is needed, or this needs manual judgement). `
+      + `<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>`;
+  } else {
+    statusEl.innerHTML = `Done in ${took}s, but the response was empty. `
+      + `<button class="btn-icon btn-xs" data-action="mitigateRerunAi">Re-run AI</button>`;
+  }
 }
 
 function mitigateRerunAi() { _mitigateRunAi(); }
