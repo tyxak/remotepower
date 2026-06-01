@@ -598,6 +598,9 @@ WEBHOOK_EVENTS = (
     ('container_stopped',  'Container/pod disappeared or stopped', True),
     ('container_restarting', 'Container restart count climbing',   True),
     ('containers_stale',   'No container report for >TTL',         True),
+    # v3.2.x: container image update tracking (alert + its recover event)
+    ('image_update_available', 'Container image has a newer version', True),
+    ('image_updated',      'Container image updated to current',    True),
     # v1.11.10: metric thresholds (disk, memory, swap, cpu loadavg)
     ('metric_warning',     'Resource crossed warning threshold',   True),
     ('metric_critical',    'Resource crossed critical threshold',  True),
@@ -638,6 +641,7 @@ WEBHOOK_EVENTS = (
     ('kernel_outdated',       'Running kernel is older than newest installed', True),
     # v3.4.1: fleet health score dropped below the configured threshold
     ('health_degraded',       'Device health score dropped below threshold', True),
+    ('health_recovered',      'Device health score recovered above threshold', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -2492,6 +2496,11 @@ _ALERT_RECOVER = {
     # v3.4.1: a device climbing back above the alert threshold resolves its
     # open health_degraded alert.
     'health_recovered':        'health_degraded',
+    # v3.4.2: a resource dropping back below its warning threshold resolves
+    # the open metric_warning alert for that exact metric+target (and the
+    # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
+    # CPU/mem/disk alerts piled up in the inbox forever.
+    'metric_recovered':        'metric_warning',
     # snmp_recover also resolves any snmp_dead alert (same device).
     # _auto_resolve_alerts walks once per recovered event, so we register
     # both here. The trick: dict keys must be unique, so the second
@@ -2501,6 +2510,9 @@ _ALERT_RECOVER = {
 # snmp_dead. Listed separately so the table stays a 1:1 dict.
 _ALERT_RECOVER_EXTRA = {
     'snmp_recover':            ('snmp_dead',),
+    # metric_recovered clears BOTH the warning and the critical alert for the
+    # recovered metric+target (matched in _auto_resolve_alerts).
+    'metric_recovered':        ('metric_critical',),
 }
 
 
@@ -2951,6 +2963,12 @@ def _auto_resolve_alerts(event, payload):
         # Fleet-level (no device_id) — match the open alert by image+tag.
         sub_match['image'] = p.get('image')
         sub_match['tag']   = p.get('tag')
+    elif event == 'metric_recovered':
+        # Per-resource: recovering disk:/var must not clear the open memory
+        # alert on the same host. Match the metric + target. (target is ''
+        # for memory/swap/cpu, which compares cleanly against the stored '').
+        sub_match['metric'] = p.get('metric')
+        sub_match['target'] = p.get('target')
     # Require either a device_id OR enough sub_match keys to identify
     # which alert this recovery resolves. Without either, bail.
     if not dev_id and not any(v for v in sub_match.values()):
@@ -6721,26 +6739,45 @@ def handle_heartbeat():
         common_resp['force_scap_scan'] = True
         common_resp['scap_profile'] = saved_dev.get('scap_profile', 'cis')
     if pending:
-        cmd = pending[0]
-        # v3.4.0: quarantine enforcement (defence-in-depth). A quarantined
-        # device must not act, no matter which handler queued the command —
-        # _queue_command rejects at queue time, but action paths that write
-        # CMDS_FILE directly (compose, container, acme, …) are caught here at
-        # the single dispatch chokepoint. We pop-and-drop so a stale queue
-        # doesn't fire the instant quarantine is lifted, and only ever forward
-        # poll-interval changes (purely local, no side effects on the host).
-        if saved_dev.get('quarantined') and not str(cmd).startswith('poll_interval:'):
-            pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
+        # v3.4.2: atomic dispatch. The early load above is only a cheap
+        # fast-path gate; the actual pop happens here under the CMDS_FILE lock
+        # by RE-READING the queue, so a command queued concurrently between
+        # that load and now isn't clobbered by a stale write (the old
+        # load → pop → _save_nb had a lost-update race against _queue_command).
+        # The pop is committed by LEAVING the with-block before we respond():
+        # respond() raises HTTPError, and _LockedUpdate.__exit__ skips the save
+        # on any exception — popping then responding inside the lock would lose
+        # the write and re-dispatch the command next poll (double execution).
+        # So we decide + pop inside the lock, then respond after it commits.
+        dispatch_cmd = None     # command to send the agent (None = nothing)
+        dropped_cmd  = None     # quarantine-dropped command, for the audit log
+        with _LockedUpdate(CMDS_FILE) as live_cmds:
+            live_pending = live_cmds.get(dev_id) or []
+            if live_pending:
+                cmd = live_pending[0]
+                is_poll = str(cmd).startswith('poll_interval:')
+                # v3.4.0: quarantine enforcement (defence-in-depth). A
+                # quarantined device must not act, no matter which handler
+                # queued the command — _queue_command rejects at queue time,
+                # but action paths that write CMDS_FILE directly (compose,
+                # container, acme, …) are caught here at the single dispatch
+                # chokepoint. Pop-and-drop so a stale queue doesn't fire the
+                # instant quarantine lifts; poll_interval changes still pass.
+                if saved_dev.get('quarantined') and not is_poll:
+                    live_pending.pop(0); live_cmds[dev_id] = live_pending
+                    dropped_cmd = cmd
+                # v3.4.2: maintenance change-window gating. Unlike quarantine we
+                # HOLD the command (leave it queued) so it dispatches when the
+                # window opens. poll_interval is always allowed (local only).
+                elif not is_poll and _exec_gated(dev_id, saved_dev):
+                    pass
+                else:
+                    live_pending.pop(0); live_cmds[dev_id] = live_pending
+                    dispatch_cmd = cmd
+        if dropped_cmd is not None:
             audit_log('system', 'quarantine_blocked',
                       f'dev={dev_id} dropped queued command while quarantined')
-            respond(200, {'command': None, **common_resp})
-        # v3.4.2: maintenance change-window gating. Unlike quarantine we HOLD
-        # the command (leave it queued) so it dispatches when the window opens.
-        # poll_interval is always allowed (purely local, no host side effect).
-        if not str(cmd).startswith('poll_interval:') and _exec_gated(dev_id, saved_dev):
-            respond(200, {'command': None, **common_resp})
-        pending.pop(0); cmds[dev_id] = pending; _save_nb(CMDS_FILE, cmds)
-        respond(200, {'command': cmd, **common_resp})
+        respond(200, {'command': dispatch_cmd, **common_resp})
     else:
         respond(200, {'command': None, **common_resp})
 
@@ -6793,12 +6830,15 @@ def _queue_command(dev_id, command, actor):
     # is the one exception — it changes only the agent's local timer.
     if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
         respond(409, {'error': 'Device is quarantined — exec/reboot/actions are disabled.'})
-    cmds = load(CMDS_FILE)
-    if dev_id not in cmds:
-        cmds[dev_id] = []
-    if command not in cmds[dev_id]:
-        cmds[dev_id].append(command)
-    save(CMDS_FILE, cmds)
+    # v3.4.2: locked read-modify-write so a concurrent enqueue or a heartbeat
+    # dispatch can't clobber this append (lost-update race). log_command /
+    # fire_webhook / respond run AFTER the lock commits — never hold the queue
+    # lock across webhook delivery or a respond() (which would skip the save).
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        if dev_id not in cmds:
+            cmds[dev_id] = []
+        if command not in cmds[dev_id]:
+            cmds[dev_id].append(command)
     log_command(actor, dev_id, devices[dev_id].get('name', dev_id), command)
     fire_webhook('command_queued', {
         'device_id': dev_id, 'name': devices[dev_id].get('name', dev_id),
@@ -6808,25 +6848,34 @@ def _queue_command(dev_id, command, actor):
 
 
 def _queue_command_batch(dev_ids, command, actor):
-    devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
-    for dev_id in dev_ids:
-        if not _validate_id(dev_id):
-            results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
-        if dev_id not in devices:
-            results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
-        if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
-            results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
-        if dev_id not in cmds:
-            cmds[dev_id] = []
-        if command not in cmds[dev_id]:
-            cmds[dev_id].append(command)
-        log_command(actor, dev_id, devices[dev_id].get('name', dev_id), command)
+    devices = load(DEVICES_FILE); results = {}
+    # v3.4.2: do the queue mutations under one CMDS_FILE lock (atomic
+    # read-modify-write — the old unlocked load/append/save raced both with a
+    # heartbeat dispatch and with a concurrent batch). Defer log_command /
+    # fire_webhook until after the lock releases so we don't hold the queue
+    # lock across webhook delivery. notify mirrors the original: every device
+    # that passes the guards is notified, dedup of the append notwithstanding.
+    notify = []   # (dev_id, name) to log + webhook after the lock commits
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        for dev_id in dev_ids:
+            if not _validate_id(dev_id):
+                results[dev_id] = {'ok': False, 'error': 'Invalid device ID'}; continue
+            if dev_id not in devices:
+                results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
+            if _device_quarantined(devices[dev_id]) and not str(command).startswith('poll_interval:'):
+                results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
+            if dev_id not in cmds:
+                cmds[dev_id] = []
+            if command not in cmds[dev_id]:
+                cmds[dev_id].append(command)
+            notify.append((dev_id, devices[dev_id].get('name', dev_id)))
+            results[dev_id] = {'ok': True}
+    for dev_id, name in notify:
+        log_command(actor, dev_id, name, command)
         fire_webhook('command_queued', {
-            'device_id': dev_id, 'name': devices[dev_id].get('name', dev_id),
+            'device_id': dev_id, 'name': name,
             'command': command, 'actor': actor,
         })
-        results[dev_id] = {'ok': True}
-    save(CMDS_FILE, cmds)
     return results
 
 
@@ -7550,6 +7599,8 @@ def _get_ssl_context():
 
 def handle_config_get():
     require_auth()
+    _cfg_user, _cfg_role = verify_token(get_token_from_request())
+    _cfg_is_admin = _cfg_role not in ('viewer', 'mcp')
     cfg = load(CONFIG_FILE)
     safe = {k: v for k, v in cfg.items()
             if k not in ('offline_notified', 'offline_pending', 'patch_alerted',
@@ -7664,6 +7715,31 @@ def handle_config_get():
     safe['ldap_bind_password_set']      = bool(_ldap_pw)
     safe['ldap_bind_password_from_env'] = _ldap_from_env
     safe.pop('ldap_bind_password', None)
+
+    # v3.4.2: secrets with no env-var resolver that must never be returned as a
+    # value. oidc_client_secret (the server's OAuth client secret) and
+    # status_token (the bearer for the public /status and /schedule.ics
+    # endpoints) are write-only in the settings UI — it shows a "configured"
+    # indicator and a re-enter field, never the stored value — so we surface
+    # only *_set booleans, exactly like the SMTP / LDAP / Proxmox passwords
+    # above. Without this any authenticated viewer or read-only MCP key could
+    # read both via GET /api/config.
+    safe['oidc_client_secret_set'] = bool(cfg.get('oidc_client_secret'))
+    safe['status_token_set']       = bool(cfg.get('status_token'))
+    safe.pop('oidc_client_secret', None)
+    safe.pop('status_token', None)
+
+    # Slack / Discord / Teams webhook URLs embed a secret token in their path,
+    # so the raw URL is itself a credential. Only admins (who can already edit
+    # it) get the value; viewers / MCP keys get the webhook_configured boolean
+    # (set above) instead, and webhook_urls[].url is blanked the same way.
+    if not _cfg_is_admin:
+        safe.pop('webhook_url', None)
+        if isinstance(safe.get('webhook_urls'), list):
+            for _e in safe['webhook_urls']:
+                if isinstance(_e, dict) and _e.get('url'):
+                    _e['url_set'] = True
+                    _e['url'] = ''
 
     # Static UI metadata (so the front-end doesn't have to hardcode this)
     safe['_meta'] = {
@@ -13534,6 +13610,39 @@ def handle_device_helm(dev_id):
     respond(200, {'releases': rec.get('releases', []), 'ts': rec.get('ts')})
 
 
+def handle_device_backups(dev_id):
+    """GET /api/devices/<id>/backups — live freshness of this device's watched
+    backup paths. Joins backup_state.json (per-path ok/age, written on every
+    heartbeat that carries backup_status) with the backup_monitors config for
+    the label + threshold. Surfaces what previously only drove the
+    backup_stale webhook. Auth: require_auth (+ central per-device scope)."""
+    require_auth()
+    if method() != 'GET':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    state = load(DATA_DIR / 'backup_state.json') or {}
+    monitors = (load(CONFIG_FILE) or {}).get('backup_monitors') or []
+    mon_by_path = {m.get('path'): m for m in monitors if isinstance(m, dict)}
+    prefix = f'{dev_id}:'
+    items = []
+    for key, st in state.items():
+        if not key.startswith(prefix) or not isinstance(st, dict):
+            continue
+        path = key[len(prefix):]
+        mon = mon_by_path.get(path) or {}
+        items.append({
+            'path':          path,
+            'label':         mon.get('label') or path,
+            'ok':            bool(st.get('ok')),
+            'age_h':         st.get('age_h'),
+            'max_age_hours': float(mon.get('max_age_hours', 24)),
+        })
+    # Stale first, then by label, so the actionable rows are at the top.
+    items.sort(key=lambda x: (x['ok'], str(x['label']).lower()))
+    respond(200, {'backups': items})
+
+
 def handle_device_runbook(dev_id):
     """POST /api/devices/<id>/runbook — AI runbook for an alert/issue.
     Body: {"trigger": "<text>"}. Uses RAG context when available."""
@@ -15968,18 +16077,20 @@ def _maybe_sample_health(now=None):
                           'score': health['score'], 'grade': health['grade']})
             store['fleet'] = fleet[-_HEALTH_HIST_MAX:]
             devices = store.setdefault('devices', {})
-            live_ids = set()
             for d in health.get('devices', []):
                 did = d['device_id']
-                live_ids.add(did)
                 series = devices.setdefault(did, [])
                 if series and series[-1].get('date') == day:
                     continue
                 series.append({'date': day, 'ts': now, 'score': d['score']})
                 devices[did] = series[-_HEALTH_HIST_MAX:]
-            # Drop series for devices that no longer exist so the file doesn't
-            # grow unbounded with deleted hosts.
-            for gone in [k for k in devices if k not in live_ids]:
+            # Drop series only for devices that no longer EXIST (deleted hosts),
+            # NOT ones merely set monitored:false. _fleet_health() omits
+            # unmonitored devices, so pruning by the sampled set would wipe an
+            # unmonitored host's accumulated history — and it would restart from
+            # zero when re-monitored. Keep any id still present in the store.
+            existing_ids = set(load(DEVICES_FILE) or {})
+            for gone in [k for k in devices if k not in existing_ids]:
                 del devices[gone]
     except Exception as e:
         sys.stderr.write(f'[remotepower] health sample failed: {e}\n')
@@ -18549,9 +18660,16 @@ def _build_fleet_report():
             total_pending += up
 
     cve = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'devices_affected': 0}
-    for rec in (load(CVE_FINDINGS_FILE) or {}).values():
+    # v3.4.2: apply the per-device CVE ignore list exactly like the live CVE
+    # page (handle_cve_findings) so the posture report can't over-count by the
+    # ignored set. Iterate items() to keep the device id apply_ignore_list needs.
+    cve_ignore = load(CVE_IGNORE_FILE) or {}
+    for did, rec in (load(CVE_FINDINGS_FILE) or {}).items():
         affected = False
-        for f in (rec or {}).get('findings') or []:
+        findings = (rec or {}).get('findings') or []
+        for f in cve_scanner.apply_ignore_list(findings, cve_ignore, did):
+            if f.get('ignored'):
+                continue
             sev = str(f.get('severity', '')).lower()
             if sev in cve:
                 cve[sev] += 1
@@ -19249,7 +19367,7 @@ def handle_inbound_webhook(token_str):
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if (t.get('token') == token_str) and t.get('enabled', True):
+        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
             match = t
             break
     if not match:
@@ -19342,7 +19460,7 @@ def handle_inbound_webhook(token_str):
     try:
         with _LockedUpdate(INBOUND_WEBHOOKS_FILE) as store:
             for t in store.get('tokens', []):
-                if t.get('token') == token_str:
+                if hmac.compare_digest(t.get('token', ''), token_str):
                     t['last_seen'] = int(time.time())
                     t['hit_count'] = int(t.get('hit_count', 0)) + 1
                     break
@@ -19603,7 +19721,7 @@ def handle_syslog_in(token_str):
         respond(401, {'error': 'invalid token'})
     match = None
     for t in tokens:
-        if t.get('token') == token_str and t.get('enabled', True):
+        if hmac.compare_digest(t.get('token', ''), token_str) and t.get('enabled', True):
             match = t
             break
     if not match:
@@ -22032,6 +22150,11 @@ def _timeline_collect(include_ids, name_map):
             if high: parts.append(f'{high} high')
             items.append({
                 'ts':          int(rec.get('scanned_at') or rec.get('ts') or 0),
+                # kind='cve' (state) is deliberately distinct from the
+                # event-sourced 'cve_found' rows: this synthetic row is the
+                # current outstanding-CVE STATE (survives a re-scan that fires
+                # no event), so the timeline's kind filter can separate "current
+                # CVE posture" from "new CVE detections".
                 'kind':        'cve',
                 'severity':    'critical' if crit else 'high',
                 'title':       'CVE findings',
@@ -22382,16 +22505,20 @@ def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
         return
 
     ignore_data = load(CVE_IGNORE_FILE)
-    prev_ids = {f['vuln_id'] for f in previous}
+    # v3.4.2: `previous` comes off disk (CVE_FINDINGS_FILE) and may be
+    # hand-edited / malformed, so a finding missing vuln_id must not 500 the
+    # whole /api/cve/scan. Use .get and drop falsy ids.
+    prev_ids = {f.get('vuln_id') for f in previous if f.get('vuln_id')}
     severity_filter = set(get_cve_severity_filter())
 
     new_alerted = []
     for f in current:
-        if f['vuln_id'] in prev_ids:
+        vid = f.get('vuln_id')
+        if not vid or vid in prev_ids:
             continue
         if f.get('severity') not in severity_filter:
             continue
-        ig = ignore_data.get(f['vuln_id'])
+        ig = ignore_data.get(vid)
         if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
             continue
         new_alerted.append(f)
@@ -26623,6 +26750,8 @@ def _dispatch(pi, m):
         handle_device_quarantine(pi[len('/api/devices/'):-len('/quarantine')])
     elif pi.startswith('/api/devices/') and pi.endswith('/helm') and m == 'GET':
         handle_device_helm(pi[len('/api/devices/'):-len('/helm')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/backups') and m == 'GET':
+        handle_device_backups(pi[len('/api/devices/'):-len('/backups')])
     elif pi.startswith('/api/devices/') and pi.endswith('/runbook') and m == 'POST':
         handle_device_runbook(pi[len('/api/devices/'):-len('/runbook')])
     elif pi.startswith('/api/devices/') and pi.endswith('/doc-draft') and m == 'POST':

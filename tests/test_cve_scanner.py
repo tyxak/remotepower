@@ -47,6 +47,23 @@ class TestEcosystemDetection(unittest.TestCase):
             'Debian:12'
         )
 
+    def test_ubuntu_derivative_via_id_like(self):
+        # Zorin, Linux Mint, Pop!_OS, elementary — ID_LIKE carries both
+        # 'ubuntu' and 'debian'; the VERSION_ID is the derivative's own, so
+        # these must map to Ubuntu (not Debian:<derivative-version>).
+        self.assertEqual(
+            cve_scanner.detect_ecosystem(
+                {'ID': 'zorin', 'ID_LIKE': 'ubuntu debian', 'VERSION_ID': '18'}, 'apt'
+            ),
+            'Ubuntu'
+        )
+        self.assertEqual(
+            cve_scanner.detect_ecosystem(
+                {'ID': 'linuxmint', 'ID_LIKE': 'ubuntu', 'VERSION_ID': '21.3'}, 'apt'
+            ),
+            'Ubuntu'
+        )
+
     def test_rhel_family(self):
         self.assertEqual(
             cve_scanner.detect_ecosystem({'ID': 'rocky', 'VERSION_ID': '9'}, 'dnf'),

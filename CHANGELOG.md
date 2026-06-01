@@ -36,6 +36,22 @@ In development.
   forever** (its run had already happened, so no fresh output ever arrived). The
   job tracker now resolves such a job from the prior run once the command is no
   longer queued, while a command still waiting to run stays pending as before.
+- **`GET /api/config` no longer returns the OIDC client secret or the status
+  token as a value.** Both were write-only in the Settings UI (it shows a
+  "configured" indicator, never the stored value), but the endpoint — reachable
+  by any authenticated user, including a read-only viewer or MCP key — returned
+  them in clear text. They're now surfaced only as `*_set` booleans, exactly like
+  the SMTP / LDAP / Proxmox passwords. The legacy `webhook_url` (a Slack/Discord
+  URL that embeds a secret in its path) is now admin-only too; viewers get the
+  `webhook_configured` boolean instead.
+- **Inbound webhook / syslog tokens are compared in constant time.** The
+  ingest-token check used a plain `==`, unlike every other token comparison in
+  the server; it now uses `hmac.compare_digest`, closing a (low-practicality)
+  timing side-channel on the `rpwi_…` tokens.
+- **CVE reference links are scheme-validated.** A reference URL from the CVE feed
+  is now rendered as a link only if it's `http(s)` (a poisoned `javascript:` /
+  `data:` reference can't become a clickable link), and the link carries
+  `rel="noopener noreferrer"`.
 
 ### Bind it together — device detail
 The device drawer's **System Info** tab now surfaces data the agent was already
@@ -68,6 +84,24 @@ collecting but the detail view didn't show:
   that only fills more than ~2 years out is no longer shown as a dated risk —
   the row is kept (current usage is useful) but reads ">2 yr" instead of a
   spurious "fills 2031" projection.
+- **Container health, CPU & memory** now show in the device's Containers list.
+  The agent already reported each container's health (`healthy` / `unhealthy` /
+  `starting`), live CPU%/memory and published ports, but the server dropped those
+  fields at the ingest boundary and the table only showed name/status/image/age.
+  A container can now be seen as unhealthy or hot at a glance, with its ports.
+- **SMART detail — serial number and CRC / uncorrectable counts.** The disk-health
+  table adds the drive **serial** (so you know which physical disk to pull) and a
+  **CRC / Uncorrectable** column — the very counters that drive the FAILED verdict,
+  which were previously invisible (you saw "FAILED" with no "why").
+- **Helm releases** now list the deployed **app version** and **last-updated**
+  time, not just chart / revision / status.
+- **Memory & RAID inventory** gain the DIMM **manufacturer** and **serial** (so you
+  can order the right replacement part) and the **member block devices** of each
+  RAID array (so a degraded array names the exact disk to swap).
+- **Per-device backup freshness.** A new **Backups** section in the device drawer
+  (and `GET /api/devices/<id>/backups`) shows each watched backup path's age and
+  fresh/stale state — the data that already fired the `backup_stale` alert but was
+  never visible per device.
 
 ### Reliability & SLA
 - **Agentless / SNMP devices now build real 7-day status history.** The
@@ -531,6 +565,46 @@ collecting but the detail view didn't show:
   pagination — so a large fleet (many devices × mounts) doesn't render a
   thousand-row table.
 - **Timeline** paginates (50 rows + "Load more") instead of dumping every event.
+- **CVE scanning now works on Ubuntu derivatives.** Zorin OS, Linux Mint, Pop!_OS
+  and elementary carry `ID_LIKE="ubuntu debian"`, and the ecosystem detector
+  checked `debian` before `ubuntu` — so a Zorin 18 host was queried as the
+  non-existent OSV ecosystem `Debian:18` and came back with **zero** findings on
+  thousands of packages. Ubuntu derivatives now map to the `Ubuntu` ecosystem.
+- **Recovered resource alerts now clear themselves.** A `metric_recovered` event
+  (CPU/memory/disk dropping back below its threshold) now auto-resolves the open
+  `metric_warning` / `metric_critical` alert **for that exact metric+target** —
+  so recovering disk `/var` doesn't touch the memory alert. These alerts used to
+  pile up in the inbox forever after the resource recovered.
+- **The fleet posture report no longer over-counts CVEs.** It tallied every
+  finding including ones on the ignore list, disagreeing with the live CVE page;
+  it now applies the same per-device ignore list, so the two always match.
+- **Health-score history survives un-monitoring a device.** The daily sampler
+  pruned any series not in the *monitored* set, so flipping a host to
+  `monitored:false` permanently deleted its accumulated health history (and
+  re-monitoring restarted from zero). It now prunes only genuinely deleted hosts.
+- **Command queue: no more lost commands.** The heartbeat dispatch and the
+  enqueue paths did unlocked load → modify → save on the queue, so a command
+  queued in the exact window of a heartbeat could be silently dropped (or a
+  dispatched one resurrected). Both now do the read-modify-write under the queue
+  lock.
+- **A forced agent upgrade no longer kills an in-progress OpenSCAP scan.** The
+  self-update deferral that protects a running scan was bypassed by the one-shot
+  force-upgrade path; a force upgrade requested mid-scan is now held locally and
+  retried after the scan completes (so the one-shot request isn't lost).
+- **`image_update_available`, `image_updated` and `health_recovered`** are now
+  first-class notification events with their own per-event toggle in
+  Settings → Notifications and a clickable dashboard-feed row (they fired before
+  but weren't in the event registry, so you couldn't turn them off).
+- **Sortable tables** — the Reports → *Agent integrity* and *Anomalies* tables now
+  wire their sort headers (they were the last two unsorted tables); the OpenSCAP
+  table sorts from cache on a header click instead of re-fetching `/scap` and
+  resetting the profile dropdown mid-interaction.
+- **Command palette** — opening a device from the palette now shows the device
+  name in the drawer header (it read "undefined"), and the palette can now jump to
+  the **Command Queue** admin page.
+- A non-JSON error body (an nginx 502/504 HTML page) from any API call no longer
+  throws an unhandled rejection that leaves skeleton rows / spinners stuck — the
+  call resolves to `null` and the caller's empty/error handling takes over.
 
 ## v3.4.1
 

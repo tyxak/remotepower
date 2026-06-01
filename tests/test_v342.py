@@ -843,7 +843,9 @@ class TestV342SortableTables(unittest.TestCase):
                 ('loadReportsMetering', 'metering', 'metering-thead'),
                 ('runFleetQuery', 'fleet_query', 'fq-thead'),
                 ('loadComplianceBaseline', 'cis_baseline', 'cis-baseline-thead'),
-                ('loadScap', 'scap', 'scap-thead'),
+                # v3.4.2: scap table render split out of loadScap so a sort
+                # click re-renders from cache instead of re-fetching /scap.
+                ('_renderScapTable', 'scap', 'scap-thead'),
                 ('loadRoles', 'roles', 'roles-thead')):
             body = self._fn_body(fn)
             self.assertIn(f"tableCtl.sortRows('{prefs}'", body, f'{fn} sortRows')

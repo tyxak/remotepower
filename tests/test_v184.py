@@ -256,6 +256,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'log_alert',
             # v1.11.4: container alerts
             'container_stopped', 'container_restarting', 'containers_stale',
+            # v3.2.x: container image update tracking
+            'image_update_available', 'image_updated',
             # v1.11.10: metric thresholds
             'metric_warning', 'metric_critical', 'metric_recovered',
             'command_queued', 'command_executed',
@@ -280,8 +282,8 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'mcp_confirmation_expired',
             # v3.4.0: hardware health
             'smart_failure', 'kernel_outdated',
-            # v3.4.1: health-score threshold alert
-            'health_degraded',
+            # v3.4.1: health-score threshold alert + recover
+            'health_degraded', 'health_recovered',
         }
         self.assertEqual(names, expected)
 

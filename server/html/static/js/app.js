@@ -688,7 +688,15 @@ async function api(method, path, body, extra) {
       }
     } catch (_) { /* fall through to generic handler */ }
   }
-  return r.json();
+  // v3.4.2: tolerate a non-JSON body (an nginx 502/504 HTML page, a
+  // truncated response, or an empty 204). Returning null lets callers fall
+  // through their `if (!data) return` guards instead of throwing an unhandled
+  // rejection that leaves skeleton rows / spinners stuck on screen.
+  try {
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
 }
 
 // ─── v2.0: sidebar group collapse state ─────────────────────────────────────
@@ -3964,7 +3972,7 @@ async function triggerCVEScan(devId, btn) {
   }
   if (btn) {
     const ok = result && !result.errors?.length;
-    btn.textContent = ok ? '✓ Done' : (timedOut ? 'running…' : '✗ Error');
+    btn.textContent = ok ? 'Done' : (timedOut ? 'running…' : 'Error');
     btn.style.color = ok ? 'var(--green)' : 'var(--red)';
     btn.disabled = false;
     setTimeout(() => { if (btn.isConnected) { btn.textContent = origText; btn.style.color = ''; } }, 4000);
@@ -3987,13 +3995,13 @@ async function openDeviceCVE(devId, devName) {
   if (!data) return;
   const sevColor = {critical: 'var(--red)', high: '#f97316', medium: 'var(--amber)', low: 'var(--muted)', unknown: 'var(--muted)'};
   let html = `<div class="sysinfo-row mb-16"><div class="sysinfo-pill"><div class="label">Ecosystem</div><div class="value fs-12">${escHtml(data.ecosystem)}</div></div><div class="sysinfo-pill"><div class="label">Packages</div><div class="value">${data.packages_count}</div></div><div class="sysinfo-pill"><div class="label">Last scan</div><div class="value fs-11">${data.scanned_at ? new Date(data.scanned_at*1000).toLocaleString() : 'never'}</div></div><div class="sysinfo-pill"><div class="label">Findings</div><div class="value">${data.findings.length}</div></div></div>`;
-  html += `<div class="mb-14"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">⟳ Send package list now</button></div>`;
+  html += `<div class="mb-14"><button class="btn-icon isl-387" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(devId)}" data-dev-name="${escAttr(devName)}" title="Ask the agent to send its full installed-package list now — the CVE scanner compares this against OSV">${_icon('refresh',14)} Send package list now</button></div>`;
   if (data.error) html += `<div class="isl-388">${escHtml(data.error)}</div>`;
   if (!data.findings.length) { html += '<div class="empty-state">No vulnerabilities found.</div>'; }
   else {
     html += data.findings.map(f => {
       const color = sevColor[f.severity] || 'var(--muted)';
-      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { return `<a href="${escHtml(r)}" target="_blank" class="c-accent">${escHtml(new URL(r).hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
+      const refsHtml = (f.refs||[]).slice(0,2).map(r => { try { const u = new URL(r); if (u.protocol !== 'http:' && u.protocol !== 'https:') return ''; return `<a href="${escHtml(r)}" target="_blank" rel="noopener noreferrer" class="c-accent">${escHtml(u.hostname)}</a>`; } catch(e) { return ''; } }).filter(Boolean).join('');
       const aliasesHtml = (f.aliases||[]).map(a => `<code class="isl-389">${escHtml(a)}</code>`).join('');
       return `<div class="isl-390 ${f.ignored?'is-ignored':''}"><div class="isl-391"><div><span class="isl-392" data-color="${color}">${f.severity}</span><code class="isl-393">${escHtml(f.vuln_id)}</code>${f.ignored ? '<span class="isl-394">(ignored: '+escHtml(f.ignore_reason||'')+')</span>' : ''}</div><div class="isl-395">${escHtml(f.published || '')}</div></div><div class="isl-396"><strong>${escHtml(f.package)}</strong> <span class="c-muted">${escHtml(f.version)}</span>${f.fixed_version ? ` → fixed in <span class="c-green">${escHtml(f.fixed_version)}</span>` : ''}</div>${f.summary ? `<div class="hint-mb6">${escHtml(f.summary)}</div>` : ''}<div class="isl-397">${aliasesHtml}${refsHtml}<button class="btn-icon isl-398" data-action="aiTriageCve" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(f.package)}" data-arg3="${escAttr(f.version)}" data-arg4="${escAttr(devName)}" data-arg5="${escAttr(f.summary||'')}">${_icon('sparkles',14)} Triage</button>${!f.ignored ? `<button class="btn-icon isl-399" data-action="ignoreCVE" data-arg="${escAttr(f.vuln_id)}" data-arg2="${escAttr(devId)}" data-arg3="${escAttr(devName)}" >Ignore</button>` : ''}</div></div>`;
     }).join('');
@@ -8754,6 +8762,8 @@ function _renderHomeActivity(fleetEvents) {
     'service_down', 'service_up',
     'log_alert',
     'container_stopped', 'container_restarting', 'containers_stale',
+    // v3.2.x: container image update tracking
+    'image_update_available', 'image_updated',
     'metric_warning', 'metric_critical', 'metric_recovered',
     'command_queued', 'command_executed',
     'drift_detected', 'mailbox_threshold', 'custom_script_fail', 'custom_script_recover',
@@ -8765,8 +8775,8 @@ function _renderHomeActivity(fleetEvents) {
     'mcp_confirmation_expired',
     // v3.4.0: hardware health
     'smart_failure', 'kernel_outdated',
-    // v3.4.1: device health score dropped below threshold
-    'health_degraded',
+    // v3.4.1: device health score dropped below threshold + recover
+    'health_degraded', 'health_recovered',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -8884,6 +8894,7 @@ function _homeActivityAttrs(event, p) {
     case 'service_down':   case 'service_up':
       return `${base} data-home-act="services"`;
     case 'container_stopped': case 'container_restarting': case 'containers_stale':
+    case 'image_update_available': case 'image_updated':
       return `${base} data-home-act="containers"`;
     case 'log_alert':      return `${base} data-home-act="logs"`;
     case 'command_queued': case 'command_executed':
@@ -8902,8 +8913,8 @@ function _homeActivityAttrs(event, p) {
     case 'smart_failure': case 'kernel_outdated':
       // v3.4.0: hardware-health alerts → device drawer (Health & Hardware)
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
-    case 'health_degraded':
-      // v3.4.1: health-score alert → that device's timeline.
+    case 'health_degraded': case 'health_recovered':
+      // v3.4.1: health-score alert/recover → that device's timeline.
       return `${base} data-home-act="${devId ? 'timeline' : 'home'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
@@ -10170,7 +10181,7 @@ async function forcePackageScan(devId, name, btn) {
     const ok  = r?.ok || r?.message;
     const msg = r?.message || 'Package scan queued — fresh list within ~60s';
     if (btn) {
-      btn.textContent    = ok ? '✓ Queued' : '✗ Failed';
+      btn.textContent    = ok ? 'Queued' : 'Failed';
       btn.style.color    = ok ? 'var(--green)' : 'var(--red)';
       btn.style.opacity  = '1';
       btn.style.cursor   = 'default';
@@ -10870,10 +10881,10 @@ async function hcFetchAllCurrent() {
   if (!r || !r.ok) {
     toast(r?.error || 'Failed to queue command', 'error');
     btn.disabled = false;
-    btn.textContent = '⬇ Collect all current';
+    btn.textContent = 'Collect all current';
     return;
   }
-  btn.textContent = '✓ Queued — refreshing in 75s…';
+  btn.textContent = 'Queued — refreshing in 75s…';
   toast('Command queued — agent will collect and send config in ~60s', 'success');
   // After one full poll cycle the agent should have run and sent back the data
   setTimeout(async () => {
@@ -11349,7 +11360,10 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   _drawerDeviceName = name;
   _drawerAuditLoaded = {};
 
-  document.getElementById('drawer-device-name').textContent = name;
+  // Fall back to the id so the header never reads "undefined" when the drawer
+  // is opened without a name (e.g. from the command palette). The real name is
+  // filled in below once /devices resolves.
+  document.getElementById('drawer-device-name').textContent = name || id;
   document.getElementById('drawer-device-sub').textContent  = 'Loading…';
 
   const drawer = document.getElementById('device-drawer');
@@ -11360,6 +11374,10 @@ async function openDeviceDrawer(id, name, defaultTab = 'actions') {
   try {
     const devs = await api('GET', '/devices');
     _drawerDeviceData = (devs || []).find(d => d.id === id) || {};
+    // Fill the real device name now that we have it (the caller may have
+    // passed no name — e.g. the command palette opens with the id only).
+    _drawerDeviceName = _drawerDeviceData.name || name || id;
+    document.getElementById('drawer-device-name').textContent = _drawerDeviceName;
     const online = _drawerDeviceData.online;
     const status = online ? '● Online' : '○ Offline';
     const color  = online ? 'var(--green)' : 'var(--red)';
@@ -11768,6 +11786,7 @@ const _AUDIT_SECTIONS = [
   {key: 'commands',  title: 'Command History',   icon: 'terminal', group: 'Activity'},
   {key: 'logs',      title: 'Logs',              icon: 'fileCode', group: 'Activity'},
   {key: 'events',    title: 'Fleet Events',      icon: 'radio',    group: 'Activity'},
+  {key: 'backups',   title: 'Backups',           icon: 'hardDrive',group: 'System'},
   {key: 'snmp',      title: 'SNMP',              icon: 'radio',    group: 'System'},
   {key: 'hostcfg',   title: 'Host Config',       icon: 'settings', group: 'System'},
 ];
@@ -12156,10 +12175,24 @@ async function _loadAuditSection(key) {
           if (m > 0) return `${m}m`;
           return `${s}s`;
         };
+        // v3.4.2: health badge + live CPU/mem + published ports — the agent
+        // reports all of these; only Name/Status/Image/Age used to render.
+        const _healthBadge = (h) => {
+          if (!h) return '';
+          const cls = h === 'healthy' ? 'c-green' : h === 'unhealthy' ? 'c-red' : 'c-amber';
+          return ` <span class="${cls} fs-11">(${escHtml(h)})</span>`;
+        };
+        const _resCell = (c) => {
+          const parts = [];
+          if (typeof c.cpu_percent === 'number') parts.push(`${c.cpu_percent.toFixed(1)}% cpu`);
+          if (typeof c.mem_percent === 'number') parts.push(`${c.mem_percent.toFixed(1)}% mem`);
+          else if (c.mem_usage) parts.push(escHtml(c.mem_usage));
+          return parts.length ? parts.join(' · ') : '—';
+        };
         body.innerHTML = `<table class="isl-649">
           <thead><tr class="c-muted">
             <th class="isl-650">Name</th>
-            <th>Status</th><th>Image</th><th>Age</th>
+            <th>Status</th><th>Image</th><th>CPU / Mem</th><th>Ports</th><th>Age</th>
           </tr></thead>
           <tbody>
             ${ctrs.map(c => {
@@ -12167,6 +12200,8 @@ async function _loadAuditSection(key) {
               const up   = stat.includes('up ') || stat.includes('running') || stat === 'running';
               const col  = up ? 'var(--green)' : stat.includes('exit') ? 'var(--red)' : 'var(--muted)';
               const img  = (c.image || c.Image || '—').split(':')[0];
+              const ports = (c.ports || []).slice(0, 6).map(p => escHtml(p)).join(', ')
+                            + ((c.ports || []).length > 6 ? '…' : '');
               let age = '—';
               if (typeof c.uptime_seconds === 'number' && c.uptime_seconds > 0) {
                 age = _fmtDur(c.uptime_seconds);
@@ -12174,9 +12209,11 @@ async function _loadAuditSection(key) {
                 age = _fmtDur(Math.floor(Date.now() / 1000) - c.started_at);
               }
               return `<tr class="border-top">
-                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code></td>
+                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td class="isl-653">${escHtml(img)}</td>
+                <td class="hint">${_resCell(c)}</td>
+                <td class="hint mono-12">${ports || '—'}</td>
                 <td class="hint">${escHtml(age)}</td>
               </tr>`;
             }).join('')}
@@ -12491,21 +12528,60 @@ async function _loadAuditSection(key) {
         tableCtl.wireSortOnly('helm-thead', 'helm', () => _loadAuditSectionForce('helm'));
         const rows = tableCtl.sortRows('helm', rels, r => ({
           name: r.name, namespace: r.namespace, chart: r.chart,
-          status: r.status, revision: parseInt(r.revision, 10) || 0,
+          appver: r.app_version || '', status: r.status,
+          revision: parseInt(r.revision, 10) || 0, updated: r.updated || '',
         }));
         body.innerHTML = `<table class="audit-table">
           <thead id="helm-thead"><tr>
             <th data-col="name">Release</th><th data-col="namespace">Namespace</th>
-            <th data-col="chart">Chart</th><th data-col="status">Status</th>
-            <th data-col="revision">Rev</th></tr></thead>
+            <th data-col="chart">Chart</th><th data-col="appver">App version</th>
+            <th data-col="status">Status</th>
+            <th data-col="revision">Rev</th><th data-col="updated">Updated</th></tr></thead>
           <tbody>` + rows.map(r => {
             const ok = String(r.status).toLowerCase() === 'deployed';
+            // helm's `updated` is a long "YYYY-MM-DD HH:MM:SS. ... UTC" string;
+            // keep just the date+time for the column.
+            const upd = (r.updated || '').split('.')[0].trim();
             return `<tr><td>${escHtml(r.name)}</td><td>${escHtml(r.namespace)}</td>
               <td><code>${escHtml(r.chart)}</code></td>
+              <td>${escHtml(r.app_version || '—')}</td>
               <td class="${ok?'c-green':'c-amber'}">${escHtml(r.status)}</td>
-              <td class="ta-center">${escHtml(r.revision)}</td></tr>`;
+              <td class="ta-center">${escHtml(r.revision)}</td>
+              <td class="fs-11 c-muted">${escHtml(upd || '—')}</td></tr>`;
           }).join('') + `</tbody></table>`;
         badge.textContent = `${rels.length} release${rels.length>1?'s':''}`;
+        break;
+      }
+
+      case 'backups': {
+        // v3.4.2: live backup freshness for this device's watched paths — the
+        // ok/age data the heartbeat records (and that fires backup_stale) but
+        // never used to be visible per-device.
+        const data = await api('GET', `/devices/${id}/backups`);
+        const baks = (data && data.backups) || [];
+        if (!baks.length) {
+          body.innerHTML = '<div class="c-muted">No backup monitors report for this device. Add watched backup paths in <strong>Settings → Advanced → Backup monitors</strong>; the agent reports each path\'s freshness on every heartbeat.</div>';
+          badge.textContent = 'none';
+          break;
+        }
+        const stale = baks.filter(b => !b.ok).length;
+        const sorted = tableCtl.sortRows('device_backups', baks, b => ({
+          label: b.label, age: (b.age_h == null ? Infinity : b.age_h),
+          threshold: b.max_age_hours || 0, status: b.ok ? 1 : 0,
+        }));
+        const _fmtAge = h => h == null ? 'missing' : (h >= 48 ? `${(h/24).toFixed(1)}d` : `${h}h`);
+        body.innerHTML = `<table class="audit-table">
+          <thead id="device-backups-thead"><tr>
+            <th data-col="label">Backup</th><th data-col="age">Age</th>
+            <th data-col="threshold">Threshold</th><th data-col="status">Status</th></tr></thead>
+          <tbody>` + sorted.map(b => `<tr>
+              <td><code>${escHtml(b.label)}</code>${b.label !== b.path ? `<div class="fs-11 c-muted">${escHtml(b.path)}</div>` : ''}</td>
+              <td class="${b.ok ? '' : 'c-red'}">${escHtml(_fmtAge(b.age_h))}</td>
+              <td class="fs-11 c-muted">≤ ${escHtml(_fmtAge(b.max_age_hours))}</td>
+              <td class="${b.ok ? 'c-green' : 'c-red'}">${b.ok ? 'fresh' : 'stale'}</td></tr>`).join('')
+          + `</tbody></table>`;
+        tableCtl.wireSortOnly('device-backups-thead', 'device_backups', () => _loadAuditSectionForce('backups'));
+        badge.textContent = stale ? `${stale} stale` : `${baks.length} fresh`;
         break;
       }
 
@@ -12554,26 +12630,33 @@ function _renderHardwareSection(id, hw, fc, ch) {
   // ── SMART ──────────────────────────────────────────────────────────
   const disks = hw.smart || [];
   if (disks.length) {
+    const _uncorr = d => Math.max(d.offline_uncorrectable || 0, d.reported_uncorrect || 0);
     const sorted = tableCtl.sortRows('hw_smart', disks, d => ({
       device: d.device, health: d.health, model: d.model,
       realloc: d.reallocated_sectors || 0, pending: d.pending_sectors || 0,
+      crc: (d.crc_errors || 0) + _uncorr(d),
       temp: d.temperature_c || 0, hours: d.power_on_hours || 0,
     }));
     h += `<div class="hw-block"><div class="hw-h">SMART disk health</div>
       <table class="audit-table"><thead id="hw-smart-thead"><tr>
         <th data-col="device">Device</th><th data-col="model">Model</th>
         <th data-col="health">Health</th><th data-col="realloc">Realloc</th>
-        <th data-col="pending">Pending</th><th data-col="temp">Temp</th>
+        <th data-col="pending">Pending</th><th data-col="crc" title="CRC errors / uncorrectable sectors — these drive the FAILED verdict">CRC / Unc.</th><th data-col="temp">Temp</th>
         <th data-col="hours">Power-on h</th></tr></thead><tbody>` +
       sorted.map(d => {
         const hUp = String(d.health||'').toUpperCase();
         const healthCls = d.failed ? 'c-red'
           : (hUp === 'PASSED' || hUp === 'OK') ? 'c-green' : 'c-muted';
-        return `<tr><td><code>${escHtml(d.device)}</code></td>
+        const crc = d.crc_errors, unc = _uncorr(d);
+        const crcBad = (crc || 0) > 0 || unc > 0;
+        const crcCell = (crc == null && !unc) ? '—'
+          : `${crc ?? 0}<span class="c-muted"> / </span>${unc}`;
+        return `<tr><td><code>${escHtml(d.device)}</code>${d.serial ? `<div class="fs-11 c-muted">sn ${escHtml(d.serial)}</div>` : ''}</td>
           <td>${escHtml(d.model||'—')}</td>
           <td class="${healthCls}">${escHtml(d.health||'?')}</td>
           <td class="ta-center ${(d.reallocated_sectors||0)>0?'c-red':''}">${d.reallocated_sectors??'—'}</td>
           <td class="ta-center ${(d.pending_sectors||0)>0?'c-red':''}">${d.pending_sectors??'—'}</td>
+          <td class="ta-center ${crcBad?'c-red':''}">${crcCell}</td>
           <td class="ta-center">${d.temperature_c!=null?d.temperature_c+'°C':'—'}</td>
           <td class="ta-center">${d.power_on_hours??'—'}</td></tr>`;
       }).join('') + `</tbody></table>`;
@@ -12624,14 +12707,22 @@ function _renderHardwareSection(id, hw, fc, ch) {
       h += `<div class="mb-8">${['manufacturer','product','serial'].filter(x=>inv.system[x]).map(x=>`<span class="cmd-badge fs-11">${x}: ${escHtml(inv.system[x])}</span>`).join(' ')}</div>`;
     }
     if ((inv.memory||[]).length) {
+      // v3.4.2: surface manufacturer + serial — the identifying detail you need
+      // to order/swap a specific DIMM (the agent reports both when dmidecode runs).
       h += `<div class="fs-11 c-muted mb-4">Memory (${inv.memory.length} module${inv.memory.length>1?'s':''})</div>
-        <table class="audit-table"><thead><tr><th>Slot</th><th>Size</th><th>Type</th><th>Speed</th></tr></thead><tbody>` +
-        inv.memory.map(d=>`<tr><td>${escHtml(d.locator||'—')}</td><td>${escHtml(d.size||'—')}</td><td>${escHtml(d.type||'—')}</td><td>${escHtml(d.speed||'—')}</td></tr>`).join('') +
+        <table class="audit-table"><thead><tr><th>Slot</th><th>Size</th><th>Type</th><th>Speed</th><th>Manufacturer</th><th>Serial</th></tr></thead><tbody>` +
+        inv.memory.map(d=>`<tr><td>${escHtml(d.locator||'—')}</td><td>${escHtml(d.size||'—')}</td><td>${escHtml(d.type||'—')}</td><td>${escHtml(d.speed||'—')}</td><td>${escHtml(d.manufacturer||'—')}</td><td class="mono-12">${escHtml(d.serial||'—')}</td></tr>`).join('') +
         `</tbody></table>`;
     }
     if ((inv.raid||[]).length) {
+      // v3.4.2: include the member block devices so a degraded array names the
+      // exact disk to replace.
       h += `<div class="fs-11 c-muted mb-4 mt-8">RAID</div>` +
-        inv.raid.map(r=>`<span class="cmd-badge fs-11">${escHtml(r.name)} ${escHtml(r.level)} <span class="${/active|clean/i.test(r.state)?'c-green':'c-amber'}">${escHtml(r.state)}</span></span>`).join(' ');
+        inv.raid.map(r=>{
+          const mem = Array.isArray(r.devices) && r.devices.length
+            ? ` <span class="c-muted">[${r.devices.map(x=>escHtml(x)).join(', ')}]</span>` : '';
+          return `<span class="cmd-badge fs-11">${escHtml(r.name)} ${escHtml(r.level)} <span class="${/active|clean/i.test(r.state)?'c-green':'c-amber'}">${escHtml(r.state)}</span>${mem}</span>`;
+        }).join(' ');
     }
     if ((inv.temps||[]).length) {
       const hot = inv.temps.filter(t=>t.current_c>=75);
@@ -13229,15 +13320,20 @@ async function loadReportsIntegrity() {
     + `<span class="sev-pill sev-low">${c.unknown || 0} unknown</span>`
     + `<span class="fs-12 c-muted">canonical ${escHtml(r.canonical_sha256 || '—')} · v${escHtml(r.server_version || '')}</span></div>`;
   // Only list the non-verified ones (the actionable rows); verified is the count pill.
-  const rows = (r.devices || []).filter(d => d.status !== 'verified').map(d => {
+  const actionable = (r.devices || []).filter(d => d.status !== 'verified');
+  const sorted = tableCtl.sortRows('reports_integrity', actionable, d => ({
+    device: d.name, version: d.version || '', status: d.status, hash: d.agent_sha256 || '',
+  }));
+  const rows = sorted.map(d => {
     const cls = d.status === 'mismatch' ? 'sev-critical' : 'sev-low';
     return `<tr><td>${escHtml(d.name)}</td><td class="mono-12">${escHtml(d.version || '—')}</td>`
       + `<td><span class="sev-pill ${cls}">${escHtml(d.status)}</span></td>`
       + `<td class="mono-12">${escHtml(d.agent_sha256 || '—')}</td></tr>`;
   }).join('');
   out.innerHTML = pills + (rows
-    ? `<div class="table-card"><table><thead><tr><th>Device</th><th>Version</th><th>Status</th><th>Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ? `<div class="table-card"><table><thead id="reports-integrity-thead"><tr><th data-col="device">Device</th><th data-col="version">Version</th><th data-col="status">Status</th><th data-col="hash">Reported hash</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="c-muted fs-13">All reporting agents verified.</div>');
+  tableCtl.wireSortOnly('reports-integrity-thead', 'reports_integrity', loadReportsIntegrity);
 }
 
 // v3.4.2: software metering / license compliance.
@@ -13257,8 +13353,9 @@ async function loadReportsMetering() {
   }
   const r = await api('GET', '/inventory/metering').catch(() => null);
   if (!r) { out.innerHTML = ''; return; }
-  if (!r.meters.length) { out.innerHTML = '<div class="c-muted fs-13">No software meters configured yet.</div>'; return; }
-  const sorted = tableCtl.sortRows('metering', r.meters.slice(), m => ({
+  const meters = Array.isArray(r.meters) ? r.meters : [];
+  if (!meters.length) { out.innerHTML = '<div class="c-muted fs-13">No software meters configured yet.</div>'; return; }
+  const sorted = tableCtl.sortRows('metering', meters.slice(), m => ({
     software: m.name, installed: m.installed, reclaim: m.reclaimable || 0,
   }));
   const rows = sorted.map(m => {
@@ -13305,7 +13402,10 @@ async function loadReportsAnomalies() {
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load anomalies.</div>'; return; }
   const a = r.anomalies || [];
   if (!a.length) { out.innerHTML = '<div class="c-muted fs-13">No resource anomalies detected.</div>'; return; }
-  const rows = a.map(x => {
+  const sorted = tableCtl.sortRows('reports_anomalies', a, x => ({
+    device: x.device_name, metric: x.label, latest: x.value, baseline: x.mean, deviation: x.z,
+  }));
+  const rows = sorted.map(x => {
     const arrow = x.direction === 'high' ? '▲' : '▼';
     const cls = x.direction === 'high' ? 'c-red' : 'c-amber';
     return `<tr><td>${escHtml(x.device_name)}</td><td>${escHtml(x.label)}</td>`
@@ -13313,7 +13413,8 @@ async function loadReportsAnomalies() {
       + `<td class="mono-12">${x.mean} ±${x.stdev}</td>`
       + `<td class="mono-12">z=${x.z}</td></tr>`;
   }).join('');
-  out.innerHTML = `<div class="table-card"><table><thead><tr><th>Device</th><th>Metric</th><th>Latest</th><th>Baseline</th><th>Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  out.innerHTML = `<div class="table-card"><table><thead id="reports-anomalies-thead"><tr><th data-col="device">Device</th><th data-col="metric">Metric</th><th data-col="latest">Latest</th><th data-col="baseline">Baseline</th><th data-col="deviation">Deviation</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  tableCtl.wireSortOnly('reports-anomalies-thead', 'reports_anomalies', loadReportsAnomalies);
 }
 
 let _slaRows = [];
@@ -14066,8 +14167,21 @@ async function loadScap() {
     avg.textContent = r.avg_score != null ? `avg ${r.avg_score}%` : 'no scans';
     avg.className = 'ro-badge ' + (r.avg_score == null ? '' : r.avg_score >= 80 ? 'rs-done' : r.avg_score >= 50 ? 'rs-paused' : 'rs-failed');
   }
-  if (!r.devices || !r.devices.length) { out.innerHTML = '<div class="empty-state">No scans yet. Pick a profile and click <strong>Run scan</strong>.</div>'; return; }
-  const sorted = tableCtl.sortRows('scap', r.devices.slice(), d => ({
+  // v3.4.2: cache the rows and render from cache so a sort-header click
+  // re-renders locally instead of re-fetching /scap (the old rerender callback
+  // was loadScap, which double-fetched and reset the profile dropdown selection
+  // mid-interaction).
+  _scapLastDevices = r.devices || [];
+  _renderScapTable();
+}
+
+let _scapLastDevices = [];
+function _renderScapTable() {
+  const out = document.getElementById('scap-body');
+  if (!out) return;
+  const devices = _scapLastDevices || [];
+  if (!devices.length) { out.innerHTML = '<div class="empty-state">No scans yet. Pick a profile and click <strong>Run scan</strong>.</div>'; return; }
+  const sorted = tableCtl.sortRows('scap', devices.slice(), d => ({
     device: d.name,
     score: (d.score == null ? -1 : d.score),
     pass: d.pass || 0, fail: d.fail || 0,
@@ -14086,7 +14200,7 @@ async function loadScap() {
     return `<tr><td>${escHtml(d.name)}</td><td class="${scCls} fw-500">${sc}</td><td class="c-green">${d.pass || 0}</td><td class="c-red">${d.fail || 0}</td><td class="fs-11 c-muted">${escHtml(d.profile || '')} · ${escHtml(d.datastream || '')}<div>${top}${(d.failed_top || []).length > 6 ? '…' : ''}</div></td><td class="fs-11 c-muted">${escHtml(timeAgo(d.ts))}</td><td>${reportCell(d)}</td></tr>`;
   }).join('');
   out.innerHTML = `<div class="table-card"><table><thead id="scap-thead"><tr><th data-col="device">Device</th><th data-col="score">Score</th><th data-col="pass">Pass</th><th data-col="fail">Fail</th><th>Profile / top failures</th><th data-col="when">When</th><th>Report</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  tableCtl.wireSortOnly('scap-thead', 'scap', loadScap);
+  tableCtl.wireSortOnly('scap-thead', 'scap', _renderScapTable);
 }
 
 // Open the full OpenSCAP/usg HTML report in a new tab. The endpoint needs the
@@ -17414,7 +17528,7 @@ async function mitigateRunFix() {
     _mitigateCtx.actionId = r.action_id;
     document.getElementById('mitigate-fix-result').innerHTML =
       `<div class="isl-708">
-        ✓ Queued (action ${escHtml(r.action_id)}). Polling for output…
+        ${_icon('check',14)} Queued (action ${escHtml(r.action_id)}). Polling for output…
         <pre id="mitigate-fix-output" class="isl-709"></pre>
       </div>`;
     _mitigatePollAttempts = 0;
@@ -17443,7 +17557,7 @@ async function _mitigatePollFix() {
       '<div class="isl-711">Timed out waiting for output. Agent may be offline.</div>');
     return;
   }
-  setTimeout(_mitigatePollFix, 2000);
+  _mitigatePollTimer = setTimeout(_mitigatePollFix, 2000);
 }
 
 // v3.0.1: Cancel a pending ACME action (still in queue or already dispatched)
@@ -17694,6 +17808,7 @@ function _palBuildIndex() {
     ['Server status', 'self'], ['Documentation', 'docs'],
     ['AI Assistant', 'ai'], ['Settings', 'settings'], ['Users', 'users'],
     ['API Keys', 'apikeys'], ['Scripts', 'scripts'], ['Command Library', 'cmdlib'],
+    ['Command Queue', 'cmdqueue'],
     ['Maintenance', 'maintenance'], ['Services', 'services'], ['About', 'about'],
     // v3.4.1: new + previously-missing destinations
     ['Timeline', 'timeline'], ['Reports', 'reports'], ['Alerts', 'alerts'],
@@ -17724,7 +17839,7 @@ function _palBuildIndex() {
       label: d.name || d.id,
       kind: 'device',
       sub: `${d.os || 'device'} · ${d.ip || ''}`,
-      action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id), 100); },
+      action: () => { showPage('devices'); setTimeout(() => openDeviceDrawer(d.id, d.name || d.id), 100); },
     });
     // v3.4.1: jump straight to this device's timeline.
     items.push({

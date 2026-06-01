@@ -85,7 +85,8 @@ class TestActivityFilter(unittest.TestCase):
         self.assertGreater(func_start, 0)
         # Look for the filter + slice ordering in the next chunk.
         # v2.4.8: widened — the de-dup block lengthened the function.
-        chunk = self.js[func_start:func_start + 3200]
+        # v3.4.2: widened again — added image/health events to FLEET_EVENTS.
+        chunk = self.js[func_start:func_start + 3600]
         self.assertIn('.filter(', chunk)
         self.assertIn('.slice(', chunk)
         filter_pos = chunk.find('.filter(')

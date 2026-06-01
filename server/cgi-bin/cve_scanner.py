@@ -51,6 +51,13 @@ def detect_ecosystem(os_release: dict, pkg_manager: str) -> str | None:
             return f'Debian:{ver_major}'
         if os_id == 'ubuntu':
             return 'Ubuntu'
+        # Ubuntu derivatives (Zorin, Linux Mint, Pop!_OS, elementary, …) carry
+        # ID_LIKE="ubuntu debian" and track Ubuntu's package versions, so they
+        # map to the Ubuntu ecosystem. Check 'ubuntu' BEFORE 'debian': their
+        # ID_LIKE contains both, and their VERSION_ID is the derivative's own
+        # (e.g. Zorin 18), which is meaningless as a Debian release number.
+        if 'ubuntu' in id_like:
+            return 'Ubuntu'
         if 'debian' in id_like and ver_major:
             return f'Debian:{ver_major}'
         return None
@@ -627,7 +634,7 @@ def packages_hash(packages: list) -> str:
 def summarize_findings(findings: list, ignore_ids: set) -> dict:
     out = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0, 'unknown': 0, 'ignored': 0}
     for f in findings:
-        if f['vuln_id'] in ignore_ids:
+        if f.get('vuln_id') in ignore_ids:
             out['ignored'] += 1
             continue
         sev = f.get('severity', 'unknown')
@@ -642,8 +649,11 @@ def apply_ignore_list(findings: list, ignore_data: dict, dev_id: str) -> list:
         # be on the ignore list (the list is keyed by vuln_id), and
         # must not raise.
         ig = ignore_data.get(f.get('vuln_id'))
+        # Copy in BOTH branches: never mutate the caller's input list (the
+        # findings often come straight from a cached load() and are reused by
+        # other callers — e.g. the timeline merge).
+        f = dict(f)
         if ig and (ig.get('scope') == 'global' or ig.get('scope') == dev_id):
-            f = dict(f)
             f['ignored'] = True
             f['ignore_reason'] = ig.get('reason', '')
         else:

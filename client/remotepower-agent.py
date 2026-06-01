@@ -2941,7 +2941,10 @@ def check_for_update(server_url, force=False):
     # restarts the process, and the scan runs in a daemon thread that dies with
     # it — the scan never finishes or reports ("server requested scan, then
     # nothing"). Defer; the next poll retries the update once the scan is done.
-    if _oscap_running.locked() and not force:
+    # This applies to force=True too: a forced re-deploy mid-scan kills the scan
+    # exactly like a normal update would. The caller (heartbeat) re-tries a
+    # deferred force upgrade locally so the one-shot server flag isn't lost.
+    if _oscap_running.locked():
         log.info("Deferring agent self-update — an OpenSCAP scan is in progress")
         return False
     try:
@@ -4224,6 +4227,11 @@ def heartbeat(creds, interval=POLL_INTERVAL):
     # v3.0.0: IaC collection request from server
     pending_iac_request_id = None
     pending_iac_categories = None
+    # v3.4.2: a force_agent_upgrade requested while an OpenSCAP scan is running
+    # is held locally and retried on a later poll. The server clears its
+    # one-shot flag after one delivery, so without this the deferred upgrade
+    # would be lost entirely.
+    pending_force_upgrade = False
     # v2.5.0: custom monitoring scripts pushed by the server. Empty list
     # until the first heartbeat response arrives carrying assignments.
     custom_scripts = []
@@ -4631,23 +4639,33 @@ def heartbeat(creds, interval=POLL_INTERVAL):
             # binary regardless of version match. Used for re-deploys or
             # corrupt-binary recovery; the server clears the flag after one
             # delivery so this fires exactly once.
-            if resp.get('force_agent_upgrade'):
-                log.info('Server requested force agent upgrade — bypassing version check')
-                try:
-                    # Variable in scope is `server` (set at top of heartbeat),
-                    # not `server_url`. Previous code referenced an undefined
-                    # name → NameError caught by the except clause → log line
-                    # "Force upgrade failed: name 'server_url' is not defined"
-                    # which is what tipped Jakob off in the journal.
-                    if check_for_update(server, force=True):
-                        # check_for_update with force=True returns True when it
-                        # has overwritten the binary; restart so systemd picks
-                        # up the new binary (the existing self-update path
-                        # already restarts via the calling loop).
-                        log.info('Force upgrade completed — agent will restart')
-                        return  # Falls out of heartbeat loop; systemd respawns us
-                except Exception as e:
-                    log.error(f'Force upgrade failed: {e}')
+            if resp.get('force_agent_upgrade') or pending_force_upgrade:
+                if _oscap_running.locked():
+                    # Hold the force upgrade until the in-progress OpenSCAP scan
+                    # finishes — restarting now would kill the scan thread. The
+                    # server already cleared its one-shot flag, so we remember
+                    # locally and retry next poll.
+                    pending_force_upgrade = True
+                    log.info('Force upgrade requested during OpenSCAP scan — '
+                             'deferring until the scan completes')
+                else:
+                    pending_force_upgrade = False
+                    log.info('Server requested force agent upgrade — bypassing version check')
+                    try:
+                        # Variable in scope is `server` (set at top of heartbeat),
+                        # not `server_url`. Previous code referenced an undefined
+                        # name → NameError caught by the except clause → log line
+                        # "Force upgrade failed: name 'server_url' is not defined"
+                        # which is what tipped Jakob off in the journal.
+                        if check_for_update(server, force=True):
+                            # check_for_update with force=True returns True when it
+                            # has overwritten the binary; restart so systemd picks
+                            # up the new binary (the existing self-update path
+                            # already restarts via the calling loop).
+                            log.info('Force upgrade completed — agent will restart')
+                            return  # Falls out of heartbeat loop; systemd respawns us
+                    except Exception as e:
+                        log.error(f'Force upgrade failed: {e}')
             # v3.0.0: one-shot IaC data collection request from the server.
             # Categories listed must be collected and returned in the NEXT heartbeat.
             iac_req = resp.get('force_iac_collect')

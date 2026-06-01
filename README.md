@@ -149,6 +149,11 @@ The demo is reset every few hours, so feel free to break things.
 - **Per-device timeline** *(v3.4.1)* — a single chronological history per host (**Monitoring → Timeline**) that merges fleet events and command runs into one filterable stream, so you can read what happened to a box in order.
 - **Fleet health score** *(v3.4.1)* — one 0–100 score per device and across the fleet on the home dashboard, rolled up from the same Needs Attention signals, with the lowest-scoring devices linking straight into their timelines.
 - **Fleet posture reports** *(v3.4.1)* — one report binding patches, CVEs, the health score, and compliance (**Planning → Reports**): download as JSON/CSV on demand, or email it on a cron schedule.
+- **OpenSCAP compliance scans** *(v3.4.2)* — auditor-grade scans on the endpoint: CIS / STIG / PCI-DSS on the SCAP Security Guide, plus Ubuntu Security Guide (USG) for CIS/STIG on Ubuntu and ANSSI BP-028 profiles on Debian/Ubuntu. Score, pass/fail tallies, failing rule ids — and a **downloadable full HTML report**. No new server dependency. Requires the `upgrade` permission.
+- **AI Investigate** *(v3.4.2)* — one-click diagnose-and-suggest-a-fix on a Needs-Attention item, now including CVE findings and stopped/restarting containers alongside disk / memory / swap / cpu / patches / drift / service / reboot / brute-force alerts. Requires the `exec` permission.
+- **Command Queue** *(v3.4.2)* — an Admin page listing every device's pending queued commands — even offline hosts — so you can see what's waiting and cancel it before the host comes back.
+- **Per-device backups** *(v3.4.2)* — a Backups section in the device drawer showing each watched backup path's age and fresh/stale state.
+- **Container health** *(v3.4.2)* — the per-device container list now shows each container's health badge (healthy/unhealthy/starting), live CPU%/memory, and published ports.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

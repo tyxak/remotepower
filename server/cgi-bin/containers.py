@@ -98,6 +98,20 @@ def _int_or_zero(value: Any) -> int:
         return 0
 
 
+def _pct_or_none(value: Any):
+    """Coerce to a clamped 0–100 float, or None if absent/unparseable. Used for
+    container cpu_percent / mem_percent, which the agent may omit (no `stats`)."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f < 0:
+        return 0.0
+    return 100.0 if f > 100 else f
+
+
 def _normalize_runtime(runtime: Any) -> str:
     """Map agent-reported runtime string to one of ALLOWED_RUNTIMES."""
     if not runtime:
@@ -153,6 +167,13 @@ def normalize_container(item: Any) -> dict | None:
         "started_at": _int_or_zero(item.get("started_at")),
         "uptime_seconds": _int_or_zero(item.get("uptime_seconds")),
         "restart_count": _int_or_zero(item.get("restart_count")),
+        # v3.4.2: the agent already reports these (docker health substring +
+        # `docker stats`), but the normaliser used to drop them so the UI could
+        # never show a container's health badge or live CPU/mem. Preserve them.
+        "health": _str(item.get("health"), 32),
+        "cpu_percent": _pct_or_none(item.get("cpu_percent")),
+        "mem_percent": _pct_or_none(item.get("mem_percent")),
+        "mem_usage": _str(item.get("mem_usage"), 48),
     }
 
 
