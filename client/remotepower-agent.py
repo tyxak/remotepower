@@ -716,6 +716,47 @@ def _oscap_profiles(datastream):
     return profs[:40]
 
 
+def _oscap_zero_reason(profile, datastream):
+    """Explain why a scan evaluated 0 applicable rules. The usual cause is a
+    host-OS vs SCAP-content mismatch: oscap's CPE applicability check marks every
+    rule notapplicable when the datastream targets a different OS than the host
+    (e.g. an Ubuntu box with only ssg-debian content installed). Name the package
+    to install so the operator can actually fix it, rather than just '0%'."""
+    import re as _re
+    base = os.path.basename(datastream or '')
+    osr = get_os_release()
+    oid = (osr.get('ID') or '').lower()
+    pretty = osr.get('PRETTY_NAME') or osr.get('ID') or 'this host'
+    families = [oid] + [x for x in (osr.get('ID_LIKE') or '').lower().split() if x]
+    # A real applicability match needs the host's OWN id AND its major version in
+    # the datastream name (oscap's CPE check is distro+version specific). An
+    # ID_LIKE-only match (Ubuntu using ssg-debian content) does NOT actually
+    # apply — that's the common 0-rules cause we want to call out.
+    hostmajor = ''
+    mm = _re.match(r'(\d+)', (osr.get('VERSION_ID') or ''))
+    if mm:
+        hostmajor = mm.group(1)
+    matches_os = bool(oid and oid in base and (not hostmajor or hostmajor in base))
+    if not matches_os and base:
+        # Recommend the right SSG package per family.
+        if oid == 'ubuntu' or 'ubuntu' in families:
+            pkg = 'ssg-debderived (provides ssg-ubuntu* content)'
+        elif oid in ('debian',) or 'debian' in families:
+            pkg = 'ssg-debian (matching this Debian release)'
+        elif oid in ('rhel', 'centos', 'fedora', 'rocky', 'almalinux') or 'rhel' in families or 'fedora' in families:
+            pkg = 'scap-security-guide'
+        else:
+            pkg = 'the SCAP Security Guide content for your OS'
+        return (f"no applicable rules: the only SCAP content here is {base}, which "
+                f"targets a different OS than {pretty}. Install {pkg} so a matching "
+                f"datastream is scanned.")
+    # Content matches the OS but this particular profile still selected nothing
+    # (e.g. the Debian 'standard' stub) — point at the populated profiles.
+    return (f"profile '{profile}' evaluated no applicable rules on {pretty} "
+            f"({base}). Pick a profile with real coverage (on Debian/Ubuntu the "
+            f"ANSSI BP-028 profiles, e.g. anssi_np_nt28_minimal).")
+
+
 def run_oscap_scan(profile, creds):
     """Run `oscap xccdf eval` against the SSG datastream and POST a compact
     result to /api/scap/report. Heavy + slow, so callers run this in a thread.
@@ -783,10 +824,7 @@ def run_oscap_scan(profile, creds):
                             applicable = (parsed.get('pass') or 0) + (parsed.get('fail') or 0)
                             if applicable == 0:
                                 report.update(available=False,
-                                              reason=(f"profile '{profile}' evaluated no "
-                                                      f"applicable rules on this host "
-                                                      f"({os.path.basename(ds)}) — its score "
-                                                      f"would be meaningless"))
+                                              reason=_oscap_zero_reason(profile, ds))
                             else:
                                 report.update(parsed)
                                 report['available'] = True

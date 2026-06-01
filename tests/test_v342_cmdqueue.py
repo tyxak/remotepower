@@ -195,6 +195,39 @@ class TestDeployResignsAgent(unittest.TestCase):
         self.assertIn("release_key_fingerprint", sh)
 
 
+class TestOscapZeroReason(unittest.TestCase):
+    """A 0-applicable-rules scan must explain the real cause: usually the host's
+    OS doesn't match the installed SCAP content. Name the package to install."""
+
+    def _make(self, osr):
+        src = (Path(__file__).resolve().parent.parent
+               / "client" / "remotepower-agent.py").read_text()
+        m = re.search(r"def _oscap_zero_reason.*?(?=\ndef )", src, re.S)
+        ns = {"os": os, "get_os_release": lambda: osr}
+        exec(m.group(0), ns)
+        return ns["_oscap_zero_reason"]
+
+    def test_ubuntu_with_debian_content_recommends_debderived(self):
+        fn = self._make({"ID": "ubuntu", "ID_LIKE": "debian",
+                         "VERSION_ID": "24.04", "PRETTY_NAME": "Ubuntu 24.04.4 LTS"})
+        r = fn("anssi_np_nt28_minimal", "/x/ssg-debian12-ds.xml")
+        self.assertIn("different OS", r)
+        self.assertIn("ssg-debderived", r)
+
+    def test_debian13_with_debian12_content_recommends_ssg_debian(self):
+        fn = self._make({"ID": "debian", "VERSION_ID": "13",
+                         "PRETTY_NAME": "Debian GNU/Linux 13 (trixie)"})
+        r = fn("standard", "/x/ssg-debian12-ds.xml")
+        self.assertIn("different OS", r)
+        self.assertIn("ssg-debian", r)
+
+    def test_matching_os_points_at_profile_coverage(self):
+        fn = self._make({"ID": "debian", "VERSION_ID": "12", "PRETTY_NAME": "Debian 12"})
+        r = fn("standard", "/x/ssg-debian12-ds.xml")
+        self.assertNotIn("different OS", r)
+        self.assertIn("ANSSI", r)
+
+
 class TestOscapProfileParsing(unittest.TestCase):
     """_oscap_profiles must parse BOTH oscap-info output formats — the modern
     'Title:/Id:' layout (real ssg-debian12 output) and the older 'Profile:' one."""

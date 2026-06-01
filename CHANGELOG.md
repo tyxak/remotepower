@@ -125,6 +125,16 @@ collecting but the detail view didn't show:
   It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
   `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
   `ssg-debian12`), falling back to the newest available rather than the oldest.
+- **OpenSCAP "0 rules" now tells you the real cause.** The most common reason a
+  scan scores 0 is an OS↔content mismatch: oscap's CPE applicability check marks
+  every rule "not applicable" when the only installed SCAP content targets a
+  different OS than the host (e.g. an Ubuntu 24.04 box with just `ssg-debian12`
+  installed). The agent now detects that — a real match needs the host's own
+  distro id *and* major version in the datastream name, not just an `ID_LIKE`
+  relative — and reports an actionable reason naming the package to install
+  (Ubuntu → `ssg-debderived`; Debian → `ssg-debian` for its release; RHEL/Fedora
+  → `scap-security-guide`). When the content does match the OS but the chosen
+  profile is just empty, it points at the populated profiles instead.
 - **OpenSCAP profile detection fixed + ANSSI guidance.** The agent parsed
   `oscap info` by grepping for `Profile:` lines, but modern oscap prints
   profiles as `Title:` / `Id: …content_profile_<x>` — so the profile list came
