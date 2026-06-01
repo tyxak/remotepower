@@ -121,6 +121,17 @@ collecting but the detail view didn't show:
   after `BEGIN_FIX` (up to a blank line / code fence) when `END_FIX` is missing,
   so a usable fix surfaces. The Re-run AI button in the pane lets you re-prompt
   without waiting on the agent again.
+- **Mitigation modal: AI analysis & Apply-fix tabs were never visible (root
+  cause of "it stalls / all tabs empty").** The AI and Fix panes share a CSS
+  class carrying `display:none`; `mitigateTab()` revealed the active pane with
+  `style.display = ''`, which only clears the *inline* value and leaves the
+  stylesheet `display:none` in force — so tabs 2 and 3 stayed hidden even though
+  their content was written correctly (diagnostic, AI summary and suggested fix
+  all populated an invisible container). A CSP-migration regression: these were
+  originally inline `style="display:none"` (which `''` would have cleared); the
+  auto-class generator turned them into a stylesheet rule. Fixed by setting
+  `display:'block'` explicitly. This is the actual cause behind the run of "AI
+  does nothing" reports — the analysis was working the whole time.
 - **Mitigation AI: render can't freeze the step, plus step-by-step debug.**
   `_mitigateRenderFixOptions` ran before the "Done" status update, so a throw in
   it would leave the pane stuck on "Asking the model…" even though the AI call

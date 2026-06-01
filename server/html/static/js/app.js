@@ -16641,8 +16641,13 @@ function closeMitigateModal() {
 function mitigateTab(tab) {
   document.querySelectorAll('#mitigate-modal .drawer-tab-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mitTab === tab));
+  // NB: the AI and Fix panes share class .isl-255 which carries a stylesheet
+  // `display:none` (a CSP-migration artifact — was inline style="display:none").
+  // Setting style.display = '' only clears the INLINE value and leaves that
+  // rule in effect, so the active pane stayed hidden even though its content
+  // was written — the "all tabs empty" bug. Use an explicit 'block'.
   document.querySelectorAll('.mitigate-pane').forEach(p =>
-    p.style.display = p.id === `mitigate-pane-${tab}` ? '' : 'none');
+    p.style.display = p.id === `mitigate-pane-${tab}` ? 'block' : 'none');
 }
 
 // Step 1: queue the diagnostic
