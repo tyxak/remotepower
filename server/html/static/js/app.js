@@ -13713,15 +13713,22 @@ async function printFleetReport() {
     `<tr><td>${escHtml(fw.toUpperCase())}</td><td>${fws[fw].score != null ? fws[fw].score + '%' : 'N/A'}</td></tr>`).join('');
   let cisBlock = '';
   if (cis && Array.isArray(cis.checks)) {
-    const rows = cis.checks.map(ch =>
-      `<tr><td>${escHtml(ch.title)}</td><td>${escHtml(ch.severity)}</td><td>${ch.pass || 0}</td><td>${ch.fail || 0}</td><td>${ch.na || 0}</td></tr>`).join('');
+    const rows = cis.checks.map(ch => {
+      const pass = ch.pass || 0, fail = ch.fail || 0;
+      return `<tr><td>${escHtml(ch.title)}</td><td>${escHtml(ch.severity)}</td>`
+        + `<td class="${pass ? 'pr-ok' : ''}">${pass}</td>`
+        + `<td class="${fail ? 'pr-bad' : ''}">${fail}</td>`
+        + `<td>${ch.na || 0}</td></tr>`;
+    }).join('');
     cisBlock = `<h2>Configuration baseline${cis.score != null ? ' — ' + cis.score + '%' : ''}</h2>`
       + `<table><thead><tr><th>Check</th><th>Severity</th><th>Pass</th><th>Fail</th><th>N/A</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
   const el = document.getElementById('print-report');
   if (!el) return;
-  el.innerHTML = `<h1>RemotePower — Fleet posture report</h1>`
-    + `<div class="pr-meta">Generated ${escHtml(new Date().toLocaleString())}</div>`
+  el.innerHTML = `<div class="pr-head">`
+    + `<img class="pr-logo" src="static/img/logo-primary.png" alt="RemotePower">`
+    + `<div><h1>Fleet posture report</h1>`
+    + `<div class="pr-meta">Generated ${escHtml(new Date().toLocaleString())}</div></div></div>`
     + `<div class="pr-cards">`
     + card('Health', (h.score != null ? h.score : '—') + '/100', h.grade || '')
     + card('Devices', (d.online || 0) + '/' + (d.total || 0), 'online')
@@ -13729,7 +13736,8 @@ async function printFleetReport() {
     + card('CVEs', (c.critical || 0) + (c.high || 0), (c.critical || 0) + ' crit · ' + (c.high || 0) + ' high')
     + `</div>`
     + (fwRows ? `<h2>Compliance frameworks</h2><table><thead><tr><th>Framework</th><th>Score</th></tr></thead><tbody>${fwRows}</tbody></table>` : '')
-    + cisBlock;
+    + cisBlock
+    + `<div class="pr-foot">RemotePower fleet posture report — generated on demand. Figures reflect the latest data RemotePower has collected.</div>`;
   window.print();
 }
 

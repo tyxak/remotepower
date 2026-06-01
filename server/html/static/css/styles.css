@@ -4309,19 +4309,38 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.4.2: print-friendly fleet report (Reports → Print / Save as PDF) */
 .print-only { display: none; }
 @media print {
+  /* Force a light page regardless of the app theme, and make the browser
+     actually print our colours — otherwise the dark theme's light text prints
+     on a white page (white-on-white) when "background graphics" is off. */
+  html, body { background: #fff !important; }
   body > *:not(#print-report) { display: none !important; }
-  #print-report { display: block !important; color: #000; padding: 0; font-size: 14px; }
+  #print-report {
+    display: block !important;
+    color: #111 !important;
+    background: #fff !important;
+    padding: 0;
+    font-size: 14px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #print-report * { color: #111; }   /* neutralise any inherited theme colour */
+  #print-report .pr-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  #print-report .pr-logo { height: 40px; width: auto; }
   #print-report h1 { font-size: 22px; margin: 0 0 2px; }
-  #print-report h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
-  #print-report .pr-meta { color: #555; font-size: 12px; margin-bottom: 16px; }
+  #print-report h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #bbb; padding-bottom: 4px; }
+  #print-report .pr-meta { color: #555 !important; font-size: 12px; }
   #print-report .pr-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-  #print-report .pr-card { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
-  #print-report .pr-k { font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: .04em; }
+  #print-report .pr-card { border: 1px solid #bbb; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
+  #print-report .pr-k { font-size: 11px; text-transform: uppercase; color: #555 !important; letter-spacing: .04em; }
   #print-report .pr-v { font-size: 24px; font-weight: 600; }
-  #print-report .pr-sub { font-size: 11px; color: #555; }
-  #print-report table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  #print-report .pr-sub { font-size: 11px; color: #555 !important; }
+  #print-report table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 4px; }
   #print-report th, #print-report td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #ddd; }
-  #print-report th { color: #444; font-size: 11px; text-transform: uppercase; }
+  #print-report th { color: #444 !important; font-size: 11px; text-transform: uppercase; background: #f4f4f4; }
+  #print-report .pr-ok  { color: #137333 !important; font-weight: 600; }
+  #print-report .pr-bad { color: #b00020 !important; font-weight: 600; }
+  #print-report .pr-foot { margin-top: 24px; color: #777 !important; font-size: 11px;
+    border-top: 1px solid #ddd; padding-top: 8px; }
 }
 
 /* v3.4.2 */

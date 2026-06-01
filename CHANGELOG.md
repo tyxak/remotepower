@@ -89,6 +89,19 @@ collecting but the detail view didn't show:
   **group**, or a fleet **default** (most specific wins) from the Uptime (SLA)
   card. Each row shows its target and whether it's met or breached.
   `GET`/`PUT /api/fleet/sla-targets`.
+- **CVE attention items show what's fixable.** A CVE Needs-Attention item now
+  notes how many of the findings carry a known fixed version — e.g. "30
+  high-severity CVEs · 12 fixable" — so you can see at a glance whether a package
+  upgrade would actually clear any of them.
+- **Print / PDF posture report is readable and branded.** The report forced no
+  background, so on the dark theme it could print white-on-white. It now forces a
+  light page with dark text (`print-color-adjust: exact`), adds the RemotePower
+  logo to the header, colours the baseline pass/fail counts, and adds a footer.
+- **More in the RAG index.** Added focused docs (`docs/sla.md`,
+  `docs/forecast.md`, `docs/health-score.md`) so the AI assistant and fleet
+  search can answer questions about SLA targets, the disk forecast, and how the
+  health score is calculated. (`deploy-server.sh` syncs `docs/*.md` into the RAG
+  corpus.)
 
 ### Operations, onboarding & UX
 - **Sidebar search.** A small search box under the Collapse button finds a page

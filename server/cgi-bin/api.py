@@ -15047,17 +15047,23 @@ def _compute_attention():
             continue
         crit = sum(1 for f in findings if f.get('severity') == 'critical')
         high = sum(1 for f in findings if f.get('severity') == 'high')
+        # How many of these have a known fixed version — i.e. a package upgrade
+        # would actually clear them. Surfaced in the summary so the operator can
+        # see at a glance whether there's anything actionable to patch.
+        fixable = sum(1 for f in findings if f.get('fixed_version'))
         name = monitored[dev_id].get('name', dev_id)
         if crit:
+            summary = f'{crit} critical CVE{"s" if crit != 1 else ""}'
+            if fixable:
+                summary += f' · {fixable} fixable'
             items.append({'severity': 'critical', 'kind': 'cve',
-                           'device': name,
-                           'summary': f'{crit} critical CVE'
-                                      f'{"s" if crit != 1 else ""}'})
+                           'device': name, 'summary': summary})
         elif high:
+            summary = f'{high} high-severity CVE{"s" if high != 1 else ""}'
+            if fixable:
+                summary += f' · {fixable} fixable'
             items.append({'severity': 'warning', 'kind': 'cve',
-                           'device': name,
-                           'summary': f'{high} high-severity CVE'
-                                      f'{"s" if high != 1 else ""}'})
+                           'device': name, 'summary': summary})
 
     # Configuration drift.
     for dev_id, dev in monitored.items():

@@ -88,6 +88,24 @@ class TestHealthPendingUpdates(unittest.TestCase):
         self.assertTrue(patch)
         self.assertEqual(patch[0]["severity"], "warning")  # ≥ 20
 
+    def test_cve_item_shows_fixable_count(self):
+        # The CVE attention item surfaces how many findings carry a known fixed
+        # version (i.e. a package upgrade would clear them).
+        api.save(api.DEVICES_FILE, {"d1": {
+            "name": "d1", "group": "g", "monitored": True,
+            "last_seen": int(time.time()), "sysinfo": {}}})
+        api.save(api.CVE_FINDINGS_FILE, {"d1": {"findings": [
+            {"id": "CVE-1", "severity": "high", "fixed_version": "1.2.3"},
+            {"id": "CVE-2", "severity": "high", "fixed_version": ""},
+            {"id": "CVE-3", "severity": "high"},
+        ]}})
+        api._LOAD_CACHE.clear()
+        items = api._compute_attention()
+        cve = [i for i in items if i.get("kind") == "cve" and i.get("device") == "d1"]
+        self.assertTrue(cve, "a device with high CVEs should get a 'cve' attention item")
+        self.assertIn("3 high", cve[0]["summary"])
+        self.assertIn("1 fixable", cve[0]["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()
