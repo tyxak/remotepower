@@ -4315,6 +4315,12 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
      every descendant forced to a transparent (→ white) background so nothing
      from the dark theme survives. Layout is given a frame to settle before
      window.print() (see printFleetReport) so the injected DOM is painted. */
+  /* Force a LIGHT colour scheme for the print. Without this, a browser/OS in
+     dark mode remaps our explicit colours when printing — our #111 text gets
+     lightened to near-white and prints invisible (while the browser's own
+     header/footer chrome, unaffected, still shows). color-scheme:light opts the
+     printed document out of that substitution. */
+  html, body, #print-report, #print-report * { color-scheme: light !important; }
   html, body { background: #fff !important; }
   body > *:not(#print-report) { display: none !important; }
   #print-report {
