@@ -556,6 +556,11 @@
     font-weight: 600;
   }
   .doc-card.hidden { display: none; }
+  /* Global hide utility. Toggled from JS via classList for the sidebar-search
+     results dropdown, the SLA-targets editor, etc. (Previously only
+     `.doc-card.hidden` existed, so a bare `class="hidden"` element rendered as
+     an empty box instead of being hidden.) */
+  .hidden { display: none !important; }
   .doc-card kbd {
     background: var(--surface2);
     border: 1px solid var(--border);
