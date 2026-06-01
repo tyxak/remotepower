@@ -6829,6 +6829,90 @@ def _queue_command_batch(dev_ids, command, actor):
     return results
 
 
+def _humanize_queued_command(cmd):
+    """Turn a raw queued command string into a short {kind, summary} for the
+    queue viewer. The agent receives these verbatim; this is display-only."""
+    s = str(cmd)
+    if s.startswith('exec:'):
+        body = s[5:]
+        first = body.strip().splitlines()[0] if body.strip() else ''
+        return {'kind': 'exec', 'summary': first[:200] + ('…' if len(body) > 200 else '')}
+    if s.startswith('poll_interval:'):
+        return {'kind': 'poll', 'summary': f'set poll interval to {s.split(":", 1)[1]}s'}
+    if s.startswith('compose:'):
+        return {'kind': 'compose', 'summary': s[8:][:200]}
+    if s.startswith('acme:'):
+        return {'kind': 'acme', 'summary': s[5:][:200]}
+    if s in ('reboot', 'shutdown', 'update', 'uninstall', 'scan'):
+        return {'kind': s, 'summary': s}
+    return {'kind': 'other', 'summary': s[:200]}
+
+
+def handle_command_queue():
+    """GET /api/command-queue — every device with commands waiting in its queue,
+    so an operator can see what's pending (e.g. on an offline host) and cancel
+    it. Read-scoped: a scoped role only sees its in-scope devices. Auth: admin
+    (this is an Admin-page view of the whole fleet's queue)."""
+    require_admin_auth()
+    cmds = load(CMDS_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    now = int(time.time())
+    ttl = get_online_ttl()
+    out = []
+    for dev_id, queue in cmds.items():
+        if not queue:
+            continue
+        dev = devices.get(dev_id)
+        if dev is None:   # out of scope or unknown — skip
+            continue
+        last = dev.get('last_seen', 0)
+        out.append({
+            'device_id': dev_id,
+            'name': dev.get('name', dev_id),
+            'online': bool(last and (now - last) < ttl),
+            'last_seen': last,
+            'quarantined': bool(dev.get('quarantined')),
+            'count': len(queue),
+            'commands': [dict(_humanize_queued_command(c), index=i, raw=str(c)[:512])
+                         for i, c in enumerate(queue)],
+        })
+    out.sort(key=lambda r: (-r['count'], r['name']))
+    respond(200, {'devices': out, 'total': sum(r['count'] for r in out)})
+
+
+def handle_command_queue_clear(dev_id):
+    """DELETE /api/devices/<id>/command-queue[?index=N] — cancel one queued
+    command (by index) or, with no index, the device's entire pending queue.
+    Admin-only + audited. Anything already handed to the agent has left the
+    queue, so this only affects commands still waiting."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    idx_raw = (qs.get('index') or [''])[0]
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        queue = cmds.get(dev_id) or []
+        if idx_raw == '':
+            removed = len(queue)
+            cmds[dev_id] = []
+            detail = f'cleared {removed} queued command(s)'
+        else:
+            try:
+                idx = int(idx_raw)
+            except ValueError:
+                respond(400, {'error': 'index must be an integer'})
+            if idx < 0 or idx >= len(queue):
+                respond(404, {'error': 'no queued command at that index'})
+            dropped = queue.pop(idx)
+            cmds[dev_id] = queue
+            removed = 1
+            detail = f'cancelled queued command [{idx}]: {str(dropped)[:80]}'
+    audit_log(actor, 'command_queue_cancel', f'dev={dev_id} {detail}')
+    respond(200, {'ok': True, 'removed': removed})
+
+
 def _check_exec_allowlist(dev_id, cmd_str, devices):
     """Return (allowed: bool, reason: str). Checks per-device allowlist."""
     allowed = devices[dev_id].get('allowed_commands', [])
@@ -26295,6 +26379,7 @@ def _build_exact_routes():
         (None, '/api/upgrade-device'): handle_upgrade_device,
         ('POST', '/api/install'): handle_install_packages,
         ('POST', '/api/uninstall'): handle_uninstall_packages,
+        ('GET', '/api/command-queue'): handle_command_queue,
         ('GET', '/api/users'): handle_users_list,
         ('POST', '/api/users'): handle_user_create,
         ('GET', '/api/roles'): handle_roles_list,
@@ -26323,12 +26408,14 @@ def _dispatch(pi, m):
     elif pi == '/api/devices' and m == 'GET': handle_devices_list()
     # v1.11.0: agentless device creation. Must precede the prefix-DELETE
     # check so a POST to /api/devices/agentless doesn't get misrouted.
+    elif pi.startswith('/api/devices/') and pi.endswith('/command-queue') and m == 'DELETE':
+        handle_command_queue_clear(pi[len('/api/devices/'):-len('/command-queue')])
     elif pi.startswith('/api/devices/') and m == 'DELETE' and not any(
             pi.endswith(s) for s in ('/tags','/notes','/group','/sysinfo','/uptime',
                                      '/output','/metrics','/allowlist','/poll_interval',
                                      '/icon','/monitored','/cve','/services',
                                      '/services/config','/logs','/update-logs',
-                                     '/containers','/connected-to',
+                                     '/containers','/connected-to','/command-queue',
                                      # v1.11.10
                                      '/metric-thresholds',
                                      # v3.2.0 (B5)

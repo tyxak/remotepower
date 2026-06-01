@@ -331,6 +331,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
         </button>
+        <button class="nav-btn" data-page="cmdqueue" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="10"/></svg>
+          <span>Command Queue</span>
+        </button>
         <button class="nav-btn" data-page="cmdlib" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           <span>Library</span>
@@ -3577,6 +3581,18 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- ── API Keys page (unchanged) ─────────────────────────────────────── -->
+      <!-- Command Queue: what's waiting to be delivered to each agent -->
+      <div id="page-cmdqueue" class="page">
+        <div class="page-title">Command Queue</div>
+        <div class="page-subtitle">Commands waiting to be picked up by each agent on its next heartbeat — handy when a host is offline and you want to see (or cancel) what's pending before it comes back. Anything already delivered to the agent has left the queue.</div>
+        <div class="dash-card">
+          <div class="section-header"><div class="section-title">Pending per device</div>
+            <button class="btn-icon fs-12" data-action="loadCommandQueue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div id="cmdqueue-body"><div class="c-muted">Loading…</div></div>
+        </div>
+      </div>
+
       <div id="page-apikeys" class="page">
         <div class="page-title">API Keys</div><div class="page-subtitle">Named non-expiring keys for scripts and CI pipelines</div>
         <div class="section-header"><div class="section-title">Keys</div><button class="enroll-btn" data-action="openApiKeyCreate" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New key</button></div>

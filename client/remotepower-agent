@@ -621,27 +621,65 @@ _oscap_running = threading.Lock()
 
 
 def _find_ssg_datastream():
-    """Pick the SCAP Security Guide datastream matching this host, or any
-    available ssg-*-ds.xml. Returns a path string or None."""
+    """Pick the SCAP Security Guide datastream that best matches this host, or
+    None. Returns a path string.
+
+    Distro families: we try the host's own ID first, then ID_LIKE (so Ubuntu,
+    which ships no ssg-ubuntu content on Debian repos, falls back to the
+    ssg-debian* datastreams via ID_LIKE=debian).
+
+    Version: SSG ships one datastream per major release (ssg-debian10/11/12-...).
+    The host's major version often won't have an exact file (Debian 13, or a
+    point release), so we pick the HIGHEST available version that is <= the
+    host's major version — never a wildly mismatched lower one. If the host's
+    version is newer than anything shipped, we take the newest available for that
+    family rather than the alphabetical first (which was the bug: Debian 13 and
+    Ubuntu both ended up on ssg-debian10)."""
+    import re as _re
     osr = get_os_release()
     oid = (osr.get('ID') or '').lower()
-    ver = (osr.get('VERSION_ID') or '').replace('.', '')
+    like = [x for x in (osr.get('ID_LIKE') or '').lower().split() if x]
+    families = [f for f in ([oid] + like) if f]
+    # Host major version as an int, e.g. "24.04" -> 24, "13" -> 13.
+    host_major = None
+    m = _re.match(r'(\d+)', (osr.get('VERSION_ID') or ''))
+    if m:
+        host_major = int(m.group(1))
+
     candidates = []
     for d in _SSG_DIRS:
         p = Path(d)
         if p.is_dir():
-            candidates += sorted(str(f) for f in p.glob('ssg-*-ds.xml'))
+            candidates += [str(f) for f in p.glob('ssg-*-ds.xml')]
     if not candidates:
         return None
-    # Prefer a datastream whose name mentions our distro id (+ version).
-    for c in candidates:
-        base = os.path.basename(c).lower()
-        if oid and oid in base and (not ver or ver in base):
-            return c
-    for c in candidates:
-        if oid and oid in os.path.basename(c).lower():
-            return c
-    return candidates[0]
+
+    def ver_in(base):
+        # ssg-debian12-ds.xml -> 12 ; ssg-ubuntu2204-ds.xml -> 2204
+        mm = _re.search(r'ssg-[a-z]+?(\d+)', base)
+        return int(mm.group(1)) if mm else None
+
+    for fam in families:
+        fam_ds = [c for c in candidates if fam in os.path.basename(c).lower()]
+        if not fam_ds:
+            continue
+        # exact major match wins
+        if host_major is not None:
+            exact = [c for c in fam_ds if ver_in(os.path.basename(c)) == host_major]
+            if exact:
+                return sorted(exact)[-1]
+            # else highest version <= host major
+            le = [(ver_in(os.path.basename(c)), c) for c in fam_ds]
+            le = [(v, c) for (v, c) in le if v is not None and v <= host_major]
+            if le:
+                return max(le)[1]
+        # no version info, or host newer than everything: take the newest in fam
+        byver = [(ver_in(os.path.basename(c)) or -1, c) for c in fam_ds]
+        return max(byver)[1]
+
+    # No family match at all — last resort, newest datastream available.
+    byver = [(ver_in(os.path.basename(c)) or -1, c) for c in candidates]
+    return max(byver)[1]
 
 
 def _full_profile_id(profile, datastream):

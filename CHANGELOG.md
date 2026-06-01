@@ -113,6 +113,18 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Command Queue (Admin).** A new Admin → Command Queue page shows every device
+  with commands still waiting to be picked up on its next heartbeat — what kind
+  (exec / reboot / poll / compose / …) and a readable summary — so you can see
+  what's pending on an offline host and **cancel** individual commands or clear a
+  device's whole queue before it comes back online. `GET /api/command-queue`,
+  `DELETE /api/devices/<id>/command-queue[?index=N]` (admin-only, audited).
+- **OpenSCAP picks the right datastream.** The agent chose the *alphabetically
+  first* SSG datastream when there was no exact version match — so Debian 13 and
+  Ubuntu 24.04 both scanned against `ssg-debian10` (score 0, "not available").
+  It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
+  `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
+  `ssg-debian12`), falling back to the newest available rather than the oldest.
 - **Uninstall software via the package manager.** An "Uninstall" button on the
   Install-software card removes the named packages on a device / group / tag
   through the host's own package manager (apt/dnf/yum/zypper/pacman/apk) —

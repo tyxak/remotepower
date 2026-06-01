@@ -927,6 +927,7 @@ function showPage(name, btn) {
   if (name === 'ai') { loadAIPage(); }
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
+  if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
   if (name === 'patches')        loadPatchReport();
@@ -3563,6 +3564,54 @@ function _registerApiKeysTable() {
     emptyMsgFiltered: 'No keys match the filter.',
   });
 }
+// ── Command Queue (Admin) ────────────────────────────────────────────────────
+// What's waiting to be delivered to each agent on its next heartbeat. Lets an
+// operator see (and cancel) pending commands — especially useful for an offline
+// host whose queue is backing up.
+async function loadCommandQueue() {
+  const body = document.getElementById('cmdqueue-body');
+  if (!body) return;
+  const r = await api('GET', '/command-queue').catch(() => null);
+  if (!r) { body.innerHTML = '<div class="c-red">Failed to load the command queue.</div>'; return; }
+  if (!r.devices || !r.devices.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-title">Queue is empty</div>'
+      + '<div class="empty-text">No commands are waiting for any device.</div></div>';
+    return;
+  }
+  const kindPill = (k) => `<span class="ro-badge ${k === 'exec' ? 'rs-paused' : 'rs-done'}">${escHtml(k)}</span>`;
+  body.innerHTML = r.devices.map(d => {
+    const status = d.online
+      ? '<span class="c-green">● online</span>'
+      : '<span class="c-amber">● offline</span>';
+    const rows = d.commands.map(c =>
+      `<tr><td>${kindPill(c.kind)}</td>`
+      + `<td class="ff-mono fs-12">${escHtml(c.summary)}</td>`
+      + `<td class="ta-right"><button class="btn-icon fs-12" data-action="cancelQueuedCommand" `
+      +   `data-arg="${escAttr(d.device_id)}" data-arg2="${c.index}" title="Cancel this queued command">Cancel</button></td></tr>`
+    ).join('');
+    return `<div class="dash-card mb-12">
+      <div class="row-8-center mb-8">
+        <strong>${escHtml(d.name)}</strong> ${status}
+        <span class="c-muted fs-12">${d.count} pending${d.quarantined ? ' · quarantined' : ''}</span>
+        <button class="btn-icon fs-12 isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
+      </div>
+      <table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+  }).join('');
+}
+async function cancelQueuedCommand(devId, index) {
+  if (!confirm('Cancel this queued command? It will not be delivered to the agent.')) return;
+  const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue?index=${encodeURIComponent(index)}`).catch(() => null);
+  if (r?.ok) { toast('Queued command cancelled', 'success'); loadCommandQueue(); }
+  else toast(r?.error || 'Failed to cancel', 'error');
+}
+async function clearDeviceQueue(devId, name) {
+  if (!confirm(`Clear ALL pending commands for ${name}? None of them will be delivered.`)) return;
+  const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue`).catch(() => null);
+  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s)`, 'success'); loadCommandQueue(); }
+  else toast(r?.error || 'Failed to clear', 'error');
+}
+
 async function loadApiKeys() {
   _registerApiKeysTable();
   const data = await api('GET', '/apikeys');
