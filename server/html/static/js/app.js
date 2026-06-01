@@ -752,6 +752,96 @@ function filterDocs(query) {
   });
 }
 
+// ── Sidebar search (v3.4.2) ──────────────────────────────────────────────────
+// Find a page by its menu title OR by a concept it contains — "SLA" / "uptime"
+// → Reports, "metrics" → Device Metrics, "cron" → Schedule, "cve" → CVEs, etc.
+// Keyword map is keyed by the (lower-cased) menu label; the search matches the
+// label text plus these keywords, and a hit reuses the real nav button.
+const _SIDEBAR_KW = {
+  'home': 'dashboard fleet heat map heatmap needs attention roster fleet health score status overview',
+  'alerts': 'inbox notifications webhook events open alerts',
+  'links': 'bookmarks quick links shortcuts',
+  'devices': 'inventory agent hosts roster machines endpoints',
+  'cmdb': 'configuration management database vault secrets assets documentation notes',
+  'agent containers': 'docker containers compose images podman',
+  'proxmox lxc': 'proxmox lxc virtualization containers',
+  'virtualization': 'vm virtual machines proxmox qemu kvm',
+  'network': 'network map topology dependency lan discovery',
+  'query': 'fleet query filter search devices ad-hoc',
+  'targets': 'monitor probes http ping healthcheck synthetic agentless reachability snmp',
+  'device metrics': 'metrics cpu memory ram disk swap load average sparkline charts utilization',
+  'forecast': 'forecast disk fill capacity planning days to full projection trend',
+  'timeline': 'timeline history events activity chronological',
+  'listening ports': 'ports listening open ports sockets netstat',
+  'custom scripts': 'scripts automation run script shell command library',
+  'processes': 'processes top process cpu usage memory usage',
+  'services': 'services systemd units daemons',
+  'logs': 'logs journal syslog log alerts patterns',
+  'tls / dns expiry': 'tls ssl certificate cert dns expiry expiration watch',
+  'acme certificates': 'acme lets encrypt letsencrypt certificate ssl issue renew dns-01',
+  'patches': 'patches updates upgradable packages install software third-party patch catalog apt dnf',
+  'cves': 'cve cves vulnerabilities security osv advisories',
+  'drift': 'drift config drift file integrity changes baseline',
+  'audit': 'audit log trail history actions who did what',
+  'compliance': 'compliance cis openscap scap stig benchmark baseline pci hipaa soc2 posture',
+  'schedule': 'schedule cron scheduled jobs recurring',
+  'calendar': 'calendar ical events maintenance schedule',
+  'tasks': 'tasks todo work items',
+  'maintenance': 'maintenance change window gating mute suppress downtime planned',
+  'rollouts': 'rollouts staged ring canary pilot deploy install one-time',
+  'history': 'history command history runs past',
+  'reports': 'reports sla uptime downtime availability capacity posture pdf print anomaly metering license software fleet health',
+  'trends': 'trends charts graphs time series history metrics',
+  'settings': 'settings config configuration notifications webhooks 2fa totp smtp ldap oidc sso backup signing automation rbac roles after-hours integrations',
+  'users': 'users accounts rbac roles permissions scope operators',
+  'api keys': 'api keys tokens mcp bearer integration',
+};
+let _sidebarIdx = null, _sidebarHits = [];
+function _buildSidebarIdx() {
+  _sidebarIdx = Array.from(document.querySelectorAll('.sidebar .nav-btn')).map(btn => {
+    const span = btn.querySelector('span:not(.nav-badge):not(.nav-new)');
+    const label = (span ? span.textContent : (btn.textContent || '')).trim();
+    const kw = _SIDEBAR_KW[label.toLowerCase()] || '';
+    return { label, hay: (label + ' ' + kw).toLowerCase(), btn };
+  }).filter(x => x.label);
+}
+function sidebarSearch(value) {
+  const box = document.getElementById('sidebar-search-results');
+  if (!box) return;
+  const q = (value || '').trim().toLowerCase();
+  if (!q) { box.classList.add('hidden'); box.innerHTML = ''; _sidebarHits = []; return; }
+  if (!_sidebarIdx) _buildSidebarIdx();
+  const toks = q.split(/\s+/);
+  _sidebarHits = _sidebarIdx.filter(e => toks.every(t => e.hay.includes(t))).slice(0, 8);
+  box.innerHTML = _sidebarHits.length
+    ? _sidebarHits.map((h, i) =>
+        `<button class="sidebar-search-hit${i === 0 ? ' active' : ''}" data-action="navigateSidebarHit" data-arg="${i}">${escHtml(h.label)}</button>`).join('')
+    : '<div class="sidebar-search-empty">No matching page</div>';
+  box.classList.remove('hidden');
+}
+function navigateSidebarHit(i) {
+  const hit = _sidebarHits[Number(i)];
+  const box = document.getElementById('sidebar-search-results');
+  const inp = document.getElementById('sidebar-search');
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+  if (inp) inp.value = '';
+  _sidebarHits = [];
+  if (hit) hit.btn.click();   // reuse the real nav button's navigation
+}
+// Enter → first hit; Escape → clear. (Input fires via the data-input dispatch.)
+document.addEventListener('keydown', e => {
+  if (e.target && e.target.id === 'sidebar-search') {
+    if (e.key === 'Enter') { e.preventDefault(); navigateSidebarHit(0); }
+    else if (e.key === 'Escape') { e.target.value = ''; sidebarSearch(''); }
+  }
+});
+// Dismiss the dropdown on an outside click.
+document.addEventListener('click', e => {
+  const wrap = document.querySelector('.sidebar-search-wrap');
+  const box = document.getElementById('sidebar-search-results');
+  if (box && wrap && !wrap.contains(e.target)) box.classList.add('hidden');
+});
+
 // v3.4.0: dismiss a nav "new" badge once its page is visited (persisted).
 function _markNavSeen(page) {
   try {

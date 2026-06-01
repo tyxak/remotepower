@@ -118,6 +118,14 @@
       <span id="sidebar-collapse-icon">◀</span>
       <span class="sidebar-collapse-btn-text">Collapse</span>
     </button>
+    <!-- v3.4.2: sidebar search — finds pages by title OR the concepts they
+         contain (e.g. "SLA" / "metrics" / "cron" → the right page). -->
+    <div class="sidebar-search-wrap">
+      <input id="sidebar-search" class="sidebar-search" type="text" placeholder="Search…"
+             autocomplete="off" spellcheck="false" aria-label="Search pages"
+             data-input="sidebarSearch" data-input-value="1">
+      <div id="sidebar-search-results" class="sidebar-search-results hidden"></div>
+    </div>
     <div class="sidebar-label"><span>Main</span></div>
     <button class="nav-btn active" data-page="home" >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
@@ -1941,6 +1949,11 @@
               <h4>Device detail — completeness</h4>
               <ul>
                 <li>The device drawer's <strong>System Info</strong> tab now surfaces data the agent already reports: the host's <strong>top processes</strong> by CPU, the <strong>filesystem type</strong> of each mount, a <strong>reboot-required</strong> indicator with the reason, and a container <strong>Age</strong> column. (Plus fixes: the Load-avg pill now populates, and the Fleet Query table wires its sort headers eagerly.)</li>
+              </ul>
+              <h4>Accuracy &amp; polish</h4>
+              <ul>
+                <li><strong>Sidebar search</strong> — a box under Collapse finds a page by title or by a concept it contains ("SLA" → Reports, "metrics" → Device Metrics, "cron" → Schedule).</li>
+                <li><strong>Trustworthy numbers</strong> — pending updates now lower the fleet <strong>health score</strong> / heat-map; the <strong>disk forecast</strong> shows one row per filesystem (no duplicate btrfs subvolumes) and stops flagging fills that are 2+ years out; and <strong>SLA / uptime</strong> no longer counts "no data" (pre-enrollment) as downtime, excludes maintenance windows, and supports a <strong>target per device / tag / group / default</strong>. Agentless &amp; SNMP devices now build real 7-day roster history.</li>
               </ul>
               <p>Per-release detail lives in <code>CHANGELOG.md</code> and <code>docs/v3.4.2.md</code>.</p>
             </div>

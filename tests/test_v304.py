@@ -939,15 +939,18 @@ class TestMobileNavCloseHandler(unittest.TestCase):
         Must call body.classList.remove('mobile-nav-open') for the
         catch-all case."""
         js = client_js()
-        # Find the close handler block (between the addEventListener
-        # and its closing brace) and confirm it removes the class
-        # outside any of the early-return guards.
+        # Find every document-level click handler, then pick the mobile-nav
+        # close handler specifically — the one that removes 'mobile-nav-open'.
+        # Other click handlers (e.g. the sidebar-search dropdown dismissal) are
+        # not drawer logic and must NOT be forced to gate on viewport width.
         import re
-        m = re.search(
+        bodies = re.findall(
             r"document\.addEventListener\('click',\s*e\s*=>\s*\{(.+?)\}\s*\);",
             js, re.DOTALL)
-        self.assertIsNotNone(m, 'click handler not found in app.js')
-        body = m.group(1)
+        self.assertTrue(bodies, 'click handler not found in app.js')
+        body = next((b for b in bodies if 'mobile-nav-open' in b), None)
+        self.assertIsNotNone(
+            body, "mobile-nav close handler (removes 'mobile-nav-open') not found")
         self.assertIn(
             "innerWidth <= 720", body,
             "close handler must gate on mobile viewport width — "

@@ -398,6 +398,45 @@
   .nav-btn.active { color: var(--text); background: var(--surface2); font-weight: 600; }
   .nav-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
+  /* v3.4.2: sidebar search box + results dropdown */
+  .sidebar-search-wrap { position: relative; padding: 0 0 6px; }
+  .sidebar-search {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: var(--font);
+    box-sizing: border-box;
+  }
+  .sidebar-search::placeholder { color: var(--muted); }
+  .sidebar-search:focus { outline: none; border-color: var(--accent); }
+  .sidebar-search-results {
+    position: absolute; left: 0; right: 0; top: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 4px;
+    padding: 4px;
+    z-index: 60;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    max-height: 320px;
+    overflow-y: auto;
+  }
+  .sidebar-search-hit {
+    display: block; width: 100%; text-align: left;
+    background: transparent; border: none; color: var(--text);
+    padding: 7px 10px; border-radius: 6px;
+    font-size: 13px; font-family: var(--font); cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sidebar-search-hit:hover, .sidebar-search-hit.active { background: var(--surface2); }
+  .sidebar-search-empty { color: var(--muted); font-size: 12px; padding: 7px 10px; }
+  /* No room for the box when the sidebar is collapsed to icons. */
+  body.sidebar-collapsed .sidebar-search-wrap { display: none; }
+
   /* v2.0: collapsible sidebar groups. Trades a flat 18-item list for
      a more browsable 5–6 item top level + grouped sub-items. The toggle
      button styles like the section labels (small caps, muted) when

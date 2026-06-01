@@ -91,6 +91,11 @@ collecting but the detail view didn't show:
   `GET`/`PUT /api/fleet/sla-targets`.
 
 ### Operations, onboarding & UX
+- **Sidebar search.** A small search box under the Collapse button finds a page
+  by its menu title *or* by a concept it contains — type "SLA" or "uptime" and
+  Reports comes up, "metrics" → Device Metrics, "cron" → Schedule, "cve" → CVEs.
+  Results navigate via the real nav buttons; Enter opens the first match, Escape
+  clears.
 - **Install software from repos, by host or tag/group.** A new "Install software"
   action (Patches page) installs one or more repo packages — detecting the
   package manager (apt/dnf/yum/zypper/pacman/apk) — on a single device or across
