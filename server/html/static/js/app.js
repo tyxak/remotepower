@@ -761,7 +761,7 @@ const _SIDEBAR_KW = {
   'home': 'dashboard fleet heat map heatmap needs attention roster fleet health score status overview',
   'alerts': 'inbox notifications webhook events open alerts',
   'links': 'bookmarks quick links shortcuts',
-  'devices': 'inventory agent hosts roster machines endpoints',
+  'devices': 'inventory agent hosts roster machines endpoints ssh web terminal wol wake-on-lan reboot shutdown run command upgrade quarantine enroll',
   'cmdb': 'configuration management database vault secrets assets documentation notes',
   'agent containers': 'docker containers compose images podman',
   'proxmox lxc': 'proxmox lxc virtualization containers',
@@ -796,14 +796,35 @@ const _SIDEBAR_KW = {
   'users': 'users accounts rbac roles permissions scope operators',
   'api keys': 'api keys tokens mcp bearer integration',
 };
+// Destinations that aren't sidebar buttons — Settings sub-panes (deep-linked via
+// gotoSetupStep) and other concept landing spots. Each one navigates itself.
+const _SIDEBAR_EXTRA = [
+  { label: 'Settings ▸ Notifications', tab: 'notifs', kw: 'notifications webhooks discord slack ntfy pushover teams pagerduty opsgenie email channel routing on-call escalation quiet hours healthchecks alert destinations' },
+  { label: 'Settings ▸ Security', tab: 'security', kw: 'security 2fa totp mfa session length timeout ip allowlist oidc sso ldap login rate limit password cve cache' },
+  { label: 'Settings ▸ Dashboard', tab: 'dashboard', kw: 'dashboard needs attention channel routing matrix after-hours hidden events thresholds heat map' },
+  { label: 'Settings ▸ Integrations', tab: 'integrations', kw: 'integrations prometheus metrics status endpoint ical github grafana alertmanager inbound webhooks healthchecks' },
+  { label: 'Settings ▸ AI assistant', tab: 'ai', kw: 'ai assistant provider openai anthropic ollama localai api key rag embeddings model' },
+  { label: 'Settings ▸ Advanced', tab: 'advanced', kw: 'advanced backup backups export import release signing gpg automation rules danger reset' },
+  { label: 'Settings ▸ Email / Mailbox', tab: 'mailbox', kw: 'mailbox email smtp imap inbound helpdesk osticket ticket' },
+  { label: 'Settings ▸ Proxmox', tab: 'proxmox', kw: 'proxmox pve token node cluster lxc qemu' },
+  { label: 'Settings ▸ SNMP', tab: 'snmp', kw: 'snmp community oid synology mikrotik routeros agentless poller' },
+  { label: 'Settings ▸ Getting started', tab: 'install', kw: 'install setup checklist onboarding getting started first run' },
+  { label: 'Settings ▸ General', tab: 'general', kw: 'general poll interval timezone retention session demo offline ttl' },
+];
 let _sidebarIdx = null, _sidebarHits = [];
 function _buildSidebarIdx() {
-  _sidebarIdx = Array.from(document.querySelectorAll('.sidebar .nav-btn')).map(btn => {
+  const nav = Array.from(document.querySelectorAll('.sidebar .nav-btn')).map(btn => {
     const span = btn.querySelector('span:not(.nav-badge):not(.nav-new)');
     const label = (span ? span.textContent : (btn.textContent || '')).trim();
     const kw = _SIDEBAR_KW[label.toLowerCase()] || '';
     return { label, hay: (label + ' ' + kw).toLowerCase(), btn };
   }).filter(x => x.label);
+  const extra = _SIDEBAR_EXTRA.map(e => ({
+    label: e.label,
+    hay: (e.label + ' ' + (e.kw || '')).toLowerCase(),
+    go: () => { try { gotoSetupStep('settings', e.tab); } catch (_) {} },
+  }));
+  _sidebarIdx = nav.concat(extra);
 }
 function sidebarSearch(value) {
   const box = document.getElementById('sidebar-search-results');
@@ -826,7 +847,9 @@ function navigateSidebarHit(i) {
   if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
   if (inp) inp.value = '';
   _sidebarHits = [];
-  if (hit) hit.btn.click();   // reuse the real nav button's navigation
+  if (!hit) return;
+  if (hit.go) hit.go();           // synthetic destination (e.g. a Settings tab)
+  else if (hit.btn) hit.btn.click();   // reuse the real nav button's navigation
 }
 // Enter → first hit; Escape → clear. (Input fires via the data-input dispatch.)
 document.addEventListener('keydown', e => {
