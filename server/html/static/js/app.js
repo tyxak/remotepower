@@ -15961,7 +15961,46 @@ async function loadIgnoredItems() {
     }
     html += '</div>';
   }
+  // v3.4.2: CVE ignores live in a SEPARATE store (cve_ignore.json) and had no
+  // management UI — you could accept a CVE as risk but never see or un-ignore
+  // it. List them here with a Remove button (DELETE /api/cve/ignore/<id>).
+  let cveIgnores = [];
+  try {
+    const r = await api('GET', '/cve/ignore');
+    cveIgnores = (r && r.ignores) || [];
+  } catch (_) { /* non-fatal */ }
+  // resolve device-scope ids → names for readability
+  let devName = {};
+  try {
+    const devs = await api('GET', '/devices?slim=1');
+    (Array.isArray(devs) ? devs : []).forEach(d => { devName[d.id] = d.name || d.id; });
+  } catch (_) {}
+  html += `<div class="mb-16">
+    <h4 class="isl-668">Ignored CVEs <span class="isl-74">(${cveIgnores.length})</span></h4>`;
+  if (!cveIgnores.length) {
+    html += '<div class="isl-616">— none —</div>';
+  } else {
+    html += cveIgnores.map(c => {
+      const scope = c.scope === 'global' ? 'all devices'
+                  : (devName[c.scope] ? `device: ${devName[c.scope]}` : `device: ${c.scope}`);
+      const when = c.ts ? new Date(c.ts * 1000).toLocaleString() : '';
+      const meta = [scope, c.reason ? `“${c.reason}”` : 'no reason', when].filter(Boolean).join(' · ');
+      return `<div class="isl-669">
+        <div class="isl-618"><code>${escHtml(c.vuln_id)}</code>
+          <div class="meta-sm-nm">${escHtml(meta)}</div></div>
+        <button class="btn-secondary badge-sm" data-action="unignoreCVE" data-arg="${escAttr(c.vuln_id)}">Remove</button>
+      </div>`;
+    }).join('');
+  }
+  html += '</div>';
   list.innerHTML = html;
+}
+
+async function unignoreCVE(vulnId) {
+  if (!confirm(`Stop ignoring ${vulnId}? It will count as a finding again.`)) return;
+  const r = await api('DELETE', '/cve/ignore/' + encodeURIComponent(vulnId)).catch(() => null);
+  if (r && r.ok) { toast(`No longer ignoring ${vulnId}`, 'success'); loadIgnoredItems(); }
+  else toast((r && r.error) || 'Failed to remove ignore', 'error');
 }
 
 async function restoreIgnored(category, entry) {

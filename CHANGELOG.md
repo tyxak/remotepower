@@ -113,6 +113,13 @@ collecting but the detail view didn't show:
   corpus.)
 
 ### Operations, onboarding & UX
+- **Ignored CVEs can be un-ignored.** CVE ignores are stored separately from the
+  per-item Needs-Attention/container/device hides, and the "Ignored items"
+  settings pane only listed the latter — so a CVE you'd accepted as risk showed
+  "(ignored: )" on the device but appeared nowhere you could undo it. The Ignored
+  items pane now has an **Ignored CVEs** section (vuln id, scope, reason, when)
+  with a **Remove** button (`DELETE /api/cve/ignore/<id>`, which already existed
+  but had no UI).
 - **Download the full OpenSCAP report.** Each successful scan now uploads the
   complete `oscap` / `usg` HTML report (gzipped); a **Report** link in the
   Compliance → OpenSCAP results row opens it in the browser. Stored one-per-device
