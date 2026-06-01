@@ -4160,6 +4160,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* ════════════════════════════════════════════════════════════════════
  * v3.4.1 — Timeline page (per-device chronological history)
  * ════════════════════════════════════════════════════════════════════ */
+/* The kind-filter chip row. .row-8-center is a non-wrapping flex utility shared
+   by many toolbars, so we can't add flex-wrap there globally — scope the wrap to
+   the timeline chip container, otherwise ~17 chips run off the card edge. */
+#timeline-kinds { flex-wrap: wrap; row-gap: 8px; }
 .tl-chip {
   background: var(--surface); color: var(--muted);
   border: 1px solid var(--border); border-radius: 14px;
