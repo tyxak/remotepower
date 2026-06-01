@@ -692,8 +692,16 @@ def _full_profile_id(profile, datastream):
 
 def _oscap_profiles(datastream):
     """Return the short profile ids actually present in a datastream (best
-    effort), so a failed scan can tell the operator what IS available rather
-    than just failing. Parses `oscap info` output; returns [] on any trouble."""
+    effort), so the UI can offer only profiles that exist for this host's OS and
+    a failed scan can list the alternatives. Parses `oscap info` output; returns
+    [] on any trouble.
+
+    oscap's output format varies by version:
+      - older:  "Profile: xccdf_org.ssgproject.content_profile_cis"
+      - newer:  "Title: ...\\n  Id: xccdf_org.ssgproject.content_profile_cis"
+    So we don't anchor on a line prefix — we extract every
+    `..._profile_<short>` id we see, which covers both."""
+    import re as _re
     try:
         info = subprocess.run(['oscap', 'info', datastream],
                               capture_output=True, text=True, timeout=60)
@@ -701,15 +709,11 @@ def _oscap_profiles(datastream):
     except Exception:
         return []
     profs = []
-    for line in out.splitlines():
-        line = line.strip()
-        # Lines look like: "Profile: xccdf_org.ssgproject.content_profile_cis"
-        if line.startswith('Profile:'):
-            pid = line.split(':', 1)[1].strip()
-            short = pid.rsplit('content_profile_', 1)[-1]
-            if short and short not in profs:
-                profs.append(short)
-    return profs[:20]
+    for m in _re.finditer(r'content_profile_([A-Za-z0-9._-]+)', out):
+        short = m.group(1)
+        if short and short not in profs:
+            profs.append(short)
+    return profs[:40]
 
 
 def run_oscap_scan(profile, creds):

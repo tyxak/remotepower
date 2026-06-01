@@ -14021,8 +14021,20 @@ async function loadScap() {
   const r = await api('GET', '/scap').catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load OpenSCAP results.</div>'; return; }
   const sel = document.getElementById('scap-profile');
-  if (sel && !sel.dataset.filled) {
-    sel.innerHTML = (r.profiles || ['cis']).map(p => `<option value="${escAttr(p)}">${escHtml(p)}</option>`).join('');
+  if (sel) {
+    // Always refresh: r.profiles is the union actually supported across the
+    // fleet once agents have reported (e.g. the ANSSI profiles on Debian),
+    // falling back to the built-in superset before the first scan. Preserve the
+    // operator's current selection across refreshes.
+    const prev = sel.value;
+    const profs = (r.profiles && r.profiles.length) ? r.profiles : ['cis'];
+    sel.innerHTML = profs.map(p => {
+      // 'standard' on the Debian SSG selects no rules — label it so nobody picks
+      // it expecting a score.
+      const note = p === 'standard' ? ' (minimal — often 0 rules)' : '';
+      return `<option value="${escAttr(p)}">${escHtml(p + note)}</option>`;
+    }).join('');
+    if (prev && profs.includes(prev)) sel.value = prev;
     sel.dataset.filled = '1';
   }
   onScapTargetChange();   // fill the group/tag/device target dropdown

@@ -125,6 +125,16 @@ collecting but the detail view didn't show:
   It now matches by distro family (`ID`, then `ID_LIKE` — so Ubuntu uses the
   `ssg-debian*` content) and the closest version not over the host's (Debian 13 →
   `ssg-debian12`), falling back to the newest available rather than the oldest.
+- **OpenSCAP profile detection fixed + ANSSI guidance.** The agent parsed
+  `oscap info` by grepping for `Profile:` lines, but modern oscap prints
+  profiles as `Title:` / `Id: …content_profile_<x>` — so the profile list came
+  back empty and the UI couldn't offer a host's real profiles. It now extracts
+  the `content_profile_<x>` ids regardless of layout (both formats). With that
+  working, the scan dropdown surfaces what each datastream actually has — on
+  Debian/Ubuntu that's the **ANSSI BP-028** profiles (`anssi_np_nt28_minimal` →
+  `…_high`), which have real rules and produce a meaningful score. The UI hint
+  now explains the OS→profile mapping (Debian → ANSSI; CIS/PCI-DSS/STIG/OSPP are
+  RHEL-only) and flags the Debian `standard` profile as near-empty.
 - **OpenSCAP offers only profiles that exist for the host's OS.** Debian's SSG
   datastream has no `cis` / `pci-dss` / `ospp` profiles (those ship in RHEL's
   `scap-security-guide`), so picking them produced confusing "not available" /

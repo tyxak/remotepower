@@ -173,6 +173,51 @@ class TestScapProfileFiltering(_Base):
         self.assertIn("cis", body["profiles"])   # built-in fallback
 
 
+class TestOscapProfileParsing(unittest.TestCase):
+    """_oscap_profiles must parse BOTH oscap-info output formats — the modern
+    'Title:/Id:' layout (real ssg-debian12 output) and the older 'Profile:' one."""
+
+    def _make(self):
+        src = (Path(__file__).resolve().parent.parent
+               / "client" / "remotepower-agent.py").read_text()
+        m = re.search(r"def _oscap_profiles.*?(?=\ndef )", src, re.S)
+        ns = {"subprocess": __import__("subprocess")}
+        exec(m.group(0), ns)
+        return ns["_oscap_profiles"], ns
+
+    def test_parses_modern_id_format(self):
+        fn, ns = self._make()
+        out = (
+            "                Profiles:\n"
+            "                        Title: ANSSI Minimal Level\n"
+            "                                Id: xccdf_org.ssgproject.content_profile_anssi_np_nt28_minimal\n"
+            "                        Title: ANSSI High Level\n"
+            "                                Id: xccdf_org.ssgproject.content_profile_anssi_np_nt28_high\n"
+            "                        Title: Standard\n"
+            "                                Id: xccdf_org.ssgproject.content_profile_standard\n")
+
+        class _R:
+            stdout = out
+            stderr = ""
+        ns["subprocess"].run = lambda *a, **k: _R()
+        got = fn("/x/ssg-debian12-ds.xml")
+        self.assertIn("anssi_np_nt28_minimal", got)
+        self.assertIn("anssi_np_nt28_high", got)
+        self.assertIn("standard", got)
+        self.assertNotIn("pci-dss", got)
+
+    def test_parses_old_profile_format(self):
+        fn, ns = self._make()
+
+        class _R:
+            stdout = ("Profile: xccdf_org.ssgproject.content_profile_cis\n"
+                      "Profile: xccdf_org.ssgproject.content_profile_pci-dss\n")
+            stderr = ""
+        ns["subprocess"].run = lambda *a, **k: _R()
+        got = fn("/x/ssg-rhel9-ds.xml")
+        self.assertEqual(set(got), {"cis", "pci-dss"})
+
+
 class TestSsgDatastreamSelection(unittest.TestCase):
     """Exercise the agent's _find_ssg_datastream logic in isolation."""
 
