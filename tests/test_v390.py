@@ -107,6 +107,33 @@ class TestV390MonitorSSRF(_ApiTestBase):
         self.assertIn('no_redirect=True', block)
         self.assertNotIn('urllib.request.urlopen(', block)
 
+    def test_redirect_counts_as_up(self):
+        # Regression: the no-redirect SSRF opener surfaces a 3xx as an
+        # HTTPError. A redirecting endpoint (e.g. Jellyfin → 302) must still
+        # read 'up'; a genuine 4xx/5xx stays down. Pre-v3.9.0 urlopen followed
+        # the redirect to a 2xx, so this preserves that result.
+        import urllib.error
+
+        def _fake_opener(code):
+            class _O:
+                def open(self, req, timeout=None):
+                    raise urllib.error.HTTPError(req.full_url, code, 'x', {}, None)
+            return _O()
+
+        orig = self.api._ssrf_safe_opener
+        try:
+            self.api._ssrf_safe_opener = lambda **k: _fake_opener(302)
+            r = self.api._execute_monitor_checks(
+                [{'type': 'http', 'target': 'https://jelly.example.com:8920', 'label': 'j'}])
+            self.assertTrue(r[0]['ok']); self.assertEqual(r[0]['detail'], '302')
+
+            self.api._ssrf_safe_opener = lambda **k: _fake_opener(404)
+            r = self.api._execute_monitor_checks(
+                [{'type': 'http', 'target': 'https://example.com/', 'label': 'x'}])
+            self.assertFalse(r[0]['ok']); self.assertEqual(r[0]['detail'], '404')
+        finally:
+            self.api._ssrf_safe_opener = orig
+
 
 class TestV390InboundLinks(unittest.TestCase):
     def test_inbound_alert_links_scheme_validated(self):

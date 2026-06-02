@@ -8535,7 +8535,12 @@ def _execute_monitor_checks(monitors):
                 with _opener.open(req, timeout=5) as resp:
                     ok = resp.status < 400; detail = str(resp.status)
             except urllib.error.HTTPError as e:
-                detail = str(e.code)
+                # A 3xx is the endpoint answering — the no-redirect opener
+                # (SSRF guard) declines to *follow* it, which surfaces here as
+                # an HTTPError. Treat <400 as up, matching the pre-v3.9.0
+                # behaviour where urlopen followed the redirect to a 2xx; a
+                # genuine 4xx/5xx stays down.
+                ok = e.code < 400; detail = str(e.code)
             except Exception:
                 detail = 'error'
         results.append({
