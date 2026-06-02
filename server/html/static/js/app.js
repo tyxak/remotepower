@@ -4099,12 +4099,17 @@ async function loadCommandQueue() {
     ).join('');
     recentHtml = `<div class="dash-card mt-16">
       <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
-        <span class="c-muted fs-12">last ${recent.length} — what was queued, when, and by whom</span></div>
+        <span class="c-muted fs-12">last ${recent.length} — what was queued, when, and by whom</span>
+        <button class="btn-icon fs-12" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
       <table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table>
     </div>`;
   }
 
-  body.innerHTML = '<div class="mb-8 fw-600">Pending delivery</div>' + pendingHtml + recentHtml;
+  const pendingHeader = (r.devices && r.devices.length)
+    ? `<div class="row-8-center mb-8"><span class="fw-600">Pending delivery</span>`
+      + `<button class="btn-icon fs-12" data-action="clearAllQueues" title="Clear every device's pending queue — nothing waiting will be delivered">Clear all pending</button></div>`
+    : '<div class="mb-8 fw-600">Pending delivery</div>';
+  body.innerHTML = pendingHeader + pendingHtml + recentHtml;
 }
 async function cancelQueuedCommand(devId, index) {
   if (!confirm('Cancel this queued command? It will not be delivered to the agent.')) return;
@@ -4116,6 +4121,18 @@ async function clearDeviceQueue(devId, name) {
   if (!confirm(`Clear ALL pending commands for ${name}? None of them will be delivered.`)) return;
   const r = await api('DELETE', `/devices/${encodeURIComponent(devId)}/command-queue`).catch(() => null);
   if (r?.ok) { toast(`Cleared ${r.removed} queued command(s)`, 'success'); loadCommandQueue(); }
+  else toast(r?.error || 'Failed to clear', 'error');
+}
+async function clearAllQueues() {
+  if (!confirm('Clear EVERY device’s pending queue? Nothing currently waiting will be delivered. Commands already picked up by an agent are unaffected.')) return;
+  const r = await api('DELETE', '/command-queue').catch(() => null);
+  if (r?.ok) { toast(`Cleared ${r.removed} queued command(s) across ${r.devices} device(s)`, 'success'); loadCommandQueue(); }
+  else toast(r?.error || 'Failed to clear', 'error');
+}
+async function clearDispatchLog() {
+  if (!confirm('Clear the dispatched-command log? This clears the command history shown here and on the Command History page.')) return;
+  const r = await api('DELETE', '/history').catch(() => null);
+  if (r?.ok) { toast('Command history cleared', 'success'); loadCommandQueue(); }
   else toast(r?.error || 'Failed to clear', 'error');
 }
 

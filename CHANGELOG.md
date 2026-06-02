@@ -67,6 +67,13 @@ round of front-end polish (sortable tables, Lucide icons, accessibility).
   matching the project's inline-SVG icon convention.
 - **Accessibility:** icon-only close buttons (device drawer, console modals,
   mobile menu) now carry an `aria-label`.
+- **Command Queue completeness.** ACME renew/revoke/issue actions are now
+  recorded in the command history, so they appear in the queue's "recently
+  dispatched" log like every other queued command (they used to wait for the
+  agent invisibly). Added a **Clear all pending** button (clears every device's
+  queue at once, `DELETE /api/command-queue`) and a **Clear log** button for the
+  dispatched-command history, alongside the existing per-command cancel and
+  per-device clear.
 
 ## v3.8.0 — unreleased (dev)
 

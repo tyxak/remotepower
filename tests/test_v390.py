@@ -77,6 +77,16 @@ class _ApiTestBase(unittest.TestCase):
         shutil.rmtree(cls.tmpdir, ignore_errors=True)
         os.environ.pop('RP_DATA_DIR', None)
 
+    def _seed_admin(self):
+        users = self.api.load(self.api.USERS_FILE)
+        users['admin'] = {'password_hash': self.api.hash_password('x'), 'role': 'admin'}
+        self.api.save(self.api.USERS_FILE, users)
+        token = 'adm-' + os.urandom(8).hex()
+        toks = self.api.load(self.api.TOKENS_FILE)
+        toks[token] = {'user': 'admin', 'created': int(time.time()), 'ttl': 10**9}
+        self.api.save(self.api.TOKENS_FILE, toks)
+        os.environ['HTTP_X_TOKEN'] = token
+
 
 class TestV390MonitorSSRF(_ApiTestBase):
     """HTTP uptime-monitor target validation routes through the shared IP
@@ -140,6 +150,49 @@ class TestV390InboundLinks(unittest.TestCase):
         block = API[API.index("links = body.get('links')"):]
         block = block[:block.index("summary['links']")]
         self.assertIn('_validate_link_url(', block)
+
+
+class TestV390CommandQueue(_ApiTestBase):
+    """Everything queued for an agent shows in the dispatch log, and the queue
+    is fully clearable (per-command, per-device, and globally)."""
+
+    def setUp(self):
+        self._seed_admin()
+        os.environ['REQUEST_METHOD'] = 'DELETE'
+
+    def tearDown(self):
+        os.environ['REQUEST_METHOD'] = 'GET'
+        os.environ.pop('HTTP_X_TOKEN', None)
+
+    def test_clear_all_pending_empties_every_queue(self):
+        self.api.save(self.api.DEVICES_FILE, {
+            'd-1': {'name': 'a', 'last_seen': 0},
+            'd-2': {'name': 'b', 'last_seen': 0}})
+        self.api.save(self.api.CMDS_FILE, {'d-1': ['reboot', 'exec:uptime'], 'd-2': ['shutdown']})
+        with self.assertRaises(self.api.HTTPError) as ctx:
+            self.api.handle_command_queue_clear_all()
+        self.assertEqual(ctx.exception.status, 200)
+        self.assertEqual(ctx.exception.body['removed'], 3)
+        self.assertEqual(ctx.exception.body['devices'], 2)
+        cmds = self.api.load(self.api.CMDS_FILE)
+        self.assertEqual(cmds.get('d-1'), [])
+        self.assertEqual(cmds.get('d-2'), [])
+
+    def test_acme_action_lands_in_dispatch_log(self):
+        # Regression: ACME renew/revoke/issue used to enqueue without logging,
+        # so they were invisible in the Command Queue's "recently dispatched".
+        os.environ['REQUEST_METHOD'] = 'POST'
+        self.api.save(self.api.DEVICES_FILE, {'d-1': {'name': 'host-a', 'last_seen': 0}})
+        self.api.save(self.api.CMDS_FILE, {})
+        self.api.save(self.api.HISTORY_FILE, {'entries': []})
+        res = self.api._acme_queue_command('d-1', 'renew', 'example.com', 'acme.sh --renew -d example.com')
+        self.assertTrue(res and res.get('ok'))
+        cmds = (self.api.load(self.api.HISTORY_FILE) or {}).get('entries', [])
+        self.assertTrue(any('acme' in (e.get('command') or '') for e in cmds),
+                        'ACME action must appear in the command history')
+
+    def test_clear_all_route_registered(self):
+        self.assertIn("('DELETE', '/api/command-queue'): handle_command_queue_clear_all", API)
 
 
 class TestV390UpgradeVerify(_ApiTestBase):

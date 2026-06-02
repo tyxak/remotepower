@@ -8050,6 +8050,29 @@ def handle_command_queue_clear(dev_id):
     respond(200, {'ok': True, 'removed': removed})
 
 
+def handle_command_queue_clear_all():
+    """DELETE /api/command-queue — clear the pending queue of EVERY in-scope
+    device at once. Admin-only + audited. Only affects commands still waiting;
+    anything already handed to an agent has left the queue. Scoped roles only
+    clear their in-scope devices."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    in_scope = set(_scope_filter_devices(load(DEVICES_FILE) or {}).keys())
+    removed = 0
+    cleared_devs = 0
+    with _LockedUpdate(CMDS_FILE) as cmds:
+        for dev_id, queue in list(cmds.items()):
+            if dev_id not in in_scope or not queue:
+                continue
+            removed += len(queue)
+            cmds[dev_id] = []
+            cleared_devs += 1
+    audit_log(actor, 'command_queue_clear_all',
+              f'cleared {removed} queued command(s) across {cleared_devs} device(s)')
+    respond(200, {'ok': True, 'removed': removed, 'devices': cleared_devs})
+
+
 def _check_exec_allowlist(dev_id, cmd_str, devices):
     """Return (allowed: bool, reason: str). Checks per-device allowlist."""
     allowed = devices[dev_id].get('allowed_commands', [])
@@ -28493,6 +28516,7 @@ def _build_exact_routes():
         ('POST', '/api/install'): handle_install_packages,
         ('POST', '/api/uninstall'): handle_uninstall_packages,
         ('GET', '/api/command-queue'): handle_command_queue,
+        ('DELETE', '/api/command-queue'): handle_command_queue_clear_all,
         ('GET', '/api/users'): handle_users_list,
         ('POST', '/api/users'): handle_user_create,
         ('GET', '/api/roles'): handle_roles_list,
@@ -30711,6 +30735,11 @@ def _acme_queue_command(dev_id, action, domain, cmd_str):
         tagged = f'exec:#acme:{action_id}#{cmd_str}'
         pending.append(tagged)
         cmds[dev_id] = pending
+    # v3.9.0: record it in the command history so it shows in the Command
+    # Queue's "recently dispatched" log like every other queued command —
+    # previously ACME actions waited in the queue invisibly.
+    log_command(actor, dev_id, devices[dev_id].get('name', dev_id),
+                f'acme: {action} {domain}')
     audit_log(actor, f'acme_{action}',
               detail=f'device={dev_id} domain={domain} action_id={action_id}')
     return {'ok': True, 'action_id': action_id}
