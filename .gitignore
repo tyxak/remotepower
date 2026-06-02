@@ -13,3 +13,9 @@ CLAUDE.md
 # kept on disk but untracked, so it never reaches the production repo. Deploy it
 # by copying site/ to that host's web root.
 site/
+
+# Environment-specific nginx deployment configs (real hostnames, cert paths,
+# and the fw_private_rp IP allowlist for the PRIVATE vhost). Kept on disk for
+# the operator but NEVER tracked — the public/shippable templates live in
+# server/conf/ and docker/ instead.
+deploy/
