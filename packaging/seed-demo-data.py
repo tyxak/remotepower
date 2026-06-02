@@ -41,7 +41,73 @@ from pathlib import Path
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-DEFAULT_DATA_DIR = Path('/var/lib/remotepower')
+# IMPORTANT: the default is the DEMO data dir, never production. Seeding writes
+# fake data; pointing it at the live /var/lib/remotepower would clobber a real
+# fleet. The guard below (_guard_demo_target) refuses to --apply into a dir that
+# looks like production (real accounts present) or any non-empty dir that isn't
+# explicitly marked as a demo dir.
+DEFAULT_DATA_DIR = Path('/var/lib/remotepower-demo')
+
+# A dir is treated as a sanctioned demo target if it contains this marker file.
+# The script drops it automatically after a successful seed of an empty dir, so
+# cron re-seeds keep working; install-demo.sh can also pre-create it.
+DEMO_MARKER = '.rp-demo-marker'
+
+# Canonical production data dir(s) — never seed these.
+PROTECTED_DATA_DIRS = {'/var/lib/remotepower'}
+
+# Accounts the seed itself creates — their presence does NOT make a dir "real".
+_DEMO_ACCOUNTS = {'demo', 'alice', 'bob'}
+
+
+def _guard_demo_target(target, override=False):
+    """Decide whether it is safe to --apply (write fake data) into `target`.
+
+    Returns (ok: bool, reason: str). Blocks, in order:
+      1. A canonical production path (e.g. /var/lib/remotepower).
+      2. A dir whose users.json holds any non-demo account (real fleet).
+      3. A non-empty dir with no .rp-demo-marker (ambiguous — refuse).
+    `override=True` (undocumented flag) bypasses 1 & 3 but NEVER 2.
+    """
+    try:
+        resolved = str(target.resolve())
+    except Exception:
+        resolved = str(target)
+
+    # 2. Real accounts present → always block, even with override or a marker.
+    users = target / 'users.json'
+    if users.exists():
+        try:
+            udata = json.loads(users.read_text() or '{}')
+            real = sorted(n for n in (udata or {}) if n not in _DEMO_ACCOUNTS)
+            if real:
+                return (False,
+                        f"{users} contains real (non-demo) account(s): "
+                        f"{', '.join(real)}. This looks like a PRODUCTION data "
+                        f"dir — refusing to overwrite it with fake data.")
+        except (ValueError, OSError):
+            return (False, f"{users} exists but is unreadable — refusing to "
+                           f"risk overwriting a real data dir.")
+
+    if override:
+        return (True, 'override')
+
+    # 1. Canonical production path.
+    if resolved in PROTECTED_DATA_DIRS:
+        return (False,
+                f"{resolved} is the production data dir. Seed the demo dir "
+                f"instead (default {DEFAULT_DATA_DIR}), or pass --data-dir.")
+
+    # 3. Non-empty, unmarked dir.
+    has_marker = (target / DEMO_MARKER).exists()
+    existing = list(target.glob('*.json')) if target.exists() else []
+    if existing and not has_marker:
+        return (False,
+                f"{resolved} is not empty and has no {DEMO_MARKER}. If this is "
+                f"really your demo dir, run:  touch {target}/{DEMO_MARKER}  and "
+                f"re-run. Otherwise pass --data-dir to point at the demo dir.")
+
+    return (True, 'ok')
 
 # Devices are listed in dependency order — agentless network gear first
 # so the agented hosts can reference them in connected_to.
@@ -1706,15 +1772,34 @@ def main():
                    help='Actually write the files (default is dry-run)')
     p.add_argument('--quiet', action='store_true',
                    help='Suppress per-file output (useful for cron)')
+    # Undocumented escape hatch for the rare empty-but-protected-path case.
+    # It can NEVER bypass the real-accounts check — see _guard_demo_target.
+    p.add_argument('--i-know-this-is-not-a-demo-dir', dest='override',
+                   action='store_true', help=argparse.SUPPRESS)
     args = p.parse_args()
 
     target = Path(args.data_dir)
+    print(f"Target data dir: {target.resolve() if target.exists() else target}")
     if not args.apply:
         print(f"Dry-run. Would write {len(BUILDERS)} files to {target}/")
         for name in BUILDERS:
             print(f"  {target}/{name}")
+        # Surface the guard verdict in the dry-run too, so operators see it
+        # before they reach for --apply.
+        ok, reason = _guard_demo_target(target, override=args.override)
+        if not ok:
+            print(f"\n⚠ --apply WOULD BE BLOCKED: {reason}")
         print("\nRe-run with --apply to actually write.")
         return 0
+
+    # Safety guard: never let --apply clobber a production data dir.
+    ok, reason = _guard_demo_target(target, override=args.override)
+    if not ok:
+        sys.stderr.write(
+            "\nREFUSING TO SEED — this does not look like a demo data dir.\n"
+            f"  {reason}\n\n"
+            "Seeding writes FAKE data and would overwrite whatever is there.\n")
+        return 2
 
     target.mkdir(parents=True, exist_ok=True)
 
@@ -1734,6 +1819,15 @@ def main():
             pass
         if not args.quiet:
             print(f"  ✓ {path}")
+
+    # Mark this dir as a sanctioned demo target so future (e.g. cron) re-seeds
+    # pass the guard without manual intervention.
+    try:
+        (target / DEMO_MARKER).write_text(
+            'This dir is a RemotePower DEMO data dir, seeded with fake data by '
+            'seed-demo-data.py. Do not point a production server at it.\n')
+    except OSError:
+        pass
 
     if not args.quiet:
         print(f"\n✓ Seeded {len(BUILDERS)} files in {target}/")
