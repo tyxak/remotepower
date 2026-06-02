@@ -130,6 +130,23 @@ class TestSecurityAssets(unittest.TestCase):
             self.assertIn('Content-Security-Policy', conf, f'{name} missing CSP')
             self.assertIn('X-Content-Type-Options', conf, f'{name} missing nosniff')
 
+    def test_nginx_blocks_cgi_bin_source(self):
+        # cgi-bin/ lives inside the web root (SCRIPT_FILENAME points at it), so
+        # both nginx configs MUST deny the /cgi-bin/ URL — otherwise the static
+        # handler serves the raw Python backend source (api.py, cmdb_vault.py,
+        # ldap_auth.py, …) to anyone. Regression guard for the v3.8.0 finding.
+        import re
+        for name, conf in (('docker', self.docker_nginx),
+                           ('bare-metal', self.bare_nginx)):
+            m = re.search(r'location\s+\^~\s+/cgi-bin/\s*\{([^}]*)\}', conf)
+            self.assertIsNotNone(
+                m, f"{name} nginx config has no `location ^~ /cgi-bin/` block — "
+                   f"the CGI source is publicly downloadable")
+            body = m.group(1)
+            self.assertTrue(
+                'deny all' in body or 'return 404' in body or 'return 403' in body,
+                f"{name} /cgi-bin/ block must deny access (deny all / return 404)")
+
     def test_csp_no_unsafe_inline(self):
         # L1 security fix: 'unsafe-inline' must not appear in the CSP directive.
         import re
