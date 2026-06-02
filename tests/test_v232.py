@@ -131,10 +131,9 @@ class TestSecurityAssets(unittest.TestCase):
             self.assertIn('X-Content-Type-Options', conf, f'{name} missing nosniff')
 
     def test_nginx_blocks_cgi_bin_source(self):
-        # cgi-bin/ lives inside the web root (SCRIPT_FILENAME points at it), so
-        # both nginx configs MUST deny the /cgi-bin/ URL — otherwise the static
-        # handler serves the raw Python backend source (api.py, cmdb_vault.py,
-        # ldap_auth.py, …) to anyone. Regression guard for the v3.8.0 finding.
+        # Defense in depth: cgi-bin/ lives inside the web root but is only meant
+        # to be executed via /api/ through fcgiwrap, so both nginx configs must
+        # deny the /cgi-bin/ URL (it should never resolve to a static file).
         import re
         for name, conf in (('docker', self.docker_nginx),
                            ('bare-metal', self.bare_nginx)):
