@@ -18088,11 +18088,25 @@ function _mitigateUpdateSafety() {
     confirmRow.style.display = 'block';
     document.getElementById('mitigate-fix-go').disabled = false;
   } else {
-    safetyEl.innerHTML = `<div class="isl-705">
-      Looks like a routine command. Will run as-is on the agent.
-    </div>`;
-    confirmRow.style.display = 'none';
-    document.getElementById('mitigate-fix-go').disabled = false;
+    // An AI-suggested command (not a playbook's pre-vetted fix) always needs
+    // RUN confirmation server-side, even if it doesn't match a sensitive
+    // pattern. Detect that here (command equals the AI suggestion) and surface
+    // the confirmation field proactively, so the user isn't dead-ended on a
+    // 400. The /fix error handler is the backstop for any other case.
+    const aiFix = (document.getElementById('mitigate-ai-fix').textContent || '').trim();
+    if (aiFix && cmd === aiFix) {
+      safetyEl.innerHTML = `<div class="isl-704">
+        <strong>AI-suggested command.</strong> Type RUN in the confirmation field below to acknowledge.
+      </div>`;
+      confirmRow.style.display = 'block';
+      document.getElementById('mitigate-fix-go').disabled = false;
+    } else {
+      safetyEl.innerHTML = `<div class="isl-705">
+        Looks like a routine command. Will run as-is on the agent.
+      </div>`;
+      confirmRow.style.display = 'none';
+      document.getElementById('mitigate-fix-go').disabled = false;
+    }
   }
 }
 
@@ -18446,6 +18460,23 @@ async function mitigateRunFix() {
     return;
   }
   if (r.error) {
+    // The server requires explicit RUN confirmation for AI-suggested or
+    // sensitive commands even when the client-side heuristic thought the
+    // command was routine (the client can't know whether a command is a
+    // playbook's pre-approved fix). Reveal the confirmation field instead of
+    // dead-ending on the raw error, and let the user acknowledge + retry.
+    if (r.reason === 'destructive_or_unverified' || /confirmation required/i.test(r.error)) {
+      const row = document.getElementById('mitigate-fix-confirm-row');
+      const input = document.getElementById('mitigate-fix-confirm');
+      if (row) row.style.display = 'block';
+      document.getElementById('mitigate-fix-safety').innerHTML =
+        `<div class="isl-704"><strong>Confirmation required.</strong> This is an
+         AI-suggested or sensitive command — type <code>RUN</code> in the field
+         below, then click Run fix again.</div>`;
+      document.getElementById('mitigate-fix-result').innerHTML = '';
+      if (input) { input.value = ''; input.focus(); }
+      return;
+    }
     document.getElementById('mitigate-fix-result').innerHTML =
       `<div class="isl-703">
         ${escHtml(r.error)}

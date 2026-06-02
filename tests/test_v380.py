@@ -100,6 +100,21 @@ class TestV380Bugs(unittest.TestCase):
     def test_raid_devices_string_or_array(self):
         self.assertIn("typeof r.devices === 'string'", APP)
 
+    def test_mitigate_fix_reveals_confirm_field(self):
+        # The /fix "confirmation required" 400 must un-hide the confirm row,
+        # not dead-end on the raw error (AI-suggested commands always need RUN
+        # server-side, even when the client heuristic thought them routine).
+        seg = APP[APP.index('async function mitigateRunFix'):
+                  APP.index('async function _mitigatePollFix')]
+        self.assertIn('destructive_or_unverified', seg)
+        self.assertIn("mitigate-fix-confirm-row", seg)
+        self.assertIn("row.style.display = 'block'", seg)
+        # And the live preview reveals it proactively for an AI-suggested cmd.
+        prev = APP[APP.index('function _mitigateUpdateSafety'):
+                   APP.index('// Wire the textarea')]
+        self.assertIn('cmd === aiFix', prev)
+        self.assertIn("confirmRow.style.display = 'block'", prev)
+
     def test_proxmox_backup_table_sortable(self):
         # CLAUDE.md: every table wires sort. The pm-backup table was inline.
         seg = APP[APP.index('async function loadProxmoxBackups'):]
