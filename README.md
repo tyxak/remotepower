@@ -171,19 +171,28 @@ The demo is reset every few hours, so feel free to break things.
 - **Change approval (maker-checker)** *(v3.7)* — optionally require a second admin to approve arbitrary command runs; the requester can't self-approve.
 - **Proxmox VM create** *(v3.7)* — a Create VM wizard (cores/memory/disk/bridge/ISO) builds QEMU guests via the API, alongside the LXC create.
 - **Ansible playbook runner** *(v3.7)* — store playbooks and run them against a group/tag/site/fleet with the server as the control node over SSH (needs ansible-core on the server).
+- **AI Investigate — broadened** *(v3.8)* — the one-click diagnose-and-suggest-a-fix now covers ~21 Needs-Attention kinds: added malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and **failed systemd units**, each with a tailored prompt (security-sensitive kinds never propose a blind destructive command).
+- **More host signals surfaced** *(v3.8)* — **failed systemd units** (now a health-scored attention item, also revived in the Fleet Query filter and CIS compliance check) and **currently logged-in users** show in the device drawer; both were collected by the agent but previously dropped before reaching the UI.
+- **Security hardening** *(v3.8)* — connect-time anti-DNS-rebinding on webhook / SIEM-forward / OIDC calls, maker-checker approval re-checks device state, opt-in mandatory signed agent updates, and a strict-CSP / header-inheritance pass on the nginx templates. See the **[v3.8.0 security review](docs/security-review-3.8.0.md)**.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
 ## Security
 
-v3.0.2 ships with an end-to-end security audit covering the server, agent,
-WebTerm handshake, CMDB vault, LDAP, TOTP, API keys, AI provider, and Proxmox
-integration. Posture in brief: PBKDF2-HMAC-SHA256 passwords at OWASP-2023
-parameters, header-based session tokens (CSRF-safe by construction), AES-GCM
-encryption for the CMDB vault, mandatory TLS verification for outbound calls,
-hardened agent state-file handling against local symlink attacks. Full
-posture, threat model, and operator hardening checklist:
-**[docs/security.md](docs/security.md)**.
+RemotePower is security-reviewed every few releases — the latest is
+**[docs/security-review-3.8.0.md](docs/security-review-3.8.0.md)** (server +
+agent), preceded by the 3.0.5 and 2.3.2 reviews. v3.8.0 additionally passed an
+external dynamic scan (OWASP ZAP full active scan + nikto + nuclei). Posture in
+brief: bcrypt (cost 12, with a PBKDF2-HMAC-SHA256 fallback at OWASP-2023
+parameters) passwords behind rate-limited login, TOTP 2FA with one-time
+recovery codes; 256-bit header-based session tokens (CSRF-safe by
+construction); a strict CSP with no `'unsafe-inline'`; AES-GCM CMDB vault
+(fresh nonce per encrypt); mandatory TLS verification plus connect-time
+anti-DNS-rebinding on every outbound call (webhooks, SIEM forwarder, OIDC);
+optional maker-checker change approval; opt-in mandatory signed agent updates;
+and hardened agent state-file handling against local symlink attacks. Full
+posture, threat model, and operator hardening checklist (including an
+internet-facing IP-allowlist guide): **[docs/security.md](docs/security.md)**.
 
 ## Documentation
 

@@ -34,6 +34,12 @@ deserialization, race conditions, and secret handling.
   context, maker-checker device-state recheck).
 - **One agent hardening control** added (opt-in mandatory signed
   updates).
+- An **external dynamic scan** (OWASP ZAP full active scan + nikto +
+  nuclei) was run against a live deployment; it surfaced two genuine
+  low-severity issues — an error-disclosure 500 on the public
+  status/calendar endpoints and security headers dropped on a couple of
+  static paths — both fixed (F5, F6 below). Everything else it flagged
+  was a false positive or accepted-by-design (see the scan section).
 - The remaining items are accepted-with-rationale, unchanged in
   substance from prior reviews (L3 — agent runs a shell by design; L4 —
   CSRF posture; secrets-at-rest).
@@ -142,6 +148,68 @@ to fail-closed even when no key file is present. The update-rejection is
 recorded to the agent state dir (surfaced as the existing
 `agent_update_rejected` signal). Recommendation for production: ship
 `release.pub` in the installer and set the marker on sensitive hosts.
+
+---
+
+## External dynamic scan (OWASP ZAP + nikto + nuclei)
+
+In addition to the source review above, a black-box dynamic scan was run
+against a live deployment: an **OWASP ZAP full active scan**, **nikto**,
+and **nuclei** (the full template set). The intent was to catch anything
+the manual review missed from the outside. Two genuine low-severity
+issues turned up; both are fixed. The rest were false positives or
+accepted-by-design — documented here so the triage is on record.
+
+### F5 — Error-disclosure 500 on the public status / calendar endpoints  (severity: low)
+
+**Was:** `/api/public/status`, `/api/status`, and `/api/schedule.ics`
+take their token from the query string. A token containing non-ASCII or
+invalid-UTF-8 bytes (ZAP fuzzed one with a `…`) made
+`hmac.compare_digest` raise `TypeError` — Python requires an ASCII-only
+str or bytes — which surfaced as an unauthenticated **HTTP 500**
+("Internal server error"). No traceback leaked (the global handler
+returns a generic body), but an unauthenticated endpoint should never
+crash on input.
+
+**Fixed:** a `_ct_token_eq()` helper compares the candidate and the
+configured token as **UTF-8 bytes** (so a non-ASCII token simply fails
+the comparison instead of raising) and never throws. It is used at all
+four query-string token sites. A bad token now returns a clean 401/403.
+
+### F6 — Security headers dropped on static sub-locations (nginx)  (severity: low)
+
+**Was:** the scan reported `Strict-Transport-Security` and
+`X-Content-Type-Options` missing on `/manifest.json` (and `/sw.js`).
+Root cause is the well-known nginx `add_header` **inheritance** rule: a
+`location` that sets *any* `add_header` of its own (these set
+`Cache-Control`) stops inheriting the server-level security headers, so
+CSP / HSTS / nosniff silently vanished on those responses.
+
+**Fixed:** the shipped templates no longer set a redundant `add_header`
+on the main `location /` (so it keeps inheriting), and the
+documentation/reference configs re-include the security headers in the
+locations that legitimately set their own. In the same pass the headers
+were broadened to add **Referrer-Policy, Permissions-Policy,
+Cross-Origin-Opener-Policy, Cross-Origin-Resource-Policy**, the public
+demo vhost gained the **HSTS** it was missing, and `server_tokens off` +
+modern TLS settings were added. A regression test pins both shipped
+configs.
+
+A related defense-in-depth change in the same nginx pass: the `/cgi-bin/`
+path is now explicitly denied as a static location — the Python backend
+lives there but is only ever executed via `/api/` through fcgiwrap, so
+its URL should never resolve to a static file.
+
+### Flagged but not a vulnerability (triaged)
+
+| Scanner finding | Verdict |
+|---|---|
+| "Cloud Metadata Potentially Exposed" (`/opc/v1/instance/`) | **False positive** — the path returns 404; nothing is proxied. ZAP raises this speculatively. |
+| Private IP disclosure (RFC1918 addresses in responses) | **By design** — RemotePower manages a LAN fleet; device IPs are the product, and the API is authenticated. |
+| Suspicious comments / Unix timestamps in JS | **Info** — normal source comments and epoch values in the app bundle. |
+| Missing COOP/COEP/CORP/Referrer-Policy/Permissions-Policy headers | **Addressed** as part of F6 (COEP deliberately omitted — it would break legitimate same-origin sub-resource loads for no real gain here). |
+| Service/version detection on the host (SSH, SMTP/IMAP, SNMP, RPC portmapper, …) | **Operator infrastructure, out of app scope** — flagged to the operator as a hardening note (e.g. don't expose RPC/SNMP to the internet); not a RemotePower issue. |
+| Swagger / login-form fingerprints | **Expected** — the OpenAPI UI ships intentionally; the login form is the login form. |
 
 ---
 
@@ -271,6 +339,17 @@ issue was found in the new v3.5–v3.8 surface.
 - `test_makerchecker_rejects_deleted_or_quarantined_device` — verifies
   the approval path rejects device-targeting actions for a
   missing/quarantined device.
+- `TestV380TokenSafety` — exercises `_ct_token_eq` with the exact inputs
+  that used to 500 the public endpoints (F5): a `…` ellipsis, surrogate
+  bytes, empty/None — all must fail closed, never raise.
+
+`tests/test_v232.py` (the canonical CSP/nginx security-regression file)
+gained guards for F6 and the nginx pass:
+
+- `test_nginx_blocks_cgi_bin_source` — both shipped configs deny the
+  `/cgi-bin/` static path.
+- `test_nginx_configs_have_security_headers` / `test_csp_no_unsafe_inline`
+  — still pin the header set and the strict CSP on both configs.
 
 The earlier per-feature security tests (2FA recovery atomicity,
 allowlist re-check on approval, Ansible extra-vars hardening, SFTP
