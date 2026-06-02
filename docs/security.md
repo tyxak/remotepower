@@ -107,14 +107,21 @@ Summary of the defences in place:
   link-local / unspecified IPs (covers cloud metadata services at
   169.254.169.254). RFC1918 private networks are deliberately permitted —
   homelab Gotify / ntfy on the LAN is legitimate.
-- **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, and
-  the OIDC discovery / token-exchange fetches re-validate the *actual* peer IP at
-  connect time, not just the address resolved during the pre-flight check — so a
-  hostname that resolves to a permitted address for the check but an
-  internal/metadata address for the real request is caught and refused. TLS
-  verification (server name + certificate chain) is unaffected; the audit
-  forwarder pins the verified TLS context for the connection it validated. See
-  `docs/security-review-3.8.0.md` (v3.8.0).
+- **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, the
+  OIDC discovery / token-exchange fetches, and (since v3.9.0) the HTTP uptime
+  monitor re-validate the *actual* peer IP at connect time, not just the address
+  resolved during the pre-flight check — so a hostname that resolves to a
+  permitted address for the check but an internal/metadata address for the real
+  request is caught and refused. TLS verification (server name + certificate
+  chain) is unaffected; the audit forwarder pins the verified TLS context for the
+  connection it validated. See `docs/security-review-3.8.0.md` (v3.8.0).
+- **HTTP monitor SSRF (v3.9.0).** The uptime monitor's `http`/`https` check now
+  validates its target through the shared per-IP classifier instead of a literal
+  string-prefix blocklist (which missed IPv6 `[::1]`, integer/octal/hex-encoded
+  IPv4, and DNS rebinding) and fetches through the connect-time SSRF guard above.
+  Cloud-metadata / link-local is always blocked; loopback only when
+  `allow_internal_monitors` is set; RFC1918 LAN stays allowed by design. See
+  `docs/security-review-3.9.0.md`.
 
 ### CMDB vault
 

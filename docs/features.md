@@ -89,7 +89,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **CVE in timeline** | Current critical/high (non-ignored) findings surface as a synthetic per-device `cve` row, so a re-scan of known CVEs still shows (v3.4.2) |
 | **Third-party patching** | Agent reports flatpak/snap/pip/npm updates; patch catalog aggregates them by manager (v3.4.2) |
 | **On-call & escalation** | Settings → Notifications: escalation tiers re-notify unacked alerts; on-call rotation names the contact. `GET /api/oncall` (v3.4.2) |
-| **Trends charts** | Planning → Trends: zero-dep multi-series SVG — fleet health, compliance %, per-device resources. `GET /api/devices/<id>/metrics-history` (v3.4.2) |
+| **Trends charts** | Planning → Trends: zero-dep multi-series SVG — fleet health, compliance %, per-device resources (memory / swap / busiest-mount disk, plus **CPU load saturation %** since v3.9.0). `GET /api/devices/<id>/metrics-history` (v3.4.2) |
 | **Install software** | Patches page: install repo packages on a host or whole tag/group (apt/dnf/yum/zypper/pacman/apk). `POST /api/install` (v3.4.2) |
 | **OpenSCAP by tag/group** | Scan form targets all / group / tag / device; profile is the parameter (v3.4.2) |
 | **Setup checklist** | Settings → Install: live getting-started checklist. `GET /api/setup-status` (v3.4.2) |
@@ -128,11 +128,11 @@ The complete list. Items marked with a version number indicate when they were ad
 
 | Feature | Notes |
 |---|---|
-| **Ping / TCP / HTTP probes** | ICMP, TCP port, HTTP HEAD checks from the server. Configurable schedule (v1.11.8: runs even when dashboard is closed) |
+| **Ping / TCP / HTTP probes** | ICMP, TCP port, HTTP HEAD checks from the server. Configurable schedule (v1.11.8: runs even when dashboard is closed). HTTP targets are SSRF-guarded with a connect-time peer recheck (v3.9.0) — RFC1918 LAN allowed, cloud-metadata/link-local always blocked |
 | **Monitor history** | Uptime %, sparkline, last 50 results per target |
 | **Metric alerts** | Disk / memory / swap / CPU load thresholds with hysteresis (v1.11.10) |
 | **Per-device thresholds** | Override fleet defaults per device, plus per-mount disk overrides (v1.12.0 UI) |
-| **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions |
+| **Service monitoring** | Agent watches systemd units; matrix view; webhooks on transitions. Shows the canonical unit an alias resolved to (e.g. `mysql.service`→`mariadb.service`) since v3.9.0 |
 | **Log tail + alerts** | Agent submits journalctl per watched unit; rolling 6-hour buffer with regex search; pattern-match alerts |
 | **Webhooks** | Generic JSON, Discord, ntfy, Slack, Gotify. Auto-format detection. 17 event types, per-event toggles, test-event button |
 | **CVE scanner** | OSV.dev-backed; severity-ranked findings per device; ignore list for accepted risk |

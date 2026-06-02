@@ -2,6 +2,72 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.9.0 — unreleased (dev)
+
+A second bind-it-together and hardening sweep on top of v3.8.0: more dropped
+agent data wired into the UI, a couple of correctness bugs in the alerting and
+patch-verification paths fixed, an SSRF gap in the uptime monitor closed, and a
+round of front-end polish (sortable tables, Lucide icons, accessibility).
+
+### Security
+- **HTTP uptime-monitor SSRF closed.** The `http`/`https` monitor check used a
+  literal string-prefix blocklist and a bare `urllib` fetch — so an IPv6
+  loopback (`[::1]`), an integer/octal/hex-encoded IPv4, or a hostname that
+  rebinds to a metadata/loopback address after the pre-flight check could all
+  slip through. The check now runs through the same connect-time SSRF guard the
+  webhook/audit/OIDC back-channels use: the *connected* peer IP is re-classified
+  (anti-rebinding), redirects are refused, and the shared IP classifier replaces
+  the brittle string list. RFC1918 LAN targets stay allowed by design; cloud
+  metadata / link-local is always blocked. See `docs/security-review-3.9.0.md`.
+- **Inbound-webhook alert links are scheme-validated.** Links attached to an
+  inbound alert now pass through the same `http(s)`-only validator the operator
+  quick-links and CVE reference-links use, so a `javascript:`/`file:` URL can't
+  be stored even if a future renderer makes them clickable.
+
+### Fixes
+- **"Patched — didn't take" no longer cries wolf.** The post-upgrade
+  verification badge flipped to *stalled* ("didn't take") whenever the pending
+  count failed to strictly drop after an hour — which falsely fired on hosts
+  that had **nothing to patch** when a fleet-wide upgrade ran, and on **offline**
+  hosts whose upgrade command was still sitting undelivered in the queue. Those
+  two cases now read as "nothing to verify" / "still pending" instead of a
+  failure.
+- **Metric thresholds: a stray `return` could skip disk alerting.** When a
+  device's CPU load was easing back through the recovery band, the CPU branch
+  returned out of the whole threshold function — so that heartbeat skipped the
+  per-mount disk checks *and* dropped the freshly-computed metric state. It now
+  just declines to transition the CPU level and carries on.
+- **TLS-expiry alerts had the wrong severity and title.** The severity mapper
+  and alert title read a `days` field the event never carries (it sends
+  `days_left`), so every TLS-expiry alert landed as `high` and titled
+  "expires in ?d". Severity now scales with the real days-remaining.
+
+### Bind it together
+- **CPU-load history.** Load average was collected on every heartbeat but had no
+  time series anywhere. The Trends page now plots a **CPU load (saturation %)**
+  series (load ÷ cores) alongside memory/swap/disk.
+- **Swap on the metrics sparkline.** The per-device metrics modal tracked
+  CPU/memory/disk; swap was recorded by the daily sampler but missing from the
+  high-resolution sparkline. It now has its own track.
+- **rkhunter last-run time** is shown on the AV-posture pill (the agent reported
+  it; the UI never displayed it) — answers "when did this host actually scan?".
+- **systemd alias resolution** is surfaced: when you watch `mysql.service` but
+  the host runs `mariadb.service`, the Services table now shows the canonical
+  unit the agent resolved. The field was being dropped by the heartbeat
+  sanitiser.
+- **Livepatch state** (e.g. `checked`, `check-failed`) is shown on the kernel
+  pill when a patch hasn't been applied — the field that explains *why*.
+
+### Polish
+- **Three tables gained their missing sort wiring** — the Log Alert per-device
+  rules, the Log Alert fleet-wide rules, and the Maintenance suppression log.
+  Their headers advertised sortable columns but clicks did nothing.
+- **Typographic glyphs replaced with Lucide SVG icons** on the prominent action
+  buttons (Run / Fetch current / Download / Clear) and the toast notifications,
+  matching the project's inline-SVG icon convention.
+- **Accessibility:** icon-only close buttons (device drawer, console modals,
+  mobile menu) now carry an `aria-label`.
+
 ## v3.8.0 — unreleased (dev)
 
 A hardening, bind-it-together, and polish sweep — no new headline features,

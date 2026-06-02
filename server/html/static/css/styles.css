@@ -668,6 +668,9 @@
     font-family: var(--font);
   }
   .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  /* v3.9.0: inline Lucide glyphs in non-flex buttons sit on the baseline;
+     nudge them onto the optical centre of the label. */
+  .btn-primary svg, .btn-secondary svg { vertical-align: -2px; }
   .btn-icon {
     background: transparent;
     border: 1px solid var(--border);

@@ -2479,7 +2479,7 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;
-function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: '✓', error: '✕', info: 'ℹ'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ'}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
+function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: 'check', error: 'x', info: 'info'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
 function setTagFilter(tag) { activeTagFilter = tag; renderDevices(); }
 // v1.11.5: schedule and history get filter+sort via tableCtl. Minimal
 // refactor — register once on first load, then push rows in.
@@ -2857,6 +2857,8 @@ const _DYK_TIPS = [
   "Spin up a Proxmox LXC container from a wizard — pick a template, storage and network, and RemotePower creates it via the API.",
   "Need a starting point for a device's documentation? Let the AI draft a CMDB doc from what it already knows about the host.",
   "Running Kubernetes? Where a host has Helm and a kubeconfig, RemotePower shows your Helm release status alongside everything else.",
+  "Planning → Trends now plots a CPU-load saturation line (load ÷ cores) next to memory, swap and disk — so you can see a host's load trend over time, not just its current number.",
+  "Watch mysql.service on a host that actually runs mariadb.service? The Services table shows the canonical unit systemd resolved your alias to, so you're never left wondering why it reads 'active'.",
 ];
 let _dykIdx = -1;
 function _renderAboutTip() {
@@ -3843,7 +3845,7 @@ async function openAvScan(id, name) {
   }
   if (av.rkhunter) {
     const r2 = av.rkhunter;
-    rows.push(`<div class="sysinfo-pill"><div class="label">rkhunter</div><div class="value">${r2.installed ? 'installed' : 'absent'}${r2.warnings != null ? ` · ${r2.warnings} warnings` : ''}</div></div>`);
+    rows.push(`<div class="sysinfo-pill"><div class="label">rkhunter</div><div class="value">${r2.installed ? 'installed' : 'absent'}${r2.warnings != null ? ` · ${r2.warnings} warnings` : ''}${r2.last_run_ts ? ` · last run ${timeAgo(r2.last_run_ts)}` : ''}</div></div>`);
   }
   body.innerHTML = `<div class="sysinfo-row mb-16">${rows.join('')}</div>`;
 }
@@ -4016,7 +4018,7 @@ function openPollModal(id, current) { document.getElementById('poll-device-id').
 async function savePollInterval() { const id = document.getElementById('poll-device-id').value; const interval = parseInt(document.getElementById('poll-input').value); const r = await api('PATCH', '/devices/' + id + '/poll_interval', {poll_interval: interval}); if (r?.ok) { toast(`Poll interval set to ${r.poll_interval}s`, 'success'); closeModal('poll-modal'); loadDevices(); } else toast(r?.error || 'Failed', 'error'); }
 async function openAllowlistModal(id) { document.getElementById('allowlist-device-id').value = id; document.getElementById('allowlist-input').value = ''; openModal('allowlist-modal'); const r = await api('GET', '/devices/' + id + '/allowlist'); if (r) document.getElementById('allowlist-input').value = (r.allowed_commands || []).join('\n'); }
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
-async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
+async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Swap</div>${spark('swap','var(--purple)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
 // v1.11.6: API keys page gets filter+sort
 let _apikeysRegistered = false;
@@ -4673,7 +4675,14 @@ function _registerPatchTable() {
     row: (d) => {
       const statusCls = d.patch_status === 'fully_patched' ? 'ok' : d.patch_status === 'patches_available' ? 'warn' : '';
       const statusLabel = d.patch_status === 'fully_patched' ? 'Patched' : d.patch_status === 'patches_available' ? `${d.upgradable} pending` : (d.online ? 'No data' : 'Offline — No data');
-      const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div title="${escHtml(c.output||'')}" class="isl-370">${escHtml(c.cmd?.substring(0,30)||'')} (rc=${c.rc})</div>`).join('');
+      // The generic upgrade is one multi-package-manager shell script, so the
+      // raw first 30 chars ("set -e; if command -v apt…") looked identical on
+      // every host — even pacman/dnf boxes that never touch apt. Show a
+      // friendly label for the known upgrade script; full output is on hover.
+      const _patchCmdLabel = (cmd) => !cmd ? ''
+        : cmd.includes('command -v apt-get') ? 'upgrade packages'
+        : cmd.replace(/^exec:/, '').substring(0, 30);
+      const recentCmds = (d.recent_patch_commands || []).slice(-2).map(c => `<div title="${escHtml(c.output||'')}" class="isl-370">${escHtml(_patchCmdLabel(c.cmd))} (rc=${c.rc})</div>`).join('');
       // v2.1.5: AIPrioritise only on devices with pending updates
       // v3.0.4: pass the event so the handler can disable the button +
       // show a spinner during the API call (previously the button just
@@ -4994,7 +5003,10 @@ function _registerServicesTable() {
       const reportText = d.updated_at ? new Date(d.updated_at*1000).toLocaleString() : '<span class="meta-sm-nm">never</span>';
       const unitList = (d.services || []).map(s => {
         const color = s.active === 'active' ? 'var(--green)' : s.active === 'activating' ? 'var(--amber)' : 'var(--red)';
-        return `<span class="isl-400"><span class="isl-401" data-color="${color}">●</span> ${escHtml(s.unit)}</span>`;
+        // Show the canonical unit systemd resolved an alias to (e.g. you watch
+        // mysql.service but the host runs mariadb.service).
+        const alias = s.canonical ? ` <span class="meta-sm-nm" title="systemd alias → ${escAttr(s.canonical)}">→ ${escHtml(s.canonical)}</span>` : '';
+        return `<span class="isl-400"><span class="isl-401" data-color="${color}">●</span> ${escHtml(s.unit)}${alias}</span>`;
       }).join('');
       const watchedCell = d.total > 0 ? unitList : '<span class="meta-sm-nm">(none configured)</span>';
       const upCell   = d.up > 0 ? `<td class="isl-402">${d.up}</td>` : '<td class="isl-385">0</td>';
@@ -5174,11 +5186,20 @@ async function loadMaintSuppressions() {
   const section = document.getElementById('maint-suppressions');
   section.style.display = 'block';
   const tbody = document.getElementById('maint-supp-tbody');
+  // Eager sort wire-up so the ↕ indicators show even before data arrives.
+  tableCtl.wireSortOnly('maint-supp-thead', 'maint_supp', loadMaintSuppressions);
   tbody.innerHTML = '<tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr>';
   const data = await api('GET', '/maintenance/suppressions');
   if (!data) return;
   if (!data.entries.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-state-sm">No suppressions recorded.</td></tr>'; return; }
-  tbody.innerHTML = data.entries.map(e => `<tr>
+  const entries = tableCtl.sortRows('maint_supp', data.entries.slice(), e => ({
+    ts:     e.ts || 0,
+    event:  e.event || '',
+    device: e.device_id || '',
+    window: e.window_id || '',
+    reason: e.reason || '',
+  }));
+  tbody.innerHTML = entries.map(e => `<tr>
     <td class="hint-nowrap">${new Date(e.ts*1000).toLocaleString()}</td>
     <td><code class="fs-12">${escHtml(e.event)}</code></td>
     <td class="isl-341">${escHtml(e.device_id || '—')}</td>
@@ -5595,7 +5616,7 @@ async function loadTrends() {
 async function loadTrendDevice() {
   const id = document.getElementById('trend-device').value;
   const out = document.getElementById('trend-resources');
-  if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk history.</div>'; return; }
+  if (!id) { out.innerHTML = '<div class="c-muted">Pick a device to see its memory / swap / disk / CPU-load history.</div>'; return; }
   const r = await api('GET', `/devices/${encodeURIComponent(id)}/metrics-history`).catch(() => null);
   if (!r) { out.innerHTML = '<div class="c-red">Failed to load device metrics.</div>'; return; }
   renderTimeSeries('trend-resources',
@@ -5841,6 +5862,7 @@ async function loadLogRules() {
 
 async function loadPerDeviceLogRules() {
   const tbody = document.getElementById('logs-rules-tbody');
+  tableCtl.wireSortOnly('logs-rules-thead', 'logs_rules_device', loadPerDeviceLogRules);
   const data = await api('GET', '/logs/rules');
   if (!data) return;
   const globalCount = parseInt(document.getElementById('logs-stat-rules').dataset.globalCount || '0');
@@ -5850,7 +5872,14 @@ async function loadPerDeviceLogRules() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No per-device rules configured.</td></tr>';
     return;
   }
-  tbody.innerHTML = data.rules.map(r => {
+  const rules = tableCtl.sortRows('logs_rules_device', data.rules.slice(), r => ({
+    device:    r.device_name || '',
+    group:     r.group || '',
+    unit:      r.unit || '',
+    pattern:   r.pattern || '',
+    threshold: r.threshold || 0,
+  }));
+  tbody.innerHTML = rules.map(r => {
     // Encode the rule's identifying fields into a single store key so
     // the Edit button can rehydrate the rule into the modal without a
     // second round-trip.
@@ -5868,6 +5897,7 @@ async function loadPerDeviceLogRules() {
 
 async function loadGlobalLogRules() {
   const tbody = document.getElementById('logs-rules-global-tbody');
+  tableCtl.wireSortOnly('logs-rules-global-thead', 'logs_rules_global', loadGlobalLogRules);
   const data = await api('GET', '/logs/rules/global');
   if (!data) return;
   const deviceCount = parseInt(document.getElementById('logs-stat-rules').dataset.deviceCount || '0');
@@ -5877,7 +5907,14 @@ async function loadGlobalLogRules() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">No fleet-wide rules configured. Click "+ Add rule" above and switch to the Fleet-wide tab.</td></tr>';
     return;
   }
-  tbody.innerHTML = data.rules.map(r => {
+  const rules = tableCtl.sortRows('logs_rules_global', data.rules.slice(), r => ({
+    unit:            r.unit || '',
+    pattern:         r.pattern || '',
+    exclude_pattern: r.exclude_pattern || '',
+    threshold:       r.threshold || 0,
+    created:         r.created_at || 0,
+  }));
+  tbody.innerHTML = rules.map(r => {
     const created = r.created_at ? new Date(r.created_at*1000).toLocaleDateString() : '—';
     const unitDisplay = r.unit === '*'
       ? '<code class="isl-426">* (any unit)</code>'
@@ -12363,6 +12400,11 @@ const _ICONS = {
   clock:       '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   trendingUp:  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   trash:       '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  // v3.9.0: small action/status glyphs, replacing typographic ▶ ✓ ✕ ℹ
+  play:        '<polygon points="5 3 19 12 5 21 5 3"/>',
+  check:       '<polyline points="20 6 9 17 4 12"/>',
+  x:           '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  info:        '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
   // v3.3.0: extra icons for device-icon palette + status pills
   laptop:      '<rect x="2" y="4" width="20" height="12" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/>',
   smartphone:  '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12" y2="18"/>',
@@ -13553,7 +13595,7 @@ function _renderHardwareSection(id, hw, fc, ch) {
         <div class="sysinfo-pill"><div class="label">Running</div><div class="value"><code>${escHtml(k.running)}</code></div></div>
         ${k.latest_installed ? `<div class="sysinfo-pill"><div class="label">Newest installed</div><div class="value"><code>${escHtml(k.latest_installed)}</code></div></div>` : ''}
         <div class="sysinfo-pill"><div class="label">Reboot for kernel</div><div class="value ${stale?'c-amber':'c-green'}">${stale ? 'Yes — newer kernel installed' : 'No'}</div></div>
-        ${k.livepatch ? `<div class="sysinfo-pill"><div class="label">Livepatch</div><div class="value">${escHtml(k.livepatch.provider||'')} ${k.livepatch.patched?'<span class="c-green">applied</span>':''}</div></div>` : ''}
+        ${k.livepatch ? `<div class="sysinfo-pill"><div class="label">Livepatch</div><div class="value">${escHtml(k.livepatch.provider||'')} ${k.livepatch.patched?'<span class="c-green">applied</span>':(k.livepatch.state?`<span class="hint">${escHtml(k.livepatch.state)}</span>`:'')}</div></div>` : ''}
       </div></div>`;
   }
 

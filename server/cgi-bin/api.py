@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.8.0'
+SERVER_VERSION = '3.9.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2185,15 +2185,19 @@ def _sanitize_monitor_target(mtype, target):
         parsed = urllib.parse.urlparse(target)
         if parsed.scheme not in ('http', 'https'):
             return None
-        # Block private/loopback ranges (basic SSRF guard)
-        host = parsed.hostname or ''
-        blocked_hosts = ('localhost', '127.', '0.0.0.0', '169.254.', '10.', '192.168.', '172.')
-        # Allow explicit override via config for intentional internal monitoring
-        for b in blocked_hosts:
-            if host == b.rstrip('.') or host.startswith(b):
-                cfg = load(CONFIG_FILE)
-                if not cfg.get('allow_internal_monitors', False):
-                    return None
+        if not (parsed.hostname or ''):
+            return None
+        # SSRF guard via the shared IP classifier (handles IPv6 [::1],
+        # integer/octal/hex IPv4 encodings, and DNS that the old literal
+        # string-prefix blocklist missed). Cloud-metadata / link-local is
+        # always blocked; loopback only when the operator opts in. RFC1918
+        # private LAN ranges are allowed by design — monitoring an internal
+        # service is the normal case. The connect-time peer recheck in
+        # _execute_monitor_checks closes the DNS-rebinding TOCTOU.
+        cfg = load(CONFIG_FILE)
+        allow_internal = bool(cfg.get('allow_internal_monitors', False))
+        if _url_targets_local_or_meta(parsed, allow_loopback=allow_internal):
+            return None
         return target
     return None
 
@@ -2559,7 +2563,7 @@ _ALERT_RULES = {
     'cve_found':              (None,       None),   # severity from payload
     'drift_detected':         ('medium',   None),
     'config_drift':           ('medium',   None),
-    'tls_expiry':             (None,       None),   # severity from payload.days
+    'tls_expiry':             (None,       None),   # severity from payload.days_left
     'mailbox_threshold':      ('medium',   None),
     'custom_script_fail':     ('high',     None),
     'log_alert':              (None,       None),   # severity from payload.level
@@ -2861,7 +2865,7 @@ def _alert_severity(event, payload):
             return 'high'
         return 'medium'
     if event == 'tls_expiry':
-        days = p.get('days')
+        days = p.get('days_left')
         try:
             days = int(days)
         except (TypeError, ValueError):
@@ -2923,7 +2927,7 @@ def _alert_title(event, payload):
         return f'Config drift on {name}: {p.get("files", "?")} file(s)'
     if event == 'tls_expiry':
         host = p.get('host') or name
-        return f'TLS expires in {p.get("days", "?")}d: {host}'
+        return f'TLS expires in {p.get("days_left", "?")}d: {host}'
     if event == 'mailbox_threshold':
         return f'Mailbox threshold on {name}: {p.get("path", "")} = {p.get("count", "?")}'
     if event == 'custom_script_fail':
@@ -7826,12 +7830,14 @@ def _record_metrics(dev_id, sysinfo):
     cpu  = sysinfo.get('cpu_percent')
     mem  = sysinfo.get('mem_percent')
     disk = sysinfo.get('disk_percent')
-    if cpu is None and mem is None and disk is None:
+    swap = sysinfo.get('swap_percent')
+    if cpu is None and mem is None and disk is None and swap is None:
         return
     metrics = load(METRICS_FILE)
     if dev_id not in metrics:
         metrics[dev_id] = []
-    metrics[dev_id].append({'ts': int(time.time()), 'cpu': cpu, 'mem': mem, 'disk': disk})
+    metrics[dev_id].append({'ts': int(time.time()), 'cpu': cpu, 'mem': mem,
+                            'disk': disk, 'swap': swap})
     metrics[dev_id] = metrics[dev_id][-MAX_METRICS:]
     save(METRICS_FILE, metrics)
 
@@ -8519,7 +8525,14 @@ def _execute_monitor_checks(monitors):
             try:
                 req = urllib.request.Request(target, method='HEAD')
                 ctx = _get_ssl_context()
-                with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
+                # Route through the SSRF-safe opener so the *connected* peer IP
+                # is re-validated (anti-rebinding) and 3xx redirects can't bounce
+                # to a metadata/loopback address. allow_loopback mirrors the
+                # config opt-in; metadata/link-local stays blocked regardless.
+                _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+                _opener = _ssrf_safe_opener(allow_loopback=_allow_internal,
+                                            ssl_ctx=ctx, no_redirect=True)
+                with _opener.open(req, timeout=5) as resp:
                     ok = resp.status < 400; detail = str(resp.status)
             except urllib.error.HTTPError as e:
                 detail = str(e.code)
@@ -16263,6 +16276,10 @@ def _maybe_sample_metrics(dev_id, sysinfo, now):
         'mounts':       mounts,
         'mem_percent':  sysinfo.get('mem_percent'),
         'swap_percent': sysinfo.get('swap_percent'),
+        # v3.9.0: keep raw loadavg + core count so the Trends page can plot a
+        # CPU-load saturation series (load average had no history before this).
+        'loadavg_1m':   sysinfo.get('loadavg_1m'),
+        'cpu_count':    sysinfo.get('cpu_count'),
         'state': {
             'pkg_upgradable':  pkgs if isinstance(pkgs, int) else None,
             'ports':           ports,
@@ -17684,7 +17701,7 @@ def handle_device_metrics_history(dev_id):
         if not _device_in_scope(scope, dev):
             respond(403, {'error': 'Device outside your role scope'})
     samples = (load(METRICS_HIST_FILE) or {}).get(dev_id) or []
-    mem, swap, disk = [], [], []
+    mem, swap, disk, load_sat = [], [], [], []
     for s in samples[-120:]:
         ts = s.get('ts')
         if isinstance(s.get('mem_percent'), (int, float)):
@@ -17694,10 +17711,17 @@ def handle_device_metrics_history(dev_id):
         busiest = max((m.get('percent', 0) for m in (s.get('mounts') or [])), default=None)
         if isinstance(busiest, (int, float)):
             disk.append({'ts': ts, 'v': busiest})
-    respond(200, {'device_id': dev_id,
-                  'series': [{'name': 'memory %', 'points': mem},
-                             {'name': 'swap %', 'points': swap},
-                             {'name': 'disk % (busiest)', 'points': disk}]})
+        # CPU-load saturation: loadavg_1m as a percentage of core count
+        # (100% = load equals cores). Pre-v3.9.0 samples lack these fields.
+        lv = s.get('loadavg_1m'); cores = s.get('cpu_count')
+        if isinstance(lv, (int, float)) and lv >= 0 and isinstance(cores, (int, float)) and cores > 0:
+            load_sat.append({'ts': ts, 'v': round(lv / cores * 100, 1)})
+    series = [{'name': 'memory %', 'points': mem},
+              {'name': 'swap %', 'points': swap},
+              {'name': 'disk % (busiest)', 'points': disk}]
+    if load_sat:
+        series.append({'name': 'cpu load %', 'points': load_sat})
+    respond(200, {'device_id': dev_id, 'series': series})
 
 
 def _check_health_webhooks():
@@ -19899,7 +19923,8 @@ def _upgrade_verify_status(dev, now):
     """v3.4.2: did a queued upgrade actually take? Compares the pending-update
     count snapshotted when the upgrade was queued against the latest count.
     Returns 'ok' (dropped), 'stalled' (unchanged after >1h), 'pending', or None
-    (no recent upgrade). Cleared implicitly once the marker ages out (7 days)."""
+    (no recent upgrade / nothing to verify). Cleared implicitly once the marker
+    ages out (7 days)."""
     qa = dev.get('upgrade_queued_at')
     if not qa or (now - qa) > 7 * 86400:
         return None
@@ -19907,8 +19932,19 @@ def _upgrade_verify_status(dev, now):
     cur = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
     if not isinstance(before, int) or not isinstance(cur, int):
         return 'pending'
+    # v3.9.0: nothing was pending when the upgrade was queued — a fleet-wide
+    # "upgrade" hits already-patched hosts too. There's no count to drop, so
+    # "did it take?" is meaningless; don't flag it as stalled ("didn't take").
+    if before <= 0:
+        return None
     if cur < before:
         return 'ok'
+    # v3.9.0: if the host is offline the upgrade command may still be sitting
+    # undelivered in its queue, or it simply hasn't re-reported its package
+    # count yet. Either way we haven't *heard* that it failed — keep it
+    # 'pending' rather than wrongly declaring "didn't take".
+    if (now - (dev.get('last_seen') or 0)) >= get_online_ttl():
+        return 'pending'
     if (now - qa) > 3600:
         return 'stalled'
     return 'pending'
@@ -20990,8 +21026,15 @@ def handle_inbound_webhook(token_str):
         safe_links = []
         for ln in links[:5]:
             if isinstance(ln, dict) and ln.get('url'):
+                # Scheme-validate (http/https only, no javascript:/file:) so a
+                # future renderer that makes these clickable can't be tricked
+                # into emitting a hostile href — same guard the operator
+                # quick-links and CVE ref-links use.
+                clean_url = _validate_link_url(ln.get('url'))
+                if not clean_url:
+                    continue
                 safe_links.append({
-                    'url':   _sanitize_str(ln.get('url'), 512),
+                    'url':   clean_url,
                     'label': _sanitize_str(ln.get('label', 'link'), 64),
                 })
         if safe_links:
@@ -25120,7 +25163,14 @@ def _sanitize_service_entry(entry):
         since = int(since)
     except (TypeError, ValueError):
         since = 0
-    return {'unit': unit, 'active': active, 'sub': sub, 'since': since}
+    out = {'unit': unit, 'active': active, 'sub': sub, 'since': since}
+    # v3.9.0: the agent resolves a watched alias to its canonical unit (e.g.
+    # mysql.service → mariadb.service); keep it (validated) so the UI can show
+    # what systemd actually matched. Only when it differs from the watched name.
+    canonical = _sanitize_unit_name(entry.get('canonical', ''))
+    if canonical and canonical != unit:
+        out['canonical'] = canonical
+    return out
 
 
 def _record_service_transition(dev_id, unit, old_active, new_active, ts):
@@ -25438,19 +25488,24 @@ def process_metric_thresholds(dev_id, dev, safe_si):
         key = 'cpu:'
         prev_level = state.get(key, 'ok')
         if new_level != prev_level:
+            transitioned = True
             if new_level == 'critical':
                 _fire_metric_webhook('metric_critical', dev_id, dev, 'cpu', '',
                                      round(load, 2), crit, {'cpu_count': cpu_count})
             elif new_level == 'warning':
                 _fire_metric_webhook('metric_warning', dev_id, dev, 'cpu', '',
                                      round(load, 2), warn, {'cpu_count': cpu_count})
+            elif _below_recovery(ratio, warn):
+                _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
+                                     round(load, 2), warn, {'cpu_count': cpu_count})
             else:
-                if _below_recovery(ratio, warn):
-                    _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
-                                         round(load, 2), warn, {'cpu_count': cpu_count})
-                else:
-                    return
-            state[key] = new_level
+                # Below warn but inside the recovery buffer — stay in the
+                # previous level (hysteresis). Don't update state[key] here,
+                # and crucially don't `return`: the disk loop below and the
+                # final `dev['metric_state'] = state` still need to run.
+                transitioned = False
+            if transitioned:
+                state[key] = new_level
         elif prev_level != 'ok' and _below_recovery(ratio, warn):
             _fire_metric_webhook('metric_recovered', dev_id, dev, 'cpu', '',
                                  round(load, 2), warn, {'cpu_count': cpu_count})

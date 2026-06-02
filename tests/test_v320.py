@@ -114,12 +114,15 @@ class TestAlertsLedger(_ApiTestBase):
         self.assertEqual(sevs, ['critical', 'high', 'medium'])
 
     def test_tls_severity_from_days(self):
+        # v3.9.0: the tls_expiry event carries `days_left` (what the real fire
+        # site sends), not `days`. The severity mapper used to read `days`, so
+        # every alert silently fell through to 'high'. Pin the corrected field.
         self.api.fire_webhook('tls_expiry',
-            {'host': 'a.example.com', 'days': 2})
+            {'host': 'a.example.com', 'days_left': 2})
         self.api.fire_webhook('tls_expiry',
-            {'host': 'b.example.com', 'days': 10})
+            {'host': 'b.example.com', 'days_left': 10})
         self.api.fire_webhook('tls_expiry',
-            {'host': 'c.example.com', 'days': 25})
+            {'host': 'c.example.com', 'days_left': 25})
         sevs = [a['severity'] for a in
                 self.api.load(self.api.ALERTS_FILE).get('alerts', [])
                 if a['event'] == 'tls_expiry']

@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.8.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.9.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -174,15 +174,18 @@ The demo is reset every few hours, so feel free to break things.
 - **AI Investigate — broadened** *(v3.8)* — the one-click diagnose-and-suggest-a-fix now covers ~21 Needs-Attention kinds: added malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and **failed systemd units**, each with a tailored prompt (security-sensitive kinds never propose a blind destructive command).
 - **More host signals surfaced** *(v3.8)* — **failed systemd units** (now a health-scored attention item, also revived in the Fleet Query filter and CIS compliance check) and **currently logged-in users** show in the device drawer; both were collected by the agent but previously dropped before reaching the UI.
 - **Security hardening** *(v3.8)* — connect-time anti-DNS-rebinding on webhook / SIEM-forward / OIDC calls, maker-checker approval re-checks device state, opt-in mandatory signed agent updates, and a strict-CSP / header-inheritance pass on the nginx templates. See the **[v3.8.0 security review](docs/security-review-3.8.0.md)**.
+- **Monitor SSRF closed + more signals bound** *(v3.9)* — the HTTP uptime monitor now uses the same connect-time SSRF guard as the other back-channels (closing IPv6 / integer-IP / DNS-rebinding bypasses), and three previously-collected-but-hidden signals surface: **CPU-load history** (Trends), **swap** on the metrics sparkline, **rkhunter last-run**, the **systemd alias** a watched unit resolved to, and **livepatch state**. See the **[v3.9.0 security review](docs/security-review-3.9.0.md)**.
+- **Correctness & polish** *(v3.9)* — the post-upgrade "didn't take" badge no longer false-alarms on already-patched or offline hosts; a metric-threshold bug that could skip disk alerting is fixed; TLS-expiry alerts get the right severity; three more tables are sortable; typographic glyphs replaced with Lucide icons; close buttons gained aria-labels.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
 ## Security
 
 RemotePower is security-reviewed every few releases — the latest is
-**[docs/security-review-3.8.0.md](docs/security-review-3.8.0.md)** (server +
-agent), preceded by the 3.0.5 and 2.3.2 reviews. v3.8.0 additionally passed an
-external dynamic scan (OWASP ZAP full active scan + nikto + nuclei). Posture in
+**[docs/security-review-3.9.0.md](docs/security-review-3.9.0.md)** (server +
+agent), preceded by the 3.8.0, 3.0.5, and 2.3.2 reviews. v3.8.0 additionally
+passed an external dynamic scan (OWASP ZAP full active scan + nikto + nuclei).
+Posture in
 brief: bcrypt (cost 12, with a PBKDF2-HMAC-SHA256 fallback at OWASP-2023
 parameters) passwords behind rate-limited login, TOTP 2FA with one-time
 recovery codes; 256-bit header-based session tokens (CSRF-safe by
