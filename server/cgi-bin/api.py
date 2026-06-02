@@ -16828,10 +16828,13 @@ def _compute_attention():
                     pct = si.get('swap_percent')
                     if pct is not None: val_str = f'{pct:.0f}% used'
                 elif kind == 'cpu':
-                    la = si.get('loadavg') or [None]
+                    # sysinfo stores the scalar `loadavg_1m`, not a `loadavg`
+                    # list — reading the wrong key left the cpu item's value
+                    # blank ("cpu: (warning ≥ 2)"). (v3.8.0 fix.)
+                    la = si.get('loadavg_1m')
                     cpu_count = (si.get('cpu_count') or 1) or 1
-                    if la[0] is not None:
-                        val_str = f'load {la[0]:.2f} (ratio {la[0]/cpu_count:.2f})'
+                    if isinstance(la, (int, float)):
+                        val_str = f'load {la:.2f} (ratio {la/cpu_count:.2f})'
             except Exception:
                 pass
             w, c = _resolve_metric_thresholds(dev, kind, target)
@@ -25254,8 +25257,19 @@ def _classify_metric(value, warn, crit):
 
 
 def _below_recovery(value, warn):
-    """True if value has dropped far enough below warn to fire 'recovered'."""
-    return value < (warn - METRIC_RECOVERY_BUFFER)
+    """True if value has dropped far enough below warn to fire 'recovered'.
+
+    The absolute buffer is sized for percentage metrics (memory/disk/swap, on a
+    0–100 scale). For a small *ratio* threshold like CPU load (warn ≈ 1.5), an
+    absolute 5-point buffer makes `warn - buffer` negative and the condition
+    unsatisfiable — so a CPU warning could never clear and stuck forever once
+    tripped (v3.8.0 bugfix). Floor the recovery point at a 10% proportional
+    band so it's always a sensible positive value; for percentage metrics the
+    absolute buffer still wins (e.g. warn 80 → recover < 75), so their
+    behaviour is unchanged.
+    """
+    recovery_point = max(warn - METRIC_RECOVERY_BUFFER, warn * 0.9)
+    return value < recovery_point
 
 
 def _fire_metric_webhook(event, dev_id, dev, kind, target, value, threshold,

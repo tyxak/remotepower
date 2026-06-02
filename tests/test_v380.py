@@ -226,6 +226,30 @@ class TestV380TokenSafety(unittest.TestCase):
         ):
             self.assertIn(needle, API, f'missing safe compare: {needle!r}')
 
+    def test_cpu_load_warning_can_recover(self):
+        # Regression: METRIC_RECOVERY_BUFFER is an absolute (0–100) value, so for
+        # the CPU load-ratio threshold (~1.5) `warn - buffer` went negative and a
+        # cpu warning could never clear. A near-idle ratio must now be below the
+        # recovery point, while percentage metrics keep the absolute buffer.
+        eq = self.api._below_recovery
+        self.assertTrue(eq(0.02, 1.5))     # idle cpu must be able to recover
+        self.assertTrue(eq(0.0, 1.5))
+        self.assertFalse(eq(1.45, 1.5))    # still hysteretic just under warn
+        self.assertFalse(eq(76, 80))       # memory: absolute buffer unchanged
+        self.assertTrue(eq(74, 80))
+
+    def test_process_thresholds_clears_stuck_cpu_warning(self):
+        dev = {'name': 'x', 'metric_state': {'cpu:': 'warning'}}
+        self.api.process_metric_thresholds('d1', dev, {'loadavg_1m': 0.06, 'cpu_count': 4})
+        self.assertEqual(dev['metric_state'].get('cpu:'), 'ok')
+
+    def test_cpu_attention_reads_loadavg_1m(self):
+        # the cpu attention summary must read loadavg_1m (the stored scalar),
+        # not a non-existent `loadavg` list (which left the value blank).
+        seg = API[API.index("elif kind == 'cpu':"):]
+        seg = seg[:seg.index('_resolve_metric_thresholds')]
+        self.assertIn("si.get('loadavg_1m')", seg)
+
     def test_ct_token_eq_never_raises_on_non_ascii(self):
         eq = self.api._ct_token_eq
         self.assertTrue(eq('realtok_ABC123', 'realtok_ABC123'))
