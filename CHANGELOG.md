@@ -36,10 +36,15 @@ AI-investigate coverage, and consistency fixes.
   host last restarted (e.g. `self-update`), but the field was being dropped.
   Surfaced in the device drawer's System Info tab.
 
-### AI investigate
-- Added investigate/remediate playbooks for **malware/AV posture** (ClamAV /
-  rkhunter) and **stale agent version**, so those attention items now get an
-  Investigate button like disk/cpu/cve/etc.
+### AI investigate (broadened)
+- Added diagnose/remediate playbooks for many more Needs-Attention kinds, so the
+  Investigate button now covers most of what the dashboard surfaces: **malware/AV
+  posture**, **stale agent version**, **end-of-life OS**, **hardware health
+  (SMART/kernel)**, **stale/missing backup**, **new SSH authorized key**, **new
+  listening port**, **agent integrity (hash mismatch)**, and **log-pattern
+  alerts** — joining the existing disk/memory/swap/cpu/patches/cve/drift/
+  service-down/container/reboot/brute-force playbooks (~20 kinds total). Each
+  ships a tailored AI prompt; the JS kind/label registries stay in sync.
 
 ### Polish
 - Audit-forwarding and change-approval settings moved to **Settings → Security**

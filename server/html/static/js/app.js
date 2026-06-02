@@ -17749,6 +17749,14 @@ const _MITIGATE_KIND_LABELS = {
   // v3.8.0: AV posture + stale agent
   av_posture:   'Malware / AV posture',
   agent_version:'Stale agent version',
+  // v3.8.0: broadened Investigate coverage
+  os_eol:          'End-of-life OS',
+  hardware:        'Hardware health',
+  backup:          'Backup stale / missing',
+  ssh_key:         'New SSH authorized key',
+  new_port:        'New listening port',
+  agent_integrity: 'Agent integrity',
+  log_alert:       'Log pattern alert',
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
@@ -17761,6 +17769,7 @@ const MITIGATE_KINDS = new Set([
   'memory', 'swap', 'cpu', 'cve', 'container',
   // v3.8.0: keep in sync with server _MITIGATE_PLAYBOOKS
   'av_posture', 'agent_version',
+  'os_eol', 'hardware', 'backup', 'ssh_key', 'new_port', 'agent_integrity', 'log_alert',
 ]);
 
 function openMitigateModal(devId, kind, target, deviceName) {

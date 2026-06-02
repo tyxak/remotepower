@@ -29618,6 +29618,13 @@ _AI_PROMPT_LABELS = {
     'mitigate_container':     'Mitigation — Container stopped / restarting',
     'mitigate_av':            'Mitigation — Malware / AV posture',
     'mitigate_agent_version': 'Mitigation — Stale agent version',
+    'mitigate_os_eol':        'Mitigation — End-of-life OS',
+    'mitigate_hardware':      'Mitigation — Hardware health',
+    'mitigate_backup':        'Mitigation — Backup stale / missing',
+    'mitigate_ssh_key':       'Mitigation — New SSH authorized key',
+    'mitigate_new_port':      'Mitigation — New listening port',
+    'mitigate_agent_integrity': 'Mitigation — Agent integrity',
+    'mitigate_log':           'Mitigation — Log pattern alert',
 }
 
 def _resolve_system_prompt(key):
@@ -30994,6 +31001,106 @@ _MITIGATE_PLAYBOOKS = {
         'fix': None,
         'fix_label': 'Update the agent (via the device drawer → Update agent)',
         'ai_prompt_key': 'mitigate_agent_version',
+        'ai_default': True,
+        'destructive': False,
+    },
+    # v3.8.0: broaden Investigate coverage to more Needs-Attention kinds.
+    'os_eol': {
+        'label': 'End-of-life OS',
+        'diagnostic': (
+            'echo "== OS RELEASE =="; cat /etc/os-release 2>/dev/null; '
+            'lsb_release -a 2>/dev/null; echo; echo "== KERNEL =="; uname -r; '
+            'echo; echo "== UPGRADE PATH =="; '
+            'if command -v do-release-upgrade >/dev/null 2>&1; then do-release-upgrade -c 2>&1 | head -20; '
+            'else echo "(no do-release-upgrade — see the distro\'s upgrade docs)"; fi'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_os_eol',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'hardware': {
+        'label': 'Hardware health (SMART / kernel)',
+        'diagnostic': (
+            'echo "== SMART HEALTH =="; '
+            'for d in /dev/sd? /dev/nvme?n1; do [ -e "$d" ] && echo "-- $d --" && '
+            '(smartctl -H "$d" 2>/dev/null; smartctl -A "$d" 2>/dev/null | head -25); done; '
+            'echo; echo "== DISK / IO ERRORS IN dmesg =="; '
+            'dmesg 2>/dev/null | grep -iE "i/o error|ata[0-9].*error|medium error|smart|failed command" | tail -25 || true; '
+            'echo; echo "== BLOCK DEVICES =="; lsblk -o NAME,SIZE,MODEL,SERIAL 2>/dev/null | head -30'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_hardware',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'backup': {
+        'label': 'Backup stale / missing',
+        'diagnostic': (
+            'echo "== FREE SPACE (backups fail silently on a full disk) =="; df -h; '
+            'echo; echo "== RECENT BACKUP FILES =="; '
+            'find /var/backups /backup /srv/backup /mnt/backup -type f -mtime -14 2>/dev/null | head -30 || true; '
+            'echo; echo "== BACKUP CRON / TIMERS =="; '
+            'grep -rIl -i backup /etc/cron* 2>/dev/null | head; '
+            'systemctl list-timers 2>/dev/null | grep -i backup || true; '
+            'echo; echo "== restic/borg if present =="; '
+            '(command -v restic && echo restic-present); (command -v borg && echo borg-present) || true'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_backup',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'ssh_key': {
+        'label': 'New SSH authorized key',
+        'diagnostic': (
+            'echo "== authorized_keys (root + users) =="; '
+            'for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do '
+            '[ -f "$f" ] && echo "-- $f --" && cat "$f"; done; '
+            'echo; echo "== RECENT LOGINS =="; last -n 20 2>/dev/null | head -20; '
+            'echo; echo "== ACCEPTED PUBLICKEY (auth log) =="; '
+            'grep -i "Accepted publickey" /var/log/auth.log /var/log/secure 2>/dev/null | tail -20 || true'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_ssh_key',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'new_port': {
+        'label': 'New listening port',
+        'diagnostic': (
+            'echo "== LISTENING SOCKETS (with process) =="; '
+            'ss -tulnp 2>/dev/null || netstat -tulnp 2>/dev/null; '
+            'echo; echo "== TOP PROCESSES =="; ps aux --sort=-%cpu 2>/dev/null | head -20'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_new_port',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'agent_integrity': {
+        'label': 'Agent integrity (hash mismatch)',
+        'diagnostic': (
+            'echo "== AGENT BINARY =="; '
+            'for p in /opt/remotepower/remotepower-agent /usr/local/bin/remotepower-agent; do '
+            '[ -e "$p" ] && ls -l "$p" && (sha256sum "$p" 2>/dev/null || true); done; '
+            'echo; echo "== SERVICE =="; systemctl status remotepower-agent --no-pager 2>&1 | head -15 || true'
+        ),
+        'fix': None,
+        'fix_label': 'Re-install / force-upgrade the agent from the published build',
+        'ai_prompt_key': 'mitigate_agent_integrity',
+        'ai_default': True,
+        'destructive': False,
+    },
+    'log_alert': {
+        'label': 'Log pattern alert',
+        'diagnostic': (
+            'echo "== RECENT ERROR-LEVEL JOURNAL =="; '
+            'journalctl -p err -n 60 --no-pager 2>/dev/null || tail -60 /var/log/syslog 2>/dev/null || true; '
+            'echo; echo "== FAILED UNITS =="; systemctl --failed --no-pager 2>/dev/null | head -20 || true'
+        ),
+        'fix': None,
+        'ai_prompt_key': 'mitigate_log',
         'ai_default': True,
         'destructive': False,
     },

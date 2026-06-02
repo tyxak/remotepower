@@ -106,14 +106,27 @@ class TestV380Bind(unittest.TestCase):
 
 
 class TestV380AiButtons(unittest.TestCase):
+    NEW_KINDS = ['av_posture', 'agent_version', 'os_eol', 'hardware', 'backup',
+                 'ssh_key', 'new_port', 'agent_integrity', 'log_alert']
+
     def test_new_mitigation_kinds(self):
         seg = API[API.index('_MITIGATE_PLAYBOOKS = {'):]
         seg = seg[:seg.index('\n}\n')]
-        self.assertIn("'av_posture': {", seg)
-        self.assertIn("'agent_version': {", seg)
-        # prompts exist so the AI step doesn't KeyError
-        self.assertIn("'mitigate_av':", AIP)
-        self.assertIn("'mitigate_agent_version':", AIP)
+        for k in self.NEW_KINDS:
+            self.assertIn(f"'{k}': {{", seg, f'{k} missing from _MITIGATE_PLAYBOOKS')
+
+    def test_prompts_exist_for_each(self):
+        # every playbook's ai_prompt_key must resolve to a non-empty prompt,
+        # else the AI step gets an empty system prompt.
+        prompt_keys = ['mitigate_av', 'mitigate_agent_version', 'mitigate_os_eol',
+                       'mitigate_hardware', 'mitigate_backup', 'mitigate_ssh_key',
+                       'mitigate_new_port', 'mitigate_agent_integrity', 'mitigate_log']
+        for key in prompt_keys:
+            self.assertIn(f"'{key}':", AIP, f'prompt {key} missing')
+
+    def test_js_registries_cover_new_kinds(self):
+        for k in self.NEW_KINDS:
+            self.assertIn(f"'{k}'", APP)
 
 
 class TestV380Polish(unittest.TestCase):
