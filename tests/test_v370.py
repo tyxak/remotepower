@@ -26,15 +26,12 @@ HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
 
 class TestVersionBumps(unittest.TestCase):
-    EXPECTED = '3.7.0'
-
+    # v3.8.0: loosened to regex — v3.8.0 holds the strict pin (test_v380.py).
     def test_api_server_version(self):
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", API, re.MULTILINE)
-        self.assertIsNotNone(m); self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_version(self):
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", AGENT, re.MULTILINE)
-        self.assertIsNotNone(m); self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(AGENT, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -42,23 +39,23 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(a, b)
 
     def test_sw_cache_name(self):
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'",
-                      (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text())
+        self.assertRegex((REPO_ROOT / 'server' / 'html' / 'sw.js').read_text(),
+                         r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'")
 
     def test_index_cache_bust(self):
-        self.assertIn(f'?v={self.EXPECTED}', HTML)
+        self.assertRegex(HTML, r'\?v=3\.\d+\.\d+')
 
     def test_readme_badge(self):
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', (REPO_ROOT / 'README.md').read_text())
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertIsNotNone(m); self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(chlog, r'## v3\.\d+\.\d+')
 
     def test_release_notes_doc_present(self):
-        p = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
-        self.assertTrue(p.exists()); self.assertIn(self.EXPECTED, p.read_text())
+        # v3.7.0 release notes must stay present forever
+        p = REPO_ROOT / 'docs' / 'v3.7.0.md'
+        self.assertTrue(p.exists()); self.assertIn('3.7.0', p.read_text())
 
 
 class TestV370Routes(unittest.TestCase):

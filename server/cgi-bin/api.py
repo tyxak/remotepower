@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.7.0'
+SERVER_VERSION = '3.8.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2281,6 +2281,14 @@ def audit_log(actor, action, detail='', source_ip=None,
             sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """v3.8.0: a redirect handler that refuses to follow 3xx — so a
+    server-initiated POST (audit forward) can't be bounced past the SSRF guard
+    to an internal/metadata address. Returning None leaves the 3xx unfollowed."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _forward_audit(entry, cfg):
     """Send one audit entry to the configured destination.
 
@@ -2306,10 +2314,18 @@ def _forward_audit(entry, cfg):
             headers['Authorization'] = f'Bearer {tok}'
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         ctx = _get_ssl_context() if url.lower().startswith('https') else None
-        urllib.request.urlopen(req, timeout=5, context=ctx).close()
+        # v3.8.0: refuse to follow redirects — a 3xx to 169.254.169.254/loopback
+        # would otherwise sail past the SSRF guard above.
+        opener = urllib.request.build_opener(_NoRedirect())
+        opener.open(req, timeout=5).close()
     elif mode == 'syslog':
         host = (cfg.get('audit_forward_host') or '').strip()
         if not host:
+            return
+        # v3.8.0: SSRF guard the syslog target too (loopback/link-local/metadata).
+        _block_local = cfg.get('webhook_block_local', True)
+        if _url_targets_local_or_meta(urllib.parse.urlparse(f'//{host}'),
+                                      allow_loopback=not _block_local):
             return
         try:
             port = int(cfg.get('audit_forward_port') or 514)
@@ -4785,13 +4801,18 @@ def handle_login():
         valid_codes = _totp(totp_secret)
         if totp_code not in valid_codes:
             # v3.7.0: fall back to a one-time recovery code (consumed on use).
-            users_rc = load(USERS_FILE)
-            urec = users_rc.get(username) or {}
-            if _consume_recovery_code(urec, totp_code):
-                users_rc[username] = urec
-                save(USERS_FILE, users_rc)
+            # v3.8.0: do the verify+pop+save atomically under a file lock so two
+            # concurrent logins can't both spend the same one-time code.
+            _consumed = False; _left = 0
+            with _LockedUpdate(USERS_FILE) as users_rc:
+                urec = users_rc.get(username) or {}
+                if _consume_recovery_code(urec, totp_code):
+                    users_rc[username] = urec
+                    _consumed = True
+                    _left = len(urec.get('recovery_codes') or [])
+            if _consumed:
                 audit_log(username, 'login_recovery_code',
-                          f'2FA via recovery code; {len(urec.get("recovery_codes") or [])} left')
+                          f'2FA via recovery code; {_left} left')
             else:
                 _record_login_failure(username)
                 audit_log(username, 'login_failed', 'invalid TOTP code')
@@ -6091,7 +6112,10 @@ def handle_ansible_playbook_run(pb_id):
         ids = list(devices.keys())
     elif target.get('type') == 'site':
         ids = [d for d, dev in devices.items() if dev.get('site', '') == target.get('value')]
-    ids = [i for i in ids if i in devices and devices[i].get('ip')]
+    # v3.8.0: honour device quarantine — the runner reaches hosts over SSH
+    # directly (not the agent queue), so the quarantine gate must be applied here.
+    ids = [i for i in ids if i in devices and devices[i].get('ip')
+           and not _device_quarantined(devices[i])]
     if not ids:
         respond(400, {'error': 'No target devices with a known IP.'})
     actor = require_perm('exec', ids)
@@ -6111,21 +6135,42 @@ def handle_ansible_playbook_run(pb_id):
         pb_path = os.path.join(workdir, 'playbook.yml')
         with open(pb_path, 'w') as f:
             f.write(pb['content'])
+        # v3.8.0: build the inventory from validated fields only. The host
+        # alias is sanitised to a safe token (the device name is operator/agent
+        # controlled and could contain spaces/newlines that inject host-vars or
+        # whole INI lines); ansible_host is the regex-validated IP and
+        # ansible_user is already charset-filtered above.
         inv_lines = ['[targets]']
+        _seen_alias = set()
         for i in ids:
             dev = devices[i]
-            line = f"{dev.get('name', i)} ansible_host={dev.get('ip')} ansible_user={ssh_user}"
+            alias = re.sub(r'[^A-Za-z0-9_.\-]', '', str(dev.get('name', '') or i)) or i
+            while alias in _seen_alias:
+                alias = alias + '_'
+            _seen_alias.add(alias)
+            ip = _sanitize_ip(dev.get('ip', ''))
+            if not ip:
+                continue
+            line = f"{alias} ansible_host={ip} ansible_user={ssh_user}"
             port = dev.get('ssh_port') or (load(CMDB_FILE).get(i, {}) or {}).get('ssh_port')
             if port:
                 line += f" ansible_port={int(port)}"
-            if ssh_password:
-                line += f" ansible_password={ssh_password} ansible_become_password={ssh_password}"
             inv_lines.append(line)
         inv_path = os.path.join(workdir, 'inventory.ini')
         with open(inv_path, 'w') as f:
             f.write('\n'.join(inv_lines) + '\n')
         os.chmod(inv_path, 0o600)
         argv = ['ansible-playbook', '-i', inv_path, pb_path]
+        # v3.8.0: pass the SSH password (if any) via a JSON extra-vars file, not
+        # the INI — json.dumps escapes it safely (a space/newline in the
+        # password can't break inventory parsing or inject a line). 0600.
+        if ssh_password:
+            ev_path = os.path.join(workdir, 'secret-vars.json')
+            with open(ev_path, 'w') as f:
+                json.dump({'ansible_password': ssh_password,
+                           'ansible_become_password': ssh_password}, f)
+            os.chmod(ev_path, 0o600)
+            argv += ['-e', '@' + ev_path]
         if become:
             argv.append('--become')
         env = dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='False',
@@ -6827,6 +6872,17 @@ def handle_heartbeat():
 
         now = int(time.time())
         dev['last_seen'] = now
+
+        # v3.8.0: boot reason — the agent sends this once on the first heartbeat
+        # after a restart (the last command issued before reboot, e.g.
+        # "reboot" / "self-update"). Persist it so the drawer can show *why* the
+        # box last restarted; previously the field was parsed off the wire and
+        # silently dropped.
+        if 'boot_reason' in body:
+            _br = _sanitize_str(body.get('boot_reason', ''), 64)
+            if _br:
+                dev['last_boot_reason'] = _br
+                dev['last_boot_reason_at'] = now
 
         # v3.3.0: clear the agent-uninstalled mark if the device is
         # heartbeating again. Means the operator re-installed the
@@ -8201,7 +8257,10 @@ def handle_sysinfo(dev_id):
     if not _validate_id(dev_id): respond(404, {'error': 'Device not found'})
     devices = load(DEVICES_FILE); dev = devices.get(dev_id)
     if not dev: respond(404, {'error': 'Device not found'})
-    respond(200, {'sysinfo': dev.get('sysinfo', {}), 'journal': dev.get('journal', [])})
+    respond(200, {'sysinfo': dev.get('sysinfo', {}), 'journal': dev.get('journal', []),
+                  # v3.8.0: surface why the host last restarted (boot_reason)
+                  'last_boot_reason': dev.get('last_boot_reason', ''),
+                  'last_boot_reason_at': dev.get('last_boot_reason_at', 0)})
 
 
 def handle_sysinfo_batch():
@@ -11335,10 +11394,17 @@ def handle_custom_cmd():
     if (load(CONFIG_FILE) or {}).get('change_approval_enabled'):
         conf_ids = []
         for dev_id in ids:
-            if dev_id in devices:
-                conf_ids.append(_create_confirmation(
-                    'exec_command', dev_id, {'command': f'exec:{cmd_str}'},
-                    actor, None, None))
+            if dev_id not in devices:
+                continue
+            # v3.8.0: enforce the same allowlist/denylist the immediate-exec
+            # path applies, so parking-for-approval can't smuggle a command the
+            # device would otherwise reject (e.g. `rm -rf /`).
+            ok, reason = _check_exec_allowlist(dev_id, cmd_str, devices)
+            if not ok:
+                respond(400, {'ok': False, 'error': reason})
+            conf_ids.append(_create_confirmation(
+                'exec_command', dev_id, {'command': f'exec:{cmd_str}'},
+                actor, None, None))
         audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} device(s)')
         respond(202, {'ok': False, 'approval_required': True,
                       'confirmation_ids': conf_ids,
@@ -21255,6 +21321,14 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
         cmd = (params or {}).get('command') or ''
         if not cmd:
             return {'ok': False, 'error': 'no command to run'}
+        # v3.8.0: re-check the device allowlist/denylist at approval time too —
+        # the device's allowed_commands may have tightened since the request was
+        # parked. Strip the exec: prefix to match the allowlist's command form.
+        _bare = cmd[5:] if cmd.startswith('exec:') else cmd
+        if device_id in devs:
+            _ok, _reason = _check_exec_allowlist(device_id, _bare, devs)
+            if not _ok:
+                return {'ok': False, 'error': _reason}
         queued = cmd if cmd.startswith(('exec:', 'reboot', 'shutdown')) else 'exec:' + cmd
         with _LockedUpdate(CMDS_FILE) as cmds:
             cmds.setdefault(device_id, [])
@@ -29542,6 +29616,8 @@ _AI_PROMPT_LABELS = {
     'mitigate_patches':       'Mitigation — Pending patches',
     'mitigate_cve':           'Mitigation — CVE findings',
     'mitigate_container':     'Mitigation — Container stopped / restarting',
+    'mitigate_av':            'Mitigation — Malware / AV posture',
+    'mitigate_agent_version': 'Mitigation — Stale agent version',
 }
 
 def _resolve_system_prompt(key):
@@ -30886,6 +30962,38 @@ _MITIGATE_PLAYBOOKS = {
         ),
         'fix': None,
         'ai_prompt_key': 'mitigate_cpu',
+        'ai_default': True,
+        'destructive': False,
+    },
+    # v3.8.0: AV/malware posture — diagnose ClamAV/rkhunter, refresh signatures.
+    'av_posture': {
+        'label': 'Malware / AV posture',
+        'diagnostic': (
+            'echo "== ClamAV =="; '
+            'command -v clamscan >/dev/null 2>&1 && clamscan --version 2>/dev/null || echo "(clamscan not installed)"; '
+            'ls -l --time-style=+%Y-%m-%d /var/lib/clamav/*.c[lv]d 2>/dev/null || echo "(no signature DB)"; '
+            'echo; echo "== freshclam status =="; '
+            'command -v freshclam >/dev/null 2>&1 && timeout 20 freshclam --version 2>/dev/null; '
+            'echo; echo "== rkhunter (last log warnings) =="; '
+            'command -v rkhunter >/dev/null 2>&1 && grep -i "\\[ Warning \\]" /var/log/rkhunter.log 2>/dev/null | tail -40 || echo "(rkhunter not installed / no log)"'
+        ),
+        'fix': None,   # AI proposes freshclam / rkhunter --propupd as appropriate
+        'ai_prompt_key': 'mitigate_av',
+        'ai_default': True,
+        'destructive': False,
+    },
+    # v3.8.0: stale agent — diagnose version/integrity; fix via the update path.
+    'agent_version': {
+        'label': 'Stale agent version',
+        'diagnostic': (
+            'echo "== Running agent =="; '
+            '(remotepower-agent --version 2>/dev/null || cat /opt/remotepower/VERSION 2>/dev/null || echo "(version unknown)"); '
+            'echo; echo "== Service status =="; '
+            'systemctl status remotepower-agent --no-pager 2>&1 | head -15 || true'
+        ),
+        'fix': None,
+        'fix_label': 'Update the agent (via the device drawer → Update agent)',
+        'ai_prompt_key': 'mitigate_agent_version',
         'ai_default': True,
         'destructive': False,
     },

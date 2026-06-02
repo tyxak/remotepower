@@ -835,4 +835,84 @@ replaced with the app's own keyboard-friendly dialogs.
 
 ---
 
+## v3.5.0 additions
+
+### SBOM export (CycloneDX / SPDX)
+Generate a Software Bill of Materials per host or for the whole fleet
+from the package inventory RemotePower already collects — CycloneDX 1.5
+(primary) and SPDX 2.3 JSON. Each component carries a package URL
+(`purl`), and the CycloneDX output embeds a VEX-style `vulnerabilities`
+section built from the host's current CVE findings, so one document is
+both an inventory and a vulnerability report. Output is deterministic for
+reproducible re-exports.
+
+### Lifecycle expiry tracking
+Warranty, license, and support-contract end dates per CMDB asset.
+Expired or within 30 days → warning, within 90 days → info — dashboard
+attention items that feed the fleet health score and are silenceable in
+channel routing.
+
+### Graphical remote access (VNC over SSH)
+A **Remote desktop** device action opens a browser VNC session (noVNC)
+tunnelled over the web-terminal daemon's SSH connection to the host's
+loopback VNC port — never network-exposed, no inbound firewall rules.
+Linux VNC; RDP isn't supported.
+
+### Sites & teams
+A first-class fleet grouping above device groups, for organising hosts by
+location / team / customer (a soft boundary — super-admins always see
+everything). Admin → Sites, an Assign-site device action, and a site
+filter on the Devices roster.
+
+## v3.6.0 additions
+
+### Remote file manager (SFTP)
+A **Files** device action browses and transfers files in the browser over
+SFTP, tunnelled through the same daemon + ticket + SSH path as the
+terminal and VNC — no new inbound ports.
+
+### Backup orchestration
+Define a backup command per device (restic / borg / rsync) under Planning
+→ Backups, run it on demand, or schedule it with cron. Plus a Proxmox
+per-guest **vzdump backup recency** check (distinct from snapshots) with
+an adjustable staleness threshold.
+
+### Host user, key & firewall management
+Add / lock / unlock / delete users, add / revoke SSH keys, and allow /
+deny / delete ufw or firewalld ports from a device's drawer — all
+exec-gated, audited, quarantine-aware.
+
+### Endpoint AV posture & auto-patch
+ClamAV / rkhunter status reported by the agent with an on-demand scan
+action; Planning → Auto-patch applies updates on a cron schedule across a
+group / tag / site / fleet, respecting maintenance windows.
+
+## v3.7.0 additions
+
+### Account & governance
+**2FA recovery codes**, **audit-log forwarding** to a SIEM (HTTP) or
+syslog, **credential rotation reminders** in the CMDB vault,
+**desired-state enforcement** (correct-on-drift), and **change approval**
+(maker-checker — a second admin signs off arbitrary command runs).
+
+### Infrastructure
+**Proxmox QEMU VM create** (a wizard alongside LXC create) and an
+**Ansible playbook runner** (run playbooks against a group / tag / site /
+fleet with the server as the control node over SSH). Terraform is
+supported via the REST API rather than a bespoke provider — see
+[terraform-api.md](terraform-api.md).
+
+## v3.8.0 additions
+
+### Hardening & polish
+A security pass over the v3.5–v3.7 work (change approval now enforces the
+per-device command allowlist; the Ansible runner builds a safe inventory
+and skips quarantined hosts; 2FA recovery codes consume atomically;
+audit forwarding refuses SSRF redirects). **Boot reason** (why a host last
+restarted) is now stored and shown, RAID member disks render again, and
+**AI Investigate** gained playbooks for malware/AV posture and stale agent
+versions.
+
+---
+
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

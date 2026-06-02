@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.7.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.8.0">
 
 </head>
 <body>
@@ -371,10 +371,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
           <span>IaC Generator</span>
         </button>
-        <button class="nav-btn" data-page="confirmations" title="Pending MCP write actions awaiting approval">
+        <button class="nav-btn" data-page="confirmations" title="Pending actions awaiting a second admin's approval (MCP writes + change-approval)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          <span>MCP Confirmations</span>
-          <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending MCP confirmations">0</span>
+          <span>Confirmations</span>
+          <span id="confirmations-badge" class="nav-badge nav-badge-ok" title="No pending confirmations">0</span>
         </button>
         <button class="nav-btn" data-page="self" title="RemotePower watching itself: disk, webhooks, audit, backups">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -1127,6 +1127,33 @@
             <div id="totp-setup-area"></div>
           </div>
 
+          <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
+          <div class="settings-section">
+            <h3>Change approval (maker-checker)</h3>
+            <p class="hint">When enabled, an arbitrary command run (Run command) is parked as a pending approval instead of executing immediately. A second admin approves it on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for arbitrary commands</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
+          </div>
+
+          <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
+          <div class="settings-section">
+            <h3>Audit log forwarding</h3>
+            <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-enabled"> Enable forwarding</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-mode">Mode</label>
+              <select id="cfg-audit-forward-mode" class="form-input mw-160"><option value="http">HTTP (JSON)</option><option value="syslog">Syslog</option></select></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-url">HTTP URL</label>
+              <input type="url" id="cfg-audit-forward-url" class="form-input" placeholder="https://siem.example.com/ingest"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-token">HTTP bearer token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-audit-forward-token" class="form-input" placeholder="optional bearer token"></form></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-host">Syslog host</label>
+              <input type="text" id="cfg-audit-forward-host" class="form-input mw-200" placeholder="10.0.0.5"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-port">Syslog port</label>
+              <input type="number" id="cfg-audit-forward-port" class="form-input mw-160" min="1" max="65535" placeholder="514"></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-tcp"> Use TCP (default UDP)</label></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
+          </div>
+
           <div class="settings-section">
             <h3>Session length</h3>
             <p class="hint">How long a session lasts. Short by default; "remember me" extends to long.</p>
@@ -1285,33 +1312,6 @@
               <label class="form-label" for="audit-retention-days">Retention (days)</label>
               <input type="number" id="audit-retention-days" class="form-input mw-160" min="0" max="3650" placeholder="90">
             </div>
-          </div>
-
-          <!-- v3.7.0: audit log forwarding to a SIEM / syslog -->
-          <div class="settings-section">
-            <h3>Audit log forwarding</h3>
-            <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-enabled"> Enable forwarding</label></div>
-            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-mode">Mode</label>
-              <select id="cfg-audit-forward-mode" class="form-input mw-160"><option value="http">HTTP (JSON)</option><option value="syslog">Syslog</option></select></div>
-            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-url">HTTP URL</label>
-              <input type="url" id="cfg-audit-forward-url" class="form-input" placeholder="https://siem.example.com/ingest"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-token">HTTP bearer token</label>
-              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-audit-forward-token" class="form-input" placeholder="optional bearer token"></form></div>
-            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-host">Syslog host</label>
-              <input type="text" id="cfg-audit-forward-host" class="form-input mw-200" placeholder="10.0.0.5"></div>
-            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-port">Syslog port</label>
-              <input type="number" id="cfg-audit-forward-port" class="form-input mw-160" min="1" max="65535" placeholder="514"></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-tcp"> Use TCP (default UDP)</label></div>
-            <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
-          </div>
-
-          <!-- v3.7.0: change approval (maker-checker) -->
-          <div class="settings-section">
-            <h3>Change approval (maker-checker)</h3>
-            <p class="hint">When enabled, an arbitrary command run (Run command) is parked as a pending approval instead of executing immediately. A second admin approves it on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for arbitrary commands</label></div>
-            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
           </div>
 
           <!-- v3.0.2: backup config -->
@@ -1935,7 +1935,29 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.7.0 2fa two-factor recovery codes backup codes totp authenticator lost audit log forwarding siem syslog splunk http rfc5424 credential rotation reminder vault expiry desired state enforce correct on drift reconcile config change approval maker checker dual control separation of duties second admin proxmox qemu vm create virtual machine wizard ansible playbook runner control node terraform api restapi provider">
+          <details class="doc-card" open data-keywords="release notes changelog v3.8.0 hardening security audit bughunt csp polish bind it together boot reason raid maker checker allowlist ansible inventory injection ssrf recovery code atomic sftp size av posture agent version ai investigate settings security tab confirmations rename headers referrer permissions policy">
+            <summary><strong>What's new — v3.8.0</strong> — security hardening, bind-it-together, more AI investigate, polish</summary>
+            <div class="doc-body">
+              <p>A consolidation release: a security pass over v3.5–v3.7, dropped agent data wired into the UI, more AI-investigate coverage, and consistency fixes. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.8.0</code>).</p>
+              <h4>Security</h4>
+              <ul>
+                <li>Change approval no longer bypasses the per-device command allowlist/denylist (it's enforced at submit and approval).</li>
+                <li>Ansible runner: inventory injection closed (sanitised host alias; SSH password via a 0600 JSON extra-vars file), and it now skips quarantined devices.</li>
+                <li>2FA recovery codes are consumed atomically; audit-log HTTP forwarding refuses redirects and the syslog target is SSRF-checked; SFTP upload size is checked before decoding.</li>
+              </ul>
+              <h4>Bind it together &amp; fixes</h4>
+              <ul>
+                <li><strong>Boot reason</strong> is now stored and shown in the device System Info tab — why the host last restarted (e.g. self-update) was previously dropped.</li>
+                <li>RAID member disks render again in the Health &amp; Hardware card; admin-page delete actions handle opaque IDs safely.</li>
+              </ul>
+              <h4>AI investigate &amp; polish</h4>
+              <ul>
+                <li>Investigate buttons added for <strong>malware/AV posture</strong> and <strong>stale agent version</strong> attention items.</li>
+                <li>Audit-forwarding and change-approval settings moved to <strong>Settings → Security</strong>; the <strong>Confirmations</strong> page renamed (it now also handles change-approval, not only MCP).</li>
+              </ul>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.7.0 2fa two-factor recovery codes backup codes totp authenticator lost audit log forwarding siem syslog splunk http rfc5424 credential rotation reminder vault expiry desired state enforce correct on drift reconcile config change approval maker checker dual control separation of duties second admin proxmox qemu vm create virtual machine wizard ansible playbook runner control node terraform api restapi provider">
             <summary><strong>What's new — v3.7.0</strong> — 2FA recovery codes, audit→SIEM, credential rotation, config enforcement, change approval, Proxmox VM create, Ansible runner</summary>
             <div class="doc-body">
               <p>Security/governance gaps + two infrastructure features. Hard-reload once after upgrading (service-worker cache <code>remotepower-shell-v3.7.0</code>).</p>
@@ -6137,14 +6159,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.7.0"></script>
+<script src="static/js/app.js?v=3.8.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.7.0"></script>
-<script src="static/js/app-cmdb.js?v=3.7.0"></script>
-<script src="static/js/app-containers.js?v=3.7.0"></script>
-<script src="static/js/app-network.js?v=3.7.0"></script>
+<script src="static/js/app-calendar.js?v=3.8.0"></script>
+<script src="static/js/app-cmdb.js?v=3.8.0"></script>
+<script src="static/js/app-containers.js?v=3.8.0"></script>
+<script src="static/js/app-network.js?v=3.8.0"></script>
 
-<script src="static/js/sw-register.js?v=3.7.0"></script>
+<script src="static/js/sw-register.js?v=3.8.0"></script>
 </body>
 </html>

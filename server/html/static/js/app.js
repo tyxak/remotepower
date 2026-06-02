@@ -4144,7 +4144,7 @@ async function saveSite() {
   if (data?.ok) { toast(id ? 'Site renamed' : 'Site created', 'success'); closeModal('site-create-modal'); loadSites(); }
   else toast(data?.error || 'Failed', 'error');
 }
-async function deleteSite(id, name) {
+async function deleteSite(id, name) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   if (!confirm(`Delete site "${name}"? Devices in it become unassigned.`)) return;
   const data = await api('DELETE', '/sites/' + encodeURIComponent(id));
   if (data?.ok) { toast(`Site deleted (${data.unassigned} device(s) unassigned)`, 'info'); loadSites(); }
@@ -4239,7 +4239,7 @@ async function _autopatchRunBtn(btn) {
   if (d?.ok) toast(`Queued upgrade on ${d.queued} device(s)`, 'success');
   else toast(d?.error || 'Failed', 'error');
 }
-async function deleteAutopatch(id) {
+async function deleteAutopatch(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   if (!confirm('Delete this policy?')) return;
   const d = await api('DELETE', '/autopatch/' + encodeURIComponent(id));
   if (d?.ok) { toast('Policy deleted', 'info'); loadAutopatch(); } else toast(d?.error || 'Failed', 'error');
@@ -4317,7 +4317,7 @@ async function _backupRunBtn(btn) {
   if (d?.ok) toast('Backup queued — output appears in the device command history', 'success');
   else toast(d?.error || 'Failed', 'error');
 }
-async function deleteBackupJob(id) {
+async function deleteBackupJob(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   if (!confirm('Delete this backup job?')) return;
   const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
   if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
@@ -4417,7 +4417,7 @@ async function saveAnsiblePlaybook() {
   if (d?.ok) { toast(id ? 'Playbook saved' : 'Playbook created', 'success'); closeModal('ansible-modal'); loadAnsible(); }
   else toast(d?.error || 'Failed', 'error');
 }
-async function deleteAnsiblePlaybook(id) {
+async function deleteAnsiblePlaybook(id) { id = String(id);  // v3.8.0: data-arg may be numerically coerced — IDs are opaque tokens
   if (!confirm('Delete this playbook?')) return;
   const d = await api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id));
   if (d?.ok) { toast('Playbook deleted', 'info'); loadAnsible(); } else toast(d?.error || 'Failed', 'error');
@@ -12779,6 +12779,8 @@ async function _loadAuditSection(key) {
           ['CPU count', si.cpu_count],
           ['Load avg',  si.loadavg_1m],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
+          // v3.8.0: why the host last restarted (the command before the reboot)
+          ['Boot reason', data?.last_boot_reason || null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
@@ -13633,8 +13635,13 @@ function _renderHardwareSection(id, hw, fc, ch) {
       // exact disk to replace.
       h += `<div class="fs-11 c-muted mb-4 mt-8">RAID</div>` +
         inv.raid.map(r=>{
-          const mem = Array.isArray(r.devices) && r.devices.length
-            ? ` <span class="c-muted">[${r.devices.map(x=>escHtml(x)).join(', ')}]</span>` : '';
+          // v3.8.0: the agent emits `devices` as a space-separated string
+          // (e.g. "sda1 sdb1"); accept both string and array so the member
+          // disks actually render (was silently dropped).
+          const _devs = Array.isArray(r.devices) ? r.devices
+            : (typeof r.devices === 'string' ? r.devices.split(/[\s,]+/).filter(Boolean) : []);
+          const mem = _devs.length
+            ? ` <span class="c-muted">[${_devs.map(x=>escHtml(x)).join(', ')}]</span>` : '';
           return `<span class="cmd-badge fs-11">${escHtml(r.name)} ${escHtml(r.level)} <span class="${/active|clean/i.test(r.state)?'c-green':'c-amber'}">${escHtml(r.state)}</span>${mem}</span>`;
         }).join(' ');
     }
@@ -17739,6 +17746,9 @@ const _MITIGATE_KIND_LABELS = {
   // v3.4.2: CVE + container playbooks.
   cve:          'CVE findings',
   container:    'Container stopped / restarting',
+  // v3.8.0: AV posture + stale agent
+  av_posture:   'Malware / AV posture',
+  agent_version:'Stale agent version',
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
@@ -17749,6 +17759,8 @@ const _MITIGATE_KIND_LABELS = {
 const MITIGATE_KINDS = new Set([
   'patches', 'disk', 'drift', 'service_down', 'reboot', 'brute_force',
   'memory', 'swap', 'cpu', 'cve', 'container',
+  // v3.8.0: keep in sync with server _MITIGATE_PLAYBOOKS
+  'av_posture', 'agent_version',
 ]);
 
 function openMitigateModal(devId, kind, target, deviceName) {

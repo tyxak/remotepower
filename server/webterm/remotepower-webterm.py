@@ -714,7 +714,12 @@ class WebtermSession:
                         'b64': base64.b64encode(data).decode('ascii')}
             if op == 'write':
                 path = req['path']
-                raw = base64.b64decode(req.get('b64', ''))
+                b64 = req.get('b64', '') or ''
+                # v3.8.0: reject by the encoded length BEFORE decoding, so an
+                # oversized upload can't force a large in-memory base64 decode.
+                if len(b64) > (SFTP_MAX_FILE // 3 + 1) * 4 + 4:
+                    return {'error': 'upload too large'}
+                raw = base64.b64decode(b64)
                 if len(raw) > SFTP_MAX_FILE:
                     return {'error': 'upload too large'}
                 async with sftp.open(path, 'wb') as f:

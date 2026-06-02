@@ -2,6 +2,52 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.8.0 — unreleased (dev)
+
+A hardening, bind-it-together, and polish sweep — no new headline features,
+but a security pass over v3.5–v3.7, dropped agent data wired into the UI, more
+AI-investigate coverage, and consistency fixes.
+
+### Security
+- **Change approval no longer bypasses the exec allowlist/denylist.** Parking a
+  command for maker-checker approval now runs the same `_check_exec_allowlist`
+  the immediate path does — at submit and again at approval — so enabling the
+  governance control can't smuggle a command the device would otherwise reject.
+- **Ansible runner inventory hardening.** The host alias is sanitised (the
+  device name could contain spaces/newlines that injected host-vars), and the
+  SSH password is passed via a 0600 JSON extra-vars file instead of the INI —
+  closing an injection vector. The runner now also **skips quarantined devices**.
+- **2FA recovery-code consumption is now atomic** (under a file lock), so two
+  concurrent logins can't both spend the same one-time code.
+- **Audit-log forwarding SSRF hardening** — the HTTP forwarder refuses to follow
+  redirects (no bounce to a metadata/loopback address) and the syslog target is
+  now SSRF-checked like the HTTP one.
+- **SFTP upload** rejects oversized files by encoded length *before* base64
+  decoding.
+
+### Fixes
+- Delete actions for sites / auto-patch / backup jobs / playbooks coerce their
+  opaque IDs to strings (an all-digit token could otherwise be mangled).
+- RAID member disks now render in the device drawer (the agent emits them as a
+  space-separated string; the UI assumed an array and silently dropped them).
+
+### Bind it together
+- **Boot reason** is now stored and shown — the agent already reported *why* a
+  host last restarted (e.g. `self-update`), but the field was being dropped.
+  Surfaced in the device drawer's System Info tab.
+
+### AI investigate
+- Added investigate/remediate playbooks for **malware/AV posture** (ClamAV /
+  rkhunter) and **stale agent version**, so those attention items now get an
+  Investigate button like disk/cpu/cve/etc.
+
+### Polish
+- Audit-forwarding and change-approval settings moved to **Settings → Security**
+  (they were under Advanced). The **Confirmations** page is renamed from "MCP
+  Confirmations" since it now also handles change-approval requests.
+- `docs/terraform-api.md` and the security-headers nginx template confirmed
+  current (`Referrer-Policy` + `Permissions-Policy` already present).
+
 ## v3.7.0 — unreleased (dev)
 
 Security/governance gaps + two infrastructure features.
