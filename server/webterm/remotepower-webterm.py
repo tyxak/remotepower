@@ -389,6 +389,15 @@ class WebtermSession:
         ssh_port = creds.get('port', 22)
         cols = int(creds.get('cols', 80)) if isinstance(creds.get('cols'), int) else 80
         rows = int(creds.get('rows', 24)) if isinstance(creds.get('rows'), int) else 24
+        # v3.5.0: session mode. 'pty' (default) → interactive shell;
+        # 'vnc' → tunnel an RFB stream from the host's loopback VNC server
+        # over the same SSH connection (no extra inbound firewall rules).
+        mode = (creds.get('mode') or 'pty').strip().lower()
+        if mode not in ('pty', 'vnc'):
+            mode = 'pty'
+        vnc_port = creds.get('vnc_port', 5900)
+        if not isinstance(vnc_port, int) or not (1 <= vnc_port <= 65535):
+            vnc_port = 5900
 
         await self._send_json(websocket, {'type': 'connecting'})
 
@@ -428,6 +437,20 @@ class WebtermSession:
             self.reason = f'ssh error: {type(e).__name__}'
             await self._send_json(websocket, {'type': 'error',
                                               'message': f'SSH connection failed: {str(e)[:200]}'})
+            return
+
+        # v3.5.0: VNC mode diverges here — instead of a PTY shell we tunnel
+        # the host's loopback RFB port over this SSH connection and bridge it
+        # raw to the WebSocket (noVNC speaks RFB directly from the first frame).
+        if mode == 'vnc':
+            self.reason = 'vnc'
+            try:
+                await self._run_vnc(websocket, ssh_conn, vnc_port)
+            finally:
+                try:
+                    ssh_conn.close()
+                except Exception:
+                    pass
             return
 
         # Step 4: open a PTY shell
@@ -531,6 +554,97 @@ class WebtermSession:
                 pass
             try:
                 ssh_conn.close()
+            except Exception:
+                pass
+
+    async def _run_vnc(self, websocket, ssh_conn, vnc_port):
+        """v3.5.0: bridge a host-loopback VNC server to the browser over SSH.
+
+        Opens a direct-TCP channel through the existing SSH connection to
+        ``127.0.0.1:<vnc_port>`` on the remote host, then pumps raw RFB bytes
+        in both directions. The VNC server is expected to listen on loopback
+        only — it is never exposed to the network; the SSH tunnel is the sole
+        access path, so the connection inherits SSH's auth and encryption.
+
+        noVNC drives the protocol from the browser, so this side stays a dumb
+        byte pump (unlike the PTY path, there are no resize/ping control
+        frames to interpret — noVNC carries those inside RFB)."""
+        try:
+            reader, writer = await asyncio.wait_for(
+                ssh_conn.open_connection('127.0.0.1', vnc_port),
+                timeout=SSH_CONNECT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            self.reason = 'vnc connect timeout'
+            await self._send_json(websocket, {'type': 'error',
+                'message': f'Timed out opening VNC tunnel to 127.0.0.1:{vnc_port}'})
+            return
+        except (asyncssh.Error, OSError) as e:
+            self.reason = f'vnc tunnel fail: {type(e).__name__}'
+            await self._send_json(websocket, {'type': 'error',
+                'message': f'No VNC server reachable on the host at 127.0.0.1:{vnc_port} '
+                           f'({str(e)[:120]}). Start a loopback-bound VNC server first.'})
+            return
+
+        # Signal readiness so the browser can attach noVNC's RFB to this socket.
+        await self._send_json(websocket, {'type': 'connected', 'session_id': self.session_id})
+
+        async def ws_to_vnc():
+            try:
+                async for msg in websocket:
+                    if isinstance(msg, str):
+                        # A late JSON control frame (e.g. ping) — answer pong,
+                        # otherwise ignore; RFB itself is always binary.
+                        if msg.startswith('{'):
+                            try:
+                                if json.loads(msg).get('type') == 'ping':
+                                    await self._send_json(websocket, {'type': 'pong'})
+                                    continue
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+                        msg = msg.encode('utf-8', errors='replace')
+                    self.bytes_in += len(msg)
+                    writer.write(msg)
+                    await writer.drain()
+                self.reason = 'ws closed'
+            except ConnectionClosed:
+                self.reason = 'ws closed'
+            except (asyncssh.Error, OSError) as e:
+                self.reason = f'vnc write: {type(e).__name__}'
+            except Exception as e:
+                self.reason = f'ws_to_vnc: {type(e).__name__}'
+                log.exception("ws_to_vnc in session %s: %s", self.session_id, e)
+
+        async def vnc_to_ws():
+            try:
+                while True:
+                    chunk = await reader.read(65536)
+                    if not chunk:
+                        self.reason = 'vnc eof'
+                        break
+                    if isinstance(chunk, str):
+                        chunk = chunk.encode('utf-8', errors='replace')
+                    self.bytes_out += len(chunk)
+                    await websocket.send(chunk)   # binary frame
+            except ConnectionClosed:
+                self.reason = 'ws closed'
+            except (asyncssh.Error, OSError) as e:
+                self.reason = f'vnc read: {type(e).__name__}'
+            except Exception as e:
+                self.reason = f'vnc_to_ws: {type(e).__name__}'
+                log.exception("vnc_to_ws in session %s: %s", self.session_id, e)
+
+        try:
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(ws_to_vnc()),
+                 asyncio.create_task(vnc_to_ws())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+        finally:
+            try:
+                writer.close()
             except Exception:
                 pass
 

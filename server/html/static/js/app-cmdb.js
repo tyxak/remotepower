@@ -235,6 +235,10 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
   document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
   document.getElementById('cmdb-asset-ssh-port').value   = res.data.ssh_port || 22;
+  // v3.5.0: lifecycle expiry dates
+  document.getElementById('cmdb-asset-warranty').value   = res.data.warranty_expiry || '';
+  document.getElementById('cmdb-asset-license').value    = res.data.license_expiry || '';
+  document.getElementById('cmdb-asset-support').value    = res.data.support_contract_expiry || '';
   document.getElementById('cmdb-asset-hostname').textContent = res.data.hostname || '—';
   document.getElementById('cmdb-asset-os').textContent       = res.data.os || '—';
   document.getElementById('cmdb-asset-ip').textContent       = res.data.ip || '—';
@@ -590,6 +594,10 @@ async function cmdbAssetSave() {
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,
+    // v3.5.0: lifecycle expiry dates (empty string clears)
+    warranty_expiry:         document.getElementById('cmdb-asset-warranty').value.trim(),
+    license_expiry:          document.getElementById('cmdb-asset-license').value.trim(),
+    support_contract_expiry: document.getElementById('cmdb-asset-support').value.trim(),
   };
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
   if (!res) return;

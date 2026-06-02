@@ -2,6 +2,41 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.5.0 — unreleased (dev)
+
+A four-feature batch toward a complete Linux RMM.
+
+### SBOM export
+- **Per-host and fleet SBOM** in CycloneDX 1.5 and SPDX 2.3 JSON, generated from
+  the package inventory RemotePower already collects. Each component carries a
+  package URL (purl); CycloneDX output includes a VEX-style `vulnerabilities[]`
+  section built from the host's current CVE findings (ignore-list applied), so a
+  single document is both an inventory and a vulnerability report. Buttons on the
+  device CVE detail and the CVE Findings page (fleet = ZIP of per-host docs).
+  `GET /api/devices/{id}/sbom` and `GET /api/sbom` (`?format=cyclonedx|spdx`).
+  Output is deterministic for reproducible re-exports.
+
+### Lifecycle expiry tracking
+- **Warranty / license / support-contract expiry** dates per CMDB asset. Expired
+  or within 30 days → warning; within 90 days → info. Surface as dashboard
+  attention items, feed the fleet health score, and are silenceable as the NA
+  kinds `warranty_expiry` / `license_expiry` / `support_expiry`. Mirrors the
+  end-of-life-OS pattern (state-derived, no new webhook events).
+
+### Graphical remote access (VNC over SSH)
+- **"Remote desktop" device action** opens a browser VNC session (noVNC) tunnelled
+  over the web-terminal daemon's SSH connection to the host's loopback VNC port —
+  the VNC server is never network-exposed, no inbound firewall rules, no agent
+  change. Same admin re-auth + single-use ticket as the web terminal. Linux VNC
+  only; RDP is not supported this release.
+
+### Sites & teams
+- **First-class fleet grouping** above device `group`, for organising hosts by
+  location / team / customer (soft boundary — super-admins see all). Admin → Sites
+  for CRUD; "Assign site" on the device drawer; a site filter on the Devices
+  roster. `GET/POST /api/sites`, `PUT/DELETE /api/sites/{id}`,
+  `PATCH /api/devices/{id}/site` (mutations admin-only, audited).
+
 ## v3.4.2 — unreleased (dev)
 
 In development.

@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.4.2-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -154,6 +154,10 @@ The demo is reset every few hours, so feel free to break things.
 - **Command Queue** *(v3.4.2)* — an Admin page listing every device's pending queued commands — even offline hosts — so you can see what's waiting and cancel it before the host comes back.
 - **Per-device backups** *(v3.4.2)* — a Backups section in the device drawer showing each watched backup path's age and fresh/stale state.
 - **Container health** *(v3.4.2)* — the per-device container list now shows each container's health badge (healthy/unhealthy/starting), live CPU%/memory, and published ports.
+- **SBOM export** *(v3.5)* — generate a CycloneDX 1.5 or SPDX 2.3 Software Bill of Materials per host or for the whole fleet from the collected package inventory; each component carries a `purl`, and CycloneDX embeds a VEX-style vulnerabilities section from the host's current CVE findings, so one document is both inventory and vulnerability report. `GET /api/devices/<id>/sbom`, `GET /api/sbom` (fleet = ZIP).
+- **Lifecycle expiry tracking** *(v3.5)* — record warranty / license / support-contract end dates per CMDB asset; expired or within 30 days → warning, within 90 → info, surfaced as dashboard attention items that feed the health score and are silenceable in channel routing.
+- **Graphical remote access (VNC over SSH)** *(v3.5)* — a Remote desktop device action opens a browser VNC session (noVNC) tunnelled over the web-terminal daemon's SSH connection to the host's loopback VNC port — never network-exposed, no inbound firewall rules, no agent change. Linux VNC; RDP not yet supported.
+- **Sites & teams** *(v3.5)* — a first-class fleet grouping above device groups, for organising hosts by location / team / customer (soft boundary — super-admins see all). Admin → Sites, an Assign-site device action, and a site filter on the Devices roster.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

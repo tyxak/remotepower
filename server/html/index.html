@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.4.2">
+<link rel="stylesheet" href="static/css/styles.css?v=3.5.0">
 
 </head>
 <body>
@@ -327,6 +327,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           <span>Users</span>
         </button>
+        <button class="nav-btn" data-page="sites" >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/></svg>
+          <span>Sites</span>
+        </button>
         <button class="nav-btn" data-page="apikeys" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
           <span>API Keys</span>
@@ -549,6 +553,10 @@
           </select>
           <select id="device-group-filter" class="form-input input-auto" data-change="filterDevices">
             <option value="all">All groups</option>
+          </select>
+          <!-- v3.5.0: site/team filter -->
+          <select id="device-site-filter" class="form-input input-auto" data-change="filterDevices">
+            <option value="all">All sites</option>
           </select>
           <!-- v1.11.5: density toggle. Rendered programmatically so the
                selected state matches the user's stored preference on first
@@ -1888,7 +1896,30 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity patch catalog metering license heat map after hours fleet query signed agent badge staged ring rollout canary pilot broad promote maintenance change window gate execution cis compliance baseline benchmark drift print pdf report reclamation normalization aliases rbac roles permissions scope custom role operator access control device group tag exec reboot upgrade users openscap oscap scap stig cis benchmark scan flatpak snap pip npm third party patch on-call oncall escalation tier rotation trends charts graphs time series metrics history usg ubuntu security guide anssi html report download ignored cve un-ignore unignore reversible investigate mitigate container command queue admin backups backup freshness smart serial crc uncorrectable helm app version dimm raid member disk container health cpu memory ports image update health recovered ubuntu derivative zorin mint pop elementary">
+          <details class="doc-card" open data-keywords="release notes changelog v3.5.0 sbom software bill of materials cyclonedx spdx vex vulnerability export purl package url supply chain dependency track grype warranty license support contract expiry lifecycle end of life cmdb attention vnc remote desktop graphical novnc rfb ssh tunnel loopback x11vnc tigervnc sites teams grouping location customer tenant multi-tenancy device group assign roster filter">
+            <summary><strong>What's new — v3.5.0</strong> — SBOM export, lifecycle expiry, VNC remote desktop, Sites &amp; teams</summary>
+            <div class="doc-body">
+              <p>A four-feature batch toward a complete Linux RMM. Additive — no migration. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.5.0</code>).</p>
+              <h4>SBOM export (CycloneDX / SPDX, CVE-enriched)</h4>
+              <ul>
+                <li>Generate a Software Bill of Materials per host or for the whole fleet from the package inventory RemotePower already collects. CycloneDX 1.5 (primary) and SPDX 2.3 JSON; each component carries a <code>purl</code>.</li>
+                <li>CycloneDX output embeds a VEX-style <code>vulnerabilities[]</code> section from the host's current CVE findings — one document is both an inventory and a vulnerability report. Buttons on a device's CVE detail and on the CVE Findings page (fleet export = ZIP of per-host docs).</li>
+              </ul>
+              <h4>Lifecycle expiry tracking</h4>
+              <ul>
+                <li>Record <strong>warranty</strong>, <strong>license</strong>, and <strong>support-contract</strong> end dates per CMDB asset. Expired or within 30 days → warning; within 90 days → info. Surfaces on the dashboard attention list, feeds the fleet health score, and is silenceable in channel routing (<code>warranty_expiry</code>, <code>license_expiry</code>, <code>support_expiry</code>).</li>
+              </ul>
+              <h4>Graphical remote access — VNC over SSH</h4>
+              <ul>
+                <li>A new <strong>Remote desktop</strong> action opens a browser VNC session (noVNC) tunnelled over the web-terminal daemon's SSH connection to the host's <em>loopback</em> VNC port. The VNC server is never network-exposed — the SSH tunnel is the only path. No agent change, no inbound firewall rules. The host needs a localhost-bound VNC server (e.g. <code>x11vnc -localhost</code>). Linux VNC only; RDP isn't supported this release.</li>
+              </ul>
+              <h4>Sites &amp; teams</h4>
+              <ul>
+                <li>A first-class grouping above device groups, for organising the fleet by location / team / customer. <strong>Admin → Sites</strong> to manage them, an <strong>Assign site</strong> action on the device drawer, and a site filter on the Devices roster. A soft boundary — super-admins always see every site.</li>
+              </ul>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.4.2 automation rules engine when event run script notify remediation auto-remediation event trigger action cooldown pagerduty opsgenie escalate webhook destination device match group tags severity patch catalog metering license heat map after hours fleet query signed agent badge staged ring rollout canary pilot broad promote maintenance change window gate execution cis compliance baseline benchmark drift print pdf report reclamation normalization aliases rbac roles permissions scope custom role operator access control device group tag exec reboot upgrade users openscap oscap scap stig cis benchmark scan flatpak snap pip npm third party patch on-call oncall escalation tier rotation trends charts graphs time series metrics history usg ubuntu security guide anssi html report download ignored cve un-ignore unignore reversible investigate mitigate container command queue admin backups backup freshness smart serial crc uncorrectable helm app version dimm raid member disk container health cpu memory ports image update health recovered ubuntu derivative zorin mint pop elementary">
             <summary><strong>What's new — v3.4.2</strong> — Automation rules engine</summary>
             <div class="doc-body">
               <p>Additive release — no migration, no behaviour change until you create a rule. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.4.2</code>).</p>
@@ -3610,6 +3641,15 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="table-card"><table><thead id="apikeys-thead"><tr><th data-col="name">Name</th><th data-col="role">Role</th><th data-col="user">User</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="apikeys-tbody"><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line med"></div></td></tr><tr class="skeleton-row"><td colspan="5"><div class="skeleton skeleton-line long"></div></td></tr></tbody></table></div>
       </div>
 
+      <!-- ── v3.5.0: Sites/teams page ─────────────────────────────────────── -->
+      <div id="page-sites" class="page">
+        <div class="page-title">Sites &amp; teams</div>
+        <div class="page-subtitle">Group the fleet by location, team, or customer — one level above device groups. Assign a device to a site from its drawer. Super-admins always see every site.</div>
+        <div class="section-header"><div class="section-title">Sites</div><button class="enroll-btn" data-action="openSiteCreate" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New site</button></div>
+        <div class="mb-16"><input type="text" id="sites-filter" class="form-input input-wide-sm" placeholder="Filter by name…"></div>
+        <div class="table-card"><table><thead id="sites-thead"><tr><th data-col="name">Name</th><th data-col="slug">Slug</th><th data-col="device_count">Devices</th><th data-col="created">Created</th><th></th></tr></thead><tbody id="sites-tbody"><tr><td colspan="5" class="empty-state">Loading…</td></tr></tbody></table></div>
+      </div>
+
       <!-- ── Patches page (unchanged) ─────────────────────────────────────── -->
       <div id="page-patches" class="page">
         <div class="page-title">Patch Report</div><div class="page-subtitle">Overview of pending system updates across all devices — percentage only counts online devices with data</div>
@@ -3675,6 +3715,9 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="toolbar-mb24">
           <button class="btn-icon" data-action="loadCVEReport" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <button class="btn-primary mw-200" id="btn-trigger-cve-scan" data-action-btn="triggerCVEScan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scan all devices</button>
+          <!-- v3.5.0: fleet SBOM export (ZIP of per-host CycloneDX/SPDX docs, CVE-enriched) -->
+          <button class="btn-icon" data-action-btn="_sbomFleetBtn" data-fmt="cyclonedx" title="Download a ZIP of CycloneDX SBOMs (with CVE findings) for the whole fleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Fleet SBOM (CycloneDX)</button>
+          <button class="btn-icon" data-action-btn="_sbomFleetBtn" data-fmt="spdx" title="Download a ZIP of SPDX 2.3 SBOMs for the whole fleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Fleet SBOM (SPDX)</button>
           <!-- v1.11.5: filter -->
           <input type="text" id="cve-filter" class="form-input isl-135" placeholder="Filter by device, group, ecosystem…">
         </div>
@@ -4473,8 +4516,54 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div id="webterm-xterm" class="isl-209"></div>
   </div>
 </div>
+
+<!-- v3.5.0: VNC (graphical remote access) — connect modal. Tunnels the host's
+     loopback VNC server over SSH; credentials are never stored. -->
+<div class="modal-overlay" id="vnc-modal">
+  <div class="modal isl-203">
+    <div class="modal-title" id="vnc-modal-title">Remote desktop (VNC)</div>
+    <div class="modal-subtitle">Tunnels a loopback-bound VNC server over SSH — the VNC port is never exposed to the network. Credentials are not stored.</div>
+    <input type="hidden" id="vnc-device-id">
+    <div class="form-group"><label class="form-label">SSH host</label>
+      <input type="text" id="vnc-host" class="form-input" placeholder="10.0.0.4"></div>
+    <div class="row-8">
+      <div class="form-group isl-35"><label class="form-label">SSH user</label>
+        <input type="text" id="vnc-user" class="form-input" placeholder="root" autocomplete="username"></div>
+      <div class="form-group flex-1"><label class="form-label">SSH port</label>
+        <input type="number" id="vnc-port" class="form-input" value="22" min="1" max="65535"></div>
+      <div class="form-group flex-1"><label class="form-label">VNC port</label>
+        <input type="number" id="vnc-display-port" class="form-input" value="5900" min="1" max="65535"></div>
+    </div>
+    <div class="form-group"><label class="form-label">SSH password</label>
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="vnc-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
+    <div class="form-group isl-204">
+      <label class="form-label">Your RemotePower admin password</label>
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="vnc-admin-pw" class="form-input" autocomplete="current-password"></form>
+      <div class="meta-sm">Required every time you open a session. The host needs a VNC server bound to 127.0.0.1 (see the "Enable VNC" script).</div>
+    </div>
+    <div id="vnc-error" class="isl-202"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" data-action="closeModal" data-arg="vnc-modal" >Cancel</button>
+      <button class="btn-primary" id="vnc-connect-btn" data-action="vncConnect" >Connect</button>
+    </div>
+  </div>
+</div>
+<!-- v3.5.0: full-screen VNC view (noVNC renders inside #vnc-canvas) -->
+<div class="modal-overlay isl-205" id="vnc-screen">
+  <div class="modal isl-206">
+    <div class="isl-207">
+      <div id="vnc-screen-title" class="isl-208"></div>
+      <div id="vnc-screen-status" class="meta-sm-nm">connecting…</div>
+      <button class="btn-icon fs-11" data-action="vncDisconnect">Disconnect</button>
+    </div>
+    <div id="vnc-canvas" class="isl-209"></div>
+  </div>
+</div>
 <div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
+<!-- v3.5.0: create-site + assign-device-to-site modals -->
+<div class="modal-overlay" id="site-create-modal"><div class="modal"><div class="modal-title" id="site-create-title">New site</div><div class="modal-subtitle">A site groups devices by location, team, or customer.</div><input type="hidden" id="site-edit-id"><div class="form-group"><label class="form-label">Site name</label><input type="text" id="site-name-input" class="form-input" placeholder="London DC, Team Platform, Acme Corp…" maxlength="64"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="site-create-modal" >Cancel</button><button class="btn-primary" id="site-save-btn" data-action="saveSite" >Create</button></div></div></div>
+<div class="modal-overlay" id="device-site-modal"><div class="modal"><div class="modal-title">Assign site</div><div class="modal-subtitle">Move this device into a site, or unassign it.</div><input type="hidden" id="device-site-devid"><div class="form-group"><label class="form-label">Site</label><select id="device-site-select" class="form-input"><option value="">— Unassigned —</option></select></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="device-site-modal" >Cancel</button><button class="btn-primary" data-action="saveDeviceSite" >Save</button></div></div></div>
 <div class="modal-overlay" id="group-modal"><div class="modal"><div class="modal-title">Device group</div><div class="modal-subtitle">Assign a namespace like <code>dc1/prod</code>, <code>homelab</code>, <code>office</code>. Devices sort and group by this field.</div><input type="hidden" id="group-device-id"><div class="form-group"><label class="form-label">Group</label><input type="text" id="group-input" class="form-input" placeholder="homelab"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="group-modal" >Cancel</button><button class="btn-primary" data-action="saveGroup" >Save</button></div></div></div>
 <div class="modal-overlay" id="poll-modal"><div class="modal"><div class="modal-title">Adjust poll interval</div><div class="modal-subtitle">How often the agent checks in. 60s is the default. Lower values increase responsiveness but raise server load.</div><input type="hidden" id="poll-device-id"><div class="form-group"><label class="form-label">Interval (seconds, 10–3600)</label><input type="number" id="poll-input" class="form-input" min="10" max="3600" value="60"></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="poll-modal" >Cancel</button><button class="btn-primary" data-action="savePollInterval" >Apply</button></div></div></div>
 <div class="modal-overlay" id="allowlist-modal"><div class="modal modal-wide"><div class="modal-title">Command allowlist</div><div class="modal-subtitle">If non-empty, only these exact shell commands can be run on this device via exec. One per line. Leave empty to allow any command.</div><input type="hidden" id="allowlist-device-id"><div class="form-group"><label class="form-label">Allowed commands</label><textarea id="allowlist-input" class="form-textarea isl-211" placeholder="systemctl status nginx&#10;df -h&#10;free -m"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="allowlist-modal" >Cancel</button><button class="btn-primary" data-action="saveAllowlist" >Save</button></div></div></div>
@@ -4761,6 +4850,23 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <label class="form-label">SSH port</label>
       <input type="number" id="cmdb-asset-ssh-port" class="form-input mw-160" min="1" max="65535" placeholder="22">
       <div class="meta-sm">Default 22. Used by the SSH link buttons on credentials.</div>
+    </div>
+    <!-- v3.5.0: lifecycle expiry dates. Surface on the dashboard attention list
+         (expired/≤30d → warning, ≤90d → info), same NA pattern as end-of-life OS. -->
+    <div class="form-group">
+      <label class="form-label">Warranty expiry</label>
+      <input type="date" id="cmdb-asset-warranty" class="form-input mw-200">
+      <div class="meta-sm">Hardware warranty end date. Alerts when within 90 days or past.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">License expiry</label>
+      <input type="date" id="cmdb-asset-license" class="form-input mw-200">
+      <div class="meta-sm">Software/OS license end date.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Support contract expiry</label>
+      <input type="date" id="cmdb-asset-support" class="form-input mw-200">
+      <div class="meta-sm">Vendor support / maintenance contract end date.</div>
     </div>
     <div class="form-group hint">
       <div><strong>Hostname:</strong> <span id="cmdb-asset-hostname">—</span></div>
@@ -5732,14 +5838,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.4.2"></script>
+<script src="static/js/app.js?v=3.5.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.4.2"></script>
-<script src="static/js/app-cmdb.js?v=3.4.2"></script>
-<script src="static/js/app-containers.js?v=3.4.2"></script>
-<script src="static/js/app-network.js?v=3.4.2"></script>
+<script src="static/js/app-calendar.js?v=3.5.0"></script>
+<script src="static/js/app-cmdb.js?v=3.5.0"></script>
+<script src="static/js/app-containers.js?v=3.5.0"></script>
+<script src="static/js/app-network.js?v=3.5.0"></script>
 
-<script src="static/js/sw-register.js?v=3.4.2"></script>
+<script src="static/js/sw-register.js?v=3.5.0"></script>
 </body>
 </html>

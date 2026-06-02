@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.4.2'
+SERVER_VERSION = '3.5.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -173,6 +173,13 @@ TASK_STATES         = ('upcoming', 'ongoing', 'pending', 'closed')
 # ── v1.9.0: CMDB (asset metadata + encrypted credentials) ─────────────────────
 CMDB_FILE           = DATA_DIR / 'cmdb.json'
 CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
+# v3.5.0: sites/teams — a first-class grouping above device `group`, for
+# organising a fleet by location/team/customer. Soft boundary (super-admin
+# always sees all); used to scope dashboard/device views, not as a security
+# wall. Registry: {site_id: {name, slug, created, created_by}}.
+SITES_FILE          = DATA_DIR / 'sites.json'
+MAX_SITE_NAME_LEN   = 64
+MAX_SITES           = 500
 
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
@@ -480,6 +487,8 @@ import forecast
 import compliance
 import ai_insights
 import anomaly_stats
+# v3.5.0: SBOM (CycloneDX / SPDX) generation from the package inventory.
+import sbom as sbom_mod
 # Pure input-sanitisation leaf helpers (extracted from this file). Imported back
 # by name so existing call sites are unchanged; sanitize.py has no api deps.
 from sanitize import (
@@ -2563,6 +2572,10 @@ CHANNEL_KINDS = [
     ('cpu',         'CPU loadavg (NA)',         'informational', []),
     ('agent_version', 'Stale agent version (NA)', 'informational', []),
     ('os_eol',      'End-of-life OS (NA)',      'informational', []),
+    # v3.5.0: lifecycle contract expiry (NA — same shape as os_eol)
+    ('warranty_expiry', 'Warranty expiry (NA)',  'informational', []),
+    ('license_expiry',  'License expiry (NA)',   'informational', []),
+    ('support_expiry',  'Support expiry (NA)',   'informational', []),
     ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
     ('after_hours',  'After-hours activity (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
@@ -4782,6 +4795,7 @@ def handle_devices_list():
             'os': dev.get('os', ''), 'ip': dev.get('ip', ''), 'mac': dev.get('mac', ''),
             'version': dev.get('version', ''), 'tags': dev.get('tags', []),
             'group': dev.get('group', ''), 'notes': dev.get('notes', ''),
+            'site': dev.get('site', ''),   # v3.5.0: sites/teams
             'icon': dev.get('icon', ''), 'monitored': dev.get('monitored', True),
             # v3.0.4: ship metric_state with the device list. Without this,
             # the Monitor page row aggregator iterates an empty dict for
@@ -5303,6 +5317,118 @@ def handle_device_metric_thresholds(dev_id):
     dev.pop('metric_state', None)
     save(DEVICES_FILE, devices)
     respond(200, {'ok': True, 'overrides': overrides})
+
+
+# ── v3.5.0: sites/teams ─────────────────────────────────────────────────────
+# A site groups devices by location/team/customer, one level above `group`.
+# Soft boundary: super-admin sees every site; the UI filters views by site for
+# organisational clarity. Assignment lives on the device record (`site` = a
+# site_id, or '' for unassigned).
+
+def _site_slugify(name):
+    s = re.sub(r'[^a-z0-9]+', '-', (name or '').lower()).strip('-')
+    return s[:48] or 'site'
+
+
+def handle_sites_list():
+    """GET /api/sites — registry + device counts per site."""
+    require_auth()
+    sites = load(SITES_FILE)
+    devices = load(DEVICES_FILE)
+    counts = {}
+    for d in devices.values():
+        sid = d.get('site') or ''
+        counts[sid] = counts.get(sid, 0) + 1
+    out = []
+    for sid, s in sites.items():
+        out.append({'id': sid, 'name': s.get('name', sid), 'slug': s.get('slug', ''),
+                    'created': s.get('created', 0), 'created_by': s.get('created_by', ''),
+                    'device_count': counts.get(sid, 0)})
+    out.sort(key=lambda x: x['name'].lower())
+    respond(200, {'ok': True, 'sites': out, 'unassigned': counts.get('', 0)})
+
+
+def handle_site_create():
+    """POST /api/sites — create a site. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    name = _sanitize_str(get_json_body().get('name', ''), MAX_SITE_NAME_LEN)
+    name = name.strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    sites = load(SITES_FILE)
+    if len(sites) >= MAX_SITES:
+        respond(400, {'error': f'site limit reached (max {MAX_SITES})'})
+    if any((s.get('name', '').lower() == name.lower()) for s in sites.values()):
+        respond(409, {'error': 'a site with that name already exists'})
+    site_id = secrets.token_urlsafe(8)
+    sites[site_id] = {'name': name, 'slug': _site_slugify(name),
+                      'created': int(time.time()), 'created_by': actor}
+    save(SITES_FILE, sites)
+    audit_log(actor, 'site_create', detail=f'site={site_id} name={name}')
+    respond(200, {'ok': True, 'id': site_id, 'name': name})
+
+
+def handle_site_update(site_id):
+    """PUT /api/sites/{id} — rename a site. Admin only."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    sites = load(SITES_FILE)
+    if site_id not in sites:
+        respond(404, {'error': 'site not found'})
+    name = _sanitize_str(get_json_body().get('name', ''), MAX_SITE_NAME_LEN).strip()
+    if not name:
+        respond(400, {'error': 'name required'})
+    sites[site_id]['name'] = name
+    sites[site_id]['slug'] = _site_slugify(name)
+    save(SITES_FILE, sites)
+    audit_log(actor, 'site_update', detail=f'site={site_id} name={name}')
+    respond(200, {'ok': True, 'id': site_id, 'name': name})
+
+
+def handle_site_delete(site_id):
+    """DELETE /api/sites/{id} — delete a site and unassign its devices. Admin."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    sites = load(SITES_FILE)
+    if site_id not in sites:
+        respond(404, {'error': 'site not found'})
+    sites.pop(site_id, None)
+    save(SITES_FILE, sites)
+    # Unassign any devices that referenced it (soft delete of the link).
+    devices = load(DEVICES_FILE)
+    touched = 0
+    for d in devices.values():
+        if d.get('site') == site_id:
+            d['site'] = ''
+            touched += 1
+    if touched:
+        save(DEVICES_FILE, devices)
+    audit_log(actor, 'site_delete', detail=f'site={site_id} unassigned={touched}')
+    respond(200, {'ok': True, 'unassigned': touched})
+
+
+def handle_device_site(dev_id):
+    """PATCH /api/devices/{id}/site — assign a device to a site (or '')."""
+    require_admin_auth()
+    if method() != 'PATCH':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    site_id = str(get_json_body().get('site', '') or '').strip()
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    if site_id:
+        sites = load(SITES_FILE)
+        if site_id not in sites:
+            respond(400, {'error': 'unknown site'})
+    devices[dev_id]['site'] = site_id
+    save(DEVICES_FILE, devices)
+    respond(200, {'ok': True, 'site': site_id})
 
 
 def handle_device_group(dev_id):
@@ -15217,6 +15343,47 @@ def _device_os_eol(dev, pkg_entry):
             'eol_date': eol_date, 'days': days, 'status': status}
 
 
+# v3.5.0: lifecycle contract expiry (warranty / license / support). Mirrors the
+# os_eol pattern — a date-based NA verdict. Reads the dates an operator entered
+# in the CMDB. Thresholds: expired → warning, ≤30d → warning, ≤90d → info.
+_CONTRACT_FIELDS = (
+    ('warranty_expiry',         'warranty_expiry',  'Warranty'),
+    ('license_expiry',          'license_expiry',   'License'),
+    ('support_contract_expiry', 'support_expiry',   'Support contract'),
+)
+_CONTRACT_WARN_DAYS = 30
+_CONTRACT_SOON_DAYS = 90
+
+
+def _device_contract_status(cmdb_rec):
+    """List of expiry verdicts for one device's CMDB record. Only fields with a
+    parseable date and a non-'ok' status are returned. Each verdict:
+    {kind, label, date, days, status} where status is expired|warn|soon."""
+    import datetime as _dt
+    out = []
+    today = _dt.date.today()
+    for field, kind, label in _CONTRACT_FIELDS:
+        raw = (cmdb_rec or {}).get(field) or ''
+        if not raw:
+            continue
+        try:
+            d = _dt.date.fromisoformat(raw)
+        except (ValueError, TypeError):
+            continue
+        days = (d - today).days
+        if days < 0:
+            status = 'expired'
+        elif days <= _CONTRACT_WARN_DAYS:
+            status = 'warn'
+        elif days <= _CONTRACT_SOON_DAYS:
+            status = 'soon'
+        else:
+            continue  # ok — nothing to surface
+        out.append({'kind': kind, 'label': label, 'date': raw,
+                    'days': days, 'status': status})
+    return out
+
+
 def _compute_attention():
     """Build the fleet-wide list of things needing attention.
 
@@ -15617,6 +15784,22 @@ def _compute_attention():
             items.append({'severity': 'info', 'kind': 'os_eol',
                           'device': dev.get('name', dev_id),
                           'summary': f"{eol['label']} end-of-life in ~{eol['days']}d ({eol['eol_date']})"})
+
+    # v3.5.0: lifecycle contract expiry (warranty / license / support). Reads
+    # the dates operators set in the CMDB. Expired/≤30d → warning, ≤90d → info.
+    try:
+        _cmdb_store = _cmdb_load() or {}
+    except Exception:
+        _cmdb_store = {}
+    for dev_id, dev in monitored.items():
+        for v in _device_contract_status(_cmdb_store.get(dev_id) or {}):
+            sev = 'info' if v['status'] == 'soon' else 'warning'
+            if v['status'] == 'expired':
+                summary = f"{v['label']} expired {v['date']} (~{abs(v['days'])}d ago)"
+            else:
+                summary = f"{v['label']} expires in ~{v['days']}d ({v['date']})"
+            items.append({'severity': sev, 'kind': v['kind'],
+                          'device': dev.get('name', dev_id), 'summary': summary})
 
     # v3.4.2: agent integrity — a running agent whose binary hash differs from
     # the canonical published build on the current version (tamper / partial
@@ -22691,6 +22874,100 @@ def handle_cve_device(dev_id):
     })
 
 
+# ── v3.5.0: SBOM export (CycloneDX / SPDX, CVE-enriched) ─────────────────────
+# Turns the package inventory we already collect into a portable SBOM document.
+# CycloneDX carries the CVE findings natively (VEX-style vulnerabilities[]);
+# SPDX attaches them as SECURITY ExternalRefs. Per-host download + a fleet ZIP.
+
+def _sbom_format_from_query():
+    """Resolve ?format=cyclonedx|spdx (default cyclonedx)."""
+    from urllib.parse import parse_qs
+    qs = parse_qs(os.environ.get('QUERY_STRING', ''))
+    fmt = (qs.get('format', ['cyclonedx'])[0] or 'cyclonedx').strip().lower()
+    if fmt in ('spdx', 'spdx-2.3', 'spdx23'):
+        return 'spdx'
+    return 'cyclonedx'
+
+
+def _build_sbom_doc(dev_id, dev, fmt):
+    """Assemble one device's SBOM dict. Shared by the per-host download and the
+    fleet ZIP so the two never drift."""
+    pkg_store = load(PACKAGES_FILE)
+    findings_all = load(CVE_FINDINGS_FILE)
+    ignore_data = load(CVE_IGNORE_FILE)
+    pkg_entry = pkg_store.get(dev_id) or {}
+    findings = (findings_all.get(dev_id) or {}).get('findings') or []
+    findings = cve_scanner.apply_ignore_list(findings, ignore_data, dev_id)
+    dev = dict(dev); dev['id'] = dev_id
+    if fmt == 'spdx':
+        return sbom_mod.build_spdx(dev, pkg_entry, findings, server_version=SERVER_VERSION)
+    return sbom_mod.build_cyclonedx(dev, pkg_entry, findings, server_version=SERVER_VERSION)
+
+
+def _stream_json_download(obj, filename):
+    """Serialise ``obj`` and emit it as a JSON file download. Terminates the
+    request (mirrors the patch-report CSV/XML handlers)."""
+    data = json.dumps(obj, indent=2, sort_keys=False).encode('utf-8')
+    print("Status: 200 OK")
+    print("Content-Type: application/json")
+    print(f"Content-Disposition: attachment; filename={filename}")
+    print(f"Content-Length: {len(data)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_sbom_device(dev_id):
+    """GET /api/devices/{id}/sbom?format=cyclonedx|spdx — SBOM for one host."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    devices = load(DEVICES_FILE)
+    dev = devices.get(dev_id)
+    if not dev:
+        respond(404, {'error': 'Device not found'})
+    fmt = _sbom_format_from_query()
+    doc = _build_sbom_doc(dev_id, dev, fmt)
+    _stream_json_download(doc, sbom_mod.filename_for(dev, fmt))
+
+
+def handle_sbom_fleet():
+    """GET /api/sbom?format=cyclonedx|spdx[&group=&device_id=] — a ZIP of
+    per-host SBOMs across the (filtered) fleet."""
+    require_auth()
+    fmt = _sbom_format_from_query()
+    devices = _filter_devices_for_export()
+    import io, zipfile
+    buf = io.BytesIO()
+    used = set()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for dev_id, dev in sorted(devices.items(), key=lambda x: (x[1].get('name', '') or '').lower()):
+            doc = _build_sbom_doc(dev_id, dev, fmt)
+            fn = sbom_mod.filename_for(dict(dev, id=dev_id), fmt)
+            # de-dup filenames (two hosts named the same) by suffixing the id
+            if fn in used:
+                fn = fn.replace('.json', f'-{dev_id[:8]}.json')
+            used.add(fn)
+            zf.writestr(fn, json.dumps(doc, indent=2).encode('utf-8'))
+    data = buf.getvalue()
+    ts = time.strftime('%Y%m%d-%H%M%S')
+    print("Status: 200 OK")
+    print("Content-Type: application/zip")
+    print(f"Content-Disposition: attachment; filename=fleet-sbom-{fmt}-{ts}.zip")
+    print(f"Content-Length: {len(data)}")
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.flush()
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
 def handle_cve_ignore_add():
     """POST /api/cve/ignore — mark a vuln as accepted risk."""
     actor = require_admin_auth()
@@ -25207,6 +25484,11 @@ def _cmdb_record_default() -> dict:
         'documentation':   '',     # v1.x: single Markdown blob (kept for back-compat)
         'docs':            [],     # v2.0: multiple titled Markdown docs
         'credentials':     [],
+        # v3.5.0: lifecycle expiry dates (ISO YYYY-MM-DD or ''). Drive the
+        # warranty/license/support attention items — same NA pattern as os_eol.
+        'warranty_expiry':          '',
+        'license_expiry':           '',
+        'support_contract_expiry':  '',
         'updated_by':      '',
         'updated_at':      0,
     }
@@ -25492,6 +25774,9 @@ def handle_cmdb_update(dev_id: str) -> None:
         ``hypervisor_url``: ``http(s)://…``, max 512 chars.
         ``ssh_port``: 1-65535. Empty/0 resets to default 22.
         ``documentation``: Markdown, max 64 KB.
+        ``warranty_expiry`` / ``license_expiry`` /
+            ``support_contract_expiry``: ISO date (YYYY-MM-DD) or '' to
+            clear. Drive the lifecycle-expiry attention items (v3.5.0).
 
     Args:
         dev_id: The enrolled device's ID.
@@ -25565,6 +25850,21 @@ def handle_cmdb_update(dev_id: str) -> None:
             respond(400, {'error': f'documentation too large (max {MAX_CMDB_DOC_LEN} bytes)'})
         rec['documentation'] = doc
         changed.append('documentation')
+
+    # v3.5.0: lifecycle expiry dates. Each is an ISO YYYY-MM-DD string, or
+    # empty to clear. Validated for shape so the attention computation can
+    # parse them without try/excepting per device.
+    for _field in ('warranty_expiry', 'license_expiry', 'support_contract_expiry'):
+        if _field in body:
+            val = str(body.get(_field) or '').strip()
+            if val:
+                import datetime as _dt
+                try:
+                    _dt.date.fromisoformat(val)
+                except ValueError:
+                    respond(400, {'error': f'{_field} must be an ISO date (YYYY-MM-DD) or empty'})
+            rec[_field] = val
+            changed.append(_field)
 
     if not changed:
         respond(400, {'error': 'no recognised fields to update'})
@@ -26596,6 +26896,11 @@ def _build_exact_routes():
         ('GET', '/api/patch-report'): handle_patch_report,
         ('GET', '/api/patch-report/csv'): handle_patch_report_csv,
         ('GET', '/api/patch-report/xml'): handle_patch_report_xml,
+        # v3.5.0: fleet SBOM (ZIP of per-host CycloneDX/SPDX docs)
+        ('GET', '/api/sbom'): handle_sbom_fleet,
+        # v3.5.0: sites/teams registry
+        ('GET', '/api/sites'): handle_sites_list,
+        ('POST', '/api/sites'): handle_site_create,
         ('POST', '/api/proxmox/lxc/create'): handle_proxmox_lxc_create,
         ('GET', '/api/proxmox/lxc/create-options'): handle_proxmox_lxc_create_options,
         ('GET', '/api/proxmox/snapshots'): handle_proxmox_snapshots_list,
@@ -26693,6 +26998,13 @@ def _dispatch(pi, m):
         handle_device_metric_thresholds(pi[len('/api/devices/'):-len('/metric-thresholds')])
     elif pi.startswith('/api/devices/') and pi.endswith('/group') and m == 'PATCH':
         handle_device_group(pi[len('/api/devices/'):-len('/group')])
+    # v3.5.0: sites/teams — per-device assignment + registry mutation
+    elif pi.startswith('/api/devices/') and pi.endswith('/site') and m == 'PATCH':
+        handle_device_site(pi[len('/api/devices/'):-len('/site')])
+    elif pi.startswith('/api/sites/') and m == 'PUT':
+        handle_site_update(pi[len('/api/sites/'):])
+    elif pi.startswith('/api/sites/') and m == 'DELETE':
+        handle_site_delete(pi[len('/api/sites/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
     elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
@@ -26982,6 +27294,9 @@ def _dispatch(pi, m):
         handle_cve_ignore_delete(pi[len('/api/cve/ignore/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/cve') and m == 'GET':
         handle_cve_device(pi[len('/api/devices/'):-len('/cve')])
+    # v3.5.0: per-host SBOM (CycloneDX / SPDX) download
+    elif pi.startswith('/api/devices/') and pi.endswith('/sbom') and m == 'GET':
+        handle_sbom_device(pi[len('/api/devices/'):-len('/sbom')])
 
     # ── v3.3.4: container image-update detection ───────────────────────────────
     elif pi == '/api/image-updates/ignore' and m == 'DELETE': handle_image_ignore_remove()
