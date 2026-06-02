@@ -2,6 +2,51 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.7.0 — unreleased (dev)
+
+Security/governance gaps + two infrastructure features.
+
+### 2FA recovery codes
+- Enabling TOTP generates 10 one-time recovery codes (shown once); a recovery
+  code is accepted at login in place of the authenticator and consumed on use.
+  Regenerate (password-gated) from Settings → Security. Stored hashed.
+  `POST /api/totp/recovery-codes`.
+
+### Audit-log forwarding (SIEM / syslog)
+- Mirror every audit entry to an external destination — HTTP JSON POST
+  (SSRF-guarded, optional bearer) or RFC 5424 syslog over UDP/TCP. Best-effort,
+  non-blocking. Settings → Security, with a **Send test entry** button.
+  `POST /api/audit/forward-test`.
+
+### Credential rotation reminders
+- Per-credential **Rotate every N days** policy in the CMDB vault; credentials
+  past their policy are flagged on the dashboard (NA kind `cred_rotation`) and
+  badged in the asset view. Anchors on the last password change.
+
+### Desired-state enforcement
+- New **Correct on drift** host-config option: re-apply the desired config only
+  when the host drifts (vs the existing always-on *Enforce on host*). Audited.
+
+### Change approval (maker-checker)
+- Optional second-admin approval for arbitrary command runs (Settings →
+  Security). A pending change is approved by a *different* admin on the
+  Confirmations page; the requester cannot self-approve. Generalises the MCP
+  confirmation queue (`exec_command` action + self-approval guard).
+
+### Proxmox QEMU VM create
+- **Create VM** wizard on the Virtualization page (cores/memory/disk/storage/
+  bridge/ISO) — mirrors LXC create. `POST /api/proxmox/qemu/create`.
+
+### Ansible playbook runner
+- New **Ansible** admin page: store playbooks and run them against a
+  group/tag/site/fleet with the server as the control node over SSH. Disabled
+  when ansible-playbook isn't installed; admin-defines, exec-gated to run,
+  audited. `GET/POST /api/ansible/playbooks`, `…/{id}/run`.
+
+### Docs
+- `docs/terraform-api.md` — driving the REST API from Terraform (the community
+  restapi provider) instead of a bespoke provider.
+
 ## v3.6.0 — unreleased (dev)
 
 A seven-feature batch: act on hosts, not just observe them.

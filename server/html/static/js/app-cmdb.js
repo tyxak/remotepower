@@ -621,6 +621,7 @@ async function cmdbLoadCreds(deviceId) {
   const res = await cmdbApi('GET', '/cmdb/' + encodeURIComponent(deviceId) + '/credentials');
   if (!res || !res.ok) return;
   const creds = (res.data && res.data.credentials) || [];
+  _cmdbCredsCache = {}; creds.forEach(c => { _cmdbCredsCache[c.id] = c; });  // v3.7.0
   const list = document.getElementById('cmdb-creds-list');
   if (creds.length === 0) {
     list.innerHTML = '<div class="isl-232">No credentials yet.</div>';
@@ -647,9 +648,15 @@ async function cmdbLoadCreds(deviceId) {
         `<a class="btn-icon isl-443" href="${_cmdbEsc(sshUri)}" title="Open ssh:// link in your default handler">SSH</a>
          <button class="btn-icon" title="Copy: ${_cmdbEsc(sshCmd)}" data-action="cmdbSshCopy" data-arg="${_cmdbEsc(sshCmd)}" >Copy</button>`;
     }
+    // v3.7.0: rotation badge
+    let rot = '';
+    if (c.rotate_after_days) {
+      if (c.rotation_due) rot = `<span class="patch-badge c-red" title="Older than the ${c.rotate_after_days}-day rotation policy">rotate due (${c.age_days}d)</span>`;
+      else rot = `<span class="hint">rotate every ${c.rotate_after_days}d${c.age_days != null ? ` · ${c.age_days}d old` : ''}</span>`;
+    }
     return `<div class="isl-444">
       <div class="isl-445">
-        <div class="fw-600">${_cmdbEsc(c.label)}</div>
+        <div class="fw-600">${_cmdbEsc(c.label)} ${rot}</div>
         <div class="isl-328">user: ${_cmdbEsc(c.username) || '—'}</div>
         ${note}
       </div>
@@ -689,9 +696,11 @@ function cmdbCredAddOpen() {
   document.getElementById('cmdb-cred-username').value = '';
   document.getElementById('cmdb-cred-password').value = '';
   document.getElementById('cmdb-cred-note').value     = '';
+  document.getElementById('cmdb-cred-rotate').value   = '';
   openModal('cmdb-cred-add-modal');
 }
 
+let _cmdbCredsCache = {};   // v3.7.0: id -> credential metadata (for edit prefill)
 function cmdbCredEditOpen(deviceId, credId, label, username, note) {
   if (!_cmdbVaultKey) { alert('Unlock the vault first.'); return; }
   document.getElementById('cmdb-cred-modal-mode').value = 'edit';
@@ -703,6 +712,7 @@ function cmdbCredEditOpen(deviceId, credId, label, username, note) {
   document.getElementById('cmdb-cred-password').value = '';
   document.getElementById('cmdb-cred-password').placeholder = '(leave empty to keep current)';
   document.getElementById('cmdb-cred-note').value     = note || '';
+  document.getElementById('cmdb-cred-rotate').value   = (_cmdbCredsCache[credId] || {}).rotate_after_days || '';
   openModal('cmdb-cred-add-modal');
 }
 
@@ -714,6 +724,7 @@ async function cmdbCredSave() {
     label:    document.getElementById('cmdb-cred-label').value.trim(),
     username: document.getElementById('cmdb-cred-username').value,
     note:     document.getElementById('cmdb-cred-note').value,
+    rotate_after_days: parseInt(document.getElementById('cmdb-cred-rotate').value, 10) || 0,
   };
   const pw = document.getElementById('cmdb-cred-password').value;
   if (mode === 'add') {

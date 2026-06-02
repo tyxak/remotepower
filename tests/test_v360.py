@@ -23,20 +23,15 @@ from routing_harness import routes_to  # noqa: E402
 
 
 class TestVersionBumps(unittest.TestCase):
-    """v3.6.0 takes the strict version pin."""
-    EXPECTED = '3.6.0'
+    """Loosened to regex — v3.7.0 now holds the strict pin (test_v370.py)."""
 
     def test_api_server_version(self):
         text = (REPO_ROOT / 'server' / 'cgi-bin' / 'api.py').read_text()
-        m = re.search(r"^SERVER_VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
-        self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(text, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_version(self):
         text = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
-        m = re.search(r"^VERSION\s*=\s*'([^']+)'", text, re.MULTILINE)
-        self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(text, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -45,25 +40,24 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         sw = (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text()
-        self.assertIn(f"'remotepower-shell-v{self.EXPECTED}'", sw)
+        self.assertRegex(sw, r"'remotepower-shell-v3\.\d+\.\d+(?:-[a-z0-9]+)?'")
 
     def test_index_cache_bust(self):
         html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertIn(f'?v={self.EXPECTED}', html)
+        self.assertRegex(html, r'\?v=3\.\d+\.\d+')
 
     def test_readme_badge(self):
-        self.assertIn(f'version-{self.EXPECTED}-blue.svg', (REPO_ROOT / 'README.md').read_text())
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
 
     def test_changelog_top_entry(self):
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
-        m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
+        m = re.search(r'^## v(3\.\d+\.\d+)', chlog, re.MULTILINE)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), self.EXPECTED)
 
     def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / f'v{self.EXPECTED}.md'
+        path = REPO_ROOT / 'docs' / 'v3.6.0.md'
         self.assertTrue(path.exists())
-        self.assertIn(self.EXPECTED, path.read_text())
+        self.assertIn('3.6.0', path.read_text())
 
 
 class TestV360Routes(unittest.TestCase):
@@ -83,6 +77,8 @@ class TestV360Routes(unittest.TestCase):
             ('PUT',    '/api/autopatch/p1',               'handle_autopatch_update'),
             ('DELETE', '/api/autopatch/p1',               'handle_autopatch_delete'),
             ('POST',   '/api/autopatch/p1/run',           'handle_autopatch_run'),
+            ('GET',    '/api/proxmox/backups',            'handle_proxmox_backups_get'),
+            ('POST',   '/api/proxmox/backups/threshold',  'handle_proxmox_backup_threshold'),
         ]
         for method, path, handler in cases:
             self.assertEqual(routes_to(method, path), handler, f'{method} {path}')
@@ -189,6 +185,18 @@ class TestV360AvAndProxmoxBackup(unittest.TestCase):
         self.assertIn('def list_backups(', self.PCLIENT)
         self.assertIn('content=backup', self.PCLIENT)
         self.assertIn('def _refresh_proxmox_backup_cache(', self.API)
+
+    def test_proxmox_backup_page_surface(self):
+        # vzdump backup recency is surfaced + adjustable on the Backups page,
+        # and kept distinct from the snapshot check.
+        self.assertIn('def handle_proxmox_backups_get(', self.API)
+        self.assertIn('def handle_proxmox_backup_threshold(', self.API)
+        app = client_js()
+        self.assertIn('function loadProxmoxBackups(', app)
+        self.assertIn('function saveProxmoxBackupThreshold(', app)
+        html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
+        self.assertIn('id="pmbackup-card"', html)
+        self.assertIn('id="pmbackup-threshold"', html)
 
     def test_channel_kinds_registered(self):
         import importlib

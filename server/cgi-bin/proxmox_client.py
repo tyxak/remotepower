@@ -580,6 +580,105 @@ def list_backups(pc: dict) -> list[dict]:
     return out
 
 
+def list_isos(pc: dict) -> list[dict]:
+    """v3.7.0: ISO images across all iso-capable storages (for the VM-create
+    CD-ROM dropdown). Returns [{volid, storage, name, size_bytes}], by name."""
+    node = urllib.parse.quote(pc['node'])
+    out = []
+    for st in list_storages(pc):
+        if 'iso' not in st['content']:
+            continue
+        storage = st['storage']
+        try:
+            raw = _request(pc, f'/nodes/{node}/storage/'
+                               f'{urllib.parse.quote(storage)}/content?content=iso')
+        except ProxmoxError:
+            continue
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            volid = str(item.get('volid', ''))
+            if not volid:
+                continue
+            out.append({'volid': volid, 'storage': storage,
+                        'name': volid.split('/', 1)[-1] if '/' in volid else volid,
+                        'size_bytes': int(item.get('size', 0) or 0)})
+    out.sort(key=lambda t: t['name'])
+    return out
+
+
+def create_qemu(pc: dict, params: dict) -> dict:
+    """v3.7.0: Create a QEMU/KVM virtual machine. Validates locally before the
+    POST so bad input fails clearly. Mirrors create_lxc.
+
+    Expected `params`: vmid, name, cores, memory_mb, disk_gb, storage,
+    bridge (default vmbr0), iso (volid, optional), ostype (default l26),
+    start (bool), onboot (bool).
+
+    Returns {ok, vmid, task}. Raises ProxmoxError on validation/API failure.
+    """
+    try:
+        vmid = int(params.get('vmid'))
+    except (ValueError, TypeError):
+        raise ProxmoxError('A numeric VMID is required.') from None
+    if not (100 <= vmid <= 999999999):
+        raise ProxmoxError('VMID must be between 100 and 999999999.')
+
+    name = str(params.get('name', '')).strip()
+    if not _HOSTNAME_RE.match(name):
+        raise ProxmoxError('Name must be a valid DNS label '
+                           '(letters, digits, hyphens; 1–63 chars).')
+
+    storage = str(params.get('storage', '')).strip()
+    if not _BRIDGE_RE.match(storage):
+        raise ProxmoxError('Pick a disk storage.')
+
+    def _int(field, lo, hi, label):
+        try:
+            v = int(params.get(field))
+        except (ValueError, TypeError):
+            raise ProxmoxError(f'{label} must be a number.') from None
+        if not (lo <= v <= hi):
+            raise ProxmoxError(f'{label} must be between {lo} and {hi}.')
+        return v
+
+    cores     = _int('cores', 1, 128, 'Cores')
+    memory_mb = _int('memory_mb', 16, 4 * 1024 * 1024, 'Memory (MB)')
+    disk_gb   = _int('disk_gb', 1, 65536, 'Disk (GB)')
+
+    bridge = str(params.get('bridge', 'vmbr0')).strip() or 'vmbr0'
+    if not _BRIDGE_RE.match(bridge):
+        raise ProxmoxError('Invalid network bridge name.')
+
+    ostype = str(params.get('ostype', 'l26')).strip() or 'l26'
+    if not re.match(r'^[a-z0-9]{2,8}$', ostype):
+        raise ProxmoxError('Invalid OS type.')
+
+    iso = str(params.get('iso', '') or '').strip()
+    if iso and not _VOLID_RE.match(iso):
+        raise ProxmoxError('Invalid ISO selection.')
+
+    data = {
+        'vmid':    vmid,
+        'name':    name,
+        'cores':   cores,
+        'memory':  memory_mb,
+        'ostype':  ostype,
+        'scsihw':  'virtio-scsi-single',
+        'scsi0':   f'{storage}:{disk_gb}',
+        'net0':    f'virtio,bridge={bridge}',
+        'onboot':  1 if params.get('onboot', False) else 0,
+        'start':   1 if params.get('start', False) else 0,
+    }
+    if iso:
+        data['ide2'] = f'{iso},media=cdrom'
+        data['boot'] = 'order=ide2;scsi0'
+
+    node = urllib.parse.quote(pc['node'])
+    upid = _request(pc, f'/nodes/{node}/qemu', method='POST', data=data)
+    return {'ok': True, 'vmid': vmid, 'task': upid if isinstance(upid, str) else ''}
+
+
 def list_bridges(pc: dict) -> list[str]:
     """Network bridges on the node, for the net0 dropdown — both Linux Bridges
     (type "bridge") AND Open vSwitch bridges (type "OVSBridge"). The old

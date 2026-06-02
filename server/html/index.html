@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.6.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.7.0">
 
 </head>
 <body>
@@ -354,6 +354,10 @@
         <button class="nav-btn" data-page="scripts" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span>Scripts</span>
+        </button>
+        <button class="nav-btn" data-page="ansible" title="Run Ansible playbooks against the fleet">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+          <span>Ansible</span>
         </button>
         <button class="nav-btn" data-page="automation" title="When an event fires → run a script or notify">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
@@ -1283,6 +1287,33 @@
             </div>
           </div>
 
+          <!-- v3.7.0: audit log forwarding to a SIEM / syslog -->
+          <div class="settings-section">
+            <h3>Audit log forwarding</h3>
+            <p class="hint">Mirror every audit entry to an external SIEM (HTTP JSON POST) or a syslog collector (RFC 5424 over UDP/TCP). Best-effort and non-blocking — a forwarding outage never affects local logging.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-enabled"> Enable forwarding</label></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-mode">Mode</label>
+              <select id="cfg-audit-forward-mode" class="form-input mw-160"><option value="http">HTTP (JSON)</option><option value="syslog">Syslog</option></select></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-url">HTTP URL</label>
+              <input type="url" id="cfg-audit-forward-url" class="form-input" placeholder="https://siem.example.com/ingest"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-token">HTTP bearer token</label>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-audit-forward-token" class="form-input" placeholder="optional bearer token"></form></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-host">Syslog host</label>
+              <input type="text" id="cfg-audit-forward-host" class="form-input mw-200" placeholder="10.0.0.5"></div>
+            <div class="settings-row"><label class="form-label" for="cfg-audit-forward-port">Syslog port</label>
+              <input type="number" id="cfg-audit-forward-port" class="form-input mw-160" min="1" max="65535" placeholder="514"></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-audit-forward-tcp"> Use TCP (default UDP)</label></div>
+            <div class="settings-row"><button class="btn-secondary" data-action="testAuditForward">Send test entry</button></div>
+          </div>
+
+          <!-- v3.7.0: change approval (maker-checker) -->
+          <div class="settings-section">
+            <h3>Change approval (maker-checker)</h3>
+            <p class="hint">When enabled, an arbitrary command run (Run command) is parked as a pending approval instead of executing immediately. A second admin approves it on the <a href="#" data-action-btn="_homeNavAction" data-home-act="confirmations" data-prevent-default class="c-accent">Confirmations</a> page.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-enabled"> Require approval for arbitrary commands</label></div>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
+          </div>
+
           <!-- v3.0.2: backup config -->
           <div class="settings-section">
             <h3>Scheduled backup</h3>
@@ -1904,7 +1935,29 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.6.0 file manager sftp browse upload download transfer remote files backup orchestration restic borg rsync run schedule cron job user account management useradd usermod lock unlock ssh key authorized_keys firewall ufw firewalld nftables allow deny port antivirus av malware clamav rkhunter scan posture auto-patch unattended upgrade policy schedule proxmox backup vzdump recency guest">
+          <details class="doc-card" open data-keywords="release notes changelog v3.7.0 2fa two-factor recovery codes backup codes totp authenticator lost audit log forwarding siem syslog splunk http rfc5424 credential rotation reminder vault expiry desired state enforce correct on drift reconcile config change approval maker checker dual control separation of duties second admin proxmox qemu vm create virtual machine wizard ansible playbook runner control node terraform api restapi provider">
+            <summary><strong>What's new — v3.7.0</strong> — 2FA recovery codes, audit→SIEM, credential rotation, config enforcement, change approval, Proxmox VM create, Ansible runner</summary>
+            <div class="doc-body">
+              <p>Security/governance gaps + two infrastructure features. Hard-reload once after upgrading (service-worker cache <code>remotepower-shell-v3.7.0</code>).</p>
+              <h4>2FA recovery codes</h4>
+              <ul><li>Enabling 2FA now generates 10 one-time recovery codes (shown once). A code works in place of your authenticator at login if you lose it. Regenerate from Settings → Security.</li></ul>
+              <h4>Audit-log forwarding (SIEM / syslog)</h4>
+              <ul><li>Mirror every audit entry to a SIEM (HTTP JSON) or syslog collector (RFC 5424 UDP/TCP). Settings → Security, with a test button. Best-effort and non-blocking.</li></ul>
+              <h4>Credential rotation reminders</h4>
+              <ul><li>Give a CMDB vault credential a <em>rotate every N days</em> policy; it's flagged on the dashboard and badged in the asset view once it's overdue.</li></ul>
+              <h4>Desired-state enforcement</h4>
+              <ul><li>A <strong>Correct on drift</strong> host-config option re-applies the desired config only when the host drifts — lighter than the always-on <em>Enforce on host</em>.</li></ul>
+              <h4>Change approval (maker-checker)</h4>
+              <ul><li>Optionally require a <em>second</em> admin to approve an arbitrary command run; the requester can't sign off their own. Settings → Security; approve on the Confirmations page.</li></ul>
+              <h4>Proxmox VM create</h4>
+              <ul><li>A <strong>Create VM</strong> wizard on the Virtualization page builds a QEMU/KVM guest (cores / memory / disk / bridge / ISO) — alongside the existing LXC create.</li></ul>
+              <h4>Ansible playbook runner</h4>
+              <ul><li>A new <strong>Ansible</strong> admin page: store playbooks and run them against a group / tag / site / fleet with this server as the control node over SSH (needs ansible-core on the server).</li></ul>
+              <h4>Terraform</h4>
+              <ul><li>No bespoke provider — see <code>docs/terraform-api.md</code> for driving the REST API from Terraform via the community restapi provider.</li></ul>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.6.0 file manager sftp browse upload download transfer remote files backup orchestration restic borg rsync run schedule cron job user account management useradd usermod lock unlock ssh key authorized_keys firewall ufw firewalld nftables allow deny port antivirus av malware clamav rkhunter scan posture auto-patch unattended upgrade policy schedule proxmox backup vzdump recency guest">
             <summary><strong>What's new — v3.6.0</strong> — Files (SFTP), backups, user/key &amp; firewall mgmt, AV scans, auto-patch, Proxmox backup check</summary>
             <div class="doc-body">
               <p>A seven-feature batch: act on hosts, not just observe them. Additive — no migration. Hard-reload once after upgrading (service-worker cache <code>remotepower-shell-v3.6.0</code>).</p>
@@ -3882,6 +3935,31 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="section-header"><div class="section-title">Backup jobs</div><button class="enroll-btn" data-action="openBackupJobCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New job</button></div>
         <div class="mb-16"><input type="text" id="backups-filter" class="form-input input-wide-sm" placeholder="Filter by name or device…"></div>
         <div class="table-card"><table><thead id="backups-thead"><tr><th data-col="name">Name</th><th data-col="device_name">Device</th><th data-col="cron">Schedule</th><th data-col="last_run">Last run</th><th data-col="enabled">Enabled</th><th></th></tr></thead><tbody id="backups-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
+
+        <!-- v3.6.0: Proxmox guest backup recency (vzdump archives — NOT snapshots) -->
+        <div class="dash-card mt-16" id="pmbackup-card">
+          <div class="section-header">
+            <div class="section-title">Proxmox guest backups</div>
+            <button class="btn-icon" data-action="loadProxmoxBackups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          </div>
+          <div class="page-subtitle mb-12">Recency of each guest's <strong>vzdump backup archives</strong> on the connected Proxmox node — distinct from VM/LXC snapshots. Stale or missing backups also raise a dashboard attention item.</div>
+          <div class="row-8-center mb-12">
+            <label class="form-label mb-0">Flag backups older than</label>
+            <input type="number" id="pmbackup-threshold" class="form-input mw-160" min="1" max="365" value="7">
+            <span class="hint">days</span>
+            <button class="btn-secondary" data-action="saveProxmoxBackupThreshold">Save threshold</button>
+          </div>
+          <div id="pmbackup-body"><div class="empty-state">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- v3.7.0: Ansible playbook runner -->
+      <div id="page-ansible" class="page">
+        <div class="page-title">Ansible</div>
+        <div class="page-subtitle">Run Ansible playbooks against the fleet, with this server as the control node. Define a playbook, then run it against a group / tag / site over SSH. <span id="ansible-availability" class="hint"></span></div>
+        <div class="section-header"><div class="section-title">Playbooks</div><button class="enroll-btn" data-action="openAnsibleCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New playbook</button></div>
+        <div class="mb-16"><input type="text" id="ansible-filter" class="form-input input-wide-sm" placeholder="Filter by name…"></div>
+        <div class="table-card"><table><thead id="ansible-thead"><tr><th data-col="name">Name</th><th data-col="last_run">Last run</th><th data-col="last_rc">Result</th><th></th></tr></thead><tbody id="ansible-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
       </div>
 
       <div id="page-rollouts" class="page">
@@ -4085,6 +4163,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">QEMU virtual machines on the Proxmox node. Start / shutdown actions call the Proxmox VE API directly from the RemotePower server.</div>
         <div class="isl-173">
           <button class="btn-icon" data-action="loadVirtualization" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <button class="enroll-btn" id="vm-create-btn" data-action="openVmCreateWizard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create VM</button>
           <input type="text" id="virt-search" class="form-input isl-49" placeholder="Search VMs by name or VMID…" data-input="filterVirtualization" >
           <span id="virtualization-node" class="isl-174"></span>
         </div>
@@ -4711,6 +4790,32 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="backupjob-modal">Cancel</button><button class="btn-primary" id="backupjob-save-btn" data-action="saveBackupJob">Create</button></div>
 </div></div>
 
+<!-- v3.7.0: Ansible playbook create/edit -->
+<div class="modal-overlay" id="ansible-modal"><div class="modal modal-wide">
+  <div class="modal-title" id="ansible-modal-title">New playbook</div>
+  <input type="hidden" id="ansible-edit-id">
+  <div class="form-group"><label class="form-label">Name</label><input type="text" id="ansible-name" class="form-input" placeholder="Install nginx" maxlength="80"></div>
+  <div class="form-group"><label class="form-label">Playbook (YAML)</label><textarea id="ansible-content" class="form-textarea ff-mono" rows="14" placeholder="- hosts: targets&#10;  become: true&#10;  tasks:&#10;    - name: install nginx&#10;      package: { name: nginx, state: present }"></textarea></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-modal">Cancel</button><button class="btn-primary" id="ansible-save-btn" data-action="saveAnsiblePlaybook">Create</button></div>
+</div></div>
+<!-- v3.7.0: Ansible run -->
+<div class="modal-overlay" id="ansible-run-modal"><div class="modal modal-wide">
+  <div class="modal-title">Run playbook</div>
+  <div class="modal-subtitle">Runs on the server against the target devices over SSH. The playbook may run as root — exec permission required. Credentials are not stored.</div>
+  <input type="hidden" id="ansible-run-id">
+  <div class="hc-grid-2">
+    <div class="form-group"><label class="form-label">Target</label><select id="ansible-target-type" class="form-input"><option value="all">All devices</option><option value="group">Group</option><option value="tag">Tag</option><option value="site">Site</option></select></div>
+    <div class="form-group"><label class="form-label">Value</label><input type="text" id="ansible-target-value" class="form-input" placeholder="prod"></div>
+  </div>
+  <div class="hc-grid-2">
+    <div class="form-group"><label class="form-label">SSH user</label><input type="text" id="ansible-ssh-user" class="form-input" placeholder="root" autocomplete="username"></div>
+    <div class="form-group"><label class="form-label"><input type="checkbox" id="ansible-become" checked> become (sudo)</label></div>
+  </div>
+  <div class="form-group"><label class="form-label">SSH private key</label><textarea id="ansible-ssh-key" class="form-textarea ff-mono" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…"></textarea></div>
+  <div class="form-group"><label class="form-label">…or SSH password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="ansible-ssh-pass" class="form-input" autocomplete="new-password" placeholder="(requires sshpass on the server)"></form></div>
+  <div id="ansible-run-output" class="mt-8"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="ansible-run-modal">Close</button><button class="btn-primary" id="ansible-run-btn" data-action="runAnsiblePlaybook">Run</button></div>
+</div></div>
 <div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
 <!-- v3.5.0: create-site + assign-device-to-site modals -->
@@ -4871,6 +4976,39 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="lxc-create-modal">Cancel</button>
     <button class="btn-primary" id="lxc-create-submit" data-action="submitLxcCreate" disabled>Create container</button>
+  </div>
+</div></div>
+
+<!-- v3.7.0: Proxmox QEMU VM create wizard -->
+<div class="modal-overlay" id="vm-create-modal"><div class="modal modal-wide">
+  <div class="modal-title">Create virtual machine</div>
+  <div class="modal-subtitle">Creates a new QEMU/KVM VM on the Proxmox node via the API. <span id="vm-create-node" class="c-muted"></span></div>
+  <div id="vm-create-loading" class="empty-state">Loading options from Proxmox…</div>
+  <div id="vm-create-form" class="d-none">
+    <div class="hc-grid-2">
+      <div class="form-group"><label class="form-label">Name</label><input type="text" id="vm-name" class="form-input" placeholder="web1" maxlength="63"></div>
+      <div class="form-group"><label class="form-label">VMID</label><input type="number" id="vm-vmid" class="form-input" min="100"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Boot ISO <span class="c-muted">(optional)</span></label><select id="vm-iso" class="form-input"></select>
+      <span class="hint">ISO images on the node. None? Upload one in Proxmox: Storage → ISO Images.</span></div>
+    <div class="hc-grid-2">
+      <div class="form-group"><label class="form-label">Disk storage</label><select id="vm-storage" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Disk size (GB)</label><input type="number" id="vm-disk" class="form-input" value="32" min="1" max="65536"></div>
+    </div>
+    <div class="hc-grid-3">
+      <div class="form-group"><label class="form-label">CPU cores</label><input type="number" id="vm-cores" class="form-input" value="2" min="1" max="128"></div>
+      <div class="form-group"><label class="form-label">Memory (MB)</label><input type="number" id="vm-memory" class="form-input" value="2048" min="16"></div>
+      <div class="form-group"><label class="form-label">Bridge</label><select id="vm-bridge" class="form-input"></select></div>
+    </div>
+    <div class="lxc-toggles">
+      <label class="click-row-6"><input type="checkbox" id="vm-start" checked> <span class="fs-12">Start after creation</span></label>
+      <label class="click-row-6"><input type="checkbox" id="vm-onboot"> <span class="fs-12">Start on boot</span></label>
+    </div>
+    <div id="vm-create-result" class="mt-8"></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="vm-create-modal">Cancel</button>
+    <button class="btn-primary" id="vm-create-submit" data-action="submitVmCreate" disabled>Create VM</button>
   </div>
 </div></div>
 <!-- v3.4.0: Proxmox LXC delete (type-to-confirm, auto-stop, no purge) -->
@@ -5141,6 +5279,11 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   <div class="form-group">
     <label class="form-label">Note (optional)</label>
     <input type="text" id="cmdb-cred-note" class="form-input" maxlength="512">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Rotate every (days, 0 = off)</label>
+    <input type="number" id="cmdb-cred-rotate" class="form-input mw-160" min="0" max="3650" placeholder="0">
+    <div class="meta-sm">Flags this credential on the dashboard when it's older than this since its last password change.</div>
   </div>
   <div class="modal-actions">
     <button class="btn-secondary" data-action="closeModal" data-arg="cmdb-cred-add-modal" >Cancel</button>
@@ -5976,6 +6119,10 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <span class="fs-12"><strong>Enforce on host</strong> — apply this config on the agent (writes <code>/etc/hosts</code>, netplan, services, users…)</span>
       </label>
       <div class="hint c-amber d-none" id="hc-apply-warn">Enforcement is ON: the agent will overwrite the host's live config to match the desired config on its next poll. Leave OFF to only monitor drift.</div>
+      <label class="click-row-6 mt-8">
+        <input type="checkbox" id="hc-enforce-drift">
+        <span class="fs-12"><strong>Correct on drift</strong> — re-apply the desired config only when the host drifts from it (lighter than always-enforce above)</span>
+      </label>
     </div>
     <div class="modal-actions mt-16">
       <button class="btn-secondary" data-action="closeModal" data-arg="host-config-modal" >Cancel</button>
@@ -5990,14 +6137,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.6.0"></script>
+<script src="static/js/app.js?v=3.7.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.6.0"></script>
-<script src="static/js/app-cmdb.js?v=3.6.0"></script>
-<script src="static/js/app-containers.js?v=3.6.0"></script>
-<script src="static/js/app-network.js?v=3.6.0"></script>
+<script src="static/js/app-calendar.js?v=3.7.0"></script>
+<script src="static/js/app-cmdb.js?v=3.7.0"></script>
+<script src="static/js/app-containers.js?v=3.7.0"></script>
+<script src="static/js/app-network.js?v=3.7.0"></script>
 
-<script src="static/js/sw-register.js?v=3.6.0"></script>
+<script src="static/js/sw-register.js?v=3.7.0"></script>
 </body>
 </html>

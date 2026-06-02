@@ -188,7 +188,9 @@ class TestHandlers(unittest.TestCase):
 
     def test_put_handler_audit_logs(self):
         idx = self.api.find('def handle_device_host_config_put(')
-        block = self.api[idx: idx + 1200]
+        # window widened in v3.7.0 (the handler grew an `enforce` field); the
+        # assertion — the PUT handler audit-logs — is unchanged.
+        block = self.api[idx: idx + 1600]
         self.assertIn('audit_log', block)
 
 

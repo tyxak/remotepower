@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.6.0'
+SERVER_VERSION = '3.7.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -187,6 +187,10 @@ AV_FILE             = DATA_DIR / 'av_status.json'        # endpoint AV/malware p
 PROXMOX_BACKUP_CACHE = DATA_DIR / 'proxmox_backup_cache.json'  # per-guest backup recency
 MAX_BACKUP_JOBS     = 200
 MAX_AUTOPATCH       = 100
+# v3.7.0
+ANSIBLE_FILE        = DATA_DIR / 'ansible_playbooks.json'   # stored playbooks
+MAX_PLAYBOOKS       = 100
+MAX_PLAYBOOK_BYTES  = 256 * 1024
 
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
@@ -2268,6 +2272,85 @@ def audit_log(actor, action, detail='', source_ip=None,
     # doesn't let the file grow without limit)
     al['entries'] = entries[-MAX_AUDIT_LOG:]
     save(AUDIT_LOG_FILE, al)
+    # v3.7.0: forward to an external SIEM/syslog if configured. Best-effort and
+    # fully isolated — a forwarding outage must never break audit logging.
+    if cfg.get('audit_forward_enabled'):
+        try:
+            _forward_audit(entry, cfg)
+        except Exception as _fwd_err:
+            sys.stderr.write(f'[remotepower] audit forward failed: {_fwd_err}\n')
+
+
+def _forward_audit(entry, cfg):
+    """Send one audit entry to the configured destination.
+
+    Modes:
+      * http   — POST the entry as JSON to `audit_forward_url`; optional bearer
+                 `audit_forward_token`. SSRF-guarded like outbound webhooks.
+      * syslog — RFC 5424 line over UDP or TCP to
+                 `audit_forward_host`:`audit_forward_port` (default 514).
+    """
+    mode = (cfg.get('audit_forward_mode') or 'http').lower()
+    if mode == 'http':
+        url = (cfg.get('audit_forward_url') or '').strip()
+        if not url:
+            return
+        _block_local = cfg.get('webhook_block_local', True)
+        if _url_targets_local_or_meta(urllib.parse.urlparse(url),
+                                      allow_loopback=not _block_local):
+            return
+        data = json.dumps({'source': 'remotepower', 'event': entry}).encode()
+        headers = {'Content-Type': 'application/json'}
+        tok = (cfg.get('audit_forward_token') or '').strip()
+        if tok:
+            headers['Authorization'] = f'Bearer {tok}'
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        ctx = _get_ssl_context() if url.lower().startswith('https') else None
+        urllib.request.urlopen(req, timeout=5, context=ctx).close()
+    elif mode == 'syslog':
+        host = (cfg.get('audit_forward_host') or '').strip()
+        if not host:
+            return
+        try:
+            port = int(cfg.get('audit_forward_port') or 514)
+        except (TypeError, ValueError):
+            port = 514
+        use_tcp = bool(cfg.get('audit_forward_tcp'))
+        # RFC 5424: <PRI>VERSION TIMESTAMP HOST APP PROCID MSGID STRUCTURED MSG
+        # PRI = facility(13=audit/log_audit→ use 13*8) + severity(5=notice)=109
+        ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(entry.get('ts', int(time.time()))))
+        msg = (f"actor={entry.get('actor','')} action={entry.get('action','')} "
+               f"ip={entry.get('source_ip','')} detail={entry.get('detail','')}")
+        line = f"<109>1 {ts} remotepower audit - - - {msg}"
+        payload = line.encode('utf-8', 'replace')[:2048]
+        if use_tcp:
+            with socket.create_connection((host, port), timeout=5) as s:
+                s.sendall(payload + b'\n')
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.sendto(payload, (host, port))
+            finally:
+                s.close()
+
+
+def handle_audit_forward_test():
+    """POST /api/audit/forward-test — send a synthetic entry via the configured
+    forwarder so the operator can confirm the SIEM receives it. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    if not cfg.get('audit_forward_enabled'):
+        respond(400, {'error': 'Audit forwarding is not enabled in settings.'})
+    test_entry = {'ts': int(time.time()), 'actor': actor, 'action': 'audit_forward_test',
+                  'detail': 'RemotePower audit forwarding test', 'source_ip': _get_client_ip(),
+                  'user_agent': 'remotepower-selftest'}
+    try:
+        _forward_audit(test_entry, cfg)
+    except Exception as e:
+        respond(502, {'error': f'Forward failed: {str(e)[:200]}'})
+    respond(200, {'ok': True, 'message': 'Test entry sent to the configured destination.'})
 
 # v3.2.0 (B-fix): inbound webhook + syslog hit log
 def _log_inbound(kind, token_id, label, status, detail=''):
@@ -2586,6 +2669,8 @@ CHANNEL_KINDS = [
     # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA)
     ('av_posture',      'Malware / AV posture (NA)',   'operational', []),
     ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
+    # v3.7.0: CMDB credential rotation due (NA)
+    ('cred_rotation',   'Credential rotation due (NA)', 'operational', []),
     ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
     ('after_hours',  'After-hours activity (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
@@ -4699,10 +4784,19 @@ def handle_login():
             respond(200, {'ok': False, 'totp_required': True})
         valid_codes = _totp(totp_secret)
         if totp_code not in valid_codes:
-            _record_login_failure(username)
-            audit_log(username, 'login_failed', 'invalid TOTP code')
-            time.sleep(0.5)
-            respond(200, {'ok': False, 'totp_required': True, 'totp_invalid': True})
+            # v3.7.0: fall back to a one-time recovery code (consumed on use).
+            users_rc = load(USERS_FILE)
+            urec = users_rc.get(username) or {}
+            if _consume_recovery_code(urec, totp_code):
+                users_rc[username] = urec
+                save(USERS_FILE, users_rc)
+                audit_log(username, 'login_recovery_code',
+                          f'2FA via recovery code; {len(urec.get("recovery_codes") or [])} left')
+            else:
+                _record_login_failure(username)
+                audit_log(username, 'login_failed', 'invalid TOTP code')
+                time.sleep(0.5)
+                respond(200, {'ok': False, 'totp_required': True, 'totp_invalid': True})
 
     cleanup_tokens()
     audit_log(username, 'login', 'successful login')
@@ -5876,6 +5970,190 @@ def process_autopatch():
         changed = True
     if changed:
         save(AUTOPATCH_FILE, data)
+
+
+# ── v3.7.0: Ansible playbook runner ─────────────────────────────────────────
+# The server acts as the Ansible control node, running `ansible-playbook`
+# against an inventory built from selected fleet devices over SSH. Disabled
+# when ansible-playbook isn't installed. Defining playbooks is admin-only (a
+# playbook is arbitrary code); running is gated on the `exec` permission.
+
+def _ansible_available():
+    import shutil
+    return shutil.which('ansible-playbook') is not None
+
+
+def _ansible_load():
+    data = load(ANSIBLE_FILE)
+    if not isinstance(data, dict) or 'playbooks' not in data:
+        return {'playbooks': []}
+    return data
+
+
+def handle_ansible_status():
+    """GET /api/ansible/status — whether the control node has ansible."""
+    require_auth()
+    respond(200, {'ok': True, 'available': _ansible_available()})
+
+
+def handle_ansible_playbooks_list():
+    """GET /api/ansible/playbooks — stored playbooks (content included)."""
+    require_auth()
+    respond(200, {'ok': True, 'available': _ansible_available(),
+                  'playbooks': _ansible_load()['playbooks']})
+
+
+def handle_ansible_playbook_create():
+    """POST /api/ansible/playbooks — store a playbook (admin)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    name = _sanitize_str(body.get('name', ''), 80).strip()
+    content = body.get('content', '')
+    if not name or not isinstance(content, str) or not content.strip():
+        respond(400, {'error': 'name and content are required'})
+    if len(content.encode('utf-8')) > MAX_PLAYBOOK_BYTES:
+        respond(400, {'error': f'playbook too large (max {MAX_PLAYBOOK_BYTES} bytes)'})
+    data = _ansible_load()
+    if len(data['playbooks']) >= MAX_PLAYBOOKS:
+        respond(400, {'error': f'playbook limit reached (max {MAX_PLAYBOOKS})'})
+    pb = {'id': secrets.token_urlsafe(8), 'name': name, 'content': content,
+          'created': int(time.time()), 'created_by': actor,
+          'last_run': 0, 'last_rc': None}
+    data['playbooks'].append(pb)
+    save(ANSIBLE_FILE, data)
+    audit_log(actor, 'ansible_playbook_create', detail=f'playbook={pb["id"]} name={name}')
+    respond(200, {'ok': True, 'id': pb['id']})
+
+
+def handle_ansible_playbook_update(pb_id):
+    """PUT /api/ansible/playbooks/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    data = _ansible_load()
+    pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
+    if not pb:
+        respond(404, {'error': 'playbook not found'})
+    if 'name' in body:
+        pb['name'] = _sanitize_str(body['name'], 80).strip() or pb['name']
+    if 'content' in body:
+        c = body['content']
+        if not isinstance(c, str) or not c.strip():
+            respond(400, {'error': 'content must be non-empty'})
+        if len(c.encode('utf-8')) > MAX_PLAYBOOK_BYTES:
+            respond(400, {'error': 'playbook too large'})
+        pb['content'] = c
+    save(ANSIBLE_FILE, data)
+    audit_log(actor, 'ansible_playbook_update', detail=f'playbook={pb_id}')
+    respond(200, {'ok': True})
+
+
+def handle_ansible_playbook_delete(pb_id):
+    """DELETE /api/ansible/playbooks/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _ansible_load()
+    n = len(data['playbooks'])
+    data['playbooks'] = [p for p in data['playbooks'] if p['id'] != pb_id]
+    if len(data['playbooks']) == n:
+        respond(404, {'error': 'playbook not found'})
+    save(ANSIBLE_FILE, data)
+    audit_log(actor, 'ansible_playbook_delete', detail=f'playbook={pb_id}')
+    respond(200, {'ok': True})
+
+
+def handle_ansible_playbook_run(pb_id):
+    """POST /api/ansible/playbooks/{id}/run — run the playbook against a target.
+
+    Body: {target:{type,value}, ssh_user, ssh_key|ssh_password, become(bool)}.
+    Builds an inventory from the target devices' IPs and runs ansible-playbook
+    on the server. exec-permission gated. SSH secrets live only in 0600 temp
+    files for the run's duration and are removed afterward."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _ansible_available():
+        respond(400, {'error': 'ansible-playbook is not installed on the server.'})
+    data = _ansible_load()
+    pb = next((p for p in data['playbooks'] if p['id'] == pb_id), None)
+    if not pb:
+        respond(404, {'error': 'playbook not found'})
+    body = get_json_body() or {}
+    target = body.get('target') or {}
+    ids = _resolve_targets({'device_ids': body.get('device_ids')} if body.get('device_ids')
+                           else ({target.get('type', 'all'): target.get('value', '')}
+                                 if target.get('type') in ('group', 'tag') else {}))
+    devices = load(DEVICES_FILE)
+    if target.get('type') == 'all' and not ids:
+        ids = list(devices.keys())
+    elif target.get('type') == 'site':
+        ids = [d for d, dev in devices.items() if dev.get('site', '') == target.get('value')]
+    ids = [i for i in ids if i in devices and devices[i].get('ip')]
+    if not ids:
+        respond(400, {'error': 'No target devices with a known IP.'})
+    actor = require_perm('exec', ids)
+
+    ssh_user = re.sub(r'[^a-zA-Z0-9._\-]', '', str(body.get('ssh_user', '')))[:32]
+    if not ssh_user:
+        respond(400, {'error': 'ssh_user required'})
+    ssh_key = body.get('ssh_key', '') or ''
+    ssh_password = body.get('ssh_password', '') or ''
+    if not ssh_key and not ssh_password:
+        respond(400, {'error': 'ssh_key or ssh_password required'})
+    become = bool(body.get('become', True))
+
+    import tempfile, subprocess, shutil as _sh
+    workdir = tempfile.mkdtemp(prefix='rp-ansible-')
+    try:
+        pb_path = os.path.join(workdir, 'playbook.yml')
+        with open(pb_path, 'w') as f:
+            f.write(pb['content'])
+        inv_lines = ['[targets]']
+        for i in ids:
+            dev = devices[i]
+            line = f"{dev.get('name', i)} ansible_host={dev.get('ip')} ansible_user={ssh_user}"
+            port = dev.get('ssh_port') or (load(CMDB_FILE).get(i, {}) or {}).get('ssh_port')
+            if port:
+                line += f" ansible_port={int(port)}"
+            if ssh_password:
+                line += f" ansible_password={ssh_password} ansible_become_password={ssh_password}"
+            inv_lines.append(line)
+        inv_path = os.path.join(workdir, 'inventory.ini')
+        with open(inv_path, 'w') as f:
+            f.write('\n'.join(inv_lines) + '\n')
+        os.chmod(inv_path, 0o600)
+        argv = ['ansible-playbook', '-i', inv_path, pb_path]
+        if become:
+            argv.append('--become')
+        env = dict(os.environ, ANSIBLE_HOST_KEY_CHECKING='False',
+                   ANSIBLE_RETRY_FILES_ENABLED='False')
+        if ssh_key:
+            key_path = os.path.join(workdir, 'id_key')
+            with open(key_path, 'w') as f:
+                f.write(ssh_key if ssh_key.endswith('\n') else ssh_key + '\n')
+            os.chmod(key_path, 0o600)
+            argv += ['--private-key', key_path]
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True,
+                                  timeout=900, env=env, cwd=workdir)
+            out = (proc.stdout + ('\n' + proc.stderr if proc.stderr else ''))[-65536:]
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            out, rc = 'ansible-playbook timed out after 900s', 124
+        except FileNotFoundError:
+            out, rc = 'ansible-playbook not found', 127
+    finally:
+        _sh.rmtree(workdir, ignore_errors=True)
+
+    pb['last_run'] = int(time.time())
+    pb['last_rc'] = rc
+    save(ANSIBLE_FILE, data)
+    audit_log(actor, 'ansible_playbook_run',
+              detail=f'playbook={pb_id} hosts={len(ids)} rc={rc}')
+    respond(200, {'ok': rc == 0, 'rc': rc, 'output': out, 'hosts': len(ids)})
 
 
 def handle_device_group(dev_id):
@@ -7271,7 +7549,23 @@ def handle_heartbeat():
     # `apply_enabled` on. (Before v3.4.0 the cache was never populated, so the
     # push silently never happened at all — see CHANGELOG.)
     _hc = saved_dev.get('host_config') or {}
-    host_config_desired = (_hc.get('desired') or None) if _hc.get('apply_enabled') else None
+    _desired = _hc.get('desired') or None
+    # Continuous enforcement (v3.4.0): push desired every heartbeat when
+    # apply_enabled is set; a drift-only baseline never auto-applies.
+    host_config_desired = _desired if (_desired and _hc.get('apply_enabled')) else None
+    # v3.7.0 corrective enforcement: when `enforce` is set (and not already
+    # continuously applying), re-apply desired ONLY when the host has drifted.
+    # saved_dev predates this heartbeat's ingest, so read the freshly-stored
+    # drift state (load() is per-request memoised; the ingest invalidated it).
+    if host_config_desired is None and _desired and _hc.get('enforce'):
+        _fresh_hc = (load(DEVICES_FILE).get(dev_id) or {}).get('host_config') or _hc
+        if not (_fresh_hc.get('drift') or {}).get('clean', True):
+            host_config_desired = _desired
+            try:
+                audit_log('enforce', 'host_config_enforce',
+                          detail=f'device={dev_id} re-applying desired config on drift')
+            except Exception:
+                pass
 
     # v2.1.2: use the snapshot we captured under the lock instead of the
     # leaked `dev` reference from the with-block. After exit, devices has
@@ -8215,6 +8509,13 @@ def handle_config_get():
     safe.setdefault('webhook_allow_loopback', True)
     safe.setdefault('viewers_can_ack_alerts', True)
     safe.setdefault('ip_allowlist_enabled',   False)
+    # v3.7.0: audit forwarding — surface config + a *_set flag, never the token.
+    safe.setdefault('audit_forward_enabled', False)
+    safe.setdefault('audit_forward_mode', 'http')
+    safe.setdefault('audit_forward_port', 514)
+    safe['audit_forward_token_set'] = bool(safe.pop('audit_forward_token', None))
+    safe.setdefault('change_approval_enabled', False)
+    safe.setdefault('change_approval_no_self', True)
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
     safe.setdefault('healthchecks_interval_seconds', 60)
@@ -8905,6 +9206,45 @@ def handle_config_save():
         cfg['webhook_block_local'] = bool(body['webhook_block_local'])
     if 'webhook_allow_loopback' in body:
         cfg['webhook_allow_loopback'] = bool(body['webhook_allow_loopback'])
+
+    # v3.7.0: audit-log forwarding to an external SIEM / syslog.
+    if 'audit_forward_enabled' in body:
+        cfg['audit_forward_enabled'] = bool(body['audit_forward_enabled'])
+    if 'audit_forward_mode' in body:
+        m = str(body['audit_forward_mode']).strip().lower()
+        if m not in ('http', 'syslog'):
+            respond(400, {'error': 'audit_forward_mode must be http or syslog'})
+        cfg['audit_forward_mode'] = m
+    if 'audit_forward_url' in body:
+        u = str(body['audit_forward_url']).strip()
+        if u and not u.lower().startswith(('http://', 'https://')):
+            respond(400, {'error': 'audit_forward_url must be http(s)://…'})
+        cfg['audit_forward_url'] = u[:512]
+    if 'audit_forward_host' in body:
+        cfg['audit_forward_host'] = _sanitize_str(body['audit_forward_host'], 253)
+    if 'audit_forward_port' in body:
+        try:
+            p = int(body['audit_forward_port'] or 514)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'audit_forward_port must be an integer'})
+        if not (1 <= p <= 65535):
+            respond(400, {'error': 'audit_forward_port out of range'})
+        cfg['audit_forward_port'] = p
+    if 'audit_forward_tcp' in body:
+        cfg['audit_forward_tcp'] = bool(body['audit_forward_tcp'])
+    if 'audit_forward_token' in body:
+        # secret: '' clears, omitted preserves (mirrors smtp_password)
+        t = str(body['audit_forward_token'])
+        if t != '':
+            cfg['audit_forward_token'] = t[:256]
+        else:
+            cfg.pop('audit_forward_token', None)
+
+    # v3.7.0: change approval (maker-checker)
+    if 'change_approval_enabled' in body:
+        cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
+    if 'change_approval_no_self' in body:
+        cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
@@ -9410,6 +9750,38 @@ def handle_ui_prefs_clear():
     respond(200, {'ok': True})
 
 
+# ── v3.7.0: TOTP recovery (backup) codes ────────────────────────────────────
+# One-time codes that stand in for the authenticator if it's lost. Stored only
+# as password-hashes (reusing hash_password/verify_password), shown in plaintext
+# exactly once — at enrollment or regeneration.
+_RECOVERY_CODE_COUNT = 10
+
+
+def _generate_recovery_codes(n=_RECOVERY_CODE_COUNT):
+    """Return (plaintext_list, hashed_list). Codes are 10 hex chars, hyphenated
+    for readability (e.g. 'a1b2c-3d4e5')."""
+    plain, hashed = [], []
+    for _ in range(n):
+        raw = secrets.token_hex(5)              # 10 hex chars
+        code = f'{raw[:5]}-{raw[5:]}'
+        plain.append(code)
+        hashed.append(hash_password(code))
+    return plain, hashed
+
+
+def _consume_recovery_code(user, submitted):
+    """If `submitted` matches an unused recovery-code hash, remove that hash and
+    return True (mutates user['recovery_codes']). Constant-ish: checks all."""
+    submitted = (submitted or '').strip().lower().replace(' ', '')
+    codes = user.get('recovery_codes') or []
+    for i, h in enumerate(codes):
+        if verify_password(submitted, h):
+            codes.pop(i)
+            user['recovery_codes'] = codes
+            return True
+    return False
+
+
 def handle_totp_setup():
     """Generate a TOTP secret for the current user. Does NOT enable until confirmed."""
     username = require_auth()
@@ -9442,9 +9814,33 @@ def handle_totp_confirm():
     # Activate TOTP
     users[username]['totp_secret'] = pending
     del users[username]['totp_pending']
+    # v3.7.0: mint recovery codes at activation; return plaintext once.
+    plain, hashed = _generate_recovery_codes()
+    users[username]['recovery_codes'] = hashed
     save(USERS_FILE, users)
-    audit_log(username, 'totp_enabled', '2FA activated')
-    respond(200, {'ok': True, 'message': '2FA is now enabled. You will need your authenticator code at each login.'})
+    audit_log(username, 'totp_enabled', '2FA activated; recovery codes generated')
+    respond(200, {'ok': True, 'recovery_codes': plain,
+                  'message': '2FA is now enabled. Save these recovery codes somewhere safe — '
+                             'each works once if you lose your authenticator. They will not be shown again.'})
+
+
+def handle_totp_regenerate_codes():
+    """POST /api/totp/recovery-codes — regenerate recovery codes (password-gated).
+    Invalidates any previous codes."""
+    username = require_auth()
+    if method() != 'POST': respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    users = load(USERS_FILE)
+    if username not in users: respond(404, {'error': 'User not found'})
+    if not users[username].get('totp_secret'):
+        respond(400, {'error': '2FA is not enabled'})
+    if not verify_password(body.get('password', ''), users[username].get('password_hash', '')):
+        respond(401, {'error': 'Password incorrect'})
+    plain, hashed = _generate_recovery_codes()
+    users[username]['recovery_codes'] = hashed
+    save(USERS_FILE, users)
+    audit_log(username, 'totp_recovery_regenerated', 'recovery codes regenerated')
+    respond(200, {'ok': True, 'recovery_codes': plain})
 
 
 def handle_totp_disable():
@@ -9459,6 +9855,7 @@ def handle_totp_disable():
         respond(401, {'error': 'Password incorrect'})
     users[username].pop('totp_secret', None)
     users[username].pop('totp_pending', None)
+    users[username].pop('recovery_codes', None)   # v3.7.0
     save(USERS_FILE, users)
     audit_log(username, 'totp_disabled', '2FA deactivated')
     respond(200, {'ok': True, 'message': '2FA has been disabled.'})
@@ -9470,7 +9867,8 @@ def handle_totp_status():
     users = load(USERS_FILE)
     if username not in users: respond(404, {'error': 'User not found'})
     enabled = bool(users[username].get('totp_secret'))
-    respond(200, {'enabled': enabled, 'username': username})
+    respond(200, {'enabled': enabled, 'username': username,
+                  'recovery_codes_remaining': len(users[username].get('recovery_codes') or [])})
 
 
 _AGENT_BINARY_PATH = Path('/var/www/remotepower/agent/remotepower-agent')
@@ -10931,6 +11329,20 @@ def handle_custom_cmd():
     actor = require_perm('exec', ids)   # v3.4.2 RBAC: arbitrary exec
 
     devices = load(DEVICES_FILE)
+    # v3.7.0 maker-checker: when change approval is enabled, an arbitrary exec
+    # is parked as a pending confirmation that a *different* admin must approve,
+    # rather than queued immediately.
+    if (load(CONFIG_FILE) or {}).get('change_approval_enabled'):
+        conf_ids = []
+        for dev_id in ids:
+            if dev_id in devices:
+                conf_ids.append(_create_confirmation(
+                    'exec_command', dev_id, {'command': f'exec:{cmd_str}'},
+                    actor, None, None))
+        audit_log(actor, 'change_approval_requested', f'exec on {len(conf_ids)} device(s)')
+        respond(202, {'ok': False, 'approval_required': True,
+                      'confirmation_ids': conf_ids,
+                      'message': 'Change queued for approval by another admin.'})
     cmds = load(CMDS_FILE)
     results = {}
     for dev_id in ids:
@@ -11507,6 +11919,56 @@ def handle_proxmox_lxc_create() -> None:
     respond(200, result)
 
 
+def handle_proxmox_qemu_create_options() -> None:
+    """GET /api/proxmox/qemu/create-options — data the VM-create wizard needs:
+    next free vmid, disk-capable storages, ISO images, bridges."""
+    require_admin_auth()
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        out = {
+            'node':      pc['node'],
+            'next_vmid': proxmox_client.next_vmid(pc),
+            'storages':  [s for s in proxmox_client.list_storages(pc) if s['rootdir']],
+            'isos':      proxmox_client.list_isos(pc),
+            'bridges':   proxmox_client.list_bridges(pc),
+        }
+    except proxmox_client.ProxmoxError as e:
+        respond(502, {'error': str(e)})
+        return
+    respond(200, out)
+
+
+def handle_proxmox_qemu_create() -> None:
+    """POST /api/proxmox/qemu/create — create a QEMU VM. Admin-only, audited."""
+    actor = require_admin_auth()
+    body = get_json_body() or {}
+    cfg = load(CONFIG_FILE)
+    pc = proxmox_client.config_from(cfg)
+    if not (pc['enabled'] and proxmox_client.is_configured(pc)):
+        respond(400, {'error': 'Proxmox is not configured.'})
+        return
+    try:
+        result = proxmox_client.create_qemu(pc, body)
+    except proxmox_client.ProxmoxError as e:
+        msg = str(e)
+        code = 502 if ('Proxmox API' in msg or 'reach Proxmox' in msg) else 400
+        respond(code, {'error': msg})
+        return
+    audit_log(actor, 'proxmox_qemu_create',
+              f"vmid={result.get('vmid')} name={body.get('name', '')!r} node={pc['node']}")
+    try:
+        _record_fleet_event('proxmox_action', {
+            'guest_type': 'qemu', 'vmid': result.get('vmid'), 'action': 'create',
+        })
+    except Exception:
+        pass
+    respond(200, result)
+
+
 def handle_proxmox_lxc_delete(rest) -> None:
     """DELETE /api/proxmox/lxc/<vmid> — delete a container. Admin-only,
     destructive (auto-stops a running container, no purge), audited. The
@@ -11565,6 +12027,52 @@ def handle_proxmox_snapshots_list() -> None:
         respond(502, {'error': str(e)})
         return
     respond(200, {'snapshots': snaps})
+
+
+def handle_proxmox_backups_get() -> None:
+    """``GET /api/proxmox/backups`` — per-guest vzdump backup recency, plus the
+    adjustable staleness threshold. Live-refreshes the cache when Proxmox is
+    configured so the Backups page is always current; falls back to the last
+    cached snapshot on a transient API error."""
+    require_auth()
+    cfg = load(CONFIG_FILE)
+    warn_days = int(cfg.get('proxmox_backup_warn_days', 7))
+    pc = proxmox_client.config_from(cfg)
+    enabled = bool(pc['enabled'])
+    configured = enabled and proxmox_client.is_configured(pc)
+    if configured:
+        try:
+            _refresh_proxmox_backup_cache(pc)
+        except Exception:
+            pass
+    cache = load(PROXMOX_BACKUP_CACHE) if PROXMOX_BACKUP_CACHE.exists() else {}
+    if not isinstance(cache, dict):
+        cache = {}
+    guests = cache.get('guests', [])
+    for g in guests:
+        age = g.get('age_days')
+        g['status'] = ('missing' if age is None
+                       else 'stale' if age > warn_days else 'ok')
+    respond(200, {'ok': True, 'enabled': enabled, 'configured': configured,
+                  'warn_days': warn_days, 'node': cache.get('node', ''),
+                  'updated_at': cache.get('updated_at', 0), 'guests': guests})
+
+
+def handle_proxmox_backup_threshold() -> None:
+    """``POST /api/proxmox/backups/threshold`` — set proxmox_backup_warn_days."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    try:
+        days = int((get_json_body() or {}).get('days'))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'days must be an integer'})
+    if not (1 <= days <= 365):
+        respond(400, {'error': 'days must be between 1 and 365'})
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        cfg['proxmox_backup_warn_days'] = days
+    audit_log(actor, 'proxmox_backup_threshold', detail=f'days={days}')
+    respond(200, {'ok': True, 'warn_days': days})
 
 
 def handle_proxmox_snapshot_action() -> None:
@@ -16396,6 +16904,31 @@ def _compute_attention():
                 items.append({'severity': 'warning', 'kind': 'proxmox_backup', 'device': label,
                               'summary': f'Newest Proxmox backup is {age}d old (threshold {_warn_days}d)'})
 
+    # v3.7.0: CMDB credential rotation due. Reads the per-credential
+    # rotate_after_days policy; flags any whose age since last rotation exceeds
+    # it. Device name resolved from the device record.
+    try:
+        _cmdb_rot = _cmdb_load() or {}
+        _devs_rot = load(DEVICES_FILE) or {}
+    except Exception:
+        _cmdb_rot = {}; _devs_rot = {}
+    for _dev_id, _rec in _cmdb_rot.items():
+        if _dev_id not in monitored:
+            continue
+        dname = _devs_rot.get(_dev_id, {}).get('name', _dev_id)
+        for c in (_rec.get('credentials') or []):
+            rad = int(c.get('rotate_after_days', 0) or 0)
+            if not rad:
+                continue
+            anchor = int(c.get('rotated_at') or c.get('created_at') or 0)
+            if not anchor:
+                continue
+            age = int((now - anchor) / 86400)
+            if age > rad:
+                items.append({'severity': 'info', 'kind': 'cred_rotation', 'device': dname,
+                              'summary': f"Credential '{c.get('label','?')}' is {age}d old "
+                                         f"(rotate every {rad}d)"})
+
     # v3.4.2: agent integrity — a running agent whose binary hash differs from
     # the canonical published build on the current version (tamper / partial
     # update / corruption). Critical: it's a security signal.
@@ -20716,6 +21249,22 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
             if device_id in d:
                 d[device_id]['force_acme_rescan'] = True
 
+    elif action == 'exec_command':
+        # v3.7.0: maker-checker — a destructive shell command approved by a
+        # second admin. params['command'] is the full queued string.
+        cmd = (params or {}).get('command') or ''
+        if not cmd:
+            return {'ok': False, 'error': 'no command to run'}
+        queued = cmd if cmd.startswith(('exec:', 'reboot', 'shutdown')) else 'exec:' + cmd
+        with _LockedUpdate(CMDS_FILE) as cmds:
+            cmds.setdefault(device_id, [])
+            if queued not in cmds[device_id]:
+                cmds[device_id].append(queued)
+        log_command(actor, device_id, dev_name, queued[:200])
+        fire_webhook('command_queued', {
+            'device_id': device_id, 'name': dev_name, 'command': queued, 'actor': actor,
+        })
+
     else:
         return {'ok': False, 'error': f'unknown action "{action}"'}
 
@@ -20851,6 +21400,12 @@ def handle_confirmation_approve(conf_id):
             respond(404, {'error': 'confirmation not found'})
         if entry.get('status') != 'pending':
             respond(409, {'error': f'confirmation already {entry.get("status")}'})
+        # v3.7.0 maker-checker: a different admin must approve. The requester
+        # cannot sign off their own change unless the operator disables the
+        # separation-of-duties guard.
+        _cfg_app = load(CONFIG_FILE) or {}
+        if _cfg_app.get('change_approval_no_self', True) and entry.get('requested_by') == actor:
+            respond(403, {'error': 'You requested this change; a different admin must approve it.'})
         entry['status'] = 'approved'
         entry['decided_by'] = actor
         entry['decided_at'] = int(time.time())
@@ -26107,15 +26662,24 @@ def _cmdb_strip_creds(record: dict) -> dict:
     out = dict(record)
     safe = []
     for c in record.get('credentials') or []:
+        # v3.7.0: rotation policy + a derived "due" flag (age since last
+        # set/rotate exceeds the per-credential policy).
+        rad = int(c.get('rotate_after_days', 0) or 0)
+        anchor = int(c.get('rotated_at') or c.get('created_at') or 0)
+        age_days = int((time.time() - anchor) / 86400) if anchor else None
+        rotation_due = bool(rad and age_days is not None and age_days > rad)
         safe.append({
-            'id':         c.get('id', ''),
-            'label':      c.get('label', ''),
-            'username':   c.get('username', ''),
-            'note':       c.get('note', ''),
-            'created_by': c.get('created_by', ''),
-            'created_at': c.get('created_at', 0),
-            'updated_by': c.get('updated_by', ''),
-            'updated_at': c.get('updated_at', 0),
+            'id':            c.get('id', ''),
+            'label':         c.get('label', ''),
+            'username':      c.get('username', ''),
+            'note':          c.get('note', ''),
+            'created_by':    c.get('created_by', ''),
+            'created_at':    c.get('created_at', 0),
+            'updated_by':    c.get('updated_by', ''),
+            'updated_at':    c.get('updated_at', 0),
+            'rotate_after_days': rad,
+            'age_days':      age_days,
+            'rotation_due':  rotation_due,
         })
     out['credentials'] = safe
     return out
@@ -26937,6 +27501,13 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
     except cmdb_vault.VaultError as e:
         respond(500, {'error': f'encrypt failed: {e}'})
 
+    try:
+        rotate_after_days = int(body.get('rotate_after_days', 0) or 0)
+    except (TypeError, ValueError):
+        rotate_after_days = 0
+    if not (0 <= rotate_after_days <= 3650):
+        respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
+
     now = int(time.time())
     new_id = 'cred_' + secrets.token_hex(8)
     creds.append({
@@ -26946,6 +27517,8 @@ def handle_cmdb_credentials_add(dev_id: str) -> None:
         'note':       note,
         'nonce':      blob['nonce'],
         'ct':         blob['ct'],
+        'rotate_after_days': rotate_after_days,
+        'rotated_at': now,   # v3.7.0: anchor for rotation reminders
         'created_by': actor,
         'created_at': now,
         'updated_by': actor,
@@ -27023,7 +27596,17 @@ def handle_cmdb_credentials_update(dev_id: str, cred_id: str) -> None:
             respond(500, {'error': f'encrypt failed: {e}'})
         cred['nonce'] = blob['nonce']
         cred['ct']    = blob['ct']
+        cred['rotated_at'] = int(time.time())   # v3.7.0: a password change is a rotation
         changed.append('password')
+    if 'rotate_after_days' in body:
+        try:
+            rad = int(body.get('rotate_after_days', 0) or 0)
+        except (TypeError, ValueError):
+            respond(400, {'error': 'rotate_after_days must be an integer'})
+        if not (0 <= rad <= 3650):
+            respond(400, {'error': 'rotate_after_days must be 0 (off) to 3650'})
+        cred['rotate_after_days'] = rad
+        changed.append('rotate_after_days')
 
     if not changed:
         respond(400, {'error': 'no recognised fields to update'})
@@ -27400,6 +27983,7 @@ def _build_exact_routes():
         ('POST', '/api/apikeys'): handle_apikeys_create,
         ('GET', '/api/attention'): handle_attention,
         ('GET', '/api/audit-log'): handle_audit_log,
+        ('POST', '/api/audit/forward-test'): handle_audit_forward_test,
         ('GET', '/api/auth/oidc/callback'): handle_oidc_callback,
         ('GET', '/api/auth/oidc/start'): handle_oidc_start,
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,
@@ -27501,9 +28085,19 @@ def _build_exact_routes():
         ('POST', '/api/backup-jobs'): handle_backup_job_create,
         ('GET', '/api/autopatch'): handle_autopatch_list,
         ('POST', '/api/autopatch'): handle_autopatch_create,
+        # v3.7.0: Ansible playbook runner
+        ('GET', '/api/ansible/status'): handle_ansible_status,
+        ('GET', '/api/ansible/playbooks'): handle_ansible_playbooks_list,
+        ('POST', '/api/ansible/playbooks'): handle_ansible_playbook_create,
         ('POST', '/api/proxmox/lxc/create'): handle_proxmox_lxc_create,
         ('GET', '/api/proxmox/lxc/create-options'): handle_proxmox_lxc_create_options,
+        # v3.7.0: QEMU VM create (exact routes — matched before the /qemu/<vmid> prefix)
+        ('POST', '/api/proxmox/qemu/create'): handle_proxmox_qemu_create,
+        ('GET', '/api/proxmox/qemu/create-options'): handle_proxmox_qemu_create_options,
         ('GET', '/api/proxmox/snapshots'): handle_proxmox_snapshots_list,
+        # v3.6.0: per-guest vzdump backup recency (distinct from snapshots)
+        ('GET', '/api/proxmox/backups'): handle_proxmox_backups_get,
+        ('POST', '/api/proxmox/backups/threshold'): handle_proxmox_backup_threshold,
         ('GET', '/api/proxmox/status'): handle_proxmox_status,
         ('POST', '/api/proxmox/test'): handle_proxmox_test,
         ('GET', '/api/public-info'): handle_public_info,
@@ -27528,6 +28122,7 @@ def _build_exact_routes():
         ('POST', '/api/totp/disable'): handle_totp_disable,
         ('POST', '/api/totp/setup'): handle_totp_setup,
         ('GET', '/api/totp/status'): handle_totp_status,
+        ('POST', '/api/totp/recovery-codes'): handle_totp_regenerate_codes,
         ('DELETE', '/api/ui-prefs'): handle_ui_prefs_clear,
         ('GET', '/api/ui-prefs'): handle_ui_prefs_get,
         ('POST', '/api/ui-prefs'): handle_ui_prefs_set,
@@ -27629,6 +28224,13 @@ def _dispatch(pi, m):
         handle_autopatch_update(pi[len('/api/autopatch/'):])
     elif pi.startswith('/api/autopatch/') and m == 'DELETE':
         handle_autopatch_delete(pi[len('/api/autopatch/'):])
+    # v3.7.0: Ansible playbooks
+    elif pi.startswith('/api/ansible/playbooks/') and pi.endswith('/run') and m == 'POST':
+        handle_ansible_playbook_run(pi[len('/api/ansible/playbooks/'):-len('/run')])
+    elif pi.startswith('/api/ansible/playbooks/') and m == 'PUT':
+        handle_ansible_playbook_update(pi[len('/api/ansible/playbooks/'):])
+    elif pi.startswith('/api/ansible/playbooks/') and m == 'DELETE':
+        handle_ansible_playbook_delete(pi[len('/api/ansible/playbooks/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
     elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
@@ -28375,6 +28977,7 @@ def handle_device_host_config_get(dev_id):
         'drift':                hc.get('drift', {}),
         'desired_at':           hc.get('desired_at'),
         'apply_enabled':        bool(hc.get('apply_enabled', False)),
+        'enforce':              bool(hc.get('enforce', False)),   # v3.7.0
     })
 
 
@@ -28393,6 +28996,9 @@ def handle_device_host_config_put(dev_id):
     # v3.4.0: optional per-device opt-in to ENFORCE (apply) the config — see
     # the heartbeat push gate. Updated only when the key is present.
     apply_enabled = body.get('apply_enabled')
+    # v3.7.0: corrective enforcement — re-apply desired only when drift appears
+    # (lighter than apply_enabled's every-heartbeat push). Updated only if sent.
+    enforce_on_drift = body.get('enforce')
 
     with _locked_update(DEVICES_FILE) as devices:
         if dev_id not in devices:
@@ -28402,13 +29008,16 @@ def handle_device_host_config_put(dev_id):
         hc['desired_at'] = int(time.time())
         if apply_enabled is not None:
             hc['apply_enabled'] = bool(apply_enabled)
+        if enforce_on_drift is not None:
+            hc['enforce'] = bool(enforce_on_drift)
         # Clear drift so it re-evaluates on next agent report
         hc.pop('drift', None)
-        enforce = bool(hc.get('apply_enabled'))
+        applied = bool(hc.get('apply_enabled'))
+        enforced = bool(hc.get('enforce'))
 
     audit_log(actor, 'host_config_update',
-              f'dev_id={dev_id} sections={list(desired.keys())} apply_enabled={enforce}')
-    respond(200, {'ok': True, 'apply_enabled': enforce})
+              f'dev_id={dev_id} sections={list(desired.keys())} apply_enabled={applied} enforce={enforced}')
+    respond(200, {'ok': True, 'apply_enabled': applied, 'enforce': enforced})
 
 
 def handle_device_host_config_current(dev_id):

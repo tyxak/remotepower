@@ -938,6 +938,7 @@ function showPage(name, btn) {
   if (name === 'sites')    loadSites();
   if (name === 'autopatch') loadAutopatch();
   if (name === 'backups')  loadBackupJobs();
+  if (name === 'ansible')  loadAnsible();
   if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
@@ -1845,6 +1846,24 @@ async function loadSettings() {
   if (_sl) _sl.value = data.session_ttl_long || '';
   const _ar = document.getElementById('audit-retention-days');
   if (_ar) _ar.value = data.audit_log_retention_days ?? '';
+  // v3.7.0: audit forwarding + change approval
+  const _afe = document.getElementById('cfg-audit-forward-enabled');
+  if (_afe) {
+    _afe.checked = !!data.audit_forward_enabled;
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v ?? ''; };
+    set('cfg-audit-forward-mode', data.audit_forward_mode || 'http');
+    set('cfg-audit-forward-url', data.audit_forward_url || '');
+    set('cfg-audit-forward-host', data.audit_forward_host || '');
+    set('cfg-audit-forward-port', data.audit_forward_port || 514);
+    const tcp = document.getElementById('cfg-audit-forward-tcp'); if (tcp) tcp.checked = !!data.audit_forward_tcp;
+    const tokPh = document.getElementById('cfg-audit-forward-token');
+    if (tokPh) tokPh.placeholder = data.audit_forward_token_set ? '•••••• (set — leave blank to keep)' : 'optional bearer token';
+  }
+  const _cae = document.getElementById('cfg-change-approval-enabled');
+  if (_cae) {
+    _cae.checked = !!data.change_approval_enabled;
+    const ns = document.getElementById('cfg-change-approval-no-self'); if (ns) ns.checked = data.change_approval_no_self !== false;
+  }
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
   if (_be) _be.checked = _bk.enabled !== false;
@@ -2021,6 +2040,12 @@ async function loadSecurityDiag() {
 }
 
 function clearWebhook() { document.getElementById('cfg-webhook').value = ''; toast('Webhook URL cleared — click Save to apply', 'info'); }
+async function testAuditForward() {
+  toast('Sending test entry…', 'info');
+  const d = await api('POST', '/audit/forward-test', {});
+  if (d?.ok) toast('Test entry sent to the configured destination', 'success');
+  else toast(d?.error || 'Forward test failed', 'error');
+}
 async function saveSettings(btn) {
   const webhook_events = {};
   document.querySelectorAll('#event-toggle-table .toggle-webhook').forEach(cb => {
@@ -2111,6 +2136,24 @@ async function saveSettings(btn) {
       path:        (document.getElementById('backup-path')?.value || '').trim() || undefined,
       retain_days: parseInt(document.getElementById('backup-retain-days')?.value || '14', 10),
     };
+  }
+
+  // v3.7.0: audit forwarding + change approval (maker-checker)
+  const _afEn = document.getElementById('cfg-audit-forward-enabled');
+  if (_afEn) {
+    payload.audit_forward_enabled = _afEn.checked;
+    payload.audit_forward_mode = document.getElementById('cfg-audit-forward-mode')?.value || 'http';
+    payload.audit_forward_url  = (document.getElementById('cfg-audit-forward-url')?.value || '').trim();
+    payload.audit_forward_host = (document.getElementById('cfg-audit-forward-host')?.value || '').trim();
+    payload.audit_forward_port = parseInt(document.getElementById('cfg-audit-forward-port')?.value || '514', 10);
+    payload.audit_forward_tcp  = !!document.getElementById('cfg-audit-forward-tcp')?.checked;
+    const _afTok = document.getElementById('cfg-audit-forward-token')?.value;
+    if (_afTok) payload.audit_forward_token = _afTok;
+  }
+  const _caEn = document.getElementById('cfg-change-approval-enabled');
+  if (_caEn) {
+    payload.change_approval_enabled = _caEn.checked;
+    payload.change_approval_no_self = !!document.getElementById('cfg-change-approval-no-self')?.checked;
   }
 
   // would clear them on the server. Leave key out to preserve existing.
@@ -2678,9 +2721,15 @@ async function _editScheduleBtn(btn) {
   if (calCb) calCb.checked = false;
   openModal('schedule-add-modal');
 }
-async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
+async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "Enabling 2FA generates one-time recovery codes — save them; a code logs you in if you lose your authenticator. Regenerate them under Settings → Security.",
+  "Forward every audit entry to your SIEM or syslog collector from Settings → Security → Audit log forwarding (HTTP or RFC 5424).",
+  "Give a CMDB credential a rotation policy and RemotePower reminds you on the dashboard when it's overdue for a change.",
+  "Turn on change approval (Settings → Security) to require a second admin to sign off arbitrary command runs — the requester can't approve their own.",
+  "The Ansible page runs playbooks against a group/tag/site with this server as the control node — no agent needed, just SSH.",
+  "Create Proxmox VMs (not just containers) from the Virtualization page — pick cores, memory, disk, bridge and a boot ISO.",
   "The Files device action browses and transfers files over SFTP, tunnelled through the same SSH path as the web terminal — no extra ports.",
   "Define backup commands (restic/borg/rsync) under Planning → Backups, run them on demand, or schedule them with cron.",
   "Manage host users and SSH keys, or open/close firewall ports, straight from a device's drawer — exec-gated and audited.",
@@ -4219,6 +4268,7 @@ async function loadBackupJobs() {
   if (!d) return;
   _backupJobsCache = d.jobs || [];
   tableCtl.render('backups', _backupJobsCache);
+  loadProxmoxBackups();   // v3.6.0: Proxmox vzdump recency lives on this page too
 }
 function _backupPopulateDevices(sel, current) {
   const list = (typeof devices !== 'undefined' ? devices : []);
@@ -4271,6 +4321,140 @@ async function deleteBackupJob(id) {
   if (!confirm('Delete this backup job?')) return;
   const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
   if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
+}
+
+// v3.6.0: Proxmox per-guest backup recency (vzdump archives — distinct from
+// snapshots). Lives on the Backups page; threshold is adjustable here.
+async function loadProxmoxBackups() {
+  const card = document.getElementById('pmbackup-card');
+  const body = document.getElementById('pmbackup-body');
+  if (!card || !body) return;
+  const d = await api('GET', '/proxmox/backups');
+  if (!d) { body.innerHTML = '<div class="empty-state">Failed to load.</div>'; return; }
+  if (!d.enabled || !d.configured) {
+    body.innerHTML = '<div class="hint">No Proxmox node connected. Configure one under Settings → Proxmox to see per-guest backup recency here.</div>';
+    return;
+  }
+  const th = document.getElementById('pmbackup-threshold');
+  if (th && document.activeElement !== th) th.value = d.warn_days;
+  if (!d.guests.length) {
+    body.innerHTML = '<div class="empty-state">No guests found on the node.</div>';
+    return;
+  }
+  const cls = { ok: 'c-green', stale: 'c-amber', missing: 'c-red' };
+  const label = { ok: 'OK', stale: 'Stale', missing: 'No backup' };
+  const rows = d.guests.map(g => {
+    const last = g.last_backup ? new Date(g.last_backup * 1000).toLocaleString() : '—';
+    const age = g.age_days == null ? '—' : `${g.age_days}d`;
+    return `<tr><td class="fw-500">${escHtml(g.name || ('VM ' + g.vmid))}</td><td class="hint">${g.vmid}</td><td class="hint">${last}</td><td>${age}</td><td><span class="patch-badge ${cls[g.status] || 'c-muted'}">${label[g.status] || g.status}</span></td></tr>`;
+  }).join('');
+  const updated = d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '';
+  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Guest</th><th>VMID</th><th>Last backup</th><th>Age</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
+}
+async function saveProxmoxBackupThreshold() {
+  const days = parseInt(document.getElementById('pmbackup-threshold').value, 10);
+  if (!days || days < 1 || days > 365) { toast('Enter 1–365 days', 'error'); return; }
+  const d = await api('POST', '/proxmox/backups/threshold', { days });
+  if (d?.ok) { toast(`Threshold set to ${d.warn_days} days`, 'success'); loadProxmoxBackups(); }
+  else toast(d?.error || 'Failed', 'error');
+}
+
+// ─── v3.7.0: Ansible playbook runner ─────────────────────────────────────────
+let _ansibleRegistered = false;
+let _ansibleCache = [];
+function _registerAnsibleTable() {
+  if (_ansibleRegistered) return;
+  _ansibleRegistered = true;
+  tableCtl.register({
+    name: 'ansible', tbody: 'ansible-tbody', filterInput: 'ansible-filter',
+    sortHeaders: 'ansible-thead', colspan: 4,
+    columns: ['name', 'last_run', 'last_rc'],
+    getColumns: (p) => ({ name: p.name || '', last_run: p.last_run || 0, last_rc: p.last_rc ?? -1 }),
+    row: (p) => {
+      const res = p.last_rc == null ? '<span class="hint">never</span>'
+        : (p.last_rc === 0 ? '<span class="patch-badge c-green">ok</span>' : `<span class="patch-badge c-red">rc=${p.last_rc}</span>`);
+      return `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${p.last_run ? new Date(p.last_run*1000).toLocaleString() : 'never'}</td><td>${res}</td><td class="row-6"><button class="btn-icon" data-action-btn="_ansibleRunBtn" data-id="${escAttr(p.id)}">Run</button><button class="btn-icon" data-action-btn="_ansibleEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAnsiblePlaybook" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`;
+    },
+    emptyMsg: 'No playbooks yet. Create one to run against the fleet.',
+    emptyMsgFiltered: 'No playbooks match the filter.',
+  });
+}
+async function loadAnsible() {
+  _registerAnsibleTable();
+  const d = await api('GET', '/ansible/playbooks');
+  if (!d) return;
+  _ansibleCache = d.playbooks || [];
+  const avail = document.getElementById('ansible-availability');
+  if (avail) avail.innerHTML = d.available
+    ? '<span class="c-green">ansible-playbook detected on the server.</span>'
+    : '<span class="c-amber">ansible-playbook is NOT installed on the server — install ansible-core to run playbooks.</span>';
+  tableCtl.render('ansible', _ansibleCache);
+}
+function openAnsibleCreate() {
+  document.getElementById('ansible-edit-id').value = '';
+  document.getElementById('ansible-name').value = '';
+  document.getElementById('ansible-content').value = '';
+  document.getElementById('ansible-modal-title').textContent = 'New playbook';
+  document.getElementById('ansible-save-btn').textContent = 'Create';
+  openModal('ansible-modal');
+}
+function _ansibleEditBtn(btn) {
+  const p = _ansibleCache.find(x => x.id === btn.dataset.id); if (!p) return;
+  document.getElementById('ansible-edit-id').value = p.id;
+  document.getElementById('ansible-name').value = p.name;
+  document.getElementById('ansible-content').value = p.content || '';
+  document.getElementById('ansible-modal-title').textContent = 'Edit playbook';
+  document.getElementById('ansible-save-btn').textContent = 'Save';
+  openModal('ansible-modal');
+}
+async function saveAnsiblePlaybook() {
+  const id = document.getElementById('ansible-edit-id').value;
+  const body = { name: document.getElementById('ansible-name').value.trim(),
+                 content: document.getElementById('ansible-content').value };
+  if (!body.name || !body.content.trim()) { toast('Name and playbook content required', 'error'); return; }
+  const d = id ? await api('PUT', '/ansible/playbooks/' + encodeURIComponent(id), body)
+               : await api('POST', '/ansible/playbooks', body);
+  if (d?.ok) { toast(id ? 'Playbook saved' : 'Playbook created', 'success'); closeModal('ansible-modal'); loadAnsible(); }
+  else toast(d?.error || 'Failed', 'error');
+}
+async function deleteAnsiblePlaybook(id) {
+  if (!confirm('Delete this playbook?')) return;
+  const d = await api('DELETE', '/ansible/playbooks/' + encodeURIComponent(id));
+  if (d?.ok) { toast('Playbook deleted', 'info'); loadAnsible(); } else toast(d?.error || 'Failed', 'error');
+}
+function _ansibleRunBtn(btn) {
+  document.getElementById('ansible-run-id').value = btn.dataset.id;
+  document.getElementById('ansible-target-type').value = 'all';
+  document.getElementById('ansible-target-value').value = '';
+  document.getElementById('ansible-ssh-user').value = 'root';
+  document.getElementById('ansible-ssh-key').value = '';
+  document.getElementById('ansible-ssh-pass').value = '';
+  document.getElementById('ansible-become').checked = true;
+  document.getElementById('ansible-run-output').innerHTML = '';
+  openModal('ansible-run-modal');
+}
+async function runAnsiblePlaybook() {
+  const id = document.getElementById('ansible-run-id').value;
+  const body = {
+    target: { type: document.getElementById('ansible-target-type').value,
+              value: document.getElementById('ansible-target-value').value.trim() },
+    ssh_user: document.getElementById('ansible-ssh-user').value.trim(),
+    ssh_key: document.getElementById('ansible-ssh-key').value,
+    ssh_password: document.getElementById('ansible-ssh-pass').value,
+    become: document.getElementById('ansible-become').checked,
+  };
+  if (!body.ssh_user) { toast('SSH user required', 'error'); return; }
+  if (!body.ssh_key.trim() && !body.ssh_password) { toast('Provide an SSH key or password', 'error'); return; }
+  const out = document.getElementById('ansible-run-output');
+  const btn = document.getElementById('ansible-run-btn');
+  btn.disabled = true; out.innerHTML = `<div class="diag-pending">${_icon('clock',13)} Running… (up to 15 min)</div>`;
+  const d = await api('POST', '/ansible/playbooks/' + encodeURIComponent(id) + '/run', body);
+  btn.disabled = false;
+  if (!d) { out.innerHTML = '<span class="c-red">Run failed.</span>'; return; }
+  if (d.error && !d.output) { out.innerHTML = `<span class="c-red">${escHtml(d.error)}</span>`; loadAnsible(); return; }
+  const cls = d.rc === 0 ? 'c-green' : 'c-red';
+  out.innerHTML = `<div class="${cls} mb-6">Finished on ${d.hosts} host(s) — rc=${d.rc}</div><pre class="journal-wrap">${escHtml(d.output || '')}</pre>`;
+  loadAnsible();
 }
 // v1.11.6: command library gets filter+sort
 let _cmdlibRegistered = false;
@@ -4367,9 +4551,22 @@ function generateQRCode(containerId, text) {
   document.head.appendChild(script);
 }
 function _renderQR(containerId, text) { const el = document.getElementById(containerId); if (!el || !window.qrcode) return; try { const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); /* Render as a data-URL <img>, not inline SVG: the strict CSP (style-src 'self') blocks the inline styles createSvgTag() emits, while img-src 'self' data: permits a data-URL image. */ const img = document.createElement('img'); img.src = qr.createDataURL(4, 0); img.width = 160; img.height = 160; img.alt = 'TOTP QR code'; el.replaceChildren(img); } catch(e) { el.innerHTML = '<div class="isl-359">QR generation failed.<br>Enter secret manually.</div>'; } }
-async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { statusEl.innerHTML = '<span class="c-green-bold">✓ 2FA is enabled</span>'; setupEl.innerHTML = `<button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
+async function loadTotpStatus() { const data = await api('GET', '/totp/status'); if (!data) return; const statusEl = document.getElementById('totp-status'); const setupEl = document.getElementById('totp-setup-area'); if (data.enabled) { const rem = data.recovery_codes_remaining ?? 0; const warn = rem <= 2 ? ' c-amber' : ''; statusEl.innerHTML = `<span class="c-green-bold">✓ 2FA is enabled</span> <span class="hint${warn}">· ${rem} recovery code${rem===1?'':'s'} left</span>`; setupEl.innerHTML = `<div class="row-6"><button class="btn-secondary" data-action="regenerateRecoveryCodes">Regenerate recovery codes</button><button class="btn-secondary c-danger-outline" data-action="disableTotp" >Disable 2FA</button></div>`; } else { statusEl.innerHTML = '<span class="c-muted">2FA is not enabled</span>'; setupEl.innerHTML = `<button class="btn-primary mw-200" data-action="setupTotp" >Enable 2FA</button>`; } }
+// v3.7.0: render the one-time recovery codes (after enable or regenerate).
+function _showRecoveryCodes(codes) {
+  const setupEl = document.getElementById('totp-setup-area');
+  const grid = codes.map(c => `<code class="recovery-code">${escHtml(c)}</code>`).join(' ');
+  setupEl.innerHTML = `<div class="dash-card"><div class="fw-600 mb-6">Recovery codes</div><div class="hint mb-12">Each code works once if you lose your authenticator. Store them somewhere safe — they will not be shown again.</div><div class="row-6 flex-wrap mb-12">${grid}</div><button class="btn-secondary" data-action="loadTotpStatus">Done</button></div>`;
+}
+async function regenerateRecoveryCodes() {
+  const pw = await uiPrompt({title: 'Regenerate recovery codes', message: 'Enter your password. This invalidates your existing codes.', type: 'password', confirmText: 'Regenerate'});
+  if (!pw) return;
+  const data = await api('POST', '/totp/recovery-codes', {password: pw});
+  if (data?.ok && data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); }
+  else toast(data?.error || 'Failed', 'error');
+}
 async function setupTotp() { const data = await api('POST', '/totp/setup'); if (!data?.ok) { toast(data?.error || 'Failed', 'error'); return; } const setupEl = document.getElementById('totp-setup-area'); const qrContainerId = 'totp-qr-' + Date.now(); setupEl.innerHTML = `<div class="isl-360"><div class="isl-361"><div id="${qrContainerId}" class="isl-362"><span class="isl-363">Generating…</span></div><div class="isl-364"><div class="isl-365">Scan with your authenticator app</div><div class="isl-366">Google Authenticator, Authy, 1Password, Bitwarden, etc.</div><div class="isl-367">Or enter manually:</div><div data-action-btn="_copySecretBtn" data-secret="${data.secret}" title="Click to copy" class="isl-368">${data.secret}</div></div></div></div><div class="form-group"><label class="form-label">Verify — enter a code from your app</label><input type="text" id="totp-confirm-code" class="form-input isl-369" placeholder="123456" maxlength="6" inputmode="numeric"></div><button class="btn-primary mw-200" data-action="confirmTotp" >Confirm & Enable</button>`; generateQRCode(qrContainerId, data.uri); }
-async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); loadTotpStatus(); } else toast(data?.error || 'Invalid code', 'error'); }
+async function confirmTotp() { const code = document.getElementById('totp-confirm-code').value.trim(); if (!code) { toast('Enter a code', 'error'); return; } const data = await api('POST', '/totp/confirm', {code}); if (data?.ok) { toast('2FA enabled!', 'success'); if (data.recovery_codes) { _showRecoveryCodes(data.recovery_codes); } else { loadTotpStatus(); } } else toast(data?.error || 'Invalid code', 'error'); }
 async function disableTotp() { const pw = await uiPrompt({title: 'Disable two-factor', message: 'Enter your password to disable 2FA:', type: 'password', confirmText: 'Disable', danger: true}); if (!pw) return; const data = await api('POST', '/totp/disable', {password: pw}); if (data?.ok) { toast('2FA disabled', 'info'); loadTotpStatus(); } else toast(data?.error || 'Failed', 'error'); }
 function filterDevices() {
   // v1.11.5: persist filter input across reloads. The actual filter logic
@@ -10324,6 +10521,69 @@ async function submitLxcCreate() {
   }
 }
 
+// v3.7.0: QEMU VM create wizard — mirrors the LXC wizard.
+async function openVmCreateWizard() {
+  openModal('vm-create-modal');
+  const loading = document.getElementById('vm-create-loading');
+  const form    = document.getElementById('vm-create-form');
+  const submit  = document.getElementById('vm-create-submit');
+  const result  = document.getElementById('vm-create-result');
+  loading.style.display = 'block'; loading.textContent = 'Loading options from Proxmox…';
+  form.classList.add('d-none'); submit.disabled = true; result.innerHTML = '';
+  const data = await api('GET', '/proxmox/qemu/create-options');
+  if (!data || data.error) {
+    loading.innerHTML = `<span class="c-red">${escHtml((data && data.error) || 'Could not load Proxmox options.')}</span>`;
+    return;
+  }
+  document.getElementById('vm-create-node').textContent = data.node ? `Node: ${data.node}` : '';
+  document.getElementById('vm-vmid').value = data.next_vmid || '';
+  const isoSel = document.getElementById('vm-iso');
+  const isos = data.isos || [];
+  isoSel.innerHTML = '<option value="">(no ISO — empty VM)</option>' +
+    isos.map(i => `<option value="${escAttr(i.volid)}">${escHtml(i.name)}</option>`).join('');
+  const stSel = document.getElementById('vm-storage');
+  const sts = data.storages || [];
+  stSel.innerHTML = sts.length
+    ? sts.map(s => `<option value="${escAttr(s.storage)}">${escHtml(s.storage)} (${escHtml(s.type)})</option>`).join('')
+    : '<option value="">(no disk storage)</option>';
+  const brSel = document.getElementById('vm-bridge');
+  const brs = (data.bridges && data.bridges.length) ? data.bridges : ['vmbr0'];
+  brSel.innerHTML = brs.map(b => `<option value="${escAttr(b)}">${escHtml(b)}</option>`).join('');
+  loading.style.display = 'none';
+  form.classList.remove('d-none');
+  submit.disabled = !sts.length;
+}
+
+async function submitVmCreate() {
+  const result = document.getElementById('vm-create-result');
+  const submit = document.getElementById('vm-create-submit');
+  const body = {
+    vmid:      parseInt(document.getElementById('vm-vmid').value, 10),
+    name:      document.getElementById('vm-name').value.trim(),
+    iso:       document.getElementById('vm-iso').value,
+    storage:   document.getElementById('vm-storage').value,
+    disk_gb:   parseInt(document.getElementById('vm-disk').value, 10),
+    cores:     parseInt(document.getElementById('vm-cores').value, 10),
+    memory_mb: parseInt(document.getElementById('vm-memory').value, 10),
+    bridge:    document.getElementById('vm-bridge').value,
+    start:     document.getElementById('vm-start').checked,
+    onboot:    document.getElementById('vm-onboot').checked,
+  };
+  if (!body.name) { result.innerHTML = '<span class="c-red">Name is required.</span>'; return; }
+  if (!body.storage) { result.innerHTML = '<span class="c-red">Pick a disk storage.</span>'; return; }
+  submit.disabled = true;
+  result.innerHTML = `<span class="diag-pending">${_icon('clock',13)} Creating VM ${body.vmid}…</span>`;
+  const r = await api('POST', '/proxmox/qemu/create', body);
+  if (r && r.ok) {
+    result.innerHTML = `<span class="c-green">${_icon('server',13)} VM ${r.vmid} created${body.start ? ' and starting' : ''}. Refreshing…</span>`;
+    toast(`VM ${r.vmid} (${body.name}) created`, 'success');
+    setTimeout(() => { closeModal('vm-create-modal'); loadVirtualization(); }, 1600);
+  } else {
+    result.innerHTML = `<span class="c-red">${escHtml((r && r.error) || 'Create failed')}</span>`;
+    submit.disabled = false;
+  }
+}
+
 // Perform a guest action then refresh whichever view is showing.
 async function proxmoxAction(kind, vmid, action, name) {
   const verb = action === 'shutdown' ? 'Shut down' : 'Start';
@@ -11229,6 +11489,8 @@ async function openHostConfigModal(devId, devName) {
   // v3.4.0: reflect the per-device enforce opt-in + its warning banner.
   const applyCb = document.getElementById('hc-apply-enabled');
   if (applyCb) { applyCb.checked = !!data.apply_enabled; _hcToggleApplyWarn(); }
+  const enfCb = document.getElementById('hc-enforce-drift');
+  if (enfCb) enfCb.checked = !!data.enforce;
 
   const desired = data.desired || {};
   const current = data.current || {};
@@ -11494,6 +11756,8 @@ async function saveHostConfig() {
   // baseline only.
   const enforce = !!document.getElementById('hc-apply-enabled')?.checked;
   desired.apply_enabled = enforce;
+  // v3.7.0: corrective enforcement — re-apply only when drift is detected.
+  desired.enforce = !!document.getElementById('hc-enforce-drift')?.checked;
 
   const r = await api('PUT', `/devices/${_hcDevId}/host-config`, desired);
   if (!r) return;

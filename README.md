@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.6.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.7.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -164,6 +164,13 @@ The demo is reset every few hours, so feel free to break things.
 - **Endpoint AV posture** *(v3.6)* — ClamAV / rkhunter status (DB age, infected count, warnings) reported by the agent, with an on-demand scan action; infections raise a critical attention item.
 - **Auto-patch policy** *(v3.6)* — Planning → Auto-patch applies updates automatically on a cron schedule across a group / tag / site / whole fleet, optional reboot, respecting maintenance windows.
 - **Proxmox backup check** *(v3.6)* — per-guest vzdump backup recency from the node's backup storage; guests with no/stale backups become attention items, alongside the existing stale-snapshot check.
+- **2FA recovery codes** *(v3.7)* — one-time backup codes generated at TOTP enrollment; a code logs you in if you lose your authenticator, then is consumed. Regenerate from Settings → Security.
+- **Audit-log forwarding** *(v3.7)* — mirror every audit entry to a SIEM (HTTP JSON) or syslog collector (RFC 5424 UDP/TCP), SSRF-guarded and non-blocking, with a test button.
+- **Credential rotation reminders** *(v3.7)* — per-credential "rotate every N days" policy in the CMDB vault; overdue credentials are flagged on the dashboard and badged in the asset view.
+- **Desired-state enforcement** *(v3.7)* — opt-in "correct on drift" re-applies a host's desired config only when it drifts, beside the existing always-on enforce.
+- **Change approval (maker-checker)** *(v3.7)* — optionally require a second admin to approve arbitrary command runs; the requester can't self-approve.
+- **Proxmox VM create** *(v3.7)* — a Create VM wizard (cores/memory/disk/bridge/ISO) builds QEMU guests via the API, alongside the LXC create.
+- **Ansible playbook runner** *(v3.7)* — store playbooks and run them against a group/tag/site/fleet with the server as the control node over SSH (needs ansible-core on the server).
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
