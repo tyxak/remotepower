@@ -7862,6 +7862,15 @@ def _device_quarantined(dev):
     return bool((dev or {}).get('quarantined', False))
 
 
+# v3.8.0: cap how many commands can pile up undelivered for one device. Commands
+# only accumulate while a host is OFFLINE (an online agent drains them within one
+# poll); without a cap, spamming exec/actions at an offline host queues an
+# unbounded backlog that all fires at once when it returns. At the cap we refuse
+# new commands with a clear "host may be offline — clear its queue" error; the
+# operator can track + cancel the backlog on the Command Queue page.
+MAX_QUEUED_PER_DEVICE = 100
+
+
 def _queue_command(dev_id, command, actor):
     devices = load(DEVICES_FILE)
     if dev_id not in devices:
@@ -7874,11 +7883,18 @@ def _queue_command(dev_id, command, actor):
     # dispatch can't clobber this append (lost-update race). log_command /
     # fire_webhook / respond run AFTER the lock commits — never hold the queue
     # lock across webhook delivery or a respond() (which would skip the save).
+    full = False
     with _LockedUpdate(CMDS_FILE) as cmds:
         if dev_id not in cmds:
             cmds[dev_id] = []
-        if command not in cmds[dev_id]:
+        if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+            full = True
+        elif command not in cmds[dev_id]:
             cmds[dev_id].append(command)
+    if full:
+        respond(429, {'error': f'Command queue full ({MAX_QUEUED_PER_DEVICE} already waiting) — '
+                      f'{devices[dev_id].get("name", dev_id)} may be offline. '
+                      f'Cancel or clear its queued commands first.'})
     log_command(actor, dev_id, devices[dev_id].get('name', dev_id), command)
     fire_webhook('command_queued', {
         'device_id': dev_id, 'name': devices[dev_id].get('name', dev_id),
@@ -7906,6 +7922,9 @@ def _queue_command_batch(dev_ids, command, actor):
                 results[dev_id] = {'ok': False, 'error': 'Device is quarantined'}; continue
             if dev_id not in cmds:
                 cmds[dev_id] = []
+            if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+                results[dev_id] = {'ok': False, 'error':
+                    f'Queue full ({MAX_QUEUED_PER_DEVICE}) — host may be offline; clear its queue first'}; continue
             if command not in cmds[dev_id]:
                 cmds[dev_id].append(command)
             notify.append((dev_id, devices[dev_id].get('name', dev_id)))
@@ -8206,6 +8225,9 @@ def handle_upgrade_device():
             results[dev_id] = {'ok': False, 'error': 'Device not found'}; continue
         if dev_id not in cmds:
             cmds[dev_id] = []
+        if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE and queued_str not in cmds[dev_id]:
+            results[dev_id] = {'ok': False, 'error':
+                f'Queue full ({MAX_QUEUED_PER_DEVICE}) — {dev.get("name", dev_id)} may be offline; clear its queue first'}; continue
         if queued_str not in cmds[dev_id]:
             cmds[dev_id].append(queued_str)
         # v3.4.2: post-deploy verification — snapshot the pending count now and
@@ -11558,6 +11580,10 @@ def handle_custom_cmd():
         if not ok:
             results[dev_id] = {'ok': False, 'error': reason}; continue
         if dev_id not in cmds: cmds[dev_id] = []
+        if len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE:
+            results[dev_id] = {'ok': False, 'error':
+                f'Command queue full ({MAX_QUEUED_PER_DEVICE} already waiting) — '
+                f'{devices[dev_id].get("name", dev_id)} may be offline. Clear its queue first.'}; continue
         cmds[dev_id].append(f'exec:{cmd_str}')
         log_command(actor, dev_id, devices[dev_id].get('name', dev_id), f'exec:{cmd_str[:40]}')
         audit_log(actor, 'exec', f'{dev_id}: {cmd_str[:80]}')

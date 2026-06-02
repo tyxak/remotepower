@@ -170,6 +170,18 @@ class TestV380Patching(unittest.TestCase):
         self.assertIn('DPkg::Lock::Timeout', seg)
         self.assertIn('apt-get $ALT update', seg)
 
+    def test_offline_queue_is_capped(self):
+        # A "gazillion" commands can't pile up undelivered on an offline host:
+        # the main exec path and the central enqueue helpers refuse past a cap.
+        self.assertIn('MAX_QUEUED_PER_DEVICE', API)
+        # main "Run command" exec path enforces it
+        seg = API[API.index('def handle_custom_cmd'):API.index('def handle_exec_batch')]
+        self.assertIn('len(cmds[dev_id]) >= MAX_QUEUED_PER_DEVICE', seg)
+        # central single-queue helper enforces it (429)
+        qc = API[API.index('def _queue_command('):API.index('def _queue_command_batch')]
+        self.assertIn('MAX_QUEUED_PER_DEVICE', qc)
+        self.assertIn('429', qc)
+
     def test_command_queue_returns_recent_dispatch_log(self):
         seg = API[API.index('def handle_command_queue'):API.index('def handle_command_queue_clear')]
         self.assertIn("'recent': recent", seg)
