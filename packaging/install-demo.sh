@@ -162,6 +162,11 @@ echo "── Setting up demo data dir at $DEMO_DATA_DIR…"
 run mkdir -p "$DEMO_DATA_DIR"
 run chown "$CGI_USER:$CGI_GROUP" "$DEMO_DATA_DIR"
 run chmod 700 "$DEMO_DATA_DIR"
+# Mark this as a sanctioned demo dir so the seeder's safety guard allows
+# (re-)seeding even if the demo vhost has already served a request and the app
+# auto-created its default admin / token files here.
+run touch "$DEMO_DATA_DIR/.rp-demo-marker"
+run chown "$CGI_USER:$CGI_GROUP" "$DEMO_DATA_DIR/.rp-demo-marker"
 
 # ─── Step 2: seed the demo data ──────────────────────────────────────────────
 

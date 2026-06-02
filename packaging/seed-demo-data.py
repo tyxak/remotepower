@@ -75,11 +75,20 @@ def _guard_demo_target(target, override=False):
         resolved = str(target)
 
     # 2. Real accounts present → always block, even with override or a marker.
+    # A never-used default admin (must_change_password=True) does NOT count:
+    # the app auto-creates exactly that the first time the demo vhost serves a
+    # request, and refusing to seed because of it would make a fresh demo
+    # instance un-seedable. A *real* admin (password changed, so no
+    # must_change_password flag) still blocks — that's the production guard.
     users = target / 'users.json'
     if users.exists():
         try:
             udata = json.loads(users.read_text() or '{}')
-            real = sorted(n for n in (udata or {}) if n not in _DEMO_ACCOUNTS)
+            real = sorted(
+                n for n, u in (udata or {}).items()
+                if n not in _DEMO_ACCOUNTS
+                and not (isinstance(u, dict) and u.get('must_change_password'))
+            )
             if real:
                 return (False,
                         f"{users} contains real (non-demo) account(s): "

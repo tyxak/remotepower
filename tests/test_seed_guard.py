@@ -53,6 +53,23 @@ class TestSeedGuard(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("non-demo", reason.lower())
 
+    def test_default_admin_does_not_block_demo_seed(self):
+        # The app auto-creates a never-used `admin` (must_change_password) on a
+        # fresh demo instance; that must NOT block seeding (it used to).
+        d = self._tmp()
+        (d / self.m.DEMO_MARKER).write_text("x")
+        (d / "users.json").write_text(json.dumps(
+            {"admin": {"role": "admin", "must_change_password": True,
+                       "password_hash": "x"}}))
+        ok, _ = self.m._guard_demo_target(d)
+        self.assertTrue(ok)
+        # …but a real admin (password changed → no flag) still blocks.
+        (d / "users.json").write_text(json.dumps(
+            {"admin": {"role": "admin", "password_hash": "x"}}))
+        ok2, reason2 = self.m._guard_demo_target(d)
+        self.assertFalse(ok2)
+        self.assertIn("non-demo", reason2.lower())
+
     def test_demo_accounts_only_not_treated_as_real(self):
         d = self._tmp()
         (d / "users.json").write_text(json.dumps({"demo": {}, "alice": {}, "bob": {}}))
