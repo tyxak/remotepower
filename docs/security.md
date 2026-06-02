@@ -163,7 +163,34 @@ Summary of the defences in place:
 - Methods restricted to `GET POST DELETE PATCH` at the location block.
 - Request body capped at 64 KB.
 - Static `.json` and `.tmp` files denied (defence against accidental data-dir exposure).
+- The `/cgi-bin/` path is denied as a static location (defence in depth — the
+  Python backend lives there but is only ever executed via `/api/` through
+  fcgiwrap, so its URL should never resolve to a static file).
 - HSTS commented out — uncomment after HTTPS is fully tested.
+
+### Internet-facing access control
+
+Authentication (session token / API key, rate-limited login, optional 2FA) is
+the primary control on every API call. If the instance is reachable from the
+public internet, consider **also** restricting `/api/` by source IP — or
+fronting it with a VPN / SSO proxy. The static dashboard shell can stay public;
+`/api/` is the sensitive surface. Keep an allowlist in an include file and pull
+it into each `/api/` location:
+
+```nginx
+# /etc/nginx/snippets/rp-allowlist.conf
+allow 203.0.113.7;     # admin IP
+allow 10.0.0.0/24;     # LAN / VPN range
+deny  all;
+```
+
+**Caveat:** agents POST to `/api/heartbeat` (and enroll / download), so the
+allowlist **must include every agent's source IP** (your LAN/VPN) or they stop
+reporting. If agents roam on arbitrary public IPs, don't blanket-allowlist
+`/api/` — rely on the built-in per-device token auth and put the admin surface
+behind a VPN/SSO instead. Never IP-restrict `/api/csp-report` (you'd lose CSP
+reports from real browsers). The shipped `server/conf/remotepower.conf` carries
+this guidance inline.
 
 ## Threat model
 
@@ -193,6 +220,9 @@ Summary of the defences in place:
 Recommended for production deployments beyond the secure defaults:
 
 - [ ] Run behind HTTPS with a valid certificate (Let's Encrypt is fine).
+- [ ] If internet-facing, restrict `/api/` by source IP (allowlist include) or
+      front it with a VPN/SSO — see "Internet-facing access control" above.
+      Include your agents' source IPs in the allowlist.
 - [ ] Uncomment the `Strict-Transport-Security` header in
       `server/conf/remotepower.conf` once HTTPS is verified.
 - [ ] Enable the `limit_req` rate-limit zones at the nginx level — the config
