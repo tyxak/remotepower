@@ -188,6 +188,18 @@ class TestV380SSRF(unittest.TestCase):
         self.assertIn('_require_signed_updates()', seg)
         self.assertIn('return False', seg)
 
+    def test_refresh_countdown_is_css_animation_not_per_second_writes(self):
+        # v3.8.0 perf: the refresh bar must drain via one CSS animation per cycle
+        # (driven by animationend), not a per-second bar.style.width write that
+        # woke form-filler MutationObservers every second.
+        seg = APP[APP.index('function startRefreshCycle'):]
+        seg = seg[:seg.index('\nfunction ', 1)]
+        self.assertIn('rp-refresh-countdown', seg)
+        self.assertIn("addEventListener('animationend'", seg)
+        self.assertNotIn('bar.style.width = pct', seg)   # old per-second write gone
+        css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
+        self.assertIn('@keyframes rp-refresh-countdown', css)
+
 
 class TestV380TokenSafety(unittest.TestCase):
     """Non-ASCII status tokens used to 500 the public status/calendar endpoints

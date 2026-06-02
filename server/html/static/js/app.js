@@ -9,6 +9,7 @@ let pinSeconds      = 0;
 let refreshTimer    = null;
 let refreshInterval = 60;
 let refreshRemaining = refreshInterval;
+let _refreshBarWired = false;   // animationend listener bound once (v3.8.0)
 let activeTagFilter = null;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2331,28 +2332,53 @@ function _refreshShouldPause() {
 }
 function startRefreshCycle() {
   clearInterval(refreshTimer);
-  refreshRemaining = refreshInterval;
-  refreshTimer = setInterval(() => {
-    const label = document.getElementById('last-refresh-label');
-    const bar = document.getElementById('refresh-progress');
-    if (_refreshShouldPause()) {
-      // Hold the countdown — don't advance, don't fire loadDevices(). This
-      // also avoids races where loadDevices() re-renders the device grid
-      // while the user is interacting with a modal that references it.
-      if (label) label.textContent = 'Refresh paused';
-      return;
+  const bar   = document.getElementById('refresh-progress');
+  const label = document.getElementById('last-refresh-label');
+
+  // v3.8.0: drive the countdown bar with ONE CSS animation per cycle instead of
+  // writing bar.style.width (and the label text) every second. Per-second DOM
+  // mutations woke any MutationObserver on the page — notably password-manager
+  // / form-filler extensions that re-scan the whole DOM on every change — once
+  // a second for the life of the tab (this dominated a real CPU trace). The
+  // animation is compositor-driven; the only DOM writes now happen on actual
+  // state changes (cycle start, pause/resume, refresh).
+  let paused = false;
+
+  function arm() {
+    paused = false;
+    if (label) label.textContent = `Auto-refresh · ${refreshInterval}s`;
+    if (bar) {
+      bar.style.animation = 'none';        // reset…
+      void bar.offsetWidth;                // …force reflow so it restarts cleanly
+      bar.style.animation = `rp-refresh-countdown ${refreshInterval}s linear forwards`;
+      bar.style.animationPlayState = 'running';
     }
-    refreshRemaining--;
-    const pct = (refreshRemaining / refreshInterval) * 100;
-    if (bar) bar.style.width = pct + '%';
-    if (refreshRemaining <= 0) {
-      refreshRemaining = refreshInterval;
+  }
+
+  // Fire the refresh when the bar finishes draining, then start the next cycle.
+  // The element is static in index.html, so bind the listener once.
+  if (bar && !_refreshBarWired) {
+    _refreshBarWired = true;
+    bar.addEventListener('animationend', (e) => {
+      if (e.animationName !== 'rp-refresh-countdown') return;
       loadDevices();
-    }
-    const m = Math.floor(refreshRemaining / 60);
-    const s = refreshRemaining % 60;
-    if (label) label.textContent = `Refresh in ${m > 0 ? m + 'm ' : ''}${s}s`;
+      arm();
+    });
+  }
+
+  // 1 Hz pause check — reads state only; writes to the DOM ONLY when the pause
+  // state actually flips, so it never mutates the DOM on a steady cadence. A
+  // paused animation holds the bar (and defers animationend), so the refresh
+  // resumes exactly where it left off when the modal/dropdown closes.
+  refreshTimer = setInterval(() => {
+    const want = _refreshShouldPause();
+    if (want === paused) return;           // no change → no DOM mutation
+    paused = want;
+    if (bar)   bar.style.animationPlayState = want ? 'paused' : 'running';
+    if (label) label.textContent = want ? 'Refresh paused' : `Auto-refresh · ${refreshInterval}s`;
   }, 1000);
+
+  arm();
 }
 // v2.2.6: opening a modal also closes the mobile nav drawer (two
 // slide-in surfaces fighting was the "windows over each other" bug on
