@@ -161,6 +161,26 @@ class TestV380Bind(unittest.TestCase):
         self.assertIn("'failed_units',", APP)
 
 
+class TestV380Patching(unittest.TestCase):
+    def test_upgrade_waits_for_apt_lock(self):
+        # rc=100 was apt lock contention (agent scan / unattended-upgrades).
+        # The upgrade must wait for the lock, not fail instantly.
+        start = API.index('_UPGRADE_CMD = (')
+        seg = API[start:API.index('_SCHED_UPGRADE_CMD', start)]
+        self.assertIn('DPkg::Lock::Timeout', seg)
+        self.assertIn('apt-get $ALT update', seg)
+
+    def test_command_queue_returns_recent_dispatch_log(self):
+        seg = API[API.index('def handle_command_queue'):API.index('def handle_command_queue_clear')]
+        self.assertIn("'recent': recent", seg)
+        self.assertIn('HISTORY_FILE', seg)
+        # respects RBAC scoping (only in-scope devices)
+        self.assertIn('did not in devices', seg)
+        # UI renders it so the page isn't "empty = useless"
+        self.assertIn('Recently dispatched', APP)
+        self.assertIn('r.recent', APP)
+
+
 class TestV380SSRF(unittest.TestCase):
     AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
 

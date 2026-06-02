@@ -7967,7 +7967,29 @@ def handle_command_queue():
                          for i, c in enumerate(queue)],
         })
     out.sort(key=lambda r: (-r['count'], r['name']))
-    respond(200, {'devices': out, 'total': sum(r['count'] for r in out)})
+    # v3.8.0: the live queue drains the instant an online agent fetches it
+    # (≤ one poll, ~60s), so on a healthy fleet it's almost always empty — which
+    # made the page look broken ("I queued something and nothing's here"). Also
+    # return a recent-dispatch log from the command history so an operator can
+    # see what was queued, when, and by whom, even after it was delivered.
+    recent = []
+    try:
+        for e in reversed((load(HISTORY_FILE) or {}).get('entries', [])):
+            did = e.get('device_id')
+            if did and did not in devices:
+                continue   # out of scope / unknown device — respect RBAC
+            recent.append({
+                'ts':          e.get('ts'),
+                'actor':       e.get('actor', ''),
+                'device_id':   did,
+                'device_name': e.get('device_name') or (devices.get(did) or {}).get('name', did),
+                'command':     str(e.get('command', ''))[:200],
+            })
+            if len(recent) >= 40:
+                break
+    except Exception:
+        recent = []
+    respond(200, {'devices': out, 'total': sum(r['count'] for r in out), 'recent': recent})
 
 
 def handle_command_queue_clear(dev_id):
@@ -8101,7 +8123,13 @@ _UPGRADE_CMD = (
     'Dpkg::Options:: "--force-confdef";\\n'
     'Dpkg::Options:: "--force-confold";\\n\' > "$APT_CONFIG"; '
     '  export APT_CONFIG DEBIAN_FRONTEND=noninteractive; '
-    '  apt-get update && apt-get -y upgrade && apt-get -y autoremove && apt-get clean; '
+    # DPkg::Lock::Timeout: WAIT (up to 5 min) for the dpkg/apt lock instead of
+    # failing instantly with rc=100. Without it, the agent's own forced
+    # package-scan apt — or Ubuntu's unattended-upgrades / apt-daily timer —
+    # holding the lock when this runs makes the upgrade spuriously "fail" (100)
+    # even though apt is perfectly healthy. (v3.8.0 fix.)
+    '  ALT="-o DPkg::Lock::Timeout=300"; '
+    '  apt-get $ALT update && apt-get $ALT -y upgrade && apt-get $ALT -y autoremove && apt-get clean; '
     'elif command -v dnf >/dev/null 2>&1; then '
     '  dnf -y upgrade && dnf autoremove -y && dnf clean packages; '
     'elif command -v yum >/dev/null 2>&1; then '

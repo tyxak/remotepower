@@ -4050,31 +4050,59 @@ async function loadCommandQueue() {
   if (!body) return;
   const r = await api('GET', '/command-queue').catch(() => null);
   if (!r) { body.innerHTML = '<div class="c-red">Failed to load the command queue.</div>'; return; }
-  if (!r.devices || !r.devices.length) {
-    body.innerHTML = '<div class="empty-state"><div class="empty-title">Queue is empty</div>'
-      + '<div class="empty-text">No commands are waiting for any device.</div></div>';
-    return;
-  }
   const kindPill = (k) => `<span class="ro-badge ${k === 'exec' ? 'rs-paused' : 'rs-done'}">${escHtml(k)}</span>`;
-  body.innerHTML = r.devices.map(d => {
-    const status = d.online
-      ? '<span class="c-green">● online</span>'
-      : '<span class="c-amber">● offline</span>';
-    const rows = d.commands.map(c =>
-      `<tr><td>${kindPill(c.kind)}</td>`
-      + `<td class="ff-mono fs-12">${escHtml(c.summary)}</td>`
-      + `<td class="ta-right"><button class="btn-icon fs-12" data-action="cancelQueuedCommand" `
-      +   `data-arg="${escAttr(d.device_id)}" data-arg2="${c.index}" title="Cancel this queued command">Cancel</button></td></tr>`
+
+  // Pending delivery — the live queue. An online agent fetches queued commands
+  // within one check-in (~60s), so this is normally empty unless a host is
+  // OFFLINE (where commands pile up). That's expected, not a fault — hence the
+  // wording, and the recent-dispatch log below so a queued command is still
+  // visible after it was delivered.
+  let pendingHtml;
+  if (!r.devices || !r.devices.length) {
+    pendingHtml = '<div class="empty-state"><div class="empty-title">Nothing pending delivery</div>'
+      + '<div class="empty-text">Online agents fetch queued commands within one check-in (~60s), so this '
+      + 'is normally empty. Commands only wait here while a host is offline. See what you queued below.</div></div>';
+  } else {
+    pendingHtml = r.devices.map(d => {
+      const status = d.online
+        ? '<span class="c-green">● online</span>'
+        : '<span class="c-amber">● offline</span>';
+      const rows = d.commands.map(c =>
+        `<tr><td>${kindPill(c.kind)}</td>`
+        + `<td class="ff-mono fs-12">${escHtml(c.summary)}</td>`
+        + `<td class="ta-right"><button class="btn-icon fs-12" data-action="cancelQueuedCommand" `
+        +   `data-arg="${escAttr(d.device_id)}" data-arg2="${c.index}" title="Cancel this queued command">Cancel</button></td></tr>`
+      ).join('');
+      return `<div class="dash-card mb-12">
+        <div class="row-8-center mb-8">
+          <strong>${escHtml(d.name)}</strong> ${status}
+          <span class="c-muted fs-12">${d.count} pending${d.quarantined ? ' · quarantined' : ''}</span>
+          <button class="btn-icon fs-12 isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
+        </div>
+        <table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      </div>`;
+    }).join('');
+  }
+
+  // Recently dispatched — the log of what was queued (from command history), so
+  // a queued command is visible even after an online agent already picked it up.
+  let recentHtml = '';
+  const recent = r.recent || [];
+  if (recent.length) {
+    const rows = recent.map(e =>
+      `<tr><td class="c-muted fs-12">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td>`
+      + `<td class="fw-500">${escHtml(e.device_name || e.device_id || '—')}</td>`
+      + `<td class="hint">${escHtml(e.actor || '—')}</td>`
+      + `<td class="ff-mono fs-12">${escHtml(e.command || '')}</td></tr>`
     ).join('');
-    return `<div class="dash-card mb-12">
-      <div class="row-8-center mb-8">
-        <strong>${escHtml(d.name)}</strong> ${status}
-        <span class="c-muted fs-12">${d.count} pending${d.quarantined ? ' · quarantined' : ''}</span>
-        <button class="btn-icon fs-12 isl-12" data-action="clearDeviceQueue" data-arg="${escAttr(d.device_id)}" data-arg2="${escAttr(d.name)}">Clear all</button>
-      </div>
-      <table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    recentHtml = `<div class="dash-card mt-16">
+      <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
+        <span class="c-muted fs-12">last ${recent.length} — what was queued, when, and by whom</span></div>
+      <table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table>
     </div>`;
-  }).join('');
+  }
+
+  body.innerHTML = '<div class="mb-8 fw-600">Pending delivery</div>' + pendingHtml + recentHtml;
 }
 async function cancelQueuedCommand(devId, index) {
   if (!confirm('Cancel this queued command? It will not be delivered to the agent.')) return;
