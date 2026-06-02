@@ -1812,6 +1812,28 @@ def main():
 
     target.mkdir(parents=True, exist_ok=True)
 
+    # When run as root, write the files owned by whoever owns the data dir (the
+    # CGI user, e.g. www-data) — otherwise they end up root:root mode 600, the
+    # server process can't read them, and it falls back to its default admin so
+    # the instance looks un-seeded (devices empty, demo/demo login missing).
+    _own_uid = _own_gid = -1
+    try:
+        if hasattr(os, 'geteuid') and os.geteuid() == 0:
+            _st = target.stat()
+            if _st.st_uid != 0:        # dir belongs to a service user — match it
+                _own_uid, _own_gid = _st.st_uid, _st.st_gid
+                print(f"Running as root; writing files owned by uid={_own_uid} "
+                      f"(the data dir's owner) so the server can read them.")
+    except OSError:
+        pass
+
+    def _fix_owner(p):
+        if _own_uid >= 0:
+            try:
+                os.chown(str(p), _own_uid, _own_gid)
+            except OSError:
+                pass
+
     for name, builder in BUILDERS.items():
         path = target / name
         data = builder()
@@ -1826,6 +1848,7 @@ def main():
             os.chmod(str(path), 0o600)
         except OSError:
             pass
+        _fix_owner(path)
         if not args.quiet:
             print(f"  ✓ {path}")
 
@@ -1835,6 +1858,7 @@ def main():
         (target / DEMO_MARKER).write_text(
             'This dir is a RemotePower DEMO data dir, seeded with fake data by '
             'seed-demo-data.py. Do not point a production server at it.\n')
+        _fix_owner(target / DEMO_MARKER)
     except OSError:
         pass
 
