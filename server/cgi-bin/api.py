@@ -17913,6 +17913,23 @@ def handle_dashboard_kinds_set():
     respond(200, {'ok': True, 'channel_routing': current})
 
 
+def _ct_token_eq(given, expected):
+    """Constant-time token comparison that never raises. hmac.compare_digest
+    raises TypeError on a non-ASCII str (Python requires an ASCII-only str or
+    bytes), and query-string tokens decode to arbitrary Unicode — so a token
+    like `%E2%80%A6` used to 500 the public status/calendar endpoints. Compare
+    on UTF-8 bytes instead: a non-ASCII or malformed token simply fails the
+    check (its bytes can't equal an ASCII token's) rather than crashing."""
+    if not given or not expected:
+        return False
+    try:
+        gb = given.encode('utf-8', 'strict') if isinstance(given, str) else bytes(given)
+        eb = expected.encode('utf-8', 'strict') if isinstance(expected, str) else bytes(expected)
+        return hmac.compare_digest(gb, eb)
+    except (UnicodeError, TypeError, ValueError):
+        return False
+
+
 def handle_public_status():
     """GET /api/public/status?token=<status_token> — read-only snapshot for a
     public status page. No session. Gated by the status token. Deliberately
@@ -17922,7 +17939,7 @@ def handle_public_status():
     token = cfg.get('status_token') or ''
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     given = (qs.get('token') or [''])[0]
-    if not (token and given and hmac.compare_digest(given, token)):
+    if not _ct_token_eq(given, token):
         respond(401, {'error': 'invalid or missing status token'})
         return
     now = int(time.time())
@@ -17968,7 +17985,7 @@ def handle_status():
         respond(403, {'error': 'status endpoint not enabled — generate a '
                                'status token in Settings'})
         return
-    if not given or not hmac.compare_digest(given, token):
+    if not _ct_token_eq(given, token):
         respond(403, {'error': 'invalid or missing status token'})
         return
 
@@ -24459,7 +24476,7 @@ def handle_schedule_ics():
     authed = False
     if qs_token:
         cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
-        authed = bool(cfg_token and hmac.compare_digest(qs_token, cfg_token))
+        authed = _ct_token_eq(qs_token, cfg_token)
     else:
         token = get_token_from_request()
         if not token:
@@ -24559,7 +24576,7 @@ def handle_prometheus_metrics():
     qs_token = (qs.get('token') or [''])[0]
     if qs_token:
         cfg_token = (load(CONFIG_FILE) or {}).get('status_token') or ''
-        if cfg_token and hmac.compare_digest(qs_token, cfg_token):
+        if _ct_token_eq(qs_token, cfg_token):
             pass  # authenticated via status token, fall through to body
         else:
             print('Status: 401 Unauthorized')

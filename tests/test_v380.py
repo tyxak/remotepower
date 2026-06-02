@@ -174,6 +174,49 @@ class TestV380SSRF(unittest.TestCase):
         self.assertIn('return False', seg)
 
 
+class TestV380TokenSafety(unittest.TestCase):
+    """Non-ASCII status tokens used to 500 the public status/calendar endpoints
+    (hmac.compare_digest raises TypeError on a non-ASCII str). The query-string
+    token endpoints must compare via the safe _ct_token_eq helper."""
+
+    @classmethod
+    def setUpClass(cls):
+        import os, tempfile
+        cls.tmpdir = tempfile.mkdtemp(prefix='rp_v380tok_')
+        os.environ['RP_DATA_DIR'] = cls.tmpdir
+        if 'api' in sys.modules:
+            del sys.modules['api']
+        import api
+        cls.api = api
+
+    @classmethod
+    def tearDownClass(cls):
+        import os, shutil
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+        os.environ.pop('RP_DATA_DIR', None)
+        sys.modules.pop('api', None)
+
+    def test_query_string_token_sites_use_safe_compare(self):
+        # public/status, status, schedule.ics, and the public-POST status auth
+        # must not call raw compare_digest on the (Unicode) query-string token.
+        for needle in (
+            "given = (qs.get('token') or [''])[0]\n    if not _ct_token_eq(given",
+            "authed = _ct_token_eq(qs_token, cfg_token)",
+            "if _ct_token_eq(qs_token, cfg_token):",
+        ):
+            self.assertIn(needle, API, f'missing safe compare: {needle!r}')
+
+    def test_ct_token_eq_never_raises_on_non_ascii(self):
+        eq = self.api._ct_token_eq
+        self.assertTrue(eq('realtok_ABC123', 'realtok_ABC123'))
+        self.assertFalse(eq('wrong', 'realtok_ABC123'))
+        # the inputs that used to 500 the endpoint:
+        self.assertFalse(eq('…', 'realtok_ABC123'))         # ellipsis …
+        self.assertFalse(eq('\udcff\udcfe', 'realtok_ABC123'))   # surrogate bytes
+        self.assertFalse(eq('', 'realtok_ABC123'))               # empty
+        self.assertFalse(eq('x', None))                          # no token set
+
+
 class TestV380AiButtons(unittest.TestCase):
     NEW_KINDS = ['av_posture', 'agent_version', 'os_eol', 'hardware', 'backup',
                  'ssh_key', 'new_port', 'agent_integrity', 'log_alert']
