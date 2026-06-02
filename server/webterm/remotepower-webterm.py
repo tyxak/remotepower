@@ -64,6 +64,7 @@ and prints a useful error message.
 
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -393,7 +394,7 @@ class WebtermSession:
         # 'vnc' → tunnel an RFB stream from the host's loopback VNC server
         # over the same SSH connection (no extra inbound firewall rules).
         mode = (creds.get('mode') or 'pty').strip().lower()
-        if mode not in ('pty', 'vnc'):
+        if mode not in ('pty', 'vnc', 'sftp'):
             mode = 'pty'
         vnc_port = creds.get('vnc_port', 5900)
         if not isinstance(vnc_port, int) or not (1 <= vnc_port <= 65535):
@@ -446,6 +447,18 @@ class WebtermSession:
             self.reason = 'vnc'
             try:
                 await self._run_vnc(websocket, ssh_conn, vnc_port)
+            finally:
+                try:
+                    ssh_conn.close()
+                except Exception:
+                    pass
+            return
+
+        # v3.6.0: SFTP file manager — request/response JSON over the WS.
+        if mode == 'sftp':
+            self.reason = 'sftp'
+            try:
+                await self._run_sftp(websocket, ssh_conn)
             finally:
                 try:
                     ssh_conn.close()
@@ -645,6 +658,111 @@ class WebtermSession:
         finally:
             try:
                 writer.close()
+            except Exception:
+                pass
+
+    async def _run_sftp(self, websocket, ssh_conn):
+        """v3.6.0: file manager over SFTP. The browser sends one JSON request
+        per message ({op, ...}); we reply with one JSON response ({ok, ...}).
+        Files transfer as base64 in the JSON body, capped at SFTP_MAX_FILE.
+
+        Operations: list, read (download), write (upload), delete, mkdir,
+        rename. Everything runs as the SSH user, so the OS enforces
+        permissions — there is no path sandbox beyond that, by design (an
+        admin opening a root SFTP session is the whole point)."""
+        SFTP_MAX_FILE = 32 * 1024 * 1024   # 32 MB cap per transfer
+        try:
+            sftp = await ssh_conn.start_sftp_client()
+        except (asyncssh.Error, OSError) as e:
+            await self._send_json(websocket, {'type': 'error',
+                'message': f'SFTP subsystem unavailable: {str(e)[:150]}'})
+            return
+        await self._send_json(websocket, {'type': 'connected', 'session_id': self.session_id})
+
+        async def handle(req):
+            op = req.get('op')
+            if op == 'list':
+                path = req.get('path') or '.'
+                names = await sftp.readdir(path)
+                entries = []
+                for n in names:
+                    fn = n.filename
+                    if fn in ('.', '..'):
+                        continue
+                    a = n.attrs
+                    perm = a.permissions or 0
+                    is_dir = bool(perm & 0o040000)
+                    entries.append({'name': fn, 'type': 'dir' if is_dir else 'file',
+                                    'size': int(a.size or 0), 'mtime': int(a.mtime or 0)})
+                entries.sort(key=lambda e: (e['type'] != 'dir', e['name'].lower()))
+                # resolve the absolute path for the breadcrumb
+                try:
+                    realpath = await sftp.realpath(path)
+                except Exception:
+                    realpath = path
+                return {'op': 'list', 'path': realpath, 'entries': entries}
+            if op == 'read':
+                path = req['path']
+                st = await sftp.stat(path)
+                if (st.size or 0) > SFTP_MAX_FILE:
+                    return {'error': f'file too large (> {SFTP_MAX_FILE // (1024*1024)} MB)'}
+                async with sftp.open(path, 'rb') as f:
+                    data = await f.read()
+                if isinstance(data, str):
+                    data = data.encode('utf-8', 'replace')
+                return {'op': 'read', 'name': path.rsplit('/', 1)[-1],
+                        'b64': base64.b64encode(data).decode('ascii')}
+            if op == 'write':
+                path = req['path']
+                raw = base64.b64decode(req.get('b64', ''))
+                if len(raw) > SFTP_MAX_FILE:
+                    return {'error': 'upload too large'}
+                async with sftp.open(path, 'wb') as f:
+                    await f.write(raw)
+                return {'op': 'write', 'path': path}
+            if op == 'delete':
+                path = req['path']
+                if req.get('is_dir'):
+                    await sftp.rmdir(path)
+                else:
+                    await sftp.remove(path)
+                return {'op': 'delete', 'path': path}
+            if op == 'mkdir':
+                await sftp.mkdir(req['path'])
+                return {'op': 'mkdir', 'path': req['path']}
+            if op == 'rename':
+                await sftp.rename(req['src'], req['dst'])
+                return {'op': 'rename'}
+            return {'error': f'unknown op: {op}'}
+
+        try:
+            async for msg in websocket:
+                if isinstance(msg, bytes):
+                    msg = msg.decode('utf-8', 'replace')
+                try:
+                    req = json.loads(msg)
+                except json.JSONDecodeError:
+                    await self._send_json(websocket, {'error': 'bad JSON'})
+                    continue
+                rid = req.get('rid')
+                try:
+                    resp = await handle(req)
+                except (asyncssh.SFTPError, asyncssh.Error, OSError) as e:
+                    resp = {'error': str(e)[:200]}
+                except Exception as e:
+                    resp = {'error': f'{type(e).__name__}: {str(e)[:160]}'}
+                if rid is not None:
+                    resp['rid'] = rid
+                # account rough transfer volume for the audit line
+                self.bytes_out += len(resp.get('b64', '') or '')
+                self.bytes_in += len(req.get('b64', '') or '')
+                await self._send_json(websocket, resp)
+            self.reason = 'ws closed'
+        except ConnectionClosed:
+            self.reason = 'ws closed'
+        finally:
+            try:
+                sftp.exit()
             except Exception:
                 pass
 

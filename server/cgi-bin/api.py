@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.5.0'
+SERVER_VERSION = '3.6.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -180,6 +180,13 @@ CMDB_VAULT_FILE     = DATA_DIR / 'cmdb_vault.json'
 SITES_FILE          = DATA_DIR / 'sites.json'
 MAX_SITE_NAME_LEN   = 64
 MAX_SITES           = 500
+# v3.6.0
+BACKUP_JOBS_FILE    = DATA_DIR / 'backup_jobs.json'      # orchestrated backup commands
+AUTOPATCH_FILE      = DATA_DIR / 'autopatch_policies.json'  # scheduled auto-patch policies
+AV_FILE             = DATA_DIR / 'av_status.json'        # endpoint AV/malware posture
+PROXMOX_BACKUP_CACHE = DATA_DIR / 'proxmox_backup_cache.json'  # per-guest backup recency
+MAX_BACKUP_JOBS     = 200
+MAX_AUTOPATCH       = 100
 
 MAX_CMDB_DOC_LEN    = 64 * 1024     # 64 KB Markdown body per asset
 MAX_CMDB_FUNC_LEN   = 64
@@ -2576,6 +2583,9 @@ CHANNEL_KINDS = [
     ('warranty_expiry', 'Warranty expiry (NA)',  'informational', []),
     ('license_expiry',  'License expiry (NA)',   'informational', []),
     ('support_expiry',  'Support expiry (NA)',   'informational', []),
+    # v3.6.0: endpoint AV/malware posture + Proxmox backup recency (NA)
+    ('av_posture',      'Malware / AV posture (NA)',   'operational', []),
+    ('proxmox_backup',  'Stale Proxmox backups (NA)',  'operational', []),
     ('agent_integrity', 'Agent integrity (NA)', 'informational', []),
     ('after_hours',  'After-hours activity (NA)', 'informational', []),
     ('mailbox',     'Mailbox threshold',        'informational', ['mailbox_threshold']),
@@ -5431,6 +5441,443 @@ def handle_device_site(dev_id):
     respond(200, {'ok': True, 'site': site_id})
 
 
+# ── v3.6.0: host user / SSH-key management ──────────────────────────────────
+# Beyond monitoring authorized_keys drift, queue the standard useradd/usermod
+# commands. All gated by the `exec` permission (these run shell on the host),
+# audited, and quarantine-blocked at the queue. Inputs are strictly validated
+# so nothing the operator types can break out of the constructed command.
+
+_SAFE_UNIX_USER = re.compile(r'^[a-z_][a-z0-9_-]{0,31}$')
+# An SSH public key line: a known type, base64 body, optional comment. No shell
+# metacharacters can appear given this charset, so it is safe to single-quote.
+_SSH_PUBKEY_RE = re.compile(
+    r'^(ssh-ed25519|ssh-rsa|ssh-dss|ecdsa-sha2-nistp(?:256|384|521)|'
+    r'sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)'
+    r'\s+[A-Za-z0-9+/]+={0,3}(\s+[\w@.\-]{1,128})?\s*$')
+
+
+def _user_home_path(username):
+    return '/root/.ssh' if username == 'root' else f'/home/{username}/.ssh'
+
+
+def handle_device_user_action(dev_id):
+    """POST /api/devices/{id}/user-action — queue a host account operation.
+
+    Body: {action, username, sshkey?}. action ∈ add|lock|unlock|delete|
+    addkey|revokekey. Gated on the `exec` permission."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('exec', [dev_id])
+    body = get_json_body() or {}
+    action = str(body.get('action', '')).strip()
+    username = str(body.get('username', '')).strip()
+    if not _SAFE_UNIX_USER.match(username):
+        respond(400, {'error': 'username must match [a-z_][a-z0-9_-]{0,31}'})
+
+    if action == 'add':
+        cmd = f'useradd -m -s /bin/bash {username}'
+    elif action == 'lock':
+        cmd = f'usermod -L {username} && passwd -l {username}'
+    elif action == 'unlock':
+        cmd = f'usermod -U {username}'
+    elif action == 'delete':
+        # No -r: never auto-remove a home directory / mail spool.
+        cmd = f'userdel {username}'
+    elif action in ('addkey', 'revokekey'):
+        key = str(body.get('sshkey', '')).strip()
+        if not _SSH_PUBKEY_RE.match(key):
+            respond(400, {'error': 'sshkey is not a valid SSH public key line'})
+        ssh_dir = _user_home_path(username)
+        ak = f'{ssh_dir}/authorized_keys'
+        if action == 'addkey':
+            cmd = (f"mkdir -p {ssh_dir} && touch {ak} && "
+                   f"grep -qxF '{key}' {ak} || echo '{key}' >> {ak}; "
+                   f"chmod 700 {ssh_dir}; chmod 600 {ak}")
+        else:
+            # Remove exactly the matching line; -i in place, fixed string via grep -v.
+            cmd = (f"test -f {ak} && grep -vxF '{key}' {ak} > {ak}.rp_tmp && "
+                   f"mv {ak}.rp_tmp {ak}; chmod 600 {ak}")
+    else:
+        respond(400, {'error': 'unknown action'})
+
+    audit_log(actor, 'host_user_action', detail=f'device={dev_id} action={action} user={username}')
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
+# ── v3.6.0: host firewall rule management ───────────────────────────────────
+# The agent already *reports* ufw/firewalld/nftables status (IaC collector).
+# This *manages* simple allow/deny rules via ufw or firewalld, mirroring the
+# OPNsense/RouterOS firewall management already in the product. exec-gated.
+
+def handle_device_firewall_action(dev_id):
+    """POST /api/devices/{id}/firewall-action — queue a host firewall change.
+
+    Body: {backend: ufw|firewalld, action: allow|deny|delete, port, proto}.
+    Gated on the `exec` permission."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('exec', [dev_id])
+    body = get_json_body() or {}
+    backend = str(body.get('backend', 'ufw')).strip().lower()
+    action = str(body.get('action', '')).strip().lower()
+    proto = str(body.get('proto', 'tcp')).strip().lower()
+    try:
+        port = int(body.get('port'))
+    except (TypeError, ValueError):
+        respond(400, {'error': 'port must be an integer'})
+    if not (1 <= port <= 65535):
+        respond(400, {'error': 'port out of range'})
+    if proto not in ('tcp', 'udp'):
+        respond(400, {'error': 'proto must be tcp or udp'})
+    if action not in ('allow', 'deny', 'delete'):
+        respond(400, {'error': 'action must be allow, deny, or delete'})
+
+    if backend == 'ufw':
+        if action == 'delete':
+            cmd = f'ufw --force delete allow {port}/{proto}; ufw --force delete deny {port}/{proto}'
+        else:
+            cmd = f'ufw {action} {port}/{proto}'
+    elif backend == 'firewalld':
+        if action == 'delete':
+            cmd = (f'firewall-cmd --permanent --remove-port={port}/{proto}; '
+                   f'firewall-cmd --reload')
+        elif action == 'allow':
+            cmd = (f'firewall-cmd --permanent --add-port={port}/{proto}; '
+                   f'firewall-cmd --reload')
+        else:  # deny == remove the explicit allow (firewalld is default-deny)
+            cmd = (f'firewall-cmd --permanent --remove-port={port}/{proto}; '
+                   f'firewall-cmd --reload')
+    else:
+        respond(400, {'error': 'backend must be ufw or firewalld'})
+
+    audit_log(actor, 'host_firewall_action',
+              detail=f'device={dev_id} backend={backend} {action} {port}/{proto}')
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
+# ── v3.6.0: backup orchestration ────────────────────────────────────────────
+# Closes the loop on the existing backup_stale *monitoring*: define a backup
+# command per device (restic/borg/rsync/…), run it on demand, and optionally on
+# a cron schedule. A job's command is arbitrary shell, so creating/editing is
+# admin-only (like saved scripts); running is gated on the `exec` permission.
+
+MAX_BACKUP_CMD_LEN = 2048
+
+
+def _backup_jobs_load():
+    data = load(BACKUP_JOBS_FILE)
+    if not isinstance(data, dict) or 'jobs' not in data:
+        return {'jobs': []}
+    return data
+
+
+def handle_backup_jobs_list():
+    """GET /api/backup-jobs — all defined backup jobs."""
+    require_auth()
+    respond(200, {'ok': True, 'jobs': _backup_jobs_load()['jobs']})
+
+
+def handle_backup_job_create():
+    """POST /api/backup-jobs — define a backup job (admin)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    name = _sanitize_str(body.get('name', ''), 80).strip()
+    dev_id = str(body.get('device_id', '')).strip()
+    command = str(body.get('command', '')).strip()
+    cron = _sanitize_str(body.get('cron', ''), 64).strip()
+    if not name or not command:
+        respond(400, {'error': 'name and command are required'})
+    if len(command) > MAX_BACKUP_CMD_LEN:
+        respond(400, {'error': f'command too long (max {MAX_BACKUP_CMD_LEN})'})
+    if not _validate_id(dev_id):
+        respond(400, {'error': 'valid device_id required'})
+    devices = load(DEVICES_FILE)
+    if dev_id not in devices:
+        respond(404, {'error': 'Device not found'})
+    if cron and not _valid_cron(cron):
+        respond(400, {'error': 'invalid cron expression'})
+    data = _backup_jobs_load()
+    if len(data['jobs']) >= MAX_BACKUP_JOBS:
+        respond(400, {'error': f'job limit reached (max {MAX_BACKUP_JOBS})'})
+    job = {'id': secrets.token_urlsafe(8), 'name': name, 'device_id': dev_id,
+           'device_name': devices[dev_id].get('name', dev_id), 'command': command,
+           'cron': cron or None, 'enabled': True, 'created': int(time.time()),
+           'created_by': actor, 'last_run': 0, 'last_fired_minute': None}
+    data['jobs'].append(job)
+    save(BACKUP_JOBS_FILE, data)
+    audit_log(actor, 'backup_job_create', detail=f'job={job["id"]} device={dev_id}')
+    respond(200, {'ok': True, 'id': job['id']})
+
+
+def handle_backup_job_update(job_id):
+    """PUT /api/backup-jobs/{id} — edit a backup job (admin)."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    data = _backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        respond(404, {'error': 'job not found'})
+    if 'name' in body:
+        job['name'] = _sanitize_str(body['name'], 80).strip() or job['name']
+    if 'command' in body:
+        c = str(body['command']).strip()
+        if not c or len(c) > MAX_BACKUP_CMD_LEN:
+            respond(400, {'error': 'invalid command'})
+        job['command'] = c
+    if 'cron' in body:
+        cron = _sanitize_str(body['cron'], 64).strip()
+        if cron and not _valid_cron(cron):
+            respond(400, {'error': 'invalid cron expression'})
+        job['cron'] = cron or None
+    if 'enabled' in body:
+        job['enabled'] = bool(body['enabled'])
+    save(BACKUP_JOBS_FILE, data)
+    audit_log(actor, 'backup_job_update', detail=f'job={job_id}')
+    respond(200, {'ok': True})
+
+
+def handle_backup_job_delete(job_id):
+    """DELETE /api/backup-jobs/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _backup_jobs_load()
+    n = len(data['jobs'])
+    data['jobs'] = [j for j in data['jobs'] if j['id'] != job_id]
+    if len(data['jobs']) == n:
+        respond(404, {'error': 'job not found'})
+    save(BACKUP_JOBS_FILE, data)
+    audit_log(actor, 'backup_job_delete', detail=f'job={job_id}')
+    respond(200, {'ok': True})
+
+
+def handle_backup_job_run(job_id):
+    """POST /api/backup-jobs/{id}/run — queue the backup command now."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    data = _backup_jobs_load()
+    job = next((j for j in data['jobs'] if j['id'] == job_id), None)
+    if not job:
+        respond(404, {'error': 'job not found'})
+    actor = require_perm('exec', [job['device_id']])
+    job['last_run'] = int(time.time())
+    save(BACKUP_JOBS_FILE, data)
+    audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
+    _queue_command(job['device_id'], f'exec:{job["command"]}', actor)  # responds + exits
+
+
+def process_backup_jobs():
+    """Per-request sweep: fire cron-scheduled backup jobs whose minute matches."""
+    data = _backup_jobs_load()
+    now = int(time.time())
+    current_minute = now // 60
+    changed = False
+    cmds = None
+    for job in data['jobs']:
+        if not job.get('enabled') or not job.get('cron'):
+            continue
+        if job.get('last_fired_minute') == current_minute:
+            continue
+        if not _cron_matches(job['cron'], now):
+            continue
+        dev_id = job['device_id']
+        devices = load(DEVICES_FILE)
+        if dev_id in devices and not _device_quarantined(devices[dev_id]):
+            if cmds is None:
+                cmds = load(CMDS_FILE)
+            cmds.setdefault(dev_id, [])
+            queued = f'exec:{job["command"]}'
+            if queued not in cmds[dev_id]:
+                cmds[dev_id].append(queued)
+            log_command(f'backup({job["created_by"]})', dev_id,
+                        job.get('device_name', dev_id), f'backup:{job["name"]}')
+        job['last_fired_minute'] = current_minute
+        job['last_run'] = now
+        changed = True
+    if cmds is not None:
+        save(CMDS_FILE, cmds)
+    if changed:
+        save(BACKUP_JOBS_FILE, data)
+
+
+# ── v3.6.0: auto-patch policy ───────────────────────────────────────────────
+# Apply (security) updates automatically on a schedule across a group / tag /
+# site / the whole fleet. Queued upgrades flow through the normal command
+# dispatch, so maintenance-window execution gating and quarantine apply for
+# free. Policy mutation is admin-only.
+
+def _autopatch_load():
+    data = load(AUTOPATCH_FILE)
+    if not isinstance(data, dict) or 'policies' not in data:
+        return {'policies': []}
+    return data
+
+
+def _autopatch_target_devices(target):
+    """Resolve a policy target {type,value} to a list of device ids."""
+    devices = load(DEVICES_FILE)
+    t = (target or {}).get('type', 'all')
+    v = (target or {}).get('value', '')
+    out = []
+    for did, dev in devices.items():
+        if dev.get('quarantined'):
+            continue
+        if t == 'all':
+            out.append(did)
+        elif t == 'group' and dev.get('group', '') == v:
+            out.append(did)
+        elif t == 'tag' and v in (dev.get('tags') or []):
+            out.append(did)
+        elif t == 'site' and dev.get('site', '') == v:
+            out.append(did)
+    return out
+
+
+def handle_autopatch_list():
+    """GET /api/autopatch — list policies."""
+    require_auth()
+    respond(200, {'ok': True, 'policies': _autopatch_load()['policies']})
+
+
+def handle_autopatch_create():
+    """POST /api/autopatch — create a policy (admin)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    name = _sanitize_str(body.get('name', ''), 80).strip()
+    cron = _sanitize_str(body.get('cron', ''), 64).strip()
+    target = body.get('target') or {}
+    ttype = str(target.get('type', 'all'))
+    tval = _sanitize_str(str(target.get('value', '')), 64)
+    if not name:
+        respond(400, {'error': 'name required'})
+    if ttype not in ('all', 'group', 'tag', 'site'):
+        respond(400, {'error': 'target.type must be all|group|tag|site'})
+    if ttype != 'all' and not tval:
+        respond(400, {'error': 'target.value required for this target type'})
+    if not cron or not _valid_cron(cron):
+        respond(400, {'error': 'a valid cron schedule is required'})
+    data = _autopatch_load()
+    if len(data['policies']) >= MAX_AUTOPATCH:
+        respond(400, {'error': f'policy limit reached (max {MAX_AUTOPATCH})'})
+    pol = {'id': secrets.token_urlsafe(8), 'name': name,
+           'target': {'type': ttype, 'value': tval}, 'cron': cron,
+           'reboot': bool(body.get('reboot', False)), 'enabled': True,
+           'created': int(time.time()), 'created_by': actor,
+           'last_run': 0, 'last_fired_minute': None}
+    data['policies'].append(pol)
+    save(AUTOPATCH_FILE, data)
+    audit_log(actor, 'autopatch_create', detail=f'policy={pol["id"]} {ttype}:{tval}')
+    respond(200, {'ok': True, 'id': pol['id']})
+
+
+def handle_autopatch_update(pol_id):
+    """PUT /api/autopatch/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'PUT':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    data = _autopatch_load()
+    pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
+    if not pol:
+        respond(404, {'error': 'policy not found'})
+    if 'name' in body:
+        pol['name'] = _sanitize_str(body['name'], 80).strip() or pol['name']
+    if 'cron' in body:
+        cron = _sanitize_str(body['cron'], 64).strip()
+        if not cron or not _valid_cron(cron):
+            respond(400, {'error': 'invalid cron'})
+        pol['cron'] = cron
+    if 'reboot' in body:
+        pol['reboot'] = bool(body['reboot'])
+    if 'enabled' in body:
+        pol['enabled'] = bool(body['enabled'])
+    if 'target' in body and isinstance(body['target'], dict):
+        tt = str(body['target'].get('type', 'all'))
+        tv = _sanitize_str(str(body['target'].get('value', '')), 64)
+        if tt in ('all', 'group', 'tag', 'site'):
+            pol['target'] = {'type': tt, 'value': tv}
+    save(AUTOPATCH_FILE, data)
+    audit_log(actor, 'autopatch_update', detail=f'policy={pol_id}')
+    respond(200, {'ok': True})
+
+
+def handle_autopatch_delete(pol_id):
+    """DELETE /api/autopatch/{id} (admin)."""
+    actor = require_admin_auth()
+    if method() != 'DELETE':
+        respond(405, {'error': 'Method not allowed'})
+    data = _autopatch_load()
+    n = len(data['policies'])
+    data['policies'] = [p for p in data['policies'] if p['id'] != pol_id]
+    if len(data['policies']) == n:
+        respond(404, {'error': 'policy not found'})
+    save(AUTOPATCH_FILE, data)
+    audit_log(actor, 'autopatch_delete', detail=f'policy={pol_id}')
+    respond(200, {'ok': True})
+
+
+def _autopatch_queue(pol, actor):
+    """Queue the upgrade command to every device the policy targets. Returns
+    the count queued."""
+    cmd = (f'exec:{_SCHED_UPGRADE_REBOOT_CMD}' if pol.get('reboot')
+           else f'exec:{_SCHED_UPGRADE_CMD}')
+    targets = _autopatch_target_devices(pol.get('target'))
+    if not targets:
+        return 0
+    _queue_command_batch(targets, cmd, actor)
+    return len(targets)
+
+
+def handle_autopatch_run(pol_id):
+    """POST /api/autopatch/{id}/run — apply the policy now (admin)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    data = _autopatch_load()
+    pol = next((p for p in data['policies'] if p['id'] == pol_id), None)
+    if not pol:
+        respond(404, {'error': 'policy not found'})
+    n = _autopatch_queue(pol, actor)
+    pol['last_run'] = int(time.time())
+    save(AUTOPATCH_FILE, data)
+    audit_log(actor, 'autopatch_run', detail=f'policy={pol_id} queued={n}')
+    respond(200, {'ok': True, 'queued': n})
+
+
+def process_autopatch():
+    """Per-request sweep: fire cron-scheduled auto-patch policies."""
+    data = _autopatch_load()
+    now = int(time.time())
+    current_minute = now // 60
+    changed = False
+    for pol in data['policies']:
+        if not pol.get('enabled') or not pol.get('cron'):
+            continue
+        if pol.get('last_fired_minute') == current_minute:
+            continue
+        if not _cron_matches(pol['cron'], now):
+            continue
+        try:
+            _autopatch_queue(pol, f'autopatch({pol.get("created_by", "system")})')
+        except Exception:
+            pass
+        pol['last_fired_minute'] = current_minute
+        pol['last_run'] = now
+        changed = True
+    if changed:
+        save(AUTOPATCH_FILE, data)
+
+
 def handle_device_group(dev_id):
     require_admin_auth()
     if method() != 'PATCH':
@@ -6781,6 +7228,13 @@ def handle_heartbeat():
             _ingest_hardware(dev_id, saved_dev['name'], body, now)
         except Exception as e:
             sys.stderr.write(f"[remotepower] hardware ingest failed dev={dev_id}: {e}\n")
+
+    # v3.6.0: endpoint AV/malware posture.
+    if 'av' in body and isinstance(body['av'], dict):
+        try:
+            _ingest_av(dev_id, body['av'], now)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] av ingest failed dev={dev_id}: {e}\n")
 
     # v3.4.0: Helm releases (visibility only).
     if 'helm' in body:
@@ -10886,6 +11340,42 @@ def _refresh_snapshot_cache(pc: dict, guests: list, guest_type: str) -> None:
     save(PROXMOX_SNAPSHOT_CACHE, cache)
 
 
+def _refresh_proxmox_backup_cache(pc: dict) -> None:
+    """v3.6.0: per-guest vzdump backup recency → PROXMOX_BACKUP_CACHE, so
+    _compute_attention() can flag guests with stale / missing backups without a
+    live Proxmox call. Opportunistic, like the snapshot cache. Covers BOTH
+    guest types in one pass (backups aren't typed), so it only needs to run once
+    per Virtualization page load."""
+    now = int(time.time())
+    # Names from both guest types (a backup archive only carries a vmid).
+    names = {}
+    for gt in ('qemu', 'lxc'):
+        try:
+            for g in proxmox_client.list_guests(pc, gt):
+                if g.get('vmid'):
+                    names[int(g['vmid'])] = g.get('name', str(g['vmid']))
+        except Exception:
+            pass
+    try:
+        backups = proxmox_client.list_backups(pc)
+    except Exception:
+        return  # leave the previous cache intact on a transient failure
+    newest = {}   # vmid -> newest ctime
+    for b in backups:
+        vid = b.get('vmid')
+        if not vid:
+            continue
+        newest[vid] = max(newest.get(vid, 0), b.get('ctime', 0))
+    guests = []
+    for vmid, name in sorted(names.items()):
+        ct = newest.get(vmid, 0)
+        age_days = int((now - ct) / 86400) if ct else None
+        guests.append({'vmid': vmid, 'name': name, 'age_days': age_days,
+                       'last_backup': ct or None})
+    save(PROXMOX_BACKUP_CACHE, {'updated_at': now, 'node': pc.get('node', ''),
+                                'guests': guests})
+
+
 def handle_proxmox_list(guest_type: str) -> None:
     """``GET /api/proxmox/qemu`` or ``/api/proxmox/lxc`` — list guests."""
     require_auth()
@@ -10907,6 +11397,13 @@ def handle_proxmox_list(guest_type: str) -> None:
         _refresh_snapshot_cache(pc, guests, guest_type)
     except Exception:
         pass
+    # v3.6.0: refresh per-guest backup recency (only on the lxc pass to avoid
+    # doing the double-guest-type fetch twice per page load).
+    if guest_type == 'lxc':
+        try:
+            _refresh_proxmox_backup_cache(pc)
+        except Exception:
+            pass
 
     respond(200, {'enabled': True, 'configured': True,
                   'node': pc['node'], 'guests': guests})
@@ -14728,6 +15225,61 @@ def _smart_disk_failed(d):
     return False
 
 
+# ── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
+
+def _ingest_av(dev_id, av, now):
+    """Persist the agent's AV posture report. Sanitised, last-writer-wins per
+    device. Drives the av-posture attention items (NA — no webhook event)."""
+    def _clean_tool(t):
+        if not isinstance(t, dict):
+            return None
+        out = {'installed': bool(t.get('installed'))}
+        for k in ('db_age_days', 'last_scan_ts', 'infected', 'warnings', 'last_run_ts'):
+            v = t.get(k)
+            if isinstance(v, (int, float)):
+                out[k] = int(v)
+        return out
+    rec = {'collected_at': now}
+    for tool in ('clamav', 'rkhunter'):
+        c = _clean_tool(av.get(tool))
+        if c is not None:
+            rec[tool] = c
+    store = load(AV_FILE)
+    store[dev_id] = rec
+    save(AV_FILE, store)
+
+
+def handle_av_status(dev_id):
+    """GET /api/devices/{id}/av — stored AV/malware posture for one host."""
+    require_auth()
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    store = load(AV_FILE)
+    respond(200, {'ok': True, 'av': store.get(dev_id) or {}})
+
+
+def handle_av_scan(dev_id):
+    """POST /api/devices/{id}/av-scan — queue an on-demand AV scan.
+
+    Body: {tool: clamav|rkhunter}. Gated on the `exec` permission."""
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    if not _validate_id(dev_id):
+        respond(404, {'error': 'Device not found'})
+    actor = require_perm('exec', [dev_id])
+    tool = str((get_json_body() or {}).get('tool', 'clamav')).strip().lower()
+    if tool == 'clamav':
+        cmd = ('which freshclam >/dev/null 2>&1 && freshclam >/dev/null 2>&1; '
+               'clamscan -r -i /home /etc /usr/local /tmp 2>&1 | tail -n 60')
+    elif tool == 'rkhunter':
+        cmd = ('rkhunter --update >/dev/null 2>&1; '
+               'rkhunter -c --sk --rwo 2>&1 | tail -n 80')
+    else:
+        respond(400, {'error': 'tool must be clamav or rkhunter'})
+    audit_log(actor, 'av_scan', detail=f'device={dev_id} tool={tool}')
+    _queue_command(dev_id, f'exec:{cmd}', actor)   # responds 200 + exits
+
+
 def _ingest_hardware(dev_id, dev_name, body, now):
     """Persist the agent's SMART / kernel / hardware report and fire
     edge-triggered events (smart_failure, kernel_outdated).
@@ -15800,6 +16352,49 @@ def _compute_attention():
                 summary = f"{v['label']} expires in ~{v['days']}d ({v['date']})"
             items.append({'severity': sev, 'kind': v['kind'],
                           'device': dev.get('name', dev_id), 'summary': summary})
+
+    # v3.6.0: endpoint AV/malware posture. Infections → critical; a very stale
+    # ClamAV signature DB (>7d) or rkhunter warnings → warning.
+    try:
+        _av_store = load(AV_FILE) or {}
+    except Exception:
+        _av_store = {}
+    for dev_id, dev in monitored.items():
+        av = _av_store.get(dev_id) or {}
+        clam = av.get('clamav') or {}
+        rk = av.get('rkhunter') or {}
+        name = dev.get('name', dev_id)
+        if isinstance(clam.get('infected'), int) and clam['infected'] > 0:
+            items.append({'severity': 'critical', 'kind': 'av_posture', 'device': name,
+                          'summary': f"ClamAV reported {clam['infected']} infected file(s)"})
+        elif isinstance(clam.get('db_age_days'), int) and clam['db_age_days'] > 7:
+            items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'summary': f"ClamAV signature DB is {clam['db_age_days']}d old"})
+        if isinstance(rk.get('warnings'), int) and rk['warnings'] > 0:
+            items.append({'severity': 'warning', 'kind': 'av_posture', 'device': name,
+                          'summary': f"rkhunter reported {rk['warnings']} warning(s)"})
+
+    # v3.6.0: Proxmox per-guest backup recency. Reads the backup cache refreshed
+    # opportunistically by the Proxmox list endpoint.
+    try:
+        _pbk = load(PROXMOX_BACKUP_CACHE) or {}
+    except Exception:
+        _pbk = {}
+    _pbk_guests = _pbk.get('guests') if isinstance(_pbk, dict) else None
+    if _pbk_guests:
+        try:
+            _warn_days = int((load(CONFIG_FILE) or {}).get('proxmox_backup_warn_days', 7))
+        except Exception:
+            _warn_days = 7
+        for g in _pbk_guests:
+            age = g.get('age_days')
+            label = g.get('name') or f"guest {g.get('vmid')}"
+            if age is None:
+                items.append({'severity': 'warning', 'kind': 'proxmox_backup', 'device': label,
+                              'summary': 'No Proxmox backup found for this guest'})
+            elif isinstance(age, int) and age > _warn_days:
+                items.append({'severity': 'warning', 'kind': 'proxmox_backup', 'device': label,
+                              'summary': f'Newest Proxmox backup is {age}d old (threshold {_warn_days}d)'})
 
     # v3.4.2: agent integrity — a running agent whose binary hash differs from
     # the canonical published build on the current version (tamper / partial
@@ -26901,6 +27496,11 @@ def _build_exact_routes():
         # v3.5.0: sites/teams registry
         ('GET', '/api/sites'): handle_sites_list,
         ('POST', '/api/sites'): handle_site_create,
+        # v3.6.0: backup orchestration + auto-patch policies
+        ('GET', '/api/backup-jobs'): handle_backup_jobs_list,
+        ('POST', '/api/backup-jobs'): handle_backup_job_create,
+        ('GET', '/api/autopatch'): handle_autopatch_list,
+        ('POST', '/api/autopatch'): handle_autopatch_create,
         ('POST', '/api/proxmox/lxc/create'): handle_proxmox_lxc_create,
         ('GET', '/api/proxmox/lxc/create-options'): handle_proxmox_lxc_create_options,
         ('GET', '/api/proxmox/snapshots'): handle_proxmox_snapshots_list,
@@ -27001,10 +27601,34 @@ def _dispatch(pi, m):
     # v3.5.0: sites/teams — per-device assignment + registry mutation
     elif pi.startswith('/api/devices/') and pi.endswith('/site') and m == 'PATCH':
         handle_device_site(pi[len('/api/devices/'):-len('/site')])
+    # v3.6.0: host user / SSH-key + firewall management (exec-gated)
+    elif pi.startswith('/api/devices/') and pi.endswith('/user-action') and m == 'POST':
+        handle_device_user_action(pi[len('/api/devices/'):-len('/user-action')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/firewall-action') and m == 'POST':
+        handle_device_firewall_action(pi[len('/api/devices/'):-len('/firewall-action')])
+    # v3.6.0: endpoint AV/malware posture
+    elif pi.startswith('/api/devices/') and pi.endswith('/av-scan') and m == 'POST':
+        handle_av_scan(pi[len('/api/devices/'):-len('/av-scan')])
+    elif pi.startswith('/api/devices/') and pi.endswith('/av') and m == 'GET':
+        handle_av_status(pi[len('/api/devices/'):-len('/av')])
     elif pi.startswith('/api/sites/') and m == 'PUT':
         handle_site_update(pi[len('/api/sites/'):])
     elif pi.startswith('/api/sites/') and m == 'DELETE':
         handle_site_delete(pi[len('/api/sites/'):])
+    # v3.6.0: backup jobs
+    elif pi.startswith('/api/backup-jobs/') and pi.endswith('/run') and m == 'POST':
+        handle_backup_job_run(pi[len('/api/backup-jobs/'):-len('/run')])
+    elif pi.startswith('/api/backup-jobs/') and m == 'PUT':
+        handle_backup_job_update(pi[len('/api/backup-jobs/'):])
+    elif pi.startswith('/api/backup-jobs/') and m == 'DELETE':
+        handle_backup_job_delete(pi[len('/api/backup-jobs/'):])
+    # v3.6.0: auto-patch policies
+    elif pi.startswith('/api/autopatch/') and pi.endswith('/run') and m == 'POST':
+        handle_autopatch_run(pi[len('/api/autopatch/'):-len('/run')])
+    elif pi.startswith('/api/autopatch/') and m == 'PUT':
+        handle_autopatch_update(pi[len('/api/autopatch/'):])
+    elif pi.startswith('/api/autopatch/') and m == 'DELETE':
+        handle_autopatch_delete(pi[len('/api/autopatch/'):])
     elif pi.startswith('/api/devices/') and pi.endswith('/poll_interval') and m == 'PATCH':
         handle_device_poll_interval(pi[len('/api/devices/'):-len('/poll_interval')])
     elif pi.startswith('/api/devices/') and pi.endswith('/icon') and m == 'PATCH':
@@ -27514,6 +28138,9 @@ def main():
     # Cheap-when-not-due (12h sweep), bounded per run, deduped across fleet.
     _safe(run_image_scan_if_due, 'run_image_scan_if_due')
     _safe(process_schedule,    'process_schedule')
+    # v3.6.0: cron-driven backup jobs + auto-patch policies
+    _safe(process_backup_jobs, 'process_backup_jobs')
+    _safe(process_autopatch,   'process_autopatch')
     # v3.4.1: send the scheduled fleet posture report when its cron is due.
     _safe(_maybe_send_scheduled_report, '_maybe_send_scheduled_report')
     # v3.4.1: sample the fleet health score (once per UTC day) + fire

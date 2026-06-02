@@ -936,6 +936,8 @@ function showPage(name, btn) {
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
   if (name === 'sites')    loadSites();
+  if (name === 'autopatch') loadAutopatch();
+  if (name === 'backups')  loadBackupJobs();
   if (name === 'cmdqueue') loadCommandQueue();
   if (name === 'cmdlib')   loadCmdLib();
   if (name === 'scripts')  loadScripts();
@@ -2679,6 +2681,11 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "The Files device action browses and transfers files over SFTP, tunnelled through the same SSH path as the web terminal — no extra ports.",
+  "Define backup commands (restic/borg/rsync) under Planning → Backups, run them on demand, or schedule them with cron.",
+  "Manage host users and SSH keys, or open/close firewall ports, straight from a device's drawer — exec-gated and audited.",
+  "Planning → Auto-patch applies updates on a schedule across a group, tag, site, or the whole fleet, respecting maintenance windows.",
+  "Connect a Proxmox node and RemotePower flags guests whose newest backup is stale, alongside the existing stale-snapshot check.",
   "Export a CVE-enriched SBOM (CycloneDX or SPDX) for any host from its CVE detail, or a ZIP for the whole fleet from the CVE Findings page.",
   "Record warranty, license, and support-contract expiry dates on a CMDB asset — RemotePower warns you on the dashboard before they lapse.",
   "The Remote desktop action opens a graphical VNC session in your browser, tunnelled over SSH — no inbound ports, no agent change.",
@@ -3700,6 +3707,206 @@ function vncDisconnect() {
   closeModal('vnc-screen');
 }
 
+// ─── v3.6.0: host user & SSH-key management ──────────────────────────────────
+function openUserMgmt(id, name) {
+  document.getElementById('usermgmt-devid').value = id;
+  document.getElementById('usermgmt-username').value = '';
+  document.getElementById('usermgmt-sshkey').value = '';
+  document.querySelector('#usermgmt-modal .modal-title').textContent = `Users & keys — ${name}`;
+  openModal('usermgmt-modal');
+}
+async function userAction(action) {
+  const id = document.getElementById('usermgmt-devid').value;
+  const username = document.getElementById('usermgmt-username').value.trim();
+  if (!username) { toast('Username required', 'error'); return; }
+  const body = { action, username };
+  if (action === 'addkey' || action === 'revokekey') {
+    body.sshkey = document.getElementById('usermgmt-sshkey').value.trim();
+    if (!body.sshkey) { toast('Paste an SSH public key', 'error'); return; }
+  }
+  if (action === 'delete' && !confirm(`Queue deletion of user "${username}"? (home dir is kept)`)) return;
+  const r = await api('POST', `/devices/${id}/user-action`, body);
+  if (r?.ok) { toast(`Queued: ${action} ${username} (runs on next heartbeat)`, 'success'); }
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ─── v3.6.0: host firewall management ────────────────────────────────────────
+function openFirewall(id, name) {
+  document.getElementById('firewall-devid').value = id;
+  document.getElementById('firewall-port').value = '';
+  document.querySelector('#firewall-modal .modal-title').textContent = `Firewall — ${name}`;
+  openModal('firewall-modal');
+}
+async function firewallAction(action) {
+  const id = document.getElementById('firewall-devid').value;
+  const backend = document.getElementById('firewall-backend').value;
+  const proto = document.getElementById('firewall-proto').value;
+  const port = parseInt(document.getElementById('firewall-port').value, 10);
+  if (!port || port < 1 || port > 65535) { toast('Enter a valid port', 'error'); return; }
+  const r = await api('POST', `/devices/${id}/firewall-action`, { backend, action, port, proto });
+  if (r?.ok) toast(`Queued: ${backend} ${action} ${port}/${proto}`, 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ─── v3.6.0: endpoint AV/malware posture ─────────────────────────────────────
+async function openAvScan(id, name) {
+  document.getElementById('avscan-devid').value = id;
+  document.querySelector('#avscan-modal .modal-title').textContent = `AV / malware — ${name}`;
+  const body = document.getElementById('avscan-status');
+  body.innerHTML = '<div class="empty-state">Loading…</div>';
+  openModal('avscan-modal');
+  const r = await api('GET', `/devices/${id}/av`);
+  const av = (r && r.av) || {};
+  if (!av.clamav && !av.rkhunter) {
+    body.innerHTML = '<div class="hint">No AV posture reported yet. Install ClamAV or rkhunter on the host; the agent reports status on its slow cadence. You can still queue a scan below.</div>';
+    return;
+  }
+  const rows = [];
+  if (av.clamav) {
+    const c = av.clamav;
+    rows.push(`<div class="sysinfo-pill"><div class="label">ClamAV</div><div class="value">${c.installed ? 'installed' : 'absent'}${c.db_age_days != null ? ` · DB ${c.db_age_days}d old` : ''}${c.infected != null ? ` · ${c.infected} infected` : ''}</div></div>`);
+  }
+  if (av.rkhunter) {
+    const r2 = av.rkhunter;
+    rows.push(`<div class="sysinfo-pill"><div class="label">rkhunter</div><div class="value">${r2.installed ? 'installed' : 'absent'}${r2.warnings != null ? ` · ${r2.warnings} warnings` : ''}</div></div>`);
+  }
+  body.innerHTML = `<div class="sysinfo-row mb-16">${rows.join('')}</div>`;
+}
+async function avScan(tool) {
+  const id = document.getElementById('avscan-devid').value;
+  const r = await api('POST', `/devices/${id}/av-scan`, { tool });
+  if (r?.ok) toast(`${tool} scan queued — output appears in the device command history`, 'success');
+  else toast(r?.error || 'Failed', 'error');
+}
+
+// ─── v3.6.0: remote file manager (SFTP over the webterm daemon) ──────────────
+let _sftpSession = null;
+function openFiles(id, name) {
+  const dev = (typeof devices !== 'undefined' ? devices : []).find(d => d.id === id);
+  document.getElementById('files-device-id').value = id;
+  document.getElementById('files-host').value = dev?.ip || '';
+  document.getElementById('files-user').value = '';
+  document.getElementById('files-port').value = 22;
+  document.getElementById('files-ssh-pw').value = '';
+  document.getElementById('files-admin-pw').value = '';
+  const err = document.getElementById('files-error'); if (err) err.style.display = 'none';
+  document.querySelector('#files-modal .modal-title').textContent = `Files — ${name}`;
+  openModal('files-modal');
+}
+async function filesConnect() {
+  const id = document.getElementById('files-device-id').value;
+  const host = document.getElementById('files-host').value.trim();
+  const user = document.getElementById('files-user').value.trim();
+  const port = parseInt(document.getElementById('files-port').value) || 22;
+  const sshPw = document.getElementById('files-ssh-pw').value;
+  const adminPw = document.getElementById('files-admin-pw').value;
+  const errEl = document.getElementById('files-error');
+  errEl.style.display = 'none';
+  if (!host || !user || !sshPw || !adminPw) { errEl.textContent = 'All fields are required.'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('files-connect-btn');
+  btn.disabled = true; btn.textContent = 'Authenticating…';
+  let tr;
+  try { tr = await api('POST', '/webterm/auth', { device_id: id, admin_password: adminPw }); }
+  catch (e) { errEl.textContent = 'Network error.'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Connect'; return; }
+  if (!tr || !tr.ticket) { errEl.textContent = tr?.error || 'Ticket request failed.'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Connect'; return; }
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let wsUrl = tr.daemon_url;
+  if (wsUrl.startsWith('/')) wsUrl = `${proto}//${window.location.host}${wsUrl}`;
+  else if (!wsUrl.startsWith('ws')) wsUrl = `${proto}//${wsUrl}`;
+  wsUrl += `?ticket=${encodeURIComponent(tr.ticket)}`;
+  const ws = new WebSocket(wsUrl);
+  _sftpSession = { ws, rid: 0, pending: new Map(), cwd: '.' };
+  ws.onopen = () => ws.send(JSON.stringify({ host, user, port, password: sshPw, mode: 'sftp' }));
+  ws.onmessage = (ev) => {
+    let obj; try { obj = JSON.parse(ev.data); } catch (e) { return; }
+    if (obj.type === 'error') { errEl.textContent = obj.message || 'error'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Connect'; return; }
+    if (obj.type === 'connected') {
+      closeModal('files-modal'); openModal('files-browser');
+      document.getElementById('files-browser-title').textContent = `${user}@${host}`;
+      btn.disabled = false; btn.textContent = 'Connect';
+      _sftpList('.');
+      return;
+    }
+    if (obj.rid != null && _sftpSession.pending.has(obj.rid)) {
+      const { resolve, reject } = _sftpSession.pending.get(obj.rid);
+      _sftpSession.pending.delete(obj.rid);
+      obj.error ? reject(new Error(obj.error)) : resolve(obj);
+    }
+  };
+  ws.onclose = () => { if (_sftpSession) _sftpSession.pending.forEach(p => p.reject(new Error('disconnected'))); };
+  ws.onerror = () => { errEl.textContent = 'WebSocket error.'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Connect'; };
+}
+function _sftpReq(req) {
+  return new Promise((resolve, reject) => {
+    if (!_sftpSession || _sftpSession.ws.readyState !== WebSocket.OPEN) { reject(new Error('not connected')); return; }
+    const rid = ++_sftpSession.rid;
+    _sftpSession.pending.set(rid, { resolve, reject });
+    _sftpSession.ws.send(JSON.stringify({ ...req, rid }));
+    setTimeout(() => { if (_sftpSession && _sftpSession.pending.has(rid)) { _sftpSession.pending.delete(rid); reject(new Error('timeout')); } }, 60000);
+  });
+}
+async function _sftpList(path) {
+  try {
+    const r = await _sftpReq({ op: 'list', path });
+    _sftpSession.cwd = r.path || path;
+    document.getElementById('files-cwd').textContent = _sftpSession.cwd;
+    const up = _sftpSession.cwd.replace(/\/[^/]+\/?$/, '') || '/';
+    const rows = [`<tr><td colspan="4"><button class="btn-icon" data-action-btn="_sftpUpBtn" data-path="${escAttr(up)}">${_icon('refresh',12)} ..</button></td></tr>`];
+    for (const e of r.entries) {
+      const isDir = e.type === 'dir';
+      const nameCell = isDir
+        ? `<button class="btn-icon" data-action-btn="_sftpCdBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">${_icon('hardDrive',12)} ${escHtml(e.name)}/</button>`
+        : `${escHtml(e.name)}`;
+      const acts = isDir
+        ? `<button class="btn-icon isl-45" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-dir="1">Delete</button>`
+        : `<button class="btn-icon" data-action-btn="_sftpDlBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}" data-name="${escAttr(e.name)}">Download</button> <button class="btn-icon isl-45" data-action-btn="_sftpDelBtn" data-path="${escAttr(_sftpJoin(_sftpSession.cwd, e.name))}">Delete</button>`;
+      rows.push(`<tr><td>${nameCell}</td><td class="hint">${isDir ? '' : _fmtBytes(e.size)}</td><td class="hint">${e.mtime ? new Date(e.mtime*1000).toLocaleString() : ''}</td><td class="nowrap">${acts}</td></tr>`);
+    }
+    document.getElementById('files-tbody').innerHTML = rows.join('');
+  } catch (e) { toast('List failed: ' + e.message, 'error'); }
+}
+function _sftpJoin(base, name) { return (base.endsWith('/') ? base : base + '/') + name; }
+function _fmtBytes(n) { if (n < 1024) return n + ' B'; if (n < 1048576) return (n/1024).toFixed(1) + ' KB'; if (n < 1073741824) return (n/1048576).toFixed(1) + ' MB'; return (n/1073741824).toFixed(1) + ' GB'; }
+function _sftpCdBtn(btn) { _sftpList(btn.dataset.path); }
+function _sftpUpBtn(btn) { _sftpList(btn.dataset.path); }
+async function _sftpDlBtn(btn) {
+  try {
+    const r = await _sftpReq({ op: 'read', path: btn.dataset.path });
+    const bin = atob(r.b64); const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([arr]));
+    const a = document.createElement('a'); a.href = url; a.download = btn.dataset.name || 'download'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { toast('Download failed: ' + e.message, 'error'); }
+}
+async function _sftpDelBtn(btn) {
+  if (!confirm('Delete ' + btn.dataset.path + '?')) return;
+  try { await _sftpReq({ op: 'delete', path: btn.dataset.path, is_dir: btn.dataset.dir === '1' }); _sftpList(_sftpSession.cwd); }
+  catch (e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+async function sftpMkdir() {
+  const dir = prompt('New folder name:'); if (!dir) return;
+  try { await _sftpReq({ op: 'mkdir', path: _sftpJoin(_sftpSession.cwd, dir) }); _sftpList(_sftpSession.cwd); }
+  catch (e) { toast('mkdir failed: ' + e.message, 'error'); }
+}
+function sftpUploadPick() { document.getElementById('files-upload-input').click(); }
+async function sftpUploadFile() {
+  const input = document.getElementById('files-upload-input');
+  const file = input.files && input.files[0]; if (!file) return;
+  try {
+    const buf = await file.arrayBuffer();
+    let bin = ''; const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    await _sftpReq({ op: 'write', path: _sftpJoin(_sftpSession.cwd, file.name), b64: btoa(bin) });
+    toast('Uploaded ' + file.name, 'success'); _sftpList(_sftpSession.cwd);
+  } catch (e) { toast('Upload failed: ' + e.message, 'error'); }
+  input.value = '';
+}
+function filesDisconnect() {
+  if (_sftpSession) { try { _sftpSession.ws.close(); } catch (e) {} _sftpSession = null; }
+  closeModal('files-browser');
+}
+
 async function clearHistory() { if (!confirm('Clear all command history? This cannot be undone.')) return; const data = await api('DELETE', '/history'); if (data?.ok) { toast('History cleared', 'success'); loadHistory(); } else toast(data?.error || 'Failed', 'error'); }
 let selectedDevices = new Set();
 function toggleSelect(id) { if (selectedDevices.has(id)) selectedDevices.delete(id); else selectedDevices.add(id); updateBatchBar(); renderDevices(); }
@@ -3913,6 +4120,157 @@ async function saveDeviceSite() {
   const data = await api('PATCH', '/devices/' + id + '/site', {site});
   if (data?.ok) { toast('Site updated', 'success'); closeModal('device-site-modal'); loadDevices(); }
   else toast(data?.error || 'Failed', 'error');
+}
+
+// ─── v3.6.0: auto-patch policies ─────────────────────────────────────────────
+let _autopatchRegistered = false;
+function _registerAutopatchTable() {
+  if (_autopatchRegistered) return;
+  _autopatchRegistered = true;
+  tableCtl.register({
+    name: 'autopatch', tbody: 'autopatch-tbody', filterInput: 'autopatch-filter',
+    sortHeaders: 'autopatch-thead', colspan: 6,
+    columns: ['name', 'target', 'cron', 'reboot', 'enabled'],
+    getColumns: (p) => ({ name: p.name || '', target: `${p.target?.type}:${p.target?.value || ''}`,
+      cron: p.cron || '', reboot: p.reboot ? 1 : 0, enabled: p.enabled ? 1 : 0 }),
+    row: (p) => `<tr><td class="fw-600">${escHtml(p.name)}</td><td class="hint">${escHtml(p.target?.type)}${p.target?.value ? ':' + escHtml(p.target.value) : ''}</td><td class="mono-12">${escHtml(p.cron)}</td><td>${p.reboot ? 'yes' : 'no'}</td><td>${p.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_autopatchRunBtn" data-id="${escAttr(p.id)}">Run now</button><button class="btn-icon" data-action-btn="_autopatchEditBtn" data-id="${escAttr(p.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteAutopatch" data-arg="${escAttr(p.id)}">Delete</button></td></tr>`,
+    emptyMsg: 'No auto-patch policies. Create one to schedule fleet updates.',
+    emptyMsgFiltered: 'No policies match the filter.',
+  });
+}
+let _autopatchCache = [];
+async function loadAutopatch() {
+  _registerAutopatchTable();
+  const d = await api('GET', '/autopatch');
+  if (!d) return;
+  _autopatchCache = d.policies || [];
+  tableCtl.render('autopatch', _autopatchCache);
+}
+function openAutopatchCreate() {
+  document.getElementById('autopatch-edit-id').value = '';
+  document.getElementById('autopatch-name').value = '';
+  document.getElementById('autopatch-target-type').value = 'all';
+  document.getElementById('autopatch-target-value').value = '';
+  document.getElementById('autopatch-cron').value = '0 3 * * 0';
+  document.getElementById('autopatch-reboot').checked = false;
+  document.getElementById('autopatch-modal-title').textContent = 'New auto-patch policy';
+  document.getElementById('autopatch-save-btn').textContent = 'Create';
+  openModal('autopatch-modal');
+}
+function _autopatchEditBtn(btn) {
+  const p = _autopatchCache.find(x => x.id === btn.dataset.id); if (!p) return;
+  document.getElementById('autopatch-edit-id').value = p.id;
+  document.getElementById('autopatch-name').value = p.name;
+  document.getElementById('autopatch-target-type').value = p.target?.type || 'all';
+  document.getElementById('autopatch-target-value').value = p.target?.value || '';
+  document.getElementById('autopatch-cron').value = p.cron || '';
+  document.getElementById('autopatch-reboot').checked = !!p.reboot;
+  document.getElementById('autopatch-modal-title').textContent = 'Edit auto-patch policy';
+  document.getElementById('autopatch-save-btn').textContent = 'Save';
+  openModal('autopatch-modal');
+}
+async function saveAutopatch() {
+  const id = document.getElementById('autopatch-edit-id').value;
+  const body = {
+    name: document.getElementById('autopatch-name').value.trim(),
+    target: { type: document.getElementById('autopatch-target-type').value,
+              value: document.getElementById('autopatch-target-value').value.trim() },
+    cron: document.getElementById('autopatch-cron').value.trim(),
+    reboot: document.getElementById('autopatch-reboot').checked,
+  };
+  if (!body.name) { toast('Name required', 'error'); return; }
+  const d = id ? await api('PUT', '/autopatch/' + encodeURIComponent(id), body)
+               : await api('POST', '/autopatch', body);
+  if (d?.ok) { toast(id ? 'Policy saved' : 'Policy created', 'success'); closeModal('autopatch-modal'); loadAutopatch(); }
+  else toast(d?.error || 'Failed', 'error');
+}
+async function _autopatchRunBtn(btn) {
+  if (!confirm('Apply this policy now (queue upgrades to all targeted devices)?')) return;
+  const d = await api('POST', '/autopatch/' + encodeURIComponent(btn.dataset.id) + '/run', {});
+  if (d?.ok) toast(`Queued upgrade on ${d.queued} device(s)`, 'success');
+  else toast(d?.error || 'Failed', 'error');
+}
+async function deleteAutopatch(id) {
+  if (!confirm('Delete this policy?')) return;
+  const d = await api('DELETE', '/autopatch/' + encodeURIComponent(id));
+  if (d?.ok) { toast('Policy deleted', 'info'); loadAutopatch(); } else toast(d?.error || 'Failed', 'error');
+}
+
+// ─── v3.6.0: backup orchestration ────────────────────────────────────────────
+let _backupJobsRegistered = false;
+function _registerBackupJobsTable() {
+  if (_backupJobsRegistered) return;
+  _backupJobsRegistered = true;
+  tableCtl.register({
+    name: 'backups', tbody: 'backups-tbody', filterInput: 'backups-filter',
+    sortHeaders: 'backups-thead', colspan: 6,
+    columns: ['name', 'device_name', 'cron', 'last_run', 'enabled'],
+    getColumns: (j) => ({ name: j.name || '', device_name: j.device_name || '',
+      cron: j.cron || '', last_run: j.last_run || 0, enabled: j.enabled ? 1 : 0 }),
+    row: (j) => `<tr><td class="fw-600">${escHtml(j.name)}</td><td class="hint">${escHtml(j.device_name)}</td><td class="mono-12">${j.cron ? escHtml(j.cron) : '<span class="c-muted">manual</span>'}</td><td class="hint">${j.last_run ? new Date(j.last_run*1000).toLocaleString() : 'never'}</td><td>${j.enabled ? 'on' : 'off'}</td><td class="row-6"><button class="btn-icon" data-action-btn="_backupRunBtn" data-id="${escAttr(j.id)}">Run now</button><button class="btn-icon" data-action-btn="_backupEditBtn" data-id="${escAttr(j.id)}">Edit</button><button class="btn-icon isl-45" data-action="deleteBackupJob" data-arg="${escAttr(j.id)}">Delete</button></td></tr>`,
+    emptyMsg: 'No backup jobs. Create one to run or schedule a backup command.',
+    emptyMsgFiltered: 'No jobs match the filter.',
+  });
+}
+let _backupJobsCache = [];
+async function loadBackupJobs() {
+  _registerBackupJobsTable();
+  const d = await api('GET', '/backup-jobs');
+  if (!d) return;
+  _backupJobsCache = d.jobs || [];
+  tableCtl.render('backups', _backupJobsCache);
+}
+function _backupPopulateDevices(sel, current) {
+  const list = (typeof devices !== 'undefined' ? devices : []);
+  sel.innerHTML = list.map(dv => `<option value="${escAttr(dv.id)}"${dv.id===current?' selected':''}>${escHtml(dv.name)}</option>`).join('');
+}
+function openBackupJobCreate() {
+  document.getElementById('backupjob-edit-id').value = '';
+  document.getElementById('backupjob-name').value = '';
+  document.getElementById('backupjob-command').value = '';
+  document.getElementById('backupjob-cron').value = '';
+  _backupPopulateDevices(document.getElementById('backupjob-device'), '');
+  document.getElementById('backupjob-modal-title').textContent = 'New backup job';
+  document.getElementById('backupjob-save-btn').textContent = 'Create';
+  openModal('backupjob-modal');
+}
+function _backupEditBtn(btn) {
+  const j = _backupJobsCache.find(x => x.id === btn.dataset.id); if (!j) return;
+  document.getElementById('backupjob-edit-id').value = j.id;
+  document.getElementById('backupjob-name').value = j.name;
+  document.getElementById('backupjob-command').value = j.command;
+  document.getElementById('backupjob-cron').value = j.cron || '';
+  _backupPopulateDevices(document.getElementById('backupjob-device'), j.device_id);
+  document.getElementById('backupjob-device').disabled = true;   // device is fixed after creation
+  document.getElementById('backupjob-modal-title').textContent = 'Edit backup job';
+  document.getElementById('backupjob-save-btn').textContent = 'Save';
+  openModal('backupjob-modal');
+}
+async function saveBackupJob() {
+  const id = document.getElementById('backupjob-edit-id').value;
+  const dsel = document.getElementById('backupjob-device');
+  const body = {
+    name: document.getElementById('backupjob-name').value.trim(),
+    command: document.getElementById('backupjob-command').value.trim(),
+    cron: document.getElementById('backupjob-cron').value.trim(),
+  };
+  if (!id) body.device_id = dsel.value;
+  if (!body.name || !body.command) { toast('Name and command required', 'error'); return; }
+  const d = id ? await api('PUT', '/backup-jobs/' + encodeURIComponent(id), body)
+               : await api('POST', '/backup-jobs', body);
+  dsel.disabled = false;
+  if (d?.ok) { toast(id ? 'Job saved' : 'Job created', 'success'); closeModal('backupjob-modal'); loadBackupJobs(); }
+  else toast(d?.error || 'Failed', 'error');
+}
+async function _backupRunBtn(btn) {
+  const d = await api('POST', '/backup-jobs/' + encodeURIComponent(btn.dataset.id) + '/run', {});
+  if (d?.ok) toast('Backup queued — output appears in the device command history', 'success');
+  else toast(d?.error || 'Failed', 'error');
+}
+async function deleteBackupJob(id) {
+  if (!confirm('Delete this backup job?')) return;
+  const d = await api('DELETE', '/backup-jobs/' + encodeURIComponent(id));
+  if (d?.ok) { toast('Job deleted', 'info'); loadBackupJobs(); } else toast(d?.error || 'Failed', 'error');
 }
 // v1.11.6: command library gets filter+sort
 let _cmdlibRegistered = false;
@@ -11716,6 +12074,7 @@ function switchDrawerTab(tab) {
 // applied by _icon() below. New icons should be added with body-only
 // markup from https://lucide.dev/icons/.
 const _ICONS = {
+  users:       '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   terminal:    '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
   refresh:     '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   power:       '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
@@ -11779,6 +12138,10 @@ function _renderDrawerActions() {
     ['search',    'Scan packages',   () => forcePackageScan(id, name, null),                                                                                                      false, agentless],
     ['monitor',   'Web terminal',    () => { closeDeviceDrawer(); openWebTerm(id, name); },                                                                                       false, agentless],
     ['tv',        'Remote desktop',  () => { closeDeviceDrawer(); openVnc(id, name); },                                                                                           false, false],
+    ['hardDrive', 'Files',           () => { closeDeviceDrawer(); openFiles(id, name); },                                                                                         false, false],
+    ['users',     'Users & keys',    () => { closeDeviceDrawer(); openUserMgmt(id, name); },                                                                                      false, agentless],
+    ['shield',    'Firewall',        () => { closeDeviceDrawer(); openFirewall(id, name); },                                                                                      false, agentless],
+    ['search',    'AV scan',         () => { closeDeviceDrawer(); openAvScan(id, name); },                                                                                        false, agentless],
     ['fileCode',  'Run script',      () => { closeDeviceDrawer(); openScriptRunForDevice(id, name); },                                                                            false, agentless],
     ['download',  'Update agent',    () => { closeDeviceDrawer(); sendUpdate(id, name); },                                                                                        false, agentless],
     ['zap',       'Force-upgrade',   () => { closeDeviceDrawer(); forceAgentUpgrade(id, name); },                                                                                 true,  agentless],

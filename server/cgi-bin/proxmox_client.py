@@ -546,6 +546,40 @@ def list_templates(pc: dict) -> list[dict]:
     return out
 
 
+def list_backups(pc: dict) -> list[dict]:
+    """v3.6.0: vzdump backup archives across all backup-capable storages.
+
+    Returns [{volid, storage, vmid, ctime, size_bytes}] — one entry per archive
+    (a guest usually has several). Callers group by vmid and take the newest
+    ctime for per-guest recency. ctime is an epoch (seconds); 0 if absent.
+    """
+    node = urllib.parse.quote(pc['node'])
+    out = []
+    for st in list_storages(pc):
+        if 'backup' not in st['content']:
+            continue
+        storage = st['storage']
+        try:
+            raw = _request(pc, f'/nodes/{node}/storage/'
+                               f'{urllib.parse.quote(storage)}/content?content=backup')
+        except ProxmoxError:
+            continue
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            volid = str(item.get('volid', ''))
+            if not volid:
+                continue
+            out.append({
+                'volid':      volid,
+                'storage':    storage,
+                'vmid':       int(item.get('vmid', 0) or 0),
+                'ctime':      int(item.get('ctime', 0) or 0),
+                'size_bytes': int(item.get('size', 0) or 0),
+            })
+    return out
+
+
 def list_bridges(pc: dict) -> list[str]:
     """Network bridges on the node, for the net0 dropdown — both Linux Bridges
     (type "bridge") AND Open vSwitch bridges (type "OVSBridge"). The old

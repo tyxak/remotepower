@@ -2,6 +2,50 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.6.0 — unreleased (dev)
+
+A seven-feature batch: act on hosts, not just observe them.
+
+### Remote file manager (SFTP)
+- **Files** device action — browse and transfer files in the browser over SFTP,
+  tunnelled through the same web-terminal daemon + ticket + SSH path (no new
+  inbound ports). Download/upload (≤32 MB), mkdir, delete. Daemon gains a
+  `mode: 'sftp'` JSON request/response protocol.
+
+### Backup orchestration
+- **Planning → Backups** — define a backup command per device (restic/borg/rsync),
+  run it on demand, or schedule it with cron. Admin-defines, `exec`-gated to run,
+  quarantine-aware. `GET/POST /api/backup-jobs`, `PUT/DELETE /api/backup-jobs/{id}`,
+  `POST /api/backup-jobs/{id}/run`. Closes the loop on `backup_stale` monitoring.
+
+### Host user & SSH-key management
+- **Users & keys** device action — add/lock/unlock/delete users and add/revoke
+  SSH keys via the agent. `exec`-gated, audited, strict input validation.
+  `POST /api/devices/{id}/user-action`.
+
+### Endpoint AV/malware posture
+- Agent reports ClamAV/rkhunter status (DB age, infected count, warnings); **AV
+  scan** device action runs an on-demand scan. Infections → critical attention,
+  stale DB / warnings → warning (NA kind `av_posture`).
+  `GET /api/devices/{id}/av`, `POST /api/devices/{id}/av-scan`.
+
+### Host firewall rule management
+- **Firewall** device action — allow/deny/delete a port via ufw or firewalld
+  (the agent already reported firewall status). `exec`-gated, audited.
+  `POST /api/devices/{id}/firewall-action`.
+
+### Auto-patch policy
+- **Planning → Auto-patch** — scheduled automatic updates across a group/tag/site/
+  whole fleet, optional reboot. Respects maintenance windows + quarantine via the
+  normal dispatch. `GET/POST /api/autopatch`, `PUT/DELETE /api/autopatch/{id}`,
+  `POST /api/autopatch/{id}/run`.
+
+### Proxmox backup check
+- Per-guest vzdump backup recency from the node's `content=backup` storage
+  listing, cached opportunistically; guests with no/stale backups (older than
+  `proxmox_backup_warn_days`, default 7) become attention items (NA kind
+  `proxmox_backup`).
+
 ## v3.5.0 — unreleased (dev)
 
 A four-feature batch toward a complete Linux RMM.

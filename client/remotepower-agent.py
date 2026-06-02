@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '3.5.0'
+VERSION      = '3.6.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -2491,6 +2491,57 @@ def _list_block_devices():
     return devs
 
 
+def get_av_status():
+    """v3.6.0: endpoint AV/malware posture from ClamAV and rkhunter.
+
+    Best-effort, read-only — never triggers a scan here (an on-demand scan is a
+    queued exec command). Reports which tools are installed, the ClamAV
+    signature DB age, and a parse of the most recent rkhunter/clamav log for a
+    warning/infection count. Returns {} when no AV tooling is present so the
+    server keeps the key absent.
+
+    Shape:
+        {clamav: {installed, db_age_days|None, last_scan_ts|None, infected|None},
+         rkhunter: {installed, last_run_ts|None, warnings|None}}
+    """
+    import os as _os, re as _re, time as _time
+    out = {}
+    # ── ClamAV ──────────────────────────────────────────────────────────────
+    clam_installed = bool(_which('clamscan') or _which('clamdscan'))
+    if clam_installed:
+        c = {'installed': True, 'db_age_days': None, 'last_scan_ts': None, 'infected': None}
+        # Signature DB freshness — newest of the daily/main/bytecode files.
+        newest = 0
+        for d in ('/var/lib/clamav',):
+            try:
+                for fn in _os.listdir(d):
+                    if fn.endswith(('.cvd', '.cld')):
+                        newest = max(newest, int(_os.path.getmtime(_os.path.join(d, fn))))
+            except OSError:
+                pass
+        if newest:
+            c['db_age_days'] = max(0, int((_time.time() - newest) / 86400))
+        # Last scan result from a conventional clamav scan log, if present.
+        log = _safe_read('/var/log/clamav/scan.log', 40_000) or ''
+        m = _re.findall(r'Infected files:\s*(\d+)', log)
+        if m:
+            c['infected'] = int(m[-1])
+        out['clamav'] = c
+    # ── rkhunter ─────────────────────────────────────────────────────────────
+    if _which('rkhunter'):
+        r = {'installed': True, 'last_run_ts': None, 'warnings': None}
+        rk = _safe_read('/var/log/rkhunter.log', 200_000) or ''
+        warn = _re.findall(r'\[\s*[Ww]arning\s*\]', rk)
+        if rk:
+            r['warnings'] = len(warn)
+        try:
+            r['last_run_ts'] = int(_os.path.getmtime('/var/log/rkhunter.log'))
+        except OSError:
+            pass
+        out['rkhunter'] = r
+    return out
+
+
 def get_smart_status():
     """v3.4.0: SMART health per physical disk via `smartctl`.
 
@@ -4534,6 +4585,13 @@ def heartbeat(creds, interval=POLL_INTERVAL):
                     payload['hardware'] = hw
             except Exception as e:
                 log.debug(f'hardware inventory error: {e}')
+            # v3.6.0: endpoint AV/malware posture (ClamAV / rkhunter).
+            try:
+                av = get_av_status()
+                if av:
+                    payload['av'] = av
+            except Exception as e:
+                log.debug(f'av status error: {e}')
             # v3.4.0: Helm releases — only worth probing where a cluster CLI
             # exists; rides the same kubeconfig discovery as pod listing.
             try:

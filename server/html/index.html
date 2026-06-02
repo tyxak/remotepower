@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.5.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.6.0">
 
 </head>
 <body>
@@ -295,6 +295,14 @@
         <button class="nav-btn" data-page="rollouts" title="Staged canary → pilot → broad rollouts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 6h6a4 4 0 0 1 4 4v0"/><path d="M7 18h6a4 4 0 0 0 4-4v0"/></svg>
           <span>Rollouts</span>
+        </button>
+        <button class="nav-btn" data-page="autopatch" title="Scheduled automatic patching policies">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Auto-patch</span>
+        </button>
+        <button class="nav-btn" data-page="backups" title="Orchestrated backup jobs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+          <span>Backups</span>
         </button>
         <button class="nav-btn" data-page="history" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg>
@@ -1896,7 +1904,27 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.5.0 sbom software bill of materials cyclonedx spdx vex vulnerability export purl package url supply chain dependency track grype warranty license support contract expiry lifecycle end of life cmdb attention vnc remote desktop graphical novnc rfb ssh tunnel loopback x11vnc tigervnc sites teams grouping location customer tenant multi-tenancy device group assign roster filter">
+          <details class="doc-card" open data-keywords="release notes changelog v3.6.0 file manager sftp browse upload download transfer remote files backup orchestration restic borg rsync run schedule cron job user account management useradd usermod lock unlock ssh key authorized_keys firewall ufw firewalld nftables allow deny port antivirus av malware clamav rkhunter scan posture auto-patch unattended upgrade policy schedule proxmox backup vzdump recency guest">
+            <summary><strong>What's new — v3.6.0</strong> — Files (SFTP), backups, user/key &amp; firewall mgmt, AV scans, auto-patch, Proxmox backup check</summary>
+            <div class="doc-body">
+              <p>A seven-feature batch: act on hosts, not just observe them. Additive — no migration. Hard-reload once after upgrading (service-worker cache <code>remotepower-shell-v3.6.0</code>).</p>
+              <h4>Remote file manager (SFTP)</h4>
+              <ul><li>A <strong>Files</strong> device action browses and transfers files in the browser over SFTP — tunnelled through the same daemon + ticket + SSH path as the terminal and VNC (no new inbound ports). Download/upload (≤32 MB), make folders, delete. Runs as the SSH user.</li></ul>
+              <h4>Backup orchestration</h4>
+              <ul><li><strong>Planning → Backups</strong>: define a backup command per device (restic/borg/rsync), run it on demand, or schedule with cron. Closes the loop on the backup-freshness monitoring in each device drawer.</li></ul>
+              <h4>Host user &amp; SSH-key management</h4>
+              <ul><li><strong>Users &amp; keys</strong> device action: add/lock/unlock/delete users and add/revoke SSH keys via the agent — exec-gated, audited, strictly validated.</li></ul>
+              <h4>Endpoint AV / malware posture</h4>
+              <ul><li>The agent reports ClamAV/rkhunter status (DB age, infected count, warnings); an <strong>AV scan</strong> device action runs an on-demand scan. Infections raise a critical attention item.</li></ul>
+              <h4>Host firewall management</h4>
+              <ul><li>A <strong>Firewall</strong> device action allows/denies/deletes a port via ufw or firewalld — the agent already reported firewall state; now you can change it.</li></ul>
+              <h4>Auto-patch policy</h4>
+              <ul><li><strong>Planning → Auto-patch</strong>: scheduled automatic updates across a group/tag/site/whole fleet, optional reboot. Respects maintenance windows and quarantine.</li></ul>
+              <h4>Proxmox backup check</h4>
+              <ul><li>Per-guest vzdump backup recency from the node's backup storage; guests with no/stale backups (older than <code>proxmox_backup_warn_days</code>, default 7) become attention items — the backup analogue of the stale-snapshot check.</li></ul>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.5.0 sbom software bill of materials cyclonedx spdx vex vulnerability export purl package url supply chain dependency track grype warranty license support contract expiry lifecycle end of life cmdb attention vnc remote desktop graphical novnc rfb ssh tunnel loopback x11vnc tigervnc sites teams grouping location customer tenant multi-tenancy device group assign roster filter">
             <summary><strong>What's new — v3.5.0</strong> — SBOM export, lifecycle expiry, VNC remote desktop, Sites &amp; teams</summary>
             <div class="doc-body">
               <p>A four-feature batch toward a complete Linux RMM. Additive — no migration. Hard-reload once after upgrading to pick up the new service-worker cache (<code>remotepower-shell-v3.5.0</code>).</p>
@@ -3838,6 +3866,24 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </div>
 
       <!-- ── v3.4.2: Rollouts page (staged canary → pilot → broad) ─────────── -->
+      <!-- v3.6.0: Auto-patch policies -->
+      <div id="page-autopatch" class="page">
+        <div class="page-title">Auto-patch</div>
+        <div class="page-subtitle">Apply package updates automatically on a schedule across a group, tag, site, or the whole fleet. Queued upgrades respect maintenance windows and device quarantine.</div>
+        <div class="section-header"><div class="section-title">Policies</div><button class="enroll-btn" data-action="openAutopatchCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New policy</button></div>
+        <div class="mb-16"><input type="text" id="autopatch-filter" class="form-input input-wide-sm" placeholder="Filter by name…"></div>
+        <div class="table-card"><table><thead id="autopatch-thead"><tr><th data-col="name">Name</th><th data-col="target">Target</th><th data-col="cron">Schedule</th><th data-col="reboot">Reboot</th><th data-col="enabled">Enabled</th><th></th></tr></thead><tbody id="autopatch-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
+      </div>
+
+      <!-- v3.6.0: Backup orchestration -->
+      <div id="page-backups" class="page">
+        <div class="page-title">Backups</div>
+        <div class="page-subtitle">Define a backup command per device (restic / borg / rsync / …), run it on demand, or schedule it with cron. Pairs with the backup-freshness monitoring in each device's drawer.</div>
+        <div class="section-header"><div class="section-title">Backup jobs</div><button class="enroll-btn" data-action="openBackupJobCreate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New job</button></div>
+        <div class="mb-16"><input type="text" id="backups-filter" class="form-input input-wide-sm" placeholder="Filter by name or device…"></div>
+        <div class="table-card"><table><thead id="backups-thead"><tr><th data-col="name">Name</th><th data-col="device_name">Device</th><th data-col="cron">Schedule</th><th data-col="last_run">Last run</th><th data-col="enabled">Enabled</th><th></th></tr></thead><tbody id="backups-tbody"><tr><td colspan="6" class="empty-state">Loading…</td></tr></tbody></table></div>
+      </div>
+
       <div id="page-rollouts" class="page">
         <div class="page-title">Rollouts</div>
         <div class="page-subtitle">Push an upgrade or saved script to the fleet in ordered rings — canary, then pilot, then broad. Each ring is verified (upgrades use post-deploy verification) before the next is released, automatically or on your approval.</div>
@@ -4559,6 +4605,112 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <div id="vnc-canvas" class="isl-209"></div>
   </div>
 </div>
+
+<!-- v3.6.0: host user & SSH-key management -->
+<div class="modal-overlay" id="usermgmt-modal"><div class="modal">
+  <div class="modal-title">Users &amp; keys</div>
+  <div class="modal-subtitle">Queue an account operation on the host (runs via the agent, gated on the exec permission, audited).</div>
+  <input type="hidden" id="usermgmt-devid">
+  <div class="form-group"><label class="form-label">Username</label><input type="text" id="usermgmt-username" class="form-input" placeholder="deploy" maxlength="32"></div>
+  <div class="row-6 mb-12">
+    <button class="btn-secondary" data-action="userAction" data-arg="add">Add user</button>
+    <button class="btn-secondary" data-action="userAction" data-arg="lock">Lock</button>
+    <button class="btn-secondary" data-action="userAction" data-arg="unlock">Unlock</button>
+    <button class="btn-icon c-danger-outline" data-action="userAction" data-arg="delete">Delete</button>
+  </div>
+  <div class="form-group"><label class="form-label">SSH public key (for add/revoke key)</label><textarea id="usermgmt-sshkey" class="form-textarea" placeholder="ssh-ed25519 AAAA… user@host" rows="3"></textarea></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="usermgmt-modal">Close</button>
+    <button class="btn-secondary" data-action="userAction" data-arg="revokekey">Revoke key</button>
+    <button class="btn-primary" data-action="userAction" data-arg="addkey">Add key</button>
+  </div>
+</div></div>
+
+<!-- v3.6.0: host firewall rule management -->
+<div class="modal-overlay" id="firewall-modal"><div class="modal">
+  <div class="modal-title">Firewall</div>
+  <div class="modal-subtitle">Queue a host firewall change (ufw or firewalld). Runs via the agent, exec-gated, audited.</div>
+  <input type="hidden" id="firewall-devid">
+  <div class="row-8">
+    <div class="form-group flex-1"><label class="form-label">Backend</label><select id="firewall-backend" class="form-input"><option value="ufw">ufw</option><option value="firewalld">firewalld</option></select></div>
+    <div class="form-group flex-1"><label class="form-label">Port</label><input type="number" id="firewall-port" class="form-input" min="1" max="65535" placeholder="22"></div>
+    <div class="form-group flex-1"><label class="form-label">Protocol</label><select id="firewall-proto" class="form-input"><option value="tcp">tcp</option><option value="udp">udp</option></select></div>
+  </div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="firewall-modal">Close</button>
+    <button class="btn-icon c-danger-outline" data-action="firewallAction" data-arg="delete">Delete rule</button>
+    <button class="btn-secondary" data-action="firewallAction" data-arg="deny">Deny</button>
+    <button class="btn-primary" data-action="firewallAction" data-arg="allow">Allow</button>
+  </div>
+</div></div>
+
+<!-- v3.6.0: AV / malware posture + on-demand scan -->
+<div class="modal-overlay" id="avscan-modal"><div class="modal">
+  <div class="modal-title">AV / malware</div>
+  <div class="modal-subtitle">ClamAV / rkhunter posture. Scans run on the host and report output to the device command history.</div>
+  <input type="hidden" id="avscan-devid">
+  <div id="avscan-status" class="mb-12"></div>
+  <div class="modal-actions">
+    <button class="btn-secondary" data-action="closeModal" data-arg="avscan-modal">Close</button>
+    <button class="btn-secondary" data-action="avScan" data-arg="rkhunter">Run rkhunter</button>
+    <button class="btn-primary" data-action="avScan" data-arg="clamav">Run ClamAV scan</button>
+  </div>
+</div></div>
+
+<!-- v3.6.0: file manager — connect modal -->
+<div class="modal-overlay" id="files-modal"><div class="modal isl-203">
+  <div class="modal-title">Files</div>
+  <div class="modal-subtitle">Browse and transfer files over SFTP, tunnelled through the same SSH path as the web terminal. Credentials are not stored.</div>
+  <input type="hidden" id="files-device-id">
+  <div class="form-group"><label class="form-label">SSH host</label><input type="text" id="files-host" class="form-input" placeholder="10.0.0.4"></div>
+  <div class="row-8">
+    <div class="form-group isl-35"><label class="form-label">SSH user</label><input type="text" id="files-user" class="form-input" placeholder="root" autocomplete="username"></div>
+    <div class="form-group flex-1"><label class="form-label">Port</label><input type="number" id="files-port" class="form-input" value="22" min="1" max="65535"></div>
+  </div>
+  <div class="form-group"><label class="form-label">SSH password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="files-ssh-pw" class="form-input" autocomplete="new-password"></form></div>
+  <div class="form-group isl-204"><label class="form-label">Your RemotePower admin password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="files-admin-pw" class="form-input" autocomplete="current-password"></form></div>
+  <div id="files-error" class="isl-202"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="files-modal">Cancel</button><button class="btn-primary" id="files-connect-btn" data-action="filesConnect">Connect</button></div>
+</div></div>
+<!-- v3.6.0: file manager — browser -->
+<div class="modal-overlay" id="files-browser"><div class="modal modal-wide">
+  <div class="isl-207">
+    <div id="files-browser-title" class="isl-208"></div>
+    <div class="row-6">
+      <button class="btn-icon" data-action="sftpUploadPick">Upload</button>
+      <button class="btn-icon" data-action="sftpMkdir">New folder</button>
+      <button class="btn-icon fs-11" data-action="filesDisconnect">Disconnect</button>
+    </div>
+  </div>
+  <input type="file" id="files-upload-input" class="d-none" data-change="sftpUploadFile">
+  <div class="mono-12 hint mb-6">Path: <span id="files-cwd">/</span></div>
+  <div class="table-card"><table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody id="files-tbody"><tr><td colspan="4" class="empty-state">Loading…</td></tr></tbody></table></div>
+</div></div>
+<!-- v3.6.0: auto-patch policy create/edit -->
+<div class="modal-overlay" id="autopatch-modal"><div class="modal">
+  <div class="modal-title" id="autopatch-modal-title">New auto-patch policy</div>
+  <input type="hidden" id="autopatch-edit-id">
+  <div class="form-group"><label class="form-label">Name</label><input type="text" id="autopatch-name" class="form-input" placeholder="Weekly prod security updates" maxlength="80"></div>
+  <div class="row-8">
+    <div class="form-group flex-1"><label class="form-label">Target</label><select id="autopatch-target-type" class="form-input"><option value="all">All devices</option><option value="group">Group</option><option value="tag">Tag</option><option value="site">Site</option></select></div>
+    <div class="form-group flex-1"><label class="form-label">Value</label><input type="text" id="autopatch-target-value" class="form-input" placeholder="prod"></div>
+  </div>
+  <div class="form-group"><label class="form-label">Schedule (cron: min hour dom mon dow)</label><input type="text" id="autopatch-cron" class="form-input" placeholder="0 3 * * 0"></div>
+  <div class="form-group"><label class="form-label"><input type="checkbox" id="autopatch-reboot"> Reboot after upgrade if required</label></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="autopatch-modal">Cancel</button><button class="btn-primary" id="autopatch-save-btn" data-action="saveAutopatch">Create</button></div>
+</div></div>
+
+<!-- v3.6.0: backup job create/edit -->
+<div class="modal-overlay" id="backupjob-modal"><div class="modal">
+  <div class="modal-title" id="backupjob-modal-title">New backup job</div>
+  <input type="hidden" id="backupjob-edit-id">
+  <div class="form-group"><label class="form-label">Name</label><input type="text" id="backupjob-name" class="form-input" placeholder="Nightly restic to B2" maxlength="80"></div>
+  <div class="form-group"><label class="form-label">Device</label><select id="backupjob-device" class="form-input"></select></div>
+  <div class="form-group"><label class="form-label">Backup command</label><textarea id="backupjob-command" class="form-textarea" rows="3" placeholder="restic backup /etc /home --tag rp"></textarea></div>
+  <div class="form-group"><label class="form-label">Schedule (cron, optional)</label><input type="text" id="backupjob-cron" class="form-input" placeholder="0 2 * * *"></div>
+  <div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="backupjob-modal">Cancel</button><button class="btn-primary" id="backupjob-save-btn" data-action="saveBackupJob">Create</button></div>
+</div></div>
+
 <div class="modal-overlay" id="mon-history-modal"><div class="modal modal-wide"><div class="modal-title" id="mon-history-title">Monitor history</div><div id="mon-history-body" class="isl-210"><div class="empty-state">Loading…</div></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="mon-history-modal" >Close</button></div></div></div>
 <div class="modal-overlay" id="notes-modal"><div class="modal"><div class="modal-title">Device notes</div><input type="hidden" id="notes-device-id"><div class="form-group"><label class="form-label">Notes (free text)</label><textarea id="notes-input" class="form-textarea" placeholder="e.g. NAS in basement — WoL unreliable, check before rebooting"></textarea></div><div class="modal-actions"><button class="btn-secondary" data-action="closeModal" data-arg="notes-modal" >Cancel</button><button class="btn-primary" data-action="saveNotes" >Save</button></div></div></div>
 <!-- v3.5.0: create-site + assign-device-to-site modals -->
@@ -5838,14 +5990,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.5.0"></script>
+<script src="static/js/app.js?v=3.6.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.5.0"></script>
-<script src="static/js/app-cmdb.js?v=3.5.0"></script>
-<script src="static/js/app-containers.js?v=3.5.0"></script>
-<script src="static/js/app-network.js?v=3.5.0"></script>
+<script src="static/js/app-calendar.js?v=3.6.0"></script>
+<script src="static/js/app-cmdb.js?v=3.6.0"></script>
+<script src="static/js/app-containers.js?v=3.6.0"></script>
+<script src="static/js/app-network.js?v=3.6.0"></script>
 
-<script src="static/js/sw-register.js?v=3.5.0"></script>
+<script src="static/js/sw-register.js?v=3.6.0"></script>
 </body>
 </html>

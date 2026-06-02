@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.6.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -158,6 +158,12 @@ The demo is reset every few hours, so feel free to break things.
 - **Lifecycle expiry tracking** *(v3.5)* — record warranty / license / support-contract end dates per CMDB asset; expired or within 30 days → warning, within 90 → info, surfaced as dashboard attention items that feed the health score and are silenceable in channel routing.
 - **Graphical remote access (VNC over SSH)** *(v3.5)* — a Remote desktop device action opens a browser VNC session (noVNC) tunnelled over the web-terminal daemon's SSH connection to the host's loopback VNC port — never network-exposed, no inbound firewall rules, no agent change. Linux VNC; RDP not yet supported.
 - **Sites & teams** *(v3.5)* — a first-class fleet grouping above device groups, for organising hosts by location / team / customer (soft boundary — super-admins see all). Admin → Sites, an Assign-site device action, and a site filter on the Devices roster.
+- **Remote file manager** *(v3.6)* — a Files device action browses and transfers files over SFTP, tunnelled through the same daemon + ticket + SSH path as the terminal and VNC (no inbound ports). Download/upload, mkdir, delete, as the SSH user.
+- **Backup orchestration** *(v3.6)* — define a backup command per device (restic/borg/rsync) under Planning → Backups, run it on demand, or schedule it with cron. Closes the loop on the backup-freshness monitoring in each device drawer.
+- **Host user, key & firewall management** *(v3.6)* — add/lock/unlock/delete users, add/revoke SSH keys, and allow/deny/delete ufw or firewalld ports straight from a device's drawer. All exec-gated, audited, quarantine-aware.
+- **Endpoint AV posture** *(v3.6)* — ClamAV / rkhunter status (DB age, infected count, warnings) reported by the agent, with an on-demand scan action; infections raise a critical attention item.
+- **Auto-patch policy** *(v3.6)* — Planning → Auto-patch applies updates automatically on a cron schedule across a group / tag / site / whole fleet, optional reboot, respecting maintenance windows.
+- **Proxmox backup check** *(v3.6)* — per-guest vzdump backup recency from the node's backup storage; guests with no/stale backups become attention items, alongside the existing stale-snapshot check.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 
