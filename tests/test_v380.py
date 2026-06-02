@@ -182,6 +182,11 @@ class TestV380TokenSafety(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import os, tempfile
+        # Be self-sufficient when run in isolation: ensure server/cgi-bin is
+        # importable rather than relying on another test module to add it.
+        cgi_bin = str(REPO_ROOT / 'server' / 'cgi-bin')
+        if cgi_bin not in sys.path:
+            sys.path.insert(0, cgi_bin)
         cls.tmpdir = tempfile.mkdtemp(prefix='rp_v380tok_')
         os.environ['RP_DATA_DIR'] = cls.tmpdir
         if 'api' in sys.modules:

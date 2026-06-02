@@ -1935,7 +1935,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.8.0 hardening security audit bughunt csp polish bind it together boot reason raid maker checker allowlist ansible inventory injection ssrf dns rebinding rebind connect time peer ip oidc webhook siem require-signed-updates signed update fail closed device state quarantine deleted failed systemd units logged-in users login sessions proxmox backup sortable recovery code atomic sftp size av posture agent version ai investigate settings security tab confirmations rename headers referrer permissions policy">
+          <details class="doc-card" open data-keywords="release notes changelog v3.8.0 hardening security audit bughunt csp polish bind it together boot reason raid maker checker allowlist ansible inventory injection ssrf dns rebinding rebind connect time peer ip oidc webhook siem require-signed-updates signed update fail closed device state quarantine deleted failed systemd units logged-in users login sessions proxmox backup sortable recovery code atomic sftp size av posture agent version ai investigate settings security tab confirmations rename headers referrer permissions policy zap nikto nuclei external scan dynamic scan error disclosure 500 status token header inheritance tls hardening">
             <summary><strong>What's new — v3.8.0</strong> — security hardening, bind-it-together, more AI investigate, polish</summary>
             <div class="doc-body">
               <p>A consolidation release: a security pass over v3.5–v3.7, dropped agent data wired into the UI, more AI-investigate coverage, and consistency fixes. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.8.0</code>).</p>
@@ -1947,6 +1947,7 @@
                 <li><strong>DNS-rebinding SSRF</strong> is closed across the webhook sender, audit&rarr;SIEM forwarder and OIDC discovery/token fetches — the address actually connected to is re-validated, not just the pre-flight DNS lookup (TLS verification unaffected).</li>
                 <li><strong>Maker-checker approval</strong> re-checks device state — approving a parked exec/reboot/script is rejected if the device was deleted or quarantined while queued.</li>
                 <li>Agents can opt in to <strong>mandatory signed updates</strong> — a <code>require-signed-updates</code> marker file makes the agent fail-closed, refusing any self-update unless a release key is pinned and the download is validly signed.</li>
+                <li>Passed an <strong>external dynamic scan</strong> (OWASP ZAP full + nikto + nuclei): fixed an error-disclosure 500 on the public status/calendar endpoints (a non-ASCII <code>?token=</code> is now rejected cleanly) and restored security headers dropped on a couple of static paths; the shipped nginx templates gained a CSP / header / TLS hardening pass. See <code>docs/security-review-3.8.0.md</code>.</li>
               </ul>
               <h4>Bind it together &amp; fixes</h4>
               <ul>

@@ -916,7 +916,12 @@ approval** re-checks device state, rejecting a parked action if the device
 was deleted or quarantined while queued. Agents can opt in to **mandatory
 signed updates** — a `require-signed-updates` marker file makes the agent
 fail-closed, refusing any self-update that isn't pinned to a release key
-and validly signed. See `docs/security-review-3.8.0.md`.
+and validly signed. v3.8.0 also passed an **external dynamic scan** (OWASP
+ZAP full + nikto + nuclei); the two real findings — an error-disclosure 500
+on the public status/calendar endpoints (a non-ASCII `?token=` is now
+rejected cleanly) and security headers dropped on a couple of static nginx
+paths — are fixed, and the shipped nginx templates gained a CSP / header /
+TLS hardening pass. See `docs/security-review-3.8.0.md`.
 
 **Boot reason** (why a host last restarted) is now stored and shown.
 **Failed systemd units** and **logged-in users** were being silently
