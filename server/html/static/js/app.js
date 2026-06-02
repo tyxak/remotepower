@@ -14856,15 +14856,20 @@ function _renderForecastTable() {
   const rows = page.map(m => {
     const idx = _forecastRows.indexOf(m);
     const d2f = m.days_to_full;
-    const daysCls = m.noisy ? 'c-amber' : d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
+    const daysCls = m.stalled ? 'c-green' : m.noisy ? 'c-amber' : d2f == null ? 'c-muted' : d2f < 14 ? 'c-red' : d2f < 45 ? 'c-amber' : '';
+    // v3.8.0: growth that stalled (long-run trend up, but flat over the last
+    // ~7 days) gets no fill date — a past spike inside the window shouldn't keep
+    // projecting a fill that isn't coming.
     // v3.4.2: a heavily-fluctuating mount gets no (misleading) date; a mount that
     // fills only >2 years out is shown as such rather than as a near-term risk.
-    const daysTxt = m.noisy
+    const daysTxt = m.stalled
+      ? `<span title="Long-run trend is up, but growth has flattened over the last ~7 days (recent ${m.recent_gb_per_day} GB/day) — no fill projected">growth stalled</span>`
+      : m.noisy
       ? `<span title="Usage fluctuates too much for a reliable projection (R²=${m.r2})">fluctuating</span>`
       : m.beyond_horizon
         ? `<span title="Fills at the current rate, but more than 2 years out — not an actionable risk">&gt;2 yr</span>`
         : d2f == null ? 'no fill' : _fmtDays(d2f);
-    const fill = (m.noisy || m.beyond_horizon) ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
+    const fill = (m.stalled || m.noisy || m.beyond_horizon) ? '—' : (m.fill_date_ts ? new Date(m.fill_date_ts * 1000).toISOString().slice(0, 10) : '—');
     // Mounts collapsed into this row because they're the same filesystem
     // (btrfs subvolumes, bind mounts) — show "+N" with the full list on hover.
     const shared = Array.isArray(m.shared_mounts) ? m.shared_mounts : [m.path];
@@ -14877,7 +14882,7 @@ function _renderForecastTable() {
       <td><code>${escHtml(m.path)}</code>${extra}</td>
       <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
       <td class="ta-center">${m.current_percent}%</td>
-      <td class="ta-center">${m.trend_gb_per_day} GB/day</td>
+      <td class="ta-center"${m.recent_gb_per_day != null ? ` title="recent (~7d): ${m.recent_gb_per_day} GB/day"` : ''}>${m.trend_gb_per_day} GB/day</td>
       <td class="ta-center ${daysCls}">${daysTxt}</td>
       <td class="ta-center">${escHtml(fill)}</td></tr>`;
   }).join('');

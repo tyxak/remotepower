@@ -30,6 +30,17 @@ _MIN_R2 = 0.5
 # so beyond this horizon we keep the row but drop the projected date.
 _FORECAST_HORIZON_DAYS = 730
 
+# v3.8.0: "has the growth actually stopped?" guard. A one-off spike inside the
+# trend window (a big restore, a log burst, a backup run) leaves the
+# full-window least-squares slope pointing up long after the growth is over, so
+# the page keeps projecting an alarming fill date that will never arrive. We
+# re-fit the slope over just the most recent window; if that has flattened (or
+# reversed), we treat the mount as stalled — keep the row + current usage, but
+# drop the projected date and flag it so the UI can say "growth stalled".
+_RECENT_WINDOW_DAYS = 7
+# Per-day growth below this (GB/day) counts as "not really climbing".
+_CLIMB_FLOOR = 0.001
+
 
 def _is_volatile_mount(path, exclude):
     p = (path or '').rstrip('/') or '/'
@@ -139,18 +150,39 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
         ys = [u for _t, u, _tot in pts]
         total = pts[-1][2]
         cur = pts[-1][1]
-        slope, intercept = linear_fit(xs, ys)  # GB per day
+        slope, intercept = linear_fit(xs, ys)  # GB per day, full window
         r2 = _r_squared(xs, ys, slope, intercept)
+
+        # v3.8.0: re-fit over just the recent window so a stale spike earlier in
+        # the window can't keep projecting a fill after growth has stopped.
+        recent_slope = None
+        latest_ts = pts[-1][0]
+        recent = [(t, u) for t, u, _tot in pts if t >= latest_ts - _RECENT_WINDOW_DAYS * DAY]
+        if len(recent) >= 2 and (recent[-1][0] - recent[0][0]) >= 0.5 * DAY:
+            r_t0 = recent[0][0]
+            recent_slope, _ri = linear_fit([(t - r_t0) / DAY for t, _u in recent],
+                                           [u for _t, u in recent])
+
+        # "Growth stopped" iff we have a trustworthy recent read and it has
+        # flattened/reversed while the long-run trend still points up.
+        stalled = (recent_slope is not None and recent_slope <= _CLIMB_FLOOR
+                   and slope > _CLIMB_FLOOR)
 
         days_to_full = None
         fill_ts = None
         noisy = False
         beyond_horizon = False
-        # Only forecast a fill when usage is genuinely climbing (>1 MB/day)
-        # and there's headroom left.
-        if slope > 0.001 and total > cur:
+        # Only forecast a fill when usage is genuinely climbing (>1 MB/day),
+        # there's headroom left, and recent growth hasn't stalled.
+        if slope > _CLIMB_FLOOR and total > cur and not stalled:
             if r2 >= min_r2:
-                d2f = (total - cur) / slope
+                # Project from whichever rate is current: if the recent window is
+                # trustworthy and slower than the long-run trend (decelerating),
+                # use it — it gives a realistic horizon instead of an alarmist one.
+                proj_slope = slope
+                if recent_slope is not None and _CLIMB_FLOOR < recent_slope < slope:
+                    proj_slope = recent_slope
+                d2f = (total - cur) / proj_slope
                 if d2f <= _FORECAST_HORIZON_DAYS:
                     days_to_full = d2f
                     fill_ts = int(pts[-1][0] + d2f * DAY)
@@ -169,6 +201,11 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
             'total_gb':         round(total, 2),
             'current_percent':  round(100.0 * cur / total, 1) if total else 0.0,
             'trend_gb_per_day': round(slope, 3),
+            # Recent-window rate (last _RECENT_WINDOW_DAYS); None if too few
+            # recent points. `stalled` = long-run trend is up but recent growth
+            # has flattened/reversed, so no fill date is projected.
+            'recent_gb_per_day': round(recent_slope, 3) if recent_slope is not None else None,
+            'stalled':          stalled,
             'days_to_full':     round(days_to_full, 1) if days_to_full is not None else None,
             'fill_date_ts':     fill_ts,
             'noisy':            noisy,
