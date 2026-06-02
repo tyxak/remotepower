@@ -65,6 +65,21 @@ def _release_pubkey():
     return None
 
 
+# v3.8.0: hard opt-in to fail-closed self-update. Touch
+# /etc/remotepower/require-signed-updates and the agent refuses to self-update
+# unless a release.pub is pinned AND the download carries a valid signature —
+# closing the default fail-open window where a compromised server (which dictates
+# both the binary and its advertised sha256) could push root RCE.
+REQUIRE_SIGNED_FILE = CONF_DIR / 'require-signed-updates'
+
+
+def _require_signed_updates():
+    try:
+        return REQUIRE_SIGNED_FILE.exists()
+    except Exception:
+        return False
+
+
 def _verify_detached_sig(data_bytes, sig_text, pubkey_armored, expected_fpr=''):
     """Verify a detached signature over data_bytes using an ephemeral gpg keyring
     seeded only with the pinned public key. Returns (ok, detail). Fails closed.
@@ -3049,6 +3064,12 @@ def check_for_update(server_url, force=False):
     # behaviour unchanged (sha256-only). With a key pinned, a missing or invalid
     # signature aborts the update.
     pubkey = _release_pubkey()
+    if not pubkey and _require_signed_updates():
+        log.error(
+            "require-signed-updates is set but no release.pub is pinned — "
+            "refusing to install an unsigned update.")
+        _safe_state_write('update-rejected', 'signed updates required but no key pinned')
+        return False
     if pubkey:
         try:
             sig = http_get_binary(f"{server_url}/api/agent/signature", timeout=15)

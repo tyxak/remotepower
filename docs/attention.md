@@ -39,6 +39,7 @@ These produce a Needs Attention item when the underlying condition is currently 
 | `reboot` | `/run/reboot-required` exists in sysinfo | warning |
 | `agent_version` | agent version ≠ server version | info |
 | `service_down` | systemd unit in `services.json` not active | warning / critical |
+| `failed_units` | systemd `failed` units reported in the device's sysinfo | warning |
 | `monitor_down` | last monitor probe `ok: false` | critical |
 | `custom_script_fail` | custom script reports non-zero rc in latest result | warning |
 

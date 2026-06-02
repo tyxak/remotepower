@@ -4343,13 +4343,23 @@ async function loadProxmoxBackups() {
   }
   const cls = { ok: 'c-green', stale: 'c-amber', missing: 'c-red' };
   const label = { ok: 'OK', stale: 'Stale', missing: 'No backup' };
-  const rows = d.guests.map(g => {
+  // v3.8.0: wire sort (CLAUDE.md — every table must sort). age/status sort
+  // numerically (missing backups sort worst-first via a high age sentinel).
+  const sorted = tableCtl.sortRows('pmbackup', d.guests.slice(), g => ({
+    name: g.name || ('VM ' + g.vmid),
+    vmid: g.vmid,
+    last: g.last_backup || 0,
+    age: g.age_days == null ? Number.MAX_SAFE_INTEGER : g.age_days,
+    status: g.status,
+  }));
+  const rows = sorted.map(g => {
     const last = g.last_backup ? new Date(g.last_backup * 1000).toLocaleString() : '—';
     const age = g.age_days == null ? '—' : `${g.age_days}d`;
     return `<tr><td class="fw-500">${escHtml(g.name || ('VM ' + g.vmid))}</td><td class="hint">${g.vmid}</td><td class="hint">${last}</td><td>${age}</td><td><span class="patch-badge ${cls[g.status] || 'c-muted'}">${label[g.status] || g.status}</span></td></tr>`;
   }).join('');
   const updated = d.updated_at ? new Date(d.updated_at * 1000).toLocaleString() : '';
-  body.innerHTML = `<div class="table-card"><table><thead><tr><th>Guest</th><th>VMID</th><th>Last backup</th><th>Age</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
+  body.innerHTML = `<div class="table-card"><table><thead id="pmbackup-thead"><tr><th data-col="name">Guest</th><th data-col="vmid">VMID</th><th data-col="last">Last backup</th><th data-col="age">Age</th><th data-col="status">Status</th></tr></thead><tbody>${rows}</tbody></table></div>${updated ? `<div class="meta-sm-nm mt-6">Node ${escHtml(d.node)} · refreshed ${updated}</div>` : ''}`;
+  tableCtl.wireSortOnly('pmbackup-thead', 'pmbackup', loadProxmoxBackups);
 }
 async function saveProxmoxBackupThreshold() {
   const days = parseInt(document.getElementById('pmbackup-threshold').value, 10);
@@ -10206,70 +10216,10 @@ async function _captureCount(devId, path) {
   }
 }
 
-// ─── v2.2.6: host health telemetry block (device detail modal) ──────────
-//
-// Renders the extra signals the agent started collecting in 2.2.6:
-// reboot-required, failed systemd units, logged-in users, listening
-// ports, last boot. Each section is omitted entirely if the agent
-// didn't report it (older agent, or the probe failed on the host) —
-// so an older agent's detail modal just looks like it did before.
-
-function _renderHostHealth(si) {
-  si = si || {};
-  let html = '';
-
-  // Reboot required — loud amber banner when true
-  if (si.reboot_required === true) {
-    const reason = si.reboot_reason
-      ? ` <span class="meta-sm-nm">(${escHtml(si.reboot_reason)})</span>`
-      : '';
-    html += `<div class="isl-565">
-      ⟳ <strong>Reboot required</strong>${reason}
-    </div>`;
-  }
-
-  // Failed systemd units
-  if (Array.isArray(si.failed_units) && si.failed_units.length) {
-    html += `<div class="isl-566">
-      <div class="isl-567">${si.failed_units.length} failed systemd unit${si.failed_units.length === 1 ? '' : 's'}</div>
-      <div class="isl-562">${si.failed_units.map(u => escHtml(u)).join(', ')}</div>
-    </div>`;
-  }
-
-  // Logged-in users + last boot — info pills
-  const pills = [];
-  if (Array.isArray(si.logged_in)) {
-    pills.push(`<div class="sysinfo-pill"><div class="label">Logged in</div><div class="value">${si.logged_in.length ? si.logged_in.map(u => escHtml(u)).join(', ') : '—'}</div></div>`);
-  }
-  if (si.last_boot) {
-    pills.push(`<div class="sysinfo-pill"><div class="label">Booted</div><div class="value fs-11">${new Date(si.last_boot * 1000).toLocaleString()}</div></div>`);
-  }
-  if (pills.length) {
-    html += `<div class="sysinfo-row mb-14">${pills.join('')}</div>`;
-  }
-
-  // Listening ports — compact table
-  if (Array.isArray(si.listening_ports) && si.listening_ports.length) {
-    const rows = si.listening_ports.map(p =>
-      `<tr>
-        <td class="isl-568">${escHtml(p.proto)}</td>
-        <td class="isl-569">${p.port}</td>
-        <td class="meta-sm-nm">${escHtml(p.process || '—')}</td>
-      </tr>`
-    ).join('');
-    html += `<details class="mb-14">
-      <summary class="isl-570">
-        Listening ports (${si.listening_ports.length})
-      </summary>
-      <div class="table-card isl-571">
-        <table><thead><tr><th>Proto</th><th>Port</th><th>Process</th></tr></thead>
-        <tbody>${rows}</tbody></table>
-      </div>
-    </details>`;
-  }
-
-  return html;
-}
+// (v2.2.6 _renderHostHealth removed in v3.8.0 — it was orphaned; its
+// reboot-required / failed-units / logged-in / listening-ports blocks were
+// superseded by the live device-drawer `case 'sysinfo'` renderer, which now
+// also surfaces failed_units and logged_in.)
 
 // ═══════════════════════════════════════════════════════════════════════
 // v2.3.0 — Proxmox virtualization
@@ -12781,6 +12731,8 @@ async function _loadAuditSection(key) {
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],
+          // v3.8.0: who is logged in right now (active login sessions)
+          ['Logged in', (si.logged_in||[]).length ? si.logged_in.join(', ') : null],
         ];
         h += `<div class="sysinfo-row isl-610">` +
           pills.filter(([,v])=>v!=null).map(([l,v])=>
@@ -12792,13 +12744,21 @@ async function _loadAuditSection(key) {
               `<span class="cmd-badge fs-11">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
             ).join('') + `</div>`;
         }
-        // Reboot-required indicator — data already in sysinfo (matches the
-        // home/attention feed at _renderHostHealth).
+        // Reboot-required indicator — data already in sysinfo.
         if (si.reboot_required === true) {
           const rebootIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
           h += `<div class="fs-12 mt-8 c-amber">${rebootIco} <strong>Reboot required</strong>${
             si.reboot_reason ? ` <span class="c-muted">(${escHtml(String(si.reboot_reason))})</span>` : ''
           }</div>`;
+        }
+        // v3.8.0: failed systemd units — now persisted server-side, surface
+        // them per-device (also drives the Fleet Query filter + compliance).
+        if (Array.isArray(si.failed_units) && si.failed_units.length) {
+          const failIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+          h += `<div class="fs-12 mt-8 c-red">${failIco} <strong>${si.failed_units.length} failed unit${si.failed_units.length===1?'':'s'}</strong></div>` +
+            `<div class="mb-8 mt-4">` + si.failed_units.map(u=>
+              `<span class="cmd-badge fs-11">${escHtml(String(u))}</span> `
+            ).join('') + `</div>`;
         }
         if ((si.mounts||[]).length) {
           h += `<table class="isl-627">
@@ -17757,6 +17717,7 @@ const _MITIGATE_KIND_LABELS = {
   new_port:        'New listening port',
   agent_integrity: 'Agent integrity',
   log_alert:       'Log pattern alert',
+  failed_units:    'Failed systemd units',
 };
 
 // Which attention kinds support mitigation. Mirrors _MITIGATE_PLAYBOOKS keys
@@ -17770,6 +17731,7 @@ const MITIGATE_KINDS = new Set([
   // v3.8.0: keep in sync with server _MITIGATE_PLAYBOOKS
   'av_posture', 'agent_version',
   'os_eol', 'hardware', 'backup', 'ssh_key', 'new_port', 'agent_integrity', 'log_alert',
+  'failed_units',
 ]);
 
 function openMitigateModal(devId, kind, target, deviceName) {

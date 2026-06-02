@@ -16,6 +16,7 @@ Diagnostic + AI suggestion + confirmed fix for active alerts. Click the 🩺 but
 | `disk` | `df -h`, top 20 dirs (`du --max-depth=2 /`), files >500MB, journal disk usage | (none — AI suggests) |
 | `drift` | `/etc` git status, files modified in last 7 days | (none) |
 | `service_down` | `systemctl status` + last 100 journal lines for the unit | `systemctl restart <unit>` |
+| `failed_units` | `systemctl --failed` + recent journal lines for the failed units | (none — AI suggests) |
 | `reboot` | Reboot reason, packages requiring reboot, kernel mismatch | `reboot` (DANGEROUS — requires RUN confirmation) |
 | `brute_force` | Recent auth failures, top offending IPs, fail2ban status, active SSH sessions | (none — manual review) |
 

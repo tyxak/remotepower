@@ -107,6 +107,14 @@ Summary of the defences in place:
   link-local / unspecified IPs (covers cloud metadata services at
   169.254.169.254). RFC1918 private networks are deliberately permitted —
   homelab Gotify / ntfy on the LAN is legitimate.
+- **DNS-rebinding protected.** The webhook sender, the audit→SIEM forwarder, and
+  the OIDC discovery / token-exchange fetches re-validate the *actual* peer IP at
+  connect time, not just the address resolved during the pre-flight check — so a
+  hostname that resolves to a permitted address for the check but an
+  internal/metadata address for the real request is caught and refused. TLS
+  verification (server name + certificate chain) is unaffected; the audit
+  forwarder pins the verified TLS context for the connection it validated. See
+  `docs/security-review-3.8.0.md` (v3.8.0).
 
 ### CMDB vault
 
@@ -126,6 +134,12 @@ Summary of the defences in place:
   `http_post()` rejects non-HTTPS URLs at the function head.
 - Self-updates are SHA-256 verified with `hmac.compare_digest` and applied
   atomically via `mkstemp` + `shutil.move`.
+- **Opt-in mandatory signed updates** (v3.8.0): create the marker file
+  `/etc/remotepower/require-signed-updates` and the agent fails *closed* — it
+  refuses any self-update unless a release public key is pinned *and* the download
+  carries a valid signature. Without the marker the default is fail-open (an
+  unsigned update is allowed when no key is configured), so this flips the
+  posture for hosts that demand signed updates.
 - Agent state files live in `/var/lib/remotepower/` (mode `0700`) with
   `O_NOFOLLOW` on every read and write. A `/tmp/` fallback exists for non-root
   deploys and uses the same anti-symlink hardening.

@@ -1935,7 +1935,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.8.0 hardening security audit bughunt csp polish bind it together boot reason raid maker checker allowlist ansible inventory injection ssrf recovery code atomic sftp size av posture agent version ai investigate settings security tab confirmations rename headers referrer permissions policy">
+          <details class="doc-card" open data-keywords="release notes changelog v3.8.0 hardening security audit bughunt csp polish bind it together boot reason raid maker checker allowlist ansible inventory injection ssrf dns rebinding rebind connect time peer ip oidc webhook siem require-signed-updates signed update fail closed device state quarantine deleted failed systemd units logged-in users login sessions proxmox backup sortable recovery code atomic sftp size av posture agent version ai investigate settings security tab confirmations rename headers referrer permissions policy">
             <summary><strong>What's new — v3.8.0</strong> — security hardening, bind-it-together, more AI investigate, polish</summary>
             <div class="doc-body">
               <p>A consolidation release: a security pass over v3.5–v3.7, dropped agent data wired into the UI, more AI-investigate coverage, and consistency fixes. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.8.0</code>).</p>
@@ -1944,15 +1944,19 @@
                 <li>Change approval no longer bypasses the per-device command allowlist/denylist (it's enforced at submit and approval).</li>
                 <li>Ansible runner: inventory injection closed (sanitised host alias; SSH password via a 0600 JSON extra-vars file), and it now skips quarantined devices.</li>
                 <li>2FA recovery codes are consumed atomically; audit-log HTTP forwarding refuses redirects and the syslog target is SSRF-checked; SFTP upload size is checked before decoding.</li>
+                <li><strong>DNS-rebinding SSRF</strong> is closed across the webhook sender, audit&rarr;SIEM forwarder and OIDC discovery/token fetches — the address actually connected to is re-validated, not just the pre-flight DNS lookup (TLS verification unaffected).</li>
+                <li><strong>Maker-checker approval</strong> re-checks device state — approving a parked exec/reboot/script is rejected if the device was deleted or quarantined while queued.</li>
+                <li>Agents can opt in to <strong>mandatory signed updates</strong> — a <code>require-signed-updates</code> marker file makes the agent fail-closed, refusing any self-update unless a release key is pinned and the download is validly signed.</li>
               </ul>
               <h4>Bind it together &amp; fixes</h4>
               <ul>
                 <li><strong>Boot reason</strong> is now stored and shown in the device System Info tab — why the host last restarted (e.g. self-update) was previously dropped.</li>
-                <li>RAID member disks render again in the Health &amp; Hardware card; admin-page delete actions handle opaque IDs safely.</li>
+                <li><strong>Failed systemd units</strong> are now persisted and shown in System Info, driving a new failed-units Needs-Attention item that feeds the fleet health score (and the previously dead-ended Fleet Query &ldquo;failed units&rdquo; filter and CIS check now work).</li>
+                <li><strong>Logged-in users</strong> (active login sessions) show as a System Info pill; RAID member disks render again in the Health &amp; Hardware card; the Proxmox per-guest backup table is now sortable; admin-page delete actions handle opaque IDs safely.</li>
               </ul>
               <h4>AI investigate &amp; polish</h4>
               <ul>
-                <li><strong>AI Investigate</strong> now covers most Needs-Attention kinds — added malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, and log-pattern alerts (~20 kinds total).</li>
+                <li><strong>AI Investigate</strong> now covers most Needs-Attention kinds — added malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and failed systemd units (~21 kinds total).</li>
                 <li>Audit-forwarding and change-approval settings moved to <strong>Settings → Security</strong>; the <strong>Confirmations</strong> page renamed (it now also handles change-approval, not only MCP).</li>
               </ul>
             </div>

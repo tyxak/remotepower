@@ -32,6 +32,9 @@ holds long-form docs that don't fit there.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
 - **[security-review-2.3.2.md](security-review-2.3.2.md)** — Independent
  security review from the 2.3.2 password-hashing release.
+- **[security-review-3.8.0.md](security-review-3.8.0.md)** — Security review
+ from the 3.8.0 hardening pass (DNS-rebinding SSRF, maker-checker, signed
+ updates).
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes

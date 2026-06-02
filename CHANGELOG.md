@@ -22,6 +22,22 @@ AI-investigate coverage, and consistency fixes.
 - **Audit-log forwarding SSRF hardening** — the HTTP forwarder refuses to follow
   redirects (no bounce to a metadata/loopback address) and the syslog target is
   now SSRF-checked like the HTTP one.
+- **DNS-rebinding SSRF closed across every outbound back-channel.** The webhook
+  sender, audit→SIEM forwarder, and OIDC discovery/token-exchange fetches now
+  re-validate the *actual* peer IP at connect time (not just the pre-flight DNS
+  lookup), so a hostname that resolves to a public address for the check but an
+  internal/metadata address for the fetch is caught and refused. Normal TLS
+  verification (SNI + cert chain) is unaffected. The audit forwarder also now
+  pins the verified TLS context it previously computed and dropped. See
+  `docs/security-review-3.8.0.md`.
+- **Maker-checker approval re-checks device state.** Approving a parked
+  exec/reboot/script confirmation now rejects the action if the device was
+  deleted or quarantined while the request sat in the queue (no orphaned queue
+  entry; a quarantined host can't be hit via the approval path).
+- **Agent opt-in mandatory signed updates.** Touch
+  `/etc/remotepower/require-signed-updates` and the agent refuses to install any
+  self-update unless a `release.pub` is pinned *and* the download carries a
+  valid signature — flipping the default fail-open window to fail-closed.
 - **SFTP upload** rejects oversized files by encoded length *before* base64
   decoding.
 
@@ -30,21 +46,36 @@ AI-investigate coverage, and consistency fixes.
   opaque IDs to strings (an all-digit token could otherwise be mangled).
 - RAID member disks now render in the device drawer (the agent emits them as a
   space-separated string; the UI assumed an array and silently dropped them).
+- The **Proxmox per-guest backup table** is now sortable (every column), matching
+  the other planning tables — it was the one inline table that shipped without
+  sort wiring.
 
 ### Bind it together
 - **Boot reason** is now stored and shown — the agent already reported *why* a
   host last restarted (e.g. `self-update`), but the field was being dropped.
   Surfaced in the device drawer's System Info tab.
+- **Failed systemd units** are now persisted and surfaced. The agent has always
+  reported them, but the heartbeat sanitiser silently dropped the field — which
+  had dead-ended the Fleet Query "failed units" filter, the daily "what changed"
+  metrics diff, and the `cis-failed` compliance check (it could never fail).
+  They now appear in the device drawer, drive a new Needs-Attention item, and
+  feed the fleet health score.
+- **Logged-in users** (active login sessions) are likewise now stored and shown
+  as a pill in the device drawer's System Info tab — useful "who's on the box
+  right now" context that was being dropped.
+- Removed an orphaned `_renderHostHealth()` renderer (superseded by the live
+  device drawer; it also carried a stray non-SVG glyph).
 
 ### AI investigate (broadened)
 - Added diagnose/remediate playbooks for many more Needs-Attention kinds, so the
   Investigate button now covers most of what the dashboard surfaces: **malware/AV
   posture**, **stale agent version**, **end-of-life OS**, **hardware health
   (SMART/kernel)**, **stale/missing backup**, **new SSH authorized key**, **new
-  listening port**, **agent integrity (hash mismatch)**, and **log-pattern
-  alerts** — joining the existing disk/memory/swap/cpu/patches/cve/drift/
-  service-down/container/reboot/brute-force playbooks (~20 kinds total). Each
-  ships a tailored AI prompt; the JS kind/label registries stay in sync.
+  listening port**, **agent integrity (hash mismatch)**, **log-pattern
+  alerts**, and **failed systemd units** — joining the existing
+  disk/memory/swap/cpu/patches/cve/drift/service-down/container/reboot/
+  brute-force playbooks (~20 kinds total). Each ships a tailored AI prompt; the
+  JS kind/label registries stay in sync.
 
 ### Polish
 - Audit-forwarding and change-approval settings moved to **Settings → Security**

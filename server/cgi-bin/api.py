@@ -2313,10 +2313,13 @@ def _forward_audit(entry, cfg):
         if tok:
             headers['Authorization'] = f'Bearer {tok}'
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-        ctx = _get_ssl_context() if url.lower().startswith('https') else None
-        # v3.8.0: refuse to follow redirects — a 3xx to 169.254.169.254/loopback
-        # would otherwise sail past the SSRF guard above.
-        opener = urllib.request.build_opener(_NoRedirect())
+        # v3.8.0: connect-time peer revalidation (anti DNS-rebinding) + refuse
+        # redirects (a 3xx to 169.254.169.254/loopback would bypass the
+        # pre-flight SSRF guard above). The verified TLS context is pinned onto
+        # the opener (it was computed but dropped before v3.8.0).
+        _ctx = _get_ssl_context() if url.lower().startswith('https') else None
+        opener = _ssrf_safe_opener(allow_loopback=not _block_local,
+                                   ssl_ctx=_ctx, no_redirect=True)
         opener.open(req, timeout=5).close()
     elif mode == 'syslog':
         host = (cfg.get('audit_forward_host') or '').strip()
@@ -3710,7 +3713,7 @@ def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
     returns False (don't block what we can't classify — handler will
     fail later with a network error).
     """
-    import ipaddress, socket
+    import socket
     host = parsed_url.hostname or ''
     if not host:
         return True   # No host at all — block to be safe
@@ -3718,16 +3721,99 @@ def _url_targets_local_or_meta(parsed_url, allow_loopback=True):
         addrs = socket.getaddrinfo(host, None)
     except socket.gaierror:
         return False  # Can't resolve — let the request through, will fail anyway
-    for family, _t, _p, _c, sockaddr in addrs:
+    for _family, _t, _p, _c, sockaddr in addrs:
         try:
-            ip = ipaddress.ip_address(sockaddr[0])
+            if _ip_class_blocked(sockaddr[0], allow_loopback):
+                return True
         except (ValueError, IndexError):
             continue
-        if ip.is_link_local or ip.is_unspecified:
-            return True
-        if ip.is_loopback and not allow_loopback:
-            return True
     return False
+
+
+def _ip_class_blocked(ip_str, allow_loopback=True):
+    """Per-IP SSRF classifier shared by the pre-flight DNS check and the
+    connect-time peer recheck. Returns True for the host classes an SSRF
+    attacker would target: link-local (covers 169.254.169.254 cloud
+    metadata), unspecified (0.0.0.0), and — when allow_loopback is False —
+    loopback. RFC1918 private ranges are allowed by design (LAN fleet)."""
+    import ipaddress
+    ip = ipaddress.ip_address(ip_str)
+    if ip.is_link_local or ip.is_unspecified:
+        return True
+    if ip.is_loopback and not allow_loopback:
+        return True
+    return False
+
+
+# ── v3.8.0: connect-time SSRF re-validation (closes the DNS-rebinding TOCTOU) ──
+# The pre-flight _url_targets_local_or_meta() resolves the hostname and
+# classifies the IPs, but urllib re-resolves independently when it actually
+# connects — so an attacker controlling DNS could return a public IP for the
+# check and 169.254.169.254 / loopback for the fetch. These connection
+# subclasses re-classify the *actual* peer address after connecting and abort
+# if it lands on a blocked class. Normal TLS verification (SNI + cert chain)
+# is untouched because we still connect by hostname.
+import http.client as _httpclient
+
+
+class _SSRFGuardHTTPConnection(_httpclient.HTTPConnection):
+    _allow_loopback = True
+    _enforce_ip = True
+    def connect(self):
+        super().connect()
+        self._ssrf_check_peer()
+    def _ssrf_check_peer(self):
+        if not self._enforce_ip:
+            return
+        try:
+            peer = self.sock.getpeername()[0]
+        except (OSError, AttributeError, IndexError):
+            return
+        if _ip_class_blocked(peer, self._allow_loopback):
+            self.close()
+            raise OSError(f'SSRF guard: connection peer {peer} is a blocked address')
+
+
+class _SSRFGuardHTTPSConnection(_httpclient.HTTPSConnection):
+    _allow_loopback = True
+    _enforce_ip = True
+    def connect(self):
+        super().connect()
+        _SSRFGuardHTTPConnection._ssrf_check_peer(self)
+
+
+def _ssrf_safe_opener(allow_loopback=True, ssl_ctx=None, no_redirect=False,
+                      enforce_ip=True):
+    """Build a urllib opener whose HTTP(S) connections re-validate the peer
+    IP at connect time (anti-rebinding). Pass no_redirect=True to also refuse
+    3xx redirects (a redirect to a blocked address would otherwise bypass the
+    pre-flight check). enforce_ip=False keeps the no-redirect behaviour but
+    skips the peer-IP block — used when the operator has explicitly opted out
+    of local-target blocking, so the connect-time guard mirrors the pre-flight
+    decision rather than overriding it."""
+    ip_block = bool(allow_loopback)
+    do_enforce = bool(enforce_ip)
+
+    class _HTTPConn(_SSRFGuardHTTPConnection):
+        _allow_loopback = ip_block
+        _enforce_ip = do_enforce
+
+    class _HTTPSConn(_SSRFGuardHTTPSConnection):
+        _allow_loopback = ip_block
+        _enforce_ip = do_enforce
+
+    class _HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(_HTTPConn, req)
+
+    class _HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_HTTPSConn, req, context=ssl_ctx)
+
+    handlers = [_HTTPHandler(), _HTTPSHandler()]
+    if no_redirect:
+        handlers.append(_NoRedirect())
+    return urllib.request.build_opener(*handlers)
 
 
 def _auto_detect_format(url):
@@ -3864,10 +3950,17 @@ def _dispatch_one_webhook(event, dest, safe_payload, message, title, priority):
         return
     req = urllib.request.Request(url, data=body, headers=headers, method='POST')
     try:
-        ctx = None
-        if parsed.scheme == 'https':
-            ctx = _get_ssl_context()
-        resp = urllib.request.urlopen(req, timeout=10, context=ctx)
+        ctx = _get_ssl_context() if parsed.scheme == 'https' else None
+        # v3.8.0: connect-time peer revalidation (anti DNS-rebinding) + no
+        # redirect-follow (a 3xx to a metadata/loopback host would bypass the
+        # pre-flight SSRF check above). enforce_ip mirrors the pre-flight gate:
+        # if the operator turned off webhook_block_local entirely, we don't
+        # re-impose IP blocking here (but still refuse redirects).
+        _block_local = bool(cfg.get('webhook_block_local', True))
+        _allow_lb = bool(cfg.get('webhook_allow_loopback', True))
+        opener = _ssrf_safe_opener(allow_loopback=_allow_lb, ssl_ctx=ctx,
+                                   no_redirect=True, enforce_ip=_block_local)
+        resp = opener.open(req, timeout=10)
         _log_webhook(event, url, resp.status,
                      f'OK ({resp.status}) [{fmt}]')
     except urllib.error.HTTPError as e:
@@ -7039,6 +7132,23 @@ def handle_heartbeat():
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
+            # v3.8.0: persist failed systemd units. The agent has always
+            # shipped this in sysinfo, but the sanitiser never copied it —
+            # silently dead-ending the Fleet Query "failed units" filter,
+            # the daily-metrics "what changed" diff, and the cis-failed
+            # compliance check (which could therefore never fail).
+            if isinstance(si.get('failed_units'), list):
+                safe_si['failed_units'] = [
+                    _sanitize_str(u, 128) for u in si['failed_units'][:50]
+                    if isinstance(u, str)
+                ]
+            # v3.8.0: persist currently-logged-in users (operational signal —
+            # who is on the box right now). Same omission as failed_units.
+            if isinstance(si.get('logged_in'), list):
+                safe_si['logged_in'] = [
+                    _sanitize_str(u, 64) for u in si['logged_in'][:50]
+                    if isinstance(u, str)
+                ]
             dev['sysinfo'] = safe_si
             # Cache the sanitised sysinfo for the post-lock consumers (port
             # audit, v3.4.0 daily metrics sampler). Without this, the
@@ -16883,6 +16993,21 @@ def _compute_attention():
                           'device': dev.get('name', dev_id),
                           'summary': 'Pending reboot — /run/reboot-required exists'})
 
+    # v3.8.0: failed systemd units. The agent has always shipped failed_units
+    # in sysinfo; v3.8.0 finally persists it, so surface it as an attention
+    # signal (it also feeds the fleet health score, like every NA item, and
+    # is AI-investigable via the failed_units playbook).
+    for dev_id, dev in monitored.items():
+        si = dev.get('sysinfo') or {}
+        fu = si.get('failed_units') or []
+        if isinstance(fu, list) and fu:
+            shown = ', '.join(str(u) for u in fu[:4])
+            more = f' (+{len(fu) - 4} more)' if len(fu) > 4 else ''
+            items.append({'severity': 'warning', 'kind': 'failed_units',
+                          'device': dev.get('name', dev_id),
+                          'summary': f'{len(fu)} failed systemd unit'
+                                     f'{"s" if len(fu) != 1 else ""}: {shown}{more}'})
+
     # v2.6.1: stale agent version.
     for dev_id, dev in monitored.items():
         agent_ver = dev.get('agent_version') or dev.get('version') or ''
@@ -21271,6 +21396,16 @@ def _mcp_execute(action, device_id, params, actor, ai_host, ai_prompt):
     dev = devs.get(device_id) or {}
     dev_name = dev.get('name', device_id)
 
+    # v3.8.0: actions that queue a command to a host must target a device that
+    # still exists and is not quarantined. A maker-checker request parked while
+    # the device was healthy could otherwise be approved after the device was
+    # deleted (orphaned queue entry) or quarantined (command would still run).
+    if action in ('reboot_device', 'run_saved_script', 'exec_command'):
+        if device_id not in devs:
+            return {'ok': False, 'error': 'device not found'}
+        if _device_quarantined(devs[device_id]):
+            return {'ok': False, 'error': 'device is quarantined'}
+
     if action == 'reboot_device':
         cmds = load(CMDS_FILE)
         cmds.setdefault(device_id, [])
@@ -21598,7 +21733,11 @@ def _oidc_discover(issuer):
     url = issuer.rstrip('/') + '/.well-known/openid-configuration'
     _oidc_assert_safe_url(url, 'OIDC issuer')   # SSRF guard
     req = urllib.request.Request(url, headers={'Accept': 'application/json'})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    # v3.8.0: connect-time peer revalidation closes the DNS-rebinding window
+    # between _oidc_assert_safe_url's resolve and this fetch.
+    _ctx = _get_ssl_context() if url.lower().startswith('https') else None
+    opener = _ssrf_safe_opener(allow_loopback=True, ssl_ctx=_ctx, no_redirect=True)
+    with opener.open(req, timeout=10) as resp:
         meta = json.loads(resp.read().decode('utf-8'))
     _OIDC_METADATA_CACHE[issuer] = (now + 3600, meta)
     return meta
@@ -21831,7 +21970,11 @@ def handle_oidc_callback():
                                       'Accept':       'application/json',
                                   })
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # v3.8.0: connect-time peer revalidation (anti-rebinding) for the
+        # back-channel token exchange — the token_endpoint comes from the IdP.
+        _ctx = _get_ssl_context() if token_endpoint.lower().startswith('https') else None
+        _opener = _ssrf_safe_opener(allow_loopback=True, ssl_ctx=_ctx, no_redirect=True)
+        with _opener.open(req, timeout=15) as resp:
             token_resp = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         body_text = ''
@@ -30830,6 +30973,25 @@ _MITIGATE_PLAYBOOKS = {
         'ai_prompt_key': 'mitigate_service',
         'ai_default': True,
         'destructive': True,
+    },
+    'failed_units': {
+        'label': 'Failed systemd units',
+        'diagnostic': (
+            'set -e; echo "== FAILED UNITS =="; '
+            'systemctl --failed --no-legend --no-pager 2>&1 | head -40; '
+            'echo; echo "== PER-UNIT STATUS + RECENT LOGS =="; '
+            'for u in $(systemctl --failed --no-legend --plain 2>/dev/null | awk \'{print $1}\' | head -10); do '
+            '  echo "---- $u ----"; '
+            '  systemctl status "$u" --no-pager 2>&1 | head -15; '
+            '  echo "  -- last 20 journal lines --"; '
+            '  journalctl -u "$u" --no-pager -n 20 2>&1 | tail -20; '
+            '  echo; '
+            'done'
+        ),
+        'fix': None,   # restarting blindly is unsafe — let the AI advise per-unit
+        'ai_prompt_key': 'mitigate_failed_units',
+        'ai_default': True,
+        'destructive': False,
     },
     'brute_force': {
         'label': 'Brute-force attempts',

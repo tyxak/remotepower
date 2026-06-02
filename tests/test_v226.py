@@ -284,9 +284,12 @@ class TestV226Assets(unittest.TestCase):
         self.assertIn('modal-open', chunk)
 
     def test_host_health_renderer_present(self):
-        self.assertIn('function _renderHostHealth', self.js)
+        # v3.8.0: the standalone _renderHostHealth() was orphaned and removed;
+        # its reboot-required / failed-units / logged-in / listening-ports
+        # rendering now lives in the live device-drawer sysinfo/ports cases.
         self.assertIn('reboot_required', self.js)
         self.assertIn('listening_ports', self.js)
+        self.assertIn('failed_units', self.js)
 
     def test_container_resource_display(self):
         # Container card shows CPU/mem + health badge

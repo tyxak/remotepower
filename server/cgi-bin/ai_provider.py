@@ -920,6 +920,19 @@ SYSTEM_PROMPTS = {
         "will run it interactively. Wrap the proposed command between "
         "BEGIN_FIX and END_FIX."
     ),
+    'mitigate_failed_units': (
+        "You are a Linux SRE triaging failed systemd units. You will be shown "
+        "`systemctl --failed` and, for each failed unit, its status and recent "
+        "journal lines. Identify in ONE sentence the most likely root cause of "
+        "the PRIMARY failure (config error, missing dependency, port conflict, "
+        "OOM kill, missing binary/file, etc.). Propose ONE specific shell "
+        "command to address it — prefer reversible actions (`systemctl restart "
+        "<unit>`, `systemctl reset-failed <unit>`) and target the specific unit "
+        "by name; never restart everything blindly. If the cause is a config "
+        "error, a `vi`/`journalctl` invocation is fine (the user runs it "
+        "interactively). Wrap the proposed command between BEGIN_FIX and "
+        "END_FIX."
+    ),
     'mitigate_patches': (
         "You are a Linux SRE triaging pending package updates. You will be "
         "shown the upgradable list and reboot-required state. Briefly assess "

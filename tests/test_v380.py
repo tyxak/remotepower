@@ -73,7 +73,11 @@ class TestV380Security(unittest.TestCase):
 
     def test_audit_forward_no_redirect_and_syslog_ssrf(self):
         self.assertIn('class _NoRedirect', API)
-        self.assertIn('build_opener(_NoRedirect())', API)
+        # v3.8.0: audit-forward (http) now uses the connect-time SSRF-guarded
+        # opener with no-redirect-follow (anti DNS-rebinding).
+        seg_http = API[API.index('def _forward_audit'):API.index("elif mode == 'syslog'")]
+        self.assertIn('_ssrf_safe_opener(', seg_http)
+        self.assertIn('no_redirect=True', seg_http)
         # syslog target SSRF-guarded
         seg = API[API.index("elif mode == 'syslog'"):API.index('use_tcp = bool')]
         self.assertIn('_url_targets_local_or_meta(urllib.parse.urlparse', seg)
@@ -96,6 +100,19 @@ class TestV380Bugs(unittest.TestCase):
     def test_raid_devices_string_or_array(self):
         self.assertIn("typeof r.devices === 'string'", APP)
 
+    def test_proxmox_backup_table_sortable(self):
+        # CLAUDE.md: every table wires sort. The pm-backup table was inline.
+        seg = APP[APP.index('async function loadProxmoxBackups'):]
+        seg = seg[:seg.index('async function saveProxmoxBackupThreshold')]
+        self.assertIn("tableCtl.sortRows('pmbackup'", seg)
+        self.assertIn("tableCtl.wireSortOnly('pmbackup-thead', 'pmbackup'", seg)
+        self.assertIn('data-col="name"', seg)
+
+    def test_makerchecker_rejects_deleted_or_quarantined_device(self):
+        seg = API[API.index('def _mcp_execute'):API.index("if action == 'reboot_device'")]
+        self.assertIn('device not found', seg)
+        self.assertIn('_device_quarantined(devs[device_id])', seg)
+
 
 class TestV380Bind(unittest.TestCase):
     def test_boot_reason_ingested_and_served(self):
@@ -103,6 +120,58 @@ class TestV380Bind(unittest.TestCase):
         self.assertIn("dev['last_boot_reason']", API)
         self.assertIn("'last_boot_reason': dev.get('last_boot_reason'", API)
         self.assertIn("['Boot reason', data?.last_boot_reason", APP)
+
+    def test_failed_units_and_logged_in_persisted(self):
+        # The sanitiser must now copy failed_units + logged_in into safe_si,
+        # else the Fleet Query filter / cis-failed check / drawer stay dead.
+        seg = API[API.index("dev['sysinfo'] = safe_si") - 1200:API.index("dev['sysinfo'] = safe_si")]
+        self.assertIn("safe_si['failed_units']", seg)
+        self.assertIn("safe_si['logged_in']", seg)
+
+    def test_failed_units_and_logged_in_rendered(self):
+        self.assertIn("['Logged in', (si.logged_in", APP)
+        self.assertIn('si.failed_units', APP)
+
+    def test_orphan_host_health_renderer_removed(self):
+        self.assertNotIn('function _renderHostHealth', APP)
+
+    def test_failed_units_attention_and_investigate_wired(self):
+        # emitted as an attention item...
+        self.assertIn("'kind': 'failed_units'", API)
+        # ...investigable: playbook + prompt + JS label/kind
+        self.assertIn("'failed_units': {", API)
+        self.assertIn("'mitigate_failed_units'", API)
+        self.assertIn("mitigate_failed_units", AIP)
+        self.assertIn("failed_units:    'Failed systemd units'", APP)
+        self.assertIn("'failed_units',", APP)
+
+
+class TestV380SSRF(unittest.TestCase):
+    AGENT = (REPO_ROOT / 'client' / 'remotepower-agent.py').read_text()
+
+    def test_connect_time_peer_revalidation(self):
+        # anti DNS-rebinding: connection subclasses re-check the peer IP.
+        self.assertIn('class _SSRFGuardHTTPConnection', API)
+        self.assertIn('class _SSRFGuardHTTPSConnection', API)
+        self.assertIn('def _ssrf_safe_opener', API)
+        self.assertIn('def _ip_class_blocked', API)
+        self.assertIn('getpeername()', API)
+
+    def test_outbound_senders_use_guarded_opener(self):
+        # webhook, audit-forward, and both OIDC fetches route through it.
+        self.assertGreaterEqual(API.count('_ssrf_safe_opener('), 4)
+
+    def test_audit_forward_pins_tls_context(self):
+        seg = API[API.index('def _forward_audit'):API.index("elif mode == 'syslog'")]
+        self.assertIn('ssl_ctx=_ctx', seg)
+
+    def test_agent_require_signed_updates_fail_closed(self):
+        self.assertIn('def _require_signed_updates', self.AGENT)
+        self.assertIn('require-signed-updates', self.AGENT)
+        seg = self.AGENT[self.AGENT.index('pubkey = _release_pubkey()'):]
+        seg = seg[:seg.index('if pubkey:')]
+        self.assertIn('_require_signed_updates()', seg)
+        self.assertIn('return False', seg)
 
 
 class TestV380AiButtons(unittest.TestCase):

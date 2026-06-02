@@ -81,7 +81,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Print / Save as PDF** | Reports page: clean self-contained posture report for the browser's native print/PDF, zero dependency (v3.4.2) |
 | **Granular RBAC** | Users & Roles: custom roles granting exec/reboot/upgrade scoped to device groups/tags; roster filtered to scope. `GET/POST /api/roles` (v3.4.2) |
 | **OpenSCAP scans** | Compliance page: agent runs `oscap xccdf eval` — CIS/STIG/PCI-DSS on the SSG, plus Ubuntu Security Guide (USG) for CIS/STIG on Ubuntu and ANSSI BP-028 profiles on Debian/Ubuntu — reports score + failing rules. Download the full HTML report (`GET /api/scap/<id>/report`). Survives an agent self-update. Requires `upgrade`. `POST /api/scap/scan`, `GET /api/scap` (v3.4.2) |
-| **AI Investigate / mitigate** | One-click diagnose + suggested-fix on a Needs-Attention item — playbooks for disk, memory, swap, cpu, patches, drift, service_down, reboot, brute_force, **cve** and **container**. Requires `exec` on an in-scope device. `POST /api/mitigate/<id>/investigate` + `/fix` (v3.4.2) |
+| **AI Investigate / mitigate** | One-click diagnose + suggested-fix on a Needs-Attention item — playbooks for disk, memory, swap, cpu, patches, drift, service_down, reboot, brute_force, **cve** and **container** (v3.4.2); broadened in v3.8.0 to malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and **failed systemd units** (~21 kinds total). Requires `exec` on an in-scope device. `POST /api/mitigate/<id>/investigate` + `/fix` |
 | **Command Queue** | Admin → Command Queue: view every device's pending queued commands (incl. offline hosts) and cancel them. `GET /api/command-queue`, `DELETE /api/devices/<id>/command-queue` (v3.4.2) |
 | **Per-device backups** | A Backups section in the device drawer shows each watched backup path's age + fresh/stale state. `GET /api/devices/<id>/backups` (v3.4.2) |
 | **Container health detail** | Per-device container list shows each container's health badge (healthy/unhealthy/starting), live CPU%/memory, and published ports (v3.4.2) |
@@ -908,10 +908,25 @@ supported via the REST API rather than a bespoke provider — see
 A security pass over the v3.5–v3.7 work (change approval now enforces the
 per-device command allowlist; the Ansible runner builds a safe inventory
 and skips quarantined hosts; 2FA recovery codes consume atomically;
-audit forwarding refuses SSRF redirects). **Boot reason** (why a host last
-restarted) is now stored and shown, RAID member disks render again, and
-**AI Investigate** gained playbooks for malware/AV posture and stale agent
-versions.
+audit forwarding refuses SSRF redirects). **DNS-rebinding SSRF** is closed
+across the webhook sender, audit→SIEM forwarder and OIDC discovery/token
+fetches — the address actually connected to is re-validated, not just the
+pre-flight DNS lookup (TLS verification unaffected). **Maker-checker
+approval** re-checks device state, rejecting a parked action if the device
+was deleted or quarantined while queued. Agents can opt in to **mandatory
+signed updates** — a `require-signed-updates` marker file makes the agent
+fail-closed, refusing any self-update that isn't pinned to a release key
+and validly signed. See `docs/security-review-3.8.0.md`.
+
+**Boot reason** (why a host last restarted) is now stored and shown.
+**Failed systemd units** and **logged-in users** were being silently
+dropped and are now persisted — both shown in the device System Info tab;
+failed units also drive a new failed-units Needs-Attention item that feeds
+the fleet health score (and the previously dead-ended Fleet Query "failed
+units" filter and CIS failed-units check now work). RAID member disks
+render again, the Proxmox per-guest backup table is now sortable, and
+**AI Investigate** gained playbooks for malware/AV posture, stale agent
+versions, and failed systemd units (among others; ~21 kinds total).
 
 ---
 

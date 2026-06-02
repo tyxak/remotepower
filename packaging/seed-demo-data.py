@@ -27,10 +27,12 @@ Schedule a cron entry to re-run this every 30 minutes if you want
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
 import random
+import secrets
 import shutil
 import sys
 import time
@@ -79,6 +81,52 @@ def _seeded_random(*key) -> random.Random:
     return random.Random(int(h[:16], 16))
 
 
+def _stable_id(*key, length=8) -> str:
+    """A stable token-shaped id derived from ``key`` — shaped like the
+    ``secrets.token_urlsafe(8)`` ids the API mints, but deterministic so
+    re-running the seeder doesn't churn ids on every cron tick.
+
+    api.py mints these with ``secrets.token_urlsafe(8)``; for demo data we
+    want idempotency, so we hash the key into the same alphabet instead."""
+    alphabet = ('abcdefghijklmnopqrstuvwxyz'
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_')
+    h = hashlib.sha256(('id|' + repr(key)).encode()).digest()
+    return ''.join(alphabet[b % len(alphabet)] for b in h[:length])
+
+
+def _stable_hex(*key, nbytes=6) -> str:
+    """Stable hex id (deterministic analogue of ``os.urandom(n).hex()``)."""
+    h = hashlib.sha256(('hex|' + repr(key)).encode()).hexdigest()
+    return h[:nbytes * 2]
+
+
+def _iso_in_days(days: int) -> str:
+    """ISO YYYY-MM-DD date `days` from today (negative = past)."""
+    d = datetime.date.today() + datetime.timedelta(days=days)
+    return d.isoformat()
+
+
+# ─── Sites (v3.5.0) ─────────────────────────────────────────────────────────
+# A small hosting company runs three sites. IDs are stable (deterministic)
+# so device→site links stay valid across re-seeds. build_sites() emits the
+# site records; SITE_OF maps a device id to its site for build_devices().
+
+SITE_HQ   = _stable_id('site', 'hq-copenhagen')
+SITE_DC   = _stable_id('site', 'dc-frankfurt')
+SITE_EDGE = _stable_id('site', 'edge-london')
+
+SITE_OF = {
+    # Frankfurt DC — the heavy iron lives here.
+    'pmx01': SITE_DC, 'tnas': SITE_DC, 'bk01': SITE_DC, 'pr01': SITE_DC,
+    'sw02': SITE_DC,
+    # Copenhagen HQ — office network + internal services.
+    'fw01': SITE_HQ, 'sw01': SITE_HQ, 'ap01': SITE_HQ, 'ap02': SITE_HQ,
+    'pi1': SITE_HQ, 'gt01': SITE_HQ, 'ha01': SITE_HQ, 'vw01': SITE_HQ,
+    # London edge — public-facing web tier.
+    'ng01': SITE_EDGE, 'jf01': SITE_EDGE, 'nc01': SITE_EDGE,
+}
+
+
 # ─── State builders ───────────────────────────────────────────────────────────
 
 
@@ -94,13 +142,31 @@ def build_users() -> dict:
     script is deterministic. (Anyone reading this source can derive the
     hash, but that doesn't matter; the demo is intentionally public.)
     """
+    # bcrypt('demo') — pre-computed once and frozen so the seed is
+    # deterministic. Shared by all demo accounts (the demo is intentionally
+    # public; read-only mode blocks mutations regardless of role).
+    demo_hash = '$2b$12$xl8rH.3CU0lHsH631ECiq.GKw8lff3GEaqKSOt5YCTm9pxunnG7RW'
     return {
         'demo': {
             'role': 'viewer',
-            # bcrypt('demo') — pre-computed. Replace if you want a different password.
-            'password_hash': '$2b$12$xl8rH.3CU0lHsH631ECiq.GKw8lff3GEaqKSOt5YCTm9pxunnG7RW',
+            'password_hash': demo_hash,
             'totp_secret':   '',
             'created_at':    now() - 86400 * 30,
+        },
+        # v3.7.0 maker-checker needs two distinct admins so the approve flow
+        # demos: self-approval is blocked, so alice's request must be approved
+        # by bob (or vice-versa). Both share the 'demo' password.
+        'alice': {
+            'role': 'admin',
+            'password_hash': demo_hash,
+            'totp_secret':   '',
+            'created_at':    now() - 86400 * 120,
+        },
+        'bob': {
+            'role': 'admin',
+            'password_hash': demo_hash,
+            'totp_secret':   '',
+            'created_at':    now() - 86400 * 90,
         },
     }
 
@@ -131,9 +197,19 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '3.4.0' if not dev['agentless'] else None,
+            'version':     '3.8.0' if not dev['agentless'] else None,
             'hostname':    dev['name'],
+            # v3.5.0: site assignment (most devices belong to one of three sites)
+            'site':        SITE_OF.get(dev['id'], ''),
         }
+        # v3.8.0: last-boot reason for a couple of hosts so the device drawer
+        # shows why they rebooted recently.
+        boot_reasons = {
+            'pmx01': ('kernel upgrade', now() - 3600 * 3),
+            'ng01':  ('self-update',    now() - 86400 * 2),
+        }
+        if dev['id'] in boot_reasons:
+            rec['last_boot_reason'], rec['last_boot_reason_at'] = boot_reasons[dev['id']]
         if not dev['agentless']:
             # Agented hosts get a believable sysinfo block — different
             # devices stress different resources to exercise the alert
@@ -182,6 +258,18 @@ def build_devices() -> dict:
                 'uptime_s':     rng.randint(86400, 86400 * 180),
                 'packages':     {'upgradable': rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]},
             }
+            # v3.8.0: failed systemd units (drives the failed_units attention
+            # item + AI-investigate playbook) and logged-in users (drawer
+            # System Info). A couple of hosts have failures to demo the signal.
+            _FAILED_UNITS = {
+                'jf01': ['jellyfin.service', 'plex-update.timer'],
+                'nc01': ['backup-nightly.service'],
+            }
+            if dev['id'] in _FAILED_UNITS:
+                rec['sysinfo']['failed_units'] = _FAILED_UNITS[dev['id']]
+            rec['sysinfo']['logged_in'] = rng.choice([
+                [], ['root'], ['jmo'], ['root', 'jmo'], ['deploy'],
+            ])
             # Add a few common services
             rec['services'] = build_device_services(dev, rng)
 
@@ -486,7 +574,27 @@ def build_cmdb() -> dict:
              'created_by': 'demo', 'created_at': now() - 86400 * 365,
              'updated_by': 'demo', 'updated_at': now() - 86400 * 60},
         ],
-        'credentials':     [],
+        # v3.5.0 lifecycle expiry — hardware warranty is "soon" (≤90d),
+        # the hypervisor support contract has already lapsed.
+        'warranty_expiry':         _iso_in_days(74),
+        'license_expiry':          '',
+        'support_contract_expiry': _iso_in_days(-12),
+        # v3.7.0 credentials — metadata only; ct/nonce stay empty (the list
+        # endpoint never decrypts, only /reveal does). One is overdue.
+        'credentials':     [
+            {'id': _stable_id('cred', 'pmx01', 'root'), 'label': 'root console',
+             'username': 'root', 'note': 'IPMI + PVE web UI',
+             'nonce': '', 'ct': '',
+             'created_by': 'demo', 'created_at': now() - 86400 * 400,
+             'updated_by': 'demo', 'updated_at': now() - 86400 * 400,
+             'rotate_after_days': 180, 'rotated_at': now() - 86400 * 320},  # overdue
+            {'id': _stable_id('cred', 'pmx01', 'api'), 'label': 'PVE API token',
+             'username': 'automation@pve', 'note': 'used by RemotePower',
+             'nonce': '', 'ct': '',
+             'created_by': 'demo', 'created_at': now() - 86400 * 60,
+             'updated_by': 'demo', 'updated_at': now() - 86400 * 60,
+             'rotate_after_days': 365, 'rotated_at': now() - 86400 * 60},
+        ],
         'updated_by':      'demo',
         'updated_at':      now() - 86400 * 7,
     }
@@ -501,17 +609,60 @@ def build_cmdb() -> dict:
              'created_by': 'demo', 'created_at': now() - 86400 * 200,
              'updated_by': 'demo', 'updated_at': now() - 86400 * 14},
         ],
-        'credentials':     [],
+        # Warranty expired; disk-shelf support contract due within 30d (warn).
+        'warranty_expiry':         _iso_in_days(-40),
+        'license_expiry':          '',
+        'support_contract_expiry': _iso_in_days(18),
+        'credentials':     [
+            {'id': _stable_id('cred', 'tnas', 'admin'), 'label': 'TrueNAS admin',
+             'username': 'admin', 'note': 'web UI',
+             'nonce': '', 'ct': '',
+             'created_by': 'demo', 'created_at': now() - 86400 * 220,
+             'updated_by': 'demo', 'updated_at': now() - 86400 * 90,
+             'rotate_after_days': 180, 'rotated_at': now() - 86400 * 90},
+        ],
         'updated_by':      'demo',
         'updated_at':      now() - 86400 * 14,
     }
-    # A few more with single docs to exercise the mix
-    for dev_id, function, doc_title, doc_body in [
-        ('fw01',  'firewall',     'Notes',          '# OPNsense firewall\n\nWAN: ISP-provided modem on em0.\nLAN: 10.0.0.0/24, em1.\nDMZ: 10.0.99.0/24, em2.'),
-        ('jf01',  'media',        'Plex/Jellyfin',  '# Media server\n\nLibrary mounts /mnt/media via NFS from truenas.lab.\nReverse-proxied via nginx.lab.'),
-        ('gt01',  'git',          'Git server',     '# Gitea\n\nDB: postgres in same compose stack.\nBackups: daily restic snapshot to backup.lab.'),
-        ('nc01',  'cloud',        'Nextcloud',      '# Nextcloud\n\nApache + PHP-FPM. Data on /mnt/data NFS share.\nDB: mariadb.\nRedis cache occasionally needs a restart.'),
+    # A few more with single docs to exercise the mix. The 4-tuple's last
+    # element is the lifecycle expiry plan (warranty/license/support days from
+    # today, or None to leave blank) so the Lifecycle page has a spread of
+    # expired / ≤30d / ≤90d / far states.
+    for dev_id, function, doc_title, doc_body, expiry in [
+        ('fw01',  'firewall',  'Notes',         '# OPNsense firewall\n\nWAN: ISP-provided modem on em0.\nLAN: 10.0.0.0/24, em1.\nDMZ: 10.0.99.0/24, em2.',
+         {'warranty': 250, 'license': 6,   'support': None}),   # license expiring within a week
+        ('jf01',  'media',     'Plex/Jellyfin','# Media server\n\nLibrary mounts /mnt/media via NFS from truenas.lab.\nReverse-proxied via nginx.lab.',
+         {'warranty': None, 'license': None, 'support': None}),  # nothing tracked
+        ('gt01',  'git',       'Git server',    '# Gitea\n\nDB: postgres in same compose stack.\nBackups: daily restic snapshot to backup.lab.',
+         {'warranty': 410, 'license': 800, 'support': None}),    # all far out — quiet
+        ('nc01',  'cloud',     'Nextcloud',     '# Nextcloud\n\nApache + PHP-FPM. Data on /mnt/data NFS share.\nDB: mariadb.\nRedis cache occasionally needs a restart.',
+         {'warranty': -90, 'license': 60,  'support': None}),    # warranty long expired, license ≤90d
     ]:
+        creds = []
+        if dev_id == 'nc01':
+            creds = [
+                {'id': _stable_id('cred', 'nc01', 'admin'), 'label': 'Nextcloud admin',
+                 'username': 'ncadmin', 'note': 'occ + web UI',
+                 'nonce': '', 'ct': '',
+                 'created_by': 'demo', 'created_at': now() - 86400 * 500,
+                 'updated_by': 'demo', 'updated_at': now() - 86400 * 500,
+                 'rotate_after_days': 90, 'rotated_at': now() - 86400 * 200},  # very overdue
+                {'id': _stable_id('cred', 'nc01', 'db'), 'label': 'MariaDB',
+                 'username': 'nextcloud', 'note': '',
+                 'nonce': '', 'ct': '',
+                 'created_by': 'demo', 'created_at': now() - 86400 * 20,
+                 'updated_by': 'demo', 'updated_at': now() - 86400 * 20,
+                 'rotate_after_days': 365, 'rotated_at': now() - 86400 * 20},
+            ]
+        elif dev_id == 'gt01':
+            creds = [
+                {'id': _stable_id('cred', 'gt01', 'deploy'), 'label': 'deploy key',
+                 'username': 'git', 'note': 'CI runner',
+                 'nonce': '', 'ct': '',
+                 'created_by': 'demo', 'created_at': now() - 86400 * 30,
+                 'updated_by': 'demo', 'updated_at': now() - 86400 * 30,
+                 'rotate_after_days': 180, 'rotated_at': now() - 86400 * 30},
+            ]
         out[dev_id] = {
             'asset_id':        '',
             'server_function': function,
@@ -523,7 +674,10 @@ def build_cmdb() -> dict:
                  'created_by': 'demo', 'created_at': now() - 86400 * 30,
                  'updated_by': 'demo', 'updated_at': now() - 86400 * 5},
             ],
-            'credentials':     [],
+            'warranty_expiry':         _iso_in_days(expiry['warranty']) if expiry['warranty'] is not None else '',
+            'license_expiry':          _iso_in_days(expiry['license'])  if expiry['license']  is not None else '',
+            'support_contract_expiry': _iso_in_days(expiry['support'])  if expiry['support']  is not None else '',
+            'credentials':     creds,
             'updated_by':      'demo',
             'updated_at':      now() - 86400 * 5,
         }
@@ -866,8 +1020,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '3.0.2',
-        'agent_version':     '3.0.2',
+        'server_version':    '3.8.0',
+        'agent_version':     '3.8.0',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -913,19 +1067,42 @@ def build_config() -> dict:
         'backup_enabled':         True,
         'backup_path':            '/var/lib/remotepower/backups',
         'backup_retention_days':  14,
+
+        # v3.6.0 — Proxmox backup recency threshold (drives proxmox_backup NA)
+        'proxmox_backup_warn_days': 7,
+
+        # v3.7.0 — change approval (maker-checker). Enabled, and a different
+        # admin must approve (no self-approval) so the demo's pending
+        # confirmations are meaningful.
+        'change_approval_enabled':  True,
+        'change_approval_no_self':  True,
+
+        # v3.7.0 — audit log forwarding to a SIEM. Disabled in the demo, with
+        # placeholder (non-real, non-routable) targets so the editor renders
+        # populated. No real fires happen in read-only mode anyway.
+        'audit_forward_enabled': False,
+        'audit_forward_mode':    'http',
+        'audit_forward_url':     'https://siem.example.invalid/ingest',
+        'audit_forward_token':   'PLACEHOLDER_NOT_REAL',
+        'audit_forward_host':    'siem.example.invalid',
+        'audit_forward_port':    514,
+        'audit_forward_tcp':     False,
     }
 
 
 def build_links() -> list:
     """External-links page samples."""
+    # No emoji icons — CLAUDE.md forbids emoji in the UI. The icon field is
+    # left blank (the links renderer shows title + hostname; an empty icon is
+    # the supported "no icon" value).
     return [
-        {'id': 'l1', 'category': 'Monitoring', 'label': 'Grafana',         'url': 'https://prometheus.lab/grafana',  'icon': '📊'},
-        {'id': 'l2', 'category': 'Monitoring', 'label': 'Prometheus',      'url': 'https://prometheus.lab',          'icon': '📈'},
-        {'id': 'l3', 'category': 'Storage',    'label': 'TrueNAS',         'url': 'https://truenas.lab',             'icon': '💾'},
-        {'id': 'l4', 'category': 'Network',    'label': 'OPNsense',        'url': 'https://opnsense.lab',            'icon': '🔥'},
-        {'id': 'l5', 'category': 'Network',    'label': 'UniFi controller','url': 'https://10.0.0.50',               'icon': '📡'},
-        {'id': 'l6', 'category': 'Services',   'label': 'Pi-hole admin',   'url': 'https://pihole.lab/admin',        'icon': '🛡️'},
-        {'id': 'l7', 'category': 'Services',   'label': 'Vaultwarden',     'url': 'https://vaultwarden.lab',         'icon': '🔐'},
+        {'id': 'l1', 'category': 'Monitoring', 'label': 'Grafana',         'url': 'https://prometheus.lab/grafana',  'icon': ''},
+        {'id': 'l2', 'category': 'Monitoring', 'label': 'Prometheus',      'url': 'https://prometheus.lab',          'icon': ''},
+        {'id': 'l3', 'category': 'Storage',    'label': 'TrueNAS',         'url': 'https://truenas.lab',             'icon': ''},
+        {'id': 'l4', 'category': 'Network',    'label': 'OPNsense',        'url': 'https://opnsense.lab',            'icon': ''},
+        {'id': 'l5', 'category': 'Network',    'label': 'UniFi controller','url': 'https://10.0.0.50',               'icon': ''},
+        {'id': 'l6', 'category': 'Services',   'label': 'Pi-hole admin',   'url': 'https://pihole.lab/admin',        'icon': ''},
+        {'id': 'l7', 'category': 'Services',   'label': 'Vaultwarden',     'url': 'https://vaultwarden.lab',         'icon': ''},
     ]
 
 
@@ -1008,6 +1185,470 @@ def build_metrics_history() -> dict:
     return out
 
 
+def _monitored_agented_ids():
+    """Device ids that _compute_attention() will actually read — agented and
+    monitored. bk01 is intentionally unmonitored, so attention-driving data
+    attached to it is suppressed (don't bother seeding it there)."""
+    return [d['id'] for d in FAKE_DEVICES
+            if not d['agentless'] and d['id'] != 'bk01']
+
+
+# ─── v3.5.0: Sites ──────────────────────────────────────────────────────────
+
+def build_sites() -> dict:
+    """v3.5.0 — sites the fleet is split across. Keyed by site id (the same
+    stable ids referenced from build_devices()'s SITE_OF map). Shape mirrors
+    handle_site_create: {name, slug, created, created_by}."""
+    def slug(name):
+        # Mirror _site_slugify: lowercase, non-alnum → '-', collapse, trim.
+        out, prev_dash = [], False
+        for ch in name.lower():
+            if ch.isalnum():
+                out.append(ch); prev_dash = False
+            elif not prev_dash:
+                out.append('-'); prev_dash = True
+        return ''.join(out).strip('-')
+    return {
+        SITE_HQ:   {'name': 'HQ - Copenhagen', 'slug': slug('HQ - Copenhagen'),
+                    'created': now() - 86400 * 300, 'created_by': 'demo'},
+        SITE_DC:   {'name': 'DC - Frankfurt',  'slug': slug('DC - Frankfurt'),
+                    'created': now() - 86400 * 280, 'created_by': 'demo'},
+        SITE_EDGE: {'name': 'Edge - London',   'slug': slug('Edge - London'),
+                    'created': now() - 86400 * 120, 'created_by': 'demo'},
+    }
+
+
+# ─── v3.5.0: Backup jobs ────────────────────────────────────────────────────
+
+def build_backup_jobs() -> dict:
+    """v3.5.0 — scheduled per-device backup commands. Shape mirrors
+    handle_backup_job_create."""
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    specs = [
+        ('tnas', 'restic tank → offsite',  'restic -r /mnt/backup/restic backup /mnt/data', '0 2 * * *',  True),
+        ('pmx01', 'vzdump all guests',     'vzdump --all --mode snapshot --compress zstd --storage pbs', '0 1 * * *', True),
+        ('nc01', 'nextcloud db dump',      'mysqldump --single-transaction nextcloud | zstd -o /mnt/data/db/nextcloud.sql.zst', '30 2 * * *', True),
+        ('gt01', 'gitea dump',             'docker compose exec -T gitea gitea dump -c /data/gitea/conf/app.ini', '0 3 * * 0', False),
+    ]
+    jobs = []
+    for dev_id, jname, cmd, cron, enabled in specs:
+        rng = _seeded_random('backupjob', dev_id)
+        jobs.append({
+            'id':           _stable_id('backupjob', dev_id, jname),
+            'name':         jname,
+            'device_id':    dev_id,
+            'device_name':  name_of.get(dev_id, dev_id),
+            'command':      cmd,
+            'cron':         cron,
+            'enabled':      enabled,
+            'created':      now() - 86400 * rng.randint(30, 120),
+            'created_by':   'demo',
+            'last_run':     now() - rng.randint(3600, 86400),
+            'last_fired_minute': None,
+        })
+    return {'jobs': jobs}
+
+
+# ─── v3.6.0: Auto-patch policies ────────────────────────────────────────────
+
+def build_autopatch() -> dict:
+    """v3.6.0 — unattended-patch policies. Shape mirrors handle_autopatch_create
+    (target.type in all|group|tag|site)."""
+    specs = [
+        ('Weekly infra patch',   {'type': 'group', 'value': 'infra'},    '0 3 * * 0', True,  True),
+        ('Services - nightly',   {'type': 'group', 'value': 'services'}, '0 4 * * *', False, True),
+        ('Edge site (London)',   {'type': 'site',  'value': SITE_EDGE},  '0 5 * * 6', True,  True),
+        ('Critical hosts only',  {'type': 'tag',   'value': 'critical'}, '0 2 * * 0', True,  False),
+    ]
+    policies = []
+    for pname, target, cron, reboot, enabled in specs:
+        rng = _seeded_random('autopatch', pname)
+        policies.append({
+            'id':           _stable_id('autopatch', pname),
+            'name':         pname,
+            'target':       target,
+            'cron':         cron,
+            'reboot':       reboot,
+            'enabled':      enabled,
+            'created':      now() - 86400 * rng.randint(20, 90),
+            'created_by':   'demo',
+            'last_run':     now() - rng.randint(3600 * 6, 86400 * 7),
+            'last_fired_minute': None,
+        })
+    return {'policies': policies}
+
+
+# ─── v3.7.0: Ansible playbooks ──────────────────────────────────────────────
+
+def build_ansible() -> dict:
+    """v3.7.0 — stored Ansible playbooks. Shape mirrors
+    handle_ansible_playbook_create."""
+    harden = ('---\n'
+              '- hosts: all\n'
+              '  become: true\n'
+              '  tasks:\n'
+              '    - name: Disable root SSH login\n'
+              '      lineinfile:\n'
+              '        path: /etc/ssh/sshd_config\n'
+              '        regexp: "^#?PermitRootLogin"\n'
+              '        line: "PermitRootLogin no"\n'
+              '    - name: Disable password auth\n'
+              '      lineinfile:\n'
+              '        path: /etc/ssh/sshd_config\n'
+              '        regexp: "^#?PasswordAuthentication"\n'
+              '        line: "PasswordAuthentication no"\n'
+              '    - name: Restart sshd\n'
+              '      service:\n'
+              '        name: ssh\n'
+              '        state: restarted\n')
+    chrony = ('---\n'
+              '- hosts: all\n'
+              '  become: true\n'
+              '  tasks:\n'
+              '    - name: Install chrony\n'
+              '      package:\n'
+              '        name: chrony\n'
+              '        state: present\n'
+              '    - name: Enable + start chrony\n'
+              '      service:\n'
+              '        name: chrony\n'
+              '        state: started\n'
+              '        enabled: true\n')
+    motd = ('---\n'
+            '- hosts: all\n'
+            '  become: true\n'
+            '  tasks:\n'
+            '    - name: Set login banner\n'
+            '      copy:\n'
+            '        dest: /etc/motd\n'
+            '        content: "Authorised access only. Managed by RemotePower.\\n"\n')
+    specs = [
+        ('Harden SSH',          harden, 0,    now() - 86400 * 6),
+        ('Ensure NTP (chrony)', chrony, 0,    now() - 86400 * 20),
+        ('Set login banner',    motd,   None, 0),   # never run yet
+    ]
+    playbooks = []
+    for pname, content, rc, last_run in specs:
+        playbooks.append({
+            'id':         _stable_id('ansible', pname),
+            'name':       pname,
+            'content':    content,
+            'created':    now() - 86400 * 30,
+            'created_by': 'demo',
+            'last_run':   last_run,
+            'last_rc':    rc,
+        })
+    return {'playbooks': playbooks}
+
+
+# ─── v3.6.0: AV / malware posture ───────────────────────────────────────────
+
+def build_av_status() -> dict:
+    """v3.6.0 — endpoint AV posture per monitored device. A couple deliberately
+    trigger attention: one ClamAV infection (critical), one stale signature DB
+    (>7d → warning), one rkhunter warning (>0 → warning). Shape mirrors
+    _ingest_av's cleaned record."""
+    out = {}
+    # Per-device tuning. (clam_db_age, clam_infected, rk_warnings)
+    tuning = {
+        'ng01':  (1,  0, 0),
+        'jf01':  (3,  2, 0),    # CRITICAL: 2 infected files quarantined
+        'nc01':  (12, 0, 0),    # WARNING: signature DB 12d old
+        'pi1':   (2,  0, 3),    # WARNING: rkhunter 3 warnings
+        'gt01':  (4,  0, 0),
+        'vw01':  (1,  0, 0),
+        'ha01':  (5,  0, 0),
+        'pmx01': (2,  0, 0),
+        'tnas':  (6,  0, 0),
+        'fw01':  (3,  0, 0),
+        'pr01':  (2,  0, 0),
+    }
+    for dev_id in _monitored_agented_ids():
+        db_age, infected, rk_warn = tuning.get(dev_id, (4, 0, 0))
+        rng = _seeded_random('av', dev_id)
+        out[dev_id] = {
+            'collected_at': now() - rng.randint(300, 3600),
+            'clamav': {
+                'installed':   True,
+                'db_age_days': db_age,
+                'last_scan_ts': now() - rng.randint(3600, 86400),
+                'infected':    infected,
+                'warnings':    0,
+                'last_run_ts': now() - rng.randint(3600, 86400),
+            },
+            'rkhunter': {
+                'installed':   True,
+                'warnings':    rk_warn,
+                'last_run_ts': now() - rng.randint(3600, 86400 * 2),
+            },
+        }
+    return out
+
+
+# ─── v3.6.0: Proxmox per-guest backup recency ───────────────────────────────
+
+def build_proxmox_backups() -> dict:
+    """v3.6.0 — per-guest vzdump backup recency cache. Shape mirrors
+    _refresh_proxmox_backup_cache's output. One guest is fresh, one is stale
+    (>7d → warning), one has no backup at all (age_days None → warning)."""
+    guests = [
+        {'vmid': 101, 'name': 'web01',   'age_days': 1,    'last_backup': now() - 86400 * 1},
+        {'vmid': 102, 'name': 'db01',    'age_days': 2,    'last_backup': now() - 86400 * 2},
+        {'vmid': 103, 'name': 'cache01', 'age_days': 12,   'last_backup': now() - 86400 * 12},   # stale
+        {'vmid': 104, 'name': 'mail01',  'age_days': 3,    'last_backup': now() - 86400 * 3},
+        {'vmid': 110, 'name': 'old-vm',  'age_days': None, 'last_backup': None},                  # never backed up
+    ]
+    return {'updated_at': now() - 1800, 'node': 'pmx01', 'guests': guests}
+
+
+# ─── v3.2.x: Alerts inbox ───────────────────────────────────────────────────
+
+def build_alerts() -> dict:
+    """v3.2.x alerts inbox — events the operator must act on, with mutable
+    ack/resolve state. Shape mirrors _alert_record. Event names are from
+    WEBHOOK_EVENTS; severities follow _ALERT_RULES."""
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    # (event, severity, device_id, title, payload, ack_by, resolved_by)
+    specs = [
+        ('smart_failure',      'high',     'tnas',  'SMART failure on /dev/sdc (truenas.lab)',
+         {'device_id': 'tnas', 'device_name': 'truenas.lab'}, None, None),
+        ('device_offline',     'critical', 'jf01',  'jellyfin.lab went offline',
+         {'device_id': 'jf01', 'device_name': 'jellyfin.lab'}, None, None),
+        ('service_down',       'high',     'jf01',  'jellyfin.service is down on jellyfin.lab',
+         {'device_id': 'jf01', 'device_name': 'jellyfin.lab', 'unit': 'jellyfin.service'}, 'alice', None),
+        ('metric_critical',    'critical', 'nc01',  'Memory at 96% on nextcloud.lab',
+         {'device_id': 'nc01', 'device_name': 'nextcloud.lab', 'metric': 'memory', 'value': 96}, None, None),
+        ('metric_warning',     'medium',   'pmx01', 'Disk at 84% on proxmox.lab',
+         {'device_id': 'pmx01', 'device_name': 'proxmox.lab', 'metric': 'disk', 'value': 84, 'level': 'warning'}, None, None),
+        ('cve_found',          'critical', 'nc01',  '1 critical CVE on nextcloud.lab',
+         {'device_id': 'nc01', 'device_name': 'nextcloud.lab', 'cve_id': 'CVE-2024-23456', 'severity': 'critical', 'critical': 1}, None, None),
+        ('tls_expiry',         'high',     None,    'TLS cert for apps.lab expires in 12 days',
+         {'host': 'apps.lab', 'days': 12, 'severity': 'high'}, None, None),
+        ('patch_alert',        'medium',   'pmx01', '23 pending updates on proxmox.lab',
+         {'device_id': 'pmx01', 'device_name': 'proxmox.lab', 'upgradable': 23}, None, None),
+        ('drift_detected',     'medium',   'fw01',  'Config drift: /etc/ssh/sshd_config on opnsense.lab',
+         {'device_id': 'fw01', 'device_name': 'opnsense.lab', 'path': '/etc/ssh/sshd_config'}, None, None),
+        ('brute_force_detected','high',    'fw01',  'Brute-force SSH attempts on opnsense.lab',
+         {'device_id': 'fw01', 'device_name': 'opnsense.lab', 'source_ip': '198.51.100.23', 'count': 142}, 'bob', None),
+        ('backup_stale',       'medium',   'gt01',  'Backup older than threshold on gitea.lab',
+         {'device_id': 'gt01', 'device_name': 'gitea.lab', 'label': 'gitea-dump', 'age_hours': 52}, None, None),
+        ('container_restarting','medium',  'nc01',  'nextcloud-cache restart count climbing',
+         {'device_id': 'nc01', 'device_name': 'nextcloud.lab', 'container': 'nextcloud-cache', 'count': 6}, None, None),
+        ('kernel_outdated',    'medium',   'pmx01', 'A newer kernel is installed on proxmox.lab — reboot pending',
+         {'device_id': 'pmx01', 'device_name': 'proxmox.lab'}, None, None),
+        # Resolved examples so the inbox shows the closed state too.
+        ('device_offline',     'critical', 'pi1',   'pihole.lab went offline',
+         {'device_id': 'pi1', 'device_name': 'pihole.lab'}, 'alice', 'auto'),
+        ('service_down',       'high',     'ng01',  'nginx.service was down on nginx.lab',
+         {'device_id': 'ng01', 'device_name': 'nginx.lab', 'unit': 'nginx.service'}, 'bob', 'bob'),
+    ]
+    alerts = []
+    for i, (event, sev, dev_id, title, payload, ack_by, resolved_by) in enumerate(specs):
+        rng = _seeded_random('alert', i, event)
+        ts = now() - rng.randint(600, 86400 * 4)
+        rec = {
+            'id':              'a-' + _stable_hex('alert', i, event),
+            'ts':              ts,
+            'event':           event,
+            'severity':        sev,
+            'title':           title,
+            'device_id':       dev_id,
+            'device_name':     name_of.get(dev_id, '') if dev_id else (payload.get('host') or ''),
+            'payload':         payload,
+            'source':          'internal',
+            'acknowledged_by': ack_by,
+            'acknowledged_at': (ts + rng.randint(120, 3600)) if ack_by else None,
+            'resolved_by':     resolved_by,
+            'resolved_at':     (ts + rng.randint(3600, 7200)) if resolved_by else None,
+        }
+        alerts.append(rec)
+    # Newest-first, like the live store tends to present.
+    alerts.sort(key=lambda a: a['ts'], reverse=True)
+    return {'alerts': alerts}
+
+
+# ─── v2.2.4: Fleet event log ────────────────────────────────────────────────
+
+def build_fleet_events() -> dict:
+    """v2.2.4 — immutable fleet event history feeding the Home activity feed.
+    Event names MUST be in the JS FLEET_EVENTS set or they won't render.
+    Shape mirrors _record_fleet_event: {events: [{ts, event, payload}]}."""
+    name_of = {d['id']: d['name'] for d in FAKE_DEVICES}
+    # A rotating cast of plausible events over the last few days.
+    templates = [
+        ('metric_warning',  'pmx01', {'metric': 'disk',   'level': 'warning'}),
+        ('metric_warning',  'nc01',  {'metric': 'memory', 'level': 'warning'}),
+        ('metric_critical', 'nc01',  {'metric': 'memory', 'level': 'critical'}),
+        ('metric_recovered','nc01',  {'metric': 'memory'}),
+        ('service_down',    'jf01',  {'unit': 'jellyfin.service'}),
+        ('service_up',      'jf01',  {'unit': 'jellyfin.service'}),
+        ('device_offline',  'pi1',   {}),
+        ('device_online',   'pi1',   {}),
+        ('command_executed','gt01',  {'action': 'exec'}),
+        ('command_queued',  'tnas',  {'action': 'exec'}),
+        ('patch_alert',     'pmx01', {'upgradable': 23}),
+        ('cve_found',       'nc01',  {'cve_id': 'CVE-2024-23456', 'severity': 'critical'}),
+        ('drift_detected',  'fw01',  {'path': '/etc/ssh/sshd_config'}),
+        ('tls_expiry',      None,    {'host': 'apps.lab', 'severity': 'warning'}),
+        ('reboot_required', 'pmx01', {}),
+        ('image_update_available', 'ng01', {'name': 'nginx'}),
+        ('image_updated',   'ng01',  {'name': 'nginx'}),
+        ('container_stopped','nc01', {'container': 'nextcloud-cache'}),
+        ('brute_force_detected', 'fw01', {'source_ip': '198.51.100.23', 'count': 142}),
+        ('ssh_key_added',   'gt01',  {'user': 'git'}),
+        ('snmp_unreachable','sw02',  {}),
+        ('snmp_recover',    'sw02',  {}),
+        ('backup_stale',    'gt01',  {'unit': 'gitea-dump'}),
+        ('smart_failure',   'tnas',  {'path': '/dev/sdc'}),
+        ('kernel_outdated', 'pmx01', {}),
+        ('health_degraded', 'nc01',  {'severity': 'warning'}),
+        ('health_recovered','nc01',  {}),
+    ]
+    events = []
+    for i, (event, dev_id, extra) in enumerate(templates):
+        rng = _seeded_random('fleetev', i, event)
+        ts = now() - rng.randint(300, 86400 * 4)
+        payload = dict(extra)
+        if dev_id:
+            payload['device_id'] = dev_id
+            payload['device_name'] = name_of.get(dev_id, dev_id)
+        events.append({'ts': ts, 'event': event, 'payload': payload})
+    events.sort(key=lambda e: e['ts'])
+    return {'events': events}
+
+
+# ─── v2.2.0: Config drift state ─────────────────────────────────────────────
+
+def build_drift() -> dict:
+    """v2.2.0 — file-integrity / config-drift state per device. Keyed by device
+    id. Shape mirrors _ingest_drift_report's stored record. A file is "drifted"
+    when current_hash != baseline_hash (and exists, not dormant). We seed a
+    couple of drifted files plus clean baselines."""
+    def _h(*k):
+        return hashlib.sha256(('drift|' + repr(k)).encode()).hexdigest()
+
+    # (dev_id, [(path, baseline_size, drifted?), ...])
+    plan = {
+        'fw01': [('/etc/ssh/sshd_config', 3180, True),     # drifted
+                 ('/etc/nftables.conf',   1420, False)],
+        'ng01': [('/etc/nginx/nginx.conf', 2710, True),    # drifted
+                 ('/etc/ssh/sshd_config',  3201, False)],
+        'pmx01':[('/etc/ssh/sshd_config',  3201, False),
+                 ('/etc/pve/datacenter.cfg', 540, False)],
+        'gt01': [('/etc/ssh/sshd_config',  3201, False)],
+        'nc01': [('/etc/ssh/sshd_config',  3201, False),
+                 ('/etc/apache2/apache2.conf', 7180, False)],
+    }
+    out = {}
+    for dev_id, files in plan.items():
+        rng = _seeded_random('drift', dev_id)
+        frec = {}
+        for path, size, drifted in files:
+            baseline_hash = _h(dev_id, path, 'baseline')
+            set_at = now() - 86400 * rng.randint(30, 120)
+            if drifted:
+                current_hash = _h(dev_id, path, 'current')
+                cur_size = size + rng.randint(8, 40)
+                changed_at = now() - rng.randint(3600, 86400 * 3)
+                history = [{'ts': changed_at, 'hash': current_hash,
+                            'size': cur_size, 'exists': True}]
+                drift_count = 1
+            else:
+                current_hash = baseline_hash
+                cur_size = size
+                changed_at = set_at
+                history = []
+                drift_count = 0
+            frec[path] = {
+                'current_hash':    current_hash,
+                'current_size':    cur_size,
+                'current_mtime':   changed_at,
+                'baseline_hash':   baseline_hash,
+                'baseline_size':   size,
+                'baseline_set_at': set_at,
+                'baseline_set_by': 'agent',
+                'first_seen':      set_at,
+                'last_check':      now() - rng.randint(60, 3600),
+                'drift_count':     drift_count,
+                'exists':          True,
+                'history':         history,
+            }
+        out[dev_id] = {'files': frec}
+    return out
+
+
+# ─── v3.4.1: Fleet health history ───────────────────────────────────────────
+
+def build_health_history() -> dict:
+    """v3.4.1 — 30 days of fleet + per-device health-score trend. Shape mirrors
+    _sample_fleet_health's store: {fleet:[{date,ts,score,grade}],
+    devices:{id:[{date,ts,score}]}}."""
+    def grade(score):
+        if score >= 90: return 'A'
+        if score >= 80: return 'B'
+        if score >= 70: return 'C'
+        if score >= 60: return 'D'
+        return 'F'
+    DAY = 86400
+    n = 30
+    fleet_rng = _seeded_random('health', 'fleet')
+    fleet = []
+    for i in range(n):
+        ts = now() - (n - 1 - i) * DAY
+        # Gentle dip mid-window (an incident), recovering toward the end.
+        base = 86 - 10 * (1 if 10 <= i <= 16 else 0)
+        score = int(max(55, min(98, base + fleet_rng.gauss(0, 3))))
+        fleet.append({'date': datetime.date.fromtimestamp(ts).isoformat(),
+                      'ts': ts, 'score': score, 'grade': grade(score)})
+    devices = {}
+    for dev_id in _monitored_agented_ids():
+        rng = _seeded_random('health', dev_id)
+        baseline = rng.randint(68, 95)
+        series = []
+        for i in range(n):
+            ts = now() - (n - 1 - i) * DAY
+            score = int(max(40, min(100, baseline + rng.gauss(0, 4))))
+            series.append({'date': datetime.date.fromtimestamp(ts).isoformat(),
+                           'ts': ts, 'score': score})
+        devices[dev_id] = series
+    return {'fleet': fleet, 'devices': devices}
+
+
+# ─── v3.7.0: Maker-checker pending confirmations ────────────────────────────
+
+def build_confirmations() -> dict:
+    """v3.7.0 — maker-checker confirmation queue. Shape mirrors
+    _create_confirmation. A few pending (awaiting a second admin) plus a couple
+    already decided. requested_by is an admin so the approve flow demos (a
+    different admin must approve — self-approval is blocked)."""
+    specs = [
+        # (action, device_id, params, requested_by, status, decided_by, age_s)
+        ('exec_command', 'pmx01', {'command': 'apt full-upgrade -y'},          'alice', 'pending',  None,    1800),
+        ('reboot',       'nc01',  {},                                          'bob',   'pending',  None,    3600),
+        ('exec_command', 'tnas',  {'command': 'zpool clear tank'},             'alice', 'pending',  None,    600),
+        ('exec_command', 'gt01',  {'command': 'docker compose pull && docker compose up -d'}, 'bob', 'approved', 'alice', 86400),
+        ('exec_command', 'fw01',  {'command': 'rm -rf /tmp/old-rules'},        'alice', 'rejected', 'bob',   86400 * 2),
+    ]
+    confirmations = []
+    for i, (action, dev_id, params, req_by, status, decided_by, age) in enumerate(specs):
+        requested_at = now() - age
+        entry = {
+            'id':           'cf_' + _stable_hex('confirm', i, action),
+            'action':       action,
+            'device_id':    dev_id,
+            'params':       params,
+            'requested_by': req_by,
+            'requested_at': requested_at,
+            'ai_host':      None,
+            'ai_prompt':    None,
+            'status':       status,
+            'decided_by':   decided_by,
+            'decided_at':   (requested_at + 1200) if decided_by else None,
+        }
+        confirmations.append(entry)
+    return {'confirmations': confirmations}
+
+
 # Maps file basename → builder. Each builder returns the JSON-able payload.
 BUILDERS = {
     'users.json':            build_users,
@@ -1039,6 +1680,21 @@ BUILDERS = {
     'brute_force.json':            build_brute_force,
     'proxmox_snapshot_cache.json': build_proxmox_snapshot_cache,
     'uptime.json':                 build_uptime,
+    # v3.5.0 demo content
+    'sites.json':                  build_sites,
+    'backup_jobs.json':            build_backup_jobs,
+    # v3.6.0 demo content
+    'autopatch_policies.json':     build_autopatch,
+    'av_status.json':              build_av_status,
+    'proxmox_backup_cache.json':   build_proxmox_backups,
+    # v3.7.0 demo content
+    'ansible_playbooks.json':      build_ansible,
+    'pending_confirmations.json':  build_confirmations,
+    # v3.2.x / v3.4.1 dashboard content
+    'alerts.json':                 build_alerts,
+    'fleet_events.json':           build_fleet_events,
+    'drift_state.json':            build_drift,
+    'health_history.json':         build_health_history,
 }
 
 
