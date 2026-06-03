@@ -19,7 +19,7 @@ Day-to-day fleet operations, without leaving the browser:
 
 ---
 
-**It's small.** ~17,600 lines of Python on the server. ~2,100 lines of agent. The whole web UI is one HTML file plus one CSS file plus one JS file — no build step, no bundler, no framework. You can read every line.
+**It's small.** ~42,000 lines of Python on the server. ~5,500 lines of agent. The whole web UI is one HTML file, one CSS file, and a handful of hand-written JS files — no build step, no bundler, no framework. You can read every line.
 
 **It's lightweight.** nginx + fcgiwrap + Python. RAM footprint is dominated by nginx itself (~10 MB). Per-request cost is whatever Python imports are needed. Idle CPU usage is zero. Tested on a Raspberry Pi 4 managing 12 devices.
 
@@ -82,7 +82,7 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Granular RBAC** | Users & Roles: custom roles granting exec/reboot/upgrade scoped to device groups/tags; roster filtered to scope. `GET/POST /api/roles` (v3.4.2) |
 | **OpenSCAP scans** | Compliance page: agent runs `oscap xccdf eval` — CIS/STIG/PCI-DSS on the SSG, plus Ubuntu Security Guide (USG) for CIS/STIG on Ubuntu and ANSSI BP-028 profiles on Debian/Ubuntu — reports score + failing rules. Download the full HTML report (`GET /api/scap/<id>/report`). Survives an agent self-update. Requires `upgrade`. `POST /api/scap/scan`, `GET /api/scap` (v3.4.2) |
 | **AI Investigate / mitigate** | One-click diagnose + suggested-fix on a Needs-Attention item — playbooks for disk, memory, swap, cpu, patches, drift, service_down, reboot, brute_force, **cve** and **container** (v3.4.2); broadened in v3.8.0 to malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and **failed systemd units** (~21 kinds total). Requires `exec` on an in-scope device. `POST /api/mitigate/<id>/investigate` + `/fix` |
-| **Command Queue** | Admin → Command Queue: view every device's pending queued commands (incl. offline hosts) and cancel them. `GET /api/command-queue`, `DELETE /api/devices/<id>/command-queue` (v3.4.2) |
+| **Command Queue** | Admin → Command Queue: view every device's pending queued commands (incl. offline hosts) and cancel them; ACME certificate actions are logged to the recently-dispatched view, with **Clear all pending** and **Clear log** controls (v3.9.0). `GET /api/command-queue`, `DELETE /api/devices/<id>/command-queue` (v3.4.2) |
 | **Per-device backups** | A Backups section in the device drawer shows each watched backup path's age + fresh/stale state. `GET /api/devices/<id>/backups` (v3.4.2) |
 | **Container health detail** | Per-device container list shows each container's health badge (healthy/unhealthy/starting), live CPU%/memory, and published ports (v3.4.2) |
 | **SMART / inventory detail** | SMART table adds drive serial + CRC/Uncorrectable counts; Helm releases list app version + last-updated; memory/RAID inventory adds DIMM manufacturer/serial and RAID member block devices (v3.4.2) |
@@ -217,7 +217,7 @@ Full reference: **[ai.md](ai.md)**.
 ### Container awareness *(v1.11.0, alerts in v1.11.4)*
 Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes pods on its host and posts a normalised list to the server every ~5 minutes. The Containers tab in the sidebar shows fleet-wide status; per-device drill-down shows image, tag, ports, restart count, and namespace. Read-only — RemotePower surfaces what's running, doesn't manage it.
 
-**v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — Kubernetes-only in practice), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[containers.md](containers.md)**.
+**v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — as of v3.10.0 the agent reports a real restart count for Docker/Podman too, via a batched `docker inspect`, so this fires fleet-wide rather than only for Kubernetes pods), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[containers.md](containers.md)**.
 
 **Image updates (v3.3.4, one-click update v3.9.0).** The server compares each container's pulled image digest against the registry's current digest for that tag and flags stale images on the **Image Updates** page (notify-only — deduped across the fleet, one registry call per unique image). v3.9.0 adds a one-click **Update** button on stale, compose-managed rows that runs `docker compose pull` + `up -d` on the affected host to fetch the new image and recreate the container; the agent captures each container's compose working directory, recovers the real image name when `docker ps` shows a bare untagged ID (e.g. just after a pull), and the rows show the container name so they stay identifiable.
 
@@ -934,6 +934,55 @@ units" filter and CIS failed-units check now work). RAID member disks
 render again, the Proxmox per-guest backup table is now sortable, and
 **AI Investigate** gained playbooks for malware/AV posture, stale agent
 versions, and failed systemd units (among others; ~21 kinds total).
+
+## v3.9.0 additions
+
+### Bind-it-together, hardening & polish (round two)
+The **HTTP uptime monitor** moved to the same connect-time SSRF guard the
+other back-channels use (closing IPv6-loopback / integer-IP / DNS-rebinding
+bypasses); inbound-webhook alert links are scheme-validated. Correctness
+fixes: the post-upgrade "didn't take" badge no longer false-alarms on
+already-patched or offline hosts; a metric-threshold bug that could skip
+disk alerting is fixed; TLS-expiry alerts get the right severity. More
+collected-but-hidden signals surface: **CPU-load history** on Trends, **swap**
+on the metrics sparkline, **rkhunter last-run**, the **systemd alias** a
+watched unit resolved to, and **livepatch state**. Three more tables became
+sortable; typographic glyphs were replaced with Lucide icons. The **Image
+Updates** page gained a one-click **Update** button on stale, compose-managed
+rows (`docker compose pull` + `up -d`), and the **Command Queue** now logs
+ACME certificate actions with **Clear all pending** / **Clear log** controls.
+See `docs/v3.9.0.md`.
+
+## v3.10.0 additions
+
+### Bind-it-together & security (round three)
+A third consolidation sweep — agent data that was collected but stuck at
+zero now flows through, two real SSRF / secret-disclosure gaps are closed,
+and a couple of alert-label bugs are fixed.
+
+**Container restart tracking, fleet-wide.** Docker/Podman containers
+reported `restart_count`, `started_at` and `uptime_seconds` hardcoded to
+zero, so the `container_restarting` alert only ever fired for Kubernetes
+pods and the drawer's container age was blank. The agent now fills them
+from a single batched `docker inspect` per heartbeat, so the alert fires
+everywhere and container age renders. **ClamAV last-scan time** (parsed
+from the scan summary) and **per-interface MAC addresses** now show in the
+device drawer — both were collected/stored but never displayed.
+
+**Security.** The container image-registry check — the one outbound path
+not behind the connect-time SSRF guard — now routes every fetch (manifest
+*and* the registry-controlled bearer-token realm) through the SSRF-safe
+opener and forces the realm to HTTPS, closing a redirect / DNS-rebinding /
+credential-exfiltration gap. `GET /api/config` gained a recursive
+secret-scrub backstop so a newly-added config secret can't leak to a
+viewer/MCP key. The TCP uptime monitor and the Healthchecks.io ping picked
+up the same IP-class SSRF checks the HTTP paths already had. See
+`docs/security-review-3.10.0.md`.
+
+**Fixes.** The config-drift alert title named no file (every one read
+"? file(s)") — it now names the file that changed or the number of sections
+that drifted; the Devices table view's Hostname column showed a sort arrow
+but never reordered — fixed.
 
 ---
 

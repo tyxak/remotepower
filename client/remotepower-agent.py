@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '3.9.0'
+VERSION      = '3.10.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -1322,6 +1322,75 @@ def _docker_stats(cmd_path):
     return stats
 
 
+def _docker_inspect_meta(cmd_path, ids):
+    """v3.10.0: one batched ``inspect`` for restart-count + start time.
+
+    ``docker ps`` doesn't carry a restart count or a machine-readable start
+    timestamp, so the docker/podman listing used to ship ``restart_count`` /
+    ``started_at`` / ``uptime_seconds`` hardcoded to ``0`` — which left the
+    server's ``container_restart`` alert permanently dead and the UI "age"
+    column blank for every non-Kubernetes host. One ``inspect`` over the whole
+    batch (newline-delimited ``Id RestartCount StartedAt``) fills them in
+    cheaply. Best effort: returns ``{}`` on failure so the listing degrades to
+    the old zeros rather than breaking.
+
+    Returns ``{full_id: {restart_count, started_at, uptime_seconds}}``.
+    """
+    meta = {}
+    ids = [i for i in (ids or []) if i]
+    if not ids:
+        return meta
+    try:
+        r = subprocess.run(
+            [cmd_path, 'inspect', '--format',
+             '{{.Id}} {{.RestartCount}} {{.State.StartedAt}}', *ids],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT)
+    except Exception:
+        return meta
+    if r.returncode != 0:
+        return meta
+    now = int(time.time())
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        cid = parts[0]
+        try:
+            restarts = int(parts[1])
+        except (ValueError, IndexError):
+            restarts = 0
+        started_at = _parse_iso_to_epoch(parts[2]) if len(parts) >= 3 else 0
+        uptime = max(0, now - started_at) if started_at else 0
+        meta[cid] = {
+            'restart_count':  restarts,
+            'started_at':     started_at,
+            'uptime_seconds': uptime,
+        }
+    return meta
+
+
+def _parse_iso_to_epoch(s):
+    """Parse a docker/k8s RFC3339 timestamp ('2024-01-15T10:30:00.123456789Z')
+    into epoch seconds. Returns 0 on anything unparseable (incl. the zero-value
+    '0001-01-01T00:00:00Z' docker emits for never-started containers)."""
+    s = (s or '').strip()
+    if not s or s.startswith('0001-01-01'):
+        return 0
+    try:
+        import datetime as _dt
+        # Normalise the Z suffix and drop sub-second precision entirely (we
+        # return whole seconds, and Go emits 9 fractional digits which older
+        # fromisoformat rejects). Keep any numeric tz offset so the instant is
+        # unambiguous; a bare timestamp with no offset is treated as UTC.
+        iso = re.sub(r'\.\d+', '', s.replace('Z', '+00:00'))
+        dt = _dt.datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_dt.timezone.utc)
+        return int(dt.timestamp())
+    except (ValueError, TypeError, OverflowError):
+        return 0
+
+
 def _image_digests(cmd_path):
     """Map ``(repository, tag) -> RepoDigest`` (``sha256:…``) for locally
     present images, via ``<rt> images --digests``.
@@ -1437,8 +1506,10 @@ def _docker_listing(cmd_path, runtime_name):
     # registry's current digest for that tag and flag stale images.
     digests = _image_digests(cmd_path)
 
-    items = []
-    now = int(time.time())
+    # Parse the line-oriented JSON first so we can collect container IDs and run
+    # a single batched inspect (restart-count + start time) for the whole set,
+    # rather than one inspect per container.
+    parsed = []
     for line in out.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -1447,6 +1518,15 @@ def _docker_listing(cmd_path, runtime_name):
             d = json.loads(line)
         except (json.JSONDecodeError, ValueError):
             continue
+        parsed.append(d)
+        if len(parsed) >= CONTAINERS_HARD_CAP:
+            break
+    inspect_meta = _docker_inspect_meta(
+        cmd_path, [d.get('ID', '') for d in parsed])
+
+    items = []
+    now = int(time.time())
+    for d in parsed:
         # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
         image_full = d.get('Image', '')
         # If the container references an untagged image by bare ID (common right
@@ -1476,6 +1556,8 @@ def _docker_listing(cmd_path, runtime_name):
         if ms:
             health = ms.group(1).replace('health: ', '')
         st = stats.get(name, {})
+        # v3.10.0: real restart-count + start time from the batched inspect.
+        im = inspect_meta.get(d.get('ID', ''), {})
         items.append({
             'name':           name,
             'image':          image,
@@ -1491,15 +1573,13 @@ def _docker_listing(cmd_path, runtime_name):
             'runtime':        runtime_name,
             'compose_dir':    compose_dir,                   # v3.9.0
             'ports':          ports,
-            'started_at':     0,
-            'uptime_seconds': 0,
-            'restart_count':  0,
+            'started_at':     im.get('started_at', 0),       # v3.10.0
+            'uptime_seconds': im.get('uptime_seconds', 0),   # v3.10.0
+            'restart_count':  im.get('restart_count', 0),    # v3.10.0
             'cpu_percent':    st.get('cpu_percent'),         # v2.2.6
             'mem_percent':    st.get('mem_percent'),         # v2.2.6
             'mem_usage':      st.get('mem_usage', ''),       # v2.2.6
         })
-        if len(items) >= CONTAINERS_HARD_CAP:
-            break
     return items
 
 
@@ -2587,6 +2667,17 @@ def get_av_status():
         m = _re.findall(r'Infected files:\s*(\d+)', log)
         if m:
             c['infected'] = int(m[-1])
+        # v3.10.0: last-scan timestamp from the clamscan SCAN SUMMARY block
+        # ("End Date: 2024:01:15 10:30:12"). Lets the UI show how fresh the
+        # last on-demand scan was, not just the signature-DB age.
+        dm = _re.findall(r'(?:End|Start) Date:\s*(\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2})', log)
+        if dm:
+            try:
+                import datetime as _dt
+                c['last_scan_ts'] = int(
+                    _dt.datetime.strptime(dm[-1], '%Y:%m:%d %H:%M:%S').timestamp())
+            except (ValueError, TypeError):
+                pass
         out['clamav'] = c
     # ── rkhunter ─────────────────────────────────────────────────────────────
     if _which('rkhunter'):

@@ -142,11 +142,13 @@ Webhook payload:
 ### `container_restarting`
 
 Fired when a container's `restart_count` increased by 1 or more
-since the last report. Almost exclusively useful for Kubernetes
-pods — Docker `ps` doesn't expose the restart count without
-`docker inspect`, which the agent doesn't run for performance
-reasons (one extra subprocess per container per heartbeat
-adds up).
+since the last report. As of v3.10.0 this works fleet-wide:
+Docker `ps` doesn't expose the restart count, so the agent runs a
+single batched `docker inspect` over the whole container set per
+heartbeat (one subprocess, not one per container) to read each
+container's `RestartCount` and `State.StartedAt`. Earlier versions
+left these at zero for Docker/Podman, so the event only fired for
+Kubernetes pods.
 
 Webhook payload:
 

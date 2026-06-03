@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.9.0'
+SERVER_VERSION = '3.10.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2179,6 +2179,18 @@ def _sanitize_monitor_target(mtype, target):
                 return None
         except (ValueError, TypeError):
             return None
+        # SSRF guard — same IP-class check the http branch applies. Without it a
+        # tcp monitor was a blind internal port scanner (target 127.0.0.1:22 or
+        # 169.254.169.254:80 returns open/closed as an oracle), ignoring the
+        # allow_internal_monitors opt-in. RFC1918 LAN is allowed by design;
+        # metadata/link-local always blocked; loopback only when opted in. The
+        # connect-time peer recheck in _execute_monitor_checks closes rebinding.
+        cfg = load(CONFIG_FILE)
+        allow_internal = bool(cfg.get('allow_internal_monitors', False))
+        if _url_targets_local_or_meta(
+                urllib.parse.urlparse(f'//{host}', scheme='tcp'),
+                allow_loopback=allow_internal):
+            return None
         return f"{host}:{port}"
     elif mtype == 'http':
         # Only allow http:// and https://, no file:// or internal schemes
@@ -2923,8 +2935,16 @@ def _alert_title(event, payload):
     if event == 'cve_found':
         c = p.get('critical') or 0; h = p.get('high') or 0
         return f'CVEs on {name}: {c} critical, {h} high'
-    if event in ('drift_detected', 'config_drift'):
-        return f'Config drift on {name}: {p.get("files", "?")} file(s)'
+    if event == 'drift_detected':
+        # File-integrity drift carries the single watched path that changed.
+        path = p.get('path') or '?'
+        verb = 'removed' if p.get('exists') is False else 'changed'
+        return f'Config drift on {name}: {path} {verb}'
+    if event == 'config_drift':
+        # Host-config drift carries a list of drifting sections.
+        secs = p.get('sections')
+        n = len(secs) if isinstance(secs, (list, tuple)) else (secs or 0)
+        return f'Config drift on {name}: {n} section{"" if n == 1 else "s"}'
     if event == 'tls_expiry':
         host = p.get('host') or name
         return f'TLS expires in {p.get("days_left", "?")}d: {host}'
@@ -8540,8 +8560,19 @@ def _execute_monitor_checks(monitors):
             host, _, port_s = target.partition(':')
             try:
                 port = int(port_s)
-                with socket.create_connection((host, port), timeout=3):
-                    ok = True; detail = 'open'
+                _allow_internal = bool(load(CONFIG_FILE).get('allow_internal_monitors', False))
+                with socket.create_connection((host, port), timeout=3) as _s:
+                    # Connect-time peer recheck — the pre-flight resolved the
+                    # name, but DNS could rebind to a blocked address between
+                    # then and now. Treat a blocked peer as a failed check.
+                    try:
+                        _peer = _s.getpeername()[0]
+                    except (OSError, IndexError):
+                        _peer = None
+                    if _peer and _ip_class_blocked(_peer, allow_loopback=_allow_internal):
+                        ok = False; detail = 'blocked'
+                    else:
+                        ok = True; detail = 'open'
             except Exception:
                 detail = 'closed'
         elif mtype == 'http':
@@ -8649,7 +8680,15 @@ def ping_healthchecks_if_due():
         req = urllib.request.Request(url, method='GET', headers={
             'User-Agent': f'remotepower/{SERVER_VERSION}',
         })
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        # Route through the SSRF-safe opener like every other operator-supplied
+        # outbound URL: re-validate the connected peer IP (anti-rebinding) and
+        # refuse 3xx redirects so a misconfigured/redirecting hc.io URL can't be
+        # bounced onto a metadata/loopback address. Loopback stays allowed (a
+        # local watchdog sidecar is a legitimate target); link-local/metadata
+        # always blocked.
+        _opener = _ssrf_safe_opener(allow_loopback=True,
+                                    ssl_ctx=_get_ssl_context(), no_redirect=True)
+        with _opener.open(req, timeout=5) as resp:
             resp.read()
     except Exception:
         # External dependency — never let a hc.io blip break the
@@ -8729,6 +8768,32 @@ def _get_ssl_context():
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.check_hostname = True
     return ctx
+
+
+# v3.10.0: defense-in-depth secret scrubber for GET /api/config. The handler
+# below redacts known secrets explicitly (SMTP/LDAP/Proxmox/OIDC/webhook…), but
+# that's a denylist — every newly-added secret key leaks until someone remembers
+# to pop it (this is exactly how the AI `api_key` and `registry_credentials`
+# leaked to viewer/MCP keys). This recursive pass is the backstop: it drops any
+# leaf key whose *name* looks like a secret, at any nesting depth. It anchors on
+# whole-word suffixes so non-secret siblings survive — `proxmox_token_id`,
+# `oidc_client_id`, and every `*_set` / `*_from_env` indicator do NOT match.
+_SECRET_KEY_RE = re.compile(
+    r'(?:^|_)(?:password|passwd|secret|apikey|api_key|access_token|'
+    r'refresh_token|private_key|credentials|token)$', re.I)
+
+
+def _scrub_config_secrets(obj):
+    """Recursively remove secret-valued keys from a config payload in place."""
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if isinstance(k, str) and _SECRET_KEY_RE.search(k):
+                obj.pop(k, None)
+            else:
+                _scrub_config_secrets(obj[k])
+    elif isinstance(obj, list):
+        for item in obj:
+            _scrub_config_secrets(item)
 
 
 def handle_config_get():
@@ -8882,6 +8947,13 @@ def handle_config_get():
                     _e['url_set'] = True
                     _e['url'] = ''
 
+    # v3.10.0: the AI provider key and the per-registry credentials map are
+    # secrets the dedicated admin endpoints (/api/ai/config, settings) manage and
+    # mask. Surface only *_set indicators here; the recursive scrub below strips
+    # the raw values (ai.api_key, registry_credentials.*.password) at any depth.
+    safe['ai_configured'] = bool((cfg.get('ai') or {}).get('api_key'))
+    safe['registry_credentials_set'] = bool(cfg.get('registry_credentials'))
+
     # Static UI metadata (so the front-end doesn't have to hardcode this)
     safe['_meta'] = {
         'webhook_event_descriptions': {ev: desc for ev, desc, _ in WEBHOOK_EVENTS},
@@ -8889,6 +8961,10 @@ def handle_config_get():
         'min_online_ttl':             MIN_ONLINE_TTL,
         'smtp_tls_modes':             ['starttls', 'tls', 'plain'],
     }
+    # Defense-in-depth backstop: drop any secret-named key at any depth that the
+    # explicit redaction above didn't catch (keeps every *_set / *_from_env
+    # indicator and non-secret *_id fields intact). See _scrub_config_secrets.
+    _scrub_config_secrets(safe)
     respond(200, safe)
 
 
@@ -22585,11 +22661,26 @@ def _scan_images(refs, fleet, cfg, force=False):
                     continue
             except Exception:
                 pass
+        # Pass the SSRF-safe opener + a url_guard down into the registry client
+        # so *every* fetch it makes — the manifest AND the bearer-token realm
+        # (which the registry controls via Www-Authenticate) — re-validates the
+        # connected peer IP, refuses 3xx redirects, and pre-flights the realm
+        # URL. Without this a malicious registry could 302 the manifest fetch to
+        # 169.254.169.254, rebind DNS between the pre-flight and the connect, or
+        # hand back a realm that exfiltrates configured Basic creds. When the
+        # operator has turned off local blocking we keep the no-redirect opener
+        # but skip IP enforcement (mirrors the manifest pre-flight above).
+        _img_opener = _ssrf_safe_opener(
+            allow_loopback=not block_local, ssl_ctx=_get_ssl_context(),
+            no_redirect=True, enforce_ip=block_local)
+        _img_guard = ((lambda u: _url_targets_local_or_meta(
+            urllib.parse.urlparse(u), allow_loopback=False)) if block_local else None)
         creds = creds_by_registry.get(registry)
         try:
             dig = image_registry_mod.remote_digest(
                 registry, repository, tag, creds=creds,
-                timeout=IMAGE_SCAN_HTTP_TIMEOUT)
+                timeout=IMAGE_SCAN_HTTP_TIMEOUT,
+                opener=_img_opener, url_guard=_img_guard)
             entry['registry'] = registry
             entry['registry_digest'] = dig or ''
             entry['last_error'] = '' if dig else 'no digest returned'
@@ -25841,8 +25932,9 @@ def process_container_report(dev_id, normalised, now):
             })
 
     # 2) Containers whose restart_count climbed since the last report.
-    # Mostly meaningful for Kubernetes (Docker doesn't expose this without
-    # `docker inspect`, which the agent skips for performance).
+    # v3.10.0: the agent now reports a real restart_count for docker/podman too
+    # (a single batched `docker inspect` per heartbeat), so this fires fleet-wide
+    # — not just for Kubernetes pods as it historically did.
     for key, cur in new_by_key.items():
         prev = prev_by_key.get(key)
         if not prev:

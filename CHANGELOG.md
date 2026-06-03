@@ -2,6 +2,56 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.10.0 — unreleased (dev)
+
+A third bind-it-together and security sweep on top of v3.9.0: agent data that
+was collected but stuck at zero now flows through, two real SSRF /
+secret-disclosure gaps are closed, and a couple of alert-label bugs are fixed.
+No new headline features.
+
+### Security
+- **Container image-registry SSRF closed.** The image-update scanner was the one
+  outbound path that didn't use the connect-time SSRF guard. It followed 3xx
+  redirects, re-resolved DNS between the pre-flight check and the actual fetch
+  (a rebinding TOCTOU), and — worst — fetched the bearer-token *realm* URL from
+  the registry's `Www-Authenticate` header (attacker-controllable) with no check
+  at all, which could send configured registry credentials to an arbitrary host.
+  Every fetch — manifest **and** token realm — now routes through the SSRF-safe
+  opener (connected-peer re-validation, redirects refused), the realm is
+  pre-flighted against the IP classifier and forced to HTTPS. See
+  `docs/security-review-3.10.0.md`.
+- **`GET /api/config` secret-scrub backstop.** The endpoint redacted known
+  secrets by name (a denylist), so the AI-provider `api_key` and the
+  per-registry credentials map leaked in cleartext to any authenticated viewer
+  or read-only MCP key. A recursive pass now strips any secret-named field at
+  any nesting depth before responding, while preserving every `*_set` /
+  `*_from_env` indicator and non-secret `*_id` field; only `ai_configured` /
+  `registry_credentials_set` booleans are surfaced.
+- **TCP uptime monitor + Healthchecks.io ping hardened.** The `tcp` monitor had
+  no IP-class SSRF check (the `http` branch did), so it could be used as a blind
+  internal port scanner with a boolean oracle, including cloud-metadata
+  reachability probing. It now resolves and classifies the target like the http
+  path and re-checks the connected peer (anti-rebinding). The Healthchecks.io
+  watchdog ping moved off a bare `urlopen` onto the SSRF-safe, no-redirect opener.
+
+### Bind it together
+- **Container restart tracking now works fleet-wide.** Docker/Podman containers
+  reported `restart_count`, `started_at` and `uptime_seconds` hardcoded to `0`,
+  which left the `container_restarting` alert permanently dead and the drawer's
+  container-age column blank on every non-Kubernetes host. The agent now fills
+  them from a single batched `docker inspect` per heartbeat.
+- **ClamAV last-scan time** (parsed from the clamscan SCAN SUMMARY) and
+  **per-interface MAC addresses** now show in the device drawer — both were
+  already collected and stored server-side but never displayed.
+
+### Fixes
+- **Config-drift alert titles** read a payload field (`files`) that neither
+  drift event ever sends, so every one rendered "Config drift on host: ?
+  file(s)". They now name the file that changed (file-integrity drift) or the
+  number of sections that drifted (host-config drift).
+- **Devices table view:** the *Hostname* column showed a sort arrow but never
+  reordered (its sort key was missing from the column getter); it sorts now.
+
 ## v3.9.0 — unreleased (dev)
 
 A second bind-it-together and hardening sweep on top of v3.8.0: more dropped

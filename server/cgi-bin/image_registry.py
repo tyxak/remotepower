@@ -17,10 +17,15 @@ IP). The caller dedups identical images across the fleet and gates the
 sweep to a long interval; operators can also configure credentials to
 raise the ceiling. This module just makes the request it's told to.
 
-SSRF: this module does NOT resolve/guard hostnames — the caller checks
-the URL (via ``manifest_url``) against the existing SSRF guard before
-invoking ``remote_digest``, so a malicious image ref can't point the
-server at a link-local / metadata address.
+SSRF: this module does NOT resolve/guard hostnames itself. The caller is
+responsible for passing an ``opener`` whose connections re-validate the
+peer IP at connect time and refuse redirects (RemotePower's
+``_ssrf_safe_opener``), plus a ``url_guard`` callable that pre-flights any
+URL we're about to fetch. Both the manifest URL **and** the bearer-token
+``realm`` URL (which is attacker-controllable via the registry's
+``Www-Authenticate`` header) are routed through them, so a malicious image
+ref can neither point the server at a link-local / metadata address nor
+exfiltrate configured registry credentials to an arbitrary realm.
 """
 
 from __future__ import annotations
@@ -81,38 +86,66 @@ def manifest_url(registry, repository, tag):
     return f"https://{registry}/v2/{urllib.parse.quote(repository)}/manifests/{urllib.parse.quote(tag)}"
 
 
-def remote_digest(registry, repository, tag, creds=None, timeout=4.0):
+class BlockedURL(Exception):
+    """Raised when ``url_guard`` rejects a URL we were about to fetch
+    (registry manifest or bearer-token realm) as a local/metadata target."""
+
+
+def remote_digest(registry, repository, tag, creds=None, timeout=4.0,
+                  opener=None, url_guard=None):
     """Return the current ``sha256:…`` manifest digest for ``repo:tag``.
 
     ``creds`` is an optional ``{'username', 'password'}`` dict used to
     authenticate the token request (Docker Hub) or as direct Basic auth.
+
+    ``opener`` is an optional :class:`urllib.request.OpenerDirector` used for
+    every outbound fetch. The caller passes an SSRF-safe opener (peer-IP
+    re-validation + no-redirect) so the registry can't rebind or 3xx-bounce
+    us onto an internal address. Defaults to ``urllib.request.urlopen``
+    behaviour when omitted (tests / standalone use).
+
+    ``url_guard`` is an optional ``callable(url) -> bool`` that returns True
+    if the URL targets a local/metadata address. It pre-flights both the
+    manifest URL and the (attacker-controllable) token-realm URL; a blocked
+    URL raises :class:`BlockedURL` instead of being fetched.
+
     Raises on network / HTTP errors; the caller records them as a per-image
     ``last_error`` rather than letting one bad registry abort the sweep.
     """
     url = manifest_url(registry, repository, tag)
+    if url_guard and url_guard(url):
+        raise BlockedURL("manifest URL resolves to a local/meta address")
     headers = {"Accept": ACCEPT_MANIFEST, "User-Agent": USER_AGENT}
     try:
-        return _manifest_digest(url, headers, timeout, method="HEAD")
+        return _manifest_digest(url, headers, timeout, method="HEAD", opener=opener)
     except urllib.error.HTTPError as e:
         if e.code != 401:
             raise
         www = e.headers.get("Www-Authenticate") or e.headers.get("WWW-Authenticate") or ""
-        auth = _build_auth(www, creds, timeout)
+        auth = _build_auth(www, creds, timeout, opener=opener, url_guard=url_guard)
         if not auth:
             raise
         headers["Authorization"] = auth
-        return _manifest_digest(url, headers, timeout, method="HEAD")
+        return _manifest_digest(url, headers, timeout, method="HEAD", opener=opener)
 
 
-def _manifest_digest(url, headers, timeout, method="HEAD"):
+def _open(req, timeout, opener):
+    """Fetch via the caller-supplied SSRF-safe opener, or fall back to the
+    stdlib default opener when none was provided."""
+    if opener is not None:
+        return opener.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _manifest_digest(url, headers, timeout, method="HEAD", opener=None):
     req = urllib.request.Request(url, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _open(req, timeout, opener) as resp:
         dig = resp.headers.get("Docker-Content-Digest")
         if dig and dig.strip().startswith("sha256:"):
             return dig.strip()
     # A few registries omit the digest header on HEAD — one GET retry.
     if method == "HEAD":
-        return _manifest_digest(url, headers, timeout, method="GET")
+        return _manifest_digest(url, headers, timeout, method="GET", opener=opener)
     return None
 
 
@@ -126,7 +159,7 @@ def _basic(creds):
     return "Basic " + base64.b64encode(raw).decode()
 
 
-def _build_auth(www_authenticate, creds, timeout):
+def _build_auth(www_authenticate, creds, timeout, opener=None, url_guard=None):
     scheme = (www_authenticate.split(" ", 1)[0] if www_authenticate else "").lower()
     if scheme == "bearer":
         params = _parse_challenge(www_authenticate)
@@ -139,11 +172,19 @@ def _build_auth(www_authenticate, creds, timeout):
         if params.get("scope"):
             q["scope"] = params["scope"]
         token_url = realm + (("?" + urllib.parse.urlencode(q)) if q else "")
+        # The realm comes straight from the registry's Www-Authenticate header,
+        # so it's attacker-controllable. Refuse non-HTTPS realms and pre-flight
+        # the URL against the same SSRF guard as the manifest before we fetch it
+        # (or — worse — send configured Basic creds to it).
+        if not token_url.lower().startswith("https://"):
+            raise BlockedURL("bearer realm is not https")
+        if url_guard and url_guard(token_url):
+            raise BlockedURL("bearer realm resolves to a local/meta address")
         treq_headers = {"User-Agent": USER_AGENT}
         if creds and creds.get("username"):
             treq_headers["Authorization"] = _basic(creds)
         treq = urllib.request.Request(token_url, headers=treq_headers, method="GET")
-        with urllib.request.urlopen(treq, timeout=timeout) as r:
+        with _open(treq, timeout, opener) as r:
             data = json.loads(r.read().decode("utf-8", "replace"))
         token = data.get("token") or data.get("access_token")
         return ("Bearer " + token) if token else None

@@ -1289,11 +1289,14 @@ function _registerDevicesMinimalTable() {
     name: 'devices_minimal',
     tbody: 'devices-minimal-tbody',
     sortHeaders: 'devices-minimal-thead',
-    columns: ['name', 'group', 'os', 'ip', 'version', 'status', 'last_seen', 'enrolled'],
+    columns: ['name', 'hostname', 'group', 'os', 'ip', 'version', 'status', 'last_seen'],
     refresh: () => renderDevices(),     // re-render through the parent path
     match: () => true,
     getColumns: (d) => ({
       name:      d.name || '',
+      // The thead renders a sortable Hostname column — it needs a matching
+      // getColumns key or clicking it shows an arrow but never reorders.
+      hostname:  d.hostname || '',
       group:     d.group || '',
       os:        d.os || '',
       ip:        d.ip || '',
@@ -1301,7 +1304,6 @@ function _registerDevicesMinimalTable() {
       // online → 'a' / offline → 'z' so "asc" puts online first
       status:    d.online ? 'a-online' : 'z-offline',
       last_seen: d.last_seen || 0,
-      enrolled:  d.enrolled || 0,
     }),
     row: (d) => {
       const isOnline = d.online;
@@ -2859,6 +2861,9 @@ const _DYK_TIPS = [
   "Running Kubernetes? Where a host has Helm and a kubeconfig, RemotePower shows your Helm release status alongside everything else.",
   "Planning → Trends now plots a CPU-load saturation line (load ÷ cores) next to memory, swap and disk — so you can see a host's load trend over time, not just its current number.",
   "Watch mysql.service on a host that actually runs mariadb.service? The Services table shows the canonical unit systemd resolved your alias to, so you're never left wondering why it reads 'active'.",
+  "A container that keeps crash-looping? RemotePower now tracks the restart count for Docker and Podman too (not just Kubernetes) and alerts when it climbs — the container's age and restart count show in the device drawer.",
+  "The device drawer shows each network interface's MAC address next to its IP, and ClamAV's last on-demand scan time alongside its signature-DB age.",
+  "Run a one-click image Update on a stale, compose-managed container row and RemotePower pulls the new image and recreates it (docker compose pull + up -d) on the host — no SSH needed.",
 ];
 let _dykIdx = -1;
 function _renderAboutTip() {
@@ -3841,7 +3846,7 @@ async function openAvScan(id, name) {
   const rows = [];
   if (av.clamav) {
     const c = av.clamav;
-    rows.push(`<div class="sysinfo-pill"><div class="label">ClamAV</div><div class="value">${c.installed ? 'installed' : 'absent'}${c.db_age_days != null ? ` · DB ${c.db_age_days}d old` : ''}${c.infected != null ? ` · ${c.infected} infected` : ''}</div></div>`);
+    rows.push(`<div class="sysinfo-pill"><div class="label">ClamAV</div><div class="value">${c.installed ? 'installed' : 'absent'}${c.db_age_days != null ? ` · DB ${c.db_age_days}d old` : ''}${c.last_scan_ts ? ` · last scan ${timeAgo(c.last_scan_ts)}` : ''}${c.infected != null ? ` · ${c.infected} infected` : ''}</div></div>`);
   }
   if (av.rkhunter) {
     const r2 = av.rkhunter;
@@ -12860,7 +12865,7 @@ async function _loadAuditSection(key) {
         if ((si.network||[]).length) {
           h += `<div class="mb-8">` +
             si.network.map(n=>
-              `<span class="cmd-badge fs-11">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}</span> `
+              `<span class="cmd-badge fs-11">${escHtml(n.iface)}: ${escHtml(n.ip||'?')}${n.mac ? ` · ${escHtml(n.mac)}` : ''}</span> `
             ).join('') + `</div>`;
         }
         // Reboot-required indicator — data already in sysinfo.
