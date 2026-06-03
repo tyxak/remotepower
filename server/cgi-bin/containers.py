@@ -163,6 +163,9 @@ def normalize_container(item: Any) -> dict | None:
         "status": status,
         "namespace": namespace,
         "runtime": runtime,
+        # v3.9.0: compose project working dir (from the agent's label parse),
+        # so the server can offer a one-click pull+recreate update.
+        "compose_dir": _str(item.get("compose_dir"), 512),
         "ports": ports,
         "started_at": _int_or_zero(item.get("started_at")),
         "uptime_seconds": _int_or_zero(item.get("uptime_seconds")),

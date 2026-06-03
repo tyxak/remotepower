@@ -90,13 +90,27 @@ function _registerImageUpdatesTable() {
         statusCell = `<span class="c-muted">Not checked</span>`;
       }
       const hosts = (r.hosts || []);
-      const hostTitle = hosts.map(h => `${h.device_name}${h.stale ? ' (stale)' : ''}`).join(', ');
+      const hostTitle = hosts.map(h => `${h.device_name}${h.container ? ' · ' + h.container : ''}${h.stale ? ' (stale)' : ''}`).join(', ');
       const checked = (r.local || !r.last_checked) ? '—' : new Date(r.last_checked * 1000).toLocaleString();
+      // Container name(s) running this image — the only identifier when the
+      // image itself is an untagged bare ID (e.g. right after a compose pull
+      // that hasn't recreated the container yet, so `docker ps` shows sha256:…).
+      const cnames = [...new Set(hosts.map(h => h.container).filter(Boolean))];
+      const looksLikeId = /^(sha256|[0-9a-f]{12,64})$/i.test(r.image || '');
+      const imageCell = looksLikeId && cnames.length
+        ? `${escHtml(cnames.join(', '))} <span class="hint" title="The container runs an untagged image (${escAttr(r.image)}:${escAttr(r.tag)}) — usually a pulled-but-not-recreated image. Recreate it (Update) to move onto the tagged one.">untagged</span>`
+        : `${escHtml(r.image)}${cnames.length ? ` <span class="hint">${escHtml(cnames.join(', '))}</span>` : ''}`;
+      // Update = pull + recreate (compose) on the hosts that reported a compose
+      // working dir. Only offered when an update is actually available.
+      const updatable = hosts.filter(h => h.compose_dir);
+      const updateBtn = (r.update_available && updatable.length)
+        ? `<button class="btn-icon" data-action="updateImageNow" data-arg="${escAttr(r.ref)}" title="Pull the new image and recreate the container(s) — docker compose pull + up -d — on ${updatable.length} host(s)">Update</button> `
+        : '';
       const action = r.ignored
         ? `<button class="btn-icon" data-action="unignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Resume alerting on updates for this image">Un-ignore</button>`
-        : `<button class="btn-icon c-muted" data-action="ignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Accept the current version and stop alerting until a newer one ships">Ignore</button>`;
+        : `${updateBtn}<button class="btn-icon c-muted" data-action="ignoreImageUpdate" data-arg="${escAttr(r.ref)}" title="Accept the current version and stop alerting until a newer one ships">Ignore</button>`;
       return `<tr>
-        <td class="fw-500">${escHtml(r.image)}</td>
+        <td class="fw-500">${imageCell}</td>
         <td class="mono-12">${escHtml(r.tag)}</td>
         <td title="${escAttr(hostTitle)}">${hosts.length}</td>
         <td>${statusCell}</td>
@@ -129,6 +143,30 @@ async function scanImageUpdatesNow(btn) {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = original; }
   }
+}
+
+async function updateImageNow(ref) {
+  const row = (_imageUpdates || []).find(r => r.ref === ref);
+  if (!row) return;
+  // Prefer the hosts actually flagged stale; fall back to any compose-managed
+  // host running this image.
+  const stale = (row.hosts || []).filter(h => h.compose_dir && h.stale);
+  const list = stale.length ? stale : (row.hosts || []).filter(h => h.compose_dir);
+  if (!list.length) {
+    toast('No compose-managed host found for this image — update it manually (compose pull && up -d).', 'error');
+    return;
+  }
+  const names = [...new Set(list.map(h => h.device_name))].join(', ');
+  if (!confirm(`Update "${ref}" on ${list.length} host(s) (${names})?\n\nThis runs "docker compose pull" then "up -d" to pull the new image and recreate the container(s) — expect a brief restart. Output arrives on the next heartbeat.`)) return;
+  let ok = 0, fail = 0;
+  for (const h of list) {
+    const r = await api('POST', `/devices/${encodeURIComponent(h.device_id)}/compose/action`,
+      { action: 'update', dir: h.compose_dir }).catch(() => null);
+    if (r && r.ok) ok++; else fail++;
+  }
+  if (ok) toast(`Update queued on ${ok} host(s)${fail ? ` (${fail} failed)` : ''} — recreated containers report on the next heartbeat (~60s).`, fail ? 'info' : 'success');
+  else toast('Failed to queue the update.', 'error');
+  loadImageUpdates();
 }
 
 async function ignoreImageUpdate(ref) {

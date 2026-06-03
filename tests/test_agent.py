@@ -286,6 +286,81 @@ class TestContainerImageDigests(unittest.TestCase):
         self.assertEqual(m[('ghcr.io/wizarrrr/wizarr', 'latest')], self.DIG_WIZARR)
 
 
+class TestContainerComposeAndUntagged(unittest.TestCase):
+    """v3.9.0: capture the compose working dir from labels, and recover the
+    real image name when `docker ps` reports an untagged bare image ID."""
+
+    def _runner(self, ps_lines, inspect_image=''):
+        def _run(cmd, **kwargs):
+            sub = cmd[1] if len(cmd) > 1 else ''
+            if sub == 'ps':
+                return MagicMock(returncode=0, stdout='\n'.join(ps_lines), stderr='')
+            if sub == 'inspect':
+                return MagicMock(returncode=0, stdout=inspect_image + '\n', stderr='')
+            return MagicMock(returncode=0, stdout='', stderr='')
+        return _run
+
+    def test_compose_dir_captured_from_label(self):
+        ps = [json.dumps({'ID': 'abc', 'Names': 'seerr',
+                          'Image': 'ghcr.io/seerr-team/seerr:latest', 'Status': 'Up', 'Ports': '',
+                          'Labels': 'com.docker.compose.project=jelly,'
+                                    'com.docker.compose.project.working_dir=/home/jmo/jellyseer'})]
+        with patch.object(agent.subprocess, 'run', side_effect=self._runner(ps)):
+            items = agent._docker_listing('/usr/bin/docker', 'docker')
+        self.assertEqual(items[0]['compose_dir'], '/home/jmo/jellyseer')
+
+    def test_untagged_bare_id_resolved_to_real_image(self):
+        # docker ps shows the container's image as a bare sha256 ID; the agent
+        # recovers the name via inspect .Config.Image.
+        ps = [json.dumps({'ID': '7e913cab7edd', 'Names': 'seerr',
+                          'Image': 'sha256:' + '7' * 64, 'Status': 'Up', 'Ports': '', 'Labels': ''})]
+        runner = self._runner(ps, inspect_image='ghcr.io/seerr-team/seerr:latest')
+        with patch.object(agent.subprocess, 'run', side_effect=runner):
+            items = agent._docker_listing('/usr/bin/docker', 'docker')
+        self.assertEqual(items[0]['image'], 'ghcr.io/seerr-team/seerr')
+        self.assertEqual(items[0]['tag'], 'latest')
+
+    def test_parse_labels_tolerant(self):
+        d = agent._parse_labels('a=1,b=2,broken,c=x=y')
+        self.assertEqual(d.get('a'), '1')
+        self.assertEqual(d.get('c'), 'x=y')   # only split on the first '='
+        self.assertNotIn('broken', d)
+
+
+class TestComposeUpdateAction(unittest.TestCase):
+    """v3.9.0: compose 'update' = pull then up -d (recreate)."""
+
+    def _stack(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / 'compose.yaml').write_text('services: {}\n')
+        return tmp
+
+    def test_update_runs_pull_then_up(self):
+        tmp = self._stack()
+        calls = []
+        def fake_run(argv, **kw):
+            calls.append(argv); return MagicMock(returncode=0, stdout='ok', stderr='')
+        with patch.object(agent, '_which', return_value='/usr/bin/docker'), \
+             patch.object(agent.subprocess, 'run', side_effect=fake_run):
+            res = agent._run_compose(f'compose:update:{tmp}')
+        self.assertEqual(res['rc'], 0)
+        self.assertEqual(calls[0], ['docker', 'compose', 'pull'])
+        self.assertEqual(calls[1], ['docker', 'compose', 'up', '-d'])
+
+    def test_update_stops_when_pull_fails(self):
+        tmp = self._stack()
+        calls = []
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            rc = 1 if argv[:3] == ['docker', 'compose', 'pull'] else 0
+            return MagicMock(returncode=rc, stdout='', stderr='boom')
+        with patch.object(agent, '_which', return_value='/usr/bin/docker'), \
+             patch.object(agent.subprocess, 'run', side_effect=fake_run):
+            res = agent._run_compose(f'compose:update:{tmp}')
+        self.assertEqual(res['rc'], 1)
+        self.assertEqual(len(calls), 1, 'must not run up -d after pull failed')
+
+
 class TestComposeDeploy(unittest.TestCase):
     """v3.3.4: agent deploys an uploaded stack — fetch YAML, write it, run
     docker compose via argv (no shell)."""

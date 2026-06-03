@@ -77,6 +77,16 @@ round of front-end polish (sortable tables, Lucide icons, accessibility).
   queue at once, `DELETE /api/command-queue`) and a **Clear log** button for the
   dispatched-command history, alongside the existing per-command cancel and
   per-device clear.
+- **One-click container image update.** The Image Updates page gained an
+  **Update** button on stale, compose-managed rows — it runs `docker compose
+  pull` then `up -d` on each affected host (a new compose `update` action) to
+  fetch the new image and recreate the container. The agent now also captures
+  each container's **compose working directory** (so the server knows where to
+  run it) and **recovers the real image name when `docker ps` reports a bare,
+  untagged image ID** (which happens right after a pull that hasn't recreated
+  the container — the image previously showed as `sha256:…` and "Local"). Image
+  Updates rows now show the **container name** so they're identifiable either
+  way. Still operator-initiated — RemotePower never pulls or restarts on its own.
 
 ## v3.8.0 — unreleased (dev)
 

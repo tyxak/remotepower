@@ -219,6 +219,8 @@ Every agent v1.11.0+ detects Docker, Podman, and kubectl-accessible Kubernetes p
 
 **v1.11.4** adds three webhook events: `container_stopped` (running container vanished or transitioned to exited), `container_restarting` (restart count climbed since last report — Kubernetes-only in practice), and `containers_stale` (no fresh report within `container_stale_ttl`, default 15 min). Stale rows in the UI now get an amber `STALE` pill so old data is impossible to mistake for current data. Reference: **[containers.md](containers.md)**.
 
+**Image updates (v3.3.4, one-click update v3.9.0).** The server compares each container's pulled image digest against the registry's current digest for that tag and flags stale images on the **Image Updates** page (notify-only — deduped across the fleet, one registry call per unique image). v3.9.0 adds a one-click **Update** button on stale, compose-managed rows that runs `docker compose pull` + `up -d` on the affected host to fetch the new image and recreate the container; the agent captures each container's compose working directory, recovers the real image name when `docker ps` shows a bare untagged ID (e.g. just after a pull), and the rows show the container name so they stay identifiable.
+
 ### Network map *(v1.11.0)*
 Set `connected_to` on each device (Edit links button on the Network page) to record what plugs into what. The map renders nodes coloured by online/offline status and outlined by agent vs. agentless. Manual topology only — no auto-discovery. Reference: **[network-map.md](network-map.md)**.
 

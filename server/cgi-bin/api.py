@@ -132,7 +132,7 @@ BATCH_JOB_TTL_SEC    = 3600           # 1h — purges old jobs on next access
 # commands against the agent's exec channel.
 MAX_COMPOSE_PROJECTS_PER_DEVICE = 50
 MAX_COMPOSE_PATH_LEN            = 1024
-COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs')
+COMPOSE_ALLOWED_ACTIONS         = ('up', 'down', 'restart', 'pull', 'logs', 'update')
 
 # ── v1.7.0: CVE scanner + package inventory ────────────────────────────────────
 PACKAGES_FILE       = DATA_DIR / 'packages.json'
@@ -12573,6 +12573,13 @@ def handle_device_compose_action(dev_id):
     # but defence-in-depth: belt-and-braces).
     reported = dev.get('compose_projects', []) or []
     reported_dirs = {p.get('dir') for p in reported if isinstance(p, dict)}
+    # v3.9.0: also accept a compose working dir the agent reported via a
+    # running container's label (the Image Updates "Update" button uses these).
+    # Still agent-reported — the agent re-validates the path on dequeue.
+    for c in ((load(CONTAINERS_FILE) or {}).get(dev_id) or {}).get('items', []) or []:
+        cd = isinstance(c, dict) and c.get('compose_dir')
+        if cd:
+            reported_dirs.add(cd)
     if project_dir not in reported_dirs:
         respond(400, {
             'error': 'dir not in this device\'s reported compose projects '
@@ -22684,6 +22691,7 @@ def _image_update_view():
             e['hosts'].append({
                 'device_id': dev_id, 'device_name': dname,
                 'container': c.get('name') or '', 'local_digest': local,
+                'compose_dir': c.get('compose_dir') or '',
             })
             if local.startswith('sha256:'):
                 e['any_digest'] = True

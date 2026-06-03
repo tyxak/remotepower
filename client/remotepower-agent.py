@@ -1374,6 +1374,40 @@ def _image_digests(cmd_path):
     return out_map
 
 
+_BARE_IMAGE_ID_RE = re.compile(r'^(sha256:)?[0-9a-f]{12,64}$')
+
+
+def _resolve_config_image(cmd_path, container_id):
+    """When `docker ps` reports a container's image as a bare ID (the tag was
+    moved to a freshly-pulled image and this container still runs the old,
+    now-untagged one), recover the image *name* the container was created with
+    via `inspect .Config.Image` — e.g. `ghcr.io/seerr-team/seerr:latest`. That
+    keeps the image identifiable in the UI and lets the registry comparison run.
+    Best-effort; returns '' on any failure."""
+    if not container_id:
+        return ''
+    try:
+        out = subprocess.run(
+            [cmd_path, 'inspect', '--format', '{{.Config.Image}}', container_id],
+            capture_output=True, text=True, timeout=CONTAINER_CMD_TIMEOUT)
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _parse_labels(raw):
+    """Docker's `{{json .}}` Labels field is a flat 'k=v,k=v' string. Return a
+    dict; tolerant of missing '=' and empty input."""
+    labels = {}
+    for part in (raw or '').split(','):
+        if '=' in part:
+            k, _, v = part.partition('=')
+            labels[k.strip()] = v.strip()
+    return labels
+
+
 def _docker_listing(cmd_path, runtime_name):
     """Run ``docker ps`` (or podman ps) and parse the line-oriented JSON output.
 
@@ -1415,10 +1449,21 @@ def _docker_listing(cmd_path, runtime_name):
             continue
         # Image splits as 'nginx:1.25-alpine' or 'nginx' (no tag = latest)
         image_full = d.get('Image', '')
+        # If the container references an untagged image by bare ID (common right
+        # after a `compose pull` that hasn't been followed by `up -d` to
+        # recreate), recover the real image name so it isn't shown as "sha256".
+        if _BARE_IMAGE_ID_RE.match(image_full.strip()):
+            resolved = _resolve_config_image(cmd_path, d.get('ID', '') or d.get('Names', ''))
+            if resolved and not _BARE_IMAGE_ID_RE.match(resolved):
+                image_full = resolved
         if ':' in image_full and '/' not in image_full.rsplit(':', 1)[1]:
             image, tag = image_full.rsplit(':', 1)
         else:
             image, tag = image_full, ''
+        # v3.9.0: compose working dir (from the project label) so the server can
+        # offer a one-click pull+recreate update for compose-managed stacks.
+        labels = _parse_labels(d.get('Labels', ''))
+        compose_dir = labels.get('com.docker.compose.project.working_dir', '')
         raw_ports = d.get('Ports', '') or ''
         ports = [p.strip() for p in raw_ports.split(',') if p.strip()][:20]
         name = d.get('Names', '') or d.get('Name', '')
@@ -1444,6 +1489,7 @@ def _docker_listing(cmd_path, runtime_name):
             'health':         health,                       # v2.2.6
             'namespace':      '',
             'runtime':        runtime_name,
+            'compose_dir':    compose_dir,                   # v3.9.0
             'ports':          ports,
             'started_at':     0,
             'uptime_seconds': 0,
@@ -3554,7 +3600,7 @@ def execute_command(cmd):
 # directory is verified to exist and contain a compose file before any
 # docker invocation. Output (capped) is returned via the existing exec
 # channel so the dashboard sees results the same way it does for `exec:`.
-COMPOSE_ALLOWED_ACTIONS = {'up', 'down', 'restart', 'pull', 'logs'}
+COMPOSE_ALLOWED_ACTIONS = {'up', 'down', 'restart', 'pull', 'logs', 'update'}
 COMPOSE_ACTION_TIMEOUT_S = 180  # pull + up can be slow on cold caches
 COMPOSE_OUT_CAP          = 64 * 1024
 
@@ -3594,16 +3640,22 @@ def _run_compose(cmd):
     if not _which('docker'):
         return {'cmd': cmd, 'output': 'docker not installed on this host', 'rc': -1}
 
-    if action == 'up':
-        argv = ['docker', 'compose', 'up', '-d']
+    # 'update' = pull the newest images then recreate (up -d) so the running
+    # containers actually move onto them — the canonical "update my stack"
+    # flow. It's a two-step sequence; the rest are single argv runs.
+    if action == 'update':
+        step_argvs = [['docker', 'compose', 'pull'],
+                      ['docker', 'compose', 'up', '-d']]
+    elif action == 'up':
+        step_argvs = [['docker', 'compose', 'up', '-d']]
     elif action == 'down':
-        argv = ['docker', 'compose', 'down']
+        step_argvs = [['docker', 'compose', 'down']]
     elif action == 'restart':
-        argv = ['docker', 'compose', 'restart']
+        step_argvs = [['docker', 'compose', 'restart']]
     elif action == 'pull':
-        argv = ['docker', 'compose', 'pull']
+        step_argvs = [['docker', 'compose', 'pull']]
     elif action == 'logs':
-        argv = ['docker', 'compose', 'logs', '--no-color', '--tail=50']
+        step_argvs = [['docker', 'compose', 'logs', '--no-color', '--tail=50']]
     else:
         # Defensive — COMPOSE_ALLOWED_ACTIONS check above should make this
         # unreachable, but keep the branch so a future contributor adding
@@ -3612,13 +3664,21 @@ def _run_compose(cmd):
         return {'cmd': cmd, 'output': f'no argv mapping for {action!r}', 'rc': -1}
 
     log.info(f"compose {action} in {p}")
+    chunks = []
+    rc = 0
     try:
-        result = subprocess.run(argv, cwd=str(p), capture_output=True,
-                                text=True, timeout=COMPOSE_ACTION_TIMEOUT_S)
-        output = (result.stdout + result.stderr).strip()[:COMPOSE_OUT_CAP]
-        log.info(f"compose {action} rc={result.returncode} "
-                 f"output_len={len(output)}")
-        return {'cmd': cmd, 'output': output, 'rc': result.returncode}
+        for argv in step_argvs:
+            result = subprocess.run(argv, cwd=str(p), capture_output=True,
+                                    text=True, timeout=COMPOSE_ACTION_TIMEOUT_S)
+            label = ' '.join(argv[1:])  # e.g. "compose pull"
+            chunks.append(f'$ docker {label}\n' + (result.stdout + result.stderr).strip())
+            rc = result.returncode
+            # Stop the sequence if a step fails (don't `up` onto a half-pull).
+            if rc != 0:
+                break
+        output = '\n\n'.join(chunks).strip()[:COMPOSE_OUT_CAP]
+        log.info(f"compose {action} rc={rc} output_len={len(output)}")
+        return {'cmd': cmd, 'output': output, 'rc': rc}
     except subprocess.TimeoutExpired:
         return {'cmd': cmd, 'output': 'TIMEOUT', 'rc': -1}
     except Exception as e:

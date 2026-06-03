@@ -14,6 +14,8 @@ v3.8.0. These tests pin the new fixes so they can't silently regress:
 Strict version pins live here until v3.10.0 ships, at which point this
 file's pins loosen to a regex (see test_v380.py for the loosened form).
 """
+import io
+import json
 import os
 import re
 import shutil
@@ -22,6 +24,11 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+
+
+class _StdinShim:
+    def __init__(self, data: bytes):
+        self.buffer = io.BytesIO(data)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -244,6 +251,71 @@ class TestV390UpgradeVerify(_ApiTestBase):
         # verification is pending/stalled, wired to the existing handler.
         self.assertIn("data-action-btn=\"_forcePackageScanBtn\"", APP)
         self.assertRegex(APP, r"upgrade_verify === 'pending' \|\| d\.upgrade_verify === 'stalled'")
+
+
+class TestV390ImageUpdate(_ApiTestBase):
+    """One-click container image update (pull + recreate) from Image Updates."""
+
+    def test_normalize_keeps_compose_dir(self):
+        import containers as cmod
+        out = cmod.normalize_container({'name': 'seerr', 'image': 'x', 'tag': 'latest',
+                                        'compose_dir': '/home/jmo/jellyseer'})
+        self.assertEqual(out['compose_dir'], '/home/jmo/jellyseer')
+
+    def test_update_in_allowed_actions(self):
+        self.assertIn('update', self.api.COMPOSE_ALLOWED_ACTIONS)
+
+    def test_compose_update_accepts_container_reported_dir(self):
+        # A dir reported only via a running container's label (not via the
+        # compose_projects discovery) is still accepted — that's what the
+        # Image Updates "Update" button sends.
+        self._seed_admin()
+        now = int(time.time())
+        self.api.save(self.api.DEVICES_FILE, {'d-1': {'name': 'host', 'last_seen': now}})
+        self.api.save(self.api.CONTAINERS_FILE, {'d-1': {'ts': now, 'items': [
+            {'name': 'seerr', 'image': 'ghcr.io/seerr-team/seerr', 'tag': 'latest',
+             'compose_dir': '/home/jmo/jellyseer'}]}})
+        self.api.save(self.api.CMDS_FILE, {})
+        body = json.dumps({'action': 'update', 'dir': '/home/jmo/jellyseer'}).encode()
+        os.environ['REQUEST_METHOD'] = 'POST'
+        os.environ['CONTENT_LENGTH'] = str(len(body))
+        self.api.sys.stdin = _StdinShim(body)
+        try:
+            with self.assertRaises(self.api.HTTPError) as ctx:
+                self.api.handle_device_compose_action('d-1')
+            self.assertEqual(ctx.exception.status, 200)
+            cmds = self.api.load(self.api.CMDS_FILE)
+            self.assertIn('compose:update:/home/jmo/jellyseer', cmds.get('d-1', []))
+        finally:
+            os.environ['REQUEST_METHOD'] = 'GET'
+            os.environ['CONTENT_LENGTH'] = '0'
+            os.environ.pop('HTTP_X_TOKEN', None)
+
+    def test_unreported_dir_rejected(self):
+        # Defence-in-depth: a dir the device never reported is refused.
+        self._seed_admin()
+        now = int(time.time())
+        self.api.save(self.api.DEVICES_FILE, {'d-1': {'name': 'host', 'last_seen': now}})
+        self.api.save(self.api.CONTAINERS_FILE, {'d-1': {'ts': now, 'items': []}})
+        body = json.dumps({'action': 'update', 'dir': '/etc'}).encode()
+        os.environ['REQUEST_METHOD'] = 'POST'
+        os.environ['CONTENT_LENGTH'] = str(len(body))
+        self.api.sys.stdin = _StdinShim(body)
+        try:
+            with self.assertRaises(self.api.HTTPError) as ctx:
+                self.api.handle_device_compose_action('d-1')
+            self.assertEqual(ctx.exception.status, 400)
+        finally:
+            os.environ['REQUEST_METHOD'] = 'GET'
+            os.environ['CONTENT_LENGTH'] = '0'
+            os.environ.pop('HTTP_X_TOKEN', None)
+
+
+class TestV390ImageUpdateUI(unittest.TestCase):
+    def test_update_button_and_handler_present(self):
+        self.assertIn('updateImageNow', APP)
+        self.assertIn('data-action="updateImageNow"', APP)
+        self.assertIn("action: 'update'", APP)
 
 
 class TestV390TlsSeverity(_ApiTestBase):
