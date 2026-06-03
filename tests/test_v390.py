@@ -223,6 +223,28 @@ class TestV390UpgradeVerify(_ApiTestBase):
         dev, now = self._dev(7200, 5, 5, 10)
         self.assertEqual(self.api._upgrade_verify_status(dev, now), 'stalled')
 
+    def test_no_baseline_does_not_hang_verifying(self):
+        # before=None (the agent hadn't reported a patch count when the upgrade
+        # was queued) used to wedge on 'verifying…' forever. Now: nothing to
+        # verify → no badge.
+        dev, now = self._dev(7200, None, 0, 10)
+        self.assertIsNone(self.api._upgrade_verify_status(dev, now))
+
+    def test_missing_current_count_recent_is_pending(self):
+        dev, now = self._dev(600, 5, None, 10)
+        self.assertEqual(self.api._upgrade_verify_status(dev, now), 'pending')
+
+    def test_missing_current_count_online_over_an_hour_gives_up(self):
+        # Online for >1h with still no fresh package count → stop hanging.
+        dev, now = self._dev(7200, 5, None, 10)
+        self.assertIsNone(self.api._upgrade_verify_status(dev, now))
+
+    def test_recheck_button_forces_package_scan(self):
+        # The patch report exposes a Re-check button (force scan) when a
+        # verification is pending/stalled, wired to the existing handler.
+        self.assertIn("data-action-btn=\"_forcePackageScanBtn\"", APP)
+        self.assertRegex(APP, r"upgrade_verify === 'pending' \|\| d\.upgrade_verify === 'stalled'")
+
 
 class TestV390TlsSeverity(_ApiTestBase):
     def setUp(self):

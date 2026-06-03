@@ -19952,28 +19952,36 @@ def _upgrade_verify_status(dev, now):
     count snapshotted when the upgrade was queued against the latest count.
     Returns 'ok' (dropped), 'stalled' (unchanged after >1h), 'pending', or None
     (no recent upgrade / nothing to verify). Cleared implicitly once the marker
-    ages out (7 days)."""
+    ages out (7 days). A fresh package scan (force_package_scan) re-evaluates
+    it; the patch report exposes a "Re-check" button that triggers one."""
     qa = dev.get('upgrade_queued_at')
     if not qa or (now - qa) > 7 * 86400:
         return None
     before = dev.get('upgrade_pending_before')
     cur = ((dev.get('sysinfo') or {}).get('packages') or {}).get('upgradable')
-    if not isinstance(before, int) or not isinstance(cur, int):
-        return 'pending'
-    # v3.9.0: nothing was pending when the upgrade was queued — a fleet-wide
-    # "upgrade" hits already-patched hosts too. There's no count to drop, so
-    # "did it take?" is meaningless; don't flag it as stalled ("didn't take").
-    if before <= 0:
+    online = (now - (dev.get('last_seen') or 0)) < get_online_ttl()
+    aged = (now - qa) > 3600
+    # v3.9.0: no usable baseline count from queue time (it was unknown then —
+    # the agent hadn't reported a patch count), OR nothing was pending (a
+    # fleet-wide upgrade hits already-patched hosts). Either way the before/after
+    # comparison can't run, so there's nothing to verify — don't sit on
+    # "verifying…" forever (this is what wedged hosts whose count was None).
+    if not isinstance(before, int) or before <= 0:
         return None
+    # v3.9.0: agent hasn't re-reported a current package count yet. Keep waiting,
+    # but if the host has been online for over an hour with still no fresh count,
+    # give up quietly rather than hang the badge — a re-scan can be forced.
+    if not isinstance(cur, int):
+        return None if (online and aged) else 'pending'
     if cur < before:
         return 'ok'
     # v3.9.0: if the host is offline the upgrade command may still be sitting
     # undelivered in its queue, or it simply hasn't re-reported its package
     # count yet. Either way we haven't *heard* that it failed — keep it
     # 'pending' rather than wrongly declaring "didn't take".
-    if (now - (dev.get('last_seen') or 0)) >= get_online_ttl():
+    if not online:
         return 'pending'
-    if (now - qa) > 3600:
+    if aged:
         return 'stalled'
     return 'pending'
 

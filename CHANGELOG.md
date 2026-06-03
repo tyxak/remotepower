@@ -25,13 +25,16 @@ round of front-end polish (sortable tables, Lucide icons, accessibility).
   be stored even if a future renderer makes them clickable.
 
 ### Fixes
-- **"Patched — didn't take" no longer cries wolf.** The post-upgrade
-  verification badge flipped to *stalled* ("didn't take") whenever the pending
-  count failed to strictly drop after an hour — which falsely fired on hosts
-  that had **nothing to patch** when a fleet-wide upgrade ran, and on **offline**
-  hosts whose upgrade command was still sitting undelivered in the queue. Those
-  two cases now read as "nothing to verify" / "still pending" instead of a
-  failure.
+- **Post-upgrade verification no longer false-alarms or hangs.** The badge
+  flipped to *stalled* ("didn't take") whenever the pending count failed to
+  strictly drop after an hour — which falsely fired on hosts that had **nothing
+  to patch** when a fleet-wide upgrade ran, and on **offline** hosts whose
+  command was still undelivered. It also got **stuck on "verifying…" forever**
+  when the host had no baseline patch count at queue time (the count was
+  unknown), since the before/after comparison could never run. All three now
+  resolve sensibly ("nothing to verify" / "still pending"), and the patch report
+  gained a **Re-check** button that forces a fresh package scan instead of
+  waiting for the periodic one. Tooltips now explain what the verification is.
 - **Metric thresholds: a stray `return` could skip disk alerting.** When a
   device's CPU load was easing back through the recovery band, the CPU branch
   returned out of the whole threshold function — so that heartbeat skipped the

@@ -4715,13 +4715,19 @@ function _registerPatchTable() {
       const cveBadge = d.cve_fixable > 0
         ? `<button class="patch-cve-badge" data-action="openDeviceCVE" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" title="${d.cve_fixable} critical/high CVE(s) a pending patch would fix — view them">${d.cve_fixable} CVE${d.cve_fixable === 1 ? '' : 's'} fixable</button>`
         : '';
-      // v3.4.2: post-deploy verification badge.
-      const vmap = { ok: ['ok', 'verified', 'pending count dropped after upgrade'],
-                     stalled: ['warn', 'didn’t take', 'pending count unchanged >1h after the upgrade'],
-                     pending: ['', 'verifying…', 'upgrade queued — waiting for the post-upgrade re-scan'] };
+      // v3.4.2: post-deploy verification badge. After an upgrade is queued we
+      // snapshot the pending-update count and watch for it to drop on the next
+      // package re-scan — that's the "verification". v3.9.0: clearer tooltips +
+      // a Re-check button that forces a fresh scan instead of waiting.
+      const vmap = { ok: ['ok', 'verified', 'The pending-update count dropped after the upgrade — it took.'],
+                     stalled: ['warn', 'didn’t take', 'The pending-update count hasn’t dropped more than an hour after the upgrade — it may not have applied. Click Re-check to force a fresh scan.'],
+                     pending: ['', 'verifying…', 'Waiting for the host to re-report its package count so we can confirm the pending updates dropped. Click Re-check to force a scan now.'] };
       const v = vmap[d.upgrade_verify];
       const verifyBadge = v ? ` <span class="patch-badge ${v[0]}" title="${escAttr(v[2])}">${v[1]}</span>` : '';
-      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
+      const recheckBtn = (d.upgrade_verify === 'pending' || d.upgrade_verify === 'stalled')
+        ? `<button class="btn-icon cell-sm" data-action-btn="_forcePackageScanBtn" data-dev-id="${escAttr(d.device_id)}" data-dev-name="${escAttr(d.name)}" title="Force a fresh package scan now — re-runs the post-upgrade verification instead of waiting for the periodic scan">Re-check</button>`
+        : '';
+      return `<tr><td class="fw-500">${escHtml(d.name)}${rebootBadge}${cveBadge}</td><td class="hint">${escHtml(d.group||'—')}</td><td class="fs-12">${escHtml(d.os?.substring(0,25)||'—')}</td><td><span class="mon-status ${d.online?'up':'down'}">${d.online?'Online':'Offline'}</span></td><td class="mono-12">${escHtml(d.pkg_manager)}</td><td class="isl-374 ${d.upgradable>0?'c-amber': d.upgradable===0?'c-green': 'c-muted'}">${d.upgradable !== null && d.upgradable !== undefined ? d.upgradable : '—'}</td><td><span class="patch-badge ${statusCls}">${statusLabel}</span>${verifyBadge}</td><td>${recentCmds || '<span class="meta-sm-nm">—</span>'}</td><td><div class="isl-375">${aiBtn}${recheckBtn}<button class="btn-icon cell-sm" data-action="openDevicePatchReport" data-arg="${d.device_id}" data-arg2="${escAttr(d.name)}" >Detail</button></div></td></tr>`;
     },
     emptyMsg: 'No devices match the current filter.',
     emptyMsgFiltered: 'No devices match the current filter.',
