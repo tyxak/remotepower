@@ -43,6 +43,15 @@ _spec = importlib.util.spec_from_file_location("api_v1114", _CGI_BIN / "api.py")
 api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
+
+def _age(devices):
+    """Write devices.json directly, bypassing save()'s monotonic last_seen
+    guard, to simulate a device whose last contact really was in the past
+    (the guard correctly refuses to lower last_seen through save())."""
+    api._invalidate_load_cache(api.DEVICES_FILE)
+    api.DEVICES_FILE.write_text(json.dumps(devices))
+    api._invalidate_load_cache(api.DEVICES_FILE)
+
 import containers as containers_mod  # noqa: E402
 
 
@@ -438,7 +447,7 @@ class TestCheckContainerWebhooks(unittest.TestCase):
         # double-page on its containers also being stale.
         devices = api.load(api.DEVICES_FILE)
         devices[self.dev_id]["last_seen"] = int(time.time()) - 10_000
-        api.save(api.DEVICES_FILE, devices)
+        _age(devices)
         self._seed_containers(int(time.time()) - 4000)
         api.check_container_webhooks()
         self.assertEqual(self._fired, [])

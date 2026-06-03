@@ -1277,6 +1277,20 @@ def _acquire_lock(path, non_blocking):
         return lock_fd, waited_ms
 
 
+def _caller_hint():
+    """Best-effort name of the application function that triggered the current
+    save() — used only in the rare last_seen-regression trace, to point at the
+    handler doing a non-atomic devices.json write. Returns '?' if unavailable."""
+    try:
+        import traceback
+        for fr in reversed(traceback.extract_stack()[:-1]):
+            if fr.name not in ('save', '_caller_hint', '_save_held', '_save_nb'):
+                return fr.name
+    except Exception:
+        pass
+    return '?'
+
+
 def save(path, data, non_blocking=False):
     """Concurrent-safe atomic save. See module-level comment for the
     threat model and the v2.1.0 redesign rationale.
@@ -1361,6 +1375,55 @@ def save(path, data, non_blocking=False):
                 # losing one rolling backup is recoverable; failing the
                 # save is not.
                 pass
+
+        # v3.10.x: last_seen monotonic guard for devices.json. The heartbeat
+        # path is lost-update-safe (it writes via _save_held inside
+        # _locked_update, not through here), but the ~two dozen non-atomic
+        # load->modify->save writers can clobber a last_seen a heartbeat wrote
+        # in between — the documented v2.1.2 race coming back through a
+        # different door, which briefly flaps a live device offline. Under the
+        # lock, just before publishing, bump any device whose last_seen would
+        # move backward relative to the current on-disk value, and trace the
+        # prevented regression so the culprit handler is identifiable. Only the
+        # rare regression case re-serialises the tmp; the common case is a
+        # single small-file read.
+        if path == DEVICES_FILE and isinstance(data, dict) and path.exists():
+            try:
+                _cur = json.loads(path.read_text())
+            except (OSError, ValueError):
+                _cur = None
+            if isinstance(_cur, dict):
+                _regressed = []
+                for _dev_id, _dev in data.items():
+                    _on = _cur.get(_dev_id)
+                    if not isinstance(_dev, dict) or not isinstance(_on, dict):
+                        continue
+                    try:
+                        _disk = int(_on.get('last_seen', 0) or 0)
+                        _inc = int(_dev.get('last_seen', 0) or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if _disk > _inc:
+                        _dev['last_seen'] = _disk
+                        _regressed.append((_dev_id, _inc, _disk))
+                if _regressed:
+                    try:
+                        _fixed = json.dumps(data, indent=2, allow_nan=False)
+                        with open(str(tmp), 'w') as _tf:
+                            _tf.write(_fixed)
+                            _tf.flush()
+                            try:
+                                os.fsync(_tf.fileno())
+                            except OSError:
+                                pass
+                    except (OSError, ValueError):
+                        pass
+                    _who = _caller_hint()
+                    for _dev_id, _inc, _disk in _regressed:
+                        sys.stderr.write(
+                            f"[remotepower] last_seen regression prevented "
+                            f"dev={_dev_id} incoming={_inc} disk={_disk} "
+                            f"by={_who} pid={os.getpid()}\n")
 
         # Atomic publish
         try:
@@ -4414,6 +4477,45 @@ def _ts_fmt(ts):
         return str(ts)
 
 
+def _fresh_last_seen(dev_id):
+    """Read one device's last_seen straight from disk, bypassing the per-request
+    load() cache. The offline sweep uses this to confirm a device is really
+    silent before declaring it offline — defeating a stale in-request snapshot
+    or a lost-update clobber. Returns 0 on any error (treated as 'no fresh
+    evidence', so the caller proceeds to the slower checks)."""
+    try:
+        _invalidate_load_cache(DEVICES_FILE)
+        dev = (load(DEVICES_FILE) or {}).get(dev_id) or {}
+        return int(dev.get('last_seen', 0) or 0)
+    except Exception:
+        return 0
+
+
+_PING_HOST_RE = re.compile(r'^[A-Za-z0-9.\-:]+$')
+
+
+def _icmp_reachable(host, timeout=1):
+    """True iff `host` answers a single ICMP echo within `timeout` seconds.
+
+    Last-resort 'is it really down?' check before firing device_offline. A
+    False result is inconclusive (ICMP is frequently filtered), so callers must
+    treat only True as authoritative ('definitely up'). argv-only with a strict
+    host charset + `--`, so a crafted device IP can't inject ping flags."""
+    host = (host or '').strip()
+    if not host or not _PING_HOST_RE.match(host):
+        return False
+    try:
+        to = max(1, int(timeout))
+    except (TypeError, ValueError):
+        to = 1
+    try:
+        r = subprocess.run(['ping', '-c', '1', '-W', str(to), '--', host],
+                           capture_output=True, timeout=to + 2)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def check_offline_webhooks(skip_dev_id=None):
     """Per-request sweep: walk every monitored device, flip the on/off
     sticky bit, fire device_offline / device_online webhooks on edge.
@@ -4514,12 +4616,25 @@ def check_offline_webhooks(skip_dev_id=None):
                 continue
             if now - first < debounce:
                 continue
+            # Lost-update guard: the devices snapshot this sweep loaded may
+            # predate a heartbeat that just landed (per-request cache), or have
+            # been clobbered by one of the non-atomic writers. Re-read this
+            # device's last_seen fresh from disk before declaring it offline —
+            # cheap (one small-file read), and it turns a stale-snapshot flap
+            # into a no-op.
+            fresh = _fresh_last_seen(dev_id)
+            if fresh and (now - fresh) <= offline_after:
+                pending.pop(dev_id, None)
+                sys.stderr.write(
+                    f"[remotepower] offline suppressed (stale snapshot) "
+                    f"dev={dev_id} loaded_last={last} disk_last={fresh}\n")
+                continue
             pending.pop(dev_id, None)
             notified[dev_id] = True
             offline_fires.append((
                 dev_id, dev.get('name', dev_id),
                 dev.get('hostname', ''), last, delta,
-                dev.get('poll_interval', 60),
+                dev.get('poll_interval', 60), dev.get('ip', ''),
             ))
 
         raw_threshold = cfg.get(PATCH_ALERT_KEY)
@@ -4544,8 +4659,30 @@ def check_offline_webhooks(skip_dev_id=None):
             except Exception:
                 pass
 
-    # Fire events outside the config lock.
-    for dev_id, name, hostname, last_seen, delta, poll_interval in offline_fires:
+    # Fire events outside the config lock — the ICMP fallback below does slow
+    # network I/O and must never run while the flock is held.
+    for dev_id, name, hostname, last_seen, delta, poll_interval, ip in offline_fires:
+        # ICMP fallback: last_seen is stale, but if the host still answers a ping
+        # it's reachable — suppress the false offline instead of paging. This
+        # covers causes the last_seen path can't see (a brief heartbeat gap, an
+        # agent restart, a momentarily wedged CGI write) on top of the
+        # lost-update clobber. Only runs for an already-confirmed-stale
+        # candidate, so the per-sweep ping cost is bounded to genuinely-quiet
+        # devices. A non-reachable result is inconclusive (ICMP may be filtered)
+        # and falls through to firing offline as before.
+        if _icmp_reachable(ip):
+            sys.stderr.write(
+                f"[remotepower] offline suppressed (ICMP reachable) "
+                f"dev={dev_id} ip={ip} last_seen={last_seen}\n")
+            # Undo the optimistic notified flag we set under the lock so the
+            # next sweep re-evaluates cleanly, and clear any armed candidate.
+            try:
+                with _LockedUpdate(CONFIG_FILE) as _cfg_undo:
+                    _cfg_undo.setdefault('offline_notified', {})[dev_id] = False
+                    _cfg_undo.setdefault('offline_pending', {}).pop(dev_id, None)
+            except Exception:
+                pass
+            continue
         sys.stderr.write(
             f"[remotepower] OFFLINE dev={dev_id} name={name!r} "
             f"last_seen={last_seen} delta={delta}s ttl={ttl}s "

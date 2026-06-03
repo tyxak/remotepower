@@ -37,6 +37,17 @@ api = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(api)
 
 
+def _age(devices):
+    """Write devices.json directly, bypassing save()'s monotonic last_seen
+    guard, to simulate a device whose last contact really was in the past.
+    On disk a stale device just has an old last_seen with nothing newer — the
+    guard (correctly) refuses to lower last_seen through save(), so these
+    simulation writes go straight to the file + invalidate the load cache."""
+    api._invalidate_load_cache(api.DEVICES_FILE)
+    api.DEVICES_FILE.write_text(json.dumps(devices))
+    api._invalidate_load_cache(api.DEVICES_FILE)
+
+
 class _Captured(SystemExit):
     def __init__(self, status, body):
         super().__init__(0)
@@ -131,7 +142,7 @@ class TestOfflineDetection(_Base):
         # Make the device look offline: last_seen 10 minutes ago
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 600
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         # Disable webhooks — used to mean silent flip
         api.save(api.CONFIG_FILE, {'webhook_events': {'device_offline': False}})
 
@@ -188,7 +199,7 @@ class TestOfflineDetection(_Base):
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['monitored'] = False
         devs['dev1']['last_seen'] = int(time.time()) - 600
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         api.check_offline_webhooks()
         logs = self._stderr_buf.getvalue()
         self.assertNotIn('OFFLINE', logs)
@@ -220,7 +231,7 @@ class TestOfflineFlapHardening(_Base):
     def test_single_sweep_arms_candidate_without_firing(self):
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 9999
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         api.check_offline_webhooks()
         self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
         cfg = api.load(api.CONFIG_FILE)
@@ -233,7 +244,7 @@ class TestOfflineFlapHardening(_Base):
         # candidate must be dropped. This is the flap the fix targets.
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 9999
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         api.check_offline_webhooks()                  # arms candidate
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time())  # device beat
@@ -246,7 +257,7 @@ class TestOfflineFlapHardening(_Base):
     def test_candidate_past_debounce_fires_offline(self):
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 9999
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         api.check_offline_webhooks()                  # arms candidate
         cfg = api.load(api.CONFIG_FILE)
         cfg['offline_pending']['dev1'] = int(time.time()) - 9999   # age it
@@ -266,7 +277,7 @@ class TestOfflineFlapHardening(_Base):
         api.save(api.CONFIG_FILE, cfg)
         devs = api.load(api.DEVICES_FILE)
         devs['dev1']['last_seen'] = int(time.time()) - 9999
-        api.save(api.DEVICES_FILE, devs)
+        _age(devs)
         api.check_offline_webhooks(skip_dev_id='dev1')
         self.assertNotIn('OFFLINE', self._stderr_buf.getvalue())
         cfg = api.load(api.CONFIG_FILE)

@@ -2,6 +2,28 @@
 
 All notable changes to RemotePower. Newest first.
 
+## Unreleased
+
+### Reliability — false-offline (device flap) hardening
+A device that was heartbeating normally could be briefly flagged **offline**.
+Root cause: only the heartbeat path does an atomic, lock-protected update of
+`devices.json` (the v2.1.2 fix); the ~two dozen other handlers that write
+`devices.json` do a non-atomic load→modify→save, so one holding a stale
+snapshot could roll a device's `last_seen` *backward*, and the offline sweep
+would then fire on the stale value. Three guards:
+- **Monotonic `last_seen` on save** — `save()` now refuses to let any device's
+  `last_seen` move backward relative to the on-disk value (merge-max under the
+  rename lock), so a stale writer can't clobber a heartbeat's update. The
+  prevented regression is logged with the calling handler so the offender is
+  identifiable.
+- **Fresh confirm-read** — before declaring a device offline, the sweep
+  re-reads its `last_seen` straight from disk (bypassing the per-request cache),
+  turning a stale-snapshot flap into a no-op.
+- **ICMP fallback** — if `last_seen` still looks stale, the server pings the
+  device; a reachable host **suppresses** the false `device_offline` (a
+  non-reachable result is inconclusive — ICMP is often filtered — and falls
+  through to alerting as before).
+
 ## v3.10.0 — unreleased (dev)
 
 A third bind-it-together and security sweep on top of v3.9.0: agent data that
