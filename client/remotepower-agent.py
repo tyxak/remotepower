@@ -30,7 +30,7 @@ CONF_DIR     = Path('/etc/remotepower')
 CREDS_FILE   = CONF_DIR / 'credentials'
 PKG_HASH_FILE = CONF_DIR / 'pkg_hash'
 LOG_FILE     = '/var/log/remotepower-agent.log'
-VERSION      = '3.10.0'
+VERSION      = '3.11.0'
 AGENT_BINARY = Path('/usr/local/bin/remotepower-agent')
 
 # v3.4.2: sha256 of our own on-disk binary, computed once and cached. Reported
@@ -2426,6 +2426,42 @@ def detect_auto_watch_units():
 
 
 
+def _sock_scope(addr):
+    """v3.11.0: classify a listening socket's bind address into an exposure
+    scope so the server can flag world-reachable services.
+      'local' — loopback (127.0.0.0/8, ::1): never reachable off-host
+      'lan'   — RFC1918 / link-local / ULA: reachable on the local network
+      'world' — wildcard (0.0.0.0, ::) or any global address: reachable
+                from anywhere the host is routable
+    Unknown / unparseable addresses fall back to 'world' (fail loud, not
+    silent — an exposure we can't classify is treated as the riskier case).
+    """
+    a = (addr or '').strip().strip('[]')
+    if not a:
+        return 'world'
+    if a in ('0.0.0.0', '::', '*'):
+        return 'world'
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(a)
+        if ip.is_loopback:
+            return 'local'
+        if ip.is_private or ip.is_link_local:
+            return 'lan'
+        return 'world'
+    except (ValueError, ImportError):
+        if a.startswith('127.') or a == '::1':
+            return 'local'
+        if (a.startswith('10.') or a.startswith('192.168.')
+                or a.startswith('169.254.') or a.startswith('fe80')
+                or a.startswith('fc') or a.startswith('fd')):
+            return 'lan'
+        for _o in range(16, 32):
+            if a.startswith(f'172.{_o}.'):
+                return 'lan'
+        return 'world'
+
+
 def get_host_health():
     """v2.2.6: extra host telemetry — cheap signals an operator wants
     at a glance but that weren't collected before. Everything here is
@@ -2518,13 +2554,15 @@ def get_host_health():
                     if key in seen:
                         continue
                     seen.add(key)
+                    addr = local.rsplit(':', 1)[0].strip('[]')
                     proc = ''
                     if 'users:' in ln:
                         m = re.search(r'\(\("([^"]+)"', ln)
                         if m:
                             proc = m.group(1)
                     ports.append({'proto': proto, 'port': port_n,
-                                  'process': proc})
+                                  'process': proc, 'addr': addr,
+                                  'scope': _sock_scope(addr)})
     except Exception:
         pass
 
@@ -2562,8 +2600,10 @@ def get_host_health():
                         existing['process'] = proc
                 elif key not in seen:
                     seen.add(key)
+                    _ip = getattr(c.laddr, 'ip', '') or ''
                     ports.append({'proto': proto, 'port': c.laddr.port,
-                                  'process': proc})
+                                  'process': proc, 'addr': _ip,
+                                  'scope': _sock_scope(_ip)})
         except Exception:
             pass
 
@@ -2576,6 +2616,170 @@ def get_host_health():
         with open('/proc/uptime') as fh:
             up = float(fh.read().split()[0])
         out['last_boot'] = int(time.time() - up)
+    except Exception:
+        pass
+
+    # ── storage / RAID health (v3.11.0) ──────────────────────────────
+    # ZFS / mdadm / btrfs redundant-storage state. Cheap, read-only, and
+    # each backend is independently guarded so a host with only one (or
+    # none) reports just what it has.
+    pools = []
+    try:
+        if _which('zpool'):
+            r = subprocess.run(['zpool', 'list', '-H', '-o',
+                                'name,health,capacity'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0:
+                for ln in r.stdout.splitlines():
+                    f = ln.split('\t') if '\t' in ln else ln.split()
+                    if len(f) < 2:
+                        continue
+                    pool = {'name': f[0], 'kind': 'zfs', 'state': f[1]}
+                    if len(f) > 2:
+                        try:
+                            pool['capacity'] = int(f[2].rstrip('%'))
+                        except ValueError:
+                            pass
+                    pools.append(pool)
+            rs = subprocess.run(['zpool', 'status'], capture_output=True,
+                                text=True, timeout=8)
+            if rs.returncode == 0:
+                cur = None
+                for ln in rs.stdout.splitlines():
+                    s = ln.strip()
+                    if s.startswith('pool:'):
+                        cur = s.split(':', 1)[1].strip()
+                    elif s.startswith('scan:') and cur:
+                        for p in pools:
+                            if p['name'] == cur:
+                                p['scrub'] = s.split(':', 1)[1].strip()[:140]
+    except Exception:
+        pass
+    try:
+        mdstat = Path('/proc/mdstat')
+        if mdstat.exists():
+            cur = None
+            for ln in mdstat.read_text().splitlines():
+                head = ln.split(':')[0].strip()
+                if ln and not ln.startswith(' ') and head.startswith('md'):
+                    cur = head
+                    pools.append({'name': cur, 'kind': 'mdraid',
+                                  'state': 'active' if 'active' in ln else 'unknown'})
+                elif cur and '[' in ln and ']' in ln:
+                    blockmap = ln[ln.rfind('['):]
+                    if '_' in blockmap:   # a missing member → degraded
+                        for p in pools:
+                            if p['name'] == cur and p['kind'] == 'mdraid':
+                                p['state'] = 'degraded'
+    except Exception:
+        pass
+    try:
+        if _which('btrfs'):
+            r = subprocess.run(['btrfs', 'filesystem', 'show'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0:
+                for ln in r.stdout.splitlines():
+                    s = ln.strip()
+                    if s.startswith('Label:'):
+                        nm = (s.split('uuid:')[-1].strip()[:16]
+                              if 'uuid:' in s else s[:24])
+                        pools.append({'name': 'btrfs:' + nm, 'kind': 'btrfs',
+                                      'state': 'online'})
+    except Exception:
+        pass
+    if pools:
+        out['storage_health'] = pools[:40]
+
+    # ── recent logins / source IPs (v3.11.0 access watch) ────────────
+    try:
+        if _which('last'):
+            r = subprocess.run(['last', '-i', '-w', '-F', '-n', '25'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0:
+                logins, srcs = [], []
+                for ln in r.stdout.splitlines():
+                    s = ln.strip()
+                    if not s or s.startswith('wtmp begins'):
+                        continue
+                    f = s.split()
+                    if len(f) < 2 or f[0] in ('reboot', 'shutdown'):
+                        continue
+                    ip = ''
+                    for tok in f[1:5]:
+                        if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', tok) or \
+                           (tok.count(':') >= 2):
+                            ip = tok
+                            break
+                    logins.append({'user': f[0], 'source': ip})
+                    if ip and ip not in srcs and ip != '0.0.0.0':
+                        srcs.append(ip)
+                if logins:
+                    out['auth'] = {'recent_logins': logins[:25],
+                                   'sources': srcs[:25]}
+    except Exception:
+        pass
+
+    # ── systemd timer (scheduled job) health (v3.11.0) ───────────────
+    try:
+        if _which('systemctl'):
+            failed_set = set(out.get('failed_units', []))
+            r = subprocess.run(['systemctl', 'list-timers', '--all',
+                                '--no-legend', '--no-pager'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0:
+                timers = []
+                for ln in r.stdout.splitlines():
+                    f = ln.split()
+                    unit = activates = ''
+                    for i, tok in enumerate(f):
+                        if tok.endswith('.timer'):
+                            unit = tok
+                            activates = f[i + 1] if i + 1 < len(f) else ''
+                            break
+                    if not unit:
+                        continue
+                    timers.append({
+                        'unit': unit, 'activates': activates,
+                        'failed': bool(activates in failed_set
+                                       or unit in failed_set)})
+                if timers:
+                    out['timers'] = timers[:60]
+    except Exception:
+        pass
+
+    # ── host firewall fingerprint (v3.11.0 drift) ────────────────────
+    # A stable hash of the active ruleset so the server can detect a
+    # change vs the captured baseline. Volatile iptables packet/byte
+    # counters are zeroed first so the fingerprint only moves on a real
+    # rule change.
+    try:
+        import hashlib
+        fw_backend = fw_text = ''
+        if _which('nft'):
+            r = subprocess.run(['nft', 'list', 'ruleset'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip():
+                fw_backend, fw_text = 'nftables', r.stdout
+        if not fw_text and _which('ufw'):
+            r = subprocess.run(['ufw', 'status', 'verbose'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip():
+                fw_backend, fw_text = 'ufw', r.stdout
+        if not fw_text and _which('iptables-save'):
+            r = subprocess.run(['iptables-save'],
+                               capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip():
+                fw_backend = 'iptables'
+                norm = re.sub(r'\[\d+:\d+\]', '[0:0]', r.stdout)
+                fw_text = '\n'.join(l for l in norm.splitlines()
+                                    if not l.startswith('#'))
+        if fw_text:
+            n = sum(1 for l in fw_text.splitlines()
+                    if l.strip() and not l.strip().startswith('#'))
+            out['firewall_fp'] = {
+                'backend': fw_backend, 'rules': n,
+                'fp': hashlib.sha256(
+                    fw_text.encode('utf-8', 'replace')).hexdigest()[:16]}
     except Exception:
         pass
 

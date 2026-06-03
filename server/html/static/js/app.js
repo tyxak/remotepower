@@ -972,6 +972,9 @@ function showPage(name, btn) {
   if (name === 'query')      loadFleetQuery();
   if (name === 'rollouts')   loadRollouts();
   if (name === 'trends')     loadTrends();
+  if (name === 'exposure')   loadExposure();
+  if (name === 'storage')    loadStorage();
+  if (name === 'software-policy') loadSoftwarePolicy();
 }
 
 const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -1838,6 +1841,14 @@ async function loadSettings() {
   const hcInt = document.getElementById('cfg-healthchecks-interval');
   if (hcInt) hcInt.value = data.healthchecks_interval_seconds || 60;
 
+  // v3.11.0: scheduled posture digest
+  const _pde = document.getElementById('cfg-posture-digest-enabled');
+  if (_pde) _pde.checked = !!data.posture_digest_enabled;
+  const _pdc = document.getElementById('cfg-posture-digest-cadence');
+  if (_pdc) _pdc.value = data.posture_digest_cadence || 'weekly';
+  const _pdr = document.getElementById('cfg-posture-digest-recipients');
+  if (_pdr) _pdr.value = data.posture_digest_recipients || '';
+
   // v3.0.2: multi-webhook destinations editor
   _webhookDests = Array.isArray(data.webhook_urls) ? data.webhook_urls.map(d => ({...d})) : [];
   renderWebhookDests();
@@ -2094,6 +2105,11 @@ async function saveSettings(btn) {
     smtp_helo_name:  document.getElementById('cfg-smtp-helo').value.trim(),
     smtp_recipients: document.getElementById('cfg-smtp-recipients').value.trim(),
 
+    // v3.11.0: scheduled posture digest
+    posture_digest_enabled:    (document.getElementById('cfg-posture-digest-enabled') || {}).checked || false,
+    posture_digest_cadence:    (document.getElementById('cfg-posture-digest-cadence') || {}).value || 'weekly',
+    posture_digest_recipients: (document.getElementById('cfg-posture-digest-recipients') || {}).value || '',
+
     // v1.8.6: LDAP
     ldap_enabled:        document.getElementById('cfg-ldap-enabled').checked,
     ldap_url:            document.getElementById('cfg-ldap-url').value.trim(),
@@ -2211,6 +2227,17 @@ async function testSmtp() {
     }
   } finally {
     btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+// v3.11.0: send the posture digest immediately
+async function testPostureDigest() {
+  try {
+    const data = await api('POST', '/posture-digest/test', {});
+    if (data && data.ok) toast(`Digest sent to ${data.recipients} recipient(s)`, 'success');
+    else toast(`Digest failed: ${(data && data.error) || 'unknown'}`, 'error');
+  } catch (e) {
+    toast('Digest failed: ' + String(e), 'error');
   }
 }
 
@@ -2752,6 +2779,10 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
+  "Set a Software Policy rule (banned / required / min-version) and RemotePower checks it against every host's installed packages — e.g. 'fail2ban required, telnetd banned'.",
+  "The Storage page tracks ZFS / mdadm / btrfs pool health fleet-wide; a degraded array or an overdue scrub raises an alert.",
+  "Turn on the scheduled posture digest (Settings → Notifications) for a daily or weekly email of offline hosts, pending updates, critical CVEs and policy violations.",
   "Enabling 2FA generates one-time recovery codes — save them; a code logs you in if you lose your authenticator. Regenerate them under Settings → Security.",
   "Forward every audit entry to your SIEM or syslog collector from Settings → Security → Audit log forwarding (HTTP or RFC 5424).",
   "Give a CMDB credential a rotation policy and RemotePower reminds you on the dashboard when it's overdue for a change.",
@@ -8723,6 +8754,197 @@ document.addEventListener('input', e => {
   }
 });
 
+// ─── v3.11.0: Exposure (attack-surface) ──────────────────────────────────────
+let _exposureResp = null;
+let _exposureScope = '';
+async function loadExposure() {
+  const tbody = document.getElementById('exposure-tbody');
+  const summary = document.getElementById('exposure-summary');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('exposure-thead', 'exposure', () => _renderExposure());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/exposure' + (_exposureScope ? `?scope=${_exposureScope}` : ''));
+    _exposureResp = data;
+    if (summary) {
+      const c = data.counts || {};
+      summary.textContent = `${data.count} sockets · world ${c.world||0} · lan ${c.lan||0} · local ${c.local||0}`;
+    }
+    _renderExposure();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderExposure() {
+  const tbody = document.getElementById('exposure-tbody');
+  if (!tbody || !_exposureResp) return;
+  let rows = (_exposureResp.ports || []).slice();
+  rows = tableCtl.sortRows('exposure', rows, (r) => ({
+    device: (r.device || '').toLowerCase(),
+    proto:  r.proto || '',
+    port:   r.port || 0,
+    process: (r.process || '').toLowerCase(),
+    addr:   r.addr || '',
+    scope:  r.scope || '',
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No listening sockets reported yet. Agents must be on v3.11.0+.</td></tr>';
+    return;
+  }
+  const badge = (s) => {
+    const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
+    return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
+  };
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="fw-500">${escHtml(r.device)}</td>
+    <td class="hint">${escHtml(r.proto)}/${r.port}</td>
+    <td>${escHtml(r.process || '—')}</td>
+    <td class="hint">${escHtml(r.addr || '—')}</td>
+    <td>${badge(r.scope)}</td>
+    <td><button class="btn-icon cell-sm" data-action-btn="_showPageBtn" data-page="devices">Devices</button></td>
+  </tr>`).join('');
+}
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'exposure-scope') {
+    _exposureScope = e.target.value || '';
+    loadExposure();
+  }
+});
+
+// ─── v3.11.0: Storage / RAID health ──────────────────────────────────────────
+let _storageResp = null;
+async function loadStorage() {
+  const tbody = document.getElementById('storage-tbody');
+  const summary = document.getElementById('storage-summary');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('storage-thead', 'storage', () => _renderStorage());
+  tbody.innerHTML = '<tr><td colspan="6" class="hint">Loading…</td></tr>';
+  try {
+    const data = await api('GET', '/storage');
+    _storageResp = data;
+    if (summary) summary.textContent = `${data.count} pools · ${data.degraded} degraded`;
+    _renderStorage();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderStorage() {
+  const tbody = document.getElementById('storage-tbody');
+  if (!tbody || !_storageResp) return;
+  let rows = (_storageResp.pools || []).slice();
+  rows = tableCtl.sortRows('storage', rows, (r) => ({
+    device:   (r.device || '').toLowerCase(),
+    pool:     (r.pool || '').toLowerCase(),
+    kind:     r.kind || '',
+    state:    r.state || '',
+    capacity: r.capacity || 0,
+    scrub:    r.scrub || '',
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No ZFS / mdadm / btrfs pools reported. Agents must be on v3.11.0+.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const color = r.degraded ? 'var(--red)' : 'var(--green)';
+    const cap = (r.capacity || r.capacity === 0) && r.capacity !== null ? `${r.capacity}%` : '—';
+    return `<tr>
+      <td class="fw-500">${escHtml(r.device)}</td>
+      <td>${escHtml(r.pool || '—')}</td>
+      <td class="hint">${escHtml(r.kind || '—')}</td>
+      <td class="${r.degraded ? 'fw-600' : ''}" data-color="${color}">${escHtml(r.state || '—')}</td>
+      <td>${cap}</td>
+      <td class="hint">${escHtml(r.scrub || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── v3.11.0: Fleet Software Policy ──────────────────────────────────────────
+let _swPolicy = { rules: [] };
+let _swViolations = [];
+async function loadSoftwarePolicy() {
+  const tbody = document.getElementById('swpol-viol-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('swpol-viol-thead', 'swpol', () => _renderSwViolations());
+  tbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
+  try {
+    _swPolicy = await api('GET', '/software-policy') || { rules: [] };
+    const v = await api('GET', '/software-policy/violations');
+    _swViolations = v.violations || [];
+    _renderSwRules();
+    _renderSwViolations();
+    const summary = document.getElementById('swpol-summary');
+    if (summary) summary.textContent = `${(_swPolicy.rules||[]).length} rules · ${_swViolations.length} violations`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="isl-533">Failed to load: ${escHtml(String(e))}</td></tr>`;
+  }
+}
+function _renderSwRules() {
+  const box = document.getElementById('swpol-rules');
+  if (!box) return;
+  const rules = _swPolicy.rules || [];
+  if (rules.length === 0) {
+    box.innerHTML = '<div class="hint">No rules yet. Add one below.</div>';
+    return;
+  }
+  box.innerHTML = rules.map((r, i) => {
+    const scope = (r.tags && r.tags.length) ? ` [tags: ${escHtml(r.tags.join(', '))}]` : ' [fleet-wide]';
+    const ver = r.type === 'min_version' ? ` ≥ ${escHtml(r.version || '?')}` : '';
+    return `<div class="row-flex">
+      <span><span class="pill">${escHtml(r.type)}</span> <span class="fw-500">${escHtml(r.package)}</span>${ver}<span class="hint">${scope}</span></span>
+      <button class="btn-icon cell-sm" data-action="swPolDeleteRule" data-arg="${i}">Remove</button>
+    </div>`;
+  }).join('');
+}
+function _renderSwViolations() {
+  const tbody = document.getElementById('swpol-viol-tbody');
+  if (!tbody) return;
+  let rows = tableCtl.sortRows('swpol', _swViolations.slice(), (r) => ({
+    device:   (r.device || '').toLowerCase(),
+    type:     r.type || '',
+    package:  (r.package || '').toLowerCase(),
+    expected: r.expected || '',
+    found:    r.found || '',
+  }));
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="isl-534">No policy violations. Either no rules are set, or the fleet is compliant.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="fw-500">${escHtml(r.device)}</td>
+    <td><span class="pill">${escHtml(r.type)}</span></td>
+    <td>${escHtml(r.package)}</td>
+    <td class="hint">${escHtml(r.expected || '—')}</td>
+    <td data-color="var(--red)">${escHtml(r.found || '—')}</td>
+  </tr>`).join('');
+}
+function swPolDeleteRule(i) {
+  _swPolicy.rules.splice(Number(i), 1);
+  _saveSwPolicy();
+}
+async function swPolAddRule() {
+  const type = document.getElementById('swpol-type')?.value;
+  const pkg  = (document.getElementById('swpol-pkg')?.value || '').trim();
+  const ver  = (document.getElementById('swpol-ver')?.value || '').trim();
+  const tags = (document.getElementById('swpol-tags')?.value || '').split(',').map(t => t.trim()).filter(Boolean);
+  if (!pkg) { toast('Package name is required'); return; }
+  const rule = { type, package: pkg };
+  if (type === 'min_version') rule.version = ver;
+  if (tags.length) rule.tags = tags;
+  _swPolicy.rules = _swPolicy.rules || [];
+  _swPolicy.rules.push(rule);
+  await _saveSwPolicy();
+  ['swpol-pkg','swpol-ver','swpol-tags'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+async function _saveSwPolicy() {
+  try {
+    const res = await api('POST', '/software-policy', { rules: _swPolicy.rules || [] });
+    toast(`Policy saved — ${res.rules} rules, ${res.violations} violations`);
+    loadSoftwarePolicy();
+  } catch (e) {
+    toast('Save failed: ' + String(e));
+  }
+}
+
 function _ensureDriftModal() {
   if (_driftDeviceModal) return _driftDeviceModal;
   const wrap = document.createElement('div');
@@ -9746,6 +9968,10 @@ function _renderHomeActivity(fleetEvents) {
     'smart_failure', 'kernel_outdated',
     // v3.4.1: device health score dropped below threshold + recover
     'health_degraded', 'health_recovered',
+    // v3.11.0: exposure / software-policy / storage / access / firewall / timer
+    'port_exposed_world', 'software_policy_violation',
+    'storage_degraded', 'scrub_overdue', 'storage_recovered',
+    'login_new_source', 'firewall_changed', 'timer_failed',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -9885,6 +10111,18 @@ function _homeActivityAttrs(event, p) {
     case 'health_degraded': case 'health_recovered':
       // v3.4.1: health-score alert/recover → that device's timeline.
       return `${base} data-home-act="${devId ? 'timeline' : 'home'}"`;
+    // v3.11.0: posture/security events route to the relevant device drawer
+    // (all are device-scoped) or the matching fleet page when no device id.
+    case 'port_exposed_world':
+      return `${base} data-home-act="${devId ? 'detail' : 'exposure'}"`;
+    case 'software_policy_violation':
+      return `${base} data-home-act="${devId ? 'detail' : 'software-policy'}"`;
+    case 'storage_degraded': case 'scrub_overdue': case 'storage_recovered':
+      return `${base} data-home-act="${devId ? 'detail' : 'storage'}"`;
+    case 'login_new_source':
+    case 'firewall_changed':
+    case 'timer_failed':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }
@@ -18467,6 +18705,10 @@ function _homeNavAction(btn) {
       else showPage('timeline', document.querySelector('.nav-btn[data-page="timeline"]'));
       break;
     case 'home':     showPage('home',            document.querySelector('.nav-btn[data-page="home"]')); break;
+    // v3.11.0 posture pages
+    case 'exposure': showPage('exposure',        document.querySelector('.nav-btn[data-page="exposure"]')); break;
+    case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
+    case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
     default:
       if (devId) openDetail(devId, devName);
       else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));

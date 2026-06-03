@@ -2,6 +2,47 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.11.0 — unreleased (dev)
+
+A fleet-posture batch: seven features that turn already-collected (or
+cheaply-collectable) agent data into first-class security and operational
+signals. No new daemons, no new dependencies — flat JSON + CGI + the
+existing heartbeat path throughout.
+
+### Added
+- **Attack-surface / Exposure monitor.** The agent already enumerated
+  listening sockets but threw away each socket's bind address; it now keeps
+  it and classifies an exposure **scope** (`local` / `lan` / `world`). A new
+  `port_exposed_world` event fires, edge-triggered, when a service first
+  binds to a world-reachable address. New fleet **Exposure** view with a
+  World/LAN/Local filter.
+- **Fleet Software Policy.** Rules (`banned` / `required` / `min_version`,
+  optionally tag-scoped) evaluated against the installed-package inventory
+  every host already pushes. Violations are persisted and
+  `software_policy_violation` fires edge-triggered. New policy editor +
+  violations table.
+- **Storage / RAID health.** New agent probe for ZFS / mdadm / btrfs pool
+  state, capacity and last-scrub. `storage_degraded` / `storage_recovered`
+  (with auto-resolve) and `scrub_overdue` events. New **Storage** view.
+- **Access watch.** Recent successful logins and their source IPs are
+  collected; `login_new_source` fires on a first-seen source address.
+  (Brute-force bursts keep using `brute_force_detected`.)
+- **Host firewall drift.** A stable fingerprint of the active ufw/nftables/
+  iptables ruleset rides the heartbeat; `firewall_changed` fires when it
+  moves from baseline.
+- **Scheduled-job failure lens.** Systemd timers are inventoried and
+  `timer_failed` fires when a timer's backing job enters a failed state.
+- **Scheduled posture digest.** An opt-in daily/weekly email summarising
+  offline hosts, pending updates, critical CVEs, policy violations and
+  degraded storage, sent over the existing SMTP path. "Send test now" in
+  Settings.
+
+### Notes
+All seven new events are wired through every registry (alert severity,
+channel-routing matrix, dashboard activity feed, friendly titles) and the
+event-set guardrail tests; detections are edge-triggered with per-device
+state so a steady-state condition does not re-alert each heartbeat.
+
 ## Unreleased
 
 ### Reliability — false-offline (device flap) hardening

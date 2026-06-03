@@ -284,6 +284,11 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'smart_failure', 'kernel_outdated',
             # v3.4.1: health-score threshold alert + recover
             'health_degraded', 'health_recovered',
+            # v3.11.0: attack-surface exposure, software policy, storage/RAID
+            # health, access watch, host firewall, scheduled-job failure
+            'port_exposed_world', 'software_policy_violation',
+            'storage_degraded', 'scrub_overdue', 'storage_recovered',
+            'login_new_source', 'firewall_changed', 'timer_failed',
         }
         self.assertEqual(names, expected)
 

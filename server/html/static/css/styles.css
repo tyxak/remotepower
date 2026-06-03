@@ -4390,3 +4390,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .batch-detail { border-top: 1px solid var(--border); padding-top: 8px; }
 .batch-host { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
 .batch-host svg { flex: 0 0 auto; }
+
+/* v3.11.0: posture batch — settings subsection + wrapping input rows */
+.settings-subsection { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.form-row-wrap { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.input-narrow { max-width: 140px; }

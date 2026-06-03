@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.10.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.11.0">
 
 </head>
 <body>
@@ -255,6 +255,21 @@
         <button class="nav-btn" data-page="drift" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 14l2 2 4-4"/></svg>
           <span>Drift</span>
+        </button>
+        <!-- v3.11.0: attack-surface exposure -->
+        <button class="nav-btn" data-page="exposure" title="World/LAN/local exposure of every listening socket">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          <span>Exposure</span>
+        </button>
+        <!-- v3.11.0: storage / RAID health -->
+        <button class="nav-btn" data-page="storage" title="ZFS / mdadm / btrfs pool health">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          <span>Storage</span>
+        </button>
+        <!-- v3.11.0: fleet software policy -->
+        <button class="nav-btn" data-page="software-policy" title="Banned / required / min-version package policy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span>Software policy</span>
         </button>
         <button class="nav-btn" data-page="audit" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -1008,6 +1023,24 @@
               </button>
             </div>
             <div id="cfg-smtp-test-result" class="isl-41"></div>
+
+            <!-- v3.11.0: scheduled posture digest -->
+            <div class="form-group settings-subsection">
+              <label class="form-label">
+                <input type="checkbox" id="cfg-posture-digest-enabled"> Scheduled posture digest
+              </label>
+              <div class="meta-sm">Email a fleet-posture summary (offline hosts, pending updates, critical CVEs, policy violations, degraded storage) on a schedule. Uses the SMTP settings above; falls back to the Recipients list if no digest recipients are set.</div>
+              <div class="form-row-wrap">
+                <select id="cfg-posture-digest-cadence" class="form-input input-narrow">
+                  <option value="weekly">Weekly</option>
+                  <option value="daily">Daily</option>
+                </select>
+                <input type="text" id="cfg-posture-digest-recipients" class="form-input" placeholder="Digest recipients (optional, comma-sep)">
+                <button class="btn-icon" data-action="testPostureDigest">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-btn"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg> Send test now
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="settings-section">
@@ -1935,7 +1968,24 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.10.0 bind it together hardening security audit ssrf image registry container image update manifest bearer token realm credential exfiltration dns rebinding redirect config secret leak api_key registry credentials viewer mcp recursive scrub tcp uptime monitor port scan healthchecks ping docker podman restart count restart_count started_at uptime age container_restarting alert clamav last scan last_scan_ts per interface mac address network drawer config drift alert title files sections devices table hostname sort">
+          <details class="doc-card" open data-keywords="release notes changelog v3.11.0 fleet posture exposure attack surface listening ports bind address scope world lan local socket software policy banned required min version package compliance fail2ban telnet storage zfs zpool mdadm mdraid btrfs raid degraded faulted scrub overdue pool health access watch login new source ip brute force firewall ufw nftables iptables ruleset drift fingerprint timer systemd scheduled job failed cron posture digest email weekly daily report">
+            <summary><strong>What's new — v3.11.0</strong> — fleet posture batch: exposure map, software policy, storage health, access watch, firewall drift, timer failures, posture digest</summary>
+            <div class="doc-body">
+              <p>Seven features that turn already-collected (or cheaply-collectable) agent data into first-class security and operational signals. No new daemons, no new dependencies. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.11.0</code>).</p>
+              <h4>New views &amp; signals</h4>
+              <ul>
+                <li><strong>Exposure (attack surface).</strong> The agent kept each listening socket's port but discarded its <em>bind address</em> — the one attribute that says whether a service is reachable from the world. It now classifies a scope (<code>local</code> / <code>lan</code> / <code>world</code>); a service first binding to a world-reachable address raises <code>port_exposed_world</code>. New <strong>Exposure</strong> page with a World/LAN/Local filter.</li>
+                <li><strong>Fleet Software Policy.</strong> Rules — <em>banned</em> / <em>required</em> / <em>min&nbsp;version</em>, optionally tag-scoped — evaluated against the installed-package inventory every host already pushes. Violations are tracked and <code>software_policy_violation</code> fires edge-triggered. New policy editor + violations table.</li>
+                <li><strong>Storage / RAID health.</strong> New agent probe for ZFS / mdadm / btrfs pool state, capacity and last-scrub. <code>storage_degraded</code> / <code>storage_recovered</code> (auto-resolving) and <code>scrub_overdue</code>. New <strong>Storage</strong> page, degraded-first.</li>
+                <li><strong>Access watch.</strong> Successful logins and their source IPs are collected; <code>login_new_source</code> fires on a first-seen source address.</li>
+                <li><strong>Host firewall drift.</strong> A stable fingerprint of the active ufw/nftables/iptables ruleset rides the heartbeat; <code>firewall_changed</code> fires when it diverges from baseline.</li>
+                <li><strong>Scheduled-job failures.</strong> Systemd timers are inventoried; <code>timer_failed</code> fires when a timer's backing job fails — catching the silent dead-backup case.</li>
+                <li><strong>Scheduled posture digest.</strong> An opt-in daily/weekly email summarising offline hosts, pending updates, critical CVEs, policy violations and degraded storage, over the existing SMTP path. "Send test now" in Settings.</li>
+              </ul>
+              <p class="hint">All detections are edge-triggered with per-device state, so a steady-state condition doesn't re-alert each heartbeat. See <code>docs/v3.11.0.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.10.0 bind it together hardening security audit ssrf image registry container image update manifest bearer token realm credential exfiltration dns rebinding redirect config secret leak api_key registry credentials viewer mcp recursive scrub tcp uptime monitor port scan healthchecks ping docker podman restart count restart_count started_at uptime age container_restarting alert clamav last scan last_scan_ts per interface mac address network drawer config drift alert title files sections devices table hostname sort">
             <summary><strong>What's new — v3.10.0</strong> — fleet-wide container restart tracking, registry-SSRF &amp; config-leak fixes, more bound signals</summary>
             <div class="doc-body">
               <p>A bind-it-together and security sweep on top of v3.9.0 — agent data that was collected but stuck at zero now flows through, two real SSRF / secret-disclosure gaps are closed, and a couple of alert-label bugs are fixed. No new headline features. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.10.0</code>).</p>
@@ -4288,6 +4338,85 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
       </div>
 
+      <!-- ── v3.11.0: Attack-surface / Exposure monitor ─────────────────── -->
+      <div id="page-exposure" class="page">
+        <div class="page-title">Exposure</div>
+        <div class="page-subtitle">Every listening socket across the fleet, classified by where it can be reached from. <span class="fw-600">World</span> = bound to a public/wildcard address; <span class="fw-600">LAN</span> = private network; <span class="fw-600">Local</span> = loopback only. A service first becoming world-reachable raises an alert. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadExposure" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <select id="exposure-scope" class="form-input isl-177">
+            <option value="">All scopes</option>
+            <option value="world">World only</option>
+            <option value="lan">LAN only</option>
+            <option value="local">Local only</option>
+          </select>
+          <span id="exposure-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="exposure-thead"><tr>
+              <th data-col="device">Device</th><th data-col="port">Proto/Port</th><th data-col="process">Process</th>
+              <th data-col="addr">Bind address</th><th data-col="scope">Scope</th><th></th>
+            </tr></thead>
+            <tbody id="exposure-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.11.0: Storage / RAID health ─────────────────────────────── -->
+      <div id="page-storage" class="page">
+        <div class="page-title">Storage health</div>
+        <div class="page-subtitle">ZFS, mdadm and btrfs pool/array state across the fleet. Degraded or faulted arrays are listed first and raise an alert; ZFS scrub freshness is tracked. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadStorage" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="storage-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="storage-thead"><tr>
+              <th data-col="device">Device</th><th data-col="pool">Pool</th><th data-col="kind">Type</th>
+              <th data-col="state">State</th><th data-col="capacity">Capacity</th><th data-col="scrub">Last scrub</th>
+            </tr></thead>
+            <tbody id="storage-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.11.0: Fleet Software Policy ─────────────────────────────── -->
+      <div id="page-software-policy" class="page">
+        <div class="page-title">Software policy</div>
+        <div class="page-subtitle">Rules evaluated against every host's installed-package inventory: <span class="fw-600">banned</span> (must not be installed), <span class="fw-600">required</span> (must be installed), <span class="fw-600">min&nbsp;version</span>. Optionally scope a rule to device tags. <a href="docs/v3.11.0.md" class="c-accent">Documentation</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
+          <span id="swpol-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <div class="page-subtitle fw-600">Policy rules</div>
+          <div id="swpol-rules"></div>
+          <div class="form-row-wrap">
+            <select id="swpol-type" class="form-input">
+              <option value="banned">banned</option>
+              <option value="required">required</option>
+              <option value="min_version">min_version</option>
+            </select>
+            <input type="text" id="swpol-pkg" class="form-input" placeholder="package name (e.g. fail2ban)">
+            <input type="text" id="swpol-ver" class="form-input" placeholder="min version (min_version only)">
+            <input type="text" id="swpol-tags" class="form-input" placeholder="tags (optional, comma-sep)">
+            <button class="btn" data-action="swPolAddRule">Add rule</button>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="page-subtitle fw-600">Current violations</div>
+          <table class="data-table w-full">
+            <thead id="swpol-viol-thead"><tr>
+              <th data-col="device">Device</th><th data-col="type">Rule</th><th data-col="package">Package</th>
+              <th data-col="expected">Expected</th><th data-col="found">Found</th>
+            </tr></thead>
+            <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- ── v1.11.0: TLS / DNS expiry monitor ──────────────────────────── -->
       <div id="page-tls" class="page">
         <!-- v3.2.0 follow-up: page-title moved inside the expiry panel so
@@ -6211,14 +6340,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.10.0"></script>
+<script src="static/js/app.js?v=3.11.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.10.0"></script>
-<script src="static/js/app-cmdb.js?v=3.10.0"></script>
-<script src="static/js/app-containers.js?v=3.10.0"></script>
-<script src="static/js/app-network.js?v=3.10.0"></script>
+<script src="static/js/app-calendar.js?v=3.11.0"></script>
+<script src="static/js/app-cmdb.js?v=3.11.0"></script>
+<script src="static/js/app-containers.js?v=3.11.0"></script>
+<script src="static/js/app-network.js?v=3.11.0"></script>
 
-<script src="static/js/sw-register.js?v=3.10.0"></script>
+<script src="static/js/sw-register.js?v=3.11.0"></script>
 </body>
 </html>

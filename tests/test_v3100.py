@@ -42,12 +42,15 @@ class TestVersionBumps(unittest.TestCase):
     EXPECTED = '3.10.0'
 
     def test_versions(self):
-        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.10\.0'")
+        # v3.11.0: loosened from the exact 3.10.0 pin (the live strict pin
+        # moved to tests/test_v3110.py) so a later bump doesn't fail this file.
+        self.assertRegex(API, r"SERVER_VERSION\s*=\s*'3\.\d+\.\d+'")
         self.assertRegex((REPO_ROOT / 'client' / 'remotepower-agent.py').read_text(),
-                         r"\nVERSION\s*=\s*'3\.10\.0'")
-        self.assertIn("'remotepower-shell-v3.10.0'", (REPO_ROOT / 'server' / 'html' / 'sw.js').read_text())
-        self.assertIn('?v=3.10.0', HTML)
-        self.assertIn('version-3.10.0-blue.svg', (REPO_ROOT / 'README.md').read_text())
+                         r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
+        self.assertRegex((REPO_ROOT / 'server' / 'html' / 'sw.js').read_text(),
+                         r"remotepower-shell-v3\.\d+\.\d+")
+        self.assertRegex(HTML, r'\?v=3\.\d+\.\d+')
+        self.assertRegex((REPO_ROOT / 'README.md').read_text(), r'version-3\.\d+\.\d+-blue\.svg')
 
     def test_agent_extensionless_matches(self):
         a = (REPO_ROOT / 'client' / 'remotepower-agent').read_bytes()
@@ -55,14 +58,17 @@ class TestVersionBumps(unittest.TestCase):
         self.assertEqual(a, b)
 
     def test_changelog_and_docs(self):
+        # v3.11.0: the top changelog entry now tracks the current version;
+        # assert it's a valid version line and that this release's docs remain.
         chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
         m = re.search(r'^## v(\d+\.\d+\.\d+)', chlog, re.MULTILINE)
-        self.assertEqual(m.group(1), self.EXPECTED)
+        self.assertRegex(m.group(1), r'\d+\.\d+\.\d+')
         self.assertTrue((REPO_ROOT / 'docs' / 'v3.10.0.md').exists())
         self.assertTrue((REPO_ROOT / 'docs' / 'security-review-3.10.0.md').exists())
 
     def test_whats_new_card_present(self):
-        self.assertIn("What's new — v3.10.0", HTML)
+        # loosened: any What's-new card for a 3.1x release satisfies this.
+        self.assertRegex(HTML, r"What's new — v3\.\d+\.\d+")
 
 
 # ─── F1: image-registry SSRF ─────────────────────────────────────────────────

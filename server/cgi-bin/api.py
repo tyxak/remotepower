@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.10.0'
+SERVER_VERSION = '3.11.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -662,6 +662,27 @@ WEBHOOK_EVENTS = (
     # v3.4.1: fleet health score dropped below the configured threshold
     ('health_degraded',       'Device health score dropped below threshold', True),
     ('health_recovered',      'Device health score recovered above threshold', True),
+    # v3.11.0: attack-surface exposure — a listening socket bound to a
+    # world-reachable address (not loopback/RFC1918). Distinct from
+    # new_port_detected, which fires on *any* new port regardless of scope.
+    ('port_exposed_world',    'Service exposed to a world-reachable address', True),
+    # v3.11.0: fleet software policy — an installed package matched a
+    # banned rule, a required package is missing, or a version is below
+    # the configured minimum.
+    ('software_policy_violation', 'Installed software violates fleet policy', True),
+    # v3.11.0: redundant-storage health (ZFS / btrfs / mdadm). degraded is
+    # a faulted/degraded array; scrub_overdue is a freshness nudge;
+    # storage_recovered is the recover event.
+    ('storage_degraded',      'Storage pool/array is degraded or faulted',   True),
+    ('scrub_overdue',         'Storage pool scrub is overdue',               True),
+    ('storage_recovered',     'Storage pool/array returned to healthy',      True),
+    # v3.11.0: access watch — a successful login from a source IP never
+    # seen on this host before. (Brute-force bursts use brute_force_detected.)
+    ('login_new_source',      'Login from a new source address',             True),
+    # v3.11.0: host firewall (ufw/nftables) ruleset changed vs baseline.
+    ('firewall_changed',      'Host firewall ruleset changed from baseline', True),
+    # v3.11.0: a systemd timer (scheduled job) entered a failed state.
+    ('timer_failed',          'Scheduled job (systemd timer) failed',        True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -2676,6 +2697,16 @@ _ALERT_RULES = {
     # v3.4.1: health score crossed the alert threshold. Severity is derived
     # from the score in _alert_severity (lower score → more severe).
     'health_degraded':        (None,       None),
+    # v3.11.0: security/posture signals. A world-exposed service and a
+    # degraded array are serious (high); policy/scrub/firewall/timer/login
+    # are state-or-posture nudges (medium).
+    'port_exposed_world':         ('high',   None),
+    'software_policy_violation':  ('medium', None),
+    'storage_degraded':           ('high',   None),
+    'scrub_overdue':              ('medium', None),
+    'login_new_source':           ('medium', None),
+    'firewall_changed':           ('medium', None),
+    'timer_failed':               ('medium', None),
 }
 
 # Map recover event → firing event it resolves
@@ -2693,6 +2724,9 @@ _ALERT_RECOVER = {
     # v3.4.1: a device climbing back above the alert threshold resolves its
     # open health_degraded alert.
     'health_recovered':        'health_degraded',
+    # v3.11.0: an array returning to healthy resolves its storage_degraded
+    # alert (and scrub_overdue via _ALERT_RECOVER_EXTRA).
+    'storage_recovered':       'storage_degraded',
     # v3.4.2: a resource dropping back below its warning threshold resolves
     # the open metric_warning alert for that exact metric+target (and the
     # metric_critical one via _ALERT_RECOVER_EXTRA). Without this, recovered
@@ -2710,6 +2744,8 @@ _ALERT_RECOVER_EXTRA = {
     # metric_recovered clears BOTH the warning and the critical alert for the
     # recovered metric+target (matched in _auto_resolve_alerts).
     'metric_recovered':        ('metric_critical',),
+    # v3.11.0: a healthy pool also clears an open scrub_overdue alert.
+    'storage_recovered':       ('scrub_overdue',),
 }
 
 
@@ -2749,6 +2785,13 @@ CHANNEL_KINDS = [
     ('mcp',         'MCP confirmation expired', 'operational',   ['mcp_confirmation_expired']),
     ('hardware',    'Hardware health (SMART/kernel)', 'operational', ['smart_failure', 'kernel_outdated']),
     ('health',      'Device health score',      'operational',   ['health_degraded', 'health_recovered']),
+    # v3.11.0: attack-surface / posture / storage kinds
+    ('exposure',    'World-exposed services',   'operational',   ['port_exposed_world']),
+    ('software_policy', 'Software policy',      'operational',   ['software_policy_violation']),
+    ('storage',     'Storage / RAID health',    'operational',   ['storage_degraded', 'scrub_overdue', 'storage_recovered']),
+    ('access',      'New-source logins',        'operational',   ['login_new_source']),
+    ('firewall',    'Host firewall changes',    'operational',   ['firewall_changed']),
+    ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -3068,6 +3111,30 @@ def _alert_title(event, payload):
                 f'"{p.get("snap_name", "?")}" {p.get("days_old", "?")}d old')
     if event == 'reboot_required':
         return f'Reboot required: {name}'
+    # v3.11.0 events
+    if event == 'port_exposed_world':
+        proc = p.get('process') or '?'
+        return (f'World-exposed service on {name}: '
+                f'{p.get("proto","tcp")}/{p.get("port","?")} bound to '
+                f'{p.get("addr","0.0.0.0")} ({proc})')
+    if event == 'software_policy_violation':
+        return f'Software policy on {name}: {p.get("detail", p.get("rule","?"))}'
+    if event == 'storage_degraded':
+        return (f'Storage degraded on {name}: pool {p.get("pool","?")} '
+                f'is {p.get("state","?")}')
+    if event == 'storage_recovered':
+        return f'Storage healthy on {name}: pool {p.get("pool","?")}'
+    if event == 'scrub_overdue':
+        return (f'Scrub overdue on {name}: pool {p.get("pool","?")} '
+                f'({p.get("age_days","?")}d)')
+    if event == 'login_new_source':
+        return (f'New-source login on {name}: {p.get("user","?")} '
+                f'from {p.get("source","?")}')
+    if event == 'firewall_changed':
+        return (f'Firewall changed on {name}: {p.get("backend","?")} '
+                f'({p.get("rules","?")} rules)')
+    if event == 'timer_failed':
+        return f'Scheduled job failed on {name}: {p.get("unit","?")}'
     return f'{event}: {name}'
 
 
@@ -3776,6 +3843,14 @@ def _webhook_title(event):
         'kernel_outdated':       'Kernel Reboot Required',
         'health_degraded':       'Device Health Degraded',
         'health_recovered':      'Device Health Recovered',
+        'port_exposed_world':        'Service Exposed to the World',
+        'software_policy_violation': 'Software Policy Violation',
+        'storage_degraded':          'Storage Pool Degraded',
+        'scrub_overdue':             'Storage Scrub Overdue',
+        'storage_recovered':         'Storage Pool Healthy',
+        'login_new_source':          'Login From New Source',
+        'firewall_changed':          'Host Firewall Changed',
+        'timer_failed':              'Scheduled Job Failed',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -4408,6 +4483,32 @@ def _webhook_message(event, payload):
         age_h   = payload.get('age_hours', '?')
         max_h   = payload.get('max_age_hours', '?')
         return f'{name}: backup "{label}" is {age_h}h old (threshold: {max_h}h)'
+    elif event == 'port_exposed_world':
+        proc = payload.get('process', '')
+        extra = f' ({proc})' if proc else ''
+        return (f'{name}: {payload.get("proto","tcp")}/{payload.get("port","?")} '
+                f'is exposed to the world — bound to '
+                f'{payload.get("addr","0.0.0.0")}{extra}')
+    elif event == 'software_policy_violation':
+        return f'{name}: software policy — {payload.get("detail", payload.get("rule","?"))}'
+    elif event == 'storage_degraded':
+        return (f'{name}: storage pool {payload.get("pool","?")} is '
+                f'{payload.get("state","degraded")} ({payload.get("kind","")})')
+    elif event == 'storage_recovered':
+        return f'{name}: storage pool {payload.get("pool","?")} returned to healthy'
+    elif event == 'scrub_overdue':
+        return (f'{name}: pool {payload.get("pool","?")} scrub is '
+                f'{payload.get("age_days","?")} days old')
+    elif event == 'login_new_source':
+        return (f'{name}: login by {payload.get("user","?")} from new source '
+                f'{payload.get("source","?")}')
+    elif event == 'firewall_changed':
+        return (f'{name}: host firewall ({payload.get("backend","?")}) ruleset '
+                f'changed — now {payload.get("rules","?")} rules')
+    elif event == 'timer_failed':
+        act = payload.get('activates', '')
+        extra = f' → {act}' if act else ''
+        return f'{name}: scheduled job {payload.get("unit","?")} failed{extra}'
     return f'{event}: {name}'
 
 
@@ -4419,10 +4520,12 @@ def _webhook_priority(event):
                  'log_alert', 'container_stopped', 'containers_stale',
                  'metric_warning', 'custom_script_fail', 'config_drift',
                  'tls_expiry', 'reboot_required', 'snapshot_old',
-                 'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale'):
+                 'new_port_detected', 'ssh_key_added', 'brute_force_detected', 'backup_stale',
+                 # v3.11.0: world-exposure and a degraded array are page-worthy
+                 'port_exposed_world', 'storage_degraded'):
         return 4
     if event in ('device_online', 'monitor_up', 'service_up', 'metric_recovered',
-                 'custom_script_recover'):
+                 'custom_script_recover', 'storage_recovered'):
         return 3
     return 3
 
@@ -4462,6 +4565,15 @@ def _webhook_tags(event):
         'ssh_key_added':         'warning,key',
         'brute_force_detected':  'rotating_light,skull',
         'backup_stale':          'warning,floppy_disk',
+        # v3.11.0
+        'port_exposed_world':        'rotating_light,globe_with_meridians',
+        'software_policy_violation': 'warning,clipboard',
+        'storage_degraded':          'rotating_light,floppy_disk',
+        'scrub_overdue':             'warning,broom',
+        'storage_recovered':         'green_circle,floppy_disk',
+        'login_new_source':          'warning,bust_in_silhouette',
+        'firewall_changed':          'warning,fire',
+        'timer_failed':              'warning,alarm_clock',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -7268,10 +7380,17 @@ def handle_heartbeat():
                     port_num = p.get('port')
                     if not isinstance(port_num, int) or not (0 < port_num < 65536):
                         continue
+                    scope = _sanitize_str(p.get('scope', ''), 8)
+                    if scope not in ('local', 'lan', 'world'):
+                        scope = ''
                     safe_ports.append({
                         'proto':   _sanitize_str(p.get('proto', 'tcp'), 8),
                         'port':    port_num,
                         'process': _sanitize_str(p.get('process', ''), 64),
+                        # v3.11.0: bind address + exposure scope for the
+                        # attack-surface view / port_exposed_world detection
+                        'addr':    _sanitize_str(p.get('addr', ''), 64),
+                        'scope':   scope,
                     })
                 safe_si['listening_ports'] = safe_ports
             # top processes (CPU + memory leaders, up to ~20 per device)
@@ -7293,6 +7412,65 @@ def handle_heartbeat():
             # persist last_boot for the drawer uptime display
             if isinstance(si.get('last_boot'), (int, float)):
                 safe_si['last_boot'] = int(si['last_boot'])
+            # v3.11.0: storage / RAID health (zfs / mdadm / btrfs)
+            if isinstance(si.get('storage_health'), list):
+                safe_pools = []
+                for p in si['storage_health'][:40]:
+                    if not isinstance(p, dict):
+                        continue
+                    nm = _sanitize_str(p.get('name', ''), 96)
+                    if not nm:
+                        continue
+                    sp = {
+                        'name':  nm,
+                        'kind':  _sanitize_str(p.get('kind', ''), 16),
+                        'state': _sanitize_str(p.get('state', ''), 32),
+                    }
+                    cap = p.get('capacity')
+                    if isinstance(cap, int) and 0 <= cap <= 100:
+                        sp['capacity'] = cap
+                    if p.get('scrub'):
+                        sp['scrub'] = _sanitize_str(p.get('scrub'), 160)
+                    safe_pools.append(sp)
+                safe_si['storage_health'] = safe_pools
+            # v3.11.0: recent logins / source IPs (access watch)
+            if isinstance(si.get('auth'), dict):
+                a = si['auth']
+                logins = []
+                for e in (a.get('recent_logins') or [])[:25]:
+                    if not isinstance(e, dict):
+                        continue
+                    logins.append({
+                        'user':   _sanitize_str(e.get('user', ''), 64),
+                        'source': _sanitize_str(e.get('source', ''), 64),
+                    })
+                srcs = [_sanitize_str(s, 64) for s in (a.get('sources') or [])[:25]
+                        if isinstance(s, str) and s]
+                safe_si['auth'] = {'recent_logins': logins, 'sources': srcs}
+            # v3.11.0: systemd timer (scheduled job) health
+            if isinstance(si.get('timers'), list):
+                safe_timers = []
+                for t in si['timers'][:60]:
+                    if not isinstance(t, dict):
+                        continue
+                    u = _sanitize_str(t.get('unit', ''), 128)
+                    if not u:
+                        continue
+                    safe_timers.append({
+                        'unit':      u,
+                        'activates': _sanitize_str(t.get('activates', ''), 128),
+                        'failed':    bool(t.get('failed')),
+                    })
+                safe_si['timers'] = safe_timers
+            # v3.11.0: host firewall fingerprint (drift baseline)
+            if isinstance(si.get('firewall_fp'), dict):
+                fw = si['firewall_fp']
+                rules = fw.get('rules')
+                safe_si['firewall_fp'] = {
+                    'backend': _sanitize_str(fw.get('backend', ''), 16),
+                    'rules':   int(rules) if isinstance(rules, int) and 0 <= rules <= 100000 else 0,
+                    'fp':      _sanitize_str(fw.get('fp', ''), 64),
+                }
             # v3.8.0: persist failed systemd units. The agent has always
             # shipped this in sysinfo, but the sanitiser never copied it —
             # silently dead-ending the Fleet Query "failed units" filter,
@@ -7806,6 +7984,12 @@ def handle_heartbeat():
                                    _si['listening_ports'])
         except Exception:
             pass
+    # v3.11.0: storage / firewall / timer / new-source-login detections
+    if any(_si.get(k) for k in ('storage_health', 'firewall_fp', 'timers', 'auth')):
+        try:
+            _ingest_posture_v3110(dev_id, saved_dev.get('name', dev_id), _si)
+        except Exception as e:
+            sys.stderr.write(f"[remotepower] posture ingest failed dev={dev_id}: {e}\n")
     _hcc_path = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
     if _hcc_path.exists():
         try:
@@ -9838,6 +10022,20 @@ def handle_config_save():
         try:
             _OIDC_METADATA_CACHE.clear()
         except Exception:
+            pass
+
+    # v3.11.0: scheduled posture digest + scrub-overdue threshold
+    if 'posture_digest_enabled' in body:
+        cfg['posture_digest_enabled'] = bool(body['posture_digest_enabled'])
+    if 'posture_digest_cadence' in body:
+        cad = str(body['posture_digest_cadence'] or 'weekly')
+        cfg['posture_digest_cadence'] = cad if cad in ('daily', 'weekly') else 'weekly'
+    if 'posture_digest_recipients' in body:
+        cfg['posture_digest_recipients'] = _sanitize_str(body['posture_digest_recipients'], 1000)
+    if 'scrub_overdue_days' in body:
+        try:
+            cfg['scrub_overdue_days'] = max(1, min(3650, int(body['scrub_overdue_days'])))
+        except (TypeError, ValueError):
             pass
 
     save(CONFIG_FILE, cfg)
@@ -11974,11 +12172,19 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     if not ports:
         return
     baseline = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
-    known = {(p['proto'], p['port']) for p in (baseline.get(dev_id) or [])}
-    current = [(p.get('proto','tcp'), p.get('port', 0), p.get('process',''))
+    prev = baseline.get(dev_id) or []
+    first_seen = dev_id not in baseline
+    known = {(p['proto'], p['port']) for p in prev}
+    # v3.11.0: ports that were already world-exposed, so port_exposed_world
+    # is edge-triggered — it fires only when a service first becomes bound
+    # to a world-reachable address, not on every heartbeat thereafter.
+    world_known = {(p.get('proto'), p.get('port')) for p in prev
+                   if p.get('scope') == 'world'}
+    current = [(p.get('proto','tcp'), p.get('port', 0), p.get('process',''),
+                p.get('scope',''), p.get('addr',''))
                for p in ports if p.get('port')]
 
-    for proto, port, proc in current:
+    for proto, port, proc, scope, addr in current:
         if (proto, port) not in known:
             try:
                 fire_webhook('new_port_detected', {
@@ -11990,14 +12196,154 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                 })
             except Exception:
                 pass
+        # v3.11.0: a world-reachable bind not previously world-exposed.
+        # Suppressed on first contact (no baseline yet → set baseline first).
+        if (scope == 'world' and (proto, port) not in world_known
+                and not first_seen):
+            try:
+                fire_webhook('port_exposed_world', {
+                    'device_id': dev_id,
+                    'name':      dev_name,
+                    'proto':     proto,
+                    'port':      port,
+                    'process':   proc,
+                    'addr':      addr,
+                })
+            except Exception:
+                pass
 
-    # Update baseline to current set
-    baseline[dev_id] = [{'proto': p, 'port': q, 'process': r}
-                        for p, q, r in current]
+    # Update baseline to current set (carry scope/addr for the next diff)
+    baseline[dev_id] = [{'proto': p, 'port': q, 'process': r,
+                         'scope': s, 'addr': a}
+                        for p, q, r, s, a in current]
     try:
         save(PORT_BASELINE_FILE, baseline)
     except Exception:
         pass
+
+
+def _ingest_posture_v3110(dev_id, dev_name, si):
+    """v3.11.0: edge-triggered detections over the heartbeat's posture
+    fields. State per device is kept in POSTURE_STATE_FILE so each
+    condition fires once per transition (not every heartbeat):
+
+      storage_degraded / storage_recovered — a pool/array entering or
+        leaving a degraded/faulted/offline state.
+      scrub_overdue — a ZFS pool whose last scrub is older than the
+        configured threshold (default 35 days); only fired when the last
+        scrub timestamp is parseable from the agent's status string.
+      firewall_changed — the host firewall fingerprint moved vs baseline.
+      timer_failed — a systemd timer's backing job entered a failed state.
+      login_new_source — a successful login from a source IP never seen
+        on this host before.
+    First contact (no prior state) seeds the baselines silently.
+    """
+    state = load(POSTURE_STATE_FILE) or {} if POSTURE_STATE_FILE.exists() else {}
+    prev = state.get(dev_id) or {}
+    first_seen = dev_id not in state
+    new = dict(prev)
+
+    def _fire(ev, extra):
+        try:
+            fire_webhook(ev, {'device_id': dev_id, 'name': dev_name, **extra})
+        except Exception:
+            pass
+
+    # ── storage / RAID health ──────────────────────────────────────
+    _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
+            'suspended', 'error', 'fail')
+    pools = si.get('storage_health') or []
+    if pools:
+        prev_pools = prev.get('pools') or {}
+        cur_pools = {}
+        scrub_fired = set(prev.get('scrub_overdue') or [])
+        try:
+            thresh_days = int((_config().get('scrub_overdue_days') or 35))
+        except (TypeError, ValueError):
+            thresh_days = 35
+        for p in pools:
+            nm = p.get('name')
+            if not nm:
+                continue
+            st = (p.get('state') or '').lower()
+            cur_pools[nm] = st
+            bad_now = any(b in st for b in _BAD)
+            bad_was = any(b in (prev_pools.get(nm) or '').lower() for b in _BAD)
+            if bad_now and not bad_was and not first_seen:
+                _fire('storage_degraded', {'pool': nm, 'state': p.get('state'),
+                                           'kind': p.get('kind')})
+            elif bad_was and not bad_now:
+                _fire('storage_recovered', {'pool': nm, 'state': p.get('state'),
+                                            'kind': p.get('kind')})
+            # scrub freshness (best-effort date parse from the status string)
+            scrub_s = p.get('scrub') or ''
+            age_days = _scrub_age_days(scrub_s)
+            if age_days is not None and age_days > thresh_days:
+                if nm not in scrub_fired and not first_seen:
+                    _fire('scrub_overdue', {'pool': nm, 'kind': p.get('kind'),
+                                            'age_days': age_days})
+                scrub_fired.add(nm)
+            else:
+                scrub_fired.discard(nm)
+        new['pools'] = cur_pools
+        new['scrub_overdue'] = sorted(scrub_fired)
+
+    # ── host firewall drift ────────────────────────────────────────
+    fw = si.get('firewall_fp') or {}
+    fp = fw.get('fp')
+    if fp:
+        if prev.get('fw_fp') and prev['fw_fp'] != fp and not first_seen:
+            _fire('firewall_changed', {'backend': fw.get('backend'),
+                                       'rules': fw.get('rules')})
+        new['fw_fp'] = fp
+
+    # ── scheduled-job (systemd timer) failures ─────────────────────
+    timers = si.get('timers') or []
+    if timers:
+        failed_now = sorted({t['unit'] for t in timers
+                             if t.get('failed') and t.get('unit')})
+        prev_failed = set(prev.get('failed_timers') or [])
+        for u in failed_now:
+            if u not in prev_failed and not first_seen:
+                act = next((t.get('activates') for t in timers
+                            if t.get('unit') == u), '')
+                _fire('timer_failed', {'unit': u, 'activates': act})
+        new['failed_timers'] = failed_now
+
+    # ── new-source logins ──────────────────────────────────────────
+    auth = si.get('auth') or {}
+    srcs = [s for s in (auth.get('sources') or []) if s]
+    if srcs:
+        seen = set(prev.get('login_sources') or [])
+        for s in srcs:
+            if s not in seen and not first_seen:
+                usr = next((e.get('user') for e in (auth.get('recent_logins') or [])
+                            if e.get('source') == s), '')
+                _fire('login_new_source', {'source': s, 'user': usr})
+        new['login_sources'] = sorted(seen | set(srcs))[:200]
+
+    state[dev_id] = new
+    try:
+        save(POSTURE_STATE_FILE, state)
+    except Exception:
+        pass
+
+
+def _scrub_age_days(scrub_str):
+    """Parse the trailing 'on <date>' from a ZFS scrub status line and
+    return its age in whole days, or None if no parseable date is present.
+    ZFS prints e.g. 'scrub repaired 0B ... on Mon Jun  2 03:10:00 2026'."""
+    if not scrub_str or ' on ' not in scrub_str:
+        return None
+    tail = scrub_str.rsplit(' on ', 1)[1].strip()
+    import time as _t
+    for fmt in ('%a %b %d %H:%M:%S %Y', '%a %b  %d %H:%M:%S %Y'):
+        try:
+            t = _t.mktime(_t.strptime(tail, fmt))
+            return max(0, int((_t.time() - t) / 86400))
+        except (ValueError, OverflowError):
+            continue
+    return None
 
 
 # ── v2.8.0: SSH key audit ──────────────────────────────────────────────────────
@@ -16000,6 +16346,11 @@ PROXMOX_SNAPSHOT_CACHE  = DATA_DIR / 'proxmox_snapshot_cache.json'
 PORT_BASELINE_FILE      = DATA_DIR / 'port_baseline.json'
 SSH_KEY_BASELINE_FILE   = DATA_DIR / 'ssh_key_baseline.json'
 BRUTE_FORCE_FILE        = DATA_DIR / 'brute_force.json'
+# v3.11.0: edge-trigger state for storage/firewall/timer/new-source-login
+# detections, and the fleet software-policy ruleset + evaluated violations.
+POSTURE_STATE_FILE        = DATA_DIR / 'posture_state.json'
+SOFTWARE_POLICY_FILE      = DATA_DIR / 'software_policy.json'
+SOFTWARE_VIOLATIONS_FILE  = DATA_DIR / 'software_violations.json'
 
 
 def _ingest_mailbox_counts(dev_id, counts):
@@ -24428,6 +24779,14 @@ def handle_packages_submit():
     }
     save(PACKAGES_FILE, store)
 
+    # v3.11.0: evaluate the fleet software policy against this push.
+    try:
+        _eval_software_policy(dev_id, dev.get('name', dev_id),
+                              packages, dev.get('tags') or [])
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] software policy eval failed "
+                         f"dev={dev_id}: {e}\n")
+
     changed = existing.get('hash') != new_hash
     respond(200, {
         'ok':              True,
@@ -24436,6 +24795,358 @@ def handle_packages_submit():
         'changed':         changed,
         'scan_suggested':  changed and bool(ecosystem),
     })
+
+
+# ─── v3.11.0: fleet software policy ──────────────────────────────────────────
+# A policy is a list of rules evaluated against each device's installed
+# package list (already collected every ~6h). Three rule types:
+#   banned      — package must NOT be installed
+#   required    — package MUST be installed
+#   min_version — if installed, version must be >= the configured minimum
+# Each rule may be scoped to one or more device tags; an unscoped rule
+# applies fleet-wide. Violations are persisted per device and a
+# software_policy_violation event fires edge-triggered (once per new
+# violation key), so a steady-state breach doesn't re-alert every push.
+
+def _software_policy():
+    """Load the policy doc; always returns a dict with a 'rules' list."""
+    doc = load(SOFTWARE_POLICY_FILE) if SOFTWARE_POLICY_FILE.exists() else {}
+    if not isinstance(doc, dict):
+        doc = {}
+    rules = doc.get('rules')
+    doc['rules'] = rules if isinstance(rules, list) else []
+    return doc
+
+
+def _ver_key(v):
+    """Coarse version → comparable tuple of ints. Splits on any non-digit
+    run; good enough for the common 'openssh >= 9.0' style minimums. A
+    version with no digits sorts lowest."""
+    parts = re.findall(r'\d+', str(v or ''))
+    return tuple(int(x) for x in parts) if parts else (-1,)
+
+
+def _eval_software_policy(dev_id, dev_name, packages, tags):
+    """Evaluate the policy for one device, persist its violations, and fire
+    software_policy_violation for any newly-introduced violation."""
+    policy = _software_policy()
+    rules = policy.get('rules') or []
+    store = load(SOFTWARE_VIOLATIONS_FILE) if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+    if not isinstance(store, dict):
+        store = {}
+    if not rules:
+        if store.pop(dev_id, None) is not None:
+            save(SOFTWARE_VIOLATIONS_FILE, store)
+        return []
+
+    tagset = {str(t) for t in (tags or [])}
+    installed = {}
+    for p in (packages or []):
+        if isinstance(p, dict) and p.get('name'):
+            installed[str(p['name'])] = str(p.get('version', '') or '')
+
+    violations = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        pkg = str(rule.get('package', '') or '').strip()
+        rtype = rule.get('type')
+        if not pkg or rtype not in ('banned', 'required', 'min_version'):
+            continue
+        rtags = {str(t) for t in (rule.get('tags') or [])}
+        if rtags and not (rtags & tagset):
+            continue   # rule scoped to tags this device doesn't carry
+        rid = rule.get('id') or f'{rtype}:{pkg}'
+        if rtype == 'banned' and pkg in installed:
+            violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
+                               'expected': 'not installed',
+                               'found': installed[pkg] or 'installed',
+                               'detail': f'banned package {pkg} is installed',
+                               'note': _sanitize_str(rule.get('note', ''), 200)})
+        elif rtype == 'required' and pkg not in installed:
+            violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
+                               'expected': 'installed', 'found': 'missing',
+                               'detail': f'required package {pkg} is missing',
+                               'note': _sanitize_str(rule.get('note', ''), 200)})
+        elif rtype == 'min_version' and pkg in installed:
+            want = str(rule.get('version', '') or '')
+            have = installed[pkg]
+            if want and _ver_key(have) < _ver_key(want):
+                violations.append({'rule_id': rid, 'type': rtype, 'package': pkg,
+                                   'expected': f'>= {want}', 'found': have or '?',
+                                   'detail': f'{pkg} {have or "?"} is below minimum {want}',
+                                   'note': _sanitize_str(rule.get('note', ''), 200)})
+
+    prev_keys = {v.get('rule_id') for v in (store.get(dev_id, {}) or {}).get('violations', [])}
+    for v in violations:
+        if v['rule_id'] not in prev_keys:
+            try:
+                fire_webhook('software_policy_violation', {
+                    'device_id': dev_id, 'name': dev_name,
+                    'rule': v['rule_id'], 'package': v['package'],
+                    'detail': v['detail'],
+                })
+            except Exception:
+                pass
+
+    if violations:
+        store[dev_id] = {'name': dev_name, 'checked_at': int(time.time()),
+                         'violations': violations}
+    else:
+        store.pop(dev_id, None)
+    save(SOFTWARE_VIOLATIONS_FILE, store)
+    return violations
+
+
+def _reeval_software_policy_all():
+    """Re-evaluate every device with stored packages (called after the
+    policy is edited so the violations view reflects the new ruleset)."""
+    pkgstore = load(PACKAGES_FILE) if PACKAGES_FILE.exists() else {}
+    devices = load(DEVICES_FILE)
+    total = 0
+    for dev_id, rec in (pkgstore or {}).items():
+        dev = devices.get(dev_id) or {}
+        try:
+            v = _eval_software_policy(dev_id, dev.get('name', dev_id),
+                                      rec.get('packages') or [], dev.get('tags') or [])
+            total += len(v)
+        except Exception:
+            pass
+    return total
+
+
+def handle_software_policy():
+    """GET  /api/software-policy        — the ruleset
+       POST /api/software-policy        — replace the ruleset (admin)
+       GET  /api/software-policy/violations — current fleet violations"""
+    require_auth()
+    m = method()
+    if m == 'GET':
+        respond(200, _software_policy())
+    elif m == 'POST':
+        require_admin_auth()
+        body = get_json_body()
+        rules_in = body.get('rules')
+        if not isinstance(rules_in, list):
+            respond(400, {'error': 'rules must be a list'})
+        clean = []
+        for r in rules_in[:500]:
+            if not isinstance(r, dict):
+                continue
+            rtype = r.get('type')
+            pkg = _sanitize_str(r.get('package', ''), 128)
+            if rtype not in ('banned', 'required', 'min_version') or not pkg:
+                continue
+            entry = {
+                'id':      _sanitize_str(r.get('id', '') or f'{rtype}:{pkg}', 64),
+                'type':    rtype,
+                'package': pkg,
+                'note':    _sanitize_str(r.get('note', ''), 200),
+            }
+            if rtype == 'min_version':
+                entry['version'] = _sanitize_str(r.get('version', ''), 32)
+            tg = r.get('tags')
+            if isinstance(tg, list):
+                entry['tags'] = [_sanitize_str(t, 48) for t in tg[:20] if isinstance(t, str) and t]
+            clean.append(entry)
+        save(SOFTWARE_POLICY_FILE, {'rules': clean, 'updated_at': int(time.time())})
+        audit_log(current_username() or 'unknown', 'software_policy_save',
+                  detail=f'{len(clean)} rules')
+        affected = _reeval_software_policy_all()
+        respond(200, {'ok': True, 'rules': len(clean), 'violations': affected})
+    else:
+        respond(405, {'error': 'Method not allowed'})
+
+
+def handle_software_policy_violations():
+    """GET /api/software-policy/violations — flat list of current violations."""
+    require_auth()
+    store = load(SOFTWARE_VIOLATIONS_FILE) if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+    out = []
+    for dev_id, rec in (store or {}).items():
+        for v in (rec.get('violations') or []):
+            out.append({'device_id': dev_id, 'device': rec.get('name', dev_id),
+                        'checked_at': rec.get('checked_at'), **v})
+    respond(200, {'violations': out, 'count': len(out)})
+
+
+# ─── v3.11.0: attack-surface exposure + storage health rollups ───────────────
+
+def handle_exposure_overview():
+    """GET /api/exposure — fleet-wide listening-socket inventory with the
+    bind-scope each agent reported. ?scope=world filters to world-reachable."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    want = (qs.get('scope', [''])[0] or '').strip().lower()
+    devices = load(DEVICES_FILE)
+    rows = []
+    counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
+    for dev_id, d in (devices or {}).items():
+        if d.get('monitored') is False:
+            continue
+        for p in ((d.get('sysinfo') or {}).get('listening_ports') or []):
+            scope = p.get('scope') or 'unknown'
+            counts[scope] = counts.get(scope, 0) + 1
+            if want and scope != want:
+                continue
+            rows.append({
+                'device_id': dev_id, 'device': d.get('name', dev_id),
+                'proto': p.get('proto', 'tcp'), 'port': p.get('port'),
+                'process': p.get('process', ''), 'addr': p.get('addr', ''),
+                'scope': scope,
+            })
+    rows.sort(key=lambda r: ({'world': 0, 'lan': 1, 'local': 2}.get(r['scope'], 3),
+                             r['device'], r['port'] or 0))
+    respond(200, {'ports': rows, 'counts': counts, 'count': len(rows)})
+
+
+def handle_storage_overview():
+    """GET /api/storage — fleet-wide ZFS/mdadm/btrfs pool health."""
+    require_auth()
+    devices = load(DEVICES_FILE)
+    rows = []
+    degraded = 0
+    _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
+            'suspended', 'error', 'fail')
+    for dev_id, d in (devices or {}).items():
+        if d.get('monitored') is False:
+            continue
+        for p in ((d.get('sysinfo') or {}).get('storage_health') or []):
+            st = (p.get('state') or '').lower()
+            bad = any(b in st for b in _BAD)
+            if bad:
+                degraded += 1
+            rows.append({
+                'device_id': dev_id, 'device': d.get('name', dev_id),
+                'pool': p.get('name'), 'kind': p.get('kind', ''),
+                'state': p.get('state', ''), 'capacity': p.get('capacity'),
+                'scrub': p.get('scrub', ''), 'degraded': bad,
+            })
+    rows.sort(key=lambda r: (0 if r['degraded'] else 1, r['device'], r['pool'] or ''))
+    respond(200, {'pools': rows, 'degraded': degraded, 'count': len(rows)})
+
+
+# ─── v3.11.0: scheduled posture digest email ─────────────────────────────────
+
+def _build_posture_digest():
+    """Assemble (subject, plaintext body) summarising fleet posture from
+    current state. Pure read — safe to call any time."""
+    server_name = get_server_name()
+    now = int(time.time())
+    ttl = get_online_ttl()
+    devices = load(DEVICES_FILE) or {}
+    monitored = {k: v for k, v in devices.items() if v.get('monitored') is not False}
+    offline, pending = [], 0
+    reboots = []
+    for did, d in monitored.items():
+        if now - int(d.get('last_seen', 0) or 0) > ttl:
+            offline.append(d.get('name', did))
+        si = d.get('sysinfo') or {}
+        up = (si.get('packages') or {}).get('upgradable')
+        if isinstance(up, int):
+            pending += up
+        if si.get('reboot_required'):
+            reboots.append(d.get('name', did))
+    # CVE crit/high
+    crit = high = 0
+    try:
+        cve = load(CVE_FINDINGS_FILE) or {} if CVE_FINDINGS_FILE.exists() else {}
+        for _did, rec in cve.items():
+            findings = rec.get('findings') if isinstance(rec, dict) else rec
+            for f in (findings or []):
+                sev = (f.get('severity') or '').lower()
+                if sev == 'critical':
+                    crit += 1
+                elif sev == 'high':
+                    high += 1
+    except Exception:
+        pass
+    # software-policy violations
+    viol = 0
+    try:
+        sv = load(SOFTWARE_VIOLATIONS_FILE) or {} if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+        viol = sum(len(r.get('violations') or []) for r in sv.values())
+    except Exception:
+        pass
+    # degraded storage
+    degraded = []
+    try:
+        ps = load(POSTURE_STATE_FILE) or {} if POSTURE_STATE_FILE.exists() else {}
+        _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'error', 'fail')
+        for did, st in ps.items():
+            for nm, state in (st.get('pools') or {}).items():
+                if any(b in (state or '') for b in _BAD):
+                    nm_dev = (devices.get(did) or {}).get('name', did)
+                    degraded.append(f'{nm_dev}:{nm}')
+    except Exception:
+        pass
+
+    lines = [
+        f'RemotePower fleet posture — {server_name}',
+        time.strftime('%Y-%m-%d %H:%M:%S %Z'),
+        '',
+        f'Devices monitored : {len(monitored)}',
+        f'Offline           : {len(offline)}' + (f'  ({", ".join(offline[:10])})' if offline else ''),
+        f'Pending updates   : {pending}',
+        f'Reboots required  : {len(reboots)}' + (f'  ({", ".join(reboots[:10])})' if reboots else ''),
+        f'CVEs critical/high: {crit} / {high}',
+        f'Software-policy violations: {viol}',
+        f'Degraded storage  : {len(degraded)}' + (f'  ({", ".join(degraded[:10])})' if degraded else ''),
+        '',
+        'Open the dashboard for full detail.',
+    ]
+    subject = (f'[{server_name}] Fleet posture — {len(monitored)} devices, '
+               f'{len(offline)} offline, {crit} critical CVEs')
+    return subject, '\n'.join(lines)
+
+
+def _send_posture_digest(cfg, reason='scheduled'):
+    """Render and send the digest to the configured recipients. Returns the
+    recipient count. Raises smtp_notifier.SmtpError on send failure."""
+    recips = ([r for r in re.split(r'[,;\s]+', cfg.get('posture_digest_recipients', '') or '')
+               if '@' in r] or _smtp_recipients_list(cfg))
+    if not recips:
+        raise smtp_notifier.SmtpError('no recipients configured')
+    subject, body = _build_posture_digest()
+    smtp_notifier.send_email(cfg, recips, subject, body)
+    _log_email('posture_digest', recips, 'ok', reason)
+    return len(recips)
+
+
+def _run_posture_digest_if_due():
+    """Opportunistic cadence check, mirroring ping_healthchecks_if_due."""
+    cfg = _config()
+    if not cfg.get('posture_digest_enabled'):
+        return
+    cadence = cfg.get('posture_digest_cadence', 'weekly')
+    interval = 86400 if cadence == 'daily' else 7 * 86400
+    now = int(time.time())
+    last = int(cfg.get('last_posture_digest', 0) or 0)
+    if now - last < interval:
+        return
+    try:
+        n = _send_posture_digest(cfg, reason=cadence)
+        with _locked_update(CONFIG_FILE) as c:
+            c['last_posture_digest'] = now
+        sys.stderr.write(f"[remotepower] posture digest sent to {n} recipient(s)\n")
+    except Exception as e:
+        sys.stderr.write(f"[remotepower] posture digest failed: {e}\n")
+
+
+def handle_posture_digest_test():
+    """POST /api/posture-digest/test — send the digest now (admin)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE)
+    try:
+        n = _send_posture_digest(cfg, reason=f'manual test by {actor}')
+        audit_log(actor, 'posture_digest_test', f'sent to {n} recipient(s)')
+        respond(200, {'ok': True, 'recipients': n})
+    except smtp_notifier.SmtpError as e:
+        respond(400, {'error': str(e)})
+    except Exception as e:
+        respond(500, {'error': f'{type(e).__name__}: {e}'})
 
 
 def _detect_new_cve_and_fire_webhook(dev_id, devices, previous, current):
@@ -28743,6 +29454,12 @@ def _build_exact_routes():
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,
+        # v3.11.0
+        (None, '/api/software-policy'): handle_software_policy,
+        ('GET', '/api/software-policy/violations'): handle_software_policy_violations,
+        ('GET', '/api/exposure'): handle_exposure_overview,
+        ('GET', '/api/storage'): handle_storage_overview,
+        ('POST', '/api/posture-digest/test'): handle_posture_digest_test,
         ('GET', '/api/status'): handle_status,
         ('GET', '/api/tasks'): handle_tasks_list,
         ('POST', '/api/tasks'): handle_tasks_add,
@@ -29390,6 +30107,7 @@ def main():
     # External watchdog over the server itself — if RemotePower stops
     # serving requests, hc.io flips to red and pages someone.
     _safe(ping_healthchecks_if_due, 'ping_healthchecks_if_due')
+    _safe(_run_posture_digest_if_due, '_run_posture_digest_if_due')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch

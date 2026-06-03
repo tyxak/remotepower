@@ -984,6 +984,48 @@ up the same IP-class SSRF checks the HTTP paths already had. See
 that drifted; the Devices table view's Hostname column showed a sort arrow
 but never reordered — fixed.
 
+## v3.11.0 additions
+
+### Fleet posture batch
+Seven features that turn data the agent already collects (or can collect
+cheaply) into first-class security and operational signals — no new daemons,
+no new dependencies. Every detection is edge-triggered with per-device state.
+
+**Exposure (attack surface).** The agent kept each listening socket's port
+but discarded its bind address. It now keeps the address and classifies an
+exposure scope — `local` (loopback), `lan` (RFC1918 / link-local / ULA) or
+`world` (wildcard or any global address). `port_exposed_world` fires when a
+service first becomes world-reachable. New Exposure page with a
+World/LAN/Local filter (`GET /api/exposure`).
+
+**Fleet Software Policy.** Rules — `banned`, `required`, `min_version`,
+optionally scoped to device tags — evaluated against the installed-package
+inventory every host pushes (~6-hourly). `software_policy_violation` fires
+edge-triggered. Policy editor + violations table
+(`GET/POST /api/software-policy`, `GET /api/software-policy/violations`).
+
+**Storage / RAID health.** New agent probe for ZFS / mdadm / btrfs pool
+state, capacity and last-scrub. `storage_degraded` / `storage_recovered`
+(auto-resolving) and `scrub_overdue` (threshold `scrub_overdue_days`, default
+35). New Storage page (`GET /api/storage`).
+
+**Access watch.** Recent successful logins and their source IPs are
+collected; `login_new_source` fires on a first-seen source address. (Brute
+force keeps using `brute_force_detected`.)
+
+**Host firewall drift.** A stable fingerprint of the active ufw / nftables /
+iptables ruleset rides the heartbeat (iptables counters zeroed first);
+`firewall_changed` fires when it diverges from baseline.
+
+**Scheduled-job failure lens.** Systemd timers are inventoried;
+`timer_failed` fires when a timer's backing job enters a failed state.
+
+**Scheduled posture digest.** An opt-in daily/weekly email summarising
+offline hosts, pending updates, critical CVEs, software-policy violations and
+degraded storage, sent over the existing SMTP path. Configure in Settings →
+Notifications; "Send test now" delivers immediately
+(`POST /api/posture-digest/test`).
+
 ---
 
 ← [Back to docs index](README.md) · [Back to main README](../README.md)

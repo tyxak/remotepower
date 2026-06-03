@@ -228,7 +228,9 @@ class TestAgentHostHealth(unittest.TestCase):
     def test_get_host_health_keys_are_documented(self):
         result = self.agent.get_host_health()
         allowed = {'reboot_required', 'reboot_reason', 'failed_units',
-                   'logged_in', 'listening_ports', 'last_boot'}
+                   'logged_in', 'listening_ports', 'last_boot',
+                   # v3.11.0 posture probes
+                   'storage_health', 'auth', 'timers', 'firewall_fp'}
         for k in result:
             self.assertIn(k, allowed, f'undocumented key {k!r}')
 
