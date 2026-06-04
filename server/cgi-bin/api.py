@@ -1148,6 +1148,7 @@ def _lock_path(path):
 # request, so this is request-scoped). The migrate handler clears the cache
 # after flipping so later ops in the same request see the new backend.
 STORAGE_MARKER_FILE = DATA_DIR / 'storage_backend.json'
+SQLITE_MAINT_FILE = DATA_DIR / 'sqlite_maint.json'   # v3.12.0: maint timestamps
 _BACKEND_CACHE = None
 
 
@@ -1197,6 +1198,35 @@ def backend_iter_files():
     if _storage_backend() == 'sqlite':
         return storage.iter_files(DATA_DIR)
     return sorted(p.name for p in DATA_DIR.glob('*.json'))
+
+
+def _sqlite_maintenance_if_due():
+    """Cheap-when-not-due upkeep for the SQLite backend (no-op under JSON).
+    Truncates the WAL hourly so it can't grow unbounded; weekly it also VACUUMs
+    and runs an integrity_check. A failed integrity_check is logged loudly and
+    recorded in the maint state (surfaced on Server Status) — escalating it to a
+    fleet alert is a deliberate follow-up, not a silent swallow."""
+    if _storage_backend() != 'sqlite':
+        return
+    st = load(SQLITE_MAINT_FILE) or {}
+    now = int(time.time())
+    last_ck = int(st.get('last_checkpoint', 0) or 0)
+    last_full = int(st.get('last_full', 0) or 0)
+    do_full = (now - last_full) > 7 * 86400
+    if (now - last_ck) < 3600 and not do_full:
+        return
+    res = storage.maintenance(DATA_DIR, full=do_full)
+    st['last_checkpoint'] = now
+    st['db_bytes'] = res.get('db_bytes')
+    if do_full:
+        st['last_full'] = now
+        integ = res.get('integrity')
+        st['last_integrity'] = integ
+        st['last_integrity_at'] = now
+        if integ and integ != 'ok':
+            sys.stderr.write(
+                f"[remotepower] ERROR: sqlite integrity_check failed: {integ}\n")
+    save(SQLITE_MAINT_FILE, st)
 
 
 def _data_file_bytes(path):
@@ -1707,6 +1737,38 @@ def _LockedUpdate(path, non_blocking=False):
     if _storage_backend() == 'sqlite':
         return _SqliteLockedUpdate(path, non_blocking)
     return _JsonLockedUpdate(path, non_blocking)
+
+
+class _SqliteDeviceUpdate:
+    """api-side wrapper over storage.DeviceTxn — translates LockBusyError to
+    api's LockBusy and invalidates the per-request load cache for DEVICES_FILE."""
+
+    def __init__(self, dev_id, non_blocking=False):
+        self.dev_id = dev_id
+        self._inner = storage.DeviceTxn(DEVICES_FILE, dev_id, non_blocking)
+
+    def __enter__(self):
+        try:
+            return self._inner.__enter__()
+        except storage.LockBusyError:
+            raise LockBusy(DEVICES_FILE, 0)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._inner.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            _invalidate_load_cache(DEVICES_FILE)
+
+
+def _DeviceUpdate(dev_id, non_blocking=False):
+    """Heartbeat fast path: atomic read-modify-write of a SINGLE device, yielded
+    as {dev_id: dev} so existing `devices.get(dev_id)` / `devices[dev_id] = dev`
+    code is unchanged. SQLite → one-row load + upsert (no whole-table scan or
+    rewrite). JSON → identical to _locked_update(DEVICES_FILE) (yields the whole
+    dict; the handler only touches dev_id, so behaviour is unchanged)."""
+    if _storage_backend() == 'sqlite':
+        return _SqliteDeviceUpdate(dev_id, non_blocking)
+    return _JsonLockedUpdate(DEVICES_FILE, non_blocking)
 
 
 def _locked_update(path, non_blocking=False):
@@ -5589,6 +5651,14 @@ def handle_device_delete(dev_id):
         CONTAINERS_FILE, PACKAGES_FILE, SERVICES_FILE, LOG_WATCH_FILE,
         CMD_OUTPUT_FILE, UPDATE_LOGS_FILE, METRICS_FILE, UPTIME_FILE,
         DRIFT_STATE_FILE,
+        # v3.12.0: posture / security per-device baselines were ghosting on
+        # delete — a same-id re-enroll then inherited a stale baseline (which
+        # suppresses the legitimate first-fire). All are top-level dict-keyed by
+        # dev_id; the `dev_id in data` guard below makes a non-matching store a
+        # harmless no-op.
+        PORT_BASELINE_FILE, POSTURE_STATE_FILE, SSH_KEY_BASELINE_FILE,
+        BRUTE_FORCE_FILE, SOFTWARE_VIOLATIONS_FILE, CVE_FINDINGS_FILE,
+        SNMP_DATA_FILE, HARDWARE_FILE, AV_FILE,
     ]
     try:
         for store_path in _SIMPLE_STORES:
@@ -7385,7 +7455,11 @@ def handle_heartbeat():
     # lock (device name, poll interval, allowlist, etc.) before exit.
     saved_dev = {}
     _reboot_webhook_pending = False  # set True inside lock if reboot state changes
-    with _locked_update(DEVICES_FILE) as devices:
+    # v3.12.0: single-device atomic update. Under SQLite this loads/writes just
+    # this device's row (O(1)) instead of reconstructing every device; under
+    # JSON it's identical to _locked_update(DEVICES_FILE). The block only ever
+    # touches devices[dev_id] (guarded by tests/test_heartbeat_contract.py).
+    with _DeviceUpdate(dev_id) as devices:
         dev = devices.get(dev_id)
         if not dev or not hmac.compare_digest(dev.get('token', ''), dev_token):
             # respond() raises SystemExit; __exit__ skips the save, releases
@@ -9319,6 +9393,7 @@ def handle_config_get():
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
     safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
+    safe.setdefault('exposure_mutes',         [])     # v3.12.0: surgical exposure mutes
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
     safe.setdefault('healthchecks_interval_seconds', 60)
@@ -10060,9 +10135,15 @@ def handle_config_save():
     if 'change_approval_no_self' in body:
         cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
     # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
-    # port_exposed_world and firewall_changed fleet-wide (opt-in).
+    # port_exposed_world and firewall_changed fleet-wide (opt-in). Turning it
+    # OFF resolves the open backlog for those events in one action.
     if 'port_audit_enabled' in body:
+        _was_on = bool(cfg.get('port_audit_enabled', False))
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
+        if _was_on and not cfg['port_audit_enabled']:
+            _resolve_alerts_for_events(
+                _EXPOSURE_ALERT_EVENTS + ('firewall_changed',),
+                by='audit-disabled')
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
@@ -11114,6 +11195,18 @@ def handle_self_status():
             'total_bytes': total_bytes,
             'big_files': files_info[:20],
         }
+        # v3.12.0: storage-backend health (SQLite only).
+        if _storage_backend() == 'sqlite':
+            _m = load(SQLITE_MAINT_FILE) or {}
+            out['storage_backend'] = {
+                'backend':        'sqlite',
+                'db_bytes':       _m.get('db_bytes'),
+                'last_integrity': _m.get('last_integrity'),
+                'last_integrity_at': _m.get('last_integrity_at'),
+                'last_checkpoint':   _m.get('last_checkpoint'),
+            }
+        else:
+            out['storage_backend'] = {'backend': 'json'}
         # Free-space (statvfs)
         try:
             st = os.statvfs(str(DATA_DIR))
@@ -12444,6 +12537,60 @@ def handle_proxmox_test() -> None:
 
 # ── v2.8.0: Listening port audit ──────────────────────────────────────────────
 
+def _exposure_muted(process, proto, port, mutes):
+    """True if a (process, proto, port) socket matches any exposure-mute rule.
+    A rule is a dict with any subset of {process, proto, port}; a socket matches
+    a rule when every field the rule specifies equals the socket's. An empty
+    rule matches nothing (so it can't accidentally silence everything)."""
+    for m in mutes or []:
+        if not isinstance(m, dict):
+            continue
+        if not any(k in m for k in ('process', 'proto', 'port')):
+            continue
+        if 'process' in m and (m.get('process') or '') != (process or ''):
+            continue
+        if 'proto' in m and (m.get('proto') or '') != (proto or ''):
+            continue
+        if 'port' in m:
+            try:
+                if int(m.get('port')) != int(port or 0):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        return True
+    return False
+
+
+_EXPOSURE_ALERT_EVENTS = ('port_exposed_world', 'new_port_detected')
+
+
+def _resolve_alerts_for_events(events, match_rule=None, by='exposure-mute'):
+    """Mark open alerts whose event is in `events` resolved. When `match_rule`
+    is given, only resolve port alerts whose payload matches that mute rule;
+    otherwise resolve all open alerts for those events (used when the audit is
+    turned off, to clear the backlog in one action). Returns the count."""
+    n = 0
+    try:
+        with _LockedUpdate(ALERTS_FILE) as store:
+            now = int(time.time())
+            for a in store.get('alerts', []):
+                if a.get('resolved_at'):
+                    continue
+                if a.get('event') not in events:
+                    continue
+                if match_rule is not None:
+                    p = a.get('payload') or {}
+                    if not _exposure_muted(p.get('process'), p.get('proto'),
+                                           p.get('port'), [match_rule]):
+                        continue
+                a['resolved_at'] = now
+                a['resolved_by'] = by
+                n += 1
+    except Exception:
+        pass
+    return n
+
+
 def _audit_listening_ports(dev_id, dev_name, ports):
     """Compare current listening ports against stored baseline.
 
@@ -12462,7 +12609,9 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     """
     if not ports:
         return
-    audit_enabled = (load(CONFIG_FILE) or {}).get('port_audit_enabled', False)
+    _cfg = load(CONFIG_FILE) or {}
+    audit_enabled = _cfg.get('port_audit_enabled', False)
+    mutes = _cfg.get('exposure_mutes') or []
     baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
     prev = baseline.get(dev_id) or []
     first_seen = dev_id not in baseline
@@ -12477,7 +12626,11 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                for p in ports if p.get('port')]
 
     for proto, port, proc, scope, addr in current:
-        if audit_enabled and (proto, port) not in known:
+        # v3.12.0: surgical per-process/port mutes (Exposure page "Mute"
+        # button) — silence a known-noisy socket (e.g. docker-proxy on 5696)
+        # without turning off the whole audit.
+        muted = _exposure_muted(proc, proto, port, mutes)
+        if audit_enabled and not muted and (proto, port) not in known:
             try:
                 fire_webhook('new_port_detected', {
                     'device_id': dev_id,
@@ -12490,8 +12643,8 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                 pass
         # v3.11.0: a world-reachable bind not previously world-exposed.
         # Suppressed on first contact (no baseline yet → set baseline first).
-        if (audit_enabled and scope == 'world' and (proto, port) not in world_known
-                and not first_seen):
+        if (audit_enabled and not muted and scope == 'world'
+                and (proto, port) not in world_known and not first_seen):
             try:
                 fire_webhook('port_exposed_world', {
                     'device_id': dev_id,
@@ -25279,6 +25432,9 @@ def handle_exposure_overview():
     require_auth()
     qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
     want = (qs.get('scope', [''])[0] or '').strip().lower()
+    _cfg = load(CONFIG_FILE) or {}
+    audit_enabled = bool(_cfg.get('port_audit_enabled', False))
+    mutes = _cfg.get('exposure_mutes') or []
     devices = load(DEVICES_FILE)
     rows = []
     counts = {'world': 0, 'lan': 0, 'local': 0, 'unknown': 0}
@@ -25295,10 +25451,53 @@ def handle_exposure_overview():
                 'proto': p.get('proto', 'tcp'), 'port': p.get('port'),
                 'process': p.get('process', ''), 'addr': p.get('addr', ''),
                 'scope': scope,
+                'muted': _exposure_muted(p.get('process'), p.get('proto', 'tcp'),
+                                         p.get('port'), mutes),
             })
     rows.sort(key=lambda r: ({'world': 0, 'lan': 1, 'local': 2}.get(r['scope'], 3),
                              r['device'], r['port'] or 0))
-    respond(200, {'ports': rows, 'counts': counts, 'count': len(rows)})
+    respond(200, {'ports': rows, 'counts': counts, 'count': len(rows),
+                  'audit_enabled': audit_enabled, 'mutes': mutes})
+
+
+def handle_exposure_mute():
+    """POST /api/exposure/mute — add or remove a surgical exposure-mute rule.
+
+    Body: {action: 'add'|'remove', process?, proto?, port?}. Adding a rule
+    silences future new_port_detected / port_exposed_world for matching sockets
+    and resolves any matching open alerts in one move. Admin-only, audited."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    action = body.get('action', 'add')
+    if action not in ('add', 'remove'):
+        respond(400, {'error': "action must be 'add' or 'remove'"}); return
+    rule = {}
+    if body.get('process'):
+        rule['process'] = _sanitize_str(body['process'], 64)
+    if body.get('proto'):
+        rule['proto'] = _sanitize_str(body['proto'], 8)
+    if body.get('port') not in (None, ''):
+        try:
+            rule['port'] = int(body['port'])
+        except (TypeError, ValueError):
+            respond(400, {'error': 'port must be an integer'}); return
+    if not rule:
+        respond(400, {'error': 'specify at least one of process / proto / port'})
+        return
+    with _LockedUpdate(CONFIG_FILE) as cfg:
+        mutes = cfg.get('exposure_mutes') or []
+        if action == 'remove':
+            mutes = [m for m in mutes if m != rule]
+        elif rule not in mutes:
+            mutes.append(rule)
+        cfg['exposure_mutes'] = mutes[:200]
+    resolved = 0
+    if action == 'add':
+        resolved = _resolve_alerts_for_events(_EXPOSURE_ALERT_EVENTS, match_rule=rule)
+    audit_log(actor, 'exposure_mute', detail=f'{action} {rule}')
+    respond(200, {'ok': True, 'mutes': mutes, 'resolved': resolved})
 
 
 def handle_storage_overview():
@@ -29765,6 +29964,7 @@ def _build_exact_routes():
         (None, '/api/software-policy'): handle_software_policy,
         ('GET', '/api/software-policy/violations'): handle_software_policy_violations,
         ('GET', '/api/exposure'): handle_exposure_overview,
+        ('POST', '/api/exposure/mute'): handle_exposure_mute,
         ('GET', '/api/storage'): handle_storage_overview,
         ('POST', '/api/posture-digest/test'): handle_posture_digest_test,
         ('GET', '/api/status'): handle_status,
@@ -30415,6 +30615,9 @@ def main():
     # serving requests, hc.io flips to red and pages someone.
     _safe(ping_healthchecks_if_due, 'ping_healthchecks_if_due')
     _safe(_run_posture_digest_if_due, '_run_posture_digest_if_due')
+    # v3.12.0: SQLite WAL checkpoint (hourly) + weekly VACUUM/integrity_check.
+    # No-op under the default JSON backend.
+    _safe(_sqlite_maintenance_if_due, '_sqlite_maintenance_if_due')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch

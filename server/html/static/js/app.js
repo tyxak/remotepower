@@ -4131,7 +4131,7 @@ function migrateStoragePreview() { _runStorageMigrate({ dry_run: true }); }
 function migrateStorage() {
   const sel = document.getElementById('storage-backend-target');
   const target = sel ? sel.value : 'sqlite';
-  if (!confirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets.`)) return;
+  if (!confirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets — prefer a low-traffic window, as writes that land mid-migration are caught by a re-scan but a busy fleet leaves a small residual window.`)) return;
   _runStorageMigrate({ dry_run: false });
 }
 // v1.11.6: API keys page gets filter+sort
@@ -8865,6 +8865,15 @@ function _renderExposure() {
     addr:   r.addr || '',
     scope:  r.scope || '',
   }));
+  // v3.12.0: discovery banner — visibility leads back to the (opt-in) alerting.
+  const banner = document.getElementById('exposure-banner');
+  if (banner) {
+    const world = (_exposureResp.counts || {}).world || 0;
+    if (!_exposureResp.audit_enabled && world > 0) {
+      banner.hidden = false;
+      banner.innerHTML = `${world} world-reachable service${world === 1 ? '' : 's'} detected. Alerting is off — turn on the Listening-port &amp; firewall audit in <button class="btn-icon cell-sm" data-action-btn="_showPageBtn" data-page="settings">Settings</button> to be notified when a new one appears.`;
+    } else { banner.hidden = true; banner.innerHTML = ''; }
+  }
   if (rows.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" class="isl-534">No listening sockets reported yet. Agents must be on v3.11.0+.</td></tr>';
     return;
@@ -8873,14 +8882,36 @@ function _renderExposure() {
     const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
     return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
   };
-  tbody.innerHTML = rows.map(r => `<tr>
+  tbody.innerHTML = rows.map(r => {
+    const proc = r.process || '';
+    const muteBtn = r.muted
+      ? `<button class="btn-icon cell-sm" data-action="unmuteExposureProcess" data-arg="${escAttr(proc)}" title="Stop muting alerts for ${escAttr(proc)}">Unmute</button>`
+      : (proc ? `<button class="btn-icon cell-sm" data-action="muteExposureProcess" data-arg="${escAttr(proc)}" title="Mute new-port / world-exposed alerts for ${escAttr(proc)}">Mute</button>` : '');
+    return `<tr${r.muted ? ' class="muted-row"' : ''}>
     <td class="fw-500">${escHtml(r.device)}</td>
     <td class="hint">${escHtml(r.proto)}/${r.port}</td>
-    <td>${escHtml(r.process || '—')}</td>
+    <td>${escHtml(proc || '—')}${r.muted ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
     <td class="hint">${escHtml(r.addr || '—')}</td>
     <td>${badge(r.scope)}</td>
-    <td><button class="btn-icon cell-sm" data-action-btn="_showPageBtn" data-page="devices">Devices</button></td>
-  </tr>`).join('');
+    <td>${muteBtn}</td>
+  </tr>`;
+  }).join('');
+}
+
+// v3.12.0: surgical exposure mutes (by process) from the Exposure table.
+async function muteExposureProcess(process) {
+  if (!process) return;
+  if (!confirm(`Mute new-port and world-exposed alerts for "${process}" across the fleet?\n\nAny matching open alerts will be resolved. The Exposure page still lists these sockets.`)) return;
+  const r = await api('POST', '/exposure/mute', { action: 'add', process });
+  if (r && r.ok) {
+    toast(`Muted ${process}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
+    loadExposure();
+  } else { toast('Mute failed', 'error'); }
+}
+async function unmuteExposureProcess(process) {
+  const r = await api('POST', '/exposure/mute', { action: 'remove', process });
+  if (r && r.ok) { toast(`Unmuted ${process}`, 'success'); loadExposure(); }
+  else { toast('Unmute failed', 'error'); }
 }
 document.addEventListener('change', e => {
   if (e.target && e.target.id === 'exposure-scope') {

@@ -475,6 +475,69 @@ class LockedUpdate:
         return False
 
 
+class DeviceTxn:
+    """Heartbeat fast path: atomic read-modify-write of a SINGLE device row.
+
+    BEGIN IMMEDIATE → load one row as {dev_id: dev} → yield → upsert that one
+    row (monotonic last_seen clamp) → COMMIT. Any exception (incl. SystemExit
+    from respond()) → ROLLBACK. O(1): no whole-table scan or rewrite, unlike the
+    generic LockedUpdate which reconstructs every device. Only upserts dev_id —
+    it never deletes other devices (the heartbeat only ever touches its own)."""
+
+    def __init__(self, devices_path, dev_id, non_blocking=False):
+        self.dir = _dir(devices_path)
+        self.dev_id = dev_id
+        self.non_blocking = non_blocking
+
+    def __enter__(self):
+        self.conn = _connect(self.dir)
+        if self.non_blocking:
+            self.conn.execute('PRAGMA busy_timeout=100')
+        try:
+            self.conn.execute('BEGIN IMMEDIATE')
+        except sqlite3.OperationalError as exc:
+            if self.non_blocking and 'locked' in str(exc).lower():
+                raise LockBusyError(self.dev_id)
+            raise
+        finally:
+            if self.non_blocking:
+                self.conn.execute('PRAGMA busy_timeout=10000')
+        row = self.conn.execute(
+            'SELECT doc, last_seen FROM devices WHERE id=?',
+            (self.dev_id,)).fetchone()
+        self._cur_ls = int(row['last_seen']) if row else 0
+        dev = json.loads(row['doc']) if row else None
+        self._data = {self.dev_id: dev} if dev is not None else {}
+        return self._data
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            dev = self._data.get(self.dev_id)
+            if exc_type is None and dev is not None:
+                try:
+                    inc = int((dev or {}).get('last_seen', 0) or 0)
+                except (TypeError, ValueError, AttributeError):
+                    inc = 0
+                new_ls = max(inc, self._cur_ls)
+                if new_ls != inc:
+                    dev = dict(dev)
+                    dev['last_seen'] = new_ls
+                self.conn.execute(
+                    'INSERT INTO devices(id, doc, last_seen) VALUES(?,?,?) '
+                    'ON CONFLICT(id) DO UPDATE SET doc=excluded.doc, last_seen=excluded.last_seen',
+                    (self.dev_id, _dumps(dev), new_ls))
+                self.conn.execute('COMMIT')
+            else:
+                self.conn.execute('ROLLBACK')
+        except Exception:
+            try:
+                self.conn.execute('ROLLBACK')
+            except Exception:
+                pass
+            raise
+        return False
+
+
 class LockBusyError(Exception):
     """Raised by LockedUpdate(non_blocking=True) when the write lock is
     contended. api.py translates this into its own LockBusy so the heartbeat
@@ -623,6 +686,36 @@ def doc_size(path):
     r = conn.execute('SELECT LENGTH(doc) AS b FROM kv WHERE path=?',
                     (_name(path),)).fetchone()
     return int(r['b']) if r else 0
+
+
+def maintenance(data_dir=None, full=False):
+    """Periodic upkeep for the database. Always truncates the WAL (which would
+    otherwise grow unbounded between connection closes); when `full`, also
+    VACUUMs (reclaims free pages) and runs an integrity_check. Returns a dict
+    with what ran + the resulting db size and integrity verdict."""
+    conn = _connect(data_dir)
+    result = {}
+    try:
+        conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+        result['checkpoint'] = True
+    except sqlite3.Error as e:
+        result['checkpoint_error'] = str(e)
+    if full:
+        try:
+            conn.execute('VACUUM')   # must be outside a transaction (autocommit)
+            result['vacuum'] = True
+        except sqlite3.Error as e:
+            result['vacuum_error'] = str(e)
+        try:
+            row = conn.execute('PRAGMA integrity_check').fetchone()
+            result['integrity'] = row[0] if row else 'unknown'
+        except sqlite3.Error as e:
+            result['integrity'] = f'error: {e}'
+    try:
+        result['db_bytes'] = db_path(data_dir).stat().st_size
+    except OSError:
+        result['db_bytes'] = None
+    return result
 
 
 def snapshot(dest, data_dir=None):
@@ -810,9 +903,34 @@ def migrate_run(data_dir, target, dry_run=False, verify_only=False,
         log(f"snapshot: {snap}")
 
     if target == 'sqlite':
+        t0 = time.time()
         names = migrate_json_to_sqlite(data_dir, log=log)
+        # Catch-up passes: a live heartbeat can write a JSON file (the active
+        # backend is still JSON until we flip) after we copied it. Re-migrate
+        # any source file whose mtime advanced during the copy. Bounded — a
+        # continuously-written file (devices.json on a busy fleet) shrinks to a
+        # sub-second residual window rather than being fully frozen.
+        for _ in range(3):
+            changed = []
+            for n in json_inventory(data_dir):
+                try:
+                    if (data_dir / n).stat().st_mtime >= t0:
+                        changed.append(n)
+                except OSError:
+                    pass
+            if not changed:
+                break
+            t0 = time.time()
+            for n in changed:
+                save(data_dir / n, _read_json(data_dir / n), clamp_last_seen=False)
+            log(f"catch-up: re-migrated {len(changed)} file(s) "
+                f"written during migration")
     else:
         names = migrate_sqlite_to_json(data_dir, log=log)
+        # Reverse direction: SQLite is the active backend until the flip, so a
+        # heartbeat may have updated a row after we read it. A second full pass
+        # is cheap and idempotent and narrows the window.
+        migrate_sqlite_to_json(data_dir, log=lambda m: None)
 
     ok, problems = verify_migration(data_dir, log=log)
     if not ok:

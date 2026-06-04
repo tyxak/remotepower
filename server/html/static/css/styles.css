@@ -566,6 +566,7 @@
   .sb-controls { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
   .sb-warn { color: #c2410c; margin-top: 4px; }
   .sb-result { white-space: pre-wrap; margin-top: 10px; max-height: 240px; overflow: auto; }
+  .muted-row { opacity: 0.55; }
   .doc-card kbd {
     background: var(--surface2);
     border: 1px solid var(--border);

@@ -144,6 +144,45 @@ class TestRowHelpers(_Base):
         self.assertEqual(over, [{'i': 1}])  # last append evicted i=1
 
 
+class TestDeviceTxn(_Base):
+    """v3.12.0 heartbeat fast path: single-device atomic update."""
+    def test_updates_one_keeps_others(self):
+        storage.save(self.p('devices.json'),
+                     {'d1': {'last_seen': 100}, 'd2': {'last_seen': 50}})
+        with storage.DeviceTxn(self.p('devices.json'), 'd1') as devs:
+            self.assertEqual(set(devs), {'d1'})  # single-row view
+            devs['d1']['last_seen'] = 200
+        out = storage.load(self.p('devices.json'))
+        self.assertEqual(set(out), {'d1', 'd2'})       # d2 not deleted
+        self.assertEqual(out['d1']['last_seen'], 200)
+        self.assertEqual(out['d2'], {'last_seen': 50})
+
+    def test_clamps_last_seen(self):
+        storage.save(self.p('devices.json'), {'d1': {'last_seen': 100}})
+        with storage.DeviceTxn(self.p('devices.json'), 'd1') as devs:
+            devs['d1']['last_seen'] = 5
+        self.assertEqual(
+            storage.load(self.p('devices.json'))['d1']['last_seen'], 100)
+
+    def test_rollback_on_exception(self):
+        storage.save(self.p('devices.json'), {'d1': {'last_seen': 100}})
+        with self.assertRaises(RuntimeError):
+            with storage.DeviceTxn(self.p('devices.json'), 'd1') as devs:
+                devs['d1']['last_seen'] = 999
+                raise RuntimeError('boom')
+        self.assertEqual(
+            storage.load(self.p('devices.json'))['d1']['last_seen'], 100)
+
+    def test_single_row_written(self):
+        storage.save(self.p('devices.json'),
+                     {'d%d' % i: {'last_seen': i} for i in range(20)})
+        conn = storage._connect(self.d)
+        before = conn.total_changes
+        with storage.DeviceTxn(self.p('devices.json'), 'd5') as devs:
+            devs['d5']['last_seen'] = 999
+        self.assertEqual(conn.total_changes - before, 1)
+
+
 class TestPresence(_Base):
     def test_exists_parity(self):
         self.assertFalse(storage.exists(self.p('devices.json')))

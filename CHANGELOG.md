@@ -35,8 +35,34 @@ row write.
   fire unless an operator turns the audit on. The baselines keep updating while
   off (so enabling later doesn't fire a catch-up burst) and the Exposure page
   still lists every socket regardless.
+- **Surgical exposure mutes.** A per-process **Mute** button on the Exposure
+  table (and `POST /api/exposure/mute`, config `exposure_mutes`) silences
+  `new_port_detected` / `port_exposed_world` for a known-noisy process (e.g.
+  `docker-proxy`) without disabling the whole audit, and resolves matching open
+  alerts in the same click. Muted rows are flagged and can be un-muted.
+- **Exposure discovery banner.** When alerting is off but world-reachable
+  services exist, the Exposure page shows a banner linking to the toggle — the
+  always-on visibility leads back to the opt-in alerting.
+- **Auto-resolve on suppression.** Turning the audit off resolves the open
+  `new_port_detected` / `port_exposed_world` / `firewall_changed` backlog in one
+  action (clears the inbox instead of leaving stale alerts).
+- **SQLite maintenance.** Hourly WAL checkpoint + weekly `VACUUM` /
+  `integrity_check` (due-gated, no-op under JSON); DB size + last integrity
+  verdict surfaced on Server Status. A failed integrity check is logged loudly.
 
 ### Changed
+- **Heartbeat is now a single-row write under SQLite.** `handle_heartbeat`
+  updates one device row via `BEGIN IMMEDIATE` (`_DeviceUpdate` /
+  `storage.DeviceTxn`) instead of reconstructing every device — O(1) read+write
+  on the hot path. JSON behaviour is unchanged.
+- **Device deletion now purges posture/security baselines.** `handle_device_delete`
+  cleans up `port_baseline`, `posture_state`, `ssh_key_baseline`, `brute_force`,
+  `software_violations`, `cve_findings`, `snmp_data`, `hardware`, `av_status`
+  too — a deleted device no longer ghosts, and a same-id re-enroll can't inherit
+  a stale baseline that suppresses its first legitimate alert.
+- **Migration catch-up pass.** The migrate flow re-copies any source file a live
+  heartbeat wrote during the copy before flipping the active backend, shrinking
+  the write-loss window (prefer a low-traffic window for a busy fleet).
 - Backup/export, the scheduled tarball backup, and the self-status disk report
   now go through the backend seam (`backend_iter_files()` / `backend_exists()` /
   consistent SQLite online-backup snapshot) instead of globbing/`stat()`-ing the
