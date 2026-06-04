@@ -1263,6 +1263,14 @@
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
   select.form-input { cursor: pointer; }
+  /* v3.12.0: one consistent checkbox/radio size + colour across the whole UI
+     (they were rendering at assorted browser-default sizes). flex:none keeps
+     them from shrinking inside flex rows. Mobile bumps to 20px further down. */
+  input[type="checkbox"], input[type="radio"] {
+    width: 16px; height: 16px; min-width: 16px;
+    accent-color: var(--accent);
+    cursor: pointer; margin: 0; vertical-align: middle; flex: none;
+  }
   table { width: 100%; border-collapse: collapse; }
   th {
     text-align: left; padding: 10px 12px;
@@ -1461,7 +1469,7 @@
     text-align: right;
   }
   .event-toggle-table .toggle-switch {
-    width: 18px; height: 18px; accent-color: var(--accent);
+    accent-color: var(--accent);
     cursor: pointer;
   }
   .event-toggle-table .event-extra {
@@ -3207,7 +3215,9 @@ button, a, [role="button"],
 .isl-54 { font-size:12px; margin-top:8px; display:none; padding:8px 12px; border-radius:6px; font-family:monospace }
 .isl-55 { margin-top:8px; font-size:12px }
 .isl-56 { display:none; color:var(--green) }
-.isl-57 { flex-wrap:wrap; gap:12px; align-items:flex-end }
+/* v3.12.0: top-align so a field with a hint below (e.g. AI Model) doesn't push
+   the sibling selects (Enabled / Provider) upward out of line. */
+.isl-57 { flex-wrap:wrap; gap:12px; align-items:flex-start }
 .isl-58 { min-width:120px }
 .isl-59 { min-width:220px }
 .isl-60 { min-width:140px }

@@ -15901,11 +15901,11 @@ function _renderForecastTable() {
   }
   const emptyNote = total === 0
     ? '<div class="c-muted p-12">No mounts match the current filter.</div>' : '';
-  body.innerHTML = `<table class="audit-table"><thead id="forecast-thead"><tr>
+  body.innerHTML = `<div class="table-card"><table class="audit-table"><thead id="forecast-thead"><tr>
     <th data-col="device">Device</th><th data-col="mount">Mount</th>
     <th data-col="used">Used</th><th data-col="used">%</th>
     <th data-col="perday">Trend</th><th data-col="days">Fills in</th>
-    <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table>${emptyNote}${footer}`;
+    <th data-col="fill">Fill date</th></tr></thead><tbody>${rows}</tbody></table></div>${emptyNote}${footer}`;
   // Wire sort after the thead exists (re-wires each render — safe).
   tableCtl.wireSortOnly('forecast-thead', 'forecast', _renderForecastTable);
 }

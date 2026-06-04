@@ -1428,10 +1428,7 @@
             <h3>Scheduled backup</h3>
             <p class="hint">Daily snapshot of <code>/var/lib/remotepower</code> to a tarball. Triggered once per 24h via the heartbeat hook (cheap when not due). Backup state and a "Run now" button are on the <a href="#" data-action-btn="_homeNavAction" data-home-act="self" data-prevent-default class="c-accent">Server status</a> page.</p>
             <div class="settings-row">
-              <label class="form-label" for="backup-enabled">Enabled</label>
-              <label class="click-row">
-                <input type="checkbox" id="backup-enabled" checked>
-              </label>
+              <label class="click-row"><input type="checkbox" id="backup-enabled" checked> <span class="form-label">Enabled</span></label>
             </div>
             <div class="settings-row">
               <label class="form-label" for="backup-path">Output path</label>
@@ -1447,10 +1444,7 @@
             <h3>Debug logging</h3>
             <p class="hint">When enabled, verbose logs are written to the browser console (F12 → Console) and to <code>/var/lib/remotepower/debug.log</code> on the server. Disable in production — the log file grows unbounded.</p>
             <div class="settings-row">
-              <label class="form-label">Enable debug logging</label>
-              <label class="click-row">
-                <input type="checkbox" id="debug-logging-toggle" data-change="saveDebugLogging" data-change-checked="1" >
-              </label>
+              <label class="click-row"><input type="checkbox" id="debug-logging-toggle" data-change="saveDebugLogging" data-change-checked="1"> <span class="form-label">Enable debug logging</span></label>
             </div>
             <button class="btn-secondary isl-55"
                     data-action="downloadDebugLog" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download server debug log</button>
