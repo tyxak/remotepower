@@ -12862,7 +12862,7 @@ async function loadChannelMatrix() {
       </tr>`;
     }
   }
-  el.innerHTML = `<div class="table-card"><table>${head}<tbody>${body}</tbody></table></div>`;
+  el.innerHTML = `<div class="table-card sticky-head-scroll"><table>${head}<tbody>${body}</tbody></table></div>`;
 }
 
 async function toggleChannelRoute(arg, on) {

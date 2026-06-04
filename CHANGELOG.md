@@ -161,6 +161,13 @@ row write.
   cards get inner padding so their text and the *Add rule* button no longer butt
   against the card border. The settings-search empty hint sits a touch lower so
   it isn't tucked under the search field (and moved off an inline style for CSP).
+  The **Channel-routing matrix** and **Per-event toggles** tables now scroll
+  inside a fixed-height box with a **sticky header row**, so the Kind / Needs
+  Attention / Recent Activity / Alerts / Webhook columns stay labelled however
+  far you scroll. The **CMDB asset editor** dialog is now a fixed height, so
+  switching tabs (Properties / Documentation / Credentials / Hardware /
+  Contracts & contacts / SNMP) no longer resizes and re-centres the window — the
+  active tab scrolls internally instead.
 - Avatar upload now downscales via a `data:` URL (FileReader) instead of a
   `blob:` URL, so it no longer trips the `img-src 'self' data:` CSP. The avatar
   is also **fetched with the auth token and rendered as a `data:` URL** rather
