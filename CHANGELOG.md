@@ -29,6 +29,11 @@ row write.
   failures**, **outdated running kernel**, and **failed system services**. Every
   point is attributed to a named factor. The score also blends into fleet
   health, so a high-risk asset can't read as perfectly healthy.
+- **Searchable dropdowns.** Any `<select>` that grows past 15 options (a device
+  picker on a large fleet, say) automatically gets a small **type-to-filter**
+  input above it that hides non-matching options — applied non-invasively to
+  page and modal selects (the select keeps its value and listeners). Opt out
+  with `data-nofilter`.
 - **Large-fleet UI scalability.** Pages that previously rendered an unfiltered
   list now have a **filter box**: Risk, Storage health, Exposure, Software-policy
   violations, Compose stacks, Proxmox LXC, Rollouts, Automation, Compliance and

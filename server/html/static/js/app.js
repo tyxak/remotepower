@@ -978,9 +978,12 @@ function showPage(name, btn) {
   if (name === 'exposure')   loadExposure();
   if (name === 'storage')    loadStorage();
   if (name === 'software-policy') loadSoftwarePolicy();
+  // v3.12.0: make any long <select> on the page searchable once its loader
+  // (often async) has populated it.
+  if (el) { enhanceLongSelects(el); setTimeout(() => enhanceLongSelects(el), 350); }
 }
 
-const _MON_PANELS = ['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
+const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
 function _showAllMonPanels() {
   _MON_PANELS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'block'; });
 }
@@ -2469,6 +2472,11 @@ function openModal(id) {
   document.body.classList.remove('mobile-nav-open');
   el.classList.add('active');
   document.body.classList.add('modal-open');
+  // v3.12.0: searchable long dropdowns. Run now (sync-populated selects), next
+  // frame, and once more after typical fetch latency (async-populated selects).
+  enhanceLongSelects(el);
+  requestAnimationFrame(() => enhanceLongSelects(el));
+  setTimeout(() => enhanceLongSelects(el), 350);
 }
 function closeModal(id) {
   const el = document.getElementById(id);
@@ -2576,6 +2584,36 @@ function filterRows(inputEl) {
     const cnt = document.getElementById(inputEl.dataset.filterCount);
     if (cnt) cnt.textContent = q ? `${shown} of ${total}` : '';
   }
+}
+
+// v3.12.0: searchable dropdowns for large fleets. Any <select> that grows past
+// 15 options (e.g. a device picker on a big fleet) gets a small type-to-filter
+// input inserted just before it; typing hides non-matching <option>s. Non-
+// invasive (the select keeps its value/listeners) and idempotent. Opt out with
+// data-nofilter on the select.
+function _searchifySelect(sel) {
+  if (!sel || sel.multiple || sel._searchified || sel.dataset.nofilter !== undefined) return;
+  if (!sel.options || sel.options.length < 15) return;
+  sel._searchified = true;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'form-input select-filter';
+  inp.placeholder = 'Type to filter…';
+  inp.setAttribute('aria-label', 'Filter options');
+  inp.addEventListener('input', () => {
+    const q = inp.value.trim().toLowerCase();
+    Array.from(sel.options).forEach(o => {
+      // always keep the selected option and any placeholder/all/none sentinel
+      const keep = !q || o.selected || o.value === '' || o.value === 'all'
+                   || o.value === '__none__' || (o.text || '').toLowerCase().includes(q);
+      o.hidden = !keep;
+    });
+  });
+  if (sel.parentNode) sel.parentNode.insertBefore(inp, sel);
+}
+function enhanceLongSelects(root) {
+  try { (root || document).querySelectorAll('select').forEach(_searchifySelect); }
+  catch (e) { /* never let enhancement break a page */ }
 }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;

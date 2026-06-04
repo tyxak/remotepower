@@ -671,6 +671,12 @@ class TestLargeFleetUI(unittest.TestCase):
         self.assertIn('_cmdqMorePending', self.app)
         self.assertIn('id="cmdqueue-filter"', self.html)
 
+    def test_searchable_selects(self):
+        # long <select>s get a type-to-filter input, wired from showPage/openModal
+        self.assertIn('function enhanceLongSelects(', self.app)
+        self.assertIn('function _searchifySelect(', self.app)
+        self.assertIn('enhanceLongSelects(el)', self.app)
+
 
 class TestExposureHostMute(unittest.TestCase):
     """v3.12.0: mute ALL exposure from one host (device_id-scoped rule)."""
