@@ -4155,6 +4155,29 @@ function _renderRisk() {
 let _meCache = null;
 function _initials(name) { return (String(name || '?').trim().slice(0, 2) || '?').toUpperCase(); }
 
+// The avatar endpoint is auth-gated (X-Token header), and a bare <img src> can't
+// send that header — it would 401. So fetch the bytes with the token and render
+// a data: URL (blob: is blocked by the img-src CSP). Falls back to initials.
+async function _renderAvatar(el, username) {
+  if (!el) return;
+  el.textContent = _initials(username);   // immediate fallback
+  try {
+    const r = await fetch('/api/me/avatar', { headers: { 'X-Token': getToken() } });
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error('read failed'));
+      fr.readAsDataURL(blob);
+    });
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = dataUrl;
+    el.replaceChildren(img);
+  } catch (e) { /* keep initials */ }
+}
+
 async function loadMe() {
   const me = await api('GET', '/me');
   if (!me) return null;
@@ -4163,7 +4186,7 @@ async function loadMe() {
   const nm = document.getElementById('topbar-username');
   if (nm) nm.textContent = me.username || '';
   if (av) {
-    if (me.has_avatar) av.innerHTML = `<img src="/api/me/avatar?ts=${Date.now()}" alt="">`;
+    if (me.has_avatar) _renderAvatar(av, me.username);
     else av.textContent = _initials(me.username);
   }
   return me;
@@ -4194,7 +4217,7 @@ async function loadAccount() {
   if (rb) { rb.textContent = me.role; rb.setAttribute('data-color', me.admin ? 'var(--green)' : 'var(--muted)'); }
   const big = document.getElementById('acct-avatar-preview');
   if (big) {
-    if (me.has_avatar) big.innerHTML = `<img src="/api/me/avatar?ts=${Date.now()}" alt="">`;
+    if (me.has_avatar) _renderAvatar(big, me.username);
     else big.textContent = _initials(me.username);
   }
   const pe = document.getElementById('acct-permissions');

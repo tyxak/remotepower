@@ -162,7 +162,11 @@ row write.
   against the card border. The settings-search empty hint sits a touch lower so
   it isn't tucked under the search field (and moved off an inline style for CSP).
 - Avatar upload now downscales via a `data:` URL (FileReader) instead of a
-  `blob:` URL, so it no longer trips the `img-src 'self' data:` CSP.
+  `blob:` URL, so it no longer trips the `img-src 'self' data:` CSP. The avatar
+  is also **fetched with the auth token and rendered as a `data:` URL** rather
+  than a bare `<img src="/api/me/avatar">` — the endpoint is token-gated, so the
+  plain image request was returning 401; it now loads (with an initials
+  fallback).
 
 ### Notes
 - Flat JSON remains the default; existing installs are unaffected until an
