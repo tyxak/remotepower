@@ -13468,6 +13468,7 @@ const _AUDIT_SECTIONS = [
   {key: 'metrics',   title: 'Metrics',           icon: 'clock',    group: 'Health'},
   {key: 'hardware',  title: 'Health & Hardware', icon: 'hardDrive',group: 'Health'},
   {key: 'ports',     title: 'Listening Ports',   icon: 'unplug',   group: 'Security'},
+  {key: 'firewall',  title: 'Firewall',          icon: 'shield',   group: 'Security'},
   {key: 'cve',       title: 'CVE Summary',       icon: 'sparkles', group: 'Security'},
   {key: 'drift',     title: 'Drift State',       icon: 'search',   group: 'Security'},
   {key: 'packages',  title: 'Packages',          icon: 'package',  group: 'Software'},
@@ -13660,6 +13661,40 @@ async function _loadAuditSection(key) {
             </tbody>
           </table>`;
         badge.textContent = `${ports.length} ports`;
+        break;
+      }
+
+      case 'firewall': {
+        const data = await api('GET', `/devices/${id}/sysinfo`);
+        const fw   = data?.sysinfo?.firewall;
+        if (!fw || !(fw.backends || []).length) {
+          body.innerHTML = '<div class="c-muted">No firewall data yet. Agents on v3.12.0+ report nftables / iptables / ufw / ebtables posture with sysinfo (~10 min).</div>';
+          badge.textContent = 'none';
+          return;
+        }
+        const yes = '<span class="c-green">●</span>';
+        const no  = '<span class="c-muted">○</span>';
+        const rows = fw.backends.map(b => {
+          const extra = b.policy ? `policy ${escHtml(b.policy)}`
+                      : (b.default ? escHtml(b.default) : '—');
+          return `<tr>
+            <td><code>${escHtml(b.name)}</code></td>
+            <td class="ta-center">${b.present ? yes : no}</td>
+            <td class="ta-center">${b.active ? `<span class="c-green">active</span>` : `<span class="c-muted">inactive</span>`}</td>
+            <td class="ta-center">${b.rules ?? 0}</td>
+            <td class="c-muted">${extra}</td>
+          </tr>`;
+        }).join('');
+        const warn = fw.active ? '' :
+          `<div class="fs-12 mb-8 c-red"><strong>No active host firewall.</strong> This raises the asset's risk score.</div>`;
+        body.innerHTML = warn + `
+          <table class="ports-table isl-633">
+            <thead><tr class="isl-634">
+              <th>Backend</th><th class="ta-center">Installed</th><th class="ta-center">State</th><th class="ta-center">Rules</th><th>Default</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+        badge.textContent = fw.active ? 'active' : 'inactive';
         break;
       }
 

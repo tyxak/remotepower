@@ -230,7 +230,9 @@ class TestAgentHostHealth(unittest.TestCase):
         allowed = {'reboot_required', 'reboot_reason', 'failed_units',
                    'logged_in', 'listening_ports', 'last_boot',
                    # v3.11.0 posture probes
-                   'storage_health', 'auth', 'timers', 'firewall_fp'}
+                   'storage_health', 'auth', 'timers', 'firewall_fp',
+                   # v3.12.0 per-backend firewall posture
+                   'firewall'}
         for k in result:
             self.assertIn(k, allowed, f'undocumented key {k!r}')
 

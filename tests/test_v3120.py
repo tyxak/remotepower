@@ -450,6 +450,38 @@ class TestRiskScores(unittest.TestCase):
         self.assertNotIn('firewall_off',
                          {f['kind'] for f in risks['fw-on']['factors']})
 
+    def test_risk_firewall_summary(self):
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {
+            # richer per-backend summary, none active -> firewall_off
+            'off': {'name': 'off', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'firewall': {'active': False, 'backends': [
+                    {'name': 'nftables', 'present': True, 'active': False, 'rules': 0},
+                    {'name': 'ufw', 'present': True, 'active': False, 'rules': 0}]}}},
+            # active with rules -> no firewall_off
+            'on': {'name': 'on', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'firewall': {'active': True, 'backends': [
+                    {'name': 'nftables', 'present': True, 'active': True, 'rules': 20}]}}},
+            # active but iptables defaults to ACCEPT with no rules -> half-weight flag
+            'open': {'name': 'open', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'firewall': {'active': True, 'backends': [
+                    {'name': 'iptables', 'present': True, 'active': True,
+                     'rules': 0, 'policy': 'ACCEPT'}]}}},
+        })
+        risks = {r['device_name']: r for r in api._compute_fleet_risk()}
+        self.assertIn('firewall_off', {f['kind'] for f in risks['off']['factors']})
+        self.assertNotIn('firewall_off', {f['kind'] for f in risks['on']['factors']})
+        openf = [f for f in risks['open']['factors'] if f['kind'] == 'firewall_off']
+        self.assertTrue(openf and openf[0]['points'] < api._RISK_WEIGHTS['firewall_off'])
+
+    def test_risk_firewall_fp_fallback(self):
+        # older agent ships only the drift fingerprint
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'monitored': True,
+            'last_seen': now, 'sysinfo': {'firewall_fp': {'backend': 'none', 'rules': 0}}}})
+        r = api._compute_fleet_risk()[0]
+        self.assertIn('firewall_off', {f['kind'] for f in r['factors']})
+
     def test_risk_only_one_degraded_counted(self):
         now = int(time.time())
         api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'monitored': True,
@@ -603,6 +635,33 @@ class TestAgentLogRotation(unittest.TestCase):
         self.assertIn('RotatingFileHandler', src)
         self.assertIn('_agent_file_log_handler', src)
         self.assertIn('maxBytes=5 * 1024 * 1024', src)
+
+
+class TestAgentFirewallDetail(unittest.TestCase):
+    """v3.12.0: agent collects per-backend firewall posture into sysinfo."""
+    def setUp(self):
+        import importlib.util
+        p = Path(__file__).resolve().parent.parent / 'client' / 'remotepower-agent.py'
+        spec = importlib.util.spec_from_file_location('rp_agent_fw', p)
+        self.ag = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.ag)
+
+    def test_collector_contract(self):
+        r = self.ag.collect_firewall_detail()
+        # None when no backend tools are installed; otherwise a typed summary.
+        if r is not None:
+            self.assertIn('backends', r)
+            self.assertIn('active', r)
+            for b in r['backends']:
+                self.assertIn(b['name'], ('nftables', 'iptables', 'ufw', 'ebtables'))
+                self.assertIsInstance(b['rules'], int)
+                self.assertIsInstance(b['active'], bool)
+
+    def test_wired_into_host_health(self):
+        src = (Path(__file__).resolve().parent.parent /
+               'client' / 'remotepower-agent.py').read_text()
+        self.assertIn('def collect_firewall_detail', src)
+        self.assertIn("out['firewall'] = _fwd", src)
 
 
 if __name__ == '__main__':

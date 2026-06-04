@@ -7895,6 +7895,34 @@ def handle_heartbeat():
                     'rules':   int(rules) if isinstance(rules, int) and 0 <= rules <= 100000 else 0,
                     'fp':      _sanitize_str(fw.get('fp', ''), 64),
                 }
+            # v3.12.0: per-backend firewall posture (nftables/iptables/ufw/ebtables)
+            if isinstance(si.get('firewall'), dict):
+                fwd = si['firewall']
+                _allowed_be = {'nftables', 'iptables', 'ufw', 'ebtables', 'firewalld'}
+                safe_bes = []
+                for be in (fwd.get('backends') or [])[:8]:
+                    if not isinstance(be, dict):
+                        continue
+                    nm = _sanitize_str(be.get('name', ''), 16)
+                    if nm not in _allowed_be:
+                        continue
+                    rn = be.get('rules')
+                    sb = {
+                        'name':    nm,
+                        'present': bool(be.get('present')),
+                        'active':  bool(be.get('active')),
+                        'rules':   int(rn) if isinstance(rn, int) and 0 <= rn <= 100000 else 0,
+                    }
+                    if be.get('policy'):
+                        sb['policy'] = _sanitize_str(be.get('policy'), 16)
+                    if be.get('default'):
+                        sb['default'] = _sanitize_str(be.get('default'), 80)
+                    safe_bes.append(sb)
+                if safe_bes:
+                    safe_si['firewall'] = {
+                        'backends': safe_bes,
+                        'active':   any(b['active'] for b in safe_bes),
+                    }
             # v3.8.0: persist failed systemd units. The agent has always
             # shipped this in sysinfo, but the sanitiser never copied it —
             # silently dead-ending the Fleet Query "failed units" filter,
@@ -18983,13 +19011,28 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
     if si.get('reboot_required'):
         _add('reboot_required', _RISK_WEIGHTS['reboot_required'], 'reboot required')
     # ── v3.12.0: firewall posture ────────────────────────────────────────────
-    fw = si.get('firewall_fp')
-    if isinstance(fw, dict):
-        fwb = (fw.get('backend') or '').lower()
-        if fwb == 'none':
-            _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'no host firewall active')
-        elif fwb and not fw.get('rules'):
-            _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'host firewall has no rules')
+    fwsum = si.get('firewall')
+    if isinstance(fwsum, dict) and fwsum.get('backends'):
+        # Richer per-backend view (nftables/iptables/ufw/ebtables).
+        if not fwsum.get('active'):
+            _add('firewall_off', _RISK_WEIGHTS['firewall_off'],
+                 'no active host firewall (nftables/iptables/ufw/ebtables)')
+        else:
+            for b in fwsum['backends']:
+                if (b.get('active') and not b.get('rules')
+                        and (b.get('policy') or '').upper() == 'ACCEPT'):
+                    _add('firewall_off', max(1, _RISK_WEIGHTS['firewall_off'] // 2),
+                         f"{b.get('name')} defaults to ACCEPT with no rules")
+                    break
+    else:
+        # Fallback for agents that only ship the drift fingerprint.
+        fw = si.get('firewall_fp')
+        if isinstance(fw, dict):
+            fwb = (fw.get('backend') or '').lower()
+            if fwb == 'none':
+                _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'no host firewall active')
+            elif fwb and not fw.get('rules'):
+                _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'host firewall has no rules')
     # ── v3.12.0: storage / RAID health ───────────────────────────────────────
     bad_pools = [p for p in (si.get('storage_health') or [])
                  if isinstance(p, dict)

@@ -29,6 +29,15 @@ row write.
   failures**, **outdated running kernel**, and **failed system services**. Every
   point is attributed to a named factor. The score also blends into fleet
   health, so a high-risk asset can't read as perfectly healthy.
+- **Host firewall posture.** The agent now probes every backend it finds —
+  **nftables, iptables, ufw, ebtables** — reporting for each whether the tool is
+  installed, whether it has an active ruleset, a rough rule count, and (where
+  cheap) the default policy. It surfaces in the device drawer under
+  **Audit → Firewall** (a per-backend table) and **feeds the risk score**: a host
+  with no active firewall is flagged `firewall_off`, and an iptables backend that
+  defaults to `ACCEPT` with no rules gets a smaller "effectively open" penalty.
+  Older agents that only ship the drift fingerprint fall back to the previous
+  behaviour. (`sysinfo.firewall` alongside the existing `firewall_fp`.)
 - **Mount-point monitoring.** The agent compares `/etc/fstab` against live
   mounts and probes mounted network shares (NFS/SMB) for responsiveness — a new
   `mount_issue` event fires (edge-triggered) when an auto fstab entry isn't

@@ -2480,6 +2480,80 @@ def _sock_scope(addr):
         return 'world'
 
 
+def collect_firewall_detail():
+    """v3.12.0: per-backend host-firewall posture — nftables, iptables, ufw,
+    ebtables. For each backend report whether the tool is present, whether it
+    has an active ruleset, a rough rule count, and (where cheap) the default
+    policy. Best-effort and root-dependent; each probe is isolated so one
+    missing tool never sinks the rest. Feeds the device Audit -> Firewall view
+    and the per-asset risk score."""
+    def _run(cmd, timeout=6):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            return r.returncode, r.stdout or ''
+        except Exception:
+            return 1, ''
+    backends = []
+
+    # nftables — the modern in-kernel firewall
+    if _which('nft'):
+        rc, txt = _run(['nft', 'list', 'ruleset'])
+        active = rc == 0 and bool(txt.strip())
+        rules = sum(1 for l in txt.splitlines()
+                    if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ')))
+        backends.append({'name': 'nftables', 'present': True,
+                         'active': active, 'rules': rules})
+
+    # iptables (legacy filter table) — read the default INPUT policy + rule count
+    if _which('iptables-save'):
+        rc, txt = _run(['iptables-save'])
+        policy, rules = '', 0
+        for l in txt.splitlines():
+            if l.startswith(':INPUT '):
+                parts = l.split()
+                if len(parts) >= 2:
+                    policy = parts[1]
+            elif l.startswith('-A '):
+                rules += 1
+        active = rc == 0 and (rules > 0 or policy in ('DROP', 'REJECT'))
+        b = {'name': 'iptables', 'present': True, 'active': active, 'rules': rules}
+        if policy:
+            b['policy'] = policy
+        backends.append(b)
+
+    # ufw — a front-end (counted separately because operators manage it directly)
+    if _which('ufw'):
+        rc, txt = _run(['ufw', 'status', 'verbose'])
+        active = 'status: active' in txt.lower()
+        default, rules = '', 0
+        for l in txt.splitlines():
+            ls = l.strip()
+            if ls.lower().startswith('default:'):
+                default = ls.split(':', 1)[1].strip()
+            elif any(tok in l for tok in ('ALLOW', 'DENY', 'REJECT', 'LIMIT')):
+                rules += 1
+        b = {'name': 'ufw', 'present': True, 'active': active, 'rules': rules}
+        if default:
+            b['default'] = default
+        backends.append(b)
+
+    # ebtables — layer-2 / bridge firewall
+    if _which('ebtables'):
+        rc, txt = _run(['ebtables', '-L'])
+        rules = 0
+        for l in txt.splitlines():
+            ls = l.strip()
+            if not ls or ls.startswith('Bridge table') or ls.startswith('Bridge chain'):
+                continue
+            rules += 1
+        backends.append({'name': 'ebtables', 'present': True,
+                         'active': rc == 0 and rules > 0, 'rules': rules})
+
+    if not backends:
+        return None
+    return {'backends': backends, 'active': any(b['active'] for b in backends)}
+
+
 def get_host_health():
     """v2.2.6: extra host telemetry — cheap signals an operator wants
     at a glance but that weren't collected before. Everything here is
@@ -2798,6 +2872,14 @@ def get_host_health():
                 'backend': fw_backend, 'rules': n,
                 'fp': hashlib.sha256(
                     fw_text.encode('utf-8', 'replace')).hexdigest()[:16]}
+    except Exception:
+        pass
+
+    # v3.12.0: richer per-backend firewall posture (Audit -> Firewall + risk)
+    try:
+        _fwd = collect_firewall_detail()
+        if _fwd:
+            out['firewall'] = _fwd
     except Exception:
         pass
 
