@@ -1152,6 +1152,8 @@ def _lock_path(path):
 # after flipping so later ops in the same request see the new backend.
 STORAGE_MARKER_FILE = DATA_DIR / 'storage_backend.json'
 SQLITE_MAINT_FILE = DATA_DIR / 'sqlite_maint.json'   # v3.12.0: maint timestamps
+AVATARS_DIR = DATA_DIR / 'avatars'                   # v3.12.0: per-user profile pics
+MAX_AVATAR_BYTES = 512 * 1024
 _BACKEND_CACHE = None
 
 
@@ -9593,6 +9595,12 @@ def handle_config_save():
                 'format':   fmt,
                 'enabled':  bool(entry.get('enabled', True)),
             }
+            # v3.12.0: also fire this destination with the FULL alert record
+            # when an operator acknowledges an alert (e.g. open a ticket). This
+            # is independent of the per-event/priority filters below — it's an
+            # explicit per-destination opt-in.
+            if entry.get('on_ack'):
+                clean_entry['on_ack'] = True
             # Optional per-destination filters
             if 'events' in entry and isinstance(entry['events'], list):
                 clean_entry['events'] = [
@@ -21670,6 +21678,9 @@ def handle_alerts_list():
     else:  # open
         filtered = [a for a in all_alerts
                     if not a.get('acknowledged_at') and not a.get('resolved_at')]
+    # v3.12.0: My Account → "My acked alerts" — only those this user acked.
+    if (qs.get('mine', [''])[0] or '').lower() in ('1', 'true', 'yes'):
+        filtered = [a for a in filtered if a.get('acknowledged_by') == user]
     filtered.reverse()  # newest first
     respond(200, {
         'alerts': filtered[:limit],
@@ -21699,6 +21710,168 @@ def _check_alert_mutation_perm():
     return require_admin_auth()
 
 
+def _fire_ack_webhooks(alert, user):
+    """v3.12.0: fire every webhook destination flagged `on_ack` with the FULL
+    alert record when it's acknowledged — the ITSM bridge (open a ticket /
+    notify). Opt-in per destination, so it bypasses the per-event and
+    min-priority filters. Best-effort; never raises into the ack response."""
+    try:
+        cfg = load(CONFIG_FILE)
+    except Exception:
+        return
+    dests = [d for d in (cfg.get('webhook_urls') or [])
+             if isinstance(d, dict) and d.get('on_ack')
+             and d.get('enabled', True) and (d.get('url') or '').strip()]
+    if not dests:
+        return
+    p = alert.get('payload') or {}
+    payload = {
+        'alert_id':        alert.get('id'),
+        'event':           alert.get('event'),
+        'severity':        alert.get('severity'),
+        'title':           alert.get('title'),
+        'device_id':       alert.get('device_id'),
+        'device_name':     alert.get('device_name'),
+        'created_at':      alert.get('ts'),
+        'acknowledged_by': user,
+        'acknowledged_at': alert.get('acknowledged_at'),
+        'ack_note':        alert.get('ack_note', ''),
+        # the original event payload fields (host/unit/cve_id/…)
+        **{k: v for k, v in p.items() if k not in ('device_id', 'device_name')},
+        '_server_name':    get_server_name(),
+    }
+    title = f"Alert acknowledged: {alert.get('title') or alert.get('event') or 'alert'}"[:256]
+    message = (f"Acknowledged by {user}: {alert.get('title') or alert.get('event') or 'alert'} "
+               f"(severity {alert.get('severity', '?')})")
+    for dest in dests:
+        # Clear the normal filters — on_ack is an explicit opt-in.
+        d = {**dest, 'events': None, 'min_priority': None}
+        try:
+            _dispatch_one_webhook('alert_acked', d, payload, message, title, 1)
+        except Exception as e:
+            _log_webhook('alert_acked', dest.get('url', '?'), 'error',
+                         f'{type(e).__name__}: {str(e)[:200]}')
+
+
+# ── v3.12.0: My Account (per-user identity, avatar, settings) ────────────────
+
+def handle_me():
+    """GET /api/me — the current user's identity, role + granted permissions,
+    2FA status, default SSH username, and whether an avatar is set. Powers the
+    top-right account menu + the My Account page."""
+    require_auth()
+    user, role = verify_token(get_token_from_request())
+    if not user:
+        respond(401, {'error': 'not authenticated'})
+    u = (load(USERS_FILE) or {}).get(user) or {}
+    perms = _resolve_role(role)
+    prefs = u.get('ui_prefs') or {}
+    respond(200, {
+        'username':             user,
+        'role':                 role,
+        'admin':                perms['admin'],
+        'permissions':          sorted(perms['permissions']),
+        'scope':                perms.get('scope') or {'type': 'all'},
+        'totp_enabled':         bool(u.get('totp_secret')),
+        'default_ssh_username': prefs.get('default_ssh_username', ''),
+        'has_avatar':           bool(u.get('avatar_mime')) and _avatar_path(user).exists(),
+        'ldap':                 bool(u.get('ldap_dn')),
+        'created':              u.get('created'),
+        'must_change_password': bool(u.get('must_change_password')),
+    })
+
+
+_AVATAR_MAGIC = (
+    (b'\x89PNG\r\n\x1a\n', 'image/png'),
+    (b'\xff\xd8\xff',      'image/jpeg'),
+    (b'GIF87a',            'image/gif'),
+    (b'GIF89a',            'image/gif'),
+)
+
+
+def _avatar_mime(data):
+    """Return the image MIME type from magic bytes, or None if not a supported
+    image (png / jpeg / gif / webp). Never trusts a client-sent content type."""
+    for magic, mime in _AVATAR_MAGIC:
+        if data.startswith(magic):
+            return mime
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def _avatar_path(user):
+    safe = re.sub(r'[^A-Za-z0-9._-]', '_', str(user))[:64] or 'user'
+    return AVATARS_DIR / f'{safe}.img'
+
+
+def _serve_avatar(user):
+    u = (load(USERS_FILE) or {}).get(user) or {}
+    mime = u.get('avatar_mime')
+    p = _avatar_path(user)
+    if not mime or not p.exists():
+        respond(404, {'error': 'no avatar'})
+    data = p.read_bytes()
+    print("Status: 200 OK"); print(f"Content-Type: {mime}")
+    print(f"Content-Length: {len(data)}"); print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff"); print()
+    sys.stdout.flush(); sys.stdout.buffer.write(data); sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_me_avatar():
+    """GET/POST/DELETE /api/me/avatar — the current user's profile picture.
+    Stored as a validated image file in AVATARS_DIR/<user>.img (file on disk,
+    outside the JSON/SQLite store) with the MIME recorded in the user record."""
+    require_auth()
+    user, _role = verify_token(get_token_from_request())
+    if not user:
+        respond(401, {'error': 'not authenticated'})
+    m = method()
+    if m == 'GET':
+        _serve_avatar(user)
+        return
+    if m == 'POST':
+        data = get_body()
+        if not data:
+            respond(400, {'error': 'empty body — POST the raw image bytes'})
+        if len(data) > MAX_AVATAR_BYTES:
+            respond(413, {'error': f'image too large (max {MAX_AVATAR_BYTES // 1024} KB)'})
+        mime = _avatar_mime(data)
+        if not mime:
+            respond(400, {'error': 'not a valid image (png, jpeg, gif or webp)'})
+        try:
+            AVATARS_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+            _avatar_path(user).write_bytes(data)
+        except OSError as e:
+            respond(500, {'error': f'could not store avatar: {e}'})
+        with _LockedUpdate(USERS_FILE) as users:
+            if user in users:
+                users[user]['avatar_mime'] = mime
+        audit_log(user, 'avatar_set', f'{len(data)} bytes {mime}')
+        respond(200, {'ok': True, 'mime': mime})
+        return
+    if m == 'DELETE':
+        try:
+            _avatar_path(user).unlink(missing_ok=True)
+        except OSError:
+            pass
+        with _LockedUpdate(USERS_FILE) as users:
+            if user in users:
+                users[user].pop('avatar_mime', None)
+        audit_log(user, 'avatar_clear', '')
+        respond(200, {'ok': True})
+        return
+    respond(405, {'error': 'Method not allowed'})
+
+
+def handle_user_avatar(target_user):
+    """GET /api/users/<user>/avatar — serve any user's avatar (so the alerts
+    inbox / audit views can show who acked). Auth required; image is non-secret."""
+    require_auth()
+    _serve_avatar(target_user)
+
+
 def handle_alert_ack(alert_id):
     """POST /api/alerts/<id>/ack — any logged-in user can acknowledge by
     default. When viewers_can_ack_alerts is False this requires admin."""
@@ -21707,6 +21880,7 @@ def handle_alert_ack(alert_id):
     body = get_json_body() or {}
     note = _sanitize_str(body.get('note', ''), 256)
     found = False
+    acked_alert = None
     try:
         with _LockedUpdate(ALERTS_FILE) as store:
             for a in store.get('alerts', []):
@@ -21717,6 +21891,7 @@ def handle_alert_ack(alert_id):
                     a['acknowledged_at'] = int(time.time())
                     if note:
                         a['ack_note'] = note
+                    acked_alert = dict(a)   # snapshot for the ack webhook
                     found = True
                     break
     except Exception as e:
@@ -21724,6 +21899,8 @@ def handle_alert_ack(alert_id):
     if not found:
         respond(404, {'error': 'alert not found'})
     audit_log(user, 'alert_ack', f'id={alert_id}' + (f' note={note[:80]}' if note else ''))
+    # Fire ack webhooks AFTER releasing the lock (HTTP POSTs are slow).
+    _fire_ack_webhooks(acked_alert, user)
     respond(200, {'ok': True})
 
 
@@ -29991,6 +30168,9 @@ def _build_exact_routes():
         # already taken (ZFS), so this lives under /api/storage-backend.
         ('GET', '/api/storage-backend/status'): handle_storage_backend_status,
         ('POST', '/api/storage-backend/migrate'): handle_storage_backend_migrate,
+        # v3.12.0: My Account
+        ('GET', '/api/me'): handle_me,
+        (None, '/api/me/avatar'): handle_me_avatar,
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,
@@ -30327,6 +30507,8 @@ def _dispatch(pi, m):
         handle_patch_report_device(pi[len('/api/patch-report/device/'):])
     elif pi == '/api/audit-log' and m == 'DELETE': handle_audit_log_clear()
     # v3.2.0 (B1): alerts inbox
+    elif pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET':
+        handle_user_avatar(pi[len('/api/users/'):-len('/avatar')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
         handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':

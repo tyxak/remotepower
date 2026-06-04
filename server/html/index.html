@@ -98,7 +98,18 @@
           Install app
         </button>
         <button class="theme-btn" title="Toggle dark/light mode"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
-        <button class="logout-btn" >Sign out</button>
+        <!-- v3.12.0: account menu (avatar → My Account / Sign out) -->
+        <div class="acct-menu">
+          <button class="acct-btn" data-action="toggleAcctMenu" title="My account" aria-haspopup="true">
+            <span id="topbar-avatar" class="acct-avatar-sm">?</span>
+            <span id="topbar-username" class="acct-name"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="acct-dropdown" class="acct-dropdown hidden">
+            <button class="acct-dropdown-item" data-action="openAccount"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> My Account</button>
+            <button class="acct-dropdown-item logout-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Sign out</button>
+          </div>
+        </div>
       </div>
     </div>
   </header>
@@ -800,6 +811,59 @@
         </div>
       </div>
 
+      <!-- ── v3.12.0: My Account (reached from the top-right avatar menu) ──── -->
+      <div id="page-account" class="page">
+        <div class="page-title">My Account</div>
+        <div class="page-subtitle">Your personal settings — these apply to <strong id="acct-username">you</strong> only, not the whole server.</div>
+
+        <div class="settings-section">
+          <h3>Profile</h3>
+          <div class="acct-profile">
+            <div id="acct-avatar-preview" class="acct-avatar">?</div>
+            <div class="acct-profile-meta">
+              <div><span class="hint">Signed in as</span> <strong id="acct-username-2">—</strong> <span id="acct-role-badge" class="pill"></span></div>
+              <div class="sb-controls">
+                <input type="file" id="acct-avatar-file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden">
+                <button class="btn-icon" data-action="pickAvatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Upload picture</button>
+                <button class="btn-icon" data-action="removeAvatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Remove</button>
+              </div>
+              <p class="hint">PNG, JPEG, GIF or WEBP, up to 512&nbsp;KB. It's downscaled in your browser before upload.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Permissions</h3>
+          <p class="hint">What your role lets you do. Managed by an administrator under <a href="#" data-action-btn="_showPageBtn" data-page="users" data-prevent-default class="c-accent">Users &amp; roles</a>.</p>
+          <div id="acct-permissions" class="hint">—</div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Two-Factor Authentication (2FA)</h3>
+          <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
+          <div id="totp-status" class="mb-12"></div>
+          <div id="totp-setup-area"></div>
+        </div>
+
+        <div class="settings-section">
+          <h3>SSH preferences</h3>
+          <p class="hint">Your default SSH username. Used by the quick-SSH link on the Devices page so you don't retype it each time. Stored per-user, not shared.</p>
+          <div class="settings-row">
+            <div class="form-group isl-49">
+              <label class="form-label">Default SSH username</label>
+              <input type="text" id="cfg-ssh-username" class="form-input" placeholder="e.g. root, deploy, jmo" maxlength="32" autocomplete="off">
+            </div>
+          </div>
+          <button class="btn-primary isl-50" data-action="saveSshUsername" >Save SSH username</button>
+        </div>
+
+        <div class="settings-section">
+          <h3>My acknowledged alerts</h3>
+          <p class="hint">Open alerts you've taken ownership of (acknowledged but not yet resolved).</p>
+          <div id="acct-acked-alerts" class="sb-result">—</div>
+        </div>
+      </div>
+
       <!-- ── Settings page (unchanged) ────────────────────────────────────── -->
       <div id="page-settings" class="page">
         <div class="page-title">Settings</div>
@@ -1153,12 +1217,7 @@
             <button class="btn-primary" data-action="saveIpAllowlist">Save IP allowlist</button>
           </div>
 
-          <div class="settings-section">
-            <h3>Two-Factor Authentication (2FA)</h3>
-            <p class="hint">Protect your account with an authenticator app (Google Authenticator, Authy, etc.).</p>
-            <div id="totp-status" class="mb-12"></div>
-            <div id="totp-setup-area"></div>
-          </div>
+          <!-- v3.12.0: 2FA moved to My Account (top-right). -->
 
           <!-- v3.7.0 (moved to Security in v3.8.0): change approval (maker-checker) -->
           <div class="settings-section">
@@ -1224,18 +1283,7 @@
             </label>
           </div>
 
-          <!-- ── v2.4.2: SSH preferences (per-user) ───────────────────────── -->
-          <div class="settings-section">
-            <h3>SSH preferences</h3>
-            <p class="hint">Your default SSH username. Used by the quick-SSH link on the Devices page so you don't retype it each time. Stored per-user, not shared.</p>
-            <div class="settings-row">
-              <div class="form-group isl-49">
-                <label class="form-label">Default SSH username</label>
-                <input type="text" id="cfg-ssh-username" class="form-input" placeholder="e.g. root, deploy, jmo" maxlength="32" autocomplete="off">
-              </div>
-            </div>
-            <button class="btn-primary isl-50" data-action="saveSshUsername" >Save SSH username</button>
-          </div>
+          <!-- v3.12.0: SSH preferences moved to My Account (top-right). -->
 
           <!-- ── v1.8.6: LDAP / LDAPS authentication ──────────────────────── -->
           <div class="settings-section">
@@ -2002,7 +2050,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected">
+          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected my account profile picture avatar 2fa totp ssh username permissions acknowledged alerts ack webhook ticket jira servicenow pagerduty github issue on_ack">
             <summary><strong>What's new — v3.12.0</strong> — optional SQLite storage backend (switch from flat JSON in Settings → Advanced)</summary>
             <div class="doc-body">
               <p>RemotePower has always stored its state as flat-JSON files. That's simple and robust, but every write rewrites a whole file — on a busy fleet <code>devices.json</code> is rewritten on <em>every</em> heartbeat. v3.12.0 adds an optional embedded <strong>SQLite</strong> backend (WAL mode, stdlib only — no new dependencies) you can switch to under <strong>Settings → Advanced → Storage backend</strong>. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.12.0</code>).</p>
@@ -2018,6 +2066,11 @@
                 <li><strong>Listening-port &amp; firewall audit is now opt-in.</strong> The <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts are noisy on Docker hosts (where <code>docker-proxy</code> publishes every container port to 0.0.0.0), so they are <strong>off by default</strong>. Turn them on under <strong>Settings → Security → Listening-port &amp; firewall audit</strong>.</li>
                 <li><strong>Surgical mutes.</strong> Prefer to keep the audit on but silence one noisy service? Use the per-process <strong>Mute</strong> button on the <strong>Exposure</strong> page (or manage rules in Settings → Security). Muting resolves matching open alerts in the same click; turning the whole audit off clears the backlog at once.</li>
                 <li><strong>Discovery.</strong> When alerting is off but world-reachable services exist, the Exposure page shows a banner linking back to the toggle — you keep the visibility either way.</li>
+              </ul>
+              <h4>My Account &amp; ticketing</h4>
+              <ul>
+                <li><strong>My Account.</strong> A new account menu in the top-right corner (your avatar → My Account / Sign out). The <strong>My Account</strong> page gathers your personal settings in one place — profile picture, your role &amp; permissions, <strong>2FA</strong> and <strong>default SSH username</strong> (both moved here from Settings → Security), and <strong>My acknowledged alerts</strong>.</li>
+                <li><strong>Acknowledge → ticket webhook.</strong> Each webhook destination now has an <em>“Also fire on alert ACK”</em> option. When you acknowledge an alert, the flagged destinations receive the <strong>full alert</strong> (id, severity, device, payload, who/when) — point a generic / GitHub-issue / PagerDuty destination at your ticket system to open a ticket the instant a human takes ownership.</li>
               </ul>
               <p class="hint">CLI: <code>tools/migrate_storage.py --to sqlite</code> (and <code>--to json</code> to revert; <code>--dry-run</code> / <code>--verify-only</code> supported). On a network filesystem (NFS/CIFS) WAL is unsafe, so a rollback journal is used automatically — a local disk is strongly recommended. See <code>docs/v3.12.0.md</code>.</p>
             </div>

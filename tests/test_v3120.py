@@ -168,5 +168,110 @@ class TestPortAuditToggle(unittest.TestCase):
             api.load(api.POSTURE_STATE_FILE)['dev1']['fw_fp'], 'new-fingerprint')
 
 
+class _HandlerBase(unittest.TestCase):
+    """Drive handlers directly with stubbed auth/request/respond."""
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._files = {}
+        for attr in ('USERS_FILE', 'ALERTS_FILE', 'CONFIG_FILE', 'AVATARS_DIR',
+                     'ROLES_FILE', 'DEVICES_FILE'):
+            self._files[attr] = getattr(api, attr)
+            base = Path(getattr(api, attr)).name
+            setattr(api, attr, self.d / base)
+        self.cap = {}
+        self._orig = {n: getattr(api, n) for n in
+                      ('require_auth', 'verify_token', 'get_token_from_request',
+                       'audit_log', 'respond', 'method', 'get_json_body',
+                       'get_body', '_check_alert_mutation_perm', '_caller_scope')}
+        api.require_auth = lambda require_admin=False: 'jakob'
+        api.verify_token = lambda t: ('jakob', 'admin')
+        api.get_token_from_request = lambda: 't'
+        api.audit_log = lambda *a, **k: None
+        api._caller_scope = lambda: None
+        def _resp(s, b=None):
+            self.cap['s'] = s; self.cap['b'] = b
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+
+    def tearDown(self):
+        for n, v in self._orig.items():
+            setattr(api, n, v)
+        for attr, v in self._files.items():
+            setattr(api, attr, v)
+
+    def call(self, fn, *a):
+        try:
+            fn(*a)
+        except api.HTTPError:
+            pass
+        return self.cap.get('b')
+
+
+class TestMyAccount(_HandlerBase):
+    def test_me_identity(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin', 'created': 1,
+                 'totp_secret': 'X', 'ui_prefs': {'default_ssh_username': 'jmo'}}})
+        api.method = lambda: 'GET'
+        me = self.call(api.handle_me)
+        self.assertEqual(me['username'], 'jakob')
+        self.assertTrue(me['admin'] and me['totp_enabled'])
+        self.assertEqual(me['default_ssh_username'], 'jmo')
+        self.assertFalse(me['has_avatar'])
+        self.assertEqual(set(me['permissions']), {'exec', 'reboot', 'upgrade'})
+
+    def test_avatar_upload_validates_and_serves(self):
+        api.save(api.USERS_FILE, {'jakob': {'role': 'admin'}})
+        png = bytes.fromhex(
+            '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489'
+            '0000000a49444154789c6360000002000100')
+        api.method = lambda: 'POST'
+        api.get_body = lambda: png
+        r = self.call(api.handle_me_avatar)
+        self.assertEqual(r['mime'], 'image/png')
+        self.assertTrue(api._avatar_path('jakob').exists())
+        # non-image rejected
+        api.get_body = lambda: b'definitely not an image'
+        self.call(api.handle_me_avatar)
+        self.assertEqual(self.cap['s'], 400)
+
+    def test_my_acked_filter(self):
+        import os
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'a1', 'acknowledged_by': 'jakob', 'acknowledged_at': 5, 'resolved_at': None, 'device_id': None},
+            {'id': 'a2', 'acknowledged_by': 'alice', 'acknowledged_at': 6, 'resolved_at': None, 'device_id': None},
+        ]})
+        api.method = lambda: 'GET'
+        os.environ['QUERY_STRING'] = 'status=ack&mine=1'
+        r = self.call(api.handle_alerts_list)
+        self.assertEqual([a['id'] for a in r['alerts']], ['a1'])
+
+
+class TestAckWebhook(_HandlerBase):
+    def test_on_ack_fires_full_alert(self):
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'note': 'mine now'}
+        api._check_alert_mutation_perm = lambda: 'jakob'
+        api.save(api.CONFIG_FILE, {'webhook_urls': [
+            {'id': 'wh_t', 'url': 'https://t/x', 'format': 'generic', 'enabled': True,
+             'on_ack': True, 'events': ['device_offline']},
+            {'id': 'wh_c', 'url': 'https://c/x', 'format': 'discord', 'enabled': True},
+        ]})
+        api.save(api.ALERTS_FILE, {'alerts': [{
+            'id': 'a1', 'ts': 1000, 'event': 'device_offline', 'severity': 'high',
+            'title': 'host1 offline', 'device_id': 'd1', 'device_name': 'host1',
+            'payload': {'unit': 'x'}, 'acknowledged_by': None, 'resolved_at': None}]})
+        fired = []
+        api._dispatch_one_webhook = lambda ev, dest, payload, msg, title, prio: fired.append((dest['id'], ev, payload, dest.get('events')))
+        self.call(api.handle_alert_ack, 'a1')
+        self.assertEqual([f[0] for f in fired], ['wh_t'])   # only the on_ack dest
+        _id, ev, payload, evfilter = fired[0]
+        self.assertEqual(ev, 'alert_acked')
+        self.assertEqual(payload['alert_id'], 'a1')
+        self.assertEqual(payload['acknowledged_by'], 'jakob')
+        self.assertEqual(payload['ack_note'], 'mine now')
+        self.assertEqual(payload['unit'], 'x')           # original payload merged
+        self.assertIsNone(evfilter)                       # filters bypassed (opt-in)
+
+
 if __name__ == '__main__':
     unittest.main()

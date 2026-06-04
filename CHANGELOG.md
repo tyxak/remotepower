@@ -12,6 +12,19 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **My Account.** A top-right account menu (avatar → My Account / Sign out) and a
+  dedicated **My Account** page that consolidates per-user settings: profile
+  picture (uploaded, downscaled in-browser, stored under `DATA_DIR/avatars/`),
+  a read-only view of your role + granted permissions, **2FA** and **default SSH
+  username** (both moved here from Settings → Security), and **My acknowledged
+  alerts**. New `GET /api/me`, `GET/POST/DELETE /api/me/avatar`,
+  `GET /api/users/<u>/avatar`, and `?mine=1` on the alerts list.
+- **Acknowledge → ticket webhook.** Each webhook destination gains a *“Also fire
+  on alert ACK”* checkbox. When an operator acknowledges an alert, the flagged
+  destinations receive the **full alert record** (id, severity, device, the
+  original event payload, who/when acked) — independent of the per-event /
+  severity filters — so a `generic` / GitHub-issue / PagerDuty destination can
+  open a ticket the moment a human takes ownership. (`webhook_urls[].on_ack`.)
 - **Pluggable storage backend.** A new `storage.py` sits behind the existing
   `load()` / `save()` / `_locked_update()` helpers, so all ~1000 call sites are
   backend-agnostic. Cold files are stored as JSON blobs; hot, high-cardinality

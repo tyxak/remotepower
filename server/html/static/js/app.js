@@ -554,6 +554,7 @@ async function showApp() {
   // a server that doesn't support /api/ui-prefs (older release) just
   // returns null and we proceed with empty prefs.
   await loadUiPrefs();
+  loadMe();   // v3.12.0: populate the top-right account avatar/name (best-effort)
   // v2.2.1: Home is the new default landing page. We still kick off
   // loadDevices() so the device search/group dropdowns and the cached
   // devices array are warm for whenever the operator clicks Devices.
@@ -932,7 +933,8 @@ function showPage(name, btn) {
   if (name === 'history')  loadHistory();
   if (name === 'schedule') loadSchedule();
   if (name === 'users')    loadUsers();
-  if (name === 'settings') { loadSettings(); loadTotpStatus(); loadWebhookLog(); }
+  if (name === 'settings') { loadSettings(); loadWebhookLog(); }
+  if (name === 'account')  loadAccount();
   if (name === 'ai') { loadAIPage(); }
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
@@ -4053,6 +4055,124 @@ function toggleSelectAllMinimal(checkbox) {
   updateBatchBar();
   renderDevices();
 }
+// ── v3.12.0: My Account ──────────────────────────────────────────────────────
+let _meCache = null;
+function _initials(name) { return (String(name || '?').trim().slice(0, 2) || '?').toUpperCase(); }
+
+async function loadMe() {
+  const me = await api('GET', '/me');
+  if (!me) return null;
+  _meCache = me;
+  const av = document.getElementById('topbar-avatar');
+  const nm = document.getElementById('topbar-username');
+  if (nm) nm.textContent = me.username || '';
+  if (av) {
+    if (me.has_avatar) av.innerHTML = `<img src="/api/me/avatar?ts=${Date.now()}" alt="">`;
+    else av.textContent = _initials(me.username);
+  }
+  return me;
+}
+
+function toggleAcctMenu() {
+  document.getElementById('acct-dropdown')?.classList.toggle('hidden');
+}
+function openAccount() {
+  document.getElementById('acct-dropdown')?.classList.add('hidden');
+  showPage('account');
+}
+document.addEventListener('click', e => {
+  const menu = document.querySelector('.acct-menu');
+  const dd = document.getElementById('acct-dropdown');
+  if (dd && !dd.classList.contains('hidden') && menu && !menu.contains(e.target)) {
+    dd.classList.add('hidden');
+  }
+});
+
+async function loadAccount() {
+  const me = await loadMe();
+  if (!me) return;
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('acct-username', me.username);
+  set('acct-username-2', me.username);
+  const rb = document.getElementById('acct-role-badge');
+  if (rb) { rb.textContent = me.role; rb.setAttribute('data-color', me.admin ? 'var(--green)' : 'var(--muted)'); }
+  const big = document.getElementById('acct-avatar-preview');
+  if (big) {
+    if (me.has_avatar) big.innerHTML = `<img src="/api/me/avatar?ts=${Date.now()}" alt="">`;
+    else big.textContent = _initials(me.username);
+  }
+  const pe = document.getElementById('acct-permissions');
+  if (pe) {
+    if (me.admin) {
+      pe.innerHTML = '<strong>Administrator</strong> — full access to every action and setting.';
+    } else {
+      const perms = me.permissions || [];
+      const scopeType = (me.scope && me.scope.type) || 'all';
+      const scopeTxt = scopeType === 'all' ? 'all devices'
+        : `${escHtml(scopeType)}: ${escHtml((me.scope.values || []).join(', ') || '—')}`;
+      pe.innerHTML = perms.length
+        ? `Allowed actions: <strong>${perms.map(escHtml).join(', ')}</strong> · Scope: ${scopeTxt}`
+        : 'Read-only (viewer) — no action permissions.';
+    }
+  }
+  const ssh = document.getElementById('cfg-ssh-username');
+  if (ssh) ssh.value = me.default_ssh_username || '';
+  loadTotpStatus();
+  loadMyAckedAlerts();
+}
+
+async function loadMyAckedAlerts() {
+  const el = document.getElementById('acct-acked-alerts');
+  if (!el) return;
+  const data = await api('GET', '/alerts?status=ack&mine=1&limit=100');
+  const alerts = (data && data.alerts) || [];
+  if (!alerts.length) { el.textContent = 'None — you have no open acknowledged alerts.'; return; }
+  el.innerHTML = alerts.map(a => {
+    const sev = a.severity || '';
+    const color = sev === 'critical' ? 'var(--red)' : sev === 'high' ? 'var(--amber)' : 'var(--muted)';
+    const when = a.acknowledged_at ? new Date(a.acknowledged_at * 1000).toLocaleString() : '';
+    return `<div class="sb-controls"><span><span class="pill" data-color="${color}">${escHtml(sev || '—')}</span> ${escHtml(a.title || a.event || a.id)} <span class="hint">· acked ${escHtml(when)}</span></span></div>`;
+  }).join('');
+}
+
+function pickAvatar() { document.getElementById('acct-avatar-file')?.click(); }
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'acct-avatar-file' && e.target.files && e.target.files[0]) {
+    _uploadAvatar(e.target.files[0]);
+    e.target.value = '';
+  }
+});
+async function _uploadAvatar(file) {
+  try {
+    const blob = await _downscaleImage(file, 128);
+    const r = await fetch('/api/me/avatar', {
+      method: 'POST',
+      headers: { 'X-Token': getToken(), 'Content-Type': blob.type },
+      body: blob,
+    });
+    if (r.ok) { toast('Profile picture updated', 'success'); loadAccount(); loadMe(); }
+    else { const j = await r.json().catch(() => ({})); toast('Upload failed: ' + (j.error || r.status), 'error'); }
+  } catch (e) { toast('Upload failed: ' + (e.message || e), 'error'); }
+}
+async function removeAvatar() {
+  const r = await api('DELETE', '/me/avatar');
+  if (r && r.ok) { toast('Profile picture removed', 'success'); loadAccount(); loadMe(); }
+}
+function _downscaleImage(file, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height);
+      const c = document.createElement('canvas');
+      c.width = size; c.height = size;
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/png');
+    };
+    img.onerror = () => reject(new Error('not a valid image'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 function updateBatchBar() { const bar = document.getElementById('batch-bar'); const cnt = document.getElementById('batch-count'); if (selectedDevices.size > 0) { bar.classList.add('visible'); cnt.textContent = selectedDevices.size; } else bar.classList.remove('visible'); }
 async function batchAction(command) { if (!selectedDevices.size) return; const verbs = {shutdown:'Shut down', reboot:'Reboot', update:'Update agent on', upgrade:'Upgrade packages on'}; const verb = verbs[command] || 'Run'; if (!confirm(`${verb} ${selectedDevices.size} device(s)?`)) return; const eps = {shutdown:'/shutdown', reboot:'/reboot', update:'/update-device', upgrade:'/upgrade-device'}; const ep = eps[command]; const data = await api('POST', ep, {device_ids: [...selectedDevices]}); if (data?.ok) { const msg = command === 'upgrade' ? `Package upgrade queued for ${selectedDevices.size} device(s). Output arrives on next heartbeat (~60s).` : `${verb} queued for ${selectedDevices.size} device(s)`; toast(msg, 'success'); clearSelection(); setTimeout(loadDevices, 3000); } else toast(data?.error || 'Failed', 'error'); }
 function openNotesModal(id, currentNotes) { document.getElementById('notes-device-id').value = id; document.getElementById('notes-input').value = currentNotes || ''; openModal('notes-modal'); }
@@ -19789,6 +19909,10 @@ function renderWebhookDests() {
         <details class="fs-12">
           <summary class="isl-744">Advanced — filter which events fire here</summary>
           <div class="isl-745">
+            <label class="isl-731" title="Also POST the full alert (id, severity, device, payload, who acked) to this destination when an operator acknowledges an alert — e.g. open a ticket. Independent of the event/severity filters below.">
+              <input type="checkbox" data-field="on_ack" ${d.on_ack ? 'checked' : ''}>
+              <strong>Also fire on alert ACK</strong> (create a ticket with the full alert)
+            </label>
             <label class="isl-746">
               Min severity:
               <select data-field="min_priority" class="form-input isl-747">
