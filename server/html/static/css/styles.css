@@ -586,14 +586,14 @@
      radius) so a toolbar filter box is the SAME height as the buttons beside it
      and centres cleanly. input.<class> outranks the later generic .form-input. */
   input.page-filter {
-    padding: 8px 12px; font-size: 13px; width: auto; max-width: 320px;
-    flex: 0 1 280px; margin: 0;
+    height: 34px; padding: 0 12px; font-size: 13px; width: auto; max-width: 320px;
+    flex: 0 1 280px; margin: 0; box-sizing: border-box;
   }
   /* standalone placements (above a list, not in a button row) add their own
      bottom gap via the mb-8 utility */
   input.select-filter {
-    padding: 8px 12px; font-size: 13px; width: 100%; max-width: 360px;
-    margin: 0 0 4px;
+    height: 34px; padding: 0 12px; font-size: 13px; width: 100%; max-width: 360px;
+    margin: 0 0 4px; box-sizing: border-box;
   }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
@@ -4464,3 +4464,25 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
    and the Current-violations card, which previously touched). */
 .table-card + .table-card { margin-top: 16px; }
 .cmdb-list-row { margin-bottom: 6px; }
+
+/* ── v3.12.0: uniform toolbar control height ──────────────────────────────────
+   Buttons, filter inputs and selects that share a control row must line up at
+   the SAME height. Scoped to the known toolbar / inline-row containers (never
+   form fields in modals), and given enough specificity via :is() that it wins
+   regardless of source order. 34px matches a comfortable button height. */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap)
+  > :is(.btn, .btn-icon, .btn-secondary, .btn-primary, .enroll-btn, input.form-input, select.form-input) {
+  height: 34px;
+  min-height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+/* non-flex buttons in those rows: centre icon + label within the fixed height */
+:is(.toolbar, .toolbar-mb24, .isl-173, .isl-186, .isl-178, .row-8-center, .section-header, .form-row-wrap)
+  > :is(.btn, .btn-secondary, .btn-primary) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
