@@ -1838,6 +1838,7 @@ async function loadSettings() {
   if (!data) return;
   // v3.12.0: refresh the Advanced → Storage backend card (best-effort).
   try { loadStorageBackendStatus(); } catch (e) {}
+  try { loadSatellites(); } catch (e) {}
   // General
   document.getElementById('cfg-server-name').value = data.server_name || '';
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
@@ -4063,6 +4064,39 @@ function toggleSelectAllMinimal(checkbox) {
   updateBatchBar();
   renderDevices();
 }
+// ── v3.12.0: relay satellites ────────────────────────────────────────────────
+async function loadSatellites() {
+  const el = document.getElementById('satellites-list');
+  if (!el) return;
+  const data = await api('GET', '/satellites');
+  if (!Array.isArray(data)) { el.textContent = 'Could not load satellites.'; return; }
+  if (!data.length) { el.textContent = 'No satellites yet.'; return; }
+  el.innerHTML = data.map(s => {
+    const seen = s.last_seen ? new Date(s.last_seen * 1000).toLocaleString() : 'never connected';
+    return `<div class="sb-controls"><span><strong>${escHtml(s.name)}</strong> <span class="hint">· last seen ${escHtml(seen)}${s.last_ip ? ' · ' + escHtml(s.last_ip) : ''}</span></span><button class="btn-icon cell-sm" data-action="deleteSatellite" data-arg="${escAttr(s.id)}">Revoke</button></div>`;
+  }).join('');
+}
+async function createSatellite() {
+  const name = prompt('Satellite name (e.g. dmz-relay):');
+  if (!name) return;
+  const r = await api('POST', '/satellites', { name: name.trim() });
+  if (r && r.ok) {
+    const tk = document.getElementById('satellite-new-token');
+    if (tk) {
+      tk.hidden = false;
+      tk.textContent = `Token for "${name}" — shown once. On the satellite host set:\n  RP_SATELLITE_TOKEN=${r.token}\n  RP_UPSTREAM=<this server's https URL>`;
+    }
+    toast('Satellite created', 'success');
+    loadSatellites();
+  } else { toast('Create failed: ' + (r && r.error || ''), 'error'); }
+}
+async function deleteSatellite(id) {
+  if (!confirm('Revoke this satellite? Agents relaying through it will stop reaching the server.')) return;
+  const r = await api('DELETE', '/satellites/' + id);
+  if (r && r.ok) { toast('Satellite revoked', 'info'); loadSatellites(); }
+  else { toast('Revoke failed', 'error'); }
+}
+
 // ── v3.12.0: per-asset risk ──────────────────────────────────────────────────
 let _riskResp = null;
 async function loadRisk() {

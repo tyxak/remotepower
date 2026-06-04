@@ -1159,6 +1159,15 @@
             </div>
           </div>
 
+          <!-- v3.12.0: relay satellites -->
+          <div class="settings-section">
+            <h3>Relay satellites</h3>
+            <p class="hint">Run a satellite (<code>client/remotepower-satellite.py</code>) inside a segmented network — agents there reach this server <em>through</em> it (<code>agent → satellite → server</code>). Each satellite authenticates with its own token, so you can see and revoke relays independently of the agents. Set the minted token as <code>RP_SATELLITE_TOKEN</code> and <code>RP_UPSTREAM</code> on the satellite host, then point that segment's agents at <code>http://&lt;satellite&gt;:8800</code>.</p>
+            <button class="enroll-btn" data-action="createSatellite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New satellite</button>
+            <pre id="satellite-new-token" class="sb-result" hidden></pre>
+            <div id="satellites-list" class="sb-result">Loading…</div>
+          </div>
+
           <div class="settings-section">
             <h3>OIDC / OpenID Connect</h3>
             <p class="hint">Sign in via an external identity provider (Authelia, Authentik, Keycloak, Pocket-ID, Google, etc.). Users authenticate against your IdP and arrive with the role mapped from their group membership. Existing local users and LDAP keep working in parallel.</p>

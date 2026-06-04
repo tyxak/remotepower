@@ -12,6 +12,14 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **Relay satellites (minimal).** A new standalone forwarder
+  (`client/remotepower-satellite.py`, stdlib only) lets agents in a segmented
+  network reach the server through it (`agent → satellite → server`). Each
+  satellite authenticates with its own token (`X-RP-Satellite`), minted/listed/
+  revoked under **Settings → Integrations → Relay satellites**
+  (`/api/satellites`); the server records each relay's last-seen/IP, and an
+  unknown token is rejected. The agent's own device token still authenticates
+  end-to-end, so the satellite is a second, independent layer.
 - **Per-asset risk score.** A new **Risk** page (and `GET /api/risk`) computes a
   0–100 risk score for every monitored asset on demand, purely from data already
   collected — open CVEs, world-reachable services, software-policy violations,

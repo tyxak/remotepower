@@ -341,6 +341,52 @@ class TestQuickWinsHandlers(_HandlerBase):
         self.assertEqual(mons[0]['body_match'], {'mode': 'contains', 'value': 'Welcome'})
 
 
+class TestSatellites(_HandlerBase):
+    def setUp(self):
+        super().setUp()
+        self._sf = api.SATELLITES_FILE
+        api.SATELLITES_FILE = self.d / 'satellites.json'
+
+    def tearDown(self):
+        api.SATELLITES_FILE = self._sf
+        super().tearDown()
+
+    def test_create_list_verify_revoke(self):
+        import os
+        api.require_admin_auth = lambda: 'admin'
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'name': 'dmz'}
+        created = self.call(api.handle_satellites_create)
+        tok, sid = created['token'], created['id']
+        # list has no secrets
+        api.method = lambda: 'GET'
+        lst = self.call(api.handle_satellites_list)
+        self.assertEqual(lst[0]['name'], 'dmz')
+        self.assertNotIn('token', lst[0])
+        self.assertNotIn('token_hash', lst[0])
+        # valid token passes + stamps last_seen
+        os.environ['HTTP_X_RP_SATELLITE'] = tok
+        api._record_satellite()
+        self.assertTrue(api.load(api.SATELLITES_FILE)[sid]['last_seen'])
+        # invalid token -> 401
+        os.environ['HTTP_X_RP_SATELLITE'] = 'nope'
+        with self.assertRaises(api.HTTPError) as cm:
+            api._record_satellite()
+        self.assertEqual(cm.exception.status, 401)
+        os.environ.pop('HTTP_X_RP_SATELLITE', None)
+        api._record_satellite()   # no header -> no-op (no raise)
+        # revoke
+        api.method = lambda: 'DELETE'
+        self.call(api.handle_satellites_delete, sid)
+        self.assertNotIn(sid, api.load(api.SATELLITES_FILE))
+
+    def test_routes_registered(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route('GET', '/api/satellites')[0], 'handle_satellites_list')
+        self.assertEqual(resolve_route('POST', '/api/satellites')[0], 'handle_satellites_create')
+        self.assertEqual(resolve_route('DELETE', '/api/satellites/x')[0], 'handle_satellites_delete')
+
+
 class TestRiskScores(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())

@@ -1157,6 +1157,7 @@ STORAGE_MARKER_FILE = DATA_DIR / 'storage_backend.json'
 SQLITE_MAINT_FILE = DATA_DIR / 'sqlite_maint.json'   # v3.12.0: maint timestamps
 AVATARS_DIR = DATA_DIR / 'avatars'                   # v3.12.0: per-user profile pics
 MAX_AVATAR_BYTES = 512 * 1024
+SATELLITES_FILE = DATA_DIR / 'satellites.json'       # v3.12.0: relay satellites
 _BACKEND_CACHE = None
 
 
@@ -20038,6 +20039,84 @@ def handle_revoke_sessions():
     respond(200, {'ok': True, 'revoked': count})
 
 
+# ── v3.12.0: relay satellites (authenticated agent → satellite → server) ─────
+
+def _satellite_token_hash(tok):
+    return hashlib.sha256(tok.encode('utf-8')).hexdigest()
+
+
+def _record_satellite():
+    """A request carrying an X-RP-Satellite header arrived via a relay
+    satellite. Validate the token against the registry (reject if unknown) and
+    stamp last_seen. Direct requests (no header) are untouched. Runs in main()
+    before dispatch, so the device's own auth still applies on top."""
+    tok = os.environ.get('HTTP_X_RP_SATELLITE', '').strip()
+    if not tok:
+        return
+    h = _satellite_token_hash(tok)
+    matched = None
+    for sid, s in (load(SATELLITES_FILE) or {}).items():
+        if isinstance(s, dict) and s.get('token_hash') and \
+                hmac.compare_digest(s.get('token_hash', ''), h):
+            matched = sid
+            break
+    if not matched:
+        respond(401, {'error': 'invalid satellite token'})
+    try:
+        with _locked_update(SATELLITES_FILE, non_blocking=True) as st:
+            if matched in st:
+                st[matched]['last_seen'] = int(time.time())
+                ip = os.environ.get('REMOTE_ADDR', '')
+                if ip:
+                    st[matched]['last_ip'] = _sanitize_ip(ip)
+    except Exception:
+        pass
+
+
+def handle_satellites_list():
+    """GET /api/satellites — list relay satellites (no secrets)."""
+    require_admin_auth()
+    respond(200, [{'id': sid, 'name': s.get('name', ''),
+                   'created': s.get('created', 0),
+                   'last_seen': s.get('last_seen'),
+                   'last_ip': s.get('last_ip', '')}
+                  for sid, s in (load(SATELLITES_FILE) or {}).items()])
+
+
+def handle_satellites_create():
+    """POST /api/satellites — mint a new satellite + token (shown once)."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    name = _sanitize_str((get_json_body() or {}).get('name', ''), 64)
+    if not name:
+        respond(400, {'error': 'name required'})
+    sats = load(SATELLITES_FILE)
+    if len(sats) >= 50:
+        respond(400, {'error': 'satellite limit reached (max 50)'})
+    token = secrets.token_urlsafe(32)
+    sid = secrets.token_hex(8)
+    sats[sid] = {'name': name, 'token_hash': _satellite_token_hash(token),
+                 'created': int(time.time()), 'last_seen': None, 'last_ip': ''}
+    save(SATELLITES_FILE, sats)
+    audit_log(actor, 'satellite_create', detail=f'name={name} id={sid}')
+    respond(201, {'ok': True, 'id': sid, 'token': token,
+                  'note': 'Set this as RP_SATELLITE_TOKEN on the satellite — shown once.'})
+
+
+def handle_satellites_delete(sid):
+    """DELETE /api/satellites/<id> — revoke a satellite."""
+    actor = require_admin_auth()
+    sid = _sanitize_str(sid, 32)
+    sats = load(SATELLITES_FILE)
+    if sid in sats:
+        nm = sats[sid].get('name', '')
+        del sats[sid]
+        save(SATELLITES_FILE, sats)
+        audit_log(actor, 'satellite_delete', detail=f'id={sid} name={nm}')
+    respond(200, {'ok': True})
+
+
 def handle_apikeys_list():
     require_admin_auth()
     apikeys = load(APIKEYS_FILE)
@@ -30620,6 +30699,9 @@ def _build_exact_routes():
         # v3.12.0: My Account
         ('GET', '/api/me'): handle_me,
         (None, '/api/me/avatar'): handle_me_avatar,
+        # v3.12.0: relay satellites
+        ('GET', '/api/satellites'): handle_satellites_list,
+        ('POST', '/api/satellites'): handle_satellites_create,
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,
@@ -30958,6 +31040,8 @@ def _dispatch(pi, m):
     # v3.2.0 (B1): alerts inbox
     elif pi.startswith('/api/users/') and pi.endswith('/avatar') and m == 'GET':
         handle_user_avatar(pi[len('/api/users/'):-len('/avatar')])
+    elif pi.startswith('/api/satellites/') and m == 'DELETE':
+        handle_satellites_delete(pi[len('/api/satellites/'):])
     elif pi.startswith('/api/alerts/') and pi.endswith('/ack') and m == 'POST':
         handle_alert_ack(pi[len('/api/alerts/'):-len('/ack')])
     elif pi.startswith('/api/alerts/') and pi.endswith('/unack') and m == 'POST':
@@ -31289,6 +31373,12 @@ def main():
     # read + a constant set membership check. Done before route dispatch
     # so every mutation handler is uniformly protected without needing
     # an assert_writable() call at the top of each one.
+    # v3.12.0: if this request was relayed by a satellite, authenticate the
+    # satellite (reject an unknown token) and stamp its last_seen. No-op for
+    # direct agent/browser requests. NOT wrapped in _safe — an invalid-token
+    # rejection (respond 401) must propagate, not be swallowed.
+    _record_satellite()
+
     _enforce_read_only()
 
     # v3.0.2: CSRF defense-in-depth. The X-Token header is already
