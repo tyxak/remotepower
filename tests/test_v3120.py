@@ -666,6 +666,14 @@ class TestLargeFleetUI(unittest.TestCase):
             self.assertIn(f'data-filter-target="{target}"', self.html,
                           f'missing filter box for {target}')
 
+    def test_tablectl_pagination(self):
+        # tableCtl paginates every registered table (default 15/page) + pager
+        self.assertIn('function goPage(', self.app)
+        self.assertIn('function _renderPager(', self.app)
+        self.assertIn('opts.pageSize || 15', self.app)
+        self.assertIn('function tblPage(', self.app)
+        self.assertIn('data-action="tblPage"', self.app)
+
     def test_command_queue_paging(self):
         self.assertIn('function _renderCommandQueue(', self.app)
         self.assertIn('_cmdqMorePending', self.app)

@@ -115,6 +115,7 @@ function getTablePrefs(tableName) {
 // ══════════════════════════════════════════════════════════════════════════════
 const tableCtl = (() => {
   const _registry = {};
+  const _page = {};                 // v3.12.0: current page index per table
 
   function register(opts) {
     _registry[opts.name] = opts;
@@ -127,6 +128,7 @@ const tableCtl = (() => {
         if (stored && !el.value) el.value = stored;
         el.addEventListener('input', () => {
           getTablePrefs(opts.name).filter = el.value;
+          _page[opts.name] = 0;     // v3.12.0: jump back to page 1 on filter
           _scheduleFlushUiPrefs();
           // v1.11.6: pages that compose multiple filters (e.g. audit
           // log's action dropdown + free-text) supply their own
@@ -301,10 +303,51 @@ const tableCtl = (() => {
         : (opts.emptyMsg || 'No data.');
       tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">${msg}</td></tr>`;
       _applyScrollWrap(tbody, 0);
+      _renderPager(opts, tbody, 0, 0, 1);
       return;
     }
-    tbody.innerHTML = filtered.map(opts.row).join('');
-    _applyScrollWrap(tbody, filtered.length);
+    // v3.12.0: paginate so a large fleet never renders an endless table.
+    const pageSize = opts.pageSize || 15;
+    const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    let page = _page[opts.name] || 0;
+    if (page >= pages) page = pages - 1;
+    if (page < 0) page = 0;
+    _page[opts.name] = page;
+    const pageRows = filtered.slice(page * pageSize, page * pageSize + pageSize);
+    tbody.innerHTML = pageRows.map(opts.row).join('');
+    _applyScrollWrap(tbody, pageRows.length);
+    _renderPager(opts, tbody, filtered.length, page, pageSize);
+  }
+
+  // v3.12.0: Prev / "x–y of N" / Next pager, placed just after the table card.
+  // Hidden when everything fits on one page.
+  function _renderPager(opts, tbody, total, page, pageSize) {
+    const table = tbody.closest('table');
+    const anchor = (tbody.closest('.table-card') || table);
+    if (!anchor || !anchor.parentNode) return;
+    const pid = 'tablepager-' + opts.name;
+    let pgr = document.getElementById(pid);
+    if (total <= pageSize) { if (pgr) pgr.remove(); return; }
+    if (!pgr) {
+      pgr = document.createElement('div');
+      pgr.id = pid;
+      pgr.className = 'table-pager';
+      anchor.parentNode.insertBefore(pgr, anchor.nextSibling);
+    }
+    const pages = Math.ceil(total / pageSize);
+    const start = page * pageSize + 1;
+    const end = Math.min(total, (page + 1) * pageSize);
+    pgr.innerHTML =
+      `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="-1"${page <= 0 ? ' disabled' : ''}>‹ Prev</button>`
+      + `<span class="table-pager-info">${start}–${end} of ${total}</span>`
+      + `<button class="btn-icon" data-action="tblPage" data-arg="${escAttr(opts.name)}" data-arg2="1"${page >= pages - 1 ? ' disabled' : ''}>Next ›</button>`;
+  }
+
+  function goPage(name, delta) {
+    const opts = _registry[name];
+    if (!opts || !opts._lastRows) return;
+    _page[name] = Math.max(0, (_page[name] || 0) + delta);
+    render(name, opts._lastRows);
   }
 
   // v2.2.5: when a rendered table has more than 20 rows, wrap its
@@ -357,8 +400,10 @@ const tableCtl = (() => {
     return _applySort(rows, prefs.sort || [], getColumns);
   }
 
-  return { register, render, getStoredFilter, wireSortOnly, sortRows };
+  return { register, render, getStoredFilter, wireSortOnly, sortRows, goPage };
 })();
+// v3.12.0: pager button handler (data-action="tblPage")
+function tblPage(name, delta) { tableCtl.goPage(name, delta); }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // v1.11.5: densityCtl — three-mode density toggle, persisted to ui_prefs.
@@ -2416,16 +2461,16 @@ function startRefreshCycle() {
   const label = document.getElementById('last-refresh-label');
 
   // v3.8.0: drive the countdown bar with ONE CSS animation per cycle instead of
-  // writing bar.style.width (and the label text) every second. Per-second DOM
-  // mutations woke any MutationObserver on the page — notably password-manager
-  // / form-filler extensions that re-scan the whole DOM on every change — once
-  // a second for the life of the tab (this dominated a real CPU trace). The
-  // animation is compositor-driven; the only DOM writes now happen on actual
-  // state changes (cycle start, pause/resume, refresh).
+  // writing bar.style.width every second (per-second DOM mutations woke
+  // form-filler MutationObservers — a real CPU sink). The animation is
+  // compositor-driven; DOM writes happen only on actual state changes.
   let paused = false;
+  let cycleStart = Date.now();     // v3.12.0: wall-clock anchor for the fallback
+  let pausedMs = 0, lastTick = Date.now();
 
   function arm() {
     paused = false;
+    cycleStart = Date.now(); pausedMs = 0; lastTick = Date.now();
     if (label) label.textContent = `Auto-refresh · ${refreshInterval}s`;
     if (bar) {
       bar.style.animation = 'none';        // reset…
@@ -2435,27 +2480,34 @@ function startRefreshCycle() {
     }
   }
 
+  function fire() { try { loadDevices(); } catch (e) {} try { _refreshTopBadges(); } catch (e) {} arm(); }
+
   // Fire the refresh when the bar finishes draining, then start the next cycle.
   // The element is static in index.html, so bind the listener once.
   if (bar && !_refreshBarWired) {
     _refreshBarWired = true;
     bar.addEventListener('animationend', (e) => {
       if (e.animationName !== 'rp-refresh-countdown') return;
-      loadDevices();
-      arm();
+      fire();
     });
   }
 
-  // 1 Hz pause check — reads state only; writes to the DOM ONLY when the pause
-  // state actually flips, so it never mutates the DOM on a steady cadence. A
-  // paused animation holds the bar (and defers animationend), so the refresh
-  // resumes exactly where it left off when the modal/dropdown closes.
+  // 1 Hz tick: flips pause state (DOM write only on change), AND — v3.12.0 — acts
+  // as a wall-clock fallback. If a full un-paused interval has elapsed but the
+  // animationend event never fired (the old "frozen bar, page never refreshes"
+  // bug: a paused animation that didn't cleanly resume, or a throttled tab), the
+  // refresh is forced so the page can't get stuck. No per-second bar/label write.
   refreshTimer = setInterval(() => {
+    const now = Date.now();
     const want = _refreshShouldPause();
-    if (want === paused) return;           // no change → no DOM mutation
-    paused = want;
-    if (bar)   bar.style.animationPlayState = want ? 'paused' : 'running';
-    if (label) label.textContent = want ? 'Refresh paused' : `Auto-refresh · ${refreshInterval}s`;
+    if (want !== paused) {
+      paused = want;
+      if (bar)   bar.style.animationPlayState = want ? 'paused' : 'running';
+      if (label) label.textContent = want ? 'Refresh paused' : `Auto-refresh · ${refreshInterval}s`;
+    }
+    if (paused) { pausedMs += now - lastTick; lastTick = now; return; }
+    lastTick = now;
+    if ((now - cycleStart - pausedMs) >= (refreshInterval + 2) * 1000) fire();
   }, 1000);
 
   arm();

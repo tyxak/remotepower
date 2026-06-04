@@ -4526,3 +4526,8 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 :is(.toolbar, .toolbar-mb24, .row-8-center, .isl-186, .isl-173, .section-header) > .dev-combo .dev-combo-input {
   height: 34px; min-height: 34px; padding-top: 0; padding-bottom: 0; box-sizing: border-box;
 }
+
+/* v3.12.0: table pager (Prev / x–y of N / Next) under paginated tables */
+.table-pager { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin: 10px 0 4px; }
+.table-pager .btn-icon[disabled] { opacity: .4; cursor: default; }
+.table-pager-info { font-size: 12px; color: var(--muted); }
