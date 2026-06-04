@@ -1183,7 +1183,7 @@
                 <input type="text" id="oidc-client-id" class="form-input" data-config="oidc_client_id">
               </label>
               <label class="form-label">Client Secret
-                <input type="password" id="oidc-client-secret" class="form-input" data-config="oidc_client_secret" placeholder="(unchanged — leave blank to keep current)">
+                <form autocomplete="off" data-csp-pw-form><input type="password" id="oidc-client-secret" class="form-input" data-config="oidc_client_secret" placeholder="(unchanged — leave blank to keep current)" autocomplete="off"></form>
               </label>
               <label class="form-label">Scopes
                 <input type="text" id="oidc-scopes" class="form-input" data-config="oidc_scopes" placeholder="openid profile email groups">
@@ -1265,7 +1265,7 @@
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-url">HTTP URL</label>
               <input type="url" id="cfg-audit-forward-url" class="form-input" placeholder="https://siem.example.com/ingest"></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-token">HTTP bearer token</label>
-              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-audit-forward-token" class="form-input" placeholder="optional bearer token"></form></div>
+              <form autocomplete="off" data-csp-pw-form><input type="password" id="cfg-audit-forward-token" class="form-input" placeholder="optional bearer token" autocomplete="off"></form></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-host">Syslog host</label>
               <input type="text" id="cfg-audit-forward-host" class="form-input mw-200" placeholder="10.0.0.5"></div>
             <div class="settings-row"><label class="form-label" for="cfg-audit-forward-port">Syslog port</label>
@@ -5349,7 +5349,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       <div class="form-group"><label class="form-label">IP address</label><input type="text" id="lxc-ip" class="form-input" value="dhcp" placeholder="dhcp or 192.168.1.50/24"></div>
       <div class="form-group"><label class="form-label">Gateway <span class="c-muted">(static only)</span></label><input type="text" id="lxc-gateway" class="form-input" placeholder="192.168.1.1"></div>
     </div>
-    <div class="form-group"><label class="form-label">Root password</label><input type="password" id="lxc-password" class="form-input" placeholder="min 5 chars" autocomplete="new-password"></div>
+    <div class="form-group"><label class="form-label">Root password</label><form autocomplete="off" data-csp-pw-form><input type="password" id="lxc-password" class="form-input" placeholder="min 5 chars" autocomplete="new-password"></form></div>
     <div class="form-group"><label class="form-label">…or SSH public key</label><textarea id="lxc-sshkey" class="form-input" rows="2" placeholder="ssh-ed25519 AAAA…"></textarea>
       <span class="hint">Set a password and/or an SSH key so you can log in.</span></div>
     <div class="lxc-toggles">
@@ -5608,7 +5608,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     </div>
     <div class="form-group">
       <label class="form-label">Community string</label>
-      <input type="password" id="cmdb-snmp-community" class="form-input" placeholder="public" maxlength="128" autocomplete="off">
+      <form autocomplete="off" data-csp-pw-form><input type="password" id="cmdb-snmp-community" class="form-input" placeholder="public" maxlength="128" autocomplete="off"></form>
       <div class="meta-sm">Treated as a secret — never displayed after save; leave blank to keep current.</div>
     </div>
     <div class="form-group">
