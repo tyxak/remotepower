@@ -980,7 +980,7 @@ function showPage(name, btn) {
   if (name === 'software-policy') loadSoftwarePolicy();
   // v3.12.0: make any long <select> on the page searchable once its loader
   // (often async) has populated it.
-  if (el) { enhanceLongSelects(el); setTimeout(() => enhanceLongSelects(el), 350); }
+  if (el) { enhanceDeviceCombos(el); enhanceLongSelects(el); setTimeout(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); }, 350); }
 }
 
 const _MON_PANELS =['mon-panel-targets', 'mon-panel-metrics', 'mon-panel-ports', 'mon-panel-scripts', 'mon-panel-processes'];
@@ -2474,9 +2474,9 @@ function openModal(id) {
   document.body.classList.add('modal-open');
   // v3.12.0: searchable long dropdowns. Run now (sync-populated selects), next
   // frame, and once more after typical fetch latency (async-populated selects).
-  enhanceLongSelects(el);
-  requestAnimationFrame(() => enhanceLongSelects(el));
-  setTimeout(() => enhanceLongSelects(el), 350);
+  enhanceDeviceCombos(el); enhanceLongSelects(el);
+  requestAnimationFrame(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); });
+  setTimeout(() => { enhanceDeviceCombos(el); enhanceLongSelects(el); }, 350);
 }
 function closeModal(id) {
   const el = document.getElementById(id);
@@ -2593,6 +2593,7 @@ function filterRows(inputEl) {
 // data-nofilter on the select.
 function _searchifySelect(sel) {
   if (!sel || sel.multiple || sel._searchified || sel.dataset.nofilter !== undefined) return;
+  if (sel.classList.contains('device-combo')) return;   // handled by the combobox
   if (!sel.options || sel.options.length < 15) return;
   sel._searchified = true;
   const inp = document.createElement('input');
@@ -2614,6 +2615,85 @@ function _searchifySelect(sel) {
 function enhanceLongSelects(root) {
   try { (root || document).querySelectorAll('select').forEach(_searchifySelect); }
   catch (e) { /* never let enhancement break a page */ }
+}
+
+// v3.12.0: device dropdowns become a type-to-search filterbox (combobox). The
+// native <select class="device-combo"> stays in the DOM as the value holder —
+// so every existing `.value` read and change-handler keeps working — but is
+// visually replaced by a text input + a filtered list. Options are read LIVE
+// each time the list opens, so it works no matter when the select is populated.
+function comboifyDeviceSelect(sel) {
+  if (!sel || sel.dataset.comboified) return;
+  sel.dataset.comboified = '1';
+  const wrap = document.createElement('span');
+  wrap.className = 'dev-combo';
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  sel.classList.add('dev-combo-native');
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.autocomplete = 'off';
+  // copy the select's sizing classes so the box looks/sizes the same
+  inp.className = (sel.className.replace('device-combo', '').replace('dev-combo-native', '')
+                  .trim() + ' dev-combo-input').trim();
+  inp.placeholder = sel.dataset.comboPlaceholder || 'Search devices…';
+  inp.setAttribute('aria-label', 'Search devices');
+  wrap.appendChild(inp);
+  const list = document.createElement('div');
+  list.className = 'dev-combo-list';
+  list.hidden = true;
+  wrap.appendChild(list);
+  let activeIdx = -1;
+
+  const opts = () => Array.from(sel.options);
+  const labelFor = (v) => { const o = opts().find(o => o.value === v); return o ? o.text : ''; };
+  const syncInput = () => { if (document.activeElement !== inp) inp.value = labelFor(sel.value); };
+  function renderList() {
+    const q = inp.value.trim().toLowerCase();
+    const matches = opts().filter(o => !q || (o.text || '').toLowerCase().includes(q));
+    activeIdx = -1;
+    if (!matches.length) { list.innerHTML = '<div class="dev-combo-empty">No matches</div>'; list.hidden = false; return; }
+    list.innerHTML = matches.map(o =>
+      `<div class="dev-combo-item${o.value === sel.value ? ' sel' : ''}" data-val="${escAttr(o.value)}">${escHtml(o.text)}</div>`).join('');
+    list.hidden = false;
+  }
+  function pick(val) {
+    sel.value = val;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    inp.value = labelFor(val);
+    list.hidden = true;
+  }
+  inp.addEventListener('focus', () => { inp.select(); renderList(); });
+  inp.addEventListener('input', renderList);
+  inp.addEventListener('blur', () => setTimeout(() => { list.hidden = true; syncInput(); }, 150));
+  inp.addEventListener('keydown', (e) => {
+    const items = Array.from(list.querySelectorAll('.dev-combo-item'));
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) { renderList(); } activeIdx = Math.min(activeIdx + 1, items.length - 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (items[activeIdx]) pick(items[activeIdx].dataset.val); else if (items.length === 1) pick(items[0].dataset.val); return; }
+    else if (e.key === 'Escape') { list.hidden = true; inp.blur(); return; }
+    else return;
+    items.forEach((it, i) => it.classList.toggle('active', i === activeIdx));
+    if (items[activeIdx]) items[activeIdx].scrollIntoView({ block: 'nearest' });
+  });
+  list.addEventListener('mousedown', (e) => {
+    const it = e.target.closest('.dev-combo-item');
+    if (it) { e.preventDefault(); pick(it.dataset.val); }
+  });
+  syncInput();
+}
+function enhanceDeviceCombos(root) {
+  try {
+    (root || document).querySelectorAll('select.device-combo').forEach(sel => {
+      comboifyDeviceSelect(sel);
+      const wrap = sel.closest('.dev-combo');
+      const inp = wrap && wrap.querySelector('.dev-combo-input');
+      if (inp && document.activeElement !== inp) {
+        const o = Array.from(sel.options).find(o => o.value === sel.value);
+        inp.value = o ? o.text : '';
+      }
+    });
+  } catch (e) { /* never break a page */ }
 }
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;

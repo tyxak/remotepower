@@ -677,6 +677,23 @@ class TestLargeFleetUI(unittest.TestCase):
         self.assertIn('function _searchifySelect(', self.app)
         self.assertIn('enhanceLongSelects(el)', self.app)
 
+    def test_device_combobox(self):
+        # device dropdowns become a type-to-search combobox
+        self.assertIn('function comboifyDeviceSelect(', self.app)
+        self.assertIn('function enhanceDeviceCombos(', self.app)
+        self.assertIn('enhanceDeviceCombos(el)', self.app)
+        # every confirmed device <select> is tagged for the combobox
+        for sid in ('patch-device-filter', 'logs-device-filter', 'timeline-device',
+                    'trend-device', 'sched-device', 'compose-create-device',
+                    'acme-issue-device', 'backupjob-device', 'iac-device-select',
+                    'mailwatch-device', 'oti-device', 'maint-target-device',
+                    'log-rule-device', 'inbound-wh-device', 'tasks-device-filter'):
+            i = self.html.find(f'id="{sid}"')
+            self.assertGreater(i, 0, f'{sid} not found')
+            # the class attr on that <select> includes device-combo
+            tag = self.html[i:self.html.find('>', i)]
+            self.assertIn('device-combo', tag, f'{sid} not tagged device-combo')
+
 
 class TestExposureHostMute(unittest.TestCase):
     """v3.12.0: mute ALL exposure from one host (device_id-scoped rule)."""

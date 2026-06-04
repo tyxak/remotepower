@@ -4496,3 +4496,33 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
   justify-content: center;
   gap: 6px;
 }
+
+/* ── v3.12.0: device combobox (filterbox replacing a device <select>) ─────────
+   The native select is kept (value holder) but visually hidden; a text input +
+   filtered list overlays it. Full-width in forms/modals; a fixed-width filterbox
+   at the shared 34px control height inside toolbars. */
+.dev-combo { position: relative; display: block; }
+.dev-combo .dev-combo-input { width: 100%; }
+.dev-combo-native {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  opacity: 0; pointer-events: none; overflow: hidden; clip: rect(0 0 0 0); border: 0;
+}
+.dev-combo-list {
+  position: absolute; z-index: 60; top: calc(100% + 2px); left: 0; right: 0;
+  min-width: 200px; max-height: 260px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+}
+.dev-combo-item {
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dev-combo-item:hover, .dev-combo-item.active { background: var(--bg); }
+.dev-combo-item.sel { color: var(--accent); }
+.dev-combo-empty { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+:is(.toolbar, .toolbar-mb24, .row-8-center, .isl-186, .isl-173, .section-header) > .dev-combo {
+  width: 240px; max-width: 100%; flex: 0 0 auto;
+}
+:is(.toolbar, .toolbar-mb24, .row-8-center, .isl-186, .isl-173, .section-header) > .dev-combo .dev-combo-input {
+  height: 34px; min-height: 34px; padding-top: 0; padding-bottom: 0; box-sizing: border-box;
+}
