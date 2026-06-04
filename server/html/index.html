@@ -3977,6 +3977,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <div class="section-header"><div class="section-title">Pending per device</div>
             <button class="btn-icon fs-12" data-action="loadCommandQueue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           </div>
+          <input type="text" id="cmdqueue-filter" class="form-input mb-8" placeholder="Filter by device, actor, or command…" data-input="_renderCommandQueue">
           <div id="cmdqueue-body"><div class="c-muted">Loading…</div></div>
         </div>
       </div>

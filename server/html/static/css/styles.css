@@ -580,6 +580,7 @@
   .settings-search-hint { font-size: 12px; color: var(--muted); margin: 8px 0 10px; }
   .role-perm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 14px; }
   .role-perm-grid .click-row-6 { white-space: nowrap; }
+  .exposure-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */

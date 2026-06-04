@@ -4480,11 +4480,28 @@ function _registerApiKeysTable() {
 // What's waiting to be delivered to each agent on its next heartbeat. Lets an
 // operator see (and cancel) pending commands — especially useful for an offline
 // host whose queue is backing up.
+// v3.12.0: cache + filter + page so a large offline fleet doesn't render
+// thousands of rows at once.
+let _cmdqResp = null;
+let _cmdqPendingShown = 25;
+let _cmdqRecentShown = 50;
+const _CMDQ_PAGE = 25;
+function _cmdqMorePending() { _cmdqPendingShown += _CMDQ_PAGE; _renderCommandQueue(); }
+function _cmdqMoreRecent()  { _cmdqRecentShown += 50; _renderCommandQueue(); }
 async function loadCommandQueue() {
   const body = document.getElementById('cmdqueue-body');
   if (!body) return;
   const r = await api('GET', '/command-queue').catch(() => null);
   if (!r) { body.innerHTML = '<div class="c-red">Failed to load the command queue.</div>'; return; }
+  _cmdqResp = r;
+  _cmdqPendingShown = 25; _cmdqRecentShown = 50;
+  _renderCommandQueue();
+}
+function _renderCommandQueue() {
+  const body = document.getElementById('cmdqueue-body');
+  if (!body || !_cmdqResp) return;
+  const r = _cmdqResp;
+  const q = (document.getElementById('cmdqueue-filter')?.value || '').trim().toLowerCase();
   const kindPill = (k) => `<span class="ro-badge ${k === 'exec' ? 'rs-paused' : 'rs-done'}">${escHtml(k)}</span>`;
 
   // Pending delivery — the live queue. An online agent fetches queued commands
@@ -4492,13 +4509,20 @@ async function loadCommandQueue() {
   // OFFLINE (where commands pile up). That's expected, not a fault — hence the
   // wording, and the recent-dispatch log below so a queued command is still
   // visible after it was delivered.
+  // Filter pending device cards by device name or any command summary.
+  let pendingDevs = (r.devices || []);
+  if (q) pendingDevs = pendingDevs.filter(d =>
+    (d.name || '').toLowerCase().includes(q) ||
+    (d.commands || []).some(c => (c.summary || '').toLowerCase().includes(q)));
+  const pendingTotal = pendingDevs.length;
+  const pendingPage = pendingDevs.slice(0, _cmdqPendingShown);
   let pendingHtml;
-  if (!r.devices || !r.devices.length) {
-    pendingHtml = '<div class="empty-state"><div class="empty-title">Nothing pending delivery</div>'
+  if (!pendingTotal) {
+    pendingHtml = '<div class="empty-state"><div class="empty-title">' + (q ? 'No matching devices' : 'Nothing pending delivery') + '</div>'
       + '<div class="empty-text">Online agents fetch queued commands within one check-in (~60s), so this '
       + 'is normally empty. Commands only wait here while a host is offline. See what you queued below.</div></div>';
   } else {
-    pendingHtml = r.devices.map(d => {
+    pendingHtml = pendingPage.map(d => {
       const status = d.online
         ? '<span class="c-green">● online</span>'
         : '<span class="c-amber">● offline</span>';
@@ -4517,24 +4541,36 @@ async function loadCommandQueue() {
         <table class="audit-table"><thead><tr><th>Type</th><th>Command</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       </div>`;
     }).join('');
+    if (pendingTotal > pendingPage.length) {
+      pendingHtml += `<button class="btn-secondary fs-12" data-action="_cmdqMorePending">Show ${Math.min(_CMDQ_PAGE, pendingTotal - pendingPage.length)} more (${pendingPage.length} of ${pendingTotal})</button>`;
+    }
   }
 
   // Recently dispatched — the log of what was queued (from command history), so
   // a queued command is visible even after an online agent already picked it up.
   let recentHtml = '';
-  const recent = r.recent || [];
-  if (recent.length) {
-    const rows = recent.map(e =>
+  let recent = r.recent || [];
+  if (q) recent = recent.filter(e =>
+    (e.device_name || e.device_id || '').toLowerCase().includes(q) ||
+    (e.actor || '').toLowerCase().includes(q) ||
+    (e.command || '').toLowerCase().includes(q));
+  const recentTotal = recent.length;
+  if (recentTotal) {
+    const recentPage = recent.slice(0, _cmdqRecentShown);
+    const rows = recentPage.map(e =>
       `<tr><td class="c-muted fs-12">${e.ts ? new Date(e.ts * 1000).toLocaleString() : '—'}</td>`
       + `<td class="fw-500">${escHtml(e.device_name || e.device_id || '—')}</td>`
       + `<td class="hint">${escHtml(e.actor || '—')}</td>`
       + `<td class="ff-mono fs-12">${escHtml(e.command || '')}</td></tr>`
     ).join('');
+    const moreRecent = recentTotal > recentPage.length
+      ? `<button class="btn-secondary fs-12 mt-8" data-action="_cmdqMoreRecent">Show 50 more (${recentPage.length} of ${recentTotal})</button>` : '';
     recentHtml = `<div class="dash-card mt-16">
       <div class="row-8-center mb-8"><strong>Recently dispatched</strong>
-        <span class="c-muted fs-12">last ${recent.length} — what was queued, when, and by whom</span>
+        <span class="c-muted fs-12">${recentPage.length} of ${recentTotal} — what was queued, when, and by whom</span>
         <button class="btn-icon fs-12" data-action="clearDispatchLog" title="Clear the command history shown here (also clears the Command History page)">Clear log</button></div>
       <table class="audit-table"><thead><tr><th>When</th><th>Device</th><th>By</th><th>Command</th></tr></thead><tbody>${rows}</tbody></table>
+      ${moreRecent}
     </div>`;
   }
 
