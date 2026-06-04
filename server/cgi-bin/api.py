@@ -18761,6 +18761,120 @@ def _health_grade(score):
     return 'critical'
 
 
+# ── v3.12.0: per-asset risk score ────────────────────────────────────────────
+# Weighted aggregation of the security/posture signals RemotePower already
+# collects (no new probing). Higher = worse; capped at 100. Explainable: every
+# point is attributed to a named factor.
+_RISK_WEIGHTS = {
+    'offline': 25, 'cve_critical': 8, 'cve_high': 3, 'pending_updates': 1,
+    'exposed_world': 4, 'policy_violation': 6, 'expiry_expired': 10,
+    'expiry_soon': 3, 'mount_issue': 12, 'reboot_required': 4,
+}
+_RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
+              'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
+              'mount_issue': 24}
+
+
+def _risk_level(score):
+    if score >= 80:
+        return 'critical'
+    if score >= 50:
+        return 'high'
+    if score >= 20:
+        return 'medium'
+    return 'low'
+
+
+def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl):
+    si = dev.get('sysinfo') or {}
+    factors = []
+
+    def _add(kind, pts, detail):
+        pts = int(pts)
+        if pts > 0:
+            factors.append({'kind': kind, 'points': pts, 'detail': detail})
+
+    last = dev.get('last_seen', 0)
+    if last and (now - last) > ttl:
+        _add('offline', _RISK_WEIGHTS['offline'], 'host is offline')
+    finds = cve_rec.get('findings') if isinstance(cve_rec, dict) else cve_rec
+    crit = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'critical')
+    high = sum(1 for f in (finds or []) if isinstance(f, dict) and (f.get('severity') or '').lower() == 'high')
+    if crit:
+        _add('cve_critical', min(_RISK_CAPS['cve_critical'], crit * _RISK_WEIGHTS['cve_critical']), f'{crit} critical CVE(s)')
+    if high:
+        _add('cve_high', min(_RISK_CAPS['cve_high'], high * _RISK_WEIGHTS['cve_high']), f'{high} high CVE(s)')
+    try:
+        up = int(((si.get('packages') or {}).get('upgradable')) or 0)
+    except (TypeError, ValueError):
+        up = 0
+    if up:
+        _add('pending_updates', min(_RISK_CAPS['pending_updates'], up * _RISK_WEIGHTS['pending_updates']), f'{up} pending update(s)')
+    world = sum(1 for p in (si.get('listening_ports') or []) if isinstance(p, dict) and p.get('scope') == 'world')
+    if world:
+        _add('exposed_world', min(_RISK_CAPS['exposed_world'], world * _RISK_WEIGHTS['exposed_world']), f'{world} world-reachable service(s)')
+    viol = len(sv_rec.get('violations') or []) if isinstance(sv_rec, dict) else 0
+    if viol:
+        _add('policy_violation', min(_RISK_CAPS['policy_violation'], viol * _RISK_WEIGHTS['policy_violation']), f'{viol} software-policy violation(s)')
+    expired = soon = 0
+    for v in _device_contract_status(cmdb_rec):
+        if v.get('status') == 'expired':
+            expired += 1
+        else:
+            soon += 1
+    if expired:
+        _add('expiry_expired', min(_RISK_CAPS['expiry_expired'], expired * _RISK_WEIGHTS['expiry_expired']), f'{expired} expired contract/license/warranty')
+    if soon:
+        _add('expiry_soon', soon * _RISK_WEIGHTS['expiry_soon'], f'{soon} expiring soon')
+    mi = len([m for m in (si.get('mount_issues') or []) if isinstance(m, dict)])
+    if mi:
+        _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * _RISK_WEIGHTS['mount_issue']), f'{mi} mount issue(s)')
+    if si.get('reboot_required'):
+        _add('reboot_required', _RISK_WEIGHTS['reboot_required'], 'reboot required')
+    score = min(100, sum(f['points'] for f in factors))
+    return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
+            'score': score, 'level': _risk_level(score),
+            'factors': sorted(factors, key=lambda f: -f['points'])}
+
+
+def _compute_fleet_risk():
+    """Per-asset risk for every monitored device. Pure aggregation over stored
+    data — safe to call on demand."""
+    devices = load(DEVICES_FILE) or {}
+    cmdb = _cmdb_load()
+    cve = (load(CVE_FINDINGS_FILE) or {}) if backend_exists(CVE_FINDINGS_FILE) else {}
+    sv = (load(SOFTWARE_VIOLATIONS_FILE) or {}) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
+    now = int(time.time())
+    try:
+        ttl = get_online_ttl()
+    except Exception:
+        ttl = 180
+    out = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
+            continue
+        out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
+                                cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl))
+    out.sort(key=lambda r: -r['score'])
+    return out
+
+
+def handle_risk_overview():
+    """GET /api/risk — per-asset risk score (0-100) with an explainable factor
+    breakdown, plus a fleet summary. Built purely from already-stored data."""
+    require_auth()
+    risks = _compute_fleet_risk()
+    scope = _caller_scope()
+    if scope is not None:
+        devs = load(DEVICES_FILE) or {}
+        risks = [r for r in risks if _device_in_scope(scope, devs.get(r['device_id'], {}))]
+    counts = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
+    for r in risks:
+        counts[r['level']] = counts.get(r['level'], 0) + 1
+    avg = round(sum(r['score'] for r in risks) / len(risks)) if risks else 0
+    respond(200, {'devices': risks, 'counts': counts, 'avg': avg, 'total': len(risks)})
+
+
 def _fleet_health(use_cache=True):
     payload = _attention_payload(use_cache=use_cache)
     items = payload.get('items') or []
@@ -18782,6 +18896,21 @@ def _fleet_health(use_cache=True):
             continue
         rec['score'] = max(0, rec['score'] - _HEALTH_WEIGHTS[sev])
         rec[sev] += 1
+    # v3.12.0: blend in the per-asset risk score. Risk emphasises security
+    # posture (CVEs, exposure, policy, expiry); attach it to each device and let
+    # it cap health so a high-risk asset can't read as perfectly healthy. The
+    # cap is bounded (≤40) and halved so signals already counted in NA aren't
+    # double-penalised into the ground.
+    try:
+        risk_by_id = {r['device_id']: r for r in _compute_fleet_risk()}
+    except Exception:
+        risk_by_id = {}
+    for did, rec in per.items():
+        rk = risk_by_id.get(did)
+        if rk:
+            rec['risk'] = rk['score']
+            rec['risk_level'] = rk['level']
+            rec['score'] = min(rec['score'], 100 - min(40, rk['score'] // 2))
     # Worst first (lowest score; ties broken by critical count) so the UI can
     # slice the top N "needs attention most" devices without re-sorting.
     devs = sorted(per.values(), key=lambda r: (r['score'], -r['critical']))
@@ -30882,6 +31011,7 @@ def _dispatch(pi, m):
     # v3.4.1: fleet health score (0-100 rollup of Needs Attention signals)
     elif pi == '/api/fleet/health/history' and m == 'GET': handle_fleet_health_history()
     elif pi == '/api/fleet/health' and m == 'GET': handle_fleet_health()
+    elif pi == '/api/risk' and m == 'GET': handle_risk_overview()
     # v3.4.1: SLA / uptime reporting + fleet capacity rollup
     elif pi == '/api/fleet/sla' and m == 'GET': handle_fleet_sla()
     elif pi == '/api/fleet/sla-targets' and m == 'GET': handle_sla_targets_get()

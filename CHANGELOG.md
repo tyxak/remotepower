@@ -12,6 +12,12 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **Per-asset risk score.** A new **Risk** page (and `GET /api/risk`) computes a
+  0–100 risk score for every monitored asset on demand, purely from data already
+  collected — open CVEs, world-reachable services, software-policy violations,
+  pending updates, contract/license/warranty expiry, mount issues, reboot-
+  pending, offline. Every point is attributed to a named factor. The score also
+  blends into fleet health, so a high-risk asset can't read as perfectly healthy.
 - **Mount-point monitoring.** The agent compares `/etc/fstab` against live
   mounts and probes mounted network shares (NFS/SMB) for responsiveness — a new
   `mount_issue` event fires (edge-triggered) when an auto fstab entry isn't

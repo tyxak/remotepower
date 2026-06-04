@@ -282,6 +282,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
           <span>Software policy</span>
         </button>
+        <button class="nav-btn" data-page="risk" title="Per-asset risk score from CVEs, exposure, policy, expiry and more">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Risk</span>
+        </button>
         <button class="nav-btn" data-page="audit" >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           <span>Audit</span>
@@ -4470,6 +4474,25 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               <th data-col="addr">Bind address</th><th data-col="scope">Scope</th><th></th>
             </tr></thead>
             <tbody id="exposure-tbody"><tr><td colspan="6" class="hint">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── v3.12.0: per-asset risk score ──────────────────────────────── -->
+      <div id="page-risk" class="page">
+        <div class="page-title">Risk</div>
+        <div class="page-subtitle">A per-asset risk score (0–100) computed on demand from everything RemotePower already knows — open CVEs, world-reachable services, software-policy violations, pending updates, contract/license expiry, mount issues and more. Every point is attributed, and the score also influences <a href="#" data-action-btn="_showPageBtn" data-page="about" data-prevent-default class="c-accent">fleet health</a>.</div>
+        <div class="toolbar">
+          <button class="btn-icon" data-action="loadRisk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Recompute</button>
+          <span id="risk-summary" class="isl-100"></span>
+        </div>
+        <div class="table-card">
+          <table class="data-table w-full">
+            <thead id="risk-thead"><tr>
+              <th data-col="device">Device</th><th data-col="score">Risk</th>
+              <th data-col="level">Level</th><th data-col="factors">Top factors</th>
+            </tr></thead>
+            <tbody id="risk-tbody"><tr><td colspan="4" class="hint">Loading…</td></tr></tbody>
           </table>
         </div>
       </div>

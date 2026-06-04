@@ -935,6 +935,7 @@ function showPage(name, btn) {
   if (name === 'users')    loadUsers();
   if (name === 'settings') { loadSettings(); loadWebhookLog(); }
   if (name === 'account')  loadAccount();
+  if (name === 'risk')     loadRisk();
   if (name === 'ai') { loadAIPage(); }
   if (name === 'about')    loadAbout();
   if (name === 'apikeys')  loadApiKeys();
@@ -4062,6 +4063,47 @@ function toggleSelectAllMinimal(checkbox) {
   updateBatchBar();
   renderDevices();
 }
+// ── v3.12.0: per-asset risk ──────────────────────────────────────────────────
+let _riskResp = null;
+async function loadRisk() {
+  const tbody = document.getElementById('risk-tbody');
+  if (!tbody) return;
+  tableCtl.wireSortOnly('risk-thead', 'risk', () => _renderRisk());
+  tbody.innerHTML = '<tr><td colspan="4" class="hint">Computing…</td></tr>';
+  const data = await api('GET', '/risk');
+  if (!data) { tbody.innerHTML = '<tr><td colspan="4" class="c-red">Failed to load.</td></tr>'; return; }
+  _riskResp = data;
+  const s = document.getElementById('risk-summary');
+  if (s) { const c = data.counts || {}; s.textContent = `${data.total} assets · avg ${data.avg} · critical ${c.critical||0} · high ${c.high||0} · medium ${c.medium||0}`; }
+  _renderRisk();
+}
+function _riskColor(level) {
+  return level === 'critical' ? 'var(--red)' : level === 'high' ? 'var(--amber)' : level === 'medium' ? 'var(--muted)' : 'var(--green)';
+}
+function _renderRisk() {
+  const tbody = document.getElementById('risk-tbody');
+  if (!tbody || !_riskResp) return;
+  let rows = (_riskResp.devices || []).slice();
+  rows = tableCtl.sortRows('risk', rows, (r) => ({
+    device: (r.device_name || '').toLowerCase(),
+    score:  r.score || 0,
+    level:  r.level || '',
+    factors: (r.factors || []).length,
+  }));
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" class="hint">No monitored assets.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => {
+    const color = _riskColor(r.level);
+    const factors = (r.factors || []).slice(0, 4).map(f =>
+      `<span class="pill" data-color="var(--muted)" title="${escAttr(f.detail || '')}">${escHtml(f.kind.replace(/_/g, ' '))} +${f.points}</span>`).join(' ') || '<span class="hint">—</span>';
+    return `<tr>
+      <td class="fw-500 pointer" data-action="openDeviceDrawer" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device_name)}">${escHtml(r.device_name)}</td>
+      <td><span class="fw-600" data-color="${color}">${r.score}</span>/100</td>
+      <td><span class="pill" data-color="${color}">${escHtml(r.level)}</span></td>
+      <td>${factors}</td>
+    </tr>`;
+  }).join('');
+}
+
 // ── v3.12.0: My Account ──────────────────────────────────────────────────────
 let _meCache = null;
 function _initials(name) { return (String(name || '?').trim().slice(0, 2) || '?').toUpperCase(); }

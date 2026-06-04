@@ -341,6 +341,44 @@ class TestQuickWinsHandlers(_HandlerBase):
         self.assertEqual(mons[0]['body_match'], {'mode': 'contains', 'value': 'Welcome'})
 
 
+class TestRiskScores(unittest.TestCase):
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._saved = {}
+        for a in ('DEVICES_FILE', 'CVE_FINDINGS_FILE', 'SOFTWARE_VIOLATIONS_FILE', 'CMDB_FILE'):
+            self._saved[a] = getattr(api, a)
+            setattr(api, a, self.d / Path(getattr(api, a)).name)
+
+    def tearDown(self):
+        for a, v in self._saved.items():
+            setattr(api, a, v)
+
+    def test_risk_ordering_and_factors(self):
+        import time
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web1', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'packages': {'upgradable': 12},
+                'listening_ports': [{'scope': 'world'}, {'scope': 'world'}],
+                'mount_issues': [{'path': '/m', 'issue': 'stalled'}], 'reboot_required': True}},
+            'd2': {'name': 'db1', 'monitored': True, 'last_seen': now - 99999, 'sysinfo': {}},
+            'd3': {'name': 'idle', 'monitored': True, 'last_seen': now, 'sysinfo': {}},
+        })
+        api.save(api.CVE_FINDINGS_FILE, {'d1': {'findings': [{'severity': 'critical'}, {'severity': 'high'}]}})
+        api.save(api.SOFTWARE_VIOLATIONS_FILE, {'d1': {'violations': [{'x': 1}]}})
+        risks = {r['device_name']: r for r in api._compute_fleet_risk()}
+        self.assertGreater(risks['web1']['score'], risks['db1']['score'])
+        self.assertGreater(risks['db1']['score'], risks['idle']['score'])
+        self.assertEqual(risks['idle']['score'], 0)
+        self.assertEqual(risks['idle']['level'], 'low')
+        self.assertEqual(risks['db1']['factors'][0]['kind'], 'offline')
+        self.assertLessEqual(risks['web1']['score'], 100)
+
+    def test_risk_route_registered(self):
+        from routing_harness import resolve_route
+        self.assertEqual(resolve_route('GET', '/api/risk')[0], 'handle_risk_overview')
+
+
 class TestMountMonitoring(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
