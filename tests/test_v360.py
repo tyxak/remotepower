@@ -90,10 +90,15 @@ class TestV360UserFirewall(unittest.TestCase):
     HTML = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
 
     def test_handlers_exec_gated(self):
-        for fn in ('handle_device_user_action', 'handle_device_firewall_action', 'handle_av_scan'):
+        # v3.12.0: 'exec' was split into granular perms. Each handler stays
+        # action-gated (admin + legacy 'exec' role still pass via expansion).
+        want = {'handle_device_user_action': "require_perm('ssh'",
+                'handle_device_firewall_action': "require_perm('command'",
+                'handle_av_scan': "require_perm('command'"}
+        for fn, perm in want.items():
             m = re.search(rf'def {fn}\(.*?\n(.*?)\ndef ', self.API, re.DOTALL)
             self.assertIsNotNone(m, f'{fn} not found')
-            self.assertIn("require_perm('exec'", m.group(1), f'{fn} must be exec-gated')
+            self.assertIn(perm, m.group(1), f'{fn} must be action-gated')
 
     def test_input_validation_present(self):
         # username + ssh key validators must exist
@@ -139,7 +144,7 @@ class TestV360BackupOrchestration(unittest.TestCase):
 
     def test_run_is_exec_gated_create_is_admin(self):
         run = re.search(r'def handle_backup_job_run\(.*?\n(.*?)\ndef ', self.API, re.DOTALL)
-        self.assertIn("require_perm('exec'", run.group(1))
+        self.assertIn("require_perm('command'", run.group(1))   # v3.12.0: was 'exec'
         create = re.search(r'def handle_backup_job_create\(.*?\n(.*?)\ndef ', self.API, re.DOTALL)
         self.assertIn('require_admin_auth()', create.group(1))
 

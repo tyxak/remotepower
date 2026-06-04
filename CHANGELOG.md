@@ -29,6 +29,19 @@ row write.
   failures**, **outdated running kernel**, and **failed system services**. Every
   point is attributed to a named factor. The score also blends into fleet
   health, so a high-risk asset can't read as perfectly healthy.
+- **Granular RBAC roles.** Custom roles can now grant any of **10 fine-grained
+  action permissions** instead of the old three: `command`, `script`, `reboot`,
+  `shutdown`, `patch`, `packages`, `containers`, `services`, `ssh`, `mitigate`.
+  The relevant handlers are re-gated accordingly (e.g. container/compose actions
+  and watched-service edits move from admin-only to the `containers` / `services`
+  permission). The legacy `exec` / `upgrade` umbrellas on existing roles are
+  still accepted and transparently expand to their granular members, so no role
+  breaks. Roles can also be **scoped to one or more sites** now (`sites` joins
+  all/groups/tags). The role editor shows all ten permissions with tooltips and
+  a Sites scope option.
+- **MCP API keys from the UI.** The New API Key dialog now offers the **MCP**
+  role (AI-assistant keys limited to the allow-listed MCP actions) — previously
+  only the backend accepted it.
 - **Host firewall posture.** The agent now probes every backend it finds —
   **nftables, iptables, ufw, ebtables** — reporting for each whether the tool is
   installed, whether it has an active ruleset, a rough rule count, and (where

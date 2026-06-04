@@ -405,10 +405,11 @@ class TestV342RBAC(unittest.TestCase):
         self.assertEqual(routes_to('DELETE', '/api/roles/ops'), 'handle_role_delete')
 
     def test_action_handlers_use_require_perm(self):
-        # the device-action chokepoints must gate on a permission, not bare admin
-        for fn, perm in (('handle_custom_cmd', 'exec'), ('handle_reboot', 'reboot'),
-                         ('handle_shutdown', 'reboot'), ('handle_upgrade_device', 'upgrade'),
-                         ('handle_update_device', 'upgrade'), ('handle_exec_batch', 'exec')):
+        # the device-action chokepoints must gate on a permission, not bare admin.
+        # v3.12.0: 'exec'/'upgrade' split into granular perms.
+        for fn, perm in (('handle_custom_cmd', 'command'), ('handle_reboot', 'reboot'),
+                         ('handle_shutdown', 'shutdown'), ('handle_upgrade_device', 'patch'),
+                         ('handle_update_device', 'patch'), ('handle_exec_batch', 'command')):
             i = self.API.find('def ' + fn + '(')
             self.assertGreater(i, 0, fn)
             # slice up to the next top-level def so the perm call is in range
@@ -451,7 +452,12 @@ class TestV342RBAC(unittest.TestCase):
         self.assertTrue(api._resolve_role('admin')['admin'])
         self.assertEqual(api._resolve_role('viewer')['permissions'], set())
         ops = api._resolve_role('ops')
-        self.assertEqual(ops['permissions'], {'exec', 'reboot'})   # 'bogus' filtered
+        # v3.12.0: legacy 'exec' expands to its granular members; 'reboot' stays;
+        # 'bogus' is filtered out.
+        self.assertEqual(ops['permissions'],
+                         api._expand_perms(['exec']) | {'reboot'})
+        self.assertIn('command', ops['permissions'])
+        self.assertNotIn('patch', ops['permissions'])   # exec != upgrade
         self.assertFalse(ops['admin'])
         self.assertEqual(api._resolve_role('nope')['permissions'], set())  # fail closed
 
@@ -485,19 +491,20 @@ class TestV342RBAC(unittest.TestCase):
         api._LOAD_CACHE.clear()
         api.get_token_from_request = lambda: 'tok'
         api.verify_token = lambda t: ('bob', 'ops')
-        # in-scope exec passes
-        self.assertEqual(api.require_perm('exec', ['d1']), 'bob')
-        # out-of-scope exec → 403
+        # v3.12.0: legacy 'exec' role expands to granular perms (command, …).
+        # in-scope command passes
+        self.assertEqual(api.require_perm('command', ['d1']), 'bob')
+        # out-of-scope command → 403
         with self.assertRaises(api.HTTPError) as cm:
-            api.require_perm('exec', ['d2'])
+            api.require_perm('command', ['d2'])
         self.assertEqual(cm.exception.status, 403)
-        # missing permission → 403
+        # 'exec' does NOT expand to 'patch' (was 'upgrade') → 403
         with self.assertRaises(api.HTTPError) as cm:
-            api.require_perm('upgrade', ['d1'])
+            api.require_perm('patch', ['d1'])
         self.assertEqual(cm.exception.status, 403)
         # admin passes anything
         api.verify_token = lambda t: ('root', 'admin')
-        self.assertEqual(api.require_perm('upgrade', ['d2']), 'root')
+        self.assertEqual(api.require_perm('patch', ['d2']), 'root')
 
     def test_assignable_role(self):
         import json
@@ -723,9 +730,9 @@ class TestV342SettingsActions(unittest.TestCase):
         self.assertIn('pacman -Sy --noconfirm nginx htop', cmd)
         # apt sandbox workaround (seteuid 105 fix) must be present, like _UPGRADE_CMD
         self.assertIn('APT::Sandbox::User "root"', cmd)
-        # gated on the exec permission (shared install/uninstall core)
+        # v3.12.0: gated on the granular 'packages' permission (shared core)
         i = self.API.find('def _handle_pkg_action(')
-        self.assertIn("require_perm('exec'", self.API[i:i + 1800])
+        self.assertIn("require_perm('packages'", self.API[i:i + 1800])
 
     def test_uninstall_command_and_route(self):
         # Uninstall mirrors install: package-manager-agnostic remove, validated

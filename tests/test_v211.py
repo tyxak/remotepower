@@ -78,6 +78,8 @@ def _set_request(method='GET', body=None, query=''):
 def _stub_auth(username='admin'):
     api.require_auth = lambda **kw: username
     api.require_admin_auth = lambda: username
+    # v3.12.0: container/compose actions are now granular-permission gated
+    api.require_perm = lambda perm, device_ids=None: username
 
 
 class _Base(unittest.TestCase):

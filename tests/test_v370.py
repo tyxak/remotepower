@@ -157,7 +157,7 @@ class TestV370Ansible(unittest.TestCase):
     def test_backend(self):
         self.assertIn('def _ansible_available(', API)
         self.assertIn('def handle_ansible_playbook_run(', API)
-        self.assertIn("require_perm('exec', ids)", API)
+        self.assertIn("require_perm('script', ids)", API)   # v3.12.0: was 'exec'
         self.assertIn('ansible-playbook', API)
     def test_frontend(self):
         self.assertIn('data-page="ansible"', HTML)

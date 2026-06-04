@@ -2443,28 +2443,57 @@ def require_mcp_action(action_name):
 # v3.4.2: granular RBAC — custom roles with per-action permissions + device scope
 # ─────────────────────────────────────────────────────────────────────────────
 # The built-in roles (admin = everything, viewer = read-only) are unchanged. On
-# top of them, an admin can define CUSTOM roles that grant a subset of action
-# permissions (exec / reboot / upgrade) limited to a SCOPE — all devices, or
-# only those in named groups / tags. A user assigned a custom role can act on
+# top of them, an admin can define CUSTOM roles that grant a subset of granular
+# action permissions (command / script / reboot / shutdown / patch / packages /
+# containers / services / ssh / mitigate — see _RBAC_PERMS) limited to a SCOPE —
+# all devices, or only those in named groups / tags / sites. A user assigned a
+# custom role can act on
 # its scope and nothing else; server config, user/role/key management and saved
 # scripts stay admin-only. This is action-scoping (an "operator" role), and the
 # device roster view is filtered to scope; it is not full per-endpoint data
 # isolation (read endpoints addressed by id are not yet scoped — documented).
-_RBAC_PERMS = ('exec', 'reboot', 'upgrade')
+# v3.12.0: granular action permissions. Each maps to a class of fleet action so
+# a custom role can grant exactly what an operator needs. The two LEGACY umbrella
+# names ('exec', 'upgrade') from v3.4.2 are still accepted on stored roles and
+# expanded to their granular members, so existing roles.json keeps working.
+_RBAC_PERMS = ('command', 'script', 'reboot', 'shutdown', 'patch',
+               'packages', 'containers', 'services', 'ssh', 'mitigate')
+_PERM_ALIASES = {
+    # legacy 'exec' covered everything that wasn't power/upgrade
+    'exec':    frozenset({'command', 'script', 'packages', 'containers',
+                          'services', 'ssh', 'mitigate'}),
+    'upgrade': frozenset({'patch'}),
+}
+# Names accepted when SAVING a role (granular + the two legacy umbrellas).
+_VALID_ROLE_PERMS = frozenset(_RBAC_PERMS) | frozenset(_PERM_ALIASES)
+_RBAC_SCOPE_TYPES = ('all', 'groups', 'tags', 'sites')   # v3.12.0: + sites
+
+
+def _expand_perms(perms):
+    """Normalise a stored permission list (which may contain legacy umbrella
+    names) to the granular set actually checked by require_perm()."""
+    out = set()
+    for p in (perms or []):
+        if p in _PERM_ALIASES:
+            out |= set(_PERM_ALIASES[p])
+        elif p in _RBAC_PERMS:
+            out.add(p)
+    return out
 
 
 def _resolve_role(role_name):
     """Resolve a role name to {permissions:set, scope:dict, admin:bool}.
     Built-ins: 'admin' (all perms, all scope), 'viewer'/'mcp' (no action perms).
     Unknown / custom names fall through to roles.json; an unrecognised name
-    fails closed (no action permissions)."""
+    fails closed (no action permissions). Stored permissions are expanded from
+    any legacy umbrella names to the granular set."""
     if role_name == 'admin':
         return {'permissions': set(_RBAC_PERMS), 'scope': {'type': 'all'}, 'admin': True}
     if role_name in ('viewer', 'mcp'):
         return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
     for r in (load(ROLES_FILE) or {}).get('roles', []):
         if r.get('name') == role_name:
-            return {'permissions': {p for p in (r.get('permissions') or []) if p in _RBAC_PERMS},
+            return {'permissions': _expand_perms(r.get('permissions')),
                     'scope': r.get('scope') or {'type': 'all'}, 'admin': False}
     return {'permissions': set(), 'scope': {'type': 'all'}, 'admin': False}
 
@@ -2479,6 +2508,8 @@ def _device_in_scope(scope, dev):
         return (dev.get('group') or '') in vals
     if t == 'tags':
         return bool(set(dev.get('tags') or []) & set(vals))
+    if t == 'sites':                                   # v3.12.0
+        return (dev.get('site') or '') in vals
     return False
 
 
@@ -6354,7 +6385,7 @@ def handle_device_user_action(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    actor = require_perm('exec', [dev_id])
+    actor = require_perm('ssh', [dev_id])
     body = get_json_body() or {}
     action = str(body.get('action', '')).strip()
     username = str(body.get('username', '')).strip()
@@ -6405,7 +6436,7 @@ def handle_device_firewall_action(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    actor = require_perm('exec', [dev_id])
+    actor = require_perm('command', [dev_id])
     body = get_json_body() or {}
     backend = str(body.get('backend', 'ufw')).strip().lower()
     action = str(body.get('action', '')).strip().lower()
@@ -6552,7 +6583,7 @@ def handle_backup_job_run(job_id):
     job = next((j for j in data['jobs'] if j['id'] == job_id), None)
     if not job:
         respond(404, {'error': 'job not found'})
-    actor = require_perm('exec', [job['device_id']])
+    actor = require_perm('command', [job['device_id']])
     job['last_run'] = int(time.time())
     save(BACKUP_JOBS_FILE, data)
     audit_log(actor, 'backup_job_run', detail=f'job={job_id} device={job["device_id"]}')
@@ -6888,7 +6919,7 @@ def handle_ansible_playbook_run(pb_id):
            and not _device_quarantined(devices[i])]
     if not ids:
         respond(400, {'error': 'No target devices with a known IP.'})
-    actor = require_perm('exec', ids)
+    actor = require_perm('script', ids)
 
     ssh_user = re.sub(r'[^a-zA-Z0-9._\-]', '', str(body.get('ssh_user', '')))[:32]
     if not ssh_user:
@@ -8884,7 +8915,7 @@ def handle_shutdown():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('reboot', ids)   # v3.4.2 RBAC: power action
+    actor = require_perm('shutdown', ids)   # v3.4.2 RBAC: power action
     if len(ids) == 1: _queue_command(ids[0], 'shutdown', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'shutdown', actor)})
 
@@ -8902,7 +8933,7 @@ def handle_update_device():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('upgrade', ids)
+    actor = require_perm('patch', ids)
     if len(ids) == 1: _queue_command(ids[0], 'update', actor)
     else: respond(200, {'ok': True, 'results': _queue_command_batch(ids, 'update', actor)})
 
@@ -9035,7 +9066,7 @@ def handle_upgrade_device():
     if method() != 'POST': respond(405, {'error': 'Method not allowed'})
     body = get_json_body(); ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('upgrade', ids)   # v3.4.2 RBAC
+    actor = require_perm('patch', ids)   # v3.4.2 RBAC
 
     devices = load(DEVICES_FILE); cmds = load(CMDS_FILE); results = {}
     queued_str = f'exec:{_UPGRADE_CMD}'
@@ -9151,7 +9182,7 @@ def _handle_pkg_action(kind):
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('exec', ids)   # install/uninstall is an exec action
+    actor = require_perm('packages', ids)   # install/uninstall is an exec action
     verb = 'uninstall' if kind == 'uninstall' else 'install'
     cmd_body = _build_uninstall_cmd(names) if kind == 'uninstall' else _build_install_cmd(names)
     queued = f'exec:{cmd_body}'
@@ -10659,11 +10690,11 @@ def _clean_role_body(body):
         return None, 'name must be 2-32 chars (lowercase letters, digits, _ or -)'
     if name in ('admin', 'viewer', 'mcp'):
         return None, "name collides with a built-in role"
-    perms = [p for p in (body.get('permissions') or []) if p in _RBAC_PERMS]
+    perms = [p for p in (body.get('permissions') or []) if p in _VALID_ROLE_PERMS]
     sc = body.get('scope') or {'type': 'all'}
     stype = sc.get('type', 'all')
-    if stype not in ('all', 'groups', 'tags'):
-        return None, "scope.type must be all, groups, or tags"
+    if stype not in _RBAC_SCOPE_TYPES:
+        return None, "scope.type must be all, groups, tags, or sites"
     vals = []
     if stype != 'all':
         vals = [_sanitize_str(v, 64) for v in (sc.get('values') or []) if _sanitize_str(v, 64)][:100]
@@ -12638,7 +12669,7 @@ def handle_custom_cmd():
     # Support batch targets (device_ids, tag, group) just like shutdown/reboot
     ids = _resolve_targets(body)
     if not ids: respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('exec', ids)   # v3.4.2 RBAC: arbitrary exec
+    actor = require_perm('command', ids)   # v3.4.2 RBAC: arbitrary exec
 
     devices = load(DEVICES_FILE)
     # v3.7.0 maker-checker: when change approval is enabled, an arbitrary exec
@@ -13836,7 +13867,7 @@ def handle_device_compose_action(dev_id):
     arbitrary directory. The action is restricted to the small fixed set
     COMPOSE_ALLOWED_ACTIONS (also enforced agent-side as belt-and-braces).
     """
-    actor = require_admin_auth()
+    actor = require_perm('containers', [dev_id])   # v3.12.0 RBAC: was admin-only
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -13902,7 +13933,7 @@ CONTAINER_ACTION_ALLOWED = ('start', 'stop', 'restart', 'pause', 'unpause', 'log
 
 
 def handle_device_container_action(dev_id):
-    actor = require_admin_auth()
+    actor = require_perm('containers', [dev_id])   # v3.12.0 RBAC: was admin-only
     if method() != 'POST':
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
@@ -15118,7 +15149,7 @@ def handle_exec_batch():
         respond(400, {'error': 'no valid targets'})
     if len(targets) > MAX_BATCH_TARGETS:
         respond(400, {'error': f'too many targets (max {MAX_BATCH_TARGETS})'})
-    actor = require_perm('exec', targets)   # v3.4.2 RBAC: scoped batch exec
+    actor = require_perm('command', targets)   # v3.4.2 RBAC: scoped batch exec
 
     devices = load(DEVICES_FILE)
     cmds = load(CMDS_FILE)
@@ -17350,7 +17381,7 @@ def handle_av_scan(dev_id):
         respond(405, {'error': 'Method not allowed'})
     if not _validate_id(dev_id):
         respond(404, {'error': 'Device not found'})
-    actor = require_perm('exec', [dev_id])
+    actor = require_perm('command', [dev_id])
     tool = str((get_json_body() or {}).get('tool', 'clamav')).strip().lower()
     if tool == 'clamav':
         cmd = ('which freshclam >/dev/null 2>&1 && freshclam >/dev/null 2>&1; '
@@ -21334,7 +21365,7 @@ def handle_scap_scan():
     ids = _resolve_targets(body)
     if not ids:
         respond(400, {'error': 'No valid device targets'})
-    actor = require_perm('upgrade', ids)
+    actor = require_perm('patch', ids)
     profile = _sanitize_str(body.get('profile', 'cis'), 80) or 'cis'
     with _LockedUpdate(DEVICES_FILE) as devices:
         for did in ids:
@@ -24712,7 +24743,7 @@ def handle_compose_stack_delete(stack_id):
 
 def handle_compose_stack_action(stack_id):
     """POST /api/compose/stacks/<id>/action {action} — queue up/down/redeploy."""
-    actor = require_admin_auth()
+    actor = require_perm('containers')   # v3.12.0 RBAC: was admin-only
     body = get_json_body()
     action = _sanitize_str(body.get('action', ''), 16).lower()
     if action not in _COMPOSE_ACTIONS:
@@ -24722,6 +24753,7 @@ def handle_compose_stack_action(stack_id):
     if not s:
         respond(404, {'error': 'stack not found'})
     device_id = s.get('device_id')
+    _scope_block_device(device_id)       # a scoped role can't act on a foreign device's stack
     dev = load(DEVICES_FILE).get(device_id)
     if not dev:
         respond(404, {'error': 'target device not found'})
@@ -28195,7 +28227,7 @@ def handle_services_config(dev_id):
     GET/POST /api/devices/{id}/services/config
     Manages services_watched list on the device record.
     """
-    actor = require_admin_auth() if method() == 'POST' else None
+    actor = require_perm('services', [dev_id]) if method() == 'POST' else None  # v3.12.0 RBAC
     if not actor:
         require_auth()
     if not _validate_id(dev_id):
@@ -34003,7 +34035,7 @@ def handle_mitigate_investigate(dev_id):
     # Queuing a diagnostic command is an exec action: gate it exactly like
     # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
     # any custom role whose scope doesn't include this device.
-    require_perm('exec', [dev_id])
+    require_perm('mitigate', [dev_id])
     body = get_json_body() or {}
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)
@@ -34027,7 +34059,7 @@ def handle_mitigate_fix(dev_id):
     # Queuing a remediation command is an exec action: gate it exactly like
     # handle_custom_cmd. Blocks read-only roles (viewer/mcp lack 'exec') and
     # any custom role whose scope doesn't include this device.
-    require_perm('exec', [dev_id])
+    require_perm('mitigate', [dev_id])
     body = get_json_body() or {}
     kind = _sanitize_str(body.get('kind', ''), 32)
     target = _sanitize_str(body.get('target', ''), 200)

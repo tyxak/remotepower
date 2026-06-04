@@ -218,7 +218,8 @@ class TestMyAccount(_HandlerBase):
         self.assertTrue(me['admin'] and me['totp_enabled'])
         self.assertEqual(me['default_ssh_username'], 'jmo')
         self.assertFalse(me['has_avatar'])
-        self.assertEqual(set(me['permissions']), {'exec', 'reboot', 'upgrade'})
+        # v3.12.0: admin holds the full granular permission set
+        self.assertEqual(set(me['permissions']), set(api._RBAC_PERMS))
 
     def test_avatar_upload_validates_and_serves(self):
         api.save(api.USERS_FILE, {'jakob': {'role': 'admin'}})
@@ -625,6 +626,95 @@ class TestRetentionMaintenance(_HandlerBase):
             'history_retention_days', 'fleet_events_retention_days',
             'webhook_log_retention_days', 'monitor_history_retention_days',
             'alerts_retention_days', 'audit_log_retention_days'})
+
+
+class TestGranularRBAC(unittest.TestCase):
+    """v3.12.0: 10 granular action permissions (+ legacy umbrella expansion)
+    and a new 'sites' scope type."""
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._saved = {}
+        for a in ('ROLES_FILE', 'DEVICES_FILE'):
+            self._saved[a] = getattr(api, a)
+            setattr(api, a, self.d / Path(getattr(api, a)).name)
+        self._auth = (api.get_token_from_request, api.verify_token, api.respond)
+        api.get_token_from_request = lambda: 'tok'
+
+    def tearDown(self):
+        for a, v in self._saved.items():
+            setattr(api, a, v)
+        api.get_token_from_request, api.verify_token, api.respond = self._auth
+        api._LOAD_CACHE.clear()
+
+    def test_perm_set_is_ten_granular(self):
+        self.assertEqual(set(api._RBAC_PERMS), {
+            'command', 'script', 'reboot', 'shutdown', 'patch',
+            'packages', 'containers', 'services', 'ssh', 'mitigate'})
+
+    def test_legacy_expansion(self):
+        ex = api._expand_perms(['exec'])
+        self.assertIn('command', ex)
+        self.assertIn('containers', ex)
+        self.assertNotIn('patch', ex)        # exec never covered upgrade
+        self.assertNotIn('reboot', ex)       # nor power
+        self.assertEqual(api._expand_perms(['upgrade']), {'patch'})
+        # unknown names dropped
+        self.assertEqual(api._expand_perms(['bogus']), set())
+
+    def test_valid_role_perms_accepts_legacy_and_granular(self):
+        self.assertTrue({'command', 'exec', 'upgrade'} <= set(api._VALID_ROLE_PERMS))
+
+    def test_site_scope(self):
+        api.save(api.DEVICES_FILE, {})
+        self.assertTrue(api._device_in_scope({'type': 'sites', 'values': ['hq']},
+                                              {'site': 'hq'}))
+        self.assertFalse(api._device_in_scope({'type': 'sites', 'values': ['hq']},
+                                              {'site': 'dc2'}))
+        self.assertIn('sites', api._RBAC_SCOPE_TYPES)
+
+    def test_clean_role_body_site_scope(self):
+        clean, err = api._clean_role_body({'name': 'site-ops',
+            'permissions': ['containers', 'services'],
+            'scope': {'type': 'sites', 'values': ['hq', 'dc2']}})
+        self.assertIsNone(err)
+        self.assertEqual(clean['scope']['type'], 'sites')
+        self.assertEqual(set(clean['permissions']), {'containers', 'services'})
+
+    def test_require_perm_granular(self):
+        # go through the storage layer (api.save) so it works on both backends
+        api.save(api.ROLES_FILE, {'roles': [
+            {'name': 'cops', 'permissions': ['containers'],
+             'scope': {'type': 'sites', 'values': ['hq']}}]})
+        api.save(api.DEVICES_FILE, {'d1': {'site': 'hq'}, 'd2': {'site': 'dc2'}})
+        api.verify_token = lambda t: ('carol', 'cops')
+        def _resp(s, b=None):
+            raise api.HTTPError(s, b)
+        api.respond = _resp
+        # has containers, in-scope site
+        self.assertEqual(api.require_perm('containers', ['d1']), 'carol')
+        # lacks command
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_perm('command', ['d1'])
+        self.assertEqual(cm.exception.status, 403)
+        # containers but out-of-scope site
+        with self.assertRaises(api.HTTPError) as cm:
+            api.require_perm('containers', ['d2'])
+        self.assertEqual(cm.exception.status, 403)
+
+    def test_handlers_regated_to_granular(self):
+        src = (Path(api.__file__)).read_text()
+        for fn, perm in (('handle_device_container_action', "require_perm('containers'"),
+                         ('handle_device_compose_action', "require_perm('containers'"),
+                         ('handle_compose_stack_action', "require_perm('containers'"),
+                         ('handle_services_config', "require_perm('services'")):
+            i = src.find('def ' + fn + '(')
+            self.assertGreater(i, 0, fn)
+            self.assertIn(perm, src[i:i + 600], f'{fn} should use {perm}')
+
+    def test_apikey_dropdown_has_mcp(self):
+        html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+        i = html.find('id="apikey-role"')
+        self.assertIn('value="mcp"', html[i:i + 400])
 
 
 class TestAgentLogRotation(unittest.TestCase):

@@ -1655,6 +1655,21 @@ function openRoleAdd() {
   openModal('role-add-modal');
 }
 
+// v3.12.0: legacy umbrella perms → granular, mirroring the server's _expand_perms
+// so editing an old role pre-ticks the right boxes (and re-saving won't wipe it).
+const _PERM_ALIASES = {
+  exec: ['command', 'script', 'packages', 'containers', 'services', 'ssh', 'mitigate'],
+  upgrade: ['patch'],
+};
+function _expandRolePerms(perms) {
+  const out = new Set();
+  (perms || []).forEach(p => {
+    if (_PERM_ALIASES[p]) _PERM_ALIASES[p].forEach(g => out.add(g));
+    else out.add(p);
+  });
+  return out;
+}
+
 function editRole(name) {
   const role = _rolesCache.find(r => r.name === name);
   if (!role) return;
@@ -1662,7 +1677,7 @@ function editRole(name) {
   document.getElementById('role-modal-title').textContent = 'Edit role — ' + name;
   const nameEl = document.getElementById('role-name');
   nameEl.value = name; nameEl.disabled = true;
-  const perms = new Set(role.permissions || []);
+  const perms = _expandRolePerms(role.permissions);
   document.querySelectorAll('.role-perm').forEach(cb => cb.checked = perms.has(cb.value));
   const st = (role.scope && role.scope.type) || 'all';
   document.getElementById('role-scope-type').value = st;
