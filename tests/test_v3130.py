@@ -159,7 +159,9 @@ class TestSecurityHardening(unittest.TestCase):
 
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
-        conf = (_ROOT / "deploy/nginx/remotepower.conf").read_text()
+        # The tracked reference config — deploy/nginx/* is gitignored
+        # (environment-specific) and absent from a clean checkout / dist tarball.
+        conf = (_ROOT / "server/conf/remotepower.conf").read_text()
         self.assertIn("location ^~ /static/", conf)
         self.assertIn("immutable", conf)
 
