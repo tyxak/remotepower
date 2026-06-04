@@ -1203,6 +1203,23 @@ def backend_iter_files():
     return sorted(p.name for p in DATA_DIR.glob('*.json'))
 
 
+def backend_mtime(path):
+    """Backend-aware last-modified time (epoch seconds) for change detection,
+    replacing Path.stat().st_mtime on data files. Under SQLite, data files have
+    no on-disk artifact — we use the per-file write time tracked in the store.
+    Paths that aren't tracked data files (e.g. real markdown docs under
+    RP_DOCS_DIR) fall through to the real filesystem mtime on both backends."""
+    if _storage_backend() == 'sqlite':
+        m = storage.mtime(path)
+        if m:
+            return m
+        # Not a tracked data file (a real on-disk file like a docs .md) — stat it.
+    try:
+        return path.stat().st_mtime if path.exists() else 0.0
+    except OSError:
+        return 0.0
+
+
 def _sqlite_maintenance_if_due():
     """Cheap-when-not-due upkeep for the SQLite backend (no-op under JSON).
     Truncates the WAL hourly so it can't grow unbounded; weekly it also VACUUMs
@@ -15379,10 +15396,13 @@ def _rag_source_files(sources):
 
 
 def _rag_newest_mtime(sources):
+    # v3.12.0: backend-aware — under SQLite the data files have no on-disk
+    # mtime, so backend_mtime() reads the store's per-file write time (real
+    # docs .md files still use their filesystem mtime).
     newest = 0
     for f in _rag_source_files(sources):
         try:
-            newest = max(newest, int(f.stat().st_mtime))
+            newest = max(newest, int(backend_mtime(f)))
         except Exception:
             continue
     return newest

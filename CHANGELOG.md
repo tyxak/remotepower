@@ -62,6 +62,10 @@ row write.
 - `fleet_events.json` is kept a cold blob (it is polymorphic in the codebase —
   written dict-wrapped, read bare-list by `_compute_attention`), so it
   round-trips any shape verbatim under SQLite.
+- **RAG reindex works under SQLite.** The index rebuild trigger used source-file
+  mtimes, which don't exist under SQLite. New `backend_mtime()` + a per-file
+  `file_meta` write-time table (touched by every writer) give a backend-agnostic
+  change signal; real on-disk docs (`.md`) still use their filesystem mtime.
 
 ### Changed
 - **Heartbeat is now a single-row write under SQLite.** `handle_heartbeat`

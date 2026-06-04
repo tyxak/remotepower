@@ -91,9 +91,10 @@ class TestDiffWrite(_Base):
         storage.save(self.p('metrics.json'), {'a': [1], 'b': [2], 'c': [3]})
         conn = storage._connect(self.d)
         before = conn.total_changes
-        # Re-save with only 'b' changed; the diff must write exactly one row.
+        # Re-save with only 'b' changed; the diff must write exactly one entity
+        # row — plus the one file_meta touch every write makes (= 2 total).
         storage.save(self.p('metrics.json'), {'a': [1], 'b': [99], 'c': [3]})
-        self.assertEqual(conn.total_changes - before, 1)
+        self.assertEqual(conn.total_changes - before, 2)
 
 
 class TestLastSeenClamp(_Base):
@@ -190,7 +191,33 @@ class TestDeviceTxn(_Base):
         before = conn.total_changes
         with storage.DeviceTxn(self.p('devices.json'), 'd5') as devs:
             devs['d5']['last_seen'] = 999
-        self.assertEqual(conn.total_changes - before, 1)
+        # One device row + one file_meta touch (not the whole 20-row table).
+        self.assertEqual(conn.total_changes - before, 2)
+
+
+class TestMtime(_Base):
+    """v3.12.0: per-file write time for backend-agnostic change detection."""
+    def test_save_bumps_mtime(self):
+        self.assertEqual(storage.mtime(self.p('cmdb.json')), 0.0)
+        storage.save(self.p('cmdb.json'), {'a': 1})
+        m1 = storage.mtime(self.p('cmdb.json'))
+        self.assertGreater(m1, 0.0)
+
+    def test_device_txn_bumps_mtime(self):
+        storage.save(self.p('devices.json'), {'d1': {'last_seen': 1}})
+        m1 = storage.mtime(self.p('devices.json'))
+        with storage.DeviceTxn(self.p('devices.json'), 'd1') as devs:
+            devs['d1']['last_seen'] = 2
+        self.assertGreater(storage.mtime(self.p('devices.json')), m1)
+
+    def test_list_append_bumps_mtime(self):
+        storage.save(self.p('history.json'), {'entries': []})
+        m1 = storage.mtime(self.p('history.json'))
+        storage.list_append(self.p('history.json'), {'ts': 1})
+        self.assertGreater(storage.mtime(self.p('history.json')), m1)
+
+    def test_untracked_file_mtime_zero(self):
+        self.assertEqual(storage.mtime(self.p('never_written.json')), 0.0)
 
 
 class TestPresence(_Base):

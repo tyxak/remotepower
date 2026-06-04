@@ -48,7 +48,7 @@ from pathlib import Path
 DATA_DIR = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 DB_NAME = 'remotepower.db'
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v3.12.0: +file_meta (per-file last-write time)
 
 
 def configure(data_dir):
@@ -220,6 +220,14 @@ def _ensure_schema(conn):
             doc  TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_listrow_file ON listrow(file, id);
+        -- v3.12.0: per-logical-file last-write time, so callers that used a
+        -- file mtime for change detection (e.g. the RAG reindexer) have a
+        -- backend-agnostic signal under SQLite where the .json artifacts don't
+        -- exist on disk. Touched by every writer below.
+        CREATE TABLE IF NOT EXISTS file_meta (
+            file    TEXT PRIMARY KEY,
+            updated REAL NOT NULL
+        );
         """
     )
     conn.execute(
@@ -266,6 +274,28 @@ def _dumps(value):
                           separators=(',', ':'))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Refusing to store unserialisable data: {exc}")
+
+
+def _touch(conn, name):
+    """Record `name`'s last-write time. Called by every writer (inside the
+    caller's transaction) so mtime(path) gives a backend-agnostic change signal.
+    Best-effort: a touch failure must never fail the actual write."""
+    try:
+        conn.execute(
+            'INSERT INTO file_meta(file, updated) VALUES(?,?) '
+            'ON CONFLICT(file) DO UPDATE SET updated=excluded.updated',
+            (name, time.time()))
+    except sqlite3.Error:
+        pass
+
+
+def mtime(path):
+    """Last-write time of a logical file (epoch seconds), or 0.0 if never
+    written. The SQLite analogue of Path.stat().st_mtime for data files."""
+    conn = _connect(_dir(path))
+    row = conn.execute('SELECT updated FROM file_meta WHERE file=?',
+                       (_name(path),)).fetchone()
+    return float(row['updated']) if row else 0.0
 
 
 # ── load ─────────────────────────────────────────────────────────────────────
@@ -331,6 +361,7 @@ def save(path, data, non_blocking=False, clamp_last_seen=True):
                 _save_wrapped(conn, name, data)
             else:
                 _save_cold(conn, name, data)
+            _touch(conn, name)
     except sqlite3.OperationalError as exc:
         if non_blocking and 'locked' in str(exc).lower():
             raise LockBusyError(path)
@@ -529,6 +560,7 @@ class DeviceTxn:
                     'INSERT INTO devices(id, doc, last_seen) VALUES(?,?,?) '
                     'ON CONFLICT(id) DO UPDATE SET doc=excluded.doc, last_seen=excluded.last_seen',
                     (self.dev_id, _dumps(dev), new_ls))
+                _touch(self.conn, DEVICES_FILE_NAME)
                 self.conn.execute('COMMIT')
             else:
                 self.conn.execute('ROLLBACK')
@@ -576,6 +608,7 @@ def upsert_device(devices_path, dev_id, mutate):
             'INSERT INTO devices(id, doc, last_seen) VALUES(?,?,?) '
             'ON CONFLICT(id) DO UPDATE SET doc=excluded.doc, last_seen=excluded.last_seen',
             (dev_id, doc, new_ls))
+        _touch(conn, DEVICES_FILE_NAME)
     return new
 
 
@@ -595,6 +628,7 @@ def entity_set(path, key, value):
             'INSERT INTO entity(file, k, doc) VALUES(?,?,?) '
             'ON CONFLICT(file, k) DO UPDATE SET doc=excluded.doc',
             (name, key, _dumps(value)))
+        _touch(conn, name)
 
 
 def list_append(path, entry, cap=None):
@@ -619,6 +653,7 @@ def list_append(path, entry, cap=None):
                 overflow = [json.loads(r['doc']) for r in old]
                 conn.executemany('DELETE FROM listrow WHERE id=?',
                                 [(r['id'],) for r in old])
+        _touch(conn, name)
     return overflow
 
 

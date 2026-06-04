@@ -443,10 +443,11 @@ class TestApiCorpus(unittest.TestCase):
         self.assertTrue(any("cve" in h["id"] or "alert" in h["id"]
                             for h in cve_hits))
 
-    @unittest.skipIf(os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
-                     'RAG reindex change-detection uses source-file mtimes '
-                     '(os.utime on DEVICES_FILE), which have no on-disk artifact '
-                     'under SQLite — a backend-aware change signal is a follow-up')
+    def _touch_source(self):
+        # Backend-agnostic "the devices source changed": re-save bumps the file
+        # mtime under JSON and the per-file write time (file_meta) under SQLite.
+        api.save(api.DEVICES_FILE, api.load(api.DEVICES_FILE) or {})
+
     def test_reindex_throttle(self):
         import time as _t
         cfg = api._ai_cfg()
@@ -456,12 +457,12 @@ class TestApiCorpus(unittest.TestCase):
         self.assertGreater(idx1.stats()["docs"], 0)
         # a source change inside the throttle window must NOT trigger a rebuild
         _t.sleep(1)
-        os.utime(api.DEVICES_FILE, None)
+        self._touch_source()
         idx2 = api._rag_get_index(cfg)
         self.assertEqual(idx2.built_at, built1)
         # interval=0 => a source change rebuilds immediately
         cfg["rag"]["reindex_min_interval_sec"] = 0
-        os.utime(api.DEVICES_FILE, None)
+        self._touch_source()
         idx3 = api._rag_get_index(cfg)
         self.assertGreaterEqual(idx3.built_at, built1)
 
