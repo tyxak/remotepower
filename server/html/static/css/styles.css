@@ -4415,3 +4415,10 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 .settings-subsection { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
 .form-row-wrap { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
 .input-narrow { max-width: 140px; }
+/* v3.12.0 fix: inputs inside an inline control row must not each take 100%
+   width (the global .form-input default) and stack into separate boxes — let
+   them flex inline and wrap gracefully. The input-narrow cap still wins. */
+.form-row-wrap > .form-input { width: auto; flex: 1 1 160px; min-width: 120px; }
+/* v3.12.0 fix: space between stacked cards (e.g. Software policy's rules card
+   and the Current-violations card, which previously touched). */
+.table-card + .table-card { margin-top: 16px; }
