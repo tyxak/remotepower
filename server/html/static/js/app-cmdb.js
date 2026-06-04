@@ -190,9 +190,13 @@ function cmdbRenderTable(rows) {
     const hyp = r.hypervisor_url
       ? `<a href="${_cmdbEsc(r.hypervisor_url)}" target="_blank" rel="noopener" class="c-accent-12">open ↗</a>`
       : '<span class="hint">—</span>';
-    const fn = r.server_function
+    const envColor = { prod: 'var(--red)', staging: 'var(--amber)', dev: 'var(--muted)', test: 'var(--muted)' };
+    const envPill = r.environment
+      ? ` <span class="pill" data-color="${envColor[r.environment] || 'var(--muted)'}">${_cmdbEsc(r.environment)}</span>`
+      : '';
+    const fn = (r.server_function
       ? `<span class="tag-pill">${_cmdbEsc(r.server_function)}</span>`
-      : '<span class="hint">—</span>';
+      : (r.environment ? '' : '<span class="hint">—</span>')) + envPill;
     // v3.3.0: clicking the Name cell opens the asset (same as the Open
     // button). The button stays in the actions column for discoverability.
     return `<tr>
@@ -232,6 +236,7 @@ async function cmdbOpenAsset(deviceId) {
   document.getElementById('cmdb-asset-deviceid').value = deviceId;
   document.getElementById('cmdb-asset-id').value         = res.data.asset_id || '';
   document.getElementById('cmdb-asset-function').value   = res.data.server_function || '';
+  document.getElementById('cmdb-asset-environment').value = res.data.environment || '';
   document.getElementById('cmdb-asset-vlan').value       = res.data.vlan || '';
   document.getElementById('cmdb-asset-hypervisor').value = res.data.hypervisor_url || '';
   document.getElementById('cmdb-asset-ssh-port').value   = res.data.ssh_port || 22;
@@ -591,6 +596,7 @@ async function cmdbAssetSave() {
   const body = {
     asset_id:        document.getElementById('cmdb-asset-id').value.trim(),
     server_function: document.getElementById('cmdb-asset-function').value.trim(),
+    environment:     document.getElementById('cmdb-asset-environment').value,
     vlan:            document.getElementById('cmdb-asset-vlan').value.trim(),
     hypervisor_url:  document.getElementById('cmdb-asset-hypervisor').value.trim(),
     ssh_port:        parseInt(document.getElementById('cmdb-asset-ssh-port').value, 10) || 22,

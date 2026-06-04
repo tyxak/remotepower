@@ -12,6 +12,19 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **API key expiry (UI).** The create-key dialog now takes an optional expiry
+  date; the keys table shows it (and flags expired/soon keys). The auth path
+  already rejected expired keys — this surfaces and sets the date.
+- **Webcheck content match.** HTTP monitors gain an optional *body must contain /
+  must NOT contain «text»* check (does a GET and inspects the body) — catches a
+  `200 OK` that's actually an error page.
+- **iCal import/export.** The shared Calendar exports to `.ics`
+  (`GET /api/calendar.ics`) and imports `.ics` files
+  (`POST /api/calendar/import`) — subscribe in any calendar app or bulk-load
+  events.
+- **CMDB environment.** Assets get an `environment` field (test / dev / staging /
+  prod), shown as a colour-coded badge in the asset list and settable in the
+  asset editor.
 - **My Account.** A top-right account menu (avatar → My Account / Sign out) and a
   dedicated **My Account** page that consolidates per-user settings: profile
   picture (uploaded, downscaled in-browser, stored under `DATA_DIR/avatars/`),

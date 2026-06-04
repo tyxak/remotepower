@@ -501,3 +501,36 @@ _consumeOidcHashToken();
 // of letting the raw "Demo mode" body bubble up to the user as a
 // generic alert.
 let _readOnlyMode = false;
+
+// ── v3.12.0: iCal import / export ────────────────────────────────────────────
+function exportCalendarIcs() {
+  fetch('/api/calendar.ics', { headers: { 'X-Token': getToken() } })
+    .then(r => r.blob())
+    .then(b => {
+      const url = URL.createObjectURL(b);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'remotepower-calendar.ics'; a.click();
+      URL.revokeObjectURL(url);
+      toast('Calendar exported', 'success');
+    })
+    .catch(() => toast('Export failed', 'error'));
+}
+function importCalendarIcs() { document.getElementById('cal-import-file')?.click(); }
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'cal-import-file' && e.target.files && e.target.files[0]) {
+    const f = e.target.files[0];
+    e.target.value = '';
+    f.text().then(async txt => {
+      const r = await fetch('/api/calendar/import', {
+        method: 'POST',
+        headers: { 'X-Token': getToken(), 'Content-Type': 'text/calendar' },
+        body: txt,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok) {
+        toast(`Imported ${j.imported} event(s)` + (j.skipped ? ` · ${j.skipped} skipped` : ''), 'success');
+        loadCalendar();
+      } else { toast('Import failed: ' + (j.error || r.status), 'error'); }
+    });
+  }
+});

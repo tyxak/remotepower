@@ -273,5 +273,73 @@ class TestAckWebhook(_HandlerBase):
         self.assertIsNone(evfilter)                       # filters bypassed (opt-in)
 
 
+class TestQuickWins(unittest.TestCase):
+    """v3.12.0 quick wins: iCal parse, CMDB environment, HTTP body match shape."""
+
+    def test_ics_parse_roundtrip(self):
+        ics = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Deploy\r\n"
+               "DESCRIPTION:a\\nb\r\nDTSTART:20240701T090000Z\r\n"
+               "DTEND:20240701T100000Z\r\nRRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\n"
+               "BEGIN:VEVENT\r\nSUMMARY:Holiday\r\nDTSTART;VALUE=DATE:20241225\r\n"
+               "DTEND;VALUE=DATE:20241226\r\nEND:VEVENT\r\nEND:VCALENDAR")
+        evs = api._parse_ics_events(ics)
+        self.assertEqual(len(evs), 2)
+        self.assertEqual(evs[0]['title'], 'Deploy')
+        self.assertEqual(evs[0]['recur'], 'weekly')
+        self.assertIn('a\nb', evs[0]['description'])
+        self.assertTrue(evs[1]['all_day'])
+        for e in evs:
+            _clean, err = api._sanitize_event(e)
+            self.assertIsNone(err, (e, err))
+
+    def test_ics_skips_non_ics(self):
+        self.assertEqual(api._parse_ics_events('hello not an ics'), [])
+
+    def test_cmdb_environment_default_and_constant(self):
+        self.assertIn('environment', api._cmdb_record_default())
+        self.assertEqual(api._cmdb_record_default()['environment'], '')
+        for e in ('test', 'dev', 'staging', 'prod', ''):
+            self.assertIn(e, api.CMDB_ENVIRONMENTS)
+
+
+class TestQuickWinsHandlers(_HandlerBase):
+    def setUp(self):
+        super().setUp()
+        # APIKEYS_FILE not in the base patch list — patch it here too.
+        self._ak = api.APIKEYS_FILE
+        api.APIKEYS_FILE = self.d / 'apikeys.json'
+
+    def tearDown(self):
+        api.APIKEYS_FILE = self._ak
+        super().tearDown()
+
+    def test_apikey_list_includes_expires_at(self):
+        api.require_admin_auth = lambda: 'admin'
+        exp = int(__import__('time').time()) + 86400
+        api.save(api.APIKEYS_FILE, {'k1': {'name': 'ci', 'role': 'admin',
+                 'created': 1, 'active': True, 'expires_at': exp, 'key': 'x'}})
+        api.method = lambda: 'GET'
+        out = self.call(api.handle_apikeys_list)
+        self.assertEqual(out[0]['expires_at'], exp)
+
+    def test_monitor_body_match_validated(self):
+        import os
+        api.require_admin_auth = lambda: 'admin'
+        api.require_auth = lambda require_admin=False: 'admin'
+        # drive the config-save monitor validation path
+        api.method = lambda: 'POST'
+        api.get_json_body = lambda: {'monitors': [
+            {'type': 'http', 'target': 'https://example.com', 'label': 'web',
+             'body_match': {'mode': 'contains', 'value': 'Welcome'}},
+        ]}
+        # handle_config_save respond(200) on success; capture cfg write
+        try:
+            api.handle_config_save()
+        except api.HTTPError:
+            pass
+        mons = (api.load(api.CONFIG_FILE) or {}).get('monitors') or []
+        self.assertEqual(mons[0]['body_match'], {'mode': 'contains', 'value': 'Welcome'})
+
+
 if __name__ == '__main__':
     unittest.main()

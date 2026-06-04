@@ -1536,6 +1536,8 @@ function openMonitorAdd() {
   document.getElementById('mon-label').value = '';
   document.getElementById('mon-type').value = 'ping';
   document.getElementById('mon-target').value = '';
+  document.getElementById('mon-body-mode').value = '';
+  document.getElementById('mon-body-value').value = '';
   openModal('monitor-add-modal');
 }
 function editMonitor(idx) {
@@ -1547,6 +1549,8 @@ function editMonitor(idx) {
   document.getElementById('mon-label').value  = m.label  || '';
   document.getElementById('mon-type').value   = m.type   || 'ping';
   document.getElementById('mon-target').value = m.target || '';
+  document.getElementById('mon-body-mode').value  = (m.body_match && m.body_match.mode) || '';
+  document.getElementById('mon-body-value').value = (m.body_match && m.body_match.value) || '';
   openModal('monitor-add-modal');
 }
 async function addMonitor() {
@@ -1558,6 +1562,9 @@ async function addMonitor() {
   if (!cfg) return;
   const monitors = [...(cfg.monitors || [])];
   const entry = {label: label || target, type, target};
+  const bMode = document.getElementById('mon-body-mode')?.value || '';
+  const bVal  = (document.getElementById('mon-body-value')?.value || '').trim();
+  if (type === 'http' && bMode && bVal) entry.body_match = {mode: bMode, value: bVal};
   if (_monitorEditIdx >= 0 && _monitorEditIdx < monitors.length) {
     monitors[_monitorEditIdx] = entry;
   } else {
@@ -4265,15 +4272,26 @@ function _registerApiKeysTable() {
     tbody: 'apikeys-tbody',
     filterInput: 'apikeys-filter',
     sortHeaders: 'apikeys-thead',
-    colspan: 5,
-    columns: ['name', 'role', 'user', 'created'],
+    colspan: 6,
+    columns: ['name', 'role', 'user', 'created', 'expires'],
     getColumns: (k) => ({
       name:    k.name || '',
       role:    k.role || '',
       user:    k.user || '',
       created: k.created || 0,
+      expires: k.expires_at || 0,
     }),
-    row: (k) => `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`,
+    row: (k) => {
+      let exp;
+      if (!k.expires_at) exp = '<span class="hint">never</span>';
+      else {
+        const now = Math.floor(Date.now() / 1000);
+        const cls = k.expires_at <= now ? 'c-red' : (k.expires_at <= now + 7*86400 ? 'c-amber' : 'hint');
+        const pre = k.expires_at <= now ? 'expired ' : '';
+        exp = `<span class="${cls}">${pre}${new Date(k.expires_at*1000).toLocaleDateString()}</span>`;
+      }
+      return `<tr><td class="fw-600">${escHtml(k.name)}</td><td><span class="patch-badge ${k.role==='admin'?'warn':'ok'}">${escHtml(k.role)}</span></td><td class="hint">${escHtml(k.user)}</td><td class="hint">${k.created ? new Date(k.created*1000).toLocaleDateString() : '—'}</td><td>${exp}</td><td><button class="btn-icon isl-45" data-action="deleteApiKey" data-arg="${escAttr(k.id)}" >Delete</button></td></tr>`;
+    },
     emptyMsg: 'No API keys. Create one for scripting access.',
     emptyMsgFiltered: 'No keys match the filter.',
   });
@@ -4377,8 +4395,8 @@ async function loadApiKeys() {
   if (!data) return;
   tableCtl.render('apikeys', data);
 }
-function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
-async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const data = await api('POST', '/apikeys', {name, role}); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
+function openApiKeyCreate() { document.getElementById('apikey-name').value = ''; document.getElementById('apikey-role').value = 'admin'; const ex = document.getElementById('apikey-expires'); if (ex) ex.value = ''; document.getElementById('apikey-result').style.display = 'none'; document.getElementById('apikey-create-btn').style.display = ''; openModal('apikey-create-modal'); }
+async function createApiKey() { const name = document.getElementById('apikey-name').value.trim(); const role = document.getElementById('apikey-role').value; if (!name) { toast('Name required', 'error'); return; } const body = {name, role}; const exVal = (document.getElementById('apikey-expires')?.value || '').trim(); if (exVal) { const ts = Math.floor(new Date(exVal + 'T23:59:59').getTime() / 1000); if (!ts || ts <= Math.floor(Date.now()/1000)) { toast('Expiry must be a future date', 'error'); return; } body.expires_at = ts; } const data = await api('POST', '/apikeys', body); if (data?.ok) { document.getElementById('apikey-value-display').textContent = data.key; document.getElementById('apikey-result').style.display = 'block'; document.getElementById('apikey-create-btn').style.display = 'none'; loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 async function deleteApiKey(id) { if (!confirm('Delete this API key? Scripts using it will stop working.')) return; const data = await api('DELETE', '/apikeys/' + id); if (data?.ok) { toast('Key deleted', 'info'); loadApiKeys(); } else toast(data?.error || 'Failed', 'error'); }
 
 // ─── v3.5.0: sites/teams ─────────────────────────────────────────────────────

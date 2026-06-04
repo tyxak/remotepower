@@ -219,6 +219,7 @@ _CMDB_VLAN_RE       = re.compile(r'^[A-Za-z0-9 _\-/,()]{0,64}$')
 
 # v1.10.0: SSH port for the per-credential SSH link feature. Default 22 = blank.
 CMDB_DEFAULT_SSH_PORT = 22
+CMDB_ENVIRONMENTS = ('', 'test', 'dev', 'staging', 'prod')  # v3.12.0
 CMDB_SSH_PORT_MIN     = 1
 CMDB_SSH_PORT_MAX     = 65535
 
@@ -9160,8 +9161,12 @@ def _execute_monitor_checks(monitors):
             except Exception:
                 detail = 'closed'
         elif mtype == 'http':
+            # v3.12.0: optional body content match. When set, do a GET (not
+            # HEAD) and require the response body to contain / not contain a
+            # string — catches "200 OK but the app is showing an error page".
+            bm = m.get('body_match') if isinstance(m.get('body_match'), dict) else None
             try:
-                req = urllib.request.Request(target, method='HEAD')
+                req = urllib.request.Request(target, method='GET' if bm else 'HEAD')
                 ctx = _get_ssl_context()
                 # Route through the SSRF-safe opener so the *connected* peer IP
                 # is re-validated (anti-rebinding) and 3xx redirects can't bounce
@@ -9172,6 +9177,19 @@ def _execute_monitor_checks(monitors):
                                             ssl_ctx=ctx, no_redirect=True)
                 with _opener.open(req, timeout=5) as resp:
                     ok = resp.status < 400; detail = str(resp.status)
+                    if ok and bm:
+                        val = bm.get('value', '')
+                        body_txt = resp.read(512 * 1024).decode('utf-8', 'replace')
+                        if bm.get('mode') == 'not_contains':
+                            if val and val in body_txt:
+                                ok = False; detail = f'{resp.status} · matched "{val[:40]}"'
+                            else:
+                                detail = f'{resp.status} · text absent'
+                        else:  # contains
+                            if val and val not in body_txt:
+                                ok = False; detail = f'{resp.status} · "{val[:40]}" not found'
+                            else:
+                                detail = f'{resp.status} · text present'
             except urllib.error.HTTPError as e:
                 # A 3xx is the endpoint answering — the no-redirect opener
                 # (SSRF guard) declines to *follow* it, which surfaces here as
@@ -9885,11 +9903,20 @@ def handle_config_save():
             target = _sanitize_monitor_target(mtype, raw_target)
             if target is None:
                 respond(400, {'error': f'Invalid monitor target: {raw_target[:80]}'})
-            validated.append({
+            entry = {
                 'label':  _sanitize_str(m.get('label', target), 128),
                 'type':   mtype,
                 'target': target,
-            })
+            }
+            # v3.12.0: optional HTTP body content match.
+            bm = m.get('body_match')
+            if mtype == 'http' and isinstance(bm, dict) and bm.get('value'):
+                mode = bm.get('mode')
+                entry['body_match'] = {
+                    'mode':  'not_contains' if mode == 'not_contains' else 'contains',
+                    'value': _sanitize_str(str(bm.get('value', '')), 200),
+                }
+            validated.append(entry)
         cfg['monitors'] = validated
 
     if 'allow_internal_monitors' in body:
@@ -19815,7 +19842,8 @@ def handle_apikeys_list():
     apikeys = load(APIKEYS_FILE)
     respond(200, [{'id': kid, 'name': v.get('name', ''), 'user': v.get('user', ''),
                    'role': v.get('role', 'admin'), 'created': v.get('created', 0),
-                   'active': v.get('active', True)}
+                   'active': v.get('active', True),
+                   'expires_at': v.get('expires_at')}
                   for kid, v in apikeys.items()])
 
 
@@ -28401,6 +28429,143 @@ def handle_calendar_list():
     respond(200, {'events': out})
 
 
+def _ics_unescape(s):
+    return (str(s or '').replace('\\n', '\n').replace('\\N', '\n')
+            .replace('\\,', ',').replace('\\;', ';').replace('\\\\', '\\'))
+
+
+def _ics_to_iso(val):
+    """Convert an iCalendar DTSTART/DTEND value (20240115, 20240115T130000,
+    or 20240115T130000Z) to an ISO-8601 string _parse_iso accepts."""
+    import datetime as _dt
+    val = (val or '').strip()
+    try:
+        if 'T' in val:
+            z = val.endswith('Z')
+            dt = _dt.datetime.strptime(val[:-1] if z else val, '%Y%m%dT%H%M%S')
+            return (dt.replace(tzinfo=_dt.timezone.utc).isoformat() if z
+                    else dt.isoformat())
+        return _dt.datetime.strptime(val[:8], '%Y%m%d').isoformat()
+    except ValueError:
+        return val
+
+
+def _parse_ics_events(text):
+    """Minimal iCalendar VEVENT parser (line-unfolding + DTSTART/DTEND/SUMMARY/
+    DESCRIPTION/RRULE FREQ). Returns event dicts shaped for _sanitize_event."""
+    unfolded = []
+    for ln in str(text or '').replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+        if ln[:1] in (' ', '\t') and unfolded:
+            unfolded[-1] += ln[1:]
+        else:
+            unfolded.append(ln)
+    _FREQ = {'DAILY': 'daily', 'WEEKLY': 'weekly', 'MONTHLY': 'monthly', 'YEARLY': 'yearly'}
+    events, cur = [], None
+    for ln in unfolded:
+        if ln.strip() == 'BEGIN:VEVENT':
+            cur = {}
+        elif ln.strip() == 'END:VEVENT':
+            if cur and cur.get('start') and cur.get('title'):
+                events.append(cur)
+            cur = None
+        elif cur is not None and ':' in ln:
+            key_part, _, val = ln.partition(':')
+            key = key_part.split(';')[0].upper()
+            date_only = 'VALUE=DATE' in key_part.upper() and 'DATE-TIME' not in key_part.upper()
+            val = _ics_unescape(val)
+            if key == 'SUMMARY':
+                cur['title'] = val[:120]
+            elif key == 'DESCRIPTION':
+                cur['description'] = val[:2000]
+            elif key == 'DTSTART':
+                cur['start'] = _ics_to_iso(val)
+                if date_only or ('T' not in val):
+                    cur['all_day'] = True
+            elif key == 'DTEND':
+                cur['end'] = _ics_to_iso(val)
+            elif key == 'RRULE':
+                for tok in val.split(';'):
+                    if tok.upper().startswith('FREQ='):
+                        cur['recur'] = _FREQ.get(tok.split('=', 1)[1].upper(), 'none')
+    return events
+
+
+def handle_calendar_ics():
+    """GET /api/calendar.ics — export calendar events as an iCalendar feed."""
+    require_auth()
+    events = (load(CALENDAR_FILE) or {}).get('events') or []
+    import datetime as _dt
+    _RRULE = {'daily': 'FREQ=DAILY', 'weekly': 'FREQ=WEEKLY',
+              'monthly': 'FREQ=MONTHLY', 'yearly': 'FREQ=YEARLY'}
+    lines = ['BEGIN:VCALENDAR', 'VERSION:2.0',
+             'PRODID:-//RemotePower//Calendar//EN', 'CALSCALE:GREGORIAN',
+             f'X-WR-CALNAME:{_ics_escape(get_server_name())}']
+    for ev in events:
+        try:
+            start_ts = _parse_iso(ev['start'])
+            end_ts = _parse_iso(ev['end']) if ev.get('end') else start_ts
+        except (ValueError, KeyError):
+            continue
+        lines += ['BEGIN:VEVENT',
+                  f'UID:{ev.get("id", secrets.token_hex(8))}@remotepower',
+                  f'DTSTAMP:{_ics_dt(ev.get("created_at") or start_ts)}']
+        if ev.get('all_day'):
+            lines += [f'DTSTART;VALUE=DATE:{_dt.datetime.utcfromtimestamp(start_ts).strftime("%Y%m%d")}',
+                      f'DTEND;VALUE=DATE:{_dt.datetime.utcfromtimestamp(end_ts).strftime("%Y%m%d")}']
+        else:
+            lines += [f'DTSTART:{_ics_dt(start_ts)}', f'DTEND:{_ics_dt(end_ts)}']
+        lines.append(f'SUMMARY:{_ics_escape(ev.get("title", ""))}')
+        if ev.get('description'):
+            lines.append(f'DESCRIPTION:{_ics_escape(ev["description"])}')
+        rr = _RRULE.get(ev.get('recur'))
+        if rr:
+            lines.append(f'RRULE:{rr}')
+        lines.append('END:VEVENT')
+    lines.append('END:VCALENDAR')
+    body = ('\r\n'.join(lines) + '\r\n').encode('utf-8')
+    print("Status: 200 OK"); print("Content-Type: text/calendar; charset=utf-8")
+    print("Content-Disposition: attachment; filename=remotepower-calendar.ics")
+    print(f"Content-Length: {len(body)}"); print("Cache-Control: no-store"); print()
+    sys.stdout.flush(); sys.stdout.buffer.write(body); sys.stdout.buffer.flush()
+    sys.exit(0)
+
+
+def handle_calendar_import():
+    """POST /api/calendar/import — import VEVENTs from an iCalendar (.ics) body
+    (raw text/calendar, or JSON {"ics": "..."}). Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    raw = get_body()
+    text = raw.decode('utf-8', 'replace') if raw else ''
+    if text.lstrip().startswith('{'):
+        try:
+            text = (json.loads(text) or {}).get('ics', '') or ''
+        except ValueError:
+            pass
+    if 'BEGIN:VEVENT' not in text:
+        respond(400, {'error': 'no VEVENT found — is this a .ics file?'})
+    store = load(CALENDAR_FILE)
+    events = store.get('events') or []
+    added = skipped = 0
+    for ev in _parse_ics_events(text):
+        if len(events) >= MAX_CALENDAR_EVENTS:
+            break
+        clean, err = _sanitize_event(ev)
+        if err:
+            skipped += 1
+            continue
+        clean['id'] = secrets.token_hex(8)
+        clean['created_by'] = actor
+        clean['created_at'] = int(time.time())
+        events.append(clean)
+        added += 1
+    store['events'] = events
+    save(CALENDAR_FILE, store)
+    audit_log(actor, 'calendar_import', detail=f'{added} added, {skipped} skipped')
+    respond(200, {'ok': True, 'imported': added, 'skipped': skipped})
+
+
 def handle_calendar_add():
     """POST /api/calendar — create a new event."""
     actor = require_auth()  # any authenticated user can create
@@ -28680,6 +28845,7 @@ def _cmdb_record_default() -> dict:
     return {
         'asset_id':        '',
         'server_function': '',
+        'environment':     '',     # v3.12.0: test / dev / staging / prod
         'vlan':            '',
         'hypervisor_url':  '',
         'ssh_port':        CMDB_DEFAULT_SSH_PORT,
@@ -28877,6 +29043,7 @@ def handle_cmdb_list() -> None:
             'tags':            dev.get('tags', []),
             'asset_id':        rec_safe.get('asset_id', ''),
             'server_function': rec_safe.get('server_function', ''),
+            'environment':     rec_safe.get('environment', ''),
             'vlan':            rec_safe.get('vlan', ''),
             'hypervisor_url':  rec_safe.get('hypervisor_url', ''),
             'ssh_port':        rec_safe.get('ssh_port', CMDB_DEFAULT_SSH_PORT),
@@ -29022,6 +29189,13 @@ def handle_cmdb_update(dev_id: str) -> None:
             respond(400, {'error': 'server_function: alphanumerics/spaces/_-/, max 64 chars'})
         rec['server_function'] = fn
         changed.append('server_function')
+
+    if 'environment' in body:
+        env = str(body.get('environment') or '').strip().lower()
+        if env not in CMDB_ENVIRONMENTS:
+            respond(400, {'error': f'environment must be one of: {", ".join(e for e in CMDB_ENVIRONMENTS if e)} (or empty)'})
+        rec['environment'] = env
+        changed.append('environment')
 
     if 'vlan' in body:
         vlan = str(body.get('vlan') or '').strip()
@@ -30041,6 +30215,8 @@ def _build_exact_routes():
         ('POST', '/api/auth/oidc/test'): handle_oidc_test,
         ('GET', '/api/calendar'): handle_calendar_list,
         ('POST', '/api/calendar'): handle_calendar_add,
+        ('GET', '/api/calendar.ics'): handle_calendar_ics,
+        ('POST', '/api/calendar/import'): handle_calendar_import,
         ('GET', '/api/cmd-library'): handle_cmd_library_list,
         ('POST', '/api/cmd-library'): handle_cmd_library_add,
         ('GET', '/api/cmdb'): handle_cmdb_list,
