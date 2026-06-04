@@ -582,8 +582,19 @@
   .role-perm-grid .click-row-6 { white-space: nowrap; }
   .exposure-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .row-hidden { display: none !important; }
-  .page-filter { max-width: 360px; margin-bottom: 10px; }
-  .select-filter { margin-bottom: 4px; font-size: 13px; padding: 5px 8px; }
+  /* Match .btn-icon metrics exactly (padding 8px 12px, 13px, 1px border, 8px
+     radius) so a toolbar filter box is the SAME height as the buttons beside it
+     and centres cleanly. input.<class> outranks the later generic .form-input. */
+  input.page-filter {
+    padding: 8px 12px; font-size: 13px; width: auto; max-width: 320px;
+    flex: 0 1 280px; margin: 0;
+  }
+  /* standalone placements (above a list, not in a button row) add their own
+     bottom gap via the mb-8 utility */
+  input.select-filter {
+    padding: 8px 12px; font-size: 13px; width: 100%; max-width: 360px;
+    margin: 0 0 4px;
+  }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */

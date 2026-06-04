@@ -3901,7 +3901,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         <div class="page-subtitle">When an event fires on matching devices, run a saved script and/or notify a destination. Rules are evaluated on every event; each has a cooldown. <a href="docs/features.md" class="c-accent">Documentation</a>.</div>
         <div class="dash-card mb-16">
           <div class="section-header"><div class="section-title">Rules</div><button class="enroll-btn" data-action="openAutomationEditor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New rule</button></div>
-          <input type="text" class="form-input page-filter" placeholder="Filter rules…" data-input="filterRows" data-input-el="1" data-filter-target="#automation-list > *">
+          <input type="text" class="form-input page-filter mb-8" placeholder="Filter rules…" data-input="filterRows" data-input-el="1" data-filter-target="#automation-list > *">
           <div id="automation-list"><div class="c-muted">Loading…</div></div>
         </div>
 
@@ -4242,7 +4242,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn-icon" data-action="loadRollouts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           </div>
           <div class="page-subtitle mb-12">A <strong>one-time install</strong> is the un-staged sibling of a rollout: it installs a package straight away through each target's package manager (apt/dnf/yum/zypper/pacman/apk), on a single device or a whole tag.</div>
-          <input type="text" class="form-input page-filter" placeholder="Filter rollouts…" data-input="filterRows" data-input-el="1" data-filter-target="#rollouts-list > *">
+          <input type="text" class="form-input page-filter mb-8" placeholder="Filter rollouts…" data-input="filterRows" data-input-el="1" data-filter-target="#rollouts-list > *">
           <div id="rollouts-list"><div class="c-muted">Click Refresh.</div></div>
         </div>
 
@@ -4427,7 +4427,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
               </div>
               <button class="enroll-btn" id="lxc-create-btn" data-action="openLxcCreateWizard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Create container</button>
             </div>
-            <input type="text" class="form-input page-filter" placeholder="Filter LXC containers…" data-input="filterRows" data-input-el="1" data-filter-target="#containers-lxc-body tr">
+            <input type="text" class="form-input page-filter mb-8" placeholder="Filter LXC containers…" data-input="filterRows" data-input-el="1" data-filter-target="#containers-lxc-body tr">
             <div id="containers-lxc-body"></div>
           </div>
         </div><!-- /containers-panel-lxc -->
@@ -4582,7 +4582,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
         </div>
         <div class="table-card card-padded">
           <div class="page-subtitle fw-600">Current violations</div>
-          <input type="text" class="form-input page-filter" placeholder="Filter device / package…" data-input="filterRows" data-input-el="1" data-filter-target="#swpol-viol-tbody tr">
+          <input type="text" class="form-input page-filter mb-8" placeholder="Filter device / package…" data-input="filterRows" data-input-el="1" data-filter-target="#swpol-viol-tbody tr">
           <table class="data-table w-full">
             <thead id="swpol-viol-thead"><tr>
               <th data-col="device">Device</th><th data-col="type">Rule</th><th data-col="package">Package</th>
