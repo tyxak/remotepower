@@ -525,6 +525,25 @@ class TestMountMonitoring(unittest.TestCase):
     def test_mount_issue_in_registries(self):
         self.assertIn('mount_issue', api.WEBHOOK_EVENT_NAMES)
 
+    def test_mount_issue_surfaces_in_attention(self):
+        # v3.12.0: mount issues now show on Needs Attention (were invisible)
+        saved = api.DEVICES_FILE
+        api.DEVICES_FILE = self.d / 'devices.json'
+        try:
+            api.save(api.DEVICES_FILE, {'d1': {'name': 'nas', 'monitored': True,
+                'sysinfo': {'mount_issues': [
+                    {'path': '/mnt/nfs', 'issue': 'stalled', 'fstype': 'nfs'},
+                    {'path': '/mnt/data', 'issue': 'missing', 'fstype': 'ext4'}]}}})
+            items = api._compute_attention()
+            mounts = [i for i in items if i['kind'] == 'mount']
+            self.assertEqual(len(mounts), 2)
+            stalled = [i for i in mounts if 'stalled' in i['summary']][0]
+            self.assertEqual(stalled['severity'], 'critical')
+            missing = [i for i in mounts if 'not mounted' in i['summary']][0]
+            self.assertEqual(missing['severity'], 'warning')
+        finally:
+            api.DEVICES_FILE = saved
+
 
 class TestCmdbEnrichment(unittest.TestCase):
     def test_trim_sysinfo_surfaces_hw_net(self):
@@ -626,6 +645,26 @@ class TestRetentionMaintenance(_HandlerBase):
             'history_retention_days', 'fleet_events_retention_days',
             'webhook_log_retention_days', 'monitor_history_retention_days',
             'alerts_retention_days', 'audit_log_retention_days'})
+
+
+class TestExposureHostMute(unittest.TestCase):
+    """v3.12.0: mute ALL exposure from one host (device_id-scoped rule)."""
+    def test_device_id_rule_matches_only_that_host(self):
+        mutes = [{'device_id': 'h1'}]
+        # any socket on h1 is muted
+        self.assertTrue(api._exposure_muted('sshd', 'tcp', 22, mutes, 'h1'))
+        self.assertTrue(api._exposure_muted('nginx', 'tcp', 443, mutes, 'h1'))
+        # a different host is not
+        self.assertFalse(api._exposure_muted('sshd', 'tcp', 22, mutes, 'h2'))
+
+    def test_combined_device_and_port(self):
+        mutes = [{'device_id': 'h1', 'port': 22}]
+        self.assertTrue(api._exposure_muted('sshd', 'tcp', 22, mutes, 'h1'))
+        self.assertFalse(api._exposure_muted('sshd', 'tcp', 80, mutes, 'h1'))
+        self.assertFalse(api._exposure_muted('sshd', 'tcp', 22, mutes, 'h2'))
+
+    def test_empty_rule_still_matches_nothing(self):
+        self.assertFalse(api._exposure_muted('x', 'tcp', 1, [{}], 'h1'))
 
 
 class TestGranularRBAC(unittest.TestCase):

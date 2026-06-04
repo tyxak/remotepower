@@ -12835,15 +12835,18 @@ def handle_proxmox_test() -> None:
 
 # ── v2.8.0: Listening port audit ──────────────────────────────────────────────
 
-def _exposure_muted(process, proto, port, mutes):
+def _exposure_muted(process, proto, port, mutes, device_id=None):
     """True if a (process, proto, port) socket matches any exposure-mute rule.
-    A rule is a dict with any subset of {process, proto, port}; a socket matches
-    a rule when every field the rule specifies equals the socket's. An empty
-    rule matches nothing (so it can't accidentally silence everything)."""
+    A rule is a dict with any subset of {device_id, process, proto, port}; a
+    socket matches a rule when every field the rule specifies equals the
+    socket's. A rule with only `device_id` mutes ALL exposure from that host. An
+    empty rule matches nothing (so it can't accidentally silence everything)."""
     for m in mutes or []:
         if not isinstance(m, dict):
             continue
-        if not any(k in m for k in ('process', 'proto', 'port')):
+        if not any(k in m for k in ('device_id', 'process', 'proto', 'port')):
+            continue
+        if 'device_id' in m and (m.get('device_id') or '') != (device_id or ''):
             continue
         if 'process' in m and (m.get('process') or '') != (process or ''):
             continue
@@ -18260,6 +18263,25 @@ def _compute_attention():
                 items.append({'severity': 'warning', 'kind': 'disk',
                               'device': dev.get('name', dev_id),
                               'summary': f'{path}: {pct:.0f}% used (warn ≥ {w:.0f}%)'})
+
+    # v3.12.0: mount-point problems (fstab-vs-mount + stalled NFS/SMB). The agent
+    # reports these in sysinfo.mount_issues and a mount_issue event fires; surface
+    # them here too so they actually show up on Needs Attention (and dent health).
+    for dev_id, dev in monitored.items():
+        for mi in ((dev.get('sysinfo') or {}).get('mount_issues') or []):
+            if not isinstance(mi, dict):
+                continue
+            issue = (mi.get('issue') or 'problem')
+            path  = mi.get('path', '?')
+            fstype = mi.get('fstype') or ''
+            stalled = issue == 'stalled'
+            items.append({
+                'severity': 'critical' if stalled else 'warning',
+                'kind': 'mount',
+                'device': dev.get('name', dev_id),
+                'summary': (f'{path} {"is not responding (stalled" if stalled else "is not mounted (missing"}'
+                            f'{" " + fstype if fstype else ""})'),
+            })
 
     # v3.0.2: surface memory/swap/cpu warnings + criticals from metric_state.
     # Previously only disk made it to Needs Attention even though metric_warning
@@ -26230,7 +26252,7 @@ def handle_exposure_overview():
                 'process': p.get('process', ''), 'addr': p.get('addr', ''),
                 'scope': scope,
                 'muted': _exposure_muted(p.get('process'), p.get('proto', 'tcp'),
-                                         p.get('port'), mutes),
+                                         p.get('port'), mutes, dev_id),
             })
     rows.sort(key=lambda r: ({'world': 0, 'lan': 1, 'local': 2}.get(r['scope'], 3),
                              r['device'], r['port'] or 0))
@@ -26252,6 +26274,8 @@ def handle_exposure_mute():
     if action not in ('add', 'remove'):
         respond(400, {'error': "action must be 'add' or 'remove'"}); return
     rule = {}
+    if body.get('device_id'):
+        rule['device_id'] = _sanitize_str(body['device_id'], 64)
     if body.get('process'):
         rule['process'] = _sanitize_str(body['process'], 64)
     if body.get('proto'):
@@ -26262,7 +26286,7 @@ def handle_exposure_mute():
         except (TypeError, ValueError):
             respond(400, {'error': 'port must be an integer'}); return
     if not rule:
-        respond(400, {'error': 'specify at least one of process / proto / port'})
+        respond(400, {'error': 'specify at least one of device / process / proto / port'})
         return
     with _LockedUpdate(CONFIG_FILE) as cfg:
         mutes = cfg.get('exposure_mutes') or []

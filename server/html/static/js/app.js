@@ -9202,18 +9202,27 @@ function _renderExposure() {
     const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
     return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
   };
+  // Which hosts are entirely muted (a device_id-only rule)? Drives the
+  // host-level Mute/Unmute toggle and avoids redundant per-process buttons.
+  const hostMuted = new Set((_exposureResp.mutes || [])
+    .filter(m => m && m.device_id && !m.process && !m.proto && m.port == null)
+    .map(m => m.device_id));
   tbody.innerHTML = rows.map(r => {
     const proc = r.process || '';
-    const muteBtn = r.muted
+    const isHostMuted = hostMuted.has(r.device_id);
+    const procBtn = r.muted
       ? `<button class="btn-icon cell-sm" data-action="unmuteExposureProcess" data-arg="${escAttr(proc)}" title="Stop muting alerts for ${escAttr(proc)}">Unmute</button>`
       : (proc ? `<button class="btn-icon cell-sm" data-action="muteExposureProcess" data-arg="${escAttr(proc)}" title="Mute new-port / world-exposed alerts for ${escAttr(proc)}">Mute</button>` : '');
-    return `<tr${r.muted ? ' class="muted-row"' : ''}>
+    const hostBtn = isHostMuted
+      ? `<button class="btn-icon cell-sm" data-action="unmuteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Stop muting all exposure from ${escAttr(r.device)}">Unmute host</button>`
+      : `<button class="btn-icon cell-sm" data-action="muteExposureHost" data-arg="${escAttr(r.device_id)}" data-arg2="${escAttr(r.device)}" title="Mute ALL exposure alerts from ${escAttr(r.device)}">Mute host</button>`;
+    return `<tr${(r.muted || isHostMuted) ? ' class="muted-row"' : ''}>
     <td class="fw-500">${escHtml(r.device)}</td>
     <td class="hint">${escHtml(r.proto)}/${r.port}</td>
-    <td>${escHtml(proc || '—')}${r.muted ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
+    <td>${escHtml(proc || '—')}${(r.muted || isHostMuted) ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
     <td class="hint">${escHtml(r.addr || '—')}</td>
     <td>${badge(r.scope)}</td>
-    <td>${muteBtn}</td>
+    <td class="exposure-actions">${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}</td>
   </tr>`;
   }).join('');
 }
@@ -9227,6 +9236,22 @@ async function muteExposureProcess(process) {
     toast(`Muted ${process}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
     loadExposure();
   } else { toast('Mute failed', 'error'); }
+}
+// v3.12.0: mute ALL exposure from one host (device-scoped rule).
+async function muteExposureHost(deviceId, deviceName) {
+  if (!deviceId) return;
+  const nm = deviceName || deviceId;
+  if (!confirm(`Mute new-port and world-exposed alerts for EVERY service on "${nm}"?\n\nUseful for an appliance or jump host you've accepted. Any matching open alerts are resolved; the sockets still appear here.`)) return;
+  const r = await api('POST', '/exposure/mute', { action: 'add', device_id: deviceId });
+  if (r && r.ok) {
+    toast(`Muted all exposure from ${nm}` + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
+    loadExposure();
+  } else { toast('Mute failed', 'error'); }
+}
+async function unmuteExposureHost(deviceId, deviceName) {
+  const r = await api('POST', '/exposure/mute', { action: 'remove', device_id: deviceId });
+  if (r && r.ok) { toast(`Unmuted ${deviceName || deviceId}`, 'success'); loadExposure(); }
+  else { toast('Unmute failed', 'error'); }
 }
 async function unmuteExposureProcess(process) {
   const r = await api('POST', '/exposure/mute', { action: 'remove', process });
@@ -10274,6 +10299,7 @@ async function _renderHomeAttention(preloaded) {
     brute_force:        'devices',
     reboot:             'devices',
     disk:               'devices',
+    mount:              'devices',   // v3.12.0: mount issues — device drawer Audit shows them
     tls:                'tls',
     agent_version:      'devices',
     // v3.0.1 iteration 3: transient critical events from fleet_events
@@ -13601,6 +13627,15 @@ async function _loadAuditSection(key) {
             `<div class="mb-8 mt-4">` + si.failed_units.map(u=>
               `<span class="cmd-badge fs-11">${escHtml(String(u))}</span> `
             ).join('') + `</div>`;
+        }
+        // v3.12.0: mount-point problems (fstab-vs-mount + stalled NFS/SMB).
+        if (Array.isArray(si.mount_issues) && si.mount_issues.length) {
+          const mIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
+          h += `<div class="fs-12 mt-8 c-red">${mIco} <strong>${si.mount_issues.length} mount issue${si.mount_issues.length===1?'':'s'}</strong></div>` +
+            `<div class="mb-8 mt-4">` + si.mount_issues.map(mi=>{
+              const stalled = (mi.issue==='stalled');
+              return `<span class="cmd-badge fs-11 ${stalled?'c-red':'c-amber'}"><code>${escHtml(mi.path||'?')}</code> — ${stalled?'stalled':'not mounted'}${mi.fstype?` (${escHtml(mi.fstype)})`:''}</span> `;
+            }).join('') + `</div>`;
         }
         if ((si.mounts||[]).length) {
           h += `<table class="isl-627">

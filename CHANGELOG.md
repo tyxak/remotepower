@@ -51,6 +51,16 @@ row write.
   defaults to `ACCEPT` with no rules gets a smaller "effectively open" penalty.
   Older agents that only ship the drift fingerprint fall back to the previous
   behaviour. (`sysinfo.firewall` alongside the existing `firewall_fp`.)
+- **Mount issues are now visible.** Mount-point problems (stalled NFS/SMB,
+  fstab-vs-mount mismatches) were collected, alerted and risk-scored but never
+  shown in the UI. They now appear in the device drawer's **Audit → System Info**
+  (a red banner listing each stalled/missing mount) and on **Home → Needs
+  Attention** (`mount` items — stalled = critical, missing = warning), so they
+  also dent the fleet-health score.
+- **Mute all exposure from a host.** The Exposure page's per-socket mute gains a
+  **Mute host** button (and the muted-services list a device-scoped rule):
+  one click silences new-port / world-exposed alerts for *every* service on an
+  accepted appliance or jump host, instead of muting process-by-process.
 - **Mount-point monitoring.** The agent compares `/etc/fstab` against live
   mounts and probes mounted network shares (NFS/SMB) for responsiveness — a new
   `mount_issue` event fires (edge-triggered) when an auto fstab entry isn't
