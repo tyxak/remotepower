@@ -341,6 +341,39 @@ class TestQuickWinsHandlers(_HandlerBase):
         self.assertEqual(mons[0]['body_match'], {'mode': 'contains', 'value': 'Welcome'})
 
 
+class TestMountMonitoring(unittest.TestCase):
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._psf = api.POSTURE_STATE_FILE
+        api.POSTURE_STATE_FILE = self.d / 'posture_state.json'
+        self.fired = []
+        self._fw = api.fire_webhook
+        api.fire_webhook = lambda ev, p: self.fired.append((ev, p.get('issue'), p.get('path')))
+
+    def tearDown(self):
+        api.fire_webhook = self._fw
+        api.POSTURE_STATE_FILE = self._psf
+
+    def test_mount_issue_edge_triggered(self):
+        api.save(api.POSTURE_STATE_FILE, {'d1': {}})   # seed -> not first_seen
+        api._ingest_posture_v3110('d1', 'h', {'mount_issues': [
+            {'path': '/mnt/nfs', 'issue': 'stalled', 'fstype': 'nfs'},
+            {'path': '/mnt/data', 'issue': 'missing', 'fstype': 'ext4'}]})
+        self.assertIn(('mount_issue', 'stalled', '/mnt/nfs'), self.fired)
+        self.assertIn(('mount_issue', 'missing', '/mnt/data'), self.fired)
+        # same issues again -> no re-fire
+        self.fired.clear()
+        api._ingest_posture_v3110('d1', 'h', {'mount_issues': [
+            {'path': '/mnt/nfs', 'issue': 'stalled', 'fstype': 'nfs'}]})
+        self.assertEqual(self.fired, [])
+
+    def test_mount_issue_severity_high(self):
+        self.assertEqual(api._alert_severity('mount_issue', {'issue': 'stalled'}), 'high')
+
+    def test_mount_issue_in_registries(self):
+        self.assertIn('mount_issue', api.WEBHOOK_EVENT_NAMES)
+
+
 class TestCmdbEnrichment(unittest.TestCase):
     def test_trim_sysinfo_surfaces_hw_net(self):
         si = {'cpu_count': 8, 'mem_total_mb': 16384, 'disk_total_gb': 500,

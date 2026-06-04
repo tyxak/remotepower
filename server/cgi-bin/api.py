@@ -693,6 +693,8 @@ WEBHOOK_EVENTS = (
     # v3.12.0: the SQLite storage backend's weekly integrity_check failed
     # (possible corruption). Server-level, no device.
     ('db_integrity_failed',   'Database integrity check failed (possible corruption)', True),
+    # v3.12.0: an fstab mount is missing, or a mounted network share is stalled.
+    ('mount_issue',           'Mount point missing or a network share is stalled', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -2950,6 +2952,7 @@ _ALERT_RULES = {
     'firewall_changed':           ('medium', None),
     'timer_failed':               ('medium', None),
     'db_integrity_failed':        ('critical', None),
+    'mount_issue':                ('high', None),
 }
 
 # Map recover event → firing event it resolves
@@ -3036,6 +3039,7 @@ CHANNEL_KINDS = [
     ('firewall',    'Host firewall changes',    'operational',   ['firewall_changed']),
     ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
     ('database',    'Database integrity',       'operational',   ['db_integrity_failed']),
+    ('mount',       'Mount-point health',       'operational',   ['mount_issue']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -3380,6 +3384,9 @@ def _alert_title(event, payload):
     if event == 'db_integrity_failed':
         return ('Database integrity check failed — the SQLite store may be '
                 f'corrupt: {p.get("detail","?")}')
+    if event == 'mount_issue':
+        _iw = 'stalled' if p.get('issue') == 'stalled' else 'not mounted'
+        return f'Mount {_iw} on {name}: {p.get("path","?")} ({p.get("fstype","?")})'
     if event == 'timer_failed':
         return f'Scheduled job failed on {name}: {p.get("unit","?")}'
     return f'{event}: {name}'
@@ -4099,6 +4106,7 @@ def _webhook_title(event):
         'firewall_changed':          'Host Firewall Changed',
         'timer_failed':              'Scheduled Job Failed',
         'db_integrity_failed':       'Database Integrity Check Failed',
+        'mount_issue':               'Mount Point Problem',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -4756,6 +4764,11 @@ def _webhook_message(event, payload):
     elif event == 'db_integrity_failed':
         return ('SQLite integrity_check failed — the database may be corrupt. '
                 f'Restore from a backup. Detail: {payload.get("detail","?")}')
+    elif event == 'mount_issue':
+        _iw = ('is stalled (server not responding)'
+               if payload.get('issue') == 'stalled' else 'is not mounted')
+        return (f'{name}: mount {payload.get("path","?")} '
+                f'({payload.get("fstype","?")}) {_iw}')
     elif event == 'timer_failed':
         act = payload.get('activates', '')
         extra = f' → {act}' if act else ''
@@ -4826,6 +4839,7 @@ def _webhook_tags(event):
         'firewall_changed':          'warning,fire',
         'timer_failed':              'warning,alarm_clock',
         'db_integrity_failed':       'rotating_light,floppy_disk',
+        'mount_issue':               'warning,floppy_disk',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')
@@ -7624,6 +7638,22 @@ def handle_heartbeat():
                         'fstype':   _sanitize_str(m.get('fstype', ''), 32),
                     })
                 safe_si['mounts'] = safe_mounts
+            # v3.12.0: mount-point health (fstab vs mount; stalled net shares)
+            if isinstance(si.get('mount_issues'), list):
+                safe_mi = []
+                for m in si['mount_issues'][:50]:
+                    if not isinstance(m, dict):
+                        continue
+                    issue = _sanitize_str(m.get('issue', ''), 16)
+                    path = _sanitize_str(m.get('path', ''), 256)
+                    if issue not in ('missing', 'stalled') or not path:
+                        continue
+                    safe_mi.append({
+                        'path':   path,
+                        'issue':  issue,
+                        'fstype': _sanitize_str(m.get('fstype', ''), 32),
+                    })
+                safe_si['mount_issues'] = safe_mi
             # v2.4.14: reboot-required flag (Debian/Ubuntu /run/reboot-required)
             if 'reboot_required' in si:
                 new_reboot = bool(si['reboot_required'])
@@ -12836,6 +12866,21 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
                             if e.get('source') == s), '')
                 _fire('login_new_source', {'source': s, 'user': usr})
         new['login_sources'] = sorted(seen | set(srcs))[:200]
+
+    # ── mount-point issues (v3.12.0) ───────────────────────────────
+    mi = si.get('mount_issues')
+    if isinstance(mi, list):
+        cur_mi = sorted({f'{m.get("issue")}:{m.get("path")}' for m in mi
+                         if isinstance(m, dict) and m.get('path') and m.get('issue')})
+        prev_mi = set(prev.get('mount_issues') or [])
+        for m in mi:
+            if not isinstance(m, dict) or not m.get('path'):
+                continue
+            key = f'{m.get("issue")}:{m.get("path")}'
+            if key not in prev_mi and not first_seen:
+                _fire('mount_issue', {'path': m.get('path'), 'issue': m.get('issue'),
+                                      'fstype': m.get('fstype')})
+        new['mount_issues'] = cur_mi
 
     state[dev_id] = new
     try:

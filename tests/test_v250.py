@@ -220,7 +220,10 @@ class TestHeartbeatWiring(unittest.TestCase):
         cls.api = (_ROOT / 'server/cgi-bin/api.py').read_text()
         # Find handle_heartbeat
         idx = cls.api.find('def handle_heartbeat(')
-        cls.hb = cls.api[idx: idx + 50000]
+        # v3.12.0: widened 50000→60000 — handle_heartbeat grew (single-row
+        # device update + mount-issue sanitisation), pushing the strings this
+        # test greps for past the old slice boundary.
+        cls.hb = cls.api[idx: idx + 60000]
 
     def test_custom_script_results_ingested(self):
         self.assertIn('custom_script_results', self.hb)

@@ -10264,8 +10264,8 @@ function _renderHomeActivity(fleetEvents) {
     'port_exposed_world', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
     'login_new_source', 'firewall_changed', 'timer_failed',
-    // v3.12.0: SQLite storage integrity failure
-    'db_integrity_failed',
+    // v3.12.0: SQLite storage integrity failure + mount-point health
+    'db_integrity_failed', 'mount_issue',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -10419,6 +10419,8 @@ function _homeActivityAttrs(event, p) {
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     case 'db_integrity_failed':
       return `${base} data-home-act="self"`;
+    case 'mount_issue':
+      return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }

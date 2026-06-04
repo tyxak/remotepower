@@ -3190,6 +3190,77 @@ def get_helm_releases():
     return out
 
 
+# ── v3.12.0: mount-point health ──────────────────────────────────────────────
+_MOUNT_NET_FS = {'nfs', 'nfs4', 'cifs', 'smbfs', 'smb3', 'fuse.sshfs',
+                 'glusterfs', 'ceph', 'fuse.glusterfs'}
+
+
+def _mount_responsive(path, timeout=3):
+    """True if `path` answers a statfs within `timeout`. False if it hangs
+    (a dead NFS/SMB server) — the probe runs `stat -f` in a killable
+    subprocess, so a hung mount can't block the heartbeat. None if we can't
+    probe (no `stat` binary)."""
+    try:
+        r = subprocess.run(['stat', '-f', '--', path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def collect_mount_issues():
+    """fstab vs live mounts. Returns a bounded list of issues:
+       {'path', 'fstype', 'issue': 'missing'|'stalled', 'device'?}
+       missing = an auto fstab entry that isn't mounted;
+       stalled = a mounted network share that doesn't respond."""
+    issues = []
+    mounted = {}
+    try:
+        for line in _safe_read('/proc/mounts').splitlines():
+            f = line.split()
+            if len(f) >= 3:
+                mounted[f[1]] = f[2]
+    except Exception:
+        return issues
+    # fstab: auto entries that should be mounted but aren't.
+    try:
+        for line in _safe_read('/etc/fstab').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            dev, mp, fstype, opts = parts[0], parts[1], parts[2], parts[3]
+            if not mp.startswith('/') or fstype == 'swap' or mp == 'none':
+                continue
+            if 'noauto' in opts.split(','):
+                continue
+            if mp not in mounted:
+                issues.append({'path': mp, 'fstype': fstype,
+                               'issue': 'missing', 'device': dev[:120]})
+    except Exception:
+        pass
+    # stalled: mounted network filesystems that don't respond.
+    probed = 0
+    for mp, fstype in list(mounted.items()):
+        # Only probe genuine network filesystems. Generic fuse mounts
+        # (fuse.portal, fuse.gvfsd, …) are local desktop plumbing — the network
+        # fuse types (sshfs/glusterfs/ceph) are in the explicit set above.
+        base = fstype.split('.')[0]
+        if not (fstype in _MOUNT_NET_FS or base in ('nfs', 'cifs', 'smb')):
+            continue
+        probed += 1
+        if probed > 20:
+            break
+        if _mount_responsive(mp) is False:
+            issues.append({'path': mp, 'fstype': fstype, 'issue': 'stalled'})
+    return issues[:50]
+
+
 def get_metrics():
     """Collect CPU/RAM/disk/swap/loadavg metrics via psutil (optional).
 
@@ -3279,6 +3350,15 @@ def get_metrics():
     # Sanity cap: if a host somehow has thousands of mounts (NFS automount
     # going wild), don't dump them all into every heartbeat.
     out['mounts'] = mounts[:50]
+
+    # v3.12.0: mount-point health — fstab entries that aren't mounted
+    # ("missing"), and mounted network shares that don't respond ("stalled",
+    # e.g. a hung NFS/SMB server). Best-effort + bounded; never blocks the
+    # heartbeat (the stall probe runs stat in a killable subprocess).
+    try:
+        out['mount_issues'] = collect_mount_issues()
+    except Exception:
+        pass
 
     # Top processes by CPU and memory. cpu_percent() returns 0.0 on the
     # first call (needs two samples); values are meaningful from the second

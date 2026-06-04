@@ -12,6 +12,12 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **Mount-point monitoring.** The agent compares `/etc/fstab` against live
+  mounts and probes mounted network shares (NFS/SMB) for responsiveness — a new
+  `mount_issue` event fires (edge-triggered) when an auto fstab entry isn't
+  mounted (*missing*) or a network mount hangs (*stalled*, e.g. a dead NFS
+  server). The stall probe runs `stat` in a killable subprocess so it can't
+  block the heartbeat. Wired through every event registry (high severity).
 - **CMDB enrichment.** Each asset's editor gains a **Hardware** tab (CPU, cores,
   RAM, disk total, per-mount disks, network interfaces — read-only, surfaced
   from the agent's heartbeat) and a **Contracts & contacts** tab with editable
