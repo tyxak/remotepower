@@ -98,5 +98,59 @@ class TestStorageBackendWiring(unittest.TestCase):
             self.assertTrue(callable(getattr(storage, fn)), fn)
 
 
+class TestPortAuditToggle(unittest.TestCase):
+    """v3.12.0: the listening-port audit (new_port_detected / port_exposed_world)
+    can be turned off fleet-wide via config port_audit_enabled."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        self._files = {}
+        for attr in ('CONFIG_FILE', 'PORT_BASELINE_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self.fired = []
+        self._orig_fw = api.fire_webhook
+        api.fire_webhook = lambda ev, p: self.fired.append(ev)
+        # Seed a baseline so the device isn't "first_seen" (which suppresses).
+        api.save(api.PORT_BASELINE_FILE, {'dev1': [
+            {'proto': 'tcp', 'port': 22, 'process': 'sshd',
+             'scope': 'world', 'addr': '0.0.0.0'},
+        ]})
+
+    def tearDown(self):
+        api.fire_webhook = self._orig_fw
+        for attr, val in self._files.items():
+            setattr(api, attr, val)
+
+    def _ports(self):
+        # A brand-new world-exposed port (docker-proxy on 5696) → fires both
+        # new_port_detected and port_exposed_world when the audit is on.
+        return [{'proto': 'tcp', 'port': 5696, 'process': 'docker-proxy',
+                 'scope': 'world', 'addr': '0.0.0.0'}]
+
+    def test_audit_on_fires(self):
+        api.save(api.CONFIG_FILE, {'port_audit_enabled': True})
+        api._audit_listening_ports('dev1', 'host1', self._ports())
+        self.assertIn('new_port_detected', self.fired)
+        self.assertIn('port_exposed_world', self.fired)
+
+    def test_default_on_when_unset(self):
+        api.save(api.CONFIG_FILE, {})
+        api._audit_listening_ports('dev1', 'host1', self._ports())
+        self.assertIn('port_exposed_world', self.fired)
+
+    def test_audit_off_suppresses_both(self):
+        api.save(api.CONFIG_FILE, {'port_audit_enabled': False})
+        api._audit_listening_ports('dev1', 'host1', self._ports())
+        self.assertEqual(self.fired, [])
+
+    def test_audit_off_still_updates_baseline(self):
+        # So re-enabling later doesn't fire a catch-up burst.
+        api.save(api.CONFIG_FILE, {'port_audit_enabled': False})
+        api._audit_listening_ports('dev1', 'host1', self._ports())
+        base = api.load(api.PORT_BASELINE_FILE)['dev1']
+        self.assertTrue(any(p['port'] == 5696 for p in base))
+
+
 if __name__ == '__main__':
     unittest.main()

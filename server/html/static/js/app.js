@@ -1880,6 +1880,9 @@ async function loadSettings() {
     _cae.checked = !!data.change_approval_enabled;
     const ns = document.getElementById('cfg-change-approval-no-self'); if (ns) ns.checked = data.change_approval_no_self !== false;
   }
+  // v3.12.0: listening-port audit toggle (default on).
+  const _pae = document.getElementById('cfg-port-audit-enabled');
+  if (_pae) _pae.checked = data.port_audit_enabled !== false;
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
   if (_be) _be.checked = _bk.enabled !== false;
@@ -2176,6 +2179,9 @@ async function saveSettings(btn) {
     payload.change_approval_enabled = _caEn.checked;
     payload.change_approval_no_self = !!document.getElementById('cfg-change-approval-no-self')?.checked;
   }
+  // v3.12.0: listening-port audit toggle.
+  const _paEn = document.getElementById('cfg-port-audit-enabled');
+  if (_paEn) payload.port_audit_enabled = _paEn.checked;
 
   // would clear them on the server. Leave key out to preserve existing.
   const smtpPw = document.getElementById('cfg-smtp-password').value;

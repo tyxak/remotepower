@@ -1168,6 +1168,13 @@
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-change-approval-no-self" checked> Requester cannot approve their own change</label></div>
           </div>
 
+          <!-- v3.12.0: listening-port audit toggle -->
+          <div class="settings-section">
+            <h3>Listening-port audit</h3>
+            <p class="hint">The audit watches each host's listening sockets and raises <em>New listening port</em> and <em>World-exposed service</em> alerts when a port first appears or first binds to a world-reachable address (0.0.0.0). This can be noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0. Turning it off silences both alerts fleet-wide; the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket, so you keep the visibility without the alert noise.</p>
+            <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled" checked> Audit listening ports (new-port &amp; world-exposed alerts)</label></div>
+          </div>
+
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
           <div class="settings-section">
             <h3>Audit log forwarding</h3>

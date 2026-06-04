@@ -9318,6 +9318,7 @@ def handle_config_get():
     safe['audit_forward_token_set'] = bool(safe.pop('audit_forward_token', None))
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
+    safe.setdefault('port_audit_enabled',     True)  # v3.12.0: listening-port audit
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
     safe.setdefault('healthchecks_interval_seconds', 60)
@@ -10058,6 +10059,10 @@ def handle_config_save():
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
     if 'change_approval_no_self' in body:
         cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
+    # v3.12.0: listening-port audit toggle (new_port_detected /
+    # port_exposed_world). Default on; off silences both events fleet-wide.
+    if 'port_audit_enabled' in body:
+        cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
     if 'viewers_can_ack_alerts' in body:
         cfg['viewers_can_ack_alerts'] = bool(body['viewers_can_ack_alerts'])
@@ -12442,11 +12447,21 @@ def handle_proxmox_test() -> None:
 def _audit_listening_ports(dev_id, dev_name, ports):
     """Compare current listening ports against stored baseline.
 
-    Fires new_port_detected once per new port (edge-triggered).
+    Fires new_port_detected once per new port (edge-triggered) and
+    port_exposed_world when a service first binds to a world-reachable address.
     Baseline is stored in PORT_BASELINE_FILE keyed by dev_id.
+
+    v3.12.0: the whole audit can be turned off (Settings → Security →
+    Listening-port audit / config `port_audit_enabled`, default on). When off we
+    still keep the baseline current — so re-enabling later doesn't fire a burst
+    of catch-up alerts — but suppress both events. The Exposure page is
+    unaffected (it reads the heartbeat's listening_ports directly), so you keep
+    the visibility without the alert noise (e.g. docker-proxy publishing
+    container ports to 0.0.0.0).
     """
     if not ports:
         return
+    audit_enabled = (load(CONFIG_FILE) or {}).get('port_audit_enabled', True)
     baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
     prev = baseline.get(dev_id) or []
     first_seen = dev_id not in baseline
@@ -12461,7 +12476,7 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                for p in ports if p.get('port')]
 
     for proto, port, proc, scope, addr in current:
-        if (proto, port) not in known:
+        if audit_enabled and (proto, port) not in known:
             try:
                 fire_webhook('new_port_detected', {
                     'device_id': dev_id,
@@ -12474,7 +12489,7 @@ def _audit_listening_ports(dev_id, dev_name, ports):
                 pass
         # v3.11.0: a world-reachable bind not previously world-exposed.
         # Suppressed on first contact (no baseline yet → set baseline first).
-        if (scope == 'world' and (proto, port) not in world_known
+        if (audit_enabled and scope == 'world' and (proto, port) not in world_known
                 and not first_seen):
             try:
                 fire_webhook('port_exposed_world', {
