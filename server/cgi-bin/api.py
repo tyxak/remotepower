@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.12.0'
+SERVER_VERSION = '3.13.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -2821,16 +2821,30 @@ def _forward_audit(entry, cfg):
         host = (cfg.get('audit_forward_host') or '').strip()
         if not host:
             return
-        # v3.8.0: SSRF guard the syslog target too (loopback/link-local/metadata).
         _block_local = cfg.get('webhook_block_local', True)
-        if _url_targets_local_or_meta(urllib.parse.urlparse(f'//{host}'),
-                                      allow_loopback=not _block_local):
-            return
         try:
             port = int(cfg.get('audit_forward_port') or 514)
         except (TypeError, ValueError):
             port = 514
         use_tcp = bool(cfg.get('audit_forward_tcp'))
+        # v3.13.0: resolve the target ONCE to a literal IP, classify that IP,
+        # then connect to the literal — closing the DNS-rebinding window between
+        # the SSRF check and the socket call. The raw-socket syslog path can't
+        # do connect-time peer revalidation the way the HTTP opener does, so
+        # resolve-once is the equivalent guard. (v3.8.0 added the SSRF guard;
+        # this removes the second, unchecked resolution.)
+        sock_kind = socket.SOCK_STREAM if use_tcp else socket.SOCK_DGRAM
+        try:
+            infos = socket.getaddrinfo(host, port, type=sock_kind)
+        except Exception:
+            return
+        if not infos:
+            return
+        family, _stype, _proto, _canon, sockaddr = infos[0]
+        ip = sockaddr[0]
+        if _url_targets_local_or_meta(urllib.parse.urlparse(f'//{ip}'),
+                                      allow_loopback=not _block_local):
+            return
         # RFC 5424: <PRI>VERSION TIMESTAMP HOST APP PROCID MSGID STRUCTURED MSG
         # PRI = facility(13=audit/log_audit→ use 13*8) + severity(5=notice)=109
         ts = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(entry.get('ts', int(time.time()))))
@@ -2839,12 +2853,12 @@ def _forward_audit(entry, cfg):
         line = f"<109>1 {ts} remotepower audit - - - {msg}"
         payload = line.encode('utf-8', 'replace')[:2048]
         if use_tcp:
-            with socket.create_connection((host, port), timeout=5) as s:
+            with socket.create_connection((ip, port), timeout=5) as s:
                 s.sendall(payload + b'\n')
         else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s = socket.socket(family, socket.SOCK_DGRAM)
             try:
-                s.sendto(payload, (host, port))
+                s.sendto(payload, sockaddr)
             finally:
                 s.close()
 
@@ -19122,6 +19136,52 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
             'factors': sorted(factors, key=lambda f: -f['points'])}
 
 
+_FLEET_RISK_CACHE_TTL = 10
+
+
+def _fleet_risk_cache_file():
+    return DATA_DIR / 'fleet_risk_cache.json'
+
+
+def _fleet_risk_cached(use_cache=True):
+    """File-backed 10s cache around ``_compute_fleet_risk`` — mirrors
+    ``_attention_payload``. CGI spawns a fresh process per request, so a file
+    cache is the only way to avoid recomputing the full-fleet risk (with its
+    per-device date parsing) on both ``/api/risk`` and the ``/api/home`` path
+    within the same few seconds. The cached value is the scope-independent full
+    fleet list; callers scope-filter afterwards, so it's safe to share.
+
+    Busted whenever any source file is newer than the cache (a heartbeat that
+    rewrote devices.json, a fresh CVE scan, a policy/inventory update)."""
+    cache_file = _fleet_risk_cache_file()
+    if use_cache:
+        try:
+            if cache_file.exists():
+                cache_mtime = cache_file.stat().st_mtime
+                if (time.time() - cache_mtime) < _FLEET_RISK_CACHE_TTL:
+                    fresher = False
+                    for src in (DEVICES_FILE, CMDB_FILE, CVE_FINDINGS_FILE,
+                                SOFTWARE_VIOLATIONS_FILE, HARDWARE_FILE):
+                        try:
+                            if src.exists() and src.stat().st_mtime > cache_mtime:
+                                fresher = True
+                                break
+                        except Exception:
+                            pass
+                    if not fresher:
+                        cached = load(cache_file)
+                        if isinstance(cached, dict) and isinstance(cached.get('devices'), list):
+                            return cached['devices']
+        except Exception:
+            pass
+    out = _compute_fleet_risk()
+    try:
+        save(cache_file, {'devices': out})
+    except Exception:
+        pass
+    return out
+
+
 def _compute_fleet_risk():
     """Per-asset risk for every monitored device. Pure aggregation over stored
     data — safe to call on demand."""
@@ -19150,7 +19210,7 @@ def handle_risk_overview():
     """GET /api/risk — per-asset risk score (0-100) with an explainable factor
     breakdown, plus a fleet summary. Built purely from already-stored data."""
     require_auth()
-    risks = _compute_fleet_risk()
+    risks = _fleet_risk_cached()
     scope = _caller_scope()
     if scope is not None:
         devs = load(DEVICES_FILE) or {}
@@ -19189,7 +19249,7 @@ def _fleet_health(use_cache=True):
     # cap is bounded (≤40) and halved so signals already counted in NA aren't
     # double-penalised into the ground.
     try:
-        risk_by_id = {r['device_id']: r for r in _compute_fleet_risk()}
+        risk_by_id = {r['device_id']: r for r in _fleet_risk_cached(use_cache=use_cache)}
     except Exception:
         risk_by_id = {}
     for did, rec in per.items():
@@ -21497,6 +21557,15 @@ def handle_scap_report_download(dev_id):
     print(f'Content-Disposition: inline; filename="scap-report-{safe}.html"')
     print("Cache-Control: no-store")
     print("X-Content-Type-Options: nosniff")
+    # v3.13.0 hardening: this HTML is supplied verbatim by the (device-token-
+    # authenticated) agent. Don't rely solely on the global nginx CSP — emit a
+    # self-contained sandboxed CSP so a compromised agent can't land stored XSS
+    # in the operator's session even if the upstream policy is ever loosened.
+    # OpenSCAP/usg reports are static tables with inline CSS, so they still
+    # render; only scripts/forms/same-origin access are neutralised.
+    print("Content-Security-Policy: default-src 'none'; img-src 'self' data:; "
+          "style-src 'unsafe-inline'; font-src data:; sandbox;")
+    print("X-Frame-Options: DENY")
     print()
     sys.stdout.flush()
     sys.stdout.buffer.write(html)
@@ -23982,6 +24051,24 @@ def handle_oidc_callback():
 
     if claims.get('nonce') != stored.get('nonce'):
         respond(400, {'error': 'nonce mismatch — possible replay attack'})
+
+    # v3.13.0 hardening: cheap standard-claim checks on top of the back-channel
+    # (client_secret-authenticated, TLS, SSRF-guarded) trust. Even without full
+    # JWKS signature validation these reject a replayed expired token, a token
+    # from a different issuer, and cross-RP token confusion (wrong audience).
+    _now = int(time.time())
+    _exp = claims.get('exp')
+    if isinstance(_exp, (int, float)) and _now > _exp + 120:   # 120s clock skew
+        respond(400, {'error': 'id_token expired'})
+    _iss = str(claims.get('iss') or '').rstrip('/')
+    _want_iss = str(cfg.get('oidc_issuer') or '').rstrip('/')
+    if _want_iss and _iss and _iss != _want_iss:
+        respond(400, {'error': 'id_token issuer mismatch'})
+    _aud = claims.get('aud')
+    _cid = cfg['oidc_client_id']
+    _aud_ok = (_aud == _cid) or (isinstance(_aud, list) and _cid in _aud)
+    if _aud is not None and not _aud_ok:
+        respond(400, {'error': 'id_token audience mismatch'})
 
     username = _oidc_username_for(claims)
     if not username:

@@ -2,6 +2,60 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.13.0 — unreleased (dev)
+
+A **bind-it-together** sweep (round four): surface the host signals the agent
+already collects but the UI never showed, cap every panel so it scrolls instead
+of growing unbounded, and add a round of performance and security hardening. No
+breaking changes, no new dependencies — most of this renders data that was
+already being reported and stored.
+
+### Added
+- **Access — recent logins (device drawer).** A per-user table of recent logins
+  and distinct source IPs (`auth.recent_logins`), the data the *new login
+  source* alert fires off. Previously had no UI.
+- **Scheduled jobs / timers (device drawer).** A failed-first table of every
+  systemd timer, what it activates, and its state.
+- **Pools / arrays (device drawer).** This host's own ZFS / mdadm / btrfs
+  storage & RAID health (state, capacity, scrub) — previously fleet-page only.
+- **Listening ports gain Address + Scope.** The drawer Ports card now shows the
+  bind address and a world / LAN / local badge per socket (matching the fleet
+  Exposure page).
+- **Firewall ruleset summary.** The Firewall card shows the active backend, rule
+  count and fingerprint (the *firewall changed* drift baseline).
+- **Brute-force lockout badge** on device cards, plus **Disk** and **Swap**
+  pressure pills in the drawer.
+
+### Changed
+- **Every box fits.** Device-drawer cards and large page tables (Compliance,
+  Pools, Ports, Mounts, Containers, SMART) cap at ~15 rows and scroll internally
+  instead of stretching the page.
+- **Faster loads.** Version-busted static assets are served
+  `Cache-Control: immutable, max-age=1y` (no more per-load 304 revalidations);
+  front-end scripts load `defer`; `_compute_fleet_risk()` is file-cached for 10s
+  so `/api/home` and `/api/risk` share the work.
+
+### Security
+- **Sandboxed SCAP reports.** Agent-supplied OpenSCAP HTML is served under a
+  self-contained sandboxed CSP (`default-src 'none'; … sandbox;`) +
+  `X-Frame-Options: DENY`, so stored XSS can't reach an operator's session even
+  if the upstream CSP is loosened.
+- **OIDC id_token claim checks.** The callback now rejects expired tokens (120s
+  skew), issuer mismatches, and wrong-audience tokens, on top of the existing
+  state/nonce + back-channel trust.
+- **Syslog audit-forward DNS-rebinding fix.** The SIEM forwarder resolves its
+  target once to a literal IP, classifies that IP, and connects to the literal —
+  closing the rebinding window the HTTP path already guarded.
+
+### Fixed
+- Purely numeric device tags now highlight correctly when selected.
+- `escHtml` now also escapes single quotes (matches the other escape helpers).
+- The update banner's release-notes link is scheme-validated before render.
+- Two latent clip bugs (host-config dump, patch-command history) where content
+  was cut off with no scrollbar.
+
+See **[docs/v3.13.0.md](docs/v3.13.0.md)**.
+
 ## v3.12.0 — unreleased (dev)
 
 An optional **SQLite storage backend** alongside the default flat-JSON store,

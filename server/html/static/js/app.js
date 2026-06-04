@@ -644,10 +644,12 @@ async function checkServerVersion() {
     // v2.4.6: the banner now carries the actual update steps, not just
     // a release link — RemotePower never self-updates, so the operator
     // runs these by hand (see docs/admin-guide.md §7).
+    // v3.13.0: only render the release link if it's a valid http(s) URL.
+    let _relUrl = ''; try { const _u = new URL(data.release_url); if (_u.protocol === 'https:' || _u.protocol === 'http:') _relUrl = _u.href; } catch (e) {}
     banner.innerHTML = `
-      <span>${_icon('zap',14)} RemotePower <strong>v${data.latest}</strong> is available
-      (you have v${data.current}).</span>
-      <a href="${data.release_url}" target="_blank" rel="noopener">Release notes →</a>
+      <span>${_icon('zap',14)} RemotePower <strong>v${escHtml(data.latest)}</strong> is available
+      (you have v${escHtml(data.current)}).</span>
+      ${_relUrl ? `<a href="${escAttr(_relUrl)}" target="_blank" rel="noopener">Release notes →</a>` : ''}
       <button type="button" class="update-steps-btn" data-action="toggleUpdateSteps" >How to update</button>
       <button type="button" class="update-steps-btn" data-action="snoozeUpdateBanner" data-arg="${escAttr(data.latest)}" title="Hide for 30 days">Snooze 30d</button>
       <div id="update-steps" class="d-none">
@@ -1255,6 +1257,14 @@ function renderDevices() {
     }
     if (hw.kernel_reboot) {
       hwPill += ` <span class="hw-pill hw-warn" title="A newer kernel is installed — reboot to apply" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="audit" data-stop-prop="1">${_icon('refresh',12)} kernel</span>`;
+    }
+    // v3.13.0: active brute-force lockouts (data already in the devices payload,
+    // previously had no UI). Click opens the device's Logs/security view.
+    const bfa = Array.isArray(d.brute_force_active) ? d.brute_force_active : [];
+    if (bfa.length) {
+      const ips = [...new Set(bfa.map(b => b.source_ip).filter(Boolean))];
+      const t = `${bfa.length} active brute-force source${bfa.length>1?'s':''}: ${ips.slice(0,5).join(', ')}${ips.length>5?'…':''}`;
+      hwPill += ` <span class="hw-pill hw-fail" title="${escAttr(t)}" data-action="openDeviceDrawer" data-arg="${escAttr(d.id)}" data-arg2="${escAttr(d.name)}" data-arg3="logs" data-stop-prop="1">${_icon('shield',12)} brute-force ${ips.length}</span>`;
     }
     return `<div class="device-card ${isOnline ? 'online' : 'offline'} isl-314 ${isSel ? 'is-selected' : ''}">
       <div class="device-header">
@@ -2572,7 +2582,7 @@ document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener(
 // into ' before the JS-in-attribute parser sees it, which would break any
 // `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
 // interpolated into JS string literals inside an HTML attribute.
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 // v2.1.0: escape for use inside a JS string that's embedded in an HTML
 // attribute, e.g. onclick="foo('${escAttr(x)}')". The output is pure ASCII
 // (no HTML metacharacters) so the HTML parser passes it through verbatim,
@@ -2721,7 +2731,10 @@ function enhanceDeviceCombos(root) {
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;
 function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: 'check', error: 'x', info: 'info'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
-function setTagFilter(tag) { activeTagFilter = tag; renderDevices(); }
+// v3.13.0: store the tag as a string. The data-action dispatcher coerces
+// all-numeric args to Number, which broke the strict `activeTagFilter===t`
+// highlight test (t is always a string) for purely numeric tags.
+function setTagFilter(tag) { activeTagFilter = (tag == null ? null : String(tag)); renderDevices(); }
 // v1.11.5: schedule and history get filter+sort via tableCtl. Minimal
 // refactor — register once on first load, then push rows in.
 let _scheduleRegistered = false;
@@ -2991,6 +3004,10 @@ async function _editScheduleBtn(btn) {
 async function sendExecCmd() { const id = document.getElementById('exec-device-id').value; const cmd = document.getElementById('exec-cmd').value.trim(); if (!cmd) { toast('Enter a command', 'error'); return; } const data = await api('POST', '/exec', {device_id: id, cmd}); if (data?.ok) { toast('Command queued — output on next heartbeat (~60s)', 'success'); closeModal('exec-modal'); } else if (data?.approval_required) { toast('Change submitted — awaiting approval by another admin (Confirmations page)', 'info'); closeModal('exec-modal'); } else toast(data?.error || 'Failed', 'error'); }
 // ─── "Did you know?" tips (About page) ───────────────────────────────────
 const _DYK_TIPS = [
+  "Open a device drawer and the System info card lists recent logins and the distinct source IPs they came from — the fastest way to spot an unexpected login location.",
+  "A device drawer's Scheduled jobs / timers card shows every systemd timer failed-first, so a broken backup or cleanup job is obvious without SSHing in.",
+  "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
+  "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
   "Set a Software Policy rule (banned / required / min-version) and RemotePower checks it against every host's installed packages — e.g. 'fail2ban required, telnetd banned'.",
   "The Storage page tracks ZFS / mdadm / btrfs pool health fleet-wide; a degraded array or an overdue scrub raises an alert.",
@@ -7461,14 +7478,16 @@ function _refreshTopBadges() {
   refreshAlertsBadge();
   refreshConfirmationsBadge();
 }
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _refreshTopBadges();
-    setInterval(_refreshTopBadges, 60000);
-  });
-} else {
+// v3.13.0: guard against a stacked interval if app.js is ever evaluated
+// twice (HMR / duplicate <script> / bfcache) — keep a single poller.
+function _armTopBadges() {
   _refreshTopBadges();
-  setInterval(_refreshTopBadges, 60000);
+  if (!window._topBadgeTimer) window._topBadgeTimer = setInterval(_refreshTopBadges, 60000);
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _armTopBadges);
+} else {
+  _armTopBadges();
 }
 
 // ── moved to static/js/app-calendar.js (v3.4.0 split) ─────────────────────────────
@@ -13796,6 +13815,10 @@ async function _loadAuditSection(key) {
           ['Platform',  si.platform],
           ['CPU count', si.cpu_count],
           ['Load avg',  si.loadavg_1m],
+          // v3.13.0: surface root-disk and swap pressure as at-a-glance pills
+          // (both already in sysinfo; previously only on the devices table).
+          ['Disk', si.disk_percent != null ? Number(si.disk_percent).toFixed(1) + '%' : null],
+          ['Swap', si.swap_percent != null ? Number(si.swap_percent).toFixed(1) + '%' : null],
           ['Last boot', si.last_boot ? new Date(si.last_boot*1000).toLocaleString() : null],
           // v3.8.0: why the host last restarted (the command before the reboot)
           ['Boot reason', data?.last_boot_reason || null],
@@ -13838,7 +13861,7 @@ async function _loadAuditSection(key) {
             }).join('') + `</div>`;
         }
         if ((si.mounts||[]).length) {
-          h += `<table class="isl-627">
+          h += `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
             <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
             <tbody>` + si.mounts.map(m=>
               `<tr><td class="isl-629"><code>${escHtml(m.path)}</code></td>
@@ -13846,7 +13869,29 @@ async function _loadAuditSection(key) {
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
                    <td class="isl-630 ${m.percent>85?'c-red': m.percent>70?'c-amber': ''}">${m.percent}%</td></tr>`
-            ).join('') + `</tbody></table>`;
+            ).join('') + `</tbody></table></div>`;
+        }
+        // v3.13.0: per-host storage / RAID health (ZFS / mdadm / btrfs).
+        // Previously only on the fleet Storage page — surface this host's own
+        // pools/arrays where an operator inspecting one device expects them.
+        if (Array.isArray(si.storage_health) && si.storage_health.length) {
+          const poolState = (s) => {
+            const ok = /online|healthy|active|clean/i.test(s||'');
+            const bad = /degraded|faulted|fail|offline|unavail/i.test(s||'');
+            const color = bad ? 'var(--red)' : ok ? 'var(--green)' : 'var(--amber)';
+            return `<span class="pill" data-color="${color}">${escHtml(s||'—')}</span>`;
+          };
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Pools / arrays</div>
+            <div class="scrollable-table-wrap audit-scroll">
+            <table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Name</th><th>Kind</th><th>State</th><th class="ta-center">Capacity</th><th>Scrub</th></tr></thead>
+            <tbody>` + si.storage_health.map(p=>
+              `<tr><td class="isl-629"><code>${escHtml(p.name||'—')}</code></td>
+                   <td class="fs-11 c-muted">${escHtml(p.kind||'—')}</td>
+                   <td>${poolState(p.state)}</td>
+                   <td class="ta-center ${p.capacity>90?'c-red':p.capacity>80?'c-amber':''}">${p.capacity!=null?p.capacity+'%':'—'}</td>
+                   <td class="fs-11 c-muted">${escHtml(p.scrub||'—')}</td></tr>`
+            ).join('') + `</tbody></table></div>`;
         }
         // Top processes by CPU — data already in sysinfo (top_processes:
         // [{pid,name,cpu,mem}]). Shown fleet-wide on the Processes page; surface
@@ -13861,6 +13906,44 @@ async function _loadAuditSection(key) {
                    <td class="ta-center">${p.cpu != null ? escHtml(String(p.cpu)) : '—'}</td>
                    <td class="ta-center">${p.mem != null ? escHtml(String(p.mem)) : '—'}</td></tr>`
             ).join('') + `</tbody></table>`;
+        }
+        // v3.13.0: systemd timers (scheduled jobs) — failed-first. Data already
+        // in sysinfo; the timer_failed event fires off it but the full inventory
+        // had no per-device home.
+        if (Array.isArray(si.timers) && si.timers.length) {
+          const tsorted = si.timers.slice().sort((a,b)=> (b.failed?1:0) - (a.failed?1:0));
+          const nFailed = si.timers.filter(t=>t.failed).length;
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Scheduled jobs / timers` +
+            (nFailed ? ` <span class="pill" data-color="var(--red)">${nFailed} failed</span>` : '') + `</div>
+            <div class="scrollable-table-wrap audit-scroll">
+            <table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">Timer</th><th>Activates</th><th class="ta-center">State</th></tr></thead>
+            <tbody>` + tsorted.map(t=>
+              `<tr><td class="isl-629"><code>${escHtml(t.unit||'—')}</code></td>
+                   <td class="fs-11 c-muted">${escHtml(t.activates||'—')}</td>
+                   <td class="ta-center">${t.failed?'<span class="pill" data-color="var(--red)">failed</span>':'<span class="c-green">ok</span>'}</td></tr>`
+            ).join('') + `</tbody></table></div>`;
+        }
+        // v3.13.0: access watch — recent logins and distinct source IPs. The
+        // login_new_source event fires off this, but the who/from-where table
+        // (the highest-value security data on the host) had no UI before.
+        if (si.auth && (Array.isArray(si.auth.recent_logins) && si.auth.recent_logins.length)) {
+          // Aggregate user → distinct sources, most-recent first (preserving order).
+          const byUser = new Map();
+          for (const e of si.auth.recent_logins) {
+            if (!e || !e.user) continue;
+            if (!byUser.has(e.user)) byUser.set(e.user, []);
+            const list = byUser.get(e.user);
+            if (e.source && !list.includes(e.source)) list.push(e.source);
+          }
+          h += `<div class="mt-16 mb-8 fw-500 fs-13">Access — recent logins</div>
+            <div class="scrollable-table-wrap audit-scroll">
+            <table class="isl-627">
+            <thead><tr class="c-muted"><th class="isl-628">User</th><th>Source IPs (distinct)</th></tr></thead>
+            <tbody>` + [...byUser.entries()].map(([u,srcs])=>
+              `<tr><td class="isl-629"><code>${escHtml(u)}</code></td>
+                   <td class="fs-11">${srcs.length ? srcs.map(s=>`<span class="cmd-badge fs-11">${escHtml(s)}</span>`).join(' ') : '<span class="c-muted">—</span>'}</td></tr>`
+            ).join('') + `</tbody></table></div>`;
         }
         if (jrnl.length) {
           h += `<div class="isl-631">Journal — last ${jrnl.length} lines</div>
@@ -13894,22 +13977,32 @@ async function _loadAuditSection(key) {
           badge.textContent = 'none';
           return;
         }
+        // v3.13.0: surface bind address + world/lan/local scope per socket
+        // (already on the fleet Exposure page) so single-host inspection shows
+        // that e.g. :22 is bound 0.0.0.0/world right here.
+        const scopeBadge = (s) => {
+          const color = s === 'world' ? 'var(--red)' : s === 'lan' ? 'var(--amber)' : 'var(--muted)';
+          return `<span class="pill" data-color="${color}">${escHtml(s || '—')}</span>`;
+        };
         body.innerHTML = `
           <input class="audit-filter" placeholder="Filter ports…" data-input="_filterPorts" data-input-el="1" data-input-arg="${id}">
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="ports-table isl-633" id="ports-tbl-${id}">
             <thead><tr class="isl-634">
-              <th>Proto</th><th>Port</th><th>Process</th>
+              <th>Proto</th><th>Port</th><th>Address</th><th>Scope</th><th>Process</th>
             </tr></thead>
             <tbody id="ports-body-${id}">
               ${ports.sort((a,b)=>a.port-b.port).map(p=>
-                `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''}`)}">
+                `<tr data-q="${escAttr(`${p.proto} ${p.port} ${p.process||''} ${p.addr||''} ${p.scope||''}`)}">
                   <td><code>${escHtml(p.proto)}</code></td>
                   <td><strong>${p.port}</strong></td>
+                  <td class="fs-11 c-muted"><code>${escHtml(p.addr||'—')}</code></td>
+                  <td>${scopeBadge(p.scope)}</td>
                   <td class="c-muted">${escHtml(p.process||'—')}</td>
                 </tr>`
               ).join('')}
             </tbody>
-          </table>`;
+          </table></div>`;
         badge.textContent = `${ports.length} ports`;
         break;
       }
@@ -13917,6 +14010,7 @@ async function _loadAuditSection(key) {
       case 'firewall': {
         const data = await api('GET', `/devices/${id}/sysinfo`);
         const fw   = data?.sysinfo?.firewall;
+        const fwfp = data?.sysinfo?.firewall_fp;
         if (!fw || !(fw.backends || []).length) {
           body.innerHTML = '<div class="c-muted">No firewall data yet. Agents on v3.12.0+ report nftables / iptables / ufw / ebtables posture with sysinfo (~10 min).</div>';
           badge.textContent = 'none';
@@ -13942,13 +14036,20 @@ async function _loadAuditSection(key) {
         const warn = fw.active === false ?
           `<div class="fs-12 mb-8 c-red"><strong>No active host firewall.</strong> This raises the asset's risk score.</div>`
           : (fw.active === null ? `<div class="fs-12 mb-8 c-amber">Firewall state couldn't be read (the agent may not be running as root). Not counted against risk.</div>` : '');
-        body.innerHTML = warn + `
+        // v3.13.0: host firewall fingerprint (the drift baseline the
+        // firewall_changed event fires off) — show the active ruleset summary.
+        const fpLine = (fwfp && fwfp.backend) ?
+          `<div class="fs-12 mb-8 c-muted">Ruleset: <code>${escHtml(fwfp.backend)}</code> · ${fwfp.rules||0} active rule${(fwfp.rules===1)?'':'s'}` +
+          (fwfp.fp ? ` · fingerprint <code>${escHtml(String(fwfp.fp).slice(0,12))}</code>` : '') + `</div>`
+          : '';
+        body.innerHTML = warn + fpLine + `
+          <div class="scrollable-table-wrap audit-scroll">
           <table class="ports-table isl-633">
             <thead><tr class="isl-634">
               <th>Backend</th><th class="ta-center">Installed</th><th class="ta-center">State</th><th class="ta-center">Rules</th><th>Default</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-          </table>`;
+          </table></div>`;
         badge.textContent = fw.active === true ? 'active' : fw.active === false ? 'inactive' : 'unknown';
         break;
       }
@@ -16090,7 +16191,7 @@ async function loadCompliance() {
         <div class="compliance-score ${f.score != null && f.score >= 80 ? 'c-green' : f.score != null && f.score >= 50 ? 'c-amber' : 'c-red'}">${f.score != null ? f.score + '%' : '—'}</div>
       </div>
       <div class="fs-11 c-muted mb-6">${f.pass} pass · ${f.fail} fail · ${f.na} N/A</div>
-      <table class="audit-table"><thead><tr><th>Control</th><th>Status</th><th>Evidence</th></tr></thead><tbody>` +
+      <div class="scrollable-table-wrap audit-scroll"><table class="audit-table"><thead><tr><th>Control</th><th>Status</th><th>Evidence</th></tr></thead><tbody>` +
       f.controls.map(c => {
         const fix = (c.status === 'fail' && _COMPLIANCE_FIX_PAGE[c.topic])
           ? ` <a class="compliance-fix" data-action="complianceFix" data-arg="${escAttr(c.topic)}">Fix &rarr;</a>` : '';
@@ -16098,7 +16199,7 @@ async function loadCompliance() {
         <td><strong>${escHtml(c.id)}</strong><div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
         <td>${statusPill(c.status)}</td>
         <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">&rarr; ${escHtml(c.remediation)}${fix}</div>` : ''}</td>
-      </tr>`; }).join('') + `</tbody></table></div>`;
+      </tr>`; }).join('') + `</tbody></table></div></div>`;
   }
   body.innerHTML = h;
   loadComplianceBaseline();

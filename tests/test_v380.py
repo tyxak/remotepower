@@ -78,7 +78,10 @@ class TestV380Security(unittest.TestCase):
         self.assertIn('_ssrf_safe_opener(', seg_http)
         self.assertIn('no_redirect=True', seg_http)
         # syslog target SSRF-guarded
-        seg = API[API.index("elif mode == 'syslog'"):API.index('use_tcp = bool')]
+        # v3.13.0 reordered the syslog block to resolve once → classify the
+        # literal IP → connect, so the guard now sits after `use_tcp = bool`;
+        # bound the segment by the next function instead.
+        seg = API[API.index("elif mode == 'syslog'"):API.index('def handle_audit_forward_test')]
         self.assertIn('_url_targets_local_or_meta(urllib.parse.urlparse', seg)
 
     def test_sftp_size_check_before_decode(self):

@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.12.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.13.0">
 
 </head>
 <body>
@@ -2080,7 +2080,32 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected my account profile picture avatar 2fa totp ssh username permissions acknowledged alerts ack webhook ticket jira servicenow pagerduty github issue on_ack">
+          <details class="doc-card" open data-keywords="release notes changelog v3.13.0 bind it together device drawer recent logins source ip access watch who logged in systemd timers scheduled jobs failed cron storage raid pools zfs mdadm btrfs per host listening port bind address scope world lan local firewall fingerprint ruleset brute force lockout badge disk swap pills overflow scrollbar 15 lines max height scroll cap performance immutable cache static assets defer script fleet risk cache hardening scap report sandbox csp oidc id_token exp aud iss expiry audience syslog dns rebinding toctou polish">
+            <summary><strong>What's new — v3.13.0</strong> — bind round four: surface every signal the agent already collects, cap overflowing boxes, plus perf &amp; hardening</summary>
+            <div class="doc-body">
+              <p>This release is a <strong>bind-it-together</strong> sweep: a lot of data the agent has always reported was stored and even served by the API, but had no home in the UI. v3.13.0 wires those signals into the device drawer and device cards, caps every panel so it scrolls instead of growing without bound, and adds a round of performance and security hardening. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.13.0</code>).</p>
+              <h4>Newly surfaced host signals</h4>
+              <ul>
+                <li><strong>Access — recent logins.</strong> The device drawer now lists who logged in and from which distinct source IPs (the same data the <em>new login source</em> alert fires off). The highest-value security signal on a host finally has a table.</li>
+                <li><strong>Scheduled jobs / timers.</strong> A failed-first table of every systemd timer (with what it activates and its last state), per device.</li>
+                <li><strong>Pools / arrays.</strong> This host's own ZFS / mdadm / btrfs storage health (state, capacity, scrub) — previously only on the fleet Storage page.</li>
+                <li><strong>Listening ports gain Address &amp; Scope.</strong> The drawer Ports card now shows the bind address and a world / LAN / local badge for each socket, so you can see that <code>:22</code> is bound <code>0.0.0.0</code> right where you're inspecting the host.</li>
+                <li><strong>Firewall ruleset summary.</strong> The Firewall card shows the active backend, rule count and fingerprint (the drift baseline the <em>firewall changed</em> alert compares against).</li>
+                <li><strong>Brute-force lockouts &amp; pressure pills.</strong> Active brute-force sources now show as a badge on the device card, and the drawer adds at-a-glance <em>Disk</em> and <em>Swap</em> pills.</li>
+              </ul>
+              <h4>Every box now fits</h4>
+              <ul>
+                <li><strong>Capped, scrolling panels.</strong> Drawer cards and large page tables (Compliance, Pools, Ports, Mounts, Containers, SMART) cap at roughly 15 rows and scroll internally instead of stretching the page. Two latent clip bugs (host-config dump, patch history) where content was cut off with no scrollbar are fixed.</li>
+              </ul>
+              <h4>Performance &amp; hardening</h4>
+              <ul>
+                <li><strong>Faster loads.</strong> Version-busted static assets are now cached immutably for a year (no more per-load revalidation round-trips), scripts load deferred, and the fleet-risk computation is file-cached for 10s so <code>/api/home</code> and <code>/api/risk</code> share the work.</li>
+                <li><strong>Tighter security.</strong> Agent-supplied SCAP reports are served under a self-contained sandboxed CSP (stored-XSS can't reach an operator's session even if the upstream policy is loosened); OIDC id_tokens are now checked for expiry, issuer and audience; and the syslog audit-forwarder resolves its target once to close a DNS-rebinding window.</li>
+              </ul>
+              <p class="hint">See <code>docs/v3.13.0.md</code> for the full list.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected my account profile picture avatar 2fa totp ssh username permissions acknowledged alerts ack webhook ticket jira servicenow pagerduty github issue on_ack">
             <summary><strong>What's new — v3.12.0</strong> — optional SQLite storage backend (switch from flat JSON in Settings → Advanced)</summary>
             <div class="doc-body">
               <p>RemotePower has always stored its state as flat-JSON files. That's simple and robust, but every write rewrites a whole file — on a busy fleet <code>devices.json</code> is rewritten on <em>every</em> heartbeat. v3.12.0 adds an optional embedded <strong>SQLite</strong> backend (WAL mode, stdlib only — no new dependencies) you can switch to under <strong>Settings → Advanced → Storage backend</strong>. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.12.0</code>).</p>
@@ -6557,14 +6582,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.12.0"></script>
+<script defer src="static/js/app.js?v=3.13.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.12.0"></script>
-<script src="static/js/app-cmdb.js?v=3.12.0"></script>
-<script src="static/js/app-containers.js?v=3.12.0"></script>
-<script src="static/js/app-network.js?v=3.12.0"></script>
+<script defer src="static/js/app-calendar.js?v=3.13.0"></script>
+<script defer src="static/js/app-cmdb.js?v=3.13.0"></script>
+<script defer src="static/js/app-containers.js?v=3.13.0"></script>
+<script defer src="static/js/app-network.js?v=3.13.0"></script>
 
-<script src="static/js/sw-register.js?v=3.12.0"></script>
+<script defer src="static/js/sw-register.js?v=3.13.0"></script>
 </body>
 </html>

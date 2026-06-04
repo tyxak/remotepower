@@ -95,6 +95,12 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Setup checklist** | Settings → Install: live getting-started checklist. `GET /api/setup-status` (v3.4.2) |
 | **Expanded Fleet Query** | + version, pkg-manager, has-package, monitored/agentless/quarantined, reboot, failed units, disk/mem %, offline-days (v3.4.2) |
 | **Fleet posture reports** | One report binding patches, CVEs, health score, and compliance (**Planning → Reports**): JSON/CSV download or scheduled email. `GET /api/report/fleet`, `PUT /api/report/schedule` (v3.4.1) |
+| **Access — recent logins (drawer)** | The device drawer lists who logged in and from which distinct source IPs (`auth.recent_logins`) — the data the `login_new_source` alert fires off (v3.13.0) |
+| **Scheduled jobs / timers (drawer)** | Failed-first table of every systemd timer per device — unit, what it activates, current state (v3.13.0) |
+| **Per-host storage / RAID (drawer)** | This host's own ZFS / mdadm / btrfs pools and arrays (state, capacity, scrub) in the drawer, not just on the fleet Storage page (v3.13.0) |
+| **Port bind address + scope (drawer)** | The listening-ports card shows each socket's bind address and a world / LAN / local badge, matching the Exposure page (v3.13.0) |
+| **Firewall ruleset fingerprint (drawer)** | The firewall card shows the active backend, rule count and fingerprint — the drift baseline the `firewall_changed` alert compares against (v3.13.0) |
+| **Brute-force lockout badge** | Active brute-force sources show as a badge on the device card; Disk/Swap pressure pills added to the drawer (v3.13.0) |
 
 ### Custom monitoring scripts *(v2.5.0)*
 

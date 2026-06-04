@@ -75,15 +75,17 @@ class TestUpdateBanner(unittest.TestCase):
         cls.css = (_ROOT / 'server/html/static/css/styles.css').read_text()
 
     def test_banner_shows_update_commands(self):
+        # v3.13.0: window widened 1800->2000 — the banner gained release-URL
+        # scheme validation, growing the function; intent is unchanged.
         idx = self.js.find('function checkServerVersion')
-        chunk = self.js[idx:idx + 1800]
+        chunk = self.js[idx:idx + 2000]
         self.assertIn('install-server.sh', chunk)
         self.assertIn('update-steps', chunk)
 
     def test_banner_states_no_self_update(self):
         # The banner must be honest that this is a manual step.
         idx = self.js.find('function checkServerVersion')
-        chunk = self.js[idx:idx + 1800]
+        chunk = self.js[idx:idx + 2000]
         self.assertIn('does not update itself', chunk)
 
     def test_toggle_function_present(self):

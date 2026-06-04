@@ -1,0 +1,116 @@
+# RemotePower — Security Review (v3.13.0)
+
+Date: 2026-06-04. Scope: a focused re-review on top of the v3.8.0 → v3.12.0
+passes, covering the v3.13.0 "bind it together" sweep plus an independent
+re-trace of the high-risk sinks across the **server** (`server/cgi-bin/api.py`
+and helper modules) and the **agent** (`client/remotepower-agent.py`), against
+the standing brief: authentication/authorization, command execution, input
+handling, secrets, transport, SSRF, path traversal, deserialization, and the
+front-end.
+
+The posture remains **strong and hardened release-over-release**. No new
+CRITICAL or HIGH server- or agent-side issues were found. Prior-review fixes
+(SSRF anti-rebinding across webhooks / audit-forward / OIDC / monitors,
+image-registry SSRF + credential exfiltration, the `/api/config` secret scrub,
+the TCP-monitor IP-class check) were all verified intact. This release tightens
+three defence-in-depth gaps and confirms the rest of the surface defended.
+
+---
+
+## Summary
+
+The review concentrated on (a) the paths that render or serve
+agent-/IdP-supplied content to an operator's browser; (b) the OIDC back-channel
+token handling; and (c) the remaining raw-socket outbound path. Three MED/LOW
+items were addressed; the front-end CSP migration was confirmed complete
+(production already serves `script-src 'self'; style-src 'self'` with no
+`unsafe-inline`), and the agent's command channel, self-update verification, and
+container-management paths were re-checked clean.
+
+---
+
+## Findings addressed
+
+### 1. (MED) Agent-supplied SCAP report served inline without a self-contained CSP
+`server/cgi-bin/api.py` — `handle_scap_report_download`.
+
+A device submits an arbitrary OpenSCAP/usg HTML report (`report_html_gz`,
+authenticated by device id + token); it is stored verbatim and later served to
+an operator at `GET /api/scap/<id>/report` as `text/html`,
+`Content-Disposition: inline`, on the application origin. A compromised agent (or
+anyone holding a device token) could embed `<script>` and have it execute in the
+operator's session. Exploitation was blocked only by the **global** nginx CSP —
+which a future deployment change or a location that sets its own `add_header`
+(silently dropping inherited headers) could remove.
+
+**Fix.** The handler now emits a **self-contained sandboxed CSP** for the report
+response — `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline';
+font-src data:; sandbox;` — plus `X-Frame-Options: DENY`. The report renders
+normally (it is static tables with inline CSS), but scripts, forms, and
+same-origin access are neutralised regardless of the upstream policy. The defence
+no longer depends on the global CSP.
+
+### 2. (LOW) OIDC `id_token` accepted without standard claim checks
+`server/cgi-bin/api.py` — OIDC callback.
+
+The confidential-client back-channel posture (TLS + `client_secret` + SSRF-
+guarded fetch + state/nonce) is sound and matches RFC 6749 §10.12, but the
+`id_token` was consumed with no `exp` / `iss` / `aud` validation, leaving a
+narrow window for replay of a leaked token or cross-relying-party token
+confusion (both already requiring the one-time `state`).
+
+**Fix.** After the nonce check the callback now rejects an **expired** token
+(120 s clock-skew allowance), an **issuer** that doesn't match the configured
+`oidc_issuer`, and an **audience** that isn't this `oidc_client_id` (string or
+list form). These are cheap claim checks layered on top of — not a replacement
+for — the existing channel trust.
+
+### 3. (LOW) Syslog audit-forward re-resolved its target after the SSRF check (TOCTOU)
+`server/cgi-bin/api.py` — `_audit_forward`, `mode == 'syslog'`.
+
+The SSRF guard resolved and classified the configured syslog host, then
+`socket.create_connection` / `sendto` re-resolved it independently — a DNS-
+rebinding window the HTTP forwarder closes with connect-time peer revalidation
+but the raw-socket path did not. The destination is admin-configured (low
+practical risk) and the path only *sends* a log line.
+
+**Fix.** The forwarder now resolves the target **once** via `getaddrinfo`,
+classifies that literal IP with the existing `_url_targets_local_or_meta` guard,
+and connects to the literal IP (correct address family for UDP) — no second,
+unchecked resolution.
+
+---
+
+## Verified clean (no change)
+
+- **CSP migration complete.** Production serves a strict CSP with no
+  `unsafe-inline` in `script-src` or `style-src`; the front-end ships zero inline
+  scripts/styles/handlers (all behaviour is delegated via `data-action`). A
+  full scan found no inline `on*=` attributes, `javascript:` URLs, `eval`,
+  `new Function`, or string-argument timers.
+- **Command execution.** No `shell=True` / `os.system` reachable from attacker
+  input on the server; Ansible argv is built from validated fields; `ssh_exec`
+  retains its `-`-prefix argv-injection guard; agent container/compose actions
+  are regex-validated and never use the shell.
+- **Agent trust boundary.** Strict TLS (`CERT_REQUIRED` + `check_hostname`,
+  HTTPS-only); self-update verifies sha256 with `hmac.compare_digest` and an
+  optional fail-closed GPG signature.
+- **AuthZ.** RBAC enforced at the dispatch chokepoint plus per-handler scope
+  checks; device-token endpoints use constant-time compares and verify device
+  ownership (no IDOR). `GET /api/users/<u>/avatar` is `require_auth`-gated and
+  serves only non-secret images.
+- **Secrets / crypto / path handling / deserialization.** `_scrub_config_secrets`
+  recursive scrub intact; bcrypt-12 / PBKDF2-600k, `secrets` tokens,
+  `compare_digest`, AES-GCM vault; all user/agent-influenced path segments
+  sanitised; no `pickle` / `yaml.load` / `eval` of untrusted data.
+
+---
+
+## Front-end hardening (defence-in-depth, shipped this release)
+
+- `escHtml` now also escapes single quotes, matching the other escape helpers.
+- The update-banner release-notes link is scheme-validated (http/https only)
+  before render.
+
+No outstanding issues. The reviewed surface is consistent with the strong
+posture of prior releases.
