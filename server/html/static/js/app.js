@@ -2460,57 +2460,28 @@ function startRefreshCycle() {
   const bar   = document.getElementById('refresh-progress');
   const label = document.getElementById('last-refresh-label');
 
-  // v3.8.0: drive the countdown bar with ONE CSS animation per cycle instead of
-  // writing bar.style.width every second (per-second DOM mutations woke
-  // form-filler MutationObservers — a real CPU sink). The animation is
-  // compositor-driven; DOM writes happen only on actual state changes.
-  let paused = false;
-  let cycleStart = Date.now();     // v3.12.0: wall-clock anchor for the fallback
-  let pausedMs = 0, lastTick = Date.now();
-
-  function arm() {
-    paused = false;
-    cycleStart = Date.now(); pausedMs = 0; lastTick = Date.now();
-    if (label) label.textContent = `Auto-refresh · ${refreshInterval}s`;
-    if (bar) {
-      bar.style.animation = 'none';        // reset…
-      void bar.offsetWidth;                // …force reflow so it restarts cleanly
-      bar.style.animation = `rp-refresh-countdown ${refreshInterval}s linear forwards`;
-      bar.style.animationPlayState = 'running';
-    }
+  // v3.12.0: plain, reliable 1 Hz countdown. The prior version drove the refresh
+  // off the bar's CSS `animationend` event, which in practice could silently
+  // never fire — leaving the bar frozen at "60s" and the page never refreshing
+  // (reported twice). A dead-simple interval that decrements a counter, shows it,
+  // and fires the refresh at zero cannot get stuck. The bar width is a compositor
+  // transition (one transition, not a per-second layout write).
+  let remaining = refreshInterval;
+  function paint(pausedText) {
+    if (label) label.textContent = pausedText || `Auto-refresh · ${remaining}s`;
+    if (bar) bar.style.width = Math.max(0, Math.min(100, (remaining / refreshInterval) * 100)) + '%';
   }
-
-  function fire() { try { loadDevices(); } catch (e) {} try { _refreshTopBadges(); } catch (e) {} arm(); }
-
-  // Fire the refresh when the bar finishes draining, then start the next cycle.
-  // The element is static in index.html, so bind the listener once.
-  if (bar && !_refreshBarWired) {
-    _refreshBarWired = true;
-    bar.addEventListener('animationend', (e) => {
-      if (e.animationName !== 'rp-refresh-countdown') return;
-      fire();
-    });
-  }
-
-  // 1 Hz tick: flips pause state (DOM write only on change), AND — v3.12.0 — acts
-  // as a wall-clock fallback. If a full un-paused interval has elapsed but the
-  // animationend event never fired (the old "frozen bar, page never refreshes"
-  // bug: a paused animation that didn't cleanly resume, or a throttled tab), the
-  // refresh is forced so the page can't get stuck. No per-second bar/label write.
+  paint();
   refreshTimer = setInterval(() => {
-    const now = Date.now();
-    const want = _refreshShouldPause();
-    if (want !== paused) {
-      paused = want;
-      if (bar)   bar.style.animationPlayState = want ? 'paused' : 'running';
-      if (label) label.textContent = want ? 'Refresh paused' : `Auto-refresh · ${refreshInterval}s`;
+    if (_refreshShouldPause()) { paint('Refresh paused'); return; }   // hold the count
+    remaining -= 1;
+    if (remaining <= 0) {
+      remaining = refreshInterval;
+      try { loadDevices(); } catch (e) {}
+      try { _refreshTopBadges(); } catch (e) {}
     }
-    if (paused) { pausedMs += now - lastTick; lastTick = now; return; }
-    lastTick = now;
-    if ((now - cycleStart - pausedMs) >= (refreshInterval + 2) * 1000) fire();
+    paint();
   }, 1000);
-
-  arm();
 }
 // v2.2.6: opening a modal also closes the mobile nav drawer (two
 // slide-in surfaces fighting was the "windows over each other" bug on
@@ -13953,19 +13924,24 @@ async function _loadAuditSection(key) {
         }
         const yes = '<span class="c-green">●</span>';
         const no  = '<span class="c-muted">○</span>';
+        const stateCell = (a) => a === true ? `<span class="c-green">active</span>`
+          : a === false ? `<span class="c-muted">inactive</span>`
+          : `<span class="c-amber" title="The agent couldn't read this ruleset — usually it isn't running as root">unknown</span>`;
         const rows = fw.backends.map(b => {
           const extra = b.policy ? `policy ${escHtml(b.policy)}`
                       : (b.default ? escHtml(b.default) : '—');
           return `<tr>
             <td><code>${escHtml(b.name)}</code></td>
             <td class="ta-center">${b.present ? yes : no}</td>
-            <td class="ta-center">${b.active ? `<span class="c-green">active</span>` : `<span class="c-muted">inactive</span>`}</td>
-            <td class="ta-center">${b.rules ?? 0}</td>
+            <td class="ta-center">${stateCell(b.active)}</td>
+            <td class="ta-center">${(b.active === null) ? '—' : (b.rules ?? 0)}</td>
             <td class="c-muted">${extra}</td>
           </tr>`;
         }).join('');
-        const warn = fw.active ? '' :
-          `<div class="fs-12 mb-8 c-red"><strong>No active host firewall.</strong> This raises the asset's risk score.</div>`;
+        // Only warn on an EXPLICIT no-firewall (active===false); not when unknown.
+        const warn = fw.active === false ?
+          `<div class="fs-12 mb-8 c-red"><strong>No active host firewall.</strong> This raises the asset's risk score.</div>`
+          : (fw.active === null ? `<div class="fs-12 mb-8 c-amber">Firewall state couldn't be read (the agent may not be running as root). Not counted against risk.</div>` : '');
         body.innerHTML = warn + `
           <table class="ports-table isl-633">
             <thead><tr class="isl-634">
@@ -13973,7 +13949,7 @@ async function _loadAuditSection(key) {
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>`;
-        badge.textContent = fw.active ? 'active' : 'inactive';
+        badge.textContent = fw.active === true ? 'active' : fw.active === false ? 'inactive' : 'unknown';
         break;
       }
 

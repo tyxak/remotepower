@@ -2487,44 +2487,57 @@ def collect_firewall_detail():
     policy. Best-effort and root-dependent; each probe is isolated so one
     missing tool never sinks the rest. Feeds the device Audit -> Firewall view
     and the per-asset risk score."""
-    def _run(cmd, timeout=6):
+    def _run(argv, timeout=6):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            return r.returncode, r.stdout or ''
-        except Exception:
-            return 1, ''
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            return r.returncode, (r.stdout or ''), (r.stderr or '')
+        except Exception as e:
+            return 127, '', str(e)
+    # A probe that errors with no output couldn't read the ruleset (e.g. the
+    # tool is a wrapper that needs a kernel module, or no permission). We must
+    # NOT report that as "inactive" — that would wrongly flag a firewalled host
+    # as unprotected and raise its risk. active=None means "unknown".
+    def _unreadable(rc, txt):
+        return rc != 0 and not txt.strip()
     backends = []
 
-    # nftables — the modern in-kernel firewall
-    if _which('nft'):
-        rc, txt = _run(['nft', 'list', 'ruleset'])
-        active = rc == 0 and bool(txt.strip())
+    # nftables — the modern in-kernel firewall (also the backend iptables-nft uses)
+    nft = _which('nft')
+    if nft:
+        rc, txt, _ = _run([nft, 'list', 'ruleset'])
         rules = sum(1 for l in txt.splitlines()
-                    if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ')))
-        backends.append({'name': 'nftables', 'present': True,
-                         'active': active, 'rules': rules})
+                    if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ', ' goto ')))
+        backends.append({'name': 'nftables', 'present': True, 'rules': rules,
+                         'active': None if _unreadable(rc, txt) else rules > 0})
 
-    # iptables (legacy filter table) — read the default INPUT policy + rule count
-    if _which('iptables-save'):
-        rc, txt = _run(['iptables-save'])
+    # iptables — prefer `iptables -S`: it works on both the nft and legacy
+    # backends and lists EVERY chain, including custom ones like Proxmox's
+    # PVEFW-*. (iptables-save sometimes returns nothing under the nft backend.)
+    ipt = _which('iptables') or _which('iptables-save')
+    if ipt:
+        if os.path.basename(ipt) == 'iptables':
+            rc, txt, _ = _run([ipt, '-S'])
+        else:
+            rc, txt, _ = _run([ipt])
         policy, rules = '', 0
         for l in txt.splitlines():
-            if l.startswith(':INPUT '):
-                parts = l.split()
-                if len(parts) >= 2:
-                    policy = parts[1]
-            elif l.startswith('-A '):
+            ls = l.strip()
+            if ls.startswith('-P INPUT '):          # iptables -S form
+                p = ls.split();  policy = p[2] if len(p) >= 3 else ''
+            elif ls.startswith(':INPUT '):           # iptables-save form
+                p = ls.split();  policy = p[1] if len(p) >= 2 else ''
+            elif ls.startswith('-A '):
                 rules += 1
-        active = rc == 0 and (rules > 0 or policy in ('DROP', 'REJECT'))
-        b = {'name': 'iptables', 'present': True, 'active': active, 'rules': rules}
+        b = {'name': 'iptables', 'present': True, 'rules': rules}
         if policy:
             b['policy'] = policy
+        b['active'] = None if _unreadable(rc, txt) else (rules > 0 or policy in ('DROP', 'REJECT'))
         backends.append(b)
 
     # ufw — a front-end (counted separately because operators manage it directly)
-    if _which('ufw'):
-        rc, txt = _run(['ufw', 'status', 'verbose'])
-        active = 'status: active' in txt.lower()
+    ufw = _which('ufw')
+    if ufw:
+        rc, txt, _ = _run([ufw, 'status', 'verbose'])
         default, rules = '', 0
         for l in txt.splitlines():
             ls = l.strip()
@@ -2532,26 +2545,32 @@ def collect_firewall_detail():
                 default = ls.split(':', 1)[1].strip()
             elif any(tok in l for tok in ('ALLOW', 'DENY', 'REJECT', 'LIMIT')):
                 rules += 1
-        b = {'name': 'ufw', 'present': True, 'active': active, 'rules': rules}
+        b = {'name': 'ufw', 'present': True, 'rules': rules}
         if default:
             b['default'] = default
+        b['active'] = None if _unreadable(rc, txt) else ('status: active' in txt.lower())
         backends.append(b)
 
     # ebtables — layer-2 / bridge firewall
-    if _which('ebtables'):
-        rc, txt = _run(['ebtables', '-L'])
+    ebt = _which('ebtables')
+    if ebt:
+        rc, txt, _ = _run([ebt, '-L'])
         rules = 0
         for l in txt.splitlines():
             ls = l.strip()
             if not ls or ls.startswith('Bridge table') or ls.startswith('Bridge chain'):
                 continue
             rules += 1
-        backends.append({'name': 'ebtables', 'present': True,
-                         'active': rc == 0 and rules > 0, 'rules': rules})
+        backends.append({'name': 'ebtables', 'present': True, 'rules': rules,
+                         'active': None if _unreadable(rc, txt) else rules > 0})
 
     if not backends:
         return None
-    return {'backends': backends, 'active': any(b['active'] for b in backends)}
+    # Overall active = any READABLE backend is active. If none were readable
+    # (all unknown), overall is None so the risk score doesn't falsely penalise.
+    readable = [b for b in backends if b.get('active') is not None]
+    overall = any(b['active'] for b in readable) if readable else None
+    return {'backends': backends, 'active': overall}
 
 
 def get_host_health():

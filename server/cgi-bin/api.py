@@ -7938,10 +7938,11 @@ def handle_heartbeat():
                     if nm not in _allowed_be:
                         continue
                     rn = be.get('rules')
+                    av = be.get('active')   # True / False / None(=unknown) preserved
                     sb = {
                         'name':    nm,
                         'present': bool(be.get('present')),
-                        'active':  bool(be.get('active')),
+                        'active':  None if av is None else bool(av),
                         'rules':   int(rn) if isinstance(rn, int) and 0 <= rn <= 100000 else 0,
                     }
                     if be.get('policy'):
@@ -7950,9 +7951,12 @@ def handle_heartbeat():
                         sb['default'] = _sanitize_str(be.get('default'), 80)
                     safe_bes.append(sb)
                 if safe_bes:
+                    _readable = [b for b in safe_bes if b['active'] is not None]
                     safe_si['firewall'] = {
                         'backends': safe_bes,
-                        'active':   any(b['active'] for b in safe_bes),
+                        # None when we couldn't read any backend (don't penalise)
+                        'active': (any(b['active'] for b in _readable)
+                                   if _readable else None),
                     }
             # v3.8.0: persist failed systemd units. The agent has always
             # shipped this in sysinfo, but the sanitiser never copied it —
@@ -19066,11 +19070,13 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
     # ── v3.12.0: firewall posture ────────────────────────────────────────────
     fwsum = si.get('firewall')
     if isinstance(fwsum, dict) and fwsum.get('backends'):
-        # Richer per-backend view (nftables/iptables/ufw/ebtables).
-        if not fwsum.get('active'):
+        # Richer per-backend view (nftables/iptables/ufw/ebtables). active is
+        # True / False / None(=couldn't read). Only penalise an EXPLICIT False —
+        # never when the agent couldn't read the ruleset (e.g. not root).
+        if fwsum.get('active') is False:
             _add('firewall_off', _RISK_WEIGHTS['firewall_off'],
                  'no active host firewall (nftables/iptables/ufw/ebtables)')
-        else:
+        elif fwsum.get('active'):
             for b in fwsum['backends']:
                 if (b.get('active') and not b.get('rules')
                         and (b.get('policy') or '').upper() == 'ACCEPT'):

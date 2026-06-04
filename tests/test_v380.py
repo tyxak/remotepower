@@ -219,17 +219,20 @@ class TestV380SSRF(unittest.TestCase):
         self.assertIn('_require_signed_updates()', seg)
         self.assertIn('return False', seg)
 
-    def test_refresh_countdown_is_css_animation_not_per_second_writes(self):
-        # v3.8.0 perf: the refresh bar must drain via one CSS animation per cycle
-        # (driven by animationend), not a per-second bar.style.width write that
-        # woke form-filler MutationObservers every second.
+    def test_refresh_countdown_is_reliable_interval(self):
+        # v3.12.0: the v3.8.0 CSS-animation/animationend countdown could silently
+        # never fire (frozen bar, page never refreshes — reported twice). It's now
+        # a plain 1 Hz interval that ticks a visible counter and fires the refresh
+        # at zero. The bar width is a compositor transition, not a layout thrash.
         seg = APP[APP.index('function startRefreshCycle'):]
         seg = seg[:seg.index('\nfunction ', 1)]
-        self.assertIn('rp-refresh-countdown', seg)
-        self.assertIn("addEventListener('animationend'", seg)
-        self.assertNotIn('bar.style.width = pct', seg)   # old per-second write gone
+        self.assertIn('setInterval(', seg)
+        self.assertIn('remaining -= 1', seg)
+        self.assertIn('loadDevices()', seg)
+        self.assertNotIn("addEventListener('animationend'", seg)  # fragile event gone
         css = (REPO_ROOT / 'server' / 'html' / 'static' / 'css' / 'styles.css').read_text()
-        self.assertIn('@keyframes rp-refresh-countdown', css)
+        self.assertIn('.refresh-progress', css)
+        self.assertIn('transition: width', css)   # smooth bar without per-frame JS
 
 
 class TestV380TokenSafety(unittest.TestCase):

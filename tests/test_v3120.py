@@ -475,6 +475,16 @@ class TestRiskScores(unittest.TestCase):
         openf = [f for f in risks['open']['factors'] if f['kind'] == 'firewall_off']
         self.assertTrue(openf and openf[0]['points'] < api._RISK_WEIGHTS['firewall_off'])
 
+    def test_risk_firewall_unknown_not_penalised(self):
+        # active=None means the agent couldn't read the ruleset (e.g. not root);
+        # it must NOT be flagged as no-firewall / raise risk.
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {'u': {'name': 'u', 'monitored': True, 'last_seen': now,
+            'sysinfo': {'firewall': {'active': None, 'backends': [
+                {'name': 'iptables', 'present': True, 'active': None, 'rules': 0}]}}}})
+        r = api._compute_fleet_risk()[0]
+        self.assertNotIn('firewall_off', {f['kind'] for f in r['factors']})
+
     def test_risk_firewall_fp_fallback(self):
         # older agent ships only the drift fingerprint
         now = int(time.time())
@@ -840,7 +850,8 @@ class TestAgentFirewallDetail(unittest.TestCase):
             for b in r['backends']:
                 self.assertIn(b['name'], ('nftables', 'iptables', 'ufw', 'ebtables'))
                 self.assertIsInstance(b['rules'], int)
-                self.assertIsInstance(b['active'], bool)
+                # active is True / False / None(=couldn't read the ruleset)
+                self.assertIn(b['active'], (True, False, None))
 
     def test_wired_into_host_health(self):
         src = (Path(__file__).resolve().parent.parent /

@@ -589,6 +589,9 @@
     height: 34px; padding: 0 12px; font-size: 13px; width: auto; max-width: 320px;
     flex: 0 1 280px; margin: 0; box-sizing: border-box;
   }
+  /* standalone filter boxes (above a list, not in a button row) keep a gap
+     below — the margin:0 above would otherwise swallow the mb-8 utility. */
+  input.page-filter.mb-8 { margin-bottom: 10px; display: block; }
   /* standalone placements (above a list, not in a button row) add their own
      bottom gap via the mb-8 utility */
   input.select-filter {
@@ -1351,7 +1354,7 @@
   /* v3.8.0: the countdown bar drains via a single CSS animation per refresh
      cycle (set in startRefreshCycle), not a per-second JS width write. Fewer
      DOM mutations → fewer MutationObserver wakeups for form-filler extensions. */
-  .refresh-progress { height: 100%; background: var(--accent); }
+  .refresh-progress { height: 100%; background: var(--accent); transition: width 1s linear; }
   @keyframes rp-refresh-countdown { from { width: 100%; } to { width: 0%; } }
   .login-container {
     display: flex; flex-direction: column;
