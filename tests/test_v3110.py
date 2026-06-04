@@ -209,6 +209,9 @@ class TestStoragePosture(unittest.TestCase):
         self.assertIn("storage_recovered", self._events())
 
     def test_firewall_drift(self):
+        # v3.12.0: firewall_changed is gated behind the (off-by-default)
+        # port_audit_enabled host-audit toggle — opt in for this test.
+        api.save(api.CONFIG_FILE, {"port_audit_enabled": True})
         api._ingest_posture_v3110("d1", "h", {"firewall_fp": {"backend": "nftables", "rules": 10, "fp": "aaa"}})
         self.assertNotIn("firewall_changed", self._events())
         api._ingest_posture_v3110("d1", "h", {"firewall_fp": {"backend": "nftables", "rules": 12, "fp": "bbb"}})

@@ -9318,7 +9318,7 @@ def handle_config_get():
     safe['audit_forward_token_set'] = bool(safe.pop('audit_forward_token', None))
     safe.setdefault('change_approval_enabled', False)
     safe.setdefault('change_approval_no_self', True)
-    safe.setdefault('port_audit_enabled',     True)  # v3.12.0: listening-port audit
+    safe.setdefault('port_audit_enabled',     False)  # v3.12.0: ports+firewall audit, opt-in
     safe.setdefault('ip_allowlist',           [])
     safe.setdefault('healthchecks_url',       '')
     safe.setdefault('healthchecks_interval_seconds', 60)
@@ -10059,8 +10059,8 @@ def handle_config_save():
         cfg['change_approval_enabled'] = bool(body['change_approval_enabled'])
     if 'change_approval_no_self' in body:
         cfg['change_approval_no_self'] = bool(body['change_approval_no_self'])
-    # v3.12.0: listening-port audit toggle (new_port_detected /
-    # port_exposed_world). Default on; off silences both events fleet-wide.
+    # v3.12.0: host-audit toggle. Off by default; gates new_port_detected,
+    # port_exposed_world and firewall_changed fleet-wide (opt-in).
     if 'port_audit_enabled' in body:
         cfg['port_audit_enabled'] = bool(body['port_audit_enabled'])
     # v3.3.0 C4: when False, alert ack/unack/resolve requires admin role.
@@ -12451,17 +12451,18 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     port_exposed_world when a service first binds to a world-reachable address.
     Baseline is stored in PORT_BASELINE_FILE keyed by dev_id.
 
-    v3.12.0: the whole audit can be turned off (Settings → Security →
-    Listening-port audit / config `port_audit_enabled`, default on). When off we
-    still keep the baseline current — so re-enabling later doesn't fire a burst
-    of catch-up alerts — but suppress both events. The Exposure page is
-    unaffected (it reads the heartbeat's listening_ports directly), so you keep
-    the visibility without the alert noise (e.g. docker-proxy publishing
-    container ports to 0.0.0.0).
+    v3.12.0: the audit is off by default and opt-in via Settings → Security →
+    Listening-port & firewall audit (config `port_audit_enabled`). The same
+    toggle also gates firewall_changed (see _ingest_posture_v3110). When off we
+    still keep the baseline current — so enabling later doesn't fire a burst of
+    catch-up alerts — but suppress both events. The Exposure page is unaffected
+    (it reads the heartbeat's listening_ports directly), so you keep the
+    visibility without the alert noise (e.g. docker-proxy publishing container
+    ports to 0.0.0.0).
     """
     if not ports:
         return
-    audit_enabled = (load(CONFIG_FILE) or {}).get('port_audit_enabled', True)
+    audit_enabled = (load(CONFIG_FILE) or {}).get('port_audit_enabled', False)
     baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
     prev = baseline.get(dev_id) or []
     first_seen = dev_id not in baseline
@@ -12580,10 +12581,14 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         new['scrub_overdue'] = sorted(scrub_fired)
 
     # ── host firewall drift ────────────────────────────────────────
+    # v3.12.0: gated by the same `port_audit_enabled` host-audit toggle as the
+    # listening-port audit (Settings → Security). Default off. The fingerprint
+    # baseline still updates while off so re-enabling doesn't fire a catch-up.
     fw = si.get('firewall_fp') or {}
     fp = fw.get('fp')
     if fp:
-        if prev.get('fw_fp') and prev['fw_fp'] != fp and not first_seen:
+        if (prev.get('fw_fp') and prev['fw_fp'] != fp and not first_seen
+                and _config().get('port_audit_enabled', False)):
             _fire('firewall_changed', {'backend': fw.get('backend'),
                                        'rules': fw.get('rules')})
         new['fw_fp'] = fp

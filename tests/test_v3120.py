@@ -99,23 +99,24 @@ class TestStorageBackendWiring(unittest.TestCase):
 
 
 class TestPortAuditToggle(unittest.TestCase):
-    """v3.12.0: the listening-port audit (new_port_detected / port_exposed_world)
-    can be turned off fleet-wide via config port_audit_enabled."""
+    """v3.12.0: a single host-audit toggle (config port_audit_enabled, OFF by
+    default) gates new_port_detected, port_exposed_world AND firewall_changed."""
 
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self._files = {}
-        for attr in ('CONFIG_FILE', 'PORT_BASELINE_FILE'):
+        for attr in ('CONFIG_FILE', 'PORT_BASELINE_FILE', 'POSTURE_STATE_FILE'):
             self._files[attr] = getattr(api, attr)
             setattr(api, attr, self.d / Path(getattr(api, attr)).name)
         self.fired = []
         self._orig_fw = api.fire_webhook
         api.fire_webhook = lambda ev, p: self.fired.append(ev)
-        # Seed a baseline so the device isn't "first_seen" (which suppresses).
+        # Seed baselines so the device isn't "first_seen" (which suppresses).
         api.save(api.PORT_BASELINE_FILE, {'dev1': [
             {'proto': 'tcp', 'port': 22, 'process': 'sshd',
              'scope': 'world', 'addr': '0.0.0.0'},
         ]})
+        api.save(api.POSTURE_STATE_FILE, {'dev1': {'fw_fp': 'old-fingerprint'}})
 
     def tearDown(self):
         api.fire_webhook = self._orig_fw
@@ -128,28 +129,43 @@ class TestPortAuditToggle(unittest.TestCase):
         return [{'proto': 'tcp', 'port': 5696, 'process': 'docker-proxy',
                  'scope': 'world', 'addr': '0.0.0.0'}]
 
-    def test_audit_on_fires(self):
+    def _fw_si(self):
+        # A drifted firewall fingerprint vs the seeded baseline.
+        return {'firewall_fp': {'fp': 'new-fingerprint', 'backend': 'ufw',
+                                'rules': 7}}
+
+    def test_audit_on_fires_ports(self):
         api.save(api.CONFIG_FILE, {'port_audit_enabled': True})
         api._audit_listening_ports('dev1', 'host1', self._ports())
         self.assertIn('new_port_detected', self.fired)
         self.assertIn('port_exposed_world', self.fired)
 
-    def test_default_on_when_unset(self):
+    def test_audit_on_fires_firewall(self):
+        api.save(api.CONFIG_FILE, {'port_audit_enabled': True})
+        api._ingest_posture_v3110('dev1', 'host1', self._fw_si())
+        self.assertIn('firewall_changed', self.fired)
+
+    def test_default_off_when_unset(self):
         api.save(api.CONFIG_FILE, {})
         api._audit_listening_ports('dev1', 'host1', self._ports())
-        self.assertIn('port_exposed_world', self.fired)
-
-    def test_audit_off_suppresses_both(self):
-        api.save(api.CONFIG_FILE, {'port_audit_enabled': False})
-        api._audit_listening_ports('dev1', 'host1', self._ports())
+        api._ingest_posture_v3110('dev1', 'host1', self._fw_si())
         self.assertEqual(self.fired, [])
 
-    def test_audit_off_still_updates_baseline(self):
-        # So re-enabling later doesn't fire a catch-up burst.
+    def test_audit_off_suppresses_all_three(self):
         api.save(api.CONFIG_FILE, {'port_audit_enabled': False})
         api._audit_listening_ports('dev1', 'host1', self._ports())
+        api._ingest_posture_v3110('dev1', 'host1', self._fw_si())
+        self.assertEqual(self.fired, [])
+
+    def test_off_still_updates_baselines(self):
+        # So enabling later doesn't fire a catch-up burst.
+        api.save(api.CONFIG_FILE, {'port_audit_enabled': False})
+        api._audit_listening_ports('dev1', 'host1', self._ports())
+        api._ingest_posture_v3110('dev1', 'host1', self._fw_si())
         base = api.load(api.PORT_BASELINE_FILE)['dev1']
         self.assertTrue(any(p['port'] == 5696 for p in base))
+        self.assertEqual(
+            api.load(api.POSTURE_STATE_FILE)['dev1']['fw_fp'], 'new-fingerprint')
 
 
 if __name__ == '__main__':

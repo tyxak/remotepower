@@ -27,12 +27,14 @@ row write.
 - **Migration CLI.** `tools/migrate_storage.py --to sqlite|json`
   (`--dry-run`, `--verify-only`, `--no-snapshot`, `--no-flip`), sharing the same
   core as the endpoint.
-- **Listening-port audit toggle.** Settings → Security → *Listening-port audit*
-  (`port_audit_enabled`, default on) turns off the `new_port_detected` and
-  `port_exposed_world` alerts fleet-wide — useful on Docker hosts where
-  `docker-proxy` publishes container ports to `0.0.0.0` and floods the inbox.
-  The baseline keeps updating while off (so re-enabling doesn't fire a catch-up
-  burst) and the Exposure page still lists every socket.
+- **Listening-port & firewall audit toggle.** Settings → Security →
+  *Listening-port & firewall audit* (`port_audit_enabled`, **off by default**) —
+  one opt-in switch that gates the `new_port_detected`, `port_exposed_world` and
+  `firewall_changed` alerts fleet-wide. These are noisy on Docker hosts (where
+  `docker-proxy` publishes every container port to `0.0.0.0`), so they no longer
+  fire unless an operator turns the audit on. The baselines keep updating while
+  off (so enabling later doesn't fire a catch-up burst) and the Exposure page
+  still lists every socket regardless.
 
 ### Changed
 - Backup/export, the scheduled tarball backup, and the self-status disk report

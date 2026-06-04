@@ -1880,9 +1880,9 @@ async function loadSettings() {
     _cae.checked = !!data.change_approval_enabled;
     const ns = document.getElementById('cfg-change-approval-no-self'); if (ns) ns.checked = data.change_approval_no_self !== false;
   }
-  // v3.12.0: listening-port audit toggle (default on).
+  // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
-  if (_pae) _pae.checked = data.port_audit_enabled !== false;
+  if (_pae) _pae.checked = !!data.port_audit_enabled;
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
   if (_be) _be.checked = _bk.enabled !== false;
