@@ -581,6 +581,8 @@
   .role-perm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px 14px; }
   .role-perm-grid .click-row-6 { white-space: nowrap; }
   .exposure-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .row-hidden { display: none !important; }
+  .page-filter { max-width: 360px; margin-bottom: 10px; }
   /* Sticky-header scroll for long routing / per-event tables: the column
      header row stays pinned while the body scrolls, so Kind / Needs Attention /
      Recent Activity / Alerts / Webhook stay readable no matter the scroll. */

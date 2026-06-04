@@ -647,6 +647,31 @@ class TestRetentionMaintenance(_HandlerBase):
             'alerts_retention_days', 'audit_log_retention_days'})
 
 
+class TestLargeFleetUI(unittest.TestCase):
+    """v3.12.0: filter boxes on previously-unfiltered pages + a reusable helper."""
+    def setUp(self):
+        self.app = (_ROOT / 'server' / 'html' / 'static' / 'js' / 'app.js').read_text()
+        self.html = (_ROOT / 'server' / 'html' / 'index.html').read_text()
+
+    def test_filter_helper_exists(self):
+        self.assertIn('function filterRows(', self.app)
+        self.assertIn('data-filter-target', self.app)
+
+    def test_pages_have_filter_boxes(self):
+        for target in ('#risk-tbody tr', '#storage-tbody tr', '#exposure-tbody tr',
+                       '#compose-stacks-tbody tr', '#confirmations-tbody tr',
+                       '#swpol-viol-tbody tr', '#rollouts-list > *',
+                       '#automation-list > *', '#compliance-body tr',
+                       '#containers-lxc-body tr'):
+            self.assertIn(f'data-filter-target="{target}"', self.html,
+                          f'missing filter box for {target}')
+
+    def test_command_queue_paging(self):
+        self.assertIn('function _renderCommandQueue(', self.app)
+        self.assertIn('_cmdqMorePending', self.app)
+        self.assertIn('id="cmdqueue-filter"', self.html)
+
+
 class TestExposureHostMute(unittest.TestCase):
     """v3.12.0: mute ALL exposure from one host (device_id-scoped rule)."""
     def test_device_id_rule_matches_only_that_host(self):

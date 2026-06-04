@@ -29,6 +29,13 @@ row write.
   failures**, **outdated running kernel**, and **failed system services**. Every
   point is attributed to a named factor. The score also blends into fleet
   health, so a high-risk asset can't read as perfectly healthy.
+- **Large-fleet UI scalability.** Pages that previously rendered an unfiltered
+  list now have a **filter box**: Risk, Storage health, Exposure, Software-policy
+  violations, Compose stacks, Proxmox LXC, Rollouts, Automation, Compliance and
+  MCP Confirmations (via a reusable `filterRows` row/card filter). The **Command
+  Queue** gains a filter box plus paging (pending cards 25 at a time, the
+  dispatch log 50 at a time) so a large offline fleet no longer renders thousands
+  of rows at once.
 - **Granular RBAC roles.** Custom roles can now grant any of **10 fine-grained
   action permissions** instead of the old three: `command`, `script`, `reboot`,
   `shutdown`, `patch`, `packages`, `containers`, `services`, `ssh`, `mitigate`.

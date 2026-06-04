@@ -2554,6 +2554,29 @@ function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // `O'Brien` or whose group ended with a tick caused the failure on every
 // 60s refresh.
 function escAttr(s) { return String(s).replace(/[&<>"'`\\\n\r\u2028\u2029]/g, c => '\\x' + c.charCodeAt(0).toString(16).padStart(2,'0')); }
+
+// v3.12.0: generic client-side row/card filter for large-fleet pages. Wire an
+// input with data-input="filterRows" data-input-el="1" data-filter-target="<sel>"
+// (a CSS selector for the rows/cards to filter). Optional data-filter-count="<id>"
+// shows an "N of M" counter. Hides non-matching rows by textContent substring.
+function filterRows(inputEl) {
+  const sel = inputEl && inputEl.dataset.filterTarget;
+  if (!sel) return;
+  const q = (inputEl.value || '').trim().toLowerCase();
+  let shown = 0, total = 0;
+  document.querySelectorAll(sel).forEach(row => {
+    // skip placeholder/empty/skeleton rows from the count
+    if (row.querySelector && row.querySelector('.skeleton')) return;
+    total++;
+    const match = !q || (row.textContent || '').toLowerCase().includes(q);
+    row.classList.toggle('row-hidden', !match);
+    if (match) shown++;
+  });
+  if (inputEl.dataset.filterCount) {
+    const cnt = document.getElementById(inputEl.dataset.filterCount);
+    if (cnt) cnt.textContent = q ? `${shown} of ${total}` : '';
+  }
+}
 function timeAgo(ts) { const diff = Math.floor(Date.now() / 1000 - parseInt(ts)); if (diff < 60) return diff + 's ago'; if (diff < 3600) return Math.floor(diff / 60) + 'm ago'; if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'; return Math.floor(diff / 86400) + 'd ago'; }
 let toastId = 0;
 function toast(msg, type = 'info') { const id = 'toast-' + (++toastId); const icons = {success: 'check', error: 'x', info: 'info'}; const el = document.createElement('div'); el.className = `toast ${type}`; el.id = id; el.innerHTML = `<span class="toast-icon">${_icon(icons[type] || 'info', 16)}</span><span>${escHtml(msg)}</span>`; document.getElementById('toast-container').appendChild(el); requestAnimationFrame(() => el.classList.add('show')); setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 3500); }
