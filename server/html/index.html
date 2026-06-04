@@ -1480,6 +1480,29 @@
             </div>
             <pre id="storage-backend-result" class="hint sb-result" hidden></pre>
           </div>
+
+          <!-- ── Database maintenance & retention (v3.12.0) ──────────────── -->
+          <div class="settings-section">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg> Data retention &amp; maintenance</h3>
+            <p class="hint">Cap how long historical records are kept. Set a value in <strong>days</strong>; <code>0</code> keeps everything (subject only to the per-log count limits). Old entries are pruned automatically once a day, and immediately when you run maintenance below. Open alerts are never purged — only resolved ones past their age limit.</p>
+            <div class="retention-grid">
+              <label for="ret-history">Command history (days)
+                <input type="number" id="ret-history" min="0" max="3650" step="1" class="form-input"></label>
+              <label for="ret-fleet">Fleet events (days)
+                <input type="number" id="ret-fleet" min="0" max="3650" step="1" class="form-input"></label>
+              <label for="ret-webhook">Webhook log (days)
+                <input type="number" id="ret-webhook" min="0" max="3650" step="1" class="form-input"></label>
+              <label for="ret-monitor">Monitor history (days)
+                <input type="number" id="ret-monitor" min="0" max="3650" step="1" class="form-input"></label>
+              <label for="ret-alerts">Resolved alerts (days)
+                <input type="number" id="ret-alerts" min="0" max="3650" step="1" class="form-input"></label>
+            </div>
+            <div class="retention-controls">
+              <button class="btn-icon" data-action="saveRetention"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save retention</button>
+              <button class="btn-secondary" data-action="runMaintenance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> Run maintenance now</button>
+            </div>
+            <pre id="maintenance-result" class="hint sb-result" hidden></pre>
+          </div>
         </div>
 
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->

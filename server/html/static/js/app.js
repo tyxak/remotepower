@@ -1873,6 +1873,19 @@ async function loadSettings() {
   if (_sl) _sl.value = data.session_ttl_long || '';
   const _ar = document.getElementById('audit-retention-days');
   if (_ar) _ar.value = data.audit_log_retention_days ?? '';
+
+  // v3.12.0: data retention (days; 0 = keep all)
+  const _retMap = {
+    'ret-history': 'history_retention_days',
+    'ret-fleet':   'fleet_events_retention_days',
+    'ret-webhook': 'webhook_log_retention_days',
+    'ret-monitor': 'monitor_history_retention_days',
+    'ret-alerts':  'alerts_retention_days',
+  };
+  for (const [id, key] of Object.entries(_retMap)) {
+    const el = document.getElementById(id);
+    if (el) el.value = data[key] ?? 0;
+  }
   // v3.7.0: audit forwarding + change approval
   const _afe = document.getElementById('cfg-audit-forward-enabled');
   if (_afe) {
@@ -4337,6 +4350,51 @@ function migrateStorage() {
   const target = sel ? sel.value : 'sqlite';
   if (!confirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets — prefer a low-traffic window, as writes that land mid-migration are caught by a re-scan but a busy fleet leaves a small residual window.`)) return;
   _runStorageMigrate({ dry_run: false });
+}
+
+// v3.12.0: data retention + on-demand maintenance ────────────────────────────
+const _RETENTION_FIELDS = {
+  'ret-history': 'history_retention_days',
+  'ret-fleet':   'fleet_events_retention_days',
+  'ret-webhook': 'webhook_log_retention_days',
+  'ret-monitor': 'monitor_history_retention_days',
+  'ret-alerts':  'alerts_retention_days',
+};
+async function saveRetention() {
+  const body = {};
+  for (const [id, key] of Object.entries(_RETENTION_FIELDS)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const v = parseInt(el.value, 10);
+    if (isNaN(v) || v < 0 || v > 3650) {
+      toast('Retention days must be 0–3650', 'error');
+      return;
+    }
+    body[key] = v;
+  }
+  const res = await api('POST', '/config', body);
+  if (res) toast('Retention settings saved', 'success');
+}
+async function runMaintenance() {
+  if (!confirm('Run database maintenance now?\n\nThis purges records older than your retention limits (resolved alerts only — open alerts are kept) and compacts the database. Pruned data cannot be recovered.')) return;
+  const out = document.getElementById('maintenance-result');
+  if (out) { out.hidden = false; out.textContent = 'Running maintenance…'; }
+  const res = await api('POST', '/db-maintenance');
+  if (!res) { if (out) out.textContent = 'Request failed.'; return; }
+  let txt = `Backend: ${res.backend || 'json'}\n`;
+  const pruned = res.pruned || {};
+  const keys = Object.keys(pruned);
+  if (keys.length) {
+    txt += 'Pruned old records:\n';
+    for (const k of keys) txt += `  ${k}: ${pruned[k]}\n`;
+  } else {
+    txt += 'No records were past their retention limit.\n';
+  }
+  if (res.db && Object.keys(res.db).length) {
+    txt += 'Database: ' + Object.entries(res.db).map(([k, v]) => `${k}=${v}`).join(', ');
+  }
+  if (out) out.textContent = txt.trim();
+  toast('Maintenance complete', 'success');
 }
 // v1.11.6: API keys page gets filter+sort
 let _apikeysRegistered = false;

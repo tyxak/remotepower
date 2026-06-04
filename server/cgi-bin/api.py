@@ -1259,6 +1259,130 @@ def _sqlite_maintenance_if_due():
     save(SQLITE_MAINT_FILE, st)
 
 
+RETENTION_STATE_FILE = DATA_DIR / 'retention_state.json'   # v3.12.0
+# config key -> (data file, top-level list key). Age-based retention in days;
+# 0/unset = keep all (only the existing count caps apply). Each log entry is
+# dropped when its `ts` is older than the cutoff.
+# Resolved by module-attribute name (not captured Path) so tests that override
+# the *_FILE globals are honoured, and so the path stays correct if reassigned.
+_RETENTION_LOGS = (
+    ('history_retention_days',       'HISTORY_FILE',             'entries'),
+    ('fleet_events_retention_days',  'FLEET_EVENTS_FILE',        'events'),
+    ('webhook_log_retention_days',   'WEBHOOK_LOG_FILE',         'entries'),
+    ('webhook_log_retention_days',   'INBOUND_WEBHOOK_LOG_FILE', 'entries'),
+)
+_RETENTION_KEYS = ('history_retention_days', 'fleet_events_retention_days',
+                   'webhook_log_retention_days', 'monitor_history_retention_days',
+                   'alerts_retention_days', 'audit_log_retention_days')
+
+
+def _retention_cutoff(cfg, key):
+    try:
+        days = int(cfg.get(key) or 0)
+    except (TypeError, ValueError):
+        days = 0
+    return (int(time.time()) - days * 86400) if days > 0 else None
+
+
+def _purge_old_data(cfg=None):
+    """Drop append-log entries older than their configured retention (days).
+    Independent of the existing count caps. Returns {filename: removed_count}.
+    A log whose retention is 0/unset is left alone."""
+    if cfg is None:
+        cfg = load(CONFIG_FILE) or {}
+    removed = {}
+    for ckey, pathattr, wrapkey in _RETENTION_LOGS:
+        cutoff = _retention_cutoff(cfg, ckey)
+        if cutoff is None:
+            continue
+        path = globals()[pathattr]
+        try:
+            with _locked_update(path) as store:
+                if not isinstance(store, dict):
+                    continue
+                items = store.get(wrapkey) or []
+                kept = [e for e in items if not isinstance(e, dict)
+                        or int(e.get('ts', 0) or 0) >= cutoff]
+                if len(kept) != len(items):
+                    removed[path.name] = removed.get(path.name, 0) + (len(items) - len(kept))
+                    store[wrapkey] = kept
+        except Exception:
+            pass
+    # resolved alerts older than retention (open/acked alerts are never purged).
+    cutoff = _retention_cutoff(cfg, 'alerts_retention_days')
+    if cutoff is not None:
+        try:
+            with _locked_update(ALERTS_FILE) as store:
+                al = store.get('alerts') or []
+                kept = [a for a in al if not (a.get('resolved_at')
+                        and int(a.get('resolved_at', 0) or 0) < cutoff)]
+                if len(kept) != len(al):
+                    removed['alerts.json'] = len(al) - len(kept)
+                    store['alerts'] = kept
+        except Exception:
+            pass
+    # monitor_history: per-monitor lists of check results.
+    cutoff = _retention_cutoff(cfg, 'monitor_history_retention_days')
+    if cutoff is not None:
+        try:
+            with _locked_update(MON_HIST_FILE) as store:
+                n = 0
+                if isinstance(store, dict):
+                    for k, lst in list(store.items()):
+                        if isinstance(lst, list):
+                            kept = [e for e in lst if not isinstance(e, dict)
+                                    or int(e.get('ts') or e.get('checked') or 0) >= cutoff]
+                            n += len(lst) - len(kept)
+                            store[k] = kept
+                if n:
+                    removed['monitor_history.json'] = n
+        except Exception:
+            pass
+    return removed
+
+
+def _retention_sweep_if_due():
+    """Daily age-based purge for any log with a configured retention. Cheap
+    when not due / nothing configured. No-op for audit_log (which already
+    prunes on every write)."""
+    st = load(RETENTION_STATE_FILE) or {}
+    now = int(time.time())
+    if now - int(st.get('last', 0) or 0) < 86400:
+        return
+    cfg = load(CONFIG_FILE) or {}
+    if any(int(cfg.get(k) or 0) > 0 for k in _RETENTION_KEYS if k != 'audit_log_retention_days'):
+        _purge_old_data(cfg)
+    st['last'] = now
+    save(RETENTION_STATE_FILE, st)
+
+
+def handle_maintenance_run():
+    """POST /api/db-maintenance — purge old data per the configured retention,
+    and (under SQLite) VACUUM + checkpoint + integrity_check. Admin-only."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    cfg = load(CONFIG_FILE) or {}
+    pruned = _purge_old_data(cfg)
+    db = {}
+    if _storage_backend() == 'sqlite':
+        try:
+            db = storage.maintenance(DATA_DIR, full=True)
+            st = load(SQLITE_MAINT_FILE) or {}
+            st['last_checkpoint'] = int(time.time())
+            st['db_bytes'] = db.get('db_bytes')
+            if 'integrity' in db:
+                st['last_integrity'] = db['integrity']
+                st['last_integrity_at'] = int(time.time())
+            save(SQLITE_MAINT_FILE, st)
+        except Exception as e:
+            db = {'error': str(e)}
+    audit_log(actor, 'maintenance_run',
+              detail=f'pruned={sum(pruned.values())} backend={_storage_backend()}')
+    respond(200, {'ok': True, 'pruned': pruned, 'db': db,
+                  'backend': _storage_backend()})
+
+
 def _data_file_bytes(path):
     """Approximate on-disk byte size of a logical data file, for the
     self-status disk report — Path.stat() under JSON, summed row sizes under
@@ -5178,6 +5302,11 @@ def handle_security_diag():
         'audit_log_entries':              len(audit),
         'audit_log_archive_size_bytes':   audit_archive.stat().st_size if audit_archive.is_file() else 0,
         'audit_log_retention_days':       int(cfg.get('audit_log_retention_days') or 90),
+        'history_retention_days':         int(cfg.get('history_retention_days') or 0),
+        'fleet_events_retention_days':    int(cfg.get('fleet_events_retention_days') or 0),
+        'webhook_log_retention_days':     int(cfg.get('webhook_log_retention_days') or 0),
+        'monitor_history_retention_days': int(cfg.get('monitor_history_retention_days') or 0),
+        'alerts_retention_days':          int(cfg.get('alerts_retention_days') or 0),
         'csp_report_logging':             bool(cfg.get('csp_report_logging', True)),
         'csp_report_throttle_per_minute': int(cfg.get('csp_report_throttle_per_minute', 10) or 0),
         'csp_reports_last_24h':           csp_24h,
@@ -10169,6 +10298,19 @@ def handle_config_save():
             cfg['audit_log_retention_days'] = v
         except (TypeError, ValueError):
             respond(400, {'error': 'audit_log_retention_days must be an integer'})
+
+    # v3.12.0: per-log age-based retention (days; 0 = keep all, only count caps).
+    for _rkey in ('history_retention_days', 'fleet_events_retention_days',
+                  'webhook_log_retention_days', 'monitor_history_retention_days',
+                  'alerts_retention_days'):
+        if _rkey in body:
+            try:
+                v = int(body[_rkey])
+                if not (0 <= v <= 3650):
+                    respond(400, {'error': f'{_rkey} must be 0..3650'})
+                cfg[_rkey] = v
+            except (TypeError, ValueError):
+                respond(400, {'error': f'{_rkey} must be an integer'})
 
     # v3.0.6: CSP violation reporting toggle + per-IP rate limit.
     # Both are surfaced in Settings → Security so operators can
@@ -30696,6 +30838,9 @@ def _build_exact_routes():
         # already taken (ZFS), so this lives under /api/storage-backend.
         ('GET', '/api/storage-backend/status'): handle_storage_backend_status,
         ('POST', '/api/storage-backend/migrate'): handle_storage_backend_migrate,
+        # NB: /api/maintenance is already taken by maintenance-windows; DB
+        # maintenance lives under its own path to avoid clobbering it.
+        ('POST', '/api/db-maintenance'): handle_maintenance_run,
         # v3.12.0: My Account
         ('GET', '/api/me'): handle_me,
         (None, '/api/me/avatar'): handle_me_avatar,
@@ -31368,6 +31513,8 @@ def main():
     # v3.12.0: SQLite WAL checkpoint (hourly) + weekly VACUUM/integrity_check.
     # No-op under the default JSON backend.
     _safe(_sqlite_maintenance_if_due, '_sqlite_maintenance_if_due')
+    # v3.12.0: daily age-based purge for logs with a configured retention.
+    _safe(_retention_sweep_if_due, '_retention_sweep_if_due')
 
     # v2.0: gate mutations in read-only / demo mode. Cheap: one env var
     # read + a constant set membership check. Done before route dispatch

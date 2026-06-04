@@ -65,6 +65,19 @@ row write.
   original event payload, who/when acked) — independent of the per-event /
   severity filters — so a `generic` / GitHub-issue / PagerDuty destination can
   open a ticket the moment a human takes ownership. (`webhook_urls[].on_ack`.)
+- **Data retention & DB maintenance.** **Settings → Advanced → Data retention &
+  maintenance** adds per-log age caps (command history, fleet events, webhook
+  log, monitor history, resolved alerts — days; `0` keeps everything) that prune
+  automatically once a day, plus a **Run maintenance now** button
+  (`POST /api/db-maintenance`, admin) that purges immediately and, under SQLite,
+  VACUUMs + checkpoints + runs an integrity check. Open alerts are never purged —
+  only resolved ones past their age limit. (`history_retention_days`,
+  `fleet_events_retention_days`, `webhook_log_retention_days`,
+  `monitor_history_retention_days`, `alerts_retention_days`.)
+- **Agent log rotation.** The agent now writes `/var/log/remotepower-agent.log`
+  through a self-rotating handler (5 MB × 5 backups, ~25 MB cap) — no
+  logrotate/cron drop-in required, falling back to a null handler when not
+  running as root.
 - **Pluggable storage backend.** A new `storage.py` sits behind the existing
   `load()` / `save()` / `_locked_update()` helpers, so all ~1000 call sites are
   backend-agnostic. Cold files are stored as JSON blobs; hot, high-cardinality

@@ -199,12 +199,30 @@ try:
 except ImportError:
     _PSUTIL = False
 
+def _agent_file_log_handler():
+    """v3.12.0: size-capped rotating log so /var/log/remotepower-agent.log can't
+    grow unbounded — 5 MB × 5 backups (~25 MB total), self-rotating so no
+    logrotate/cron is required. NullHandler when not root (can't write /var/log)
+    or if the rotating handler can't be created."""
+    try:
+        if os.geteuid() != 0:
+            return logging.NullHandler()
+    except AttributeError:           # non-POSIX (no geteuid) — skip file log
+        return logging.NullHandler()
+    try:
+        from logging.handlers import RotatingFileHandler
+        return RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=5)
+    except Exception:
+        return logging.NullHandler()
+
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE) if os.geteuid() == 0 else logging.NullHandler(),
+        _agent_file_log_handler(),
     ]
 )
 log = logging.getLogger('remotepower')

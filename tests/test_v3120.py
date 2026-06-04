@@ -9,6 +9,7 @@ bump) plus a few wiring smoke checks specific to this release.
 """
 import os
 import tempfile
+import time
 os.environ.setdefault("RP_DATA_DIR", tempfile.mkdtemp())
 
 import importlib.util
@@ -495,6 +496,79 @@ class TestCmdbEnrichment(unittest.TestCase):
         d = api._cmdb_record_default()
         for k in ('contracts', 'contacts', 'licenses'):
             self.assertEqual(d[k], [])
+
+
+class TestRetentionMaintenance(_HandlerBase):
+    """v3.12.0: configurable data retention + on-demand DB maintenance."""
+    def setUp(self):
+        super().setUp()
+        for attr in ('HISTORY_FILE', 'FLEET_EVENTS_FILE', 'WEBHOOK_LOG_FILE',
+                     'INBOUND_WEBHOOK_LOG_FILE', 'MON_HIST_FILE',
+                     'RETENTION_STATE_FILE'):
+            self._files[attr] = getattr(api, attr)
+            setattr(api, attr, self.d / Path(getattr(api, attr)).name)
+        self.now = int(time.time())
+        self.old = self.now - 100 * 86400
+
+    def test_purge_respects_age_and_disabled(self):
+        api.save(api.HISTORY_FILE, {'entries': [
+            {'ts': self.old, 'command': 'a'}, {'ts': self.now, 'command': 'b'}]})
+        api.save(api.FLEET_EVENTS_FILE, {'events': [
+            {'ts': self.old}, {'ts': self.now}]})
+        # disabled (no config) → nothing purged
+        self.assertEqual(api._purge_old_data({}), {})
+        self.assertEqual(len(api.load(api.HISTORY_FILE)['entries']), 2)
+        # enabled 90d → old entries dropped
+        removed = api._purge_old_data({'history_retention_days': 90,
+                                       'fleet_events_retention_days': 90})
+        self.assertEqual(removed.get('history.json'), 1)
+        self.assertEqual(removed.get('fleet_events.json'), 1)
+        self.assertEqual([e['command'] for e in
+                          api.load(api.HISTORY_FILE)['entries']], ['b'])
+
+    def test_purge_keeps_open_alerts(self):
+        api.save(api.ALERTS_FILE, {'alerts': [
+            {'id': 'resolved_old', 'resolved_at': self.old},
+            {'id': 'open_old', 'resolved_at': None, 'ts': self.old},
+            {'id': 'resolved_new', 'resolved_at': self.now}]})
+        removed = api._purge_old_data({'alerts_retention_days': 30})
+        self.assertEqual(removed.get('alerts.json'), 1)
+        ids = {a['id'] for a in api.load(api.ALERTS_FILE)['alerts']}
+        self.assertEqual(ids, {'open_old', 'resolved_new'})
+
+    def test_sweep_records_timestamp(self):
+        api.save(api.CONFIG_FILE, {'history_retention_days': 90})
+        api.save(api.HISTORY_FILE, {'entries': [{'ts': self.old}, {'ts': self.now}]})
+        api._retention_sweep_if_due()
+        self.assertEqual(len(api.load(api.HISTORY_FILE)['entries']), 1)
+        # second call same day → no-op (timestamp recorded)
+        self.assertTrue(api.load(api.RETENTION_STATE_FILE).get('last'))
+
+    def test_maintenance_endpoint(self):
+        api.method = lambda: 'POST'
+        api.save(api.CONFIG_FILE, {'history_retention_days': 90})
+        api.save(api.HISTORY_FILE, {'entries': [{'ts': self.old}, {'ts': self.now}]})
+        res = self.call(api.handle_maintenance_run)
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['pruned'].get('history.json'), 1)
+        self.assertEqual(res['backend'], api._storage_backend())
+
+    def test_config_save_validates_retention(self):
+        # the version-bump/handler harness validates 0..3650 ints; pin the key set
+        self.assertEqual(set(api._RETENTION_KEYS), {
+            'history_retention_days', 'fleet_events_retention_days',
+            'webhook_log_retention_days', 'monitor_history_retention_days',
+            'alerts_retention_days', 'audit_log_retention_days'})
+
+
+class TestAgentLogRotation(unittest.TestCase):
+    """v3.12.0: agent self-rotates its log file (no cron/logrotate needed)."""
+    def test_rotating_handler_source(self):
+        src = (Path(__file__).resolve().parent.parent /
+               'client' / 'remotepower-agent.py').read_text()
+        self.assertIn('RotatingFileHandler', src)
+        self.assertIn('_agent_file_log_handler', src)
+        self.assertIn('maxBytes=5 * 1024 * 1024', src)
 
 
 if __name__ == '__main__':
