@@ -1826,6 +1826,8 @@ function renderCveSeverityRow(severities, current) {
 async function loadSettings() {
   const data = await api('GET', '/config');
   if (!data) return;
+  // v3.12.0: refresh the Advanced → Storage backend card (best-effort).
+  try { loadStorageBackendStatus(); } catch (e) {}
   // General
   document.getElementById('cfg-server-name').value = data.server_name || '';
   document.getElementById('cfg-default-poll').value = data.default_poll_interval || 60;
@@ -4056,6 +4058,76 @@ async function openAllowlistModal(id) { document.getElementById('allowlist-devic
 async function saveAllowlist() { const id = document.getElementById('allowlist-device-id').value; const raw = document.getElementById('allowlist-input').value; const cmds = raw.split('\n').map(s => s.trim()).filter(s => s.length > 0); const r = await api('POST', '/devices/' + id + '/allowlist', {allowed_commands: cmds}); if (r?.ok) { toast(`Allowlist saved (${cmds.length} commands)`, 'success'); closeModal('allowlist-modal'); } else toast(r?.error || 'Failed', 'error'); }
 async function openMetrics(id, name) { document.getElementById('metrics-title').textContent = `Metrics: ${name}`; document.getElementById('metrics-body').innerHTML = '<div class="empty-state">Loading…</div>'; openModal('metrics-modal'); const data = await api('GET', '/devices/' + id + '/metrics'); if (!data || !data.metrics || !data.metrics.length) { document.getElementById('metrics-body').innerHTML = '<div class="empty-state">No metrics yet. Agent needs psutil installed for CPU/RAM/disk tracking.</div>'; return; } const metrics = data.metrics.slice(-60); function spark(key, color) { const vals = metrics.map(m => m[key]).filter(v => v !== null && v !== undefined); if (!vals.length) return '<span class="hint">no data</span>'; const w = 6; const h = 32; const bars = vals.map((v, i) => { const bh = Math.max(2, Math.round((v / 100) * h)); return `<rect x="${i*w}" y="${h-bh}" width="${w-1}" height="${bh}" fill="${color}" rx="1"/>`; }).join(''); const latest = vals[vals.length-1]; return `<svg width="${vals.length*w}" height="${h}" class="va-middle">${bars}</svg> <span class="isl-353" data-color="${color}">${latest.toFixed(1)}%</span>`; } document.getElementById('metrics-body').innerHTML = `<div class="sysinfo-row isl-128"><div class="sysinfo-pill"><div class="label">Points</div><div class="value">${metrics.length}</div></div><div class="sysinfo-pill"><div class="label">From</div><div class="value fs-11">${new Date(metrics[0].ts*1000).toLocaleTimeString()}</div></div></div><div class="isl-354"><div class="isl-355"><div class="isl-356">CPU</div>${spark('cpu','var(--accent)')}</div><div class="isl-355"><div class="isl-356">Memory</div>${spark('mem','var(--green)')}</div><div class="isl-355"><div class="isl-356">Swap</div>${spark('swap','var(--purple)')}</div><div class="isl-355"><div class="isl-356">Disk</div>${spark('disk','var(--amber)')}</div></div><p class="isl-357">Requires <code>psutil</code> on the client: <code>pip install psutil --break-system-packages</code></p>`; }
 function exportBackup() { const token = getToken(); fetch('/api/export', {headers: {'X-Token': token}}).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `remotepower-backup-${new Date().toISOString().slice(0,10)}.zip`; a.click(); URL.revokeObjectURL(url); toast('Backup downloaded', 'success'); }).catch(() => toast('Export failed', 'error')); }
+
+// ── v3.12.0: storage backend (JSON <-> SQLite) ───────────────────────────────
+function _fmtBytes(n) {
+  if (!n && n !== 0) return '?';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+
+async function loadStorageBackendStatus() {
+  const el = document.getElementById('storage-backend-status');
+  if (!el) return;
+  const s = await api('GET', '/storage-backend/status');
+  if (!s) { el.textContent = 'Could not load storage backend status.'; return; }
+  const active = (s.active === 'sqlite') ? 'SQLite (database)' : 'JSON (flat files)';
+  let txt = `Active backend: ${active}`;
+  if (s.active === 'sqlite' && s.sqlite_db_bytes != null)
+    txt += `  ·  DB ${_fmtBytes(s.sqlite_db_bytes)} · ${s.sqlite_files || 0} files`;
+  if (s.active === 'json' && s.json_files != null)
+    txt += `  ·  ${s.json_files} files`;
+  if (s.env_override) txt += '  ·  pinned by RP_STORAGE_BACKEND (cannot switch from UI)';
+  el.textContent = txt;
+  // Default the target select to the *other* backend.
+  const sel = document.getElementById('storage-backend-target');
+  if (sel) sel.value = (s.active === 'sqlite') ? 'json' : 'sqlite';
+  const warn = document.getElementById('storage-backend-netfs-warn');
+  if (warn) {
+    if (s.network_fs) {
+      warn.hidden = false;
+      warn.textContent = 'Warning: this data directory looks like a network filesystem (NFS/CIFS). SQLite WAL is unsafe there — a slower rollback journal will be used. A local disk is strongly recommended.';
+    } else { warn.hidden = true; }
+  }
+}
+
+async function _runStorageMigrate(opts) {
+  const sel = document.getElementById('storage-backend-target');
+  const target = sel ? sel.value : 'sqlite';
+  const out = document.getElementById('storage-backend-result');
+  if (out) { out.hidden = false; out.textContent = (opts.dry_run ? 'Previewing…' : 'Migrating… do not close this tab.'); }
+  const body = { target };
+  if (opts.dry_run) body.dry_run = true;
+  const res = await api('POST', '/storage-backend/migrate', body);
+  if (!res) { if (out) out.textContent = 'Request failed.'; return; }
+  let txt = '';
+  if (Array.isArray(res.log)) txt += res.log.join('\n') + '\n';
+  if (res.dry_run) {
+    txt += `\nPreview: ${(res.files || []).length} file(s) would migrate to ${target}.`;
+  } else if (res.ok) {
+    txt += `\nDone. Switched to ${res.target} (${res.files} files).`;
+    if (res.snapshot) txt += `\nRollback snapshot: ${res.snapshot}`;
+    if (res.warning) txt += `\nWarning: ${res.warning}`;
+    toast(`Storage backend switched to ${res.target}`, 'success');
+    loadStorageBackendStatus();
+  } else {
+    txt += `\nFAILED: ${res.error || 'unknown error'}`;
+    if (res.problems && res.problems.length) txt += '\n' + res.problems.join('\n');
+    if (res.snapshot) txt += `\nYour data is unchanged; rollback snapshot at ${res.snapshot}`;
+    toast('Migration failed — backend not switched', 'error');
+  }
+  if (out) out.textContent = txt.trim();
+}
+
+function migrateStoragePreview() { _runStorageMigrate({ dry_run: true }); }
+
+function migrateStorage() {
+  const sel = document.getElementById('storage-backend-target');
+  const target = sel ? sel.value : 'sqlite';
+  if (!confirm(`Migrate all data and switch the active storage backend to "${target}"?\n\nA rollback snapshot is taken first and the data is verified before the switch. This can take a moment on large fleets.`)) return;
+  _runStorageMigrate({ dry_run: false });
+}
 // v1.11.6: API keys page gets filter+sort
 let _apikeysRegistered = false;
 function _registerApiKeysTable() {

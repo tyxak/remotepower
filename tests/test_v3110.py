@@ -41,12 +41,15 @@ _NEW_RECOVER = ["storage_recovered"]
 
 
 class TestVersionBumps(unittest.TestCase):
+    # v3.12.0: loosened from the exact 3.11.0 pins (the live strict pin moved to
+    # tests/test_v3120.py) so a later bump doesn't fail this file.
     def test_server_version(self):
-        self.assertEqual(api.SERVER_VERSION, VERSION)
+        import re as _re
+        self.assertRegex(api.SERVER_VERSION, r'^3\.\d+\.\d+$')
 
     def test_agent_version(self):
         txt = (_ROOT / "client/remotepower-agent.py").read_text()
-        self.assertIn(f"VERSION      = '{VERSION}'", txt)
+        self.assertRegex(txt, r"\nVERSION\s*=\s*'3\.\d+\.\d+'")
 
     def test_agent_extensionless_matches_py(self):
         a = (_ROOT / "client/remotepower-agent.py").read_bytes()
@@ -56,20 +59,19 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_sw_cache_name(self):
         txt = (_ROOT / "server/html/sw.js").read_text()
-        self.assertIn(f"remotepower-shell-v{VERSION}", txt)
+        self.assertRegex(txt, r"remotepower-shell-v3\.\d+\.\d+")
 
     def test_index_cache_bust(self):
         txt = (_ROOT / "server/html/index.html").read_text()
-        self.assertIn(f"?v={VERSION}", txt)
-        self.assertNotIn("?v=3.10.0", txt)
+        self.assertRegex(txt, r"\?v=3\.\d+\.\d+")
 
     def test_readme_badge(self):
         txt = (_ROOT / "README.md").read_text()
-        self.assertIn(f"version-{VERSION}-blue", txt)
+        self.assertRegex(txt, r"version-3\.\d+\.\d+-blue")
 
     def test_changelog_top_entry(self):
         txt = (_ROOT / "CHANGELOG.md").read_text()
-        self.assertIn(f"v{VERSION}", txt[:2000])
+        self.assertRegex(txt[:2000], r"v3\.\d+\.\d+")
 
     def test_version_doc_exists(self):
         self.assertTrue((_ROOT / f"docs/v{VERSION}.md").exists())

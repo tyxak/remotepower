@@ -12,7 +12,7 @@ Web dashboard, push-based agents, no inbound ports. Set it up in five minutes.
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://hub.docker.com)
 [![Nginx](https://img.shields.io/badge/server-Nginx-green.svg)](https://nginx.org)
 [![Python](https://img.shields.io/badge/python-3.8+-yellow.svg)](https://python.org)
-[![Version](https://img.shields.io/badge/version-3.11.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
+[![Version](https://img.shields.io/badge/version-3.12.0-blue.svg)](https://github.com/tyxak/remotepower/releases)
 
 [Live demo](https://demoremote.tvipper.com) · [Install](docs/install.md) · [Features](docs/features.md) · [Docs](docs/)
 
@@ -180,6 +180,7 @@ The demo is reset every few hours, so feel free to break things.
 - **Container restart tracking, fleet-wide** *(v3.10)* — Docker and Podman containers now report a real **restart count** and **start time** (one batched `docker inspect` per heartbeat), so the *container restarting* alert fires on every host — not just Kubernetes — and the drawer shows container age. **ClamAV last-scan time** and **per-interface MAC addresses** now show in the device drawer; the config-drift alert title names the file/sections that drifted instead of "? file(s)".
 - **Security hardening** *(v3.10)* — the container image-registry check now routes every fetch (manifest **and** the registry-controlled bearer-token realm) through the connect-time SSRF guard, closing a redirect / DNS-rebinding / credential-exfiltration gap; `GET /api/config` gained a recursive secret-scrub backstop so a newly-added config secret can never leak to a viewer/MCP key; the TCP uptime monitor and the Healthchecks.io ping picked up the same IP-class SSRF checks as the HTTP paths. See the **[v3.10.0 security review](docs/security-review-3.10.0.md)**.
 - **Fleet posture batch** *(v3.11)* — seven features over data the agent already collects: an **Exposure** map that classifies every listening socket as world / LAN / local (and alerts when a service first becomes world-reachable); a **Software Policy** engine (banned / required / min-version package rules, optionally tag-scoped) over the existing package inventory; **Storage / RAID health** for ZFS, mdadm and btrfs (degraded-array + scrub-overdue alerts); **Access watch** (new-source-IP logins); **host firewall drift** (ufw/nftables/iptables ruleset fingerprint); a **scheduled-job failure** lens over systemd timers; and an opt-in **scheduled posture digest** email. See **[docs/v3.11.0.md](docs/v3.11.0.md)**.
+- **Optional SQLite storage backend** *(v3.12)* — for large fleets with frequent writes, switch from flat-JSON files to an embedded **SQLite** database (WAL mode, stdlib only, no new dependencies) under **Settings → Advanced → Storage backend**. Hot data is stored row-per-entity, so a heartbeat updates one row instead of rewriting a whole file. The switch is in-place and reversible (snapshot → migrate → verify → flip), with a `tools/migrate_storage.py` CLI. Flat JSON stays the default. See **[docs/v3.12.0.md](docs/v3.12.0.md)**.
 
 Full feature inventory: **[docs/features.md](docs/features.md)**.
 

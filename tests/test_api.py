@@ -53,11 +53,12 @@ class ApiTestBase(unittest.TestCase):
             self.addCleanup(patcher.stop)
 
     def _save(self, filename: str, data):
-        (self.data_dir / filename).write_text(json.dumps(data))
+        # Route through api.save so fixtures land in whichever backend is active
+        # (flat JSON or SQLite), not only on disk.
+        api_module.save(self.data_dir / filename, data)
 
     def _load(self, filename: str):
-        p = self.data_dir / filename
-        return json.loads(p.read_text()) if p.exists() else {}
+        return api_module.load(self.data_dir / filename)
 
 
 class TestPasswordHashing(ApiTestBase):

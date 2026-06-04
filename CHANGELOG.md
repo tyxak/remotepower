@@ -2,6 +2,46 @@
 
 All notable changes to RemotePower. Newest first.
 
+## v3.12.0 — unreleased (dev)
+
+An optional **SQLite storage backend** alongside the default flat-JSON store,
+switchable in **Settings → Advanced → Storage backend**. For large fleets with
+frequent writes, flat JSON's whole-file rewrites (notably `devices.json` on
+every heartbeat) become a bottleneck; SQLite (WAL mode, stdlib `sqlite3`, zero
+new dependencies) stores hot data row-per-entity so a device update is a single
+row write.
+
+### Added
+- **Pluggable storage backend.** A new `storage.py` sits behind the existing
+  `load()` / `save()` / `_locked_update()` helpers, so all ~1000 call sites are
+  backend-agnostic. Cold files are stored as JSON blobs; hot, high-cardinality
+  files are decomposed (`devices`, `alerts`, `cmd_output`, `metrics` →
+  row-per-key; `history`, `fleet_events`, `metrics_history` → append tables).
+  Concurrency uses WAL + `BEGIN IMMEDIATE`; the `devices` last_seen monotonic
+  guard is preserved.
+- **In-app migration.** `Settings → Advanced` gains a Storage-backend card with
+  a current-backend indicator, a **Preview** (dry-run), and a **Migrate &
+  switch** button. New admin endpoints `GET /api/storage-backend/status` and
+  `POST /api/storage-backend/migrate` run the migration in-process: snapshot →
+  migrate → verify round-trip → flip the active backend (only on success).
+- **Migration CLI.** `tools/migrate_storage.py --to sqlite|json`
+  (`--dry-run`, `--verify-only`, `--no-snapshot`, `--no-flip`), sharing the same
+  core as the endpoint.
+
+### Changed
+- Backup/export, the scheduled tarball backup, and the self-status disk report
+  now go through the backend seam (`backend_iter_files()` / `backend_exists()` /
+  consistent SQLite online-backup snapshot) instead of globbing/`stat()`-ing the
+  `.json` files directly, so they're complete and safe under either backend.
+- `save()` / `_locked_update()` gain a `clamp_last_seen` flag (used by the
+  migration and test aging helpers to write timestamps faithfully).
+
+### Notes
+- Flat JSON remains the default; existing installs are unaffected until an
+  operator opts in. The switch is fully reversible.
+- On a network filesystem (NFS/CIFS) SQLite WAL is unsafe; the backend detects
+  this and falls back to a rollback journal. A local disk is recommended.
+
 ## v3.11.0 — unreleased (dev)
 
 A fleet-posture batch: seven features that turn already-collected (or

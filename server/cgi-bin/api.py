@@ -23,7 +23,7 @@ import urllib.error
 import urllib.parse
 from pathlib import Path
 
-SERVER_VERSION = '3.11.0'
+SERVER_VERSION = '3.12.0'
 
 DATA_DIR         = Path(os.environ.get('RP_DATA_DIR', '/var/lib/remotepower'))
 USERS_FILE       = DATA_DIR / 'users.json'
@@ -473,6 +473,12 @@ import cmdb_vault
 # v1.10.0: OpenAPI spec — handwritten dict served at /api/openapi.json,
 # rendered by the Swagger UI page at /swagger.html.
 import openapi_spec
+# v3.12.0: optional SQLite storage backend. Drop-in behind load()/save()/
+# _locked_update() when the active backend is 'sqlite' (Settings → Advanced).
+# Imports cleanly even when the backend is the default flat-JSON; nothing in
+# here runs until the first sqlite-mode persistence call.
+import storage
+storage.configure(DATA_DIR)
 # v1.11.0: container/pod awareness. Agent posts a normalised list in
 # heartbeats; this module validates and summarises.
 import containers as containers_mod
@@ -1128,6 +1134,86 @@ def _lock_path(path):
     return path.with_name(path.name + '.lock')
 
 
+# ─── v3.12.0: pluggable storage backend ──────────────────────────────────────
+#
+# Selection cannot live in config.json (config itself is stored in whichever
+# backend is active — chicken-and-egg). Precedence:
+#   1. RP_STORAGE_BACKEND env var (lets ops force a mode / used by the test
+#      matrix and the migration CLI),
+#   2. the marker file DATA_DIR/storage_backend.json — always flat JSON,
+#      regardless of backend, flipped only by the migrate endpoint after a
+#      migration verifies,
+#   3. default 'json'.
+# Resolved once per request into a module global (one CGI process == one
+# request, so this is request-scoped). The migrate handler clears the cache
+# after flipping so later ops in the same request see the new backend.
+STORAGE_MARKER_FILE = DATA_DIR / 'storage_backend.json'
+_BACKEND_CACHE = None
+
+
+def _storage_backend():
+    global _BACKEND_CACHE
+    if _BACKEND_CACHE is not None:
+        return _BACKEND_CACHE
+    env = os.environ.get('RP_STORAGE_BACKEND')
+    if env in ('json', 'sqlite'):
+        _BACKEND_CACHE = env
+        return env
+    try:
+        if STORAGE_MARKER_FILE.exists():
+            marker = json.loads(STORAGE_MARKER_FILE.read_text())
+            b = marker.get('backend')
+            if b in ('json', 'sqlite'):
+                _BACKEND_CACHE = b
+                return b
+    except Exception:
+        pass
+    _BACKEND_CACHE = 'json'
+    return 'json'
+
+
+def _invalidate_backend_cache():
+    """Force the next _storage_backend() to re-read the marker — used by the
+    migrate handler right after it flips the active backend."""
+    global _BACKEND_CACHE
+    _BACKEND_CACHE = None
+
+
+def backend_exists(path):
+    """Backend-aware replacement for Path.exists() when it's used as an "is
+    there data for this file?" guard. Under SQLite the .json files never exist
+    on disk — the data lives in the decomposed store — so a raw .exists() would
+    make the guarded feature silently see no data. Use this for data-presence
+    guards only; keep Path.exists() for genuine filesystem paths (agent binary,
+    archive .gz files, debug.log, the storage marker)."""
+    if _storage_backend() == 'sqlite':
+        return storage.exists(path)
+    return path.exists()
+
+
+def backend_iter_files():
+    """Logical .json data-file names that currently hold data, regardless of
+    backend — drives backup/export/migration in place of DATA_DIR.glob('*.json')."""
+    if _storage_backend() == 'sqlite':
+        return storage.iter_files(DATA_DIR)
+    return sorted(p.name for p in DATA_DIR.glob('*.json'))
+
+
+def _data_file_bytes(path):
+    """Approximate on-disk byte size of a logical data file, for the
+    self-status disk report — Path.stat() under JSON, summed row sizes under
+    SQLite (where there's no per-file artifact to stat)."""
+    if _storage_backend() == 'sqlite':
+        try:
+            return storage.doc_size(path)
+        except Exception:
+            return 0
+    try:
+        return path.stat().st_size if path.exists() else 0
+    except OSError:
+        return 0
+
+
 def load(path):
     """Robust load: try the canonical file, fall back to the rolling .bak.
 
@@ -1159,6 +1245,13 @@ def load(path):
             import copy as _copy
             return _copy.deepcopy(cached[0])
     import copy as _copy
+    if _storage_backend() == 'sqlite':
+        # Reconstruct the whole document from decomposed rows. Cache the
+        # canonical copy (same invariant as the JSON path) and hand back a
+        # separate deepcopy so caller mutations don't leak into the cache.
+        data = storage.load(path)
+        _LOAD_CACHE[path] = (data, True)
+        return _copy.deepcopy(data)
     if not path.exists():
         _LOAD_CACHE[path] = ({}, True)
         return {}
@@ -1312,7 +1405,7 @@ def _caller_hint():
     return '?'
 
 
-def save(path, data, non_blocking=False):
+def save(path, data, non_blocking=False, clamp_last_seen=True):
     """Concurrent-safe atomic save. See module-level comment for the
     threat model and the v2.1.0 redesign rationale.
 
@@ -1334,6 +1427,13 @@ def save(path, data, non_blocking=False):
     pre-save snapshot.
     """
     _invalidate_load_cache(path)
+    if _storage_backend() == 'sqlite':
+        try:
+            storage.save(path, data, non_blocking=non_blocking,
+                         clamp_last_seen=clamp_last_seen)
+        except storage.LockBusyError:
+            raise LockBusy(path, 0)
+        return
     # Step 1: serialise + validate before any disk write. Same as before —
     # allow_nan=False rejects NaN / Infinity / -Infinity. Standard JSON
     # doesn't allow them; Python's default does. Letting them through
@@ -1408,7 +1508,7 @@ def save(path, data, non_blocking=False):
         # prevented regression so the culprit handler is identifiable. Only the
         # rare regression case re-serialises the tmp; the common case is a
         # single small-file read.
-        if path == DEVICES_FILE and isinstance(data, dict) and path.exists():
+        if clamp_last_seen and path == DEVICES_FILE and isinstance(data, dict) and path.exists():
             try:
                 _cur = json.loads(path.read_text())
             except (OSError, ValueError):
@@ -1503,7 +1603,7 @@ def save(path, data, non_blocking=False):
 # is still held. SystemExit (raised by respond()) is treated as "abort,
 # don't save" — the lock is still released.
 
-class _LockedUpdate:
+class _JsonLockedUpdate:
     """Context manager: acquire flock → load → yield data → save → release.
 
     Usage:
@@ -1571,6 +1671,44 @@ class _LockedUpdate:
         return False  # don't swallow exceptions
 
 
+class _SqliteLockedUpdate:
+    """Thin api-side wrapper over storage.LockedUpdate that translates the
+    backend's LockBusyError (raised in __enter__ by BEGIN IMMEDIATE under
+    contention) into api's LockBusy, so non_blocking callers catch the same
+    exception type regardless of backend."""
+
+    def __init__(self, path, non_blocking=False):
+        self.path = path
+        self._inner = storage.LockedUpdate(path, non_blocking)
+
+    def __enter__(self):
+        try:
+            return self._inner.__enter__()
+        except storage.LockBusyError:
+            raise LockBusy(self.path, 0)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._inner.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            # storage.LockedUpdate wrote (or rolled back) through its own
+            # helpers, which can't touch this process's load cache. Invalidate
+            # here so a load()-after-update in the same request re-reads.
+            _invalidate_load_cache(self.path)
+
+
+def _LockedUpdate(path, non_blocking=False):
+    """Backend-dispatching factory for the atomic read-modify-write context
+    manager. Returns the SQLite transaction-backed variant when the active
+    backend is 'sqlite' (BEGIN IMMEDIATE → load → yield → save → COMMIT), or
+    the flock-backed JSON variant otherwise. Named like a class because ~100
+    call sites use `with _LockedUpdate(...)` directly — they don't care which
+    implementation they get."""
+    if _storage_backend() == 'sqlite':
+        return _SqliteLockedUpdate(path, non_blocking)
+    return _JsonLockedUpdate(path, non_blocking)
+
+
 def _locked_update(path, non_blocking=False):
     return _LockedUpdate(path, non_blocking)
 
@@ -1583,6 +1721,12 @@ def _save_held(path, data):
     and anywhere else inside an already-locked section.
     """
     _invalidate_load_cache(path)  # v3.0.2: same invariant as save()
+    if _storage_backend() == 'sqlite':
+        # No separate "held" concept under SQLite — storage.save joins the
+        # current transaction if one is open (i.e. we're inside a LockedUpdate)
+        # or opens its own otherwise.
+        storage.save(path, data)
+        return
     try:
         serialised = json.dumps(data, indent=2, allow_nan=False)
         json.loads(serialised)
@@ -2299,15 +2443,20 @@ def _sanitize_monitor_target(mtype, target):
 
 # ── Command history ────────────────────────────────────────────────────────────
 def log_command(actor, device_id, device_name, command):
-    history = load(HISTORY_FILE)
-    entries = history.get('entries', [])
-    entries.append({
+    entry = {
         'ts':          int(time.time()),
         'actor':       _sanitize_str(actor, 64),
         'device_id':   _sanitize_str(device_id, 64),
         'device_name': _sanitize_str(device_name, MAX_NAME_LEN),
         'command':     _sanitize_str(command, 600),
-    })
+    }
+    if _storage_backend() == 'sqlite':
+        storage.list_append(HISTORY_FILE, entry, cap=MAX_HISTORY)
+        _invalidate_load_cache(HISTORY_FILE)
+        return
+    history = load(HISTORY_FILE)
+    entries = history.get('entries', [])
+    entries.append(entry)
     history['entries'] = entries[-MAX_HISTORY:]
     save(HISTORY_FILE, history)
 
@@ -2610,12 +2759,19 @@ def _record_fleet_event(event, payload):
     }
     overflow = []
     try:
-        with _LockedUpdate(FLEET_EVENTS_FILE) as store:
-            events = store.setdefault('events', [])
-            events.append(entry)
-            if len(events) > MAX_FLEET_EVENTS:
-                overflow = events[:-MAX_FLEET_EVENTS]
-                del events[:-MAX_FLEET_EVENTS]
+        if _storage_backend() == 'sqlite':
+            # O(1) append + prune to MAX_FLEET_EVENTS; returns evicted rows for
+            # the archive write below. No whole-log rewrite.
+            overflow = storage.list_append(FLEET_EVENTS_FILE, entry,
+                                           cap=MAX_FLEET_EVENTS)
+            _invalidate_load_cache(FLEET_EVENTS_FILE)
+        else:
+            with _LockedUpdate(FLEET_EVENTS_FILE) as store:
+                events = store.setdefault('events', [])
+                events.append(entry)
+                if len(events) > MAX_FLEET_EVENTS:
+                    overflow = events[:-MAX_FLEET_EVENTS]
+                    del events[:-MAX_FLEET_EVENTS]
     except Exception:
         # Caller wraps us too, but be defensive
         return
@@ -5249,16 +5405,16 @@ def handle_devices_list():
     offset = max(0, offset)
     bf_data, pb_data, snmp_store, hw_store = {}, {}, {}, {}
     if not slim:
-        bf_data  = load(BRUTE_FORCE_FILE) or {}   if BRUTE_FORCE_FILE.exists()   else {}
-        pb_data  = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+        bf_data  = load(BRUTE_FORCE_FILE) or {}   if backend_exists(BRUTE_FORCE_FILE)   else {}
+        pb_data  = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
         # v3.2.0 (B5): attach a compact SNMP-status summary to each device. Just
         # the fields the Devices page card actually shows — operators looking
         # for full data still click into the CMDB SNMP tab.
-        snmp_store = load(SNMP_DATA_FILE) if SNMP_DATA_FILE.exists() else {}
+        snmp_store = load(SNMP_DATA_FILE) if backend_exists(SNMP_DATA_FILE) else {}
         # v3.4.0: compact hardware-health flags for the device-card badge
         # (SMART failure / kernel reboot needed). Full detail lives behind
         # GET /api/devices/<id>/hardware.
-        hw_store = load(HARDWARE_FILE) if HARDWARE_FILE.exists() else {}
+        hw_store = load(HARDWARE_FILE) if backend_exists(HARDWARE_FILE) else {}
     # v3.4.2: canonical agent hash for the per-device signed/integrity badge.
     _canon_sha = _get_agent_sha256() if not slim else None
     _, _bf_thresh, _bf_window = _brute_config()
@@ -7938,7 +8094,7 @@ def handle_heartbeat():
             _cfg_bak = load(CONFIG_FILE) or {}
             _bak_monitors = _cfg_bak.get('backup_monitors') or []
             _bak_state = (load(DATA_DIR / 'backup_state.json') or {}
-                          if (DATA_DIR / 'backup_state.json').exists() else {})
+                          if backend_exists(DATA_DIR / 'backup_state.json') else {})
             _bak_changed = False
             for entry in _backup_status:
                 _path   = str(entry.get('path', ''))
@@ -10918,16 +11074,35 @@ def handle_self_status():
     try:
         total_bytes = 0
         files_info = []
-        for p in DATA_DIR.iterdir():
-            if not p.is_file():
-                continue
-            try:
-                sz = p.stat().st_size
+        if _storage_backend() == 'sqlite':
+            # No per-file .json artifacts — report logical document sizes from
+            # the decomposed store, plus the actual .db file on disk.
+            for name in storage.iter_files(DATA_DIR):
+                try:
+                    sz = storage.doc_size(DATA_DIR / name)
+                except Exception:
+                    sz = 0
                 total_bytes += sz
                 if sz >= 100 * 1024:
-                    files_info.append({'name': p.name, 'bytes': sz})
+                    files_info.append({'name': name, 'bytes': sz})
+            try:
+                dbp = storage.db_path(DATA_DIR)
+                if dbp.exists():
+                    files_info.append({'name': dbp.name,
+                                       'bytes': dbp.stat().st_size})
             except OSError:
                 pass
+        else:
+            for p in DATA_DIR.iterdir():
+                if not p.is_file():
+                    continue
+                try:
+                    sz = p.stat().st_size
+                    total_bytes += sz
+                    if sz >= 100 * 1024:
+                        files_info.append({'name': p.name, 'bytes': sz})
+                except OSError:
+                    pass
         files_info.sort(key=lambda x: x['bytes'], reverse=True)
         out['data_dir'] = {
             'path':      str(DATA_DIR),
@@ -11050,8 +11225,8 @@ def handle_self_status():
         out['audit_log'] = {'error': str(e)}
     # fleet_events
     try:
-        if FLEET_EVENTS_FILE.exists():
-            out['fleet_events'] = {'bytes': FLEET_EVENTS_FILE.stat().st_size}
+        if backend_exists(FLEET_EVENTS_FILE):
+            out['fleet_events'] = {'bytes': _data_file_bytes(FLEET_EVENTS_FILE)}
         arch = DATA_DIR / 'fleet_events_archive.jsonl.gz'
         if arch.exists():
             out['fleet_events'] = out.get('fleet_events') or {}
@@ -11177,6 +11352,84 @@ def handle_backup_run():
     respond(200, result)
 
 
+def handle_storage_backend_status():
+    """GET /api/storage-backend/status — current storage backend + inventory.
+
+    v3.12.0: backs the Settings → Advanced storage-backend card. Reports the
+    active backend, how it was selected, per-backend file counts, the SQLite DB
+    size when present, and whether the data dir is on a network filesystem
+    (where SQLite WAL is unsafe)."""
+    require_admin_auth()
+    active = _storage_backend()
+    forced_by_env = os.environ.get('RP_STORAGE_BACKEND') in ('json', 'sqlite')
+    out = {
+        'active': active,
+        'selected_by': 'env' if forced_by_env else 'marker',
+        'env_override': forced_by_env,
+        'marker': storage.read_marker(DATA_DIR),
+    }
+    try:
+        out['json_files'] = len(storage.json_inventory(DATA_DIR))
+    except Exception:
+        out['json_files'] = None
+    try:
+        dbp = storage.db_path(DATA_DIR)
+        out['sqlite_present'] = dbp.exists()
+        out['sqlite_db_bytes'] = dbp.stat().st_size if dbp.exists() else 0
+        out['sqlite_files'] = (len(storage.iter_files(DATA_DIR))
+                               if dbp.exists() else 0)
+    except Exception:
+        out['sqlite_present'] = False
+    try:
+        out['network_fs'] = storage._is_network_fs(DATA_DIR)
+    except Exception:
+        out['network_fs'] = False
+    respond(200, out)
+
+
+def handle_storage_backend_migrate():
+    """POST /api/storage-backend/migrate — migrate data + switch backend.
+
+    Body: {"target": "sqlite"|"json", "dry_run"?: bool, "verify_only"?: bool}.
+    Runs the shared migration core in-process: pre-migration snapshot →
+    decompose/reconstruct every file → verify round-trip → flip the active-
+    backend marker only if verification passes. Read-only/demo mode and non-
+    admins are rejected upstream."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'}); return
+    body = get_json_body() or {}
+    target = body.get('target')
+    if target not in ('json', 'sqlite'):
+        respond(400, {'error': "target must be 'json' or 'sqlite'"}); return
+    if os.environ.get('RP_STORAGE_BACKEND') in ('json', 'sqlite'):
+        respond(409, {'error': 'storage backend is pinned by the '
+                      'RP_STORAGE_BACKEND environment variable and cannot be '
+                      'switched from the UI'}); return
+    dry_run = bool(body.get('dry_run'))
+    verify_only = bool(body.get('verify_only'))
+    lines = []
+    try:
+        result = storage.migrate_run(
+            DATA_DIR, target, dry_run=dry_run, verify_only=verify_only,
+            do_snapshot=not dry_run and not verify_only,
+            flip=not dry_run and not verify_only,
+            log=lines.append)
+    except Exception as e:
+        respond(500, {'error': f'migration failed: {e}'}); return
+    result['log'] = lines
+    # A real (non-dry, non-verify) switch must take effect for the rest of THIS
+    # request and all subsequent ones: drop the cached backend so the marker is
+    # re-read, and drop the per-request load cache built against the old store.
+    if result.get('ok') and not dry_run and not verify_only:
+        _invalidate_backend_cache()
+        _LOAD_CACHE.clear()
+        audit_log(actor, 'storage_backend_migrate',
+                  detail=f"target={target} files={result.get('files','?')}")
+    status = 200 if result.get('ok') else 500
+    respond(status, result)
+
+
 def _run_data_backup(triggered_by='scheduled'):
     """Snapshot DATA_DIR to a tarball; prune old ones; record state.
 
@@ -11196,6 +11449,14 @@ def _run_data_backup(triggered_by='scheduled'):
     ts = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     out_path = p_base / f'remotepower_data_{ts}.tar.gz'
     excluded_names = {'backups'}
+    # v3.12.0: under SQLite, never tar the live DB or its WAL sidecars — a
+    # mid-checkpoint copy can be torn/unrecoverable. We exclude them here and
+    # add a consistent online-backup snapshot below instead.
+    sqlite_mode = _storage_backend() == 'sqlite'
+    live_db_names = set()
+    if sqlite_mode:
+        _dbn = storage.db_path(DATA_DIR).name
+        live_db_names = {_dbn, _dbn + '-wal', _dbn + '-shm', _dbn + '-journal'}
     def _filter(tarinfo):
         # Skip the backups dir, in-flight tmp files, and already-compressed
         # archive files (re-compressing wastes time).
@@ -11203,13 +11464,28 @@ def _run_data_backup(triggered_by='scheduled'):
         if bn in excluded_names: return None
         if '.tmp.' in bn: return None
         if bn.endswith('.gz'): return None
+        if bn in live_db_names: return None
         # Drop owner/group info so restoring on a different host doesn't
         # complain about missing uids
         tarinfo.uid = 0; tarinfo.gid = 0
         tarinfo.uname = ''; tarinfo.gname = ''
         return tarinfo
+    _snap_tmp = None
     with tarfile.open(str(out_path), 'w:gz') as tar:
         tar.add(str(DATA_DIR), arcname='remotepower', filter=_filter)
+        if sqlite_mode:
+            # Consistent snapshot of the database into the tarball.
+            _snap_tmp = p_base / f'.snap_{ts}_{os.getpid()}.db'
+            try:
+                storage.snapshot(_snap_tmp, DATA_DIR)
+                tar.add(str(_snap_tmp),
+                        arcname=f'remotepower/{storage.db_path(DATA_DIR).name}')
+            finally:
+                try:
+                    if _snap_tmp and _snap_tmp.exists():
+                        _snap_tmp.unlink()
+                except OSError:
+                    pass
     # Prune
     cutoff = time.time() - keep * 86400
     pruned = 0
@@ -12171,7 +12447,7 @@ def _audit_listening_ports(dev_id, dev_name, ports):
     """
     if not ports:
         return
-    baseline = load(PORT_BASELINE_FILE) or {} if PORT_BASELINE_FILE.exists() else {}
+    baseline = load(PORT_BASELINE_FILE) or {} if backend_exists(PORT_BASELINE_FILE) else {}
     prev = baseline.get(dev_id) or []
     first_seen = dev_id not in baseline
     known = {(p['proto'], p['port']) for p in prev}
@@ -12238,7 +12514,7 @@ def _ingest_posture_v3110(dev_id, dev_name, si):
         on this host before.
     First contact (no prior state) seeds the baselines silently.
     """
-    state = load(POSTURE_STATE_FILE) or {} if POSTURE_STATE_FILE.exists() else {}
+    state = load(POSTURE_STATE_FILE) or {} if backend_exists(POSTURE_STATE_FILE) else {}
     prev = state.get(dev_id) or {}
     first_seen = dev_id not in state
     new = dict(prev)
@@ -12363,7 +12639,7 @@ def _audit_ssh_keys(dev_id, dev_name, users):
     """
     if not users:
         return
-    baseline = load(SSH_KEY_BASELINE_FILE) or {} if SSH_KEY_BASELINE_FILE.exists() else {}
+    baseline = load(SSH_KEY_BASELINE_FILE) or {} if backend_exists(SSH_KEY_BASELINE_FILE) else {}
     dev_baseline = baseline.get(dev_id) or {}
 
     changed = False
@@ -12471,7 +12747,7 @@ def _detect_brute_force(dev_id, dev_name, unit, lines):
     if not any_match:
         return
 
-    bf = load(BRUTE_FORCE_FILE) or {} if BRUTE_FORCE_FILE.exists() else {}
+    bf = load(BRUTE_FORCE_FILE) or {} if backend_exists(BRUTE_FORCE_FILE) else {}
     dev_bf  = bf.setdefault(dev_id, {})
     unit_bf = dev_bf.setdefault(unit, {})
 
@@ -15781,7 +16057,7 @@ def _compliance_facts():
 
     # Backups.
     try:
-        bak = load(DATA_DIR / 'backup_state.json') if (DATA_DIR / 'backup_state.json').exists() else {}
+        bak = load(DATA_DIR / 'backup_state.json') if backend_exists(DATA_DIR / 'backup_state.json') else {}
         facts['failed_backups'] = [k for k, v in bak.items() if not v.get('ok', True)]
         facts['backup_monitors'] = len((cfg.get('backup_monitors') or []))
     except Exception:
@@ -15819,7 +16095,7 @@ def _compliance_facts():
     # on the raw count of changes.)
     try:
         facts['ports_monitored'] = len(load(PORT_BASELINE_FILE) or {}) \
-            if PORT_BASELINE_FILE.exists() else 0
+            if backend_exists(PORT_BASELINE_FILE) else 0
     except Exception:
         facts['ports_monitored'] = 0
     try:
@@ -17589,7 +17865,7 @@ def _compute_attention():
         pass
 
     # v2.8.0: active brute-force state.
-    if BRUTE_FORCE_FILE.exists():
+    if backend_exists(BRUTE_FORCE_FILE):
         try:
             _bf_enabled, _bf_thresh, _bf_window = _brute_config()
             if _bf_enabled:
@@ -19259,16 +19535,21 @@ def handle_export():
     config_secret_keys = ('proxmox_token_secret', 'smtp_password',
                           'ldap_bind_password')
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for f in DATA_DIR.glob('*.json'):
-            if f.name in exclude:
+        # v3.12.0: iterate logical files via the backend seam (not glob), so the
+        # ZIP is complete under SQLite too. Every entry is written as
+        # re-serialised JSON via load(), which is also the SQLite→JSON rollback
+        # representation.
+        for name in backend_iter_files():
+            if name in exclude:
                 continue
-            if f.name == 'apikeys.json':
+            f = DATA_DIR / name
+            if name == 'apikeys.json':
                 # Redact key values in backup
                 raw = load(f)
                 redacted = {kid: {**v, 'key': '(redacted)'}
                             for kid, v in raw.items()}
                 zf.writestr('apikeys.json', json.dumps(redacted, indent=2))
-            elif f.name == 'config.json':
+            elif name == 'config.json':
                 # Redact secret fields — see config_secret_keys above.
                 raw = load(f)
                 if isinstance(raw, dict):
@@ -19285,7 +19566,7 @@ def handle_export():
                                 e['pushover_user']  = '(redacted)'
                 zf.writestr('config.json', json.dumps(raw, indent=2))
             else:
-                zf.write(f, f.name)
+                zf.writestr(name, json.dumps(load(f), indent=2))
     data = buf.getvalue(); ts = time.strftime('%Y%m%d-%H%M%S')
     print("Status: 200 OK"); print("Content-Type: application/zip")
     print(f"Content-Disposition: attachment; filename=remotepower-backup-{ts}.zip")
@@ -24810,7 +25091,7 @@ def handle_packages_submit():
 
 def _software_policy():
     """Load the policy doc; always returns a dict with a 'rules' list."""
-    doc = load(SOFTWARE_POLICY_FILE) if SOFTWARE_POLICY_FILE.exists() else {}
+    doc = load(SOFTWARE_POLICY_FILE) if backend_exists(SOFTWARE_POLICY_FILE) else {}
     if not isinstance(doc, dict):
         doc = {}
     rules = doc.get('rules')
@@ -24831,7 +25112,7 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
     software_policy_violation for any newly-introduced violation."""
     policy = _software_policy()
     rules = policy.get('rules') or []
-    store = load(SOFTWARE_VIOLATIONS_FILE) if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+    store = load(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
     if not isinstance(store, dict):
         store = {}
     if not rules:
@@ -24901,7 +25182,7 @@ def _eval_software_policy(dev_id, dev_name, packages, tags):
 def _reeval_software_policy_all():
     """Re-evaluate every device with stored packages (called after the
     policy is edited so the violations view reflects the new ruleset)."""
-    pkgstore = load(PACKAGES_FILE) if PACKAGES_FILE.exists() else {}
+    pkgstore = load(PACKAGES_FILE) if backend_exists(PACKAGES_FILE) else {}
     devices = load(DEVICES_FILE)
     total = 0
     for dev_id, rec in (pkgstore or {}).items():
@@ -24961,7 +25242,7 @@ def handle_software_policy():
 def handle_software_policy_violations():
     """GET /api/software-policy/violations — flat list of current violations."""
     require_auth()
-    store = load(SOFTWARE_VIOLATIONS_FILE) if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+    store = load(SOFTWARE_VIOLATIONS_FILE) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
     out = []
     for dev_id, rec in (store or {}).items():
         for v in (rec.get('violations') or []):
@@ -25050,7 +25331,7 @@ def _build_posture_digest():
     # CVE crit/high
     crit = high = 0
     try:
-        cve = load(CVE_FINDINGS_FILE) or {} if CVE_FINDINGS_FILE.exists() else {}
+        cve = load(CVE_FINDINGS_FILE) or {} if backend_exists(CVE_FINDINGS_FILE) else {}
         for _did, rec in cve.items():
             findings = rec.get('findings') if isinstance(rec, dict) else rec
             for f in (findings or []):
@@ -25064,14 +25345,14 @@ def _build_posture_digest():
     # software-policy violations
     viol = 0
     try:
-        sv = load(SOFTWARE_VIOLATIONS_FILE) or {} if SOFTWARE_VIOLATIONS_FILE.exists() else {}
+        sv = load(SOFTWARE_VIOLATIONS_FILE) or {} if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
         viol = sum(len(r.get('violations') or []) for r in sv.values())
     except Exception:
         pass
     # degraded storage
     degraded = []
     try:
-        ps = load(POSTURE_STATE_FILE) or {} if POSTURE_STATE_FILE.exists() else {}
+        ps = load(POSTURE_STATE_FILE) or {} if backend_exists(POSTURE_STATE_FILE) else {}
         _BAD = ('degraded', 'faulted', 'offline', 'unavail', 'error', 'fail')
         for did, st in ps.items():
             for nm, state in (st.get('pools') or {}).items():
@@ -29451,6 +29732,12 @@ def _build_exact_routes():
         ('POST', '/api/self/backup-now'): handle_backup_run,
         ('DELETE', '/api/self/backup-state'): handle_backup_clear,
         ('GET', '/api/self/status'): handle_self_status,
+        # v3.12.0: pluggable storage backend (JSON <-> SQLite). Separate from
+        # /api/config because switching triggers an in-place migration that must
+        # run before config is readable from the new backend. /api/storage is
+        # already taken (ZFS), so this lives under /api/storage-backend.
+        ('GET', '/api/storage-backend/status'): handle_storage_backend_status,
+        ('POST', '/api/storage-backend/migrate'): handle_storage_backend_migrate,
         ('GET', '/api/services'): handle_services_get,
         (None, '/api/shutdown'): handle_shutdown,
         ('POST', '/api/smtp/test'): handle_smtp_test,

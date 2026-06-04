@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RemotePower">
 <title>RemotePower — Device Control</title>
-<link rel="stylesheet" href="static/css/styles.css?v=3.11.0">
+<link rel="stylesheet" href="static/css/styles.css?v=3.12.0">
 
 </head>
 <body>
@@ -1385,6 +1385,25 @@
             <p class="hint">Download a ZIP of all server data files (devices, config, history, audit log, etc.). Useful for disaster recovery and migrations.</p>
             <button class="btn-icon" data-action="exportBackup" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export backup</button>
           </div>
+
+          <!-- ── Storage backend (v3.12.0) ───────────────────────────────── -->
+          <div class="settings-section">
+            <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> Storage backend</h3>
+            <p class="hint">RemotePower stores all data as flat-JSON files by default. For large fleets with many devices and frequent writes, switch to an embedded <strong>SQLite</strong> database (WAL mode) — a heartbeat becomes a single-row update instead of rewriting a whole file. Switching migrates your data in place after taking a rollback snapshot, verifies it, and only then flips the active backend. It is fully reversible (switch back to JSON the same way).</p>
+            <div id="storage-backend-status" class="hint">Loading current backend…</div>
+            <div id="storage-backend-netfs-warn" class="hint sb-warn" hidden></div>
+            <div class="sb-controls">
+              <label for="storage-backend-target">Target backend
+                <select id="storage-backend-target">
+                  <option value="sqlite">SQLite (database)</option>
+                  <option value="json">JSON (flat files)</option>
+                </select>
+              </label>
+              <button class="btn-icon" data-action="migrateStoragePreview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Preview</button>
+              <button class="btn-icon" data-action="migrateStorage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg> Migrate &amp; switch</button>
+            </div>
+            <pre id="storage-backend-result" class="hint sb-result" hidden></pre>
+          </div>
         </div>
 
         <!-- ── Proxmox (v2.3.0) ───────────────────────────────────────── -->
@@ -1968,7 +1987,20 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.11.0 fleet posture exposure attack surface listening ports bind address scope world lan local socket software policy banned required min version package compliance fail2ban telnet storage zfs zpool mdadm mdraid btrfs raid degraded faulted scrub overdue pool health access watch login new source ip brute force firewall ufw nftables iptables ruleset drift fingerprint timer systemd scheduled job failed cron posture digest email weekly daily report">
+          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle">
+            <summary><strong>What's new — v3.12.0</strong> — optional SQLite storage backend (switch from flat JSON in Settings → Advanced)</summary>
+            <div class="doc-body">
+              <p>RemotePower has always stored its state as flat-JSON files. That's simple and robust, but every write rewrites a whole file — on a busy fleet <code>devices.json</code> is rewritten on <em>every</em> heartbeat. v3.12.0 adds an optional embedded <strong>SQLite</strong> backend (WAL mode, stdlib only — no new dependencies) you can switch to under <strong>Settings → Advanced → Storage backend</strong>. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.12.0</code>).</p>
+              <h4>What you get</h4>
+              <ul>
+                <li><strong>Decomposed storage.</strong> Hot, high-cardinality data (devices, alerts, command output, the history / events / metrics logs) is stored row-per-entity instead of as one big document. A device update writes a single row rather than rewriting the whole file, and appends to the event/command logs are O(1).</li>
+                <li><strong>In-place, reversible migration.</strong> The switch takes a rollback snapshot, migrates every file, verifies a full round-trip, and only then flips the active backend. You can switch back to JSON the same way. A <strong>Preview</strong> button shows what would move without changing anything.</li>
+                <li><strong>Same behaviour, same API.</strong> The backend lives behind the existing storage layer, so every feature works identically — only the on-disk representation changes. Flat JSON remains the default; nothing changes until you opt in.</li>
+              </ul>
+              <p class="hint">CLI: <code>tools/migrate_storage.py --to sqlite</code> (and <code>--to json</code> to revert; <code>--dry-run</code> / <code>--verify-only</code> supported). On a network filesystem (NFS/CIFS) WAL is unsafe, so a rollback journal is used automatically — a local disk is strongly recommended. See <code>docs/v3.12.0.md</code>.</p>
+            </div>
+          </details>
+          <details class="doc-card" data-keywords="release notes changelog v3.11.0 fleet posture exposure attack surface listening ports bind address scope world lan local socket software policy banned required min version package compliance fail2ban telnet storage zfs zpool mdadm mdraid btrfs raid degraded faulted scrub overdue pool health access watch login new source ip brute force firewall ufw nftables iptables ruleset drift fingerprint timer systemd scheduled job failed cron posture digest email weekly daily report">
             <summary><strong>What's new — v3.11.0</strong> — fleet posture batch: exposure map, software policy, storage health, access watch, firewall drift, timer failures, posture digest</summary>
             <div class="doc-body">
               <p>Seven features that turn already-collected (or cheaply-collectable) agent data into first-class security and operational signals. No new daemons, no new dependencies. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.11.0</code>).</p>
@@ -6340,14 +6372,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
 <div id="print-report" class="print-only" aria-hidden="true"></div>
 <div class="refresh-bar"><div class="refresh-progress w-full" id="refresh-progress"></div></div>
 
-<script src="static/js/app.js?v=3.11.0"></script>
+<script src="static/js/app.js?v=3.12.0"></script>
 <!-- v3.4.0: feature modules split out of app.js (plain classic scripts, shared
      global scope, loaded after app.js; page init is DOMContentLoaded-deferred). -->
-<script src="static/js/app-calendar.js?v=3.11.0"></script>
-<script src="static/js/app-cmdb.js?v=3.11.0"></script>
-<script src="static/js/app-containers.js?v=3.11.0"></script>
-<script src="static/js/app-network.js?v=3.11.0"></script>
+<script src="static/js/app-calendar.js?v=3.12.0"></script>
+<script src="static/js/app-cmdb.js?v=3.12.0"></script>
+<script src="static/js/app-containers.js?v=3.12.0"></script>
+<script src="static/js/app-network.js?v=3.12.0"></script>
 
-<script src="static/js/sw-register.js?v=3.11.0"></script>
+<script src="static/js/sw-register.js?v=3.12.0"></script>
 </body>
 </html>

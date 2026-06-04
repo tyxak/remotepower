@@ -561,6 +561,11 @@
      `.doc-card.hidden` existed, so a bare `class="hidden"` element rendered as
      an empty box instead of being hidden.) */
   .hidden { display: none !important; }
+  /* v3.12.0: storage-backend card (Settings → Advanced). Class-based styling so
+     no inline style="" attributes are needed (CSP style-src 'self'). */
+  .sb-controls { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .sb-warn { color: #c2410c; margin-top: 4px; }
+  .sb-result { white-space: pre-wrap; margin-top: 10px; max-height: 240px; overflow: auto; }
   .doc-card kbd {
     background: var(--surface2);
     border: 1px solid var(--border);

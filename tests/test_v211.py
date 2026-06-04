@@ -38,14 +38,11 @@ _spec.loader.exec_module(api)
 
 
 def _age(devices):
-    """Write devices.json directly, bypassing save()'s monotonic last_seen
-    guard, to simulate a device whose last contact really was in the past.
-    On disk a stale device just has an old last_seen with nothing newer — the
-    guard (correctly) refuses to lower last_seen through save(), so these
-    simulation writes go straight to the file + invalidate the load cache."""
-    api._invalidate_load_cache(api.DEVICES_FILE)
-    api.DEVICES_FILE.write_text(json.dumps(devices))
-    api._invalidate_load_cache(api.DEVICES_FILE)
+    """Persist devices with the monotonic last_seen guard disabled, to simulate
+    a device whose last contact really was in the past — the guard (correctly)
+    refuses to lower last_seen through a normal save(). Backend-agnostic:
+    clamp_last_seen=False works for both the JSON and SQLite backends."""
+    api.save(api.DEVICES_FILE, devices, clamp_last_seen=False)
 
 
 class _Captured(SystemExit):
