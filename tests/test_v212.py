@@ -36,6 +36,11 @@ import tempfile
 import threading
 import time
 import unittest
+_skip_sqlite = unittest.skipIf(
+    os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
+    'JSON storage-internals test (flock / .bak / .tmp / mode-0600) — N/A under '
+    'SQLite; covered by tests/test_storage_backend.py')
+
 from pathlib import Path
 
 _CGI_BIN = Path(__file__).parent.parent / "server" / "cgi-bin"
@@ -118,6 +123,7 @@ class TestLockedUpdate(unittest.TestCase):
         self.assertEqual(api.load(self.path).get('after'), True)
 
 
+@_skip_sqlite
 class TestLostUpdateRace(unittest.TestCase):
     """Reproduce the lost-update race that v2.1.0 introduced, and verify
     _locked_update fixes it.
@@ -246,6 +252,7 @@ class TestLostUpdateRace(unittest.TestCase):
             self.assertEqual(d.get('last_seen'), target_ts)
 
 
+@_skip_sqlite
 class TestSaveHeld(unittest.TestCase):
     """_save_held — for use inside _locked_update where the caller holds
     the lock. Should produce the same on-disk result as save(), minus

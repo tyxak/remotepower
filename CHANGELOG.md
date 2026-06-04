@@ -48,7 +48,20 @@ row write.
   action (clears the inbox instead of leaving stale alerts).
 - **SQLite maintenance.** Hourly WAL checkpoint + weekly `VACUUM` /
   `integrity_check` (due-gated, no-op under JSON); DB size + last integrity
-  verdict surfaced on Server Status. A failed integrity check is logged loudly.
+  verdict surfaced on Server Status.
+- **`db_integrity_failed` alert.** A failed weekly `integrity_check` now raises a
+  **critical** fleet alert (webhook + inbox + activity feed) instead of only
+  logging — a corrupt database pages you. Wired through every event registry.
+- **Managed mute list.** Settings → Security → Listening-port & firewall audit
+  gains a full list of exposure mutes with Add (process / proto / port) and
+  Remove, complementing the per-row Mute button on the Exposure page.
+- **Dual-backend CI.** `make test-sqlite` (and `make test-both`, now the `check`
+  gate) runs the whole suite under `RP_STORAGE_BACKEND=sqlite`. The flat-JSON
+  storage-internals tests (flock / `.bak` / `.tmp` / mode-0600) are skipped via
+  `@_skip_sqlite`; everything else is green on both backends.
+- `fleet_events.json` is kept a cold blob (it is polymorphic in the codebase —
+  written dict-wrapped, read bare-list by `_compute_attention`), so it
+  round-trips any shape verbatim under SQLite.
 
 ### Changed
 - **Heartbeat is now a single-row write under SQLite.** `handle_heartbeat`

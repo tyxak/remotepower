@@ -175,16 +175,16 @@ class TestStoragePosture(unittest.TestCase):
         self.assertGreater(age, 365)
 
     def setUp(self):
-        if api.POSTURE_STATE_FILE.exists():
-            api.POSTURE_STATE_FILE.unlink()
+        # Backend-agnostic reset: clear the per-device posture state (unlink is a
+        # no-op under SQLite, where the data lives in the DB, not on disk).
+        api.save(api.POSTURE_STATE_FILE, {})
         self._fired = []
         self._orig = api.fire_webhook
         api.fire_webhook = lambda ev, p: self._fired.append((ev, p))
 
     def tearDown(self):
         api.fire_webhook = self._orig
-        if api.POSTURE_STATE_FILE.exists():
-            api.POSTURE_STATE_FILE.unlink()
+        api.save(api.POSTURE_STATE_FILE, {})
 
     def _events(self):
         return [e[0] for e in self._fired]

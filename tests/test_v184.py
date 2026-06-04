@@ -289,6 +289,7 @@ class TestWebhookEventsConstant(unittest.TestCase):
             'port_exposed_world', 'software_policy_violation',
             'storage_degraded', 'scrub_overdue', 'storage_recovered',
             'login_new_source', 'firewall_changed', 'timer_failed',
+            'db_integrity_failed',
         }
         self.assertEqual(names, expected)
 

@@ -1173,6 +1173,14 @@
             <h3>Listening-port &amp; firewall audit</h3>
             <p class="hint">When enabled, the audit watches each host's listening sockets and active firewall ruleset, raising <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts when a port first appears, first binds to a world-reachable address (0.0.0.0), or the firewall fingerprint drifts. This is noisy on Docker hosts, where <code>docker-proxy</code> publishes every container port to 0.0.0.0 — so it is <strong>off by default</strong>. The <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> page still shows every socket regardless, so you keep the visibility without the alert noise.</p>
             <div class="settings-row"><label class="form-label"><input type="checkbox" id="cfg-port-audit-enabled"> Audit listening ports &amp; host firewall (new-port, world-exposed &amp; firewall-changed alerts)</label></div>
+            <p class="hint">Muted services — silence new-port / world-exposed alerts for a specific process and/or proto/port (e.g. <code>docker-proxy</code>) without turning the whole audit off. You can also mute straight from the <a href="#" data-action-btn="_showPageBtn" data-page="exposure" data-prevent-default class="c-accent">Exposure</a> table.</p>
+            <div id="exposure-mute-list" class="sb-result"></div>
+            <div class="sb-controls">
+              <input type="text" id="mute-process" class="form-input" placeholder="process (e.g. docker-proxy)">
+              <input type="text" id="mute-proto" class="form-input isl-177" placeholder="proto">
+              <input type="text" id="mute-port" class="form-input isl-177" placeholder="port">
+              <button class="btn-icon" data-action="addExposureMute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add mute</button>
+            </div>
           </div>
 
           <!-- v3.7.0 (moved to Security in v3.8.0): audit log forwarding to a SIEM / syslog -->
@@ -1994,7 +2002,7 @@
         </div>
 
         <div id="docs-container" class="isl-102">
-          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle">
+          <details class="doc-card" open data-keywords="release notes changelog v3.12.0 storage backend sqlite database flat json migration migrate switch advanced settings wal write ahead log decomposition heartbeat single row upsert performance scale many devices writes embedded zero dependency reversible snapshot rollback verify toggle listening port firewall audit world exposed docker-proxy mute noisy opt-in off by default exposure integrity check vacuum maintenance db_integrity_failed new_port_detected">
             <summary><strong>What's new — v3.12.0</strong> — optional SQLite storage backend (switch from flat JSON in Settings → Advanced)</summary>
             <div class="doc-body">
               <p>RemotePower has always stored its state as flat-JSON files. That's simple and robust, but every write rewrites a whole file — on a busy fleet <code>devices.json</code> is rewritten on <em>every</em> heartbeat. v3.12.0 adds an optional embedded <strong>SQLite</strong> backend (WAL mode, stdlib only — no new dependencies) you can switch to under <strong>Settings → Advanced → Storage backend</strong>. Hard-reload once after upgrading (cache <code>remotepower-shell-v3.12.0</code>).</p>
@@ -2003,6 +2011,13 @@
                 <li><strong>Decomposed storage.</strong> Hot, high-cardinality data (devices, alerts, command output, the history / events / metrics logs) is stored row-per-entity instead of as one big document. A device update writes a single row rather than rewriting the whole file, and appends to the event/command logs are O(1).</li>
                 <li><strong>In-place, reversible migration.</strong> The switch takes a rollback snapshot, migrates every file, verifies a full round-trip, and only then flips the active backend. You can switch back to JSON the same way. A <strong>Preview</strong> button shows what would move without changing anything.</li>
                 <li><strong>Same behaviour, same API.</strong> The backend lives behind the existing storage layer, so every feature works identically — only the on-disk representation changes. Flat JSON remains the default; nothing changes until you opt in.</li>
+                <li><strong>Self-maintaining.</strong> The database checkpoints its write-ahead log hourly and runs a <code>VACUUM</code> + <code>integrity_check</code> weekly. DB size and the last integrity verdict appear on <strong>Server Status</strong>; a failed integrity check raises a critical <em>Database integrity check failed</em> alert.</li>
+              </ul>
+              <h4>Quieter posture alerts</h4>
+              <ul>
+                <li><strong>Listening-port &amp; firewall audit is now opt-in.</strong> The <em>New listening port</em>, <em>World-exposed service</em> and <em>Host firewall changed</em> alerts are noisy on Docker hosts (where <code>docker-proxy</code> publishes every container port to 0.0.0.0), so they are <strong>off by default</strong>. Turn them on under <strong>Settings → Security → Listening-port &amp; firewall audit</strong>.</li>
+                <li><strong>Surgical mutes.</strong> Prefer to keep the audit on but silence one noisy service? Use the per-process <strong>Mute</strong> button on the <strong>Exposure</strong> page (or manage rules in Settings → Security). Muting resolves matching open alerts in the same click; turning the whole audit off clears the backlog at once.</li>
+                <li><strong>Discovery.</strong> When alerting is off but world-reachable services exist, the Exposure page shows a banner linking back to the toggle — you keep the visibility either way.</li>
               </ul>
               <p class="hint">CLI: <code>tools/migrate_storage.py --to sqlite</code> (and <code>--to json</code> to revert; <code>--dry-run</code> / <code>--verify-only</code> supported). On a network filesystem (NFS/CIFS) WAL is unsafe, so a rollback journal is used automatically — a local disk is strongly recommended. See <code>docs/v3.12.0.md</code>.</p>
             </div>

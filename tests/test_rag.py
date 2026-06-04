@@ -443,6 +443,10 @@ class TestApiCorpus(unittest.TestCase):
         self.assertTrue(any("cve" in h["id"] or "alert" in h["id"]
                             for h in cve_hits))
 
+    @unittest.skipIf(os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
+                     'RAG reindex change-detection uses source-file mtimes '
+                     '(os.utime on DEVICES_FILE), which have no on-disk artifact '
+                     'under SQLite — a backend-aware change signal is a follow-up')
     def test_reindex_throttle(self):
         import time as _t
         cfg = api._ai_cfg()

@@ -11,6 +11,11 @@ import sys
 import tempfile
 import time
 import unittest
+_skip_sqlite = unittest.skipIf(
+    os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
+    'JSON storage-internals test (flock / .bak / .tmp / mode-0600) — N/A under '
+    'SQLite; covered by tests/test_storage_backend.py')
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -85,6 +90,7 @@ class TestPasswordHashing(ApiTestBase):
             self.skipTest('bcrypt not installed')
 
 
+@_skip_sqlite
 class TestStorageHelpers(ApiTestBase):
     def test_save_and_load(self):
         data = {'key': 'value', 'num': 42}

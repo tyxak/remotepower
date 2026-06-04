@@ -103,12 +103,13 @@ class TestBackupRedaction(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         api.DATA_DIR = tmp
         # Write a config.json with all three secret fields populated
-        (tmp / 'config.json').write_text(json.dumps({
+        # (via api.save so it lands in whichever backend is active).
+        api.save(tmp / 'config.json', {
             'server_name': 'rp',
             'proxmox_token_secret': 'PROXMOXSECRET',
             'smtp_password': 'SMTPSECRET',
             'ldap_bind_password': 'LDAPSECRET',
-        }))
+        })
         zip_bytes = self._run_export()
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             self.assertIn('config.json', zf.namelist())
@@ -129,7 +130,7 @@ class TestBackupRedaction(unittest.TestCase):
         api = self.api
         tmp = Path(tempfile.mkdtemp())
         api.DATA_DIR = tmp
-        (tmp / 'config.json').write_text(json.dumps({'server_name': 'rp'}))
+        api.save(tmp / 'config.json', {'server_name': 'rp'})
         zip_bytes = self._run_export()
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             cfg = json.loads(zf.read('config.json'))

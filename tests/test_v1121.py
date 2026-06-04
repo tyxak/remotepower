@@ -23,6 +23,11 @@ import sys
 import tempfile
 import time
 import unittest
+_skip_sqlite = unittest.skipIf(
+    os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
+    'JSON storage-internals test (flock / .bak / .tmp / mode-0600) — N/A under '
+    'SQLite; covered by tests/test_storage_backend.py')
+
 from pathlib import Path
 
 _CGI_BIN = Path(__file__).parent.parent / "server" / "cgi-bin"
@@ -47,6 +52,7 @@ def _isolate(t):
 # ─── Atomic save ──────────────────────────────────────────────────────────────
 
 
+@_skip_sqlite
 class TestSaveAtomicity(unittest.TestCase):
     def setUp(self):
         _isolate(self)
@@ -122,6 +128,7 @@ class TestSaveAtomicity(unittest.TestCase):
 # ─── Load with .bak fallback ──────────────────────────────────────────────────
 
 
+@_skip_sqlite
 class TestLoadFallback(unittest.TestCase):
     def setUp(self):
         _isolate(self)
@@ -231,6 +238,7 @@ def _concurrent_writer(args):
         api_w.save(path, existing)
 
 
+@_skip_sqlite
 class TestConcurrentSave(unittest.TestCase):
     """Verify that 8 simultaneous writers don't corrupt the file.
 
@@ -281,6 +289,7 @@ class TestConcurrentSave(unittest.TestCase):
 # ─── End-to-end recovery scenario ─────────────────────────────────────────────
 
 
+@_skip_sqlite
 class TestRecoveryScenario(unittest.TestCase):
     """Simulate the actual incident: file gets corrupted, next read uses
     .bak, next write re-establishes a clean state.

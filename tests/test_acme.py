@@ -200,10 +200,9 @@ class TestServerAcme(unittest.TestCase):
                 'fullchain_path': '/root/.acme.sh/example.com/fullchain.cer',
             }],
         })
-        # Verify persisted
-        store_path = self.api.ACME_STATE_FILE
-        self.assertTrue(store_path.exists())
-        store = json.loads(store_path.read_text())
+        # Verify persisted (backend-agnostic: load via api, not the raw file)
+        self.assertTrue(self.api.backend_exists(self.api.ACME_STATE_FILE))
+        store = self.api.load(self.api.ACME_STATE_FILE)
         self.assertIn('dev123', store)
         self.assertTrue(store['dev123']['available'])
         self.assertEqual(len(store['dev123']['certs']), 1)
@@ -221,7 +220,7 @@ class TestServerAcme(unittest.TestCase):
             'available': True, 'home': '/root/.acme.sh', 'version': 'v3.0.6',
             'certs': certs,
         })
-        store = json.loads(self.api.ACME_STATE_FILE.read_text())
+        store = self.api.load(self.api.ACME_STATE_FILE)
         self.assertLessEqual(len(store['dev_overflow']['certs']), 200,
             'ingest should cap cert count to prevent unbounded growth')
 

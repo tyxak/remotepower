@@ -689,6 +689,9 @@ WEBHOOK_EVENTS = (
     ('firewall_changed',      'Host firewall ruleset changed from baseline', True),
     # v3.11.0: a systemd timer (scheduled job) entered a failed state.
     ('timer_failed',          'Scheduled job (systemd timer) failed',        True),
+    # v3.12.0: the SQLite storage backend's weekly integrity_check failed
+    # (possible corruption). Server-level, no device.
+    ('db_integrity_failed',   'Database integrity check failed (possible corruption)', True),
 )
 WEBHOOK_EVENT_NAMES = tuple(e[0] for e in WEBHOOK_EVENTS)
 
@@ -1226,6 +1229,10 @@ def _sqlite_maintenance_if_due():
         if integ and integ != 'ok':
             sys.stderr.write(
                 f"[remotepower] ERROR: sqlite integrity_check failed: {integ}\n")
+            try:
+                fire_webhook('db_integrity_failed', {'detail': str(integ)[:256]})
+            except Exception:
+                pass
     save(SQLITE_MAINT_FILE, st)
 
 
@@ -2821,19 +2828,16 @@ def _record_fleet_event(event, payload):
     }
     overflow = []
     try:
-        if _storage_backend() == 'sqlite':
-            # O(1) append + prune to MAX_FLEET_EVENTS; returns evicted rows for
-            # the archive write below. No whole-log rewrite.
-            overflow = storage.list_append(FLEET_EVENTS_FILE, entry,
-                                           cap=MAX_FLEET_EVENTS)
-            _invalidate_load_cache(FLEET_EVENTS_FILE)
-        else:
-            with _LockedUpdate(FLEET_EVENTS_FILE) as store:
-                events = store.setdefault('events', [])
-                events.append(entry)
-                if len(events) > MAX_FLEET_EVENTS:
-                    overflow = events[:-MAX_FLEET_EVENTS]
-                    del events[:-MAX_FLEET_EVENTS]
+        # fleet_events is a cold blob on both backends (polymorphic shape — see
+        # storage.WRAPPED_LIST_FILES note), so the whole-doc locked RMW is used
+        # regardless. The log is capped at MAX_FLEET_EVENTS so the rewrite is
+        # bounded.
+        with _LockedUpdate(FLEET_EVENTS_FILE) as store:
+            events = store.setdefault('events', [])
+            events.append(entry)
+            if len(events) > MAX_FLEET_EVENTS:
+                overflow = events[:-MAX_FLEET_EVENTS]
+                del events[:-MAX_FLEET_EVENTS]
     except Exception:
         # Caller wraps us too, but be defensive
         return
@@ -2925,6 +2929,7 @@ _ALERT_RULES = {
     'login_new_source':           ('medium', None),
     'firewall_changed':           ('medium', None),
     'timer_failed':               ('medium', None),
+    'db_integrity_failed':        ('critical', None),
 }
 
 # Map recover event → firing event it resolves
@@ -3010,6 +3015,7 @@ CHANNEL_KINDS = [
     ('access',      'New-source logins',        'operational',   ['login_new_source']),
     ('firewall',    'Host firewall changes',    'operational',   ['firewall_changed']),
     ('timer',       'Scheduled-job failures',   'operational',   ['timer_failed']),
+    ('database',    'Database integrity',       'operational',   ['db_integrity_failed']),
     # Informational + state-derived. The metric_* events fire to Recent
     # Activity / Alerts / Webhook; the disk/memory/swap/cpu rows below
     # surface state-derived NA cards (thresholds breached). Operators
@@ -3351,6 +3357,9 @@ def _alert_title(event, payload):
     if event == 'firewall_changed':
         return (f'Firewall changed on {name}: {p.get("backend","?")} '
                 f'({p.get("rules","?")} rules)')
+    if event == 'db_integrity_failed':
+        return ('Database integrity check failed — the SQLite store may be '
+                f'corrupt: {p.get("detail","?")}')
     if event == 'timer_failed':
         return f'Scheduled job failed on {name}: {p.get("unit","?")}'
     return f'{event}: {name}'
@@ -4069,6 +4078,7 @@ def _webhook_title(event):
         'login_new_source':          'Login From New Source',
         'firewall_changed':          'Host Firewall Changed',
         'timer_failed':              'Scheduled Job Failed',
+        'db_integrity_failed':       'Database Integrity Check Failed',
         'test':            'Webhook Test',
     }
     return titles.get(event, f'RemotePower: {event}')
@@ -4723,6 +4733,9 @@ def _webhook_message(event, payload):
     elif event == 'firewall_changed':
         return (f'{name}: host firewall ({payload.get("backend","?")}) ruleset '
                 f'changed — now {payload.get("rules","?")} rules')
+    elif event == 'db_integrity_failed':
+        return ('SQLite integrity_check failed — the database may be corrupt. '
+                f'Restore from a backup. Detail: {payload.get("detail","?")}')
     elif event == 'timer_failed':
         act = payload.get('activates', '')
         extra = f' → {act}' if act else ''
@@ -4792,6 +4805,7 @@ def _webhook_tags(event):
         'login_new_source':          'warning,bust_in_silhouette',
         'firewall_changed':          'warning,fire',
         'timer_failed':              'warning,alarm_clock',
+        'db_integrity_failed':       'rotating_light,floppy_disk',
         'test':            'white_check_mark,bell',
     }
     return tags.get(event, 'bell')

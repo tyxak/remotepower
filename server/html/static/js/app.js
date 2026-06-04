@@ -1883,6 +1883,7 @@ async function loadSettings() {
   // v3.12.0: host-audit toggle (ports + firewall drift), default off.
   const _pae = document.getElementById('cfg-port-audit-enabled');
   if (_pae) _pae.checked = !!data.port_audit_enabled;
+  _renderExposureMutes(data.exposure_mutes);
   const _bk = data.backup || {};
   const _be = document.getElementById('backup-enabled');
   if (_be) _be.checked = _bk.enabled !== false;
@@ -8913,6 +8914,50 @@ async function unmuteExposureProcess(process) {
   if (r && r.ok) { toast(`Unmuted ${process}`, 'success'); loadExposure(); }
   else { toast('Unmute failed', 'error'); }
 }
+
+// v3.12.0: managed mute list in Settings → Security.
+function _renderExposureMutes(mutes) {
+  const el = document.getElementById('exposure-mute-list');
+  if (!el) return;
+  mutes = mutes || [];
+  if (!mutes.length) {
+    el.textContent = 'No mutes — the audit alerts on every host.';
+    return;
+  }
+  el.innerHTML = mutes.map(m => {
+    const parts = [];
+    if (m.process) parts.push('process=' + escHtml(m.process));
+    if (m.proto) parts.push('proto=' + escHtml(m.proto));
+    if (m.port !== undefined && m.port !== null) parts.push('port=' + escHtml(String(m.port)));
+    const label = parts.join(' · ') || '(empty)';
+    return `<div class="sb-controls"><span>${label}</span><button class="btn-icon cell-sm" data-action="removeExposureMute" data-arg="${escAttr(m.process || '')}" data-arg2="${escAttr(m.proto || '')}" data-arg3="${escAttr(m.port !== undefined && m.port !== null ? String(m.port) : '')}">Remove</button></div>`;
+  }).join('');
+}
+async function addExposureMute() {
+  const process = (document.getElementById('mute-process')?.value || '').trim();
+  const proto = (document.getElementById('mute-proto')?.value || '').trim();
+  const port = (document.getElementById('mute-port')?.value || '').trim();
+  if (!process && !proto && !port) { toast('Enter a process and/or proto/port', 'error'); return; }
+  const body = { action: 'add' };
+  if (process) body.process = process;
+  if (proto) body.proto = proto;
+  if (port) body.port = port;
+  const r = await api('POST', '/exposure/mute', body);
+  if (r && r.ok) {
+    toast('Mute added' + (r.resolved ? ` · resolved ${r.resolved} alert(s)` : ''), 'success');
+    ['mute-process', 'mute-proto', 'mute-port'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    _renderExposureMutes(r.mutes);
+  } else { toast('Add mute failed', 'error'); }
+}
+async function removeExposureMute(process, proto, port) {
+  const body = { action: 'remove' };
+  if (process) body.process = process;
+  if (proto) body.proto = proto;
+  if (port !== '' && port !== undefined && port !== null) body.port = port;
+  const r = await api('POST', '/exposure/mute', body);
+  if (r && r.ok) { toast('Mute removed', 'success'); _renderExposureMutes(r.mutes); }
+  else { toast('Remove mute failed', 'error'); }
+}
 document.addEventListener('change', e => {
   if (e.target && e.target.id === 'exposure-scope') {
     _exposureScope = e.target.value || '';
@@ -10081,6 +10126,8 @@ function _renderHomeActivity(fleetEvents) {
     'port_exposed_world', 'software_policy_violation',
     'storage_degraded', 'scrub_overdue', 'storage_recovered',
     'login_new_source', 'firewall_changed', 'timer_failed',
+    // v3.12.0: SQLite storage integrity failure
+    'db_integrity_failed',
   ]);
   let entries = [];
   if (Array.isArray(fleetEvents)) {
@@ -10232,6 +10279,8 @@ function _homeActivityAttrs(event, p) {
     case 'firewall_changed':
     case 'timer_failed':
       return `${base} data-home-act="${devId ? 'detail' : 'devices'}"`;
+    case 'db_integrity_failed':
+      return `${base} data-home-act="self"`;
     default:
       return `${base} data-home-act="${devId ? 'detail' : ''}"`;
   }

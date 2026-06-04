@@ -65,9 +65,19 @@ class TestRoundTrip(_Base):
         self.assertEqual(storage.load(self.p('history.json')), h)
 
     def test_wrapped_list_preserves_sibling_metadata(self):
-        fe = {'events': [{'event': 'x'}], 'extra': 9, 'meta': {'k': 'v'}}
-        storage.save(self.p('fleet_events.json'), fe)
-        self.assertEqual(storage.load(self.p('fleet_events.json')), fe)
+        # alerts.json is a wrapped-list file; sibling keys beside the list go to
+        # the kv #meta row and must round-trip.
+        al = {'alerts': [{'id': 'a1'}], 'extra': 9, 'meta': {'k': 'v'}}
+        storage.save(self.p('alerts.json'), al)
+        self.assertEqual(storage.load(self.p('alerts.json')), al)
+
+    def test_fleet_events_polymorphic_blob(self):
+        # fleet_events is a cold blob (polymorphic) — round-trips both shapes.
+        storage.save(self.p('fleet_events.json'), {'events': [{'e': 1}]})
+        self.assertEqual(storage.load(self.p('fleet_events.json')),
+                         {'events': [{'e': 1}]})
+        storage.save(self.p('fleet_events.json'), [{'e': 2}])  # bare list
+        self.assertEqual(storage.load(self.p('fleet_events.json')), [{'e': 2}])
 
 
 class TestDiffWrite(_Base):

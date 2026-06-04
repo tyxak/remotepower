@@ -48,6 +48,14 @@ install-dev:
 test:
 	$(PY) -m unittest discover -s tests -v
 
+# v3.12.0: run the full suite against the SQLite storage backend. The flat-JSON
+# storage-internals tests (flock/.bak/.tmp) are skipped via @skip_under_sqlite;
+# everything else must pass on both backends. `test-both` is the CI gate.
+test-sqlite:
+	RP_STORAGE_BACKEND=sqlite $(PY) -m unittest discover -s tests -v
+
+test-both: test test-sqlite
+
 format:
 	$(PY) -m isort $(LINT_SRC)
 	$(PY) -m black $(LINT_SRC)
@@ -60,7 +68,7 @@ lint:
 typecheck:
 	$(PY) -m mypy $(TYPECHECK_SRC)
 
-check: test lint
+check: test-both lint
 
 # Release tarball. Builds a clean copy of the tree into a versioned
 # directory inside dist/, drops everything that has no business shipping

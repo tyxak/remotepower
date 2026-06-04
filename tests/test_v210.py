@@ -43,6 +43,11 @@ import tempfile
 import threading
 import time
 import unittest
+_skip_sqlite = unittest.skipIf(
+    os.environ.get('RP_STORAGE_BACKEND') == 'sqlite',
+    'JSON storage-internals test (flock / .bak / .tmp / mode-0600) — N/A under '
+    'SQLite; covered by tests/test_storage_backend.py')
+
 from pathlib import Path
 
 _CGI_BIN = Path(__file__).parent.parent / "server" / "cgi-bin"
@@ -140,6 +145,7 @@ class _TestBase(unittest.TestCase):
 # ─── Flock + save() ────────────────────────────────────────────────────────
 
 
+@_skip_sqlite
 class TestSaveNonBlocking(_TestBase):
     """The headline fix: writes outside the lock; LOCK_NB raises LockBusy."""
 

@@ -83,10 +83,13 @@ ENTITY_FILES = {
 }
 
 # wrapped-list files: basename -> the single top-level list key.
+# NOTE: fleet_events.json is deliberately NOT here — it is polymorphic in the
+# codebase (written dict-wrapped by _record_fleet_event, but read as a bare list
+# by _compute_attention), so it's kept a COLD blob that round-trips whatever
+# shape it's given, exactly like the JSON backend.
 WRAPPED_LIST_FILES = {
     'history.json': 'entries',
     'alerts.json': 'alerts',
-    'fleet_events.json': 'events',
 }
 
 DEVICES_FILE_NAME = 'devices.json'
