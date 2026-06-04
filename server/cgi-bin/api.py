@@ -18912,10 +18912,17 @@ _RISK_WEIGHTS = {
     'offline': 25, 'cve_critical': 8, 'cve_high': 3, 'pending_updates': 1,
     'exposed_world': 4, 'policy_violation': 6, 'expiry_expired': 10,
     'expiry_soon': 3, 'mount_issue': 12, 'reboot_required': 4,
+    # v3.12.0: firewall posture + hardware/software health
+    'firewall_off': 14, 'storage_degraded': 12, 'smart_failure': 12,
+    'kernel_outdated': 6, 'failed_units': 3,
 }
 _RISK_CAPS = {'cve_critical': 30, 'cve_high': 15, 'pending_updates': 15,
               'exposed_world': 20, 'policy_violation': 18, 'expiry_expired': 20,
-              'mount_issue': 24}
+              'mount_issue': 24, 'storage_degraded': 24, 'smart_failure': 24,
+              'failed_units': 15}
+# states (substring match) that mean a storage pool / RAID array is unhealthy
+_RISK_STORAGE_BAD = ('degraded', 'faulted', 'offline', 'unavail', 'removed',
+                     'suspended', 'error', 'fail')
 
 
 def _risk_level(score):
@@ -18928,8 +18935,9 @@ def _risk_level(score):
     return 'low'
 
 
-def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl):
+def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl, hw_rec=None):
     si = dev.get('sysinfo') or {}
+    hw_rec = hw_rec or {}
     factors = []
 
     def _add(kind, pts, detail):
@@ -18974,6 +18982,38 @@ def _device_risk(dev_id, dev, cmdb_rec, cve_rec, sv_rec, now, ttl):
         _add('mount_issue', min(_RISK_CAPS['mount_issue'], mi * _RISK_WEIGHTS['mount_issue']), f'{mi} mount issue(s)')
     if si.get('reboot_required'):
         _add('reboot_required', _RISK_WEIGHTS['reboot_required'], 'reboot required')
+    # ── v3.12.0: firewall posture ────────────────────────────────────────────
+    fw = si.get('firewall_fp')
+    if isinstance(fw, dict):
+        fwb = (fw.get('backend') or '').lower()
+        if fwb == 'none':
+            _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'no host firewall active')
+        elif fwb and not fw.get('rules'):
+            _add('firewall_off', _RISK_WEIGHTS['firewall_off'], 'host firewall has no rules')
+    # ── v3.12.0: storage / RAID health ───────────────────────────────────────
+    bad_pools = [p for p in (si.get('storage_health') or [])
+                 if isinstance(p, dict)
+                 and any(b in (p.get('state') or '').lower() for b in _RISK_STORAGE_BAD)]
+    if bad_pools:
+        names = ', '.join(p.get('name', '?') for p in bad_pools[:3])
+        _add('storage_degraded',
+             min(_RISK_CAPS['storage_degraded'], len(bad_pools) * _RISK_WEIGHTS['storage_degraded']),
+             f'{len(bad_pools)} degraded pool/array ({names})')
+    # ── v3.12.0: disk SMART + kernel currency (from hardware.json) ────────────
+    smart_bad = sum(1 for d in (hw_rec.get('smart') or []) if _smart_disk_failed(d))
+    if smart_bad:
+        _add('smart_failure',
+             min(_RISK_CAPS['smart_failure'], smart_bad * _RISK_WEIGHTS['smart_failure']),
+             f'{smart_bad} disk(s) reporting SMART failure')
+    if (hw_rec.get('kernel') or {}).get('reboot_for_kernel'):
+        _add('kernel_outdated', _RISK_WEIGHTS['kernel_outdated'],
+             'running kernel older than newest installed')
+    # ── v3.12.0: failed systemd services (what software is broken) ────────────
+    fu = len([u for u in (si.get('failed_units') or []) if isinstance(u, str)])
+    if fu:
+        _add('failed_units',
+             min(_RISK_CAPS['failed_units'], fu * _RISK_WEIGHTS['failed_units']),
+             f'{fu} failed system service(s)')
     score = min(100, sum(f['points'] for f in factors))
     return {'device_id': dev_id, 'device_name': dev.get('name', dev_id),
             'score': score, 'level': _risk_level(score),
@@ -18987,6 +19027,7 @@ def _compute_fleet_risk():
     cmdb = _cmdb_load()
     cve = (load(CVE_FINDINGS_FILE) or {}) if backend_exists(CVE_FINDINGS_FILE) else {}
     sv = (load(SOFTWARE_VIOLATIONS_FILE) or {}) if backend_exists(SOFTWARE_VIOLATIONS_FILE) else {}
+    hw = (load(HARDWARE_FILE) or {}) if backend_exists(HARDWARE_FILE) else {}
     now = int(time.time())
     try:
         ttl = get_online_ttl()
@@ -18997,7 +19038,8 @@ def _compute_fleet_risk():
         if not isinstance(dev, dict) or dev.get('monitored') is False or dev.get('agentless'):
             continue
         out.append(_device_risk(dev_id, dev, cmdb.get(dev_id) or {},
-                                cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl))
+                                cve.get(dev_id) or {}, sv.get(dev_id) or {}, now, ttl,
+                                hw.get(dev_id) or {}))
     out.sort(key=lambda r: -r['score'])
     return out
 

@@ -4498,7 +4498,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           </select>
           <span id="exposure-summary" class="isl-100"></span>
         </div>
-        <div id="exposure-banner" class="sb-warn" hidden></div>
+        <div id="exposure-banner" class="sb-warn exposure-banner" hidden></div>
         <div class="table-card">
           <table class="data-table w-full">
             <thead id="exposure-thead"><tr>
@@ -4556,7 +4556,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
           <button class="btn-icon" data-action="loadSoftwarePolicy" ><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.85-5.92"/></svg> Refresh</button>
           <span id="swpol-summary" class="isl-100"></span>
         </div>
-        <div class="table-card">
+        <div class="table-card card-padded">
           <div class="page-subtitle fw-600">Policy rules</div>
           <div id="swpol-rules"></div>
           <div class="form-row-wrap">
@@ -4571,7 +4571,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <button class="btn" data-action="swPolAddRule">Add rule</button>
           </div>
         </div>
-        <div class="table-card">
+        <div class="table-card card-padded">
           <div class="page-subtitle fw-600">Current violations</div>
           <table class="data-table w-full">
             <thead id="swpol-viol-thead"><tr>

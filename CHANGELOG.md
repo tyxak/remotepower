@@ -24,8 +24,11 @@ row write.
   0–100 risk score for every monitored asset on demand, purely from data already
   collected — open CVEs, world-reachable services, software-policy violations,
   pending updates, contract/license/warranty expiry, mount issues, reboot-
-  pending, offline. Every point is attributed to a named factor. The score also
-  blends into fleet health, so a high-risk asset can't read as perfectly healthy.
+  pending, offline — plus **host-firewall state** (no firewall active / no
+  rules), **storage & RAID health** (degraded/faulted pools), **disk SMART
+  failures**, **outdated running kernel**, and **failed system services**. Every
+  point is attributed to a named factor. The score also blends into fleet
+  health, so a high-risk asset can't read as perfectly healthy.
 - **Mount-point monitoring.** The agent compares `/etc/fstab` against live
   mounts and probes mounted network shares (NFS/SMB) for responsiveness — a new
   `mount_issue` event fires (edge-triggered) when an auto fstab entry isn't
@@ -152,6 +155,14 @@ row write.
   `.json` files directly, so they're complete and safe under either backend.
 - `save()` / `_locked_update()` gain a `clamp_last_seen` flag (used by the
   migration and test aging helpers to write timestamps faithfully).
+- **UI polish.** The world-exposure banner now lays the message and an *Open
+  Settings* button out as a clean flex row (the button no longer interrupts the
+  sentence mid-flow). The Software-policy *Policy rules* and *Current violations*
+  cards get inner padding so their text and the *Add rule* button no longer butt
+  against the card border. The settings-search empty hint sits a touch lower so
+  it isn't tucked under the search field (and moved off an inline style for CSP).
+- Avatar upload now downscales via a `data:` URL (FileReader) instead of a
+  `blob:` URL, so it no longer trips the `img-src 'self' data:` CSP.
 
 ### Notes
 - Flat JSON remains the default; existing installs are unaffected until an

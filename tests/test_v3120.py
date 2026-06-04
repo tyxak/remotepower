@@ -392,7 +392,8 @@ class TestRiskScores(unittest.TestCase):
     def setUp(self):
         self.d = Path(tempfile.mkdtemp())
         self._saved = {}
-        for a in ('DEVICES_FILE', 'CVE_FINDINGS_FILE', 'SOFTWARE_VIOLATIONS_FILE', 'CMDB_FILE'):
+        for a in ('DEVICES_FILE', 'CVE_FINDINGS_FILE', 'SOFTWARE_VIOLATIONS_FILE',
+                  'CMDB_FILE', 'HARDWARE_FILE'):
             self._saved[a] = getattr(api, a)
             setattr(api, a, self.d / Path(getattr(api, a)).name)
 
@@ -424,6 +425,39 @@ class TestRiskScores(unittest.TestCase):
     def test_risk_route_registered(self):
         from routing_harness import resolve_route
         self.assertEqual(resolve_route('GET', '/api/risk')[0], 'handle_risk_overview')
+
+    def test_risk_firewall_storage_software_factors(self):
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {
+            'd1': {'name': 'web1', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'firewall_fp': {'backend': 'none', 'rules': 0},
+                'storage_health': [{'name': 'tank', 'state': 'DEGRADED'},
+                                   {'name': 'ok', 'state': 'ONLINE'}],
+                'failed_units': ['nginx.service', 'redis.service']}},
+            'd2': {'name': 'fw-on', 'monitored': True, 'last_seen': now, 'sysinfo': {
+                'firewall_fp': {'backend': 'nftables', 'rules': 30}}},
+        })
+        api.save(api.HARDWARE_FILE, {'d1': {
+            'smart': [{'health': 'FAILED'}], 'kernel': {'reboot_for_kernel': True}}})
+        risks = {r['device_name']: r for r in api._compute_fleet_risk()}
+        kinds = {f['kind'] for f in risks['web1']['factors']}
+        self.assertIn('firewall_off', kinds)
+        self.assertIn('storage_degraded', kinds)
+        self.assertIn('smart_failure', kinds)
+        self.assertIn('kernel_outdated', kinds)
+        self.assertIn('failed_units', kinds)
+        # a host with an active firewall must NOT be flagged firewall_off
+        self.assertNotIn('firewall_off',
+                         {f['kind'] for f in risks['fw-on']['factors']})
+
+    def test_risk_only_one_degraded_counted(self):
+        now = int(time.time())
+        api.save(api.DEVICES_FILE, {'d1': {'name': 'h', 'monitored': True,
+            'last_seen': now, 'sysinfo': {'storage_health': [
+                {'name': 'a', 'state': 'ONLINE'}, {'name': 'b', 'state': 'FAULTED'}]}}})
+        r = api._compute_fleet_risk()[0]
+        sd = [f for f in r['factors'] if f['kind'] == 'storage_degraded'][0]
+        self.assertIn('1 degraded', sd['detail'])
 
 
 class TestMountMonitoring(unittest.TestCase):

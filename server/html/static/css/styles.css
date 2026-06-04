@@ -570,6 +570,14 @@
   .retention-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
   .retention-grid .form-input { width: 100%; }
   .retention-controls { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  .exposure-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .exposure-banner .exposure-banner-text { flex: 1 1 280px; }
+  .exposure-banner .btn-icon { flex: 0 0 auto; white-space: nowrap; }
+  /* Section-style cards that hold a heading + form/content (not a bare table)
+     need inner padding so text/buttons don't butt against the rounded border. */
+  .table-card.card-padded { padding: 12px 16px 16px; }
+  .table-card.card-padded > .page-subtitle:first-child { margin-top: 0; }
+  .settings-search-hint { font-size: 12px; color: var(--muted); margin: 8px 0 10px; }
   .muted-row { opacity: 0.55; }
   /* v3.12.0: top-right account menu + My Account page */
   .acct-menu { position: relative; }

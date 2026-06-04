@@ -4255,17 +4255,25 @@ async function removeAvatar() {
   if (r && r.ok) { toast('Profile picture removed', 'success'); loadAccount(); loadMe(); }
 }
 function _downscaleImage(file, size) {
+  // Load the picked file via a data: URL (FileReader), NOT URL.createObjectURL:
+  // the strict CSP is `img-src 'self' data:`, so a blob: URL on an <img>/Image
+  // is blocked. data: is permitted and needs no revoke.
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const side = Math.min(img.width, img.height);
-      const c = document.createElement('canvas');
-      c.width = size; c.height = size;
-      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
-      c.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/png');
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('could not read file'));
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        c.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/png');
+      };
+      img.onerror = () => reject(new Error('not a valid image'));
+      img.src = fr.result;          // data:image/...;base64,…
     };
-    img.onerror = () => reject(new Error('not a valid image'));
-    img.src = URL.createObjectURL(file);
+    fr.readAsDataURL(file);
   });
 }
 
@@ -9144,7 +9152,8 @@ function _renderExposure() {
     const world = (_exposureResp.counts || {}).world || 0;
     if (!_exposureResp.audit_enabled && world > 0) {
       banner.hidden = false;
-      banner.innerHTML = `${world} world-reachable service${world === 1 ? '' : 's'} detected. Alerting is off — turn on the Listening-port &amp; firewall audit in <button class="btn-icon cell-sm" data-action-btn="_showPageBtn" data-page="settings">Settings</button> to be notified when a new one appears.`;
+      banner.innerHTML = `<span class="exposure-banner-text"><strong>${world}</strong> world-reachable service${world === 1 ? '' : 's'} detected. Alerting is off — turn on the Listening-port &amp; firewall audit to be notified when a new one appears.</span>`
+        + `<button class="btn-icon" data-action-btn="_showPageBtn" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Open Settings</button>`;
     } else { banner.hidden = true; banner.innerHTML = ''; }
   }
   if (rows.length === 0) {
@@ -19838,7 +19847,7 @@ function filterSettings(q) {
   if (!hint) {
     hint = document.createElement('div');
     hint.id = 'settings-search-hint';
-    hint.style.cssText = 'font-size:12px;color:var(--muted);margin:-6px 0 10px 0';
+    hint.className = 'settings-search-hint';
     const searchInput = document.getElementById('settings-search');
     if (searchInput && searchInput.parentNode) {
       searchInput.parentNode.insertBefore(hint, searchInput.nextSibling);
