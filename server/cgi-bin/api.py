@@ -17805,6 +17805,33 @@ def _device_contract_status(cmdb_rec):
             continue  # ok — nothing to surface
         out.append({'kind': kind, 'label': label, 'date': raw,
                     'days': days, 'status': status})
+    # v3.12.0: also scan the richer contracts[] / licenses[] business lists,
+    # reusing the existing support/license NA kinds (no new kind to register).
+    for _lkey, _lkind, _llabel, _namef in (
+            ('contracts', 'support_expiry', 'Contract', 'vendor'),
+            ('licenses',  'license_expiry', 'License',  'product')):
+        for item in (cmdb_rec or {}).get(_lkey) or []:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get('expiry') or ''
+            if not raw:
+                continue
+            try:
+                d = _dt.date.fromisoformat(raw)
+            except (ValueError, TypeError):
+                continue
+            days = (d - today).days
+            if days < 0:
+                status = 'expired'
+            elif days <= _CONTRACT_WARN_DAYS:
+                status = 'warn'
+            elif days <= _CONTRACT_SOON_DAYS:
+                status = 'soon'
+            else:
+                continue
+            nm = item.get(_namef) or item.get('number') or ''
+            out.append({'kind': _lkind, 'date': raw, 'days': days, 'status': status,
+                        'label': (f'{_llabel}: {nm}' if nm else _llabel)[:80]})
     return out
 
 
@@ -28857,6 +28884,10 @@ def _cmdb_record_default() -> dict:
         'warranty_expiry':          '',
         'license_expiry':           '',
         'support_contract_expiry':  '',
+        # v3.12.0: business lists — see _CMDB_LIST_SPECS.
+        'contracts':       [],
+        'contacts':        [],
+        'licenses':        [],
         'updated_by':      '',
         'updated_at':      0,
     }
@@ -28901,6 +28932,51 @@ def _cmdb_strip_creds(record: dict) -> dict:
         })
     out['credentials'] = safe
     return out
+
+
+# v3.12.0: CMDB business lists — contracts, customer contacts, licenses.
+# Stored as lists on the asset record; edited as a whole via handle_cmdb_update.
+MAX_CMDB_LIST_ITEMS = 40
+_CMDB_LIST_SPECS = {
+    'contracts': {'vendor': 80, 'number': 64, 'type': 40,
+                  'start': 'date', 'expiry': 'date', 'notes': 500},
+    'contacts':  {'tier': 16, 'name': 80, 'role': 64, 'email': 128, 'phone': 40},
+    'licenses':  {'product': 80, 'key': 200, 'seats': 'int',
+                  'expiry': 'date', 'notes': 500},
+}
+
+
+def _cmdb_clean_list(items, spec):
+    """Sanitize a CMDB business list (contracts/contacts/licenses) to its spec.
+    Returns (clean_list, error_or_None). Drops wholly-empty rows; caps length."""
+    import datetime as _dt
+    if not isinstance(items, list):
+        return [], 'must be a list'
+    out = []
+    for it in items[:MAX_CMDB_LIST_ITEMS]:
+        if not isinstance(it, dict):
+            continue
+        rec = {}
+        for f, rule in spec.items():
+            v = it.get(f)
+            if rule == 'date':
+                s = str(v or '').strip()
+                if s:
+                    try:
+                        _dt.date.fromisoformat(s)
+                    except ValueError:
+                        return [], f'{f} must be an ISO date (YYYY-MM-DD) or empty'
+                rec[f] = s
+            elif rule == 'int':
+                try:
+                    rec[f] = max(0, int(v)) if v not in (None, '') else 0
+                except (TypeError, ValueError):
+                    rec[f] = 0
+            else:
+                rec[f] = _sanitize_str(str(v or ''), rule)
+        if any(rec.get(f) for f in spec):
+            out.append(rec)
+    return out, None
 
 
 def _cmdb_validate_url(url) -> 'str | None':
@@ -29084,10 +29160,11 @@ def _trim_sysinfo(sysinfo) -> dict:
     """
     if not isinstance(sysinfo, dict):
         return {}
-    return {
+    out = {
         'kernel':         sysinfo.get('kernel', ''),
         'cpu':            sysinfo.get('cpu', ''),
-        'cores':          sysinfo.get('cores'),
+        'cores':          sysinfo.get('cores') or sysinfo.get('cpu_count'),
+        'cpu_count':      sysinfo.get('cpu_count'),
         'mem_total_mb':   sysinfo.get('mem_total_mb'),
         'mem_free_mb':    sysinfo.get('mem_free_mb'),
         'disk_total_gb':  sysinfo.get('disk_total_gb'),
@@ -29095,6 +29172,19 @@ def _trim_sysinfo(sysinfo) -> dict:
         'uptime_seconds': sysinfo.get('uptime_seconds'),
         'boot_time':      sysinfo.get('boot_time'),
     }
+    # v3.12.0: per-interface network + per-mount disks for the CMDB
+    # Hardware/Network panels (already collected by the agent; just surface).
+    net = sysinfo.get('network')
+    if isinstance(net, list):
+        out['network'] = [{'iface': i.get('iface', ''), 'ip': i.get('ip', ''),
+                           'mac': i.get('mac', '')}
+                          for i in net[:20] if isinstance(i, dict)]
+    mounts = sysinfo.get('mounts')
+    if isinstance(mounts, list):
+        out['mounts'] = [{'path': m.get('path', ''), 'percent': m.get('percent'),
+                         'size_gb': m.get('size_gb') or m.get('total_gb')}
+                        for m in mounts[:50] if isinstance(m, dict)]
+    return out
 
 
 def handle_cmdb_get(dev_id: str) -> None:
@@ -29250,6 +29340,15 @@ def handle_cmdb_update(dev_id: str) -> None:
                     respond(400, {'error': f'{_field} must be an ISO date (YYYY-MM-DD) or empty'})
             rec[_field] = val
             changed.append(_field)
+
+    # v3.12.0: business lists — contracts / contacts / licenses.
+    for _lf, _spec in _CMDB_LIST_SPECS.items():
+        if _lf in body:
+            _clean, _err = _cmdb_clean_list(body.get(_lf), _spec)
+            if _err:
+                respond(400, {'error': f'{_lf}: {_err}'})
+            rec[_lf] = _clean
+            changed.append(_lf)
 
     if not changed:
         respond(400, {'error': 'no recognised fields to update'})

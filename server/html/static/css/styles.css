@@ -4422,3 +4422,4 @@ tr.is-selected > td { background: rgba(59,126,255,0.10); }
 /* v3.12.0 fix: space between stacked cards (e.g. Software policy's rules card
    and the Current-violations card, which previously touched). */
 .table-card + .table-card { margin-top: 16px; }
+.cmdb-list-row { margin-bottom: 6px; }

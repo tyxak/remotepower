@@ -5428,6 +5428,8 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <button class="btn-icon cmdb-tab-btn active" data-tab="props" data-action="cmdbSwitchTab" data-arg="props" >Properties</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="docs" data-action="cmdbSwitchTab" data-arg="docs" >Documentation</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="creds" data-action="cmdbSwitchTab" data-arg="creds" >Credentials</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="hw" data-action="cmdbSwitchTab" data-arg="hw" >Hardware</button>
+    <button class="btn-icon cmdb-tab-btn" data-tab="biz" data-action="cmdbSwitchTab" data-arg="biz" >Contracts &amp; contacts</button>
     <button class="btn-icon cmdb-tab-btn" data-tab="snmp" data-action="cmdbSwitchTab" data-arg="snmp" >SNMP</button>
   </div>
 
@@ -5548,6 +5550,28 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
     <hr class="mt-12">
     <h4 class="mt-12">Latest poll</h4>
     <div id="cmdb-snmp-data" class="hint">No data yet — save the config and click "Poll now".</div>
+  </div>
+
+  <!-- v3.12.0: Hardware & network (read-only, from the agent) -->
+  <div id="cmdb-tab-hw" class="d-none">
+    <p class="hint">Reported by the agent on its heartbeat. Read-only.</p>
+    <div id="cmdb-hw-summary"></div>
+  </div>
+
+  <!-- v3.12.0: business lists — contracts, contacts, licenses -->
+  <div id="cmdb-tab-biz" class="d-none">
+    <div class="form-group">
+      <div class="form-row-wrap"><label class="form-label fw-600">Support contracts</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="contracts">+ Add contract</button></div>
+      <div id="cmdb-list-contracts"></div>
+    </div>
+    <div class="form-group">
+      <div class="form-row-wrap"><label class="form-label fw-600">Customer contacts (escalation)</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="contacts">+ Add contact</button></div>
+      <div id="cmdb-list-contacts"></div>
+    </div>
+    <div class="form-group">
+      <div class="form-row-wrap"><label class="form-label fw-600">Licenses</label><button class="btn-icon cell-sm" data-action="cmdbAddRow" data-arg="licenses">+ Add license</button></div>
+      <div id="cmdb-list-licenses"></div>
+    </div>
   </div>
 
   <div class="modal-actions">

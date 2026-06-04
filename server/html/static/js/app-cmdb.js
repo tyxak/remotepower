@@ -252,8 +252,75 @@ async function cmdbOpenAsset(deviceId) {
   // v2.0: render the docs list. Server returns docs[] migrated from the
   // legacy single 'documentation' field if needed.
   cmdbRenderDocs(res.data.docs || []);
+  // v3.12.0: business lists + hardware panel
+  _cmdbLists = {
+    contracts: Array.isArray(res.data.contracts) ? res.data.contracts : [],
+    contacts:  Array.isArray(res.data.contacts)  ? res.data.contacts  : [],
+    licenses:  Array.isArray(res.data.licenses)  ? res.data.licenses  : [],
+  };
+  ['contracts', 'contacts', 'licenses'].forEach(_cmdbRenderList);
+  _cmdbRenderHardware(res.data.sysinfo || {});
   cmdbSwitchTab('props');
   openModal('cmdb-asset-modal');
+}
+
+// ── v3.12.0: CMDB business lists (contracts/contacts/licenses) + hardware ─────
+const _CMDB_LIST_FIELDS = {
+  contracts: [['vendor', 'Vendor'], ['number', 'Contract #'], ['type', 'Type'], ['start', 'Start YYYY-MM-DD'], ['expiry', 'Expiry YYYY-MM-DD'], ['notes', 'Notes']],
+  contacts:  [['tier', 'Tier (L1/L2/L3)'], ['name', 'Name'], ['role', 'Role'], ['email', 'Email'], ['phone', 'Phone']],
+  licenses:  [['product', 'Product'], ['key', 'Key'], ['seats', 'Seats'], ['expiry', 'Expiry YYYY-MM-DD'], ['notes', 'Notes']],
+};
+let _cmdbLists = { contracts: [], contacts: [], licenses: [] };
+
+function _cmdbRenderList(type) {
+  const el = document.getElementById('cmdb-list-' + type);
+  if (!el) return;
+  const fields = _CMDB_LIST_FIELDS[type];
+  const items = _cmdbLists[type] || [];
+  if (!items.length) { el.innerHTML = '<div class="hint">None yet.</div>'; return; }
+  el.innerHTML = items.map((it, i) => {
+    const inputs = fields.map(([f, ph]) =>
+      `<input type="text" class="form-input" data-cmdb-list="${type}" data-cmdb-idx="${i}" data-cmdb-field="${f}" placeholder="${escAttr(ph)}" value="${escAttr(it[f] != null ? String(it[f]) : '')}">`).join('');
+    return `<div class="form-row-wrap cmdb-list-row">${inputs}<button class="btn-icon cell-sm" data-action="cmdbRemoveRow" data-arg="${type}" data-arg2="${i}">×</button></div>`;
+  }).join('');
+}
+function _cmdbReadLists() {
+  ['contracts', 'contacts', 'licenses'].forEach(type => {
+    const rows = {};
+    document.querySelectorAll(`[data-cmdb-list="${type}"]`).forEach(inp => {
+      const idx = inp.dataset.cmdbIdx, f = inp.dataset.cmdbField;
+      (rows[idx] = rows[idx] || {})[f] = inp.value.trim();
+    });
+    _cmdbLists[type] = Object.keys(rows).sort((a, b) => a - b).map(k => rows[k]);
+  });
+}
+function cmdbAddRow(type) {
+  _cmdbReadLists();
+  (_cmdbLists[type] = _cmdbLists[type] || []).push({});
+  _cmdbRenderList(type);
+}
+function cmdbRemoveRow(type, idx) {
+  _cmdbReadLists();
+  (_cmdbLists[type] || []).splice(idx, 1);
+  _cmdbRenderList(type);
+}
+function _cmdbRenderHardware(si) {
+  const el = document.getElementById('cmdb-hw-summary');
+  if (!el) return;
+  si = si || {};
+  const cores = si.cpu_count || si.cores || '—';
+  const ram = si.mem_total_mb ? (si.mem_total_mb >= 1024 ? (si.mem_total_mb / 1024).toFixed(1) + ' GB' : si.mem_total_mb + ' MB') : '—';
+  const disk = si.disk_total_gb ? si.disk_total_gb + ' GB' : '—';
+  let html = `<div class="form-row-wrap"><div><span class="hint">CPU</span><br>${escHtml(si.cpu || '—')}</div><div><span class="hint">Cores</span><br>${escHtml(String(cores))}</div><div><span class="hint">RAM</span><br>${escHtml(ram)}</div><div><span class="hint">Disk total</span><br>${escHtml(disk)}</div><div><span class="hint">Kernel</span><br>${escHtml(si.kernel || '—')}</div></div>`;
+  if (Array.isArray(si.mounts) && si.mounts.length) {
+    html += '<h4 class="mt-12">Mounts</h4>' + si.mounts.map(m =>
+      `<div class="hint">${escHtml(m.path || '')} — ${m.size_gb ? escHtml(m.size_gb + ' GB') : '—'}${m.percent != null ? ' · ' + escHtml(String(m.percent)) + '% used' : ''}</div>`).join('');
+  }
+  if (Array.isArray(si.network) && si.network.length) {
+    html += '<h4 class="mt-12">Network interfaces</h4>' + si.network.map(n =>
+      `<div class="hint mono-12">${escHtml(n.iface || '')} · ${escHtml(n.ip || '—')} · ${escHtml(n.mac || '—')}</div>`).join('');
+  }
+  el.innerHTML = html;
 }
 
 function cmdbSwitchTab(tab) {
@@ -265,6 +332,10 @@ function cmdbSwitchTab(tab) {
   document.getElementById('cmdb-tab-creds').style.display = tab === 'creds' ? 'block' : 'none';
   const snmpPane = document.getElementById('cmdb-tab-snmp');
   if (snmpPane) snmpPane.style.display = tab === 'snmp' ? 'block' : 'none';
+  const hwPane = document.getElementById('cmdb-tab-hw');
+  if (hwPane) hwPane.style.display = tab === 'hw' ? 'block' : 'none';
+  const bizPane = document.getElementById('cmdb-tab-biz');
+  if (bizPane) bizPane.style.display = tab === 'biz' ? 'block' : 'none';
   if (tab === 'creds') cmdbLoadCreds(_cmdbCurrent ? _cmdbCurrent.device_id : null);
   if (tab === 'snmp')  cmdbLoadSnmp(_cmdbCurrent ? _cmdbCurrent.device_id : null);
 }
@@ -605,6 +676,11 @@ async function cmdbAssetSave() {
     license_expiry:          document.getElementById('cmdb-asset-license').value.trim(),
     support_contract_expiry: document.getElementById('cmdb-asset-support').value.trim(),
   };
+  // v3.12.0: business lists (read the current editor state).
+  _cmdbReadLists();
+  body.contracts = _cmdbLists.contracts;
+  body.contacts  = _cmdbLists.contacts;
+  body.licenses  = _cmdbLists.licenses;
   const res = await cmdbApi('PUT', '/cmdb/' + encodeURIComponent(deviceId), body);
   if (!res) return;
   if (!res.ok) { alert('Save failed: ' + (res.data && res.data.error || res.status)); return; }

@@ -267,9 +267,11 @@ class TestSysinfoTrim(unittest.TestCase):
             "cores": 8,
             "mem_total_mb": 16384,
             "kernel": "5.15.0",
+            # v3.12.0: mounts + network are now whitelisted (bounded, dict-only)
+            # for the CMDB Hardware panel — but non-dict junk is still dropped.
+            "mounts": ["y"] * 100,           # strings → sanitised away to []
             # All these should be dropped:
             "services": ["x"] * 200,
-            "mounts": ["y"] * 100,
             "nics": ["z"] * 50,
             "aggressively_huge_field": "X" * 50000,
         }
@@ -278,8 +280,10 @@ class TestSysinfoTrim(unittest.TestCase):
         self.assertIn("kernel", trimmed)
         self.assertIn("mem_total_mb", trimmed)
         self.assertNotIn("services", trimmed)
-        self.assertNotIn("mounts", trimmed)
+        self.assertNotIn("nics", trimmed)
         self.assertNotIn("aggressively_huge_field", trimmed)
+        # mounts is whitelisted now, but the non-dict junk above is dropped.
+        self.assertEqual(trimmed.get("mounts", []), [])
         # Total size should be sane (small)
         self.assertLess(len(json.dumps(trimmed)), 1024)
 

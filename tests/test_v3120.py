@@ -341,5 +341,44 @@ class TestQuickWinsHandlers(_HandlerBase):
         self.assertEqual(mons[0]['body_match'], {'mode': 'contains', 'value': 'Welcome'})
 
 
+class TestCmdbEnrichment(unittest.TestCase):
+    def test_trim_sysinfo_surfaces_hw_net(self):
+        si = {'cpu_count': 8, 'mem_total_mb': 16384, 'disk_total_gb': 500,
+              'network': [{'iface': 'eth0', 'ip': '10.0.0.5', 'mac': 'aa:bb', 'x': 1}],
+              'mounts': [{'path': '/', 'percent': 42, 'size_gb': 500, 'j': 1}]}
+        t = api._trim_sysinfo(si)
+        self.assertEqual(t['cpu_count'], 8)
+        self.assertEqual(t['network'][0], {'iface': 'eth0', 'ip': '10.0.0.5', 'mac': 'aa:bb'})
+        self.assertEqual(t['mounts'][0], {'path': '/', 'percent': 42, 'size_gb': 500})
+
+    def test_business_list_validation(self):
+        clean, err = api._cmdb_clean_list(
+            [{'vendor': 'Dell', 'expiry': '2026-01-01'}, {'vendor': '', 'expiry': ''}],
+            api._CMDB_LIST_SPECS['contracts'])
+        self.assertIsNone(err)
+        self.assertEqual(len(clean), 1)
+        _, err2 = api._cmdb_clean_list([{'vendor': 'x', 'expiry': 'nope'}],
+                                       api._CMDB_LIST_SPECS['contracts'])
+        self.assertIn('ISO date', err2 or '')
+        lic, _ = api._cmdb_clean_list([{'product': 'W', 'seats': '50'}],
+                                      api._CMDB_LIST_SPECS['licenses'])
+        self.assertEqual(lic[0]['seats'], 50)
+
+    def test_contract_license_lists_feed_attention(self):
+        import datetime
+        soon = (datetime.date.today() + datetime.timedelta(days=10)).isoformat()
+        rec = api._cmdb_record_default()
+        rec['contracts'] = [{'vendor': 'Dell', 'expiry': soon}]
+        rec['licenses'] = [{'product': 'Win', 'expiry': soon}]
+        kinds = {v['kind'] for v in api._device_contract_status(rec)}
+        self.assertIn('support_expiry', kinds)
+        self.assertIn('license_expiry', kinds)
+
+    def test_record_default_has_lists(self):
+        d = api._cmdb_record_default()
+        for k in ('contracts', 'contacts', 'licenses'):
+            self.assertEqual(d[k], [])
+
+
 if __name__ == '__main__':
     unittest.main()

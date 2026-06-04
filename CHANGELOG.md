@@ -12,6 +12,13 @@ new dependencies) stores hot data row-per-entity so a device update is a single
 row write.
 
 ### Added
+- **CMDB enrichment.** Each asset's editor gains a **Hardware** tab (CPU, cores,
+  RAM, disk total, per-mount disks, network interfaces — read-only, surfaced
+  from the agent's heartbeat) and a **Contracts & contacts** tab with editable
+  **support contracts**, **customer contacts** (L1/L2/L3 escalation) and
+  **licenses** lists (`contracts` / `contacts` / `licenses` on the CMDB record).
+  Contract and license expiry dates feed the existing lifecycle-expiry attention
+  items, so they alert like warranty/support expiry already did.
 - **API key expiry (UI).** The create-key dialog now takes an optional expiry
   date; the keys table shows it (and flags expired/soon keys). The auth path
   already rejected expired keys — this surfaces and sets the date.
