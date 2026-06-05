@@ -13561,7 +13561,7 @@ async function _loadAuditSection(key) {
           const failIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
           h += `<div class="fs-12 mt-8 c-red">${failIco} <strong>${si.failed_units.length} failed unit${si.failed_units.length===1?'':'s'}</strong> ` +
             `<button class="btn-icon cell-sm" data-action="aiDiagnoseUnits" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(si.failed_units.join(','))}" title="AI: diagnose these failed units">${_icon('sparkles',12)} AI diagnose</button></div>` +
-            `<div class="mb-8 mt-4">` + si.failed_units.map(u=>
+            `<div class="mb-8 mt-4 scroll-cap-sm">` + si.failed_units.map(u=>
               `<span class="cmd-badge fs-11">${escHtml(String(u))}</span> `
             ).join('') + `</div>`;
         }
@@ -13569,7 +13569,7 @@ async function _loadAuditSection(key) {
         if (Array.isArray(si.mount_issues) && si.mount_issues.length) {
           const mIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
           h += `<div class="fs-12 mt-8 c-red">${mIco} <strong>${si.mount_issues.length} mount issue${si.mount_issues.length===1?'':'s'}</strong></div>` +
-            `<div class="mb-8 mt-4">` + si.mount_issues.map(mi=>{
+            `<div class="mb-8 mt-4 scroll-cap-sm">` + si.mount_issues.map(mi=>{
               const stalled = (mi.issue==='stalled');
               return `<span class="cmd-badge fs-11 ${stalled?'c-red':'c-amber'}"><code>${escHtml(mi.path||'?')}</code> — ${stalled?'stalled':'not mounted'}${mi.fstype?` (${escHtml(mi.fstype)})`:''}</span> `;
             }).join('') + `</div>`;
@@ -14008,10 +14008,20 @@ async function _loadAuditSection(key) {
           else if (c.mem_usage) parts.push(escHtml(c.mem_usage));
           return parts.length ? parts.join(' · ') : '—';
         };
-        body.innerHTML = `<table class="isl-649">
+        // v3.13.0 bind: surface restart_count (the crash-loop signal the
+        // server alerts on, container_restart_loop) — previously collected
+        // and alerted but never shown in the only table that lists containers.
+        const _restartCell = (c) => {
+          const rc = c.restart_count;
+          if (typeof rc !== 'number') return '<span class="c-muted">—</span>';
+          if (rc === 0) return '<span class="c-muted">0</span>';
+          const cls = rc >= 5 ? 'c-red' : 'c-amber';
+          return `<span class="${cls}" title="restart count">${rc}&times;</span>`;
+        };
+        body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="isl-649">
           <thead><tr class="c-muted">
             <th class="isl-650">Name</th>
-            <th>Status</th><th>Image</th><th>CPU / Mem</th><th>Ports</th><th>Age</th>
+            <th>Status</th><th>Restarts</th><th>Image</th><th>CPU / Mem</th><th>Ports</th><th>Age</th>
           </tr></thead>
           <tbody>
             ${ctrs.map(c => {
@@ -14032,13 +14042,14 @@ async function _loadAuditSection(key) {
               return `<tr class="border-top">
                 <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
+                <td>${_restartCell(c)}</td>
                 <td class="isl-653">${escHtml(img)}</td>
                 <td class="hint">${_resCell(c)}</td>
                 <td class="hint mono-12">${ports || '—'}</td>
                 <td class="hint">${escHtml(age)}</td>
               </tr>`;
             }).join('')}
-          </tbody></table>`;
+          </tbody></table></div>`;
         break;
       }
 
@@ -18207,6 +18218,7 @@ function _homeNavAction(btn) {
     case 'exposure': showPage('exposure',        document.querySelector('.nav-btn[data-page="exposure"]')); break;
     case 'storage':  showPage('storage',         document.querySelector('.nav-btn[data-page="storage"]')); break;
     case 'software-policy': showPage('software-policy', document.querySelector('.nav-btn[data-page="software-policy"]')); break;
+    case 'confirmations': showPage('confirmations', document.querySelector('.nav-btn[data-page="confirmations"]')); break;
     default:
       if (devId) openDetail(devId, devName);
       else showPage('devices', document.querySelector('.nav-btn[data-page="devices"]'));

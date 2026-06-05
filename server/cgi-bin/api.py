@@ -4323,13 +4323,27 @@ def _ip_class_blocked(ip_str, allow_loopback=True):
     """Per-IP SSRF classifier shared by the pre-flight DNS check and the
     connect-time peer recheck. Returns True for the host classes an SSRF
     attacker would target: link-local (covers 169.254.169.254 cloud
-    metadata), unspecified (0.0.0.0), and — when allow_loopback is False —
-    loopback. RFC1918 private ranges are allowed by design (LAN fleet)."""
+    metadata), unspecified (0.0.0.0), multicast and reserved, and — when
+    allow_loopback is False — loopback. RFC1918 private ranges are allowed
+    by design (LAN fleet)."""
     import ipaddress
     ip = ipaddress.ip_address(ip_str)
-    if ip.is_link_local or ip.is_unspecified:
-        return True
-    if ip.is_loopback and not allow_loopback:
+    # Unwrap IPv6 forms that embed an IPv4 address and re-classify the inner
+    # v4 — otherwise a v4 metadata/loopback target can be smuggled past the
+    # v6 checks: v4-mapped (::ffff:a.b.c.d), 6to4 (2002::/16), and the NAT64
+    # well-known prefix (64:ff9b::/96 wrapping 169.254.169.254).
+    if isinstance(ip, ipaddress.IPv6Address):
+        inner = ip.ipv4_mapped or ip.sixtofour
+        if inner is None and (int(ip) >> 32) == (0x0064ff9b << 64):
+            inner = ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        if inner is not None:
+            ip = inner
+    # Decide loopback first: ::1 is also is_reserved, so the reserved check
+    # below would otherwise block a loopback target even when allowed.
+    if ip.is_loopback:
+        return not allow_loopback
+    if (ip.is_link_local or ip.is_unspecified
+            or ip.is_multicast or ip.is_reserved):
         return True
     return False
 

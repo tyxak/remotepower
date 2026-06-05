@@ -104,6 +104,15 @@ already being reported and stored.
   `app-compliance.js`, `app-integrations.js`), cutting its parse cost. A new
   load-order test (`tests/test_jsload.py`, V8 via py_mini_racer) guards against a
   function/var being referenced at load time after a future move.
+- **More boxes capped.** The device-drawer **Containers** table, the **Drift
+  profiles** panel, and the failed-units / mount-issue chip rows now cap and
+  scroll instead of growing unbounded (shared `.scroll-cap` / `.scroll-cap-sm`
+  utilities).
+- **Typography consolidated.** A sweep aligned a set of drifted font sizes onto
+  the canonical body (14px) / dense (13px) / caption (12px) scale — the three
+  `.hint` variants, several `.5px` oddballs, a card header that read smaller than
+  its body, and the drawer device subtitle — so body copy is consistent
+  page-to-page.
 
 ### Security
 - **External SAST + DAST scan: no exploitable findings.** The release was
@@ -124,8 +133,26 @@ already being reported and stored.
 - **Syslog audit-forward DNS-rebinding fix.** The SIEM forwarder resolves its
   target once to a literal IP, classifies that IP, and connects to the literal —
   closing the rebinding window the HTTP path already guarded.
+- **SSRF classifier hardened against IPv6-embedded IPv4.** The shared per-IP
+  guard now unwraps v4-mapped (`::ffff:`), 6to4 (`2002::/16`) and NAT64
+  (`64:ff9b::/96`) addresses and re-classifies the inner IPv4, and additionally
+  rejects multicast and reserved ranges — closing a path that could smuggle
+  `169.254.169.254` past the v6 checks. RFC1918 LAN targets stay allowed.
 
 ### Fixed
+- **Container "Restarts" column in the device drawer.** The per-container table
+  now shows `restart_count` (amber, or red at ≥5) — the crash-loop signal the
+  `container_restart_loop` alert already fires on but the only container table
+  never displayed.
+- **MCP-confirmation activity items now open the right page.** Clicking a
+  `mcp_confirmation_expired` dashboard item (or the Settings "Confirmations"
+  link) fell through to the device drawer instead of the Confirmations page —
+  the navigation switch was missing the case.
+- **Firewall fingerprint no longer flaps on traffic.** The nftables/ufw
+  ruleset hash now zeroes volatile `counter packets … bytes …` statements before
+  hashing (as the iptables path already did), so `firewall_changed` only fires on
+  a real rule change, not on every heartbeat.
+- **Image-updates loading row spans all columns** (`colspan` was one short).
 - **`upgrade_and_reboot` now actually reboots.** Queued `exec:` commands ran with
   a fixed 300 s timeout, so a package upgrade taking longer than 5 minutes was
   killed *before* the trailing `systemctl reboot` — the host upgraded but never

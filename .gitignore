@@ -5,6 +5,11 @@ __pycache__/
 .mypy_cache/
 dist/
 
+# Local security-scan artifacts (Bandit/ZAP/Nikto/Nuclei/Wapiti bundles).
+# Kept on disk for the operator, never tracked.
+scan-*.tar.gz
+scan-*/
+
 # Local-only Claude Code working notes — kept on disk for the agent to read,
 # but never tracked, so it doesn't mirror to the production repo or releases.
 CLAUDE.md

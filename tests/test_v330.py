@@ -65,9 +65,8 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_release_notes_doc_present(self):
         # v3.3.0 release notes must stay present forever
-        path = REPO_ROOT / 'docs' / 'v3.3.0.md'
-        self.assertTrue(path.exists(), 'docs/v3.3.0.md is missing')
-        self.assertIn('3.3.0', path.read_text())
+        # notes recorded in CHANGELOG.md; per-version docs pruned to last 5
+        self.assertIn('3.3.0', (REPO_ROOT / 'CHANGELOG.md').read_text())
 
     # ── Audit feature regression tests ──────────────────────────────────
 

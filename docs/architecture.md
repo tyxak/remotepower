@@ -30,6 +30,14 @@ Browser ──HTTPS──► Nginx (your server, bare metal or Docker)
                               │                    audit_log.json, webhook_log.json, ratelimit.json
                               └── (each .json gets a rolling .json.bak sibling on every save)
 
+  Optional storage backend (v3.12.0+): the whole flat-JSON store above can be
+  switched in place to an embedded SQLite database (remotepower.db, WAL mode,
+  stdlib sqlite3 — no external DB server). Hot, high-cardinality data is stored
+  row-per-entity so a heartbeat updates one row instead of rewriting a file.
+  The storage helpers are backend-agnostic; flat JSON stays the default.
+  Switch under Settings → Advanced → Storage backend (reversible). See
+  docs/v3.12.0.md.
+
 Optional sibling daemon (only if you install the web terminal):
   systemd: remotepower-webterm.service
   └─ asyncio Python (websockets + asyncssh)

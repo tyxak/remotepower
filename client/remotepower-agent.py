@@ -2950,7 +2950,12 @@ def get_host_health():
             r = subprocess.run(['nft', 'list', 'ruleset'],
                                capture_output=True, text=True, timeout=8)
             if r.returncode == 0 and r.stdout.strip():
-                fw_backend, fw_text = 'nftables', r.stdout
+                # Zero nftables per-rule `counter packets N bytes N`
+                # statements so the fingerprint only moves on a real
+                # rule change, not on traffic (mirrors the iptables path).
+                fw_backend = 'nftables'
+                fw_text = re.sub(r'counter packets \d+ bytes \d+',
+                                 'counter packets 0 bytes 0', r.stdout)
         if not fw_text and _which('ufw'):
             r = subprocess.run(['ufw', 'status', 'verbose'],
                                capture_output=True, text=True, timeout=8)

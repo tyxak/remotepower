@@ -121,7 +121,7 @@ defences in place (kept current):
   permitted address for the check but an internal/metadata address for the real
   request is caught and refused. TLS verification (server name + certificate
   chain) is unaffected; the audit forwarder pins the verified TLS context for the
-  connection it validated. See `docs/security-review-3.8.0.md` (v3.8.0).
+  connection it validated. (Introduced v3.8.0.)
 - **HTTP monitor SSRF (v3.9.0).** The uptime monitor's `http`/`https` check now
   validates its target through the shared per-IP classifier instead of a literal
   string-prefix blocklist (which missed IPv6 `[::1]`, integer/octal/hex-encoded

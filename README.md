@@ -74,9 +74,12 @@ opening firewall ports on them. Each host runs a small Python agent that **polls
 the central server every 60 seconds — outbound HTTPS only. Enrolment is a 6-digit
 PIN, like pairing a console controller.
 
-Deliberately small: nginx + Python CGI + flat JSON files. No database, no Node.js,
-no Redis, no Kubernetes. The whole `/var/lib/remotepower/` directory backs up with
-`tar`. Tested on real homelabs running 5–50 devices, fine up to a few hundred.
+Deliberately small: nginx + Python CGI + flat JSON files. No external database, no
+Node.js, no Redis, no Kubernetes. The whole `/var/lib/remotepower/` directory backs
+up with `tar`. Tested on real homelabs running 5–50 devices, fine up to a few
+hundred — and for larger or write-heavy fleets you can switch to an optional
+embedded **SQLite** backend (stdlib only, still no external server) with a live,
+in-place, reversible migration from **Settings → Advanced → Storage backend**.
 
 ## Quick start
 
@@ -180,7 +183,7 @@ The demo is reset every few hours, so feel free to break things.
 - **Ansible playbook runner** *(v3.7)* — store playbooks and run them against a group/tag/site/fleet with the server as the control node over SSH (needs ansible-core on the server).
 - **AI Investigate — broadened** *(v3.8)* — the one-click diagnose-and-suggest-a-fix now covers ~21 Needs-Attention kinds: added malware/AV posture, stale agent version, end-of-life OS, hardware health, stale/missing backup, new SSH key, new listening port, agent integrity, log-pattern alerts, and **failed systemd units**, each with a tailored prompt (security-sensitive kinds never propose a blind destructive command).
 - **More host signals surfaced** *(v3.8)* — **failed systemd units** (now a health-scored attention item, also revived in the Fleet Query filter and CIS compliance check) and **currently logged-in users** show in the device drawer; both were collected by the agent but previously dropped before reaching the UI.
-- **Security hardening** *(v3.8)* — connect-time anti-DNS-rebinding on webhook / SIEM-forward / OIDC calls, maker-checker approval re-checks device state, opt-in mandatory signed agent updates, and a strict-CSP / header-inheritance pass on the nginx templates. See the **[v3.8.0 security review](docs/security-review-3.8.0.md)**.
+- **Security hardening** *(v3.8)* — connect-time anti-DNS-rebinding on webhook / SIEM-forward / OIDC calls, maker-checker approval re-checks device state, opt-in mandatory signed agent updates, and a strict-CSP / header-inheritance pass on the nginx templates. See the **[security model & review history](docs/security.md)**.
 - **Monitor SSRF closed + more signals bound** *(v3.9)* — the HTTP uptime monitor now uses the same connect-time SSRF guard as the other back-channels (closing IPv6 / integer-IP / DNS-rebinding bypasses), and three previously-collected-but-hidden signals surface: **CPU-load history** (Trends), **swap** on the metrics sparkline, **rkhunter last-run**, the **systemd alias** a watched unit resolved to, and **livepatch state**. See the **[v3.9.0 security review](docs/security-review-3.9.0.md)**.
 - **Correctness & polish** *(v3.9)* — the post-upgrade "didn't take" badge no longer false-alarms on already-patched or offline hosts; a metric-threshold bug that could skip disk alerting is fixed; TLS-expiry alerts get the right severity; three more tables are sortable; typographic glyphs replaced with Lucide icons; close buttons gained aria-labels.
 - **One-click image update + ACME in the Command Queue** *(v3.9)* — stale, compose-managed container rows get a one-click **Update** button (`docker compose pull` + `up -d`), and ACME certificate actions now log to the Command Queue's recently-dispatched view with **Clear all pending** / **Clear log** controls.

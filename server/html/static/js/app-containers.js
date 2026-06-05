@@ -28,7 +28,7 @@ async function loadImageUpdates() {
   // Eager sort wire-up so the ↕ indicators show before data arrives.
   _registerImageUpdatesTable();
   const tbody = document.getElementById('image-updates-tbody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="empty-state-sm">Loading…</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state-sm">Loading…</td></tr>';
   const data = await api('GET', '/image-updates');
   _imageUpdates = (data && data.images) || [];
   _renderImageUpdatesMeta(data && data.summary);

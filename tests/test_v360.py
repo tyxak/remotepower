@@ -55,9 +55,10 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIsNotNone(m)
 
     def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / 'v3.6.0.md'
-        self.assertTrue(path.exists())
-        self.assertIn('3.6.0', path.read_text())
+        # v3.6.0 notes live in CHANGELOG.md; per-version docs/vX.Y.Z.md are
+        # pruned to the last 5 (keep-last-5 housekeeping).
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        self.assertIn('3.6.0', chlog)
 
 
 class TestV360Routes(unittest.TestCase):

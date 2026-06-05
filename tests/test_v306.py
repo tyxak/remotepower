@@ -63,9 +63,8 @@ class TestVersionBumps(unittest.TestCase):
         self.assertIsNotNone(m, 'CHANGELOG.md has no ## v3.x.x header')
 
     def test_release_notes_doc_present(self):
-        path = REPO_ROOT / 'docs' / 'v3.0.6.md'
-        self.assertTrue(path.exists(), 'docs/v3.0.6.md is missing')
-        self.assertIn('3.0.6', path.read_text())
+        # notes recorded in CHANGELOG.md; per-version docs pruned to last 5
+        self.assertIn('3.0.6', (REPO_ROOT / 'CHANGELOG.md').read_text())
 
 
 # ── /api/health endpoint ────────────────────────────────────────────────────

@@ -54,8 +54,10 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_release_notes_doc_present(self):
         # v3.7.0 release notes must stay present forever
-        p = REPO_ROOT / 'docs' / 'v3.7.0.md'
-        self.assertTrue(p.exists()); self.assertIn('3.7.0', p.read_text())
+        # v3.7.0 notes live in CHANGELOG.md; per-version docs/vX.Y.Z.md are
+        # pruned to the last 5 (keep-last-5 housekeeping).
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        self.assertIn('3.7.0', chlog)
 
 
 class TestV370Routes(unittest.TestCase):

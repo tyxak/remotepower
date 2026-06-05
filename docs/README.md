@@ -30,11 +30,13 @@ holds long-form docs that don't fit there.
 - **[https.md](https.md)** — TLS termination at nginx with acme.sh or
  Let's Encrypt.
 - **[security.md](security.md)** — Threat model and on-disk data layout.
-- **[security-review-2.3.2.md](security-review-2.3.2.md)** — Independent
- security review from the 2.3.2 password-hashing release.
-- **[security-review-3.8.0.md](security-review-3.8.0.md)** — Security review
- from the 3.8.0 hardening pass (DNS-rebinding SSRF, maker-checker, signed
- updates).
+- **[security-review-3.13.0.md](security-review-3.13.0.md)** — Latest security
+ review (sandboxed SCAP reports, OIDC id_token claim checks, syslog-forward
+ DNS-rebinding fix) plus the external-scan summary.
+- **[security-review-3.10.0.md](security-review-3.10.0.md)** — Image-registry
+ SSRF / credential-exfiltration fix and the `/api/config` secret-scrub backstop.
+- **[security-review-3.9.0.md](security-review-3.9.0.md)** — HTTP / TCP uptime
+ monitor SSRF closure.
 - **[Manual.html](Manual.html)** — Single-page reference manual.
 
 ## Release notes
@@ -42,14 +44,18 @@ holds long-form docs that don't fit there.
 The full release history — every version, newest first — lives in
 [`CHANGELOG.md`](../CHANGELOG.md) at the repository root.
 
-The three most recent per-release notes are kept here:
+The five most recent per-release notes are kept here:
 
-- **[v2.4.13.md](v2.4.13.md)** — documentation and repository
- housekeeping.
-- **[v2.4.12.md](v2.4.12.md)** — three dashboard fixes; per-release
- asset cache-busting.
-- **[v2.4.11.md](v2.4.11.md)** — CVE-ignore moved to an in-page modal;
- ignored CVEs excluded from the Needs Attention digest.
+- **[v3.13.0.md](v3.13.0.md)** — bind-it-together round four; every panel caps
+ at ~15 rows and scrolls; SCAP / OIDC / syslog hardening.
+- **[v3.12.0.md](v3.12.0.md)** — optional SQLite storage backend with a live,
+ in-place, reversible migration.
+- **[v3.11.0.md](v3.11.0.md)** — fleet posture batch (exposure map, software
+ policy, storage/RAID health, access watch, firewall drift).
+- **[v3.10.0.md](v3.10.0.md)** — fleet-wide container restart tracking;
+ image-registry SSRF hardening.
+- **[v3.9.0.md](v3.9.0.md)** — uptime-monitor SSRF closure; more bound host
+ signals; correctness polish.
 
 ## Feature guides
 

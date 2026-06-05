@@ -13,7 +13,7 @@ CRITICAL or HIGH server- or agent-side issues were found. Prior-review fixes
 (SSRF anti-rebinding across webhooks / audit-forward / OIDC / monitors,
 image-registry SSRF + credential exfiltration, the `/api/config` secret scrub,
 the TCP-monitor IP-class check) were all verified intact. This release tightens
-three defence-in-depth gaps and confirms the rest of the surface defended.
+four defence-in-depth gaps and confirms the rest of the surface defended.
 
 ---
 
@@ -21,7 +21,7 @@ three defence-in-depth gaps and confirms the rest of the surface defended.
 
 The review concentrated on (a) the paths that render or serve
 agent-/IdP-supplied content to an operator's browser; (b) the OIDC back-channel
-token handling; and (c) the remaining raw-socket outbound path. Three MED/LOW
+token handling; and (c) the remaining raw-socket outbound path. Four MED/LOW
 items were addressed; the front-end CSP migration was confirmed complete
 (production already serves `script-src 'self'; style-src 'self'` with no
 `unsafe-inline`), and the agent's command channel, self-update verification, and
@@ -78,6 +78,27 @@ practical risk) and the path only *sends* a log line.
 classifies that literal IP with the existing `_url_targets_local_or_meta` guard,
 and connects to the literal IP (correct address family for UDP) — no second,
 unchecked resolution.
+
+---
+
+### 4. (LOW) SSRF IP classifier missed IPv6-embedded IPv4 and multicast/reserved
+`server/cgi-bin/api.py` — `_ip_class_blocked`.
+
+The shared per-IP SSRF classifier blocked link-local (so the
+`169.254.169.254` cloud-metadata address was covered), unspecified, and
+loopback, but did not unwrap IPv6 forms that *embed* an IPv4 address — 6to4
+(`2002::/16`) and the NAT64 well-known prefix (`64:ff9b::/96`) — so a target
+such as `64:ff9b::a9fe:a9fe` (169.254.169.254 wrapped) was classified global
+and allowed. Exploitation required an environment that actually routes those
+prefixes to the metadata service, and `getaddrinfo` to return such an address,
+so practical risk was low — but it is a real gap in defence-in-depth.
+
+**Fix.** `_ip_class_blocked` now unwraps v4-mapped (`::ffff:a.b.c.d`), 6to4 and
+NAT64-embedded IPv4 and re-classifies the inner address, and additionally
+rejects multicast and reserved ranges. Loopback is decided first (so a
+deliberately-allowed loopback target is unaffected — `::1` is itself
+`is_reserved`), and RFC1918 private ranges remain allowed by design for LAN
+fleets.
 
 ---
 

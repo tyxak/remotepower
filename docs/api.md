@@ -83,7 +83,6 @@ All authenticated endpoints require: `X-Token: <session_token_or_api_key>`
 | `GET` | `/api/patch-report` | | Full patch report (JSON) |
 | `GET` | `/api/patch-report/csv` | | Patch report as CSV (`?group=X&device_id=Y`) |
 | `GET` | `/api/patch-report/xml` | | Patch report as XML (`?group=X&device_id=Y`) |
-| `GET` | `/api/patch-report/pdf` | | Patch report as PDF (`?group=X&device_id=Y`) |
 | `GET` | `/api/patch-report/device/:id` | | Per-device patch detail |
 | `DELETE` | `/api/history` | admin | Clear command history |
 | `GET` | `/api/audit-log` | admin | Security audit log |

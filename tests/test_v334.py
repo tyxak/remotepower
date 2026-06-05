@@ -62,9 +62,8 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_release_notes_doc_present(self):
         # v3.3.4 release notes must stay present forever
-        path = REPO_ROOT / 'docs' / 'v3.3.4.md'
-        self.assertTrue(path.exists(), 'docs/v3.3.4.md is missing')
-        self.assertIn('3.3.4', path.read_text())
+        # notes recorded in CHANGELOG.md; per-version docs pruned to last 5
+        self.assertIn('3.3.4', (REPO_ROOT / 'CHANGELOG.md').read_text())
 
 
 class TestImageUpdatesShipped(unittest.TestCase):
@@ -89,8 +88,10 @@ class TestImageUpdatesShipped(unittest.TestCase):
         self.assertIn("'image_updated'", api)
 
     def test_whats_new_card_mentions_image_updates(self):
-        html = (REPO_ROOT / 'server' / 'html' / 'index.html').read_text()
-        self.assertIn("What's new — v3.3.4", html)
+        # The in-app "What's new" cards keep only the last 5 versions; older
+        # release notes live in CHANGELOG.md (keep-last-5 housekeeping).
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        self.assertIn('3.3.4', chlog)
 
 
 class TestComposeStacksShipped(unittest.TestCase):

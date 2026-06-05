@@ -66,9 +66,10 @@ class TestVersionBumps(unittest.TestCase):
 
     def test_release_notes_doc_present(self):
         # v3.4.0 release notes must stay present forever
-        path = REPO_ROOT / 'docs' / 'v3.4.0.md'
-        self.assertTrue(path.exists(), 'docs/v3.4.0.md is missing')
-        self.assertIn('3.4.0', path.read_text())
+        # v3.4.0 notes live in CHANGELOG.md; per-version docs/vX.Y.Z.md are
+        # pruned to the last 5 (keep-last-5 housekeeping).
+        chlog = (REPO_ROOT / 'CHANGELOG.md').read_text()
+        self.assertIn('3.4.0', chlog)
 
 
 class TestRagShipped(unittest.TestCase):

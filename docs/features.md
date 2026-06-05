@@ -446,7 +446,7 @@ full-access one.
 Passwords are stored with PBKDF2 (600k iterations, per-user salt),
 replacing the legacy unsalted-SHA-256 fallback. A default-password
 warning banner prompts a change on first login. See
-`docs/security-review-2.3.2.md`.
+`docs/security.md`.
 
 ### Proxmox LXC containers *(v2.3.0)* and snapshots *(v2.4.0)*
 LXC containers on the Proxmox node appear on the Containers page with
@@ -935,7 +935,7 @@ ZAP full + nikto + nuclei); the two real findings — an error-disclosure 500
 on the public status/calendar endpoints (a non-ASCII `?token=` is now
 rejected cleanly) and security headers dropped on a couple of static nginx
 paths — are fixed, and the shipped nginx templates gained a CSP / header /
-TLS hardening pass. See `docs/security-review-3.8.0.md`.
+TLS hardening pass. See `docs/security.md`.
 
 **Boot reason** (why a host last restarted) is now stored and shown.
 **Failed systemd units** and **logged-in users** were being silently

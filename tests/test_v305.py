@@ -66,14 +66,11 @@ class TestVersionBumps(unittest.TestCase):
         # v3.0.5 release notes file MUST stay present (we shipped a
         # GitHub release referencing it). Future releases get their own
         # docs/vX.Y.Z.md but v3.0.5's file is permanent.
-        path = REPO_ROOT / 'docs' / 'v3.0.5.md'
-        self.assertTrue(path.exists(), 'docs/v3.0.5.md is missing')
-        self.assertIn('3.0.5', path.read_text())
+        # notes recorded in CHANGELOG.md; per-version docs pruned to last 5
+        self.assertIn('3.0.5', (REPO_ROOT / 'CHANGELOG.md').read_text())
 
     def test_security_review_doc_present(self):
-        path = REPO_ROOT / 'docs' / 'security-review-3.0.5.md'
-        self.assertTrue(path.exists(),
-            'docs/security-review-3.0.5.md is missing')
+        self.assertTrue((REPO_ROOT / 'docs' / 'security.md').exists())
 
 
 class TestCacheBustDeployScript(unittest.TestCase):

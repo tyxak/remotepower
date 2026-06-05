@@ -13,7 +13,10 @@ RemotePower has three parts:
 
 - **The server** — nginx in front of Python CGI. It serves the
   dashboard and API, ingests agent heartbeats, runs CVE and monitor
-  checks, and stores everything in flat JSON files. No database.
+  checks, and stores everything in flat JSON files by default — or, on
+  larger fleets, an optional embedded SQLite backend (stdlib only, no
+  external database server) you can switch to in place. See
+  `docs/v3.12.0.md` for the storage backend.
 - **The agent** — a small Python script (`remotepower-agent`) on
   each managed host. It heartbeats out to the server every 60
   seconds. The agent reaches the server; the server never needs
@@ -159,8 +162,9 @@ including snapshots. Use a scoped Proxmox API token.
 
 ## 6. Backup &amp; restore
 
-All state is flat JSON in the data directory — backing RemotePower up
-is backing up that directory.
+All state lives in the data directory — flat JSON by default, or a
+single `remotepower.db` SQLite file if you switched backends — so
+backing RemotePower up is backing up that directory.
 
 ### 6.1 Built-in export
 
