@@ -7791,27 +7791,46 @@ def handle_heartbeat():
             cc = si.get('cpu_count')
             if isinstance(cc, int) and 1 <= cc <= 1024:
                 safe_si['cpu_count'] = cc
-            # mounts: bounded list, each with sanitised path, percent, sizes
+            # mounts: bounded list, each with sanitised path, percent, sizes.
+            # v3.13.0: network shares (NFS/SMB/CIFS) carry network/server flags,
+            # and a stalled net share has no usable percent — keep it anyway so
+            # the UI can show it as stalled rather than silently dropping it.
             if isinstance(si.get('mounts'), list):
                 safe_mounts = []
-                for m in si['mounts'][:50]:
+                for m in si['mounts'][:60]:
                     if not isinstance(m, dict):
                         continue
                     p = _sanitize_str(m.get('path', ''), 256)
                     if not p or not p.startswith('/'):
                         continue
+                    is_net = bool(m.get('network'))
+                    stalled = bool(m.get('stalled'))
                     pct = m.get('percent')
-                    if not (isinstance(pct, (int, float)) and 0.0 <= pct <= 100.0):
+                    has_pct = isinstance(pct, (int, float)) and 0.0 <= pct <= 100.0
+                    # Drop only if there's nothing useful: no usage AND not a
+                    # flagged network share (which is worth showing on its own).
+                    if not has_pct and not (is_net or stalled):
                         continue
-                    safe_mounts.append({
+                    entry = {
                         'path':     p,
-                        'percent':  round(float(pct), 1),
                         'used_gb':  round(float(m.get('used_gb', 0)), 2)
                                       if isinstance(m.get('used_gb'), (int, float)) else 0,
                         'total_gb': round(float(m.get('total_gb', 0)), 2)
                                       if isinstance(m.get('total_gb'), (int, float)) else 0,
                         'fstype':   _sanitize_str(m.get('fstype', ''), 32),
-                    })
+                    }
+                    # Omit `percent` entirely when there's no usable usage (a
+                    # stalled net share) so `.get('percent', 0)` stays safe and
+                    # no false disk-fill alert fires; the frontend treats a
+                    # missing percent as "—"/stalled.
+                    if has_pct:
+                        entry['percent'] = round(float(pct), 1)
+                    if is_net:
+                        entry['network'] = True
+                        entry['server'] = _sanitize_str(m.get('server', ''), 128)
+                    if stalled:
+                        entry['stalled'] = True
+                    safe_mounts.append(entry)
                 safe_si['mounts'] = safe_mounts
             # v3.12.0: mount-point health (fstab vs mount; stalled net shares)
             if isinstance(si.get('mount_issues'), list):

@@ -27,9 +27,17 @@ already being reported and stored.
   pressure pills in the drawer.
 
 ### Changed
-- **Every box fits.** Device-drawer cards and large page tables (Compliance,
-  Pools, Ports, Mounts, Containers, SMART) cap at ~15 rows and scroll internally
-  instead of stretching the page.
+- **Every box fits — project-wide.** Beyond the drawer cards, *every* table card
+  in the app now caps at ~15 rows and scrolls internally with a sticky header
+  (one central `.table-card` rule), so no page — Exposure included, which was not
+  wired to the 15/page pagination — grows into kilometers of rows. Paginated
+  tables still show 15/page; their pager sits outside the capped card.
+- **Network mounts collected.** The metrics collector now uses
+  `disk_partitions(all=True)` — previously `all=False` silently omitted *every*
+  network filesystem, so NFS/SMB/CIFS mounts never appeared. Network shares are
+  now reported (with a `net` badge + their server) in the device drawer and the
+  Monitor page, feed per-mount disk-fill alerting, and a hung share is shown as
+  *stalled* (probed with a killable timeout so it can't block the heartbeat).
 - **Faster loads.** Version-busted static assets are served
   `Cache-Control: immutable, max-age=1y` (no more per-load 304 revalidations);
   front-end scripts load `defer`; `_compute_fleet_risk()` is file-cached for 10s
@@ -48,6 +56,13 @@ already being reported and stored.
   closing the rebinding window the HTTP path already guarded.
 
 ### Fixed
+- **Host firewall detection.** On hosts where the active ruleset lives in the
+  *legacy* iptables backend or in non-filter tables (common on Proxmox / PMG with
+  `PVEFW-*` chains), the agent read 0 rules from a single `iptables -S` and wrongly
+  reported the host as having no firewall. It now scans every table via
+  `iptables-save`, probes both the nft and legacy backends, counts nftables rules
+  by handle, and detects firewalld — so an active firewall is no longer mislabeled
+  inactive.
 - Purely numeric device tags now highlight correctly when selected.
 - `escHtml` now also escapes single quotes (matches the other escape helpers).
 - The update banner's release-notes link is scheme-validated before render.

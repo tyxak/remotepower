@@ -1283,7 +1283,16 @@
   }
   td { padding: 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
-  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  /* v3.13.0: project-wide cap — no table card grows past ~15 rows; beyond that
+   * it scrolls inside the card with a sticky header. Paginated tables (15/page)
+   * fit under the cap so they don't get a redundant inner scrollbar, and their
+   * pager renders as a sibling *outside* the card so it's never hidden. This is
+   * the single guard that keeps every page short instead of kilometers of rows. */
+  .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: auto; max-height: 620px; }
+  .table-card thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; box-shadow: inset 0 -1px 0 var(--border); }
+  /* v3.13.0: discovery scan results render into a bare div (not a .table-card),
+   * so cap it too — a /24 scan can return 254 hosts. */
+  #discovery-body { max-height: 620px; overflow: auto; }
   .mon-status {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 3px 9px; border-radius: 20px;

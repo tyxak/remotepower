@@ -2501,38 +2501,74 @@ def collect_firewall_detail():
         return rc != 0 and not txt.strip()
     backends = []
 
-    # nftables — the modern in-kernel firewall (also the backend iptables-nft uses)
+    # nftables — the modern in-kernel firewall (also the backend iptables-nft
+    # uses). Count rules by their handle (`nft -a` stamps `# handle N` on each
+    # *rule*; table/chain headers carry a handle too but always contain `{`, so
+    # excluding `{` lines counts rules only). This is far more reliable than the
+    # old verdict-keyword heuristic, which missed rules that don't end in a bare
+    # accept/drop (e.g. `... counter` or a named-set jump).
     nft = _which('nft')
     if nft:
-        rc, txt, _ = _run([nft, 'list', 'ruleset'])
-        rules = sum(1 for l in txt.splitlines()
-                    if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ', ' goto ')))
+        rc, txt, _ = _run([nft, '-a', 'list', 'ruleset'])
+        rules = sum(1 for l in txt.splitlines() if '# handle ' in l and '{' not in l)
+        if rules == 0 and txt.strip():
+            # Fallback for nft builds where -a doesn't emit handles.
+            rules = sum(1 for l in txt.splitlines()
+                        if any(v in l for v in (' accept', ' drop', ' reject', ' queue', ' jump ', ' goto ')))
         backends.append({'name': 'nftables', 'present': True, 'rules': rules,
                          'active': None if _unreadable(rc, txt) else rules > 0})
 
-    # iptables — prefer `iptables -S`: it works on both the nft and legacy
-    # backends and lists EVERY chain, including custom ones like Proxmox's
-    # PVEFW-*. (iptables-save sometimes returns nothing under the nft backend.)
-    ipt = _which('iptables') or _which('iptables-save')
-    if ipt:
-        if os.path.basename(ipt) == 'iptables':
-            rc, txt, _ = _run([ipt, '-S'])
+    # iptables — scan EVERY table (filter/nat/mangle/raw/security) via
+    # `iptables-save`, and probe BOTH the nft and legacy backends. On Proxmox /
+    # PMG the active ruleset frequently lives in the *legacy* backend even when
+    # `iptables` resolves to the nft shim, and custom chains (PVEFW-*) put rules
+    # in non-filter tables — so the old single `iptables -S` (filter only, one
+    # backend) read 0 rules and wrongly reported the host unfirewalled. Take the
+    # union across backends/tables.
+    ipt_present = False
+    ipt_rules = 0
+    ipt_policy = ''
+    ipt_readable = False
+    for save_bin, list_bin in (('iptables-save', 'iptables'),
+                               ('iptables-legacy-save', 'iptables-legacy')):
+        sb, lb = _which(save_bin), _which(list_bin)
+        if sb:
+            rc, txt, _ = _run([sb])
+        elif lb:
+            rc, txt, _ = _run([lb, '-S'])
         else:
-            rc, txt, _ = _run([ipt])
-        policy, rules = '', 0
+            continue
+        ipt_present = True
+        if _unreadable(rc, txt) or not txt.strip():
+            continue
+        ipt_readable = True
         for l in txt.splitlines():
             ls = l.strip()
-            if ls.startswith('-P INPUT '):          # iptables -S form
-                p = ls.split();  policy = p[2] if len(p) >= 3 else ''
-            elif ls.startswith(':INPUT '):           # iptables-save form
-                p = ls.split();  policy = p[1] if len(p) >= 2 else ''
-            elif ls.startswith('-A '):
-                rules += 1
-        b = {'name': 'iptables', 'present': True, 'rules': rules}
-        if policy:
-            b['policy'] = policy
-        b['active'] = None if _unreadable(rc, txt) else (rules > 0 or policy in ('DROP', 'REJECT'))
+            if ls.startswith('-A '):
+                ipt_rules += 1
+            elif ls.startswith(':INPUT ') and not ipt_policy:      # save form
+                p = ls.split();  ipt_policy = p[1] if len(p) >= 2 else ''
+            elif ls.startswith('-P INPUT ') and not ipt_policy:    # -S form
+                p = ls.split();  ipt_policy = p[2] if len(p) >= 3 else ''
+    if ipt_present:
+        b = {'name': 'iptables', 'present': True, 'rules': ipt_rules}
+        if ipt_policy:
+            b['policy'] = ipt_policy
+        b['active'] = (ipt_rules > 0 or ipt_policy in ('DROP', 'REJECT')) if ipt_readable else None
         backends.append(b)
+
+    # firewalld — a front-end that programs nftables/iptables underneath. The
+    # nft probe above already sees its rules, but report it explicitly so the
+    # operator knows what's managing the host.
+    fwc = _which('firewall-cmd')
+    if fwc:
+        rc, st, _ = _run([fwc, '--state'])
+        _rc2, allz, _ = _run([fwc, '--list-all'])
+        rules = sum(len(ls.split(':', 1)[1].split())
+                    for ls in (x.strip() for x in allz.splitlines())
+                    if ls.startswith(('services:', 'ports:', 'rich rules:')) and ':' in ls)
+        backends.append({'name': 'firewalld', 'present': True, 'rules': rules,
+                         'active': None if _unreadable(rc, st) else ('running' in st.lower())})
 
     # ufw — a front-end (counted separately because operators manage it directly)
     ufw = _which('ufw')
@@ -3438,37 +3474,68 @@ def get_metrics():
 
     # Per-mount usage. Filter to "interesting" filesystems: skip
     # tmpfs, devtmpfs, squashfs (snap mounts), overlay (containers).
-    # Include ext*, xfs, btrfs, zfs, nfs — anything you'd actually want
-    # disk-fill alerts for.
+    # Include ext*, xfs, btrfs, zfs, AND network shares (NFS/SMB/CIFS) —
+    # anything you'd actually want disk-fill / capacity monitoring for.
+    #
+    # v3.13.0: use disk_partitions(all=True). all=False omits EVERY network
+    # filesystem (psutil only returns physical devices), which is why NFS/SMB
+    # mounts never appeared. With all=True we get them too; the skip set still
+    # drops the pseudo filesystems, and we dedupe by mountpoint (all=True can
+    # list bind mounts twice). Network mounts get a `network: True` flag and
+    # `server` (the export/share) so the UI can badge them, and their
+    # statvfs is guarded by a killable responsiveness probe so a hung NFS/SMB
+    # server can never block the heartbeat.
     skip_fstypes = {'tmpfs', 'devtmpfs', 'squashfs', 'overlay', 'overlayfs',
                     'fuse.gvfsd-fuse', 'autofs', 'proc', 'sysfs', 'cgroup',
                     'cgroup2', 'devpts', 'mqueue', 'debugfs', 'tracefs',
                     'pstore', 'bpf', 'configfs', 'fusectl', 'hugetlbfs',
-                    'binfmt_misc', 'rpc_pipefs'}
+                    'binfmt_misc', 'rpc_pipefs', 'ramfs', 'efivarfs',
+                    'nsfs', 'tracefs', 'securityfs'}
     mounts = []
+    seen_mp = set()
     try:
-        for part in _psutil.disk_partitions(all=False):
-            if part.fstype in skip_fstypes:
+        for part in _psutil.disk_partitions(all=True):
+            fstype = part.fstype or ''
+            base = fstype.split('.')[0]
+            is_net = fstype in _MOUNT_NET_FS or base in ('nfs', 'cifs', 'smb')
+            if not is_net and fstype in skip_fstypes:
+                continue
+            mp = part.mountpoint
+            if mp in seen_mp:
                 continue
             # Skip snap mounts even if fstype isn't squashfs (rare edge case).
-            if part.mountpoint.startswith('/snap/') or part.mountpoint.startswith('/var/lib/snapd'):
+            if mp.startswith('/snap/') or mp.startswith('/var/lib/snapd'):
+                continue
+            # Network mount: never call statvfs on a possibly-hung server
+            # without a killable timeout probe first.
+            if is_net and _mount_responsive(mp) is False:
+                seen_mp.add(mp)
+                mounts.append({'path': mp, 'fstype': fstype, 'network': True,
+                               'server': (part.device or '')[:128], 'stalled': True})
                 continue
             try:
-                u = _psutil.disk_usage(part.mountpoint)
+                u = _psutil.disk_usage(mp)
             except (PermissionError, OSError):
                 continue
-            mounts.append({
-                'path':     part.mountpoint,
+            seen_mp.add(mp)
+            entry = {
+                'path':     mp,
                 'percent':  round(u.percent, 1),
                 'used_gb':  round(u.used / (1024**3), 2),
                 'total_gb': round(u.total / (1024**3), 2),
-                'fstype':   part.fstype,
-            })
+                'fstype':   fstype,
+            }
+            if is_net:
+                entry['network'] = True
+                entry['server'] = (part.device or '')[:128]   # e.g. 1.2.3.4:/export
+            mounts.append(entry)
     except Exception:
         pass
     # Sanity cap: if a host somehow has thousands of mounts (NFS automount
-    # going wild), don't dump them all into every heartbeat.
-    out['mounts'] = mounts[:50]
+    # going wild), don't dump them all into every heartbeat. Sort so local
+    # data filesystems and network shares come before transient bind mounts.
+    mounts.sort(key=lambda m: (not m.get('network', False) and m['path'] != '/', m['path']))
+    out['mounts'] = mounts[:60]
 
     # v3.12.0: mount-point health — fstab entries that aren't mounted
     # ("missing"), and mounted network shares that don't respond ("stalled",

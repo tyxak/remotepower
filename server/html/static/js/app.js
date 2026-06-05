@@ -3249,7 +3249,8 @@ async function openMetricThresholds(id, name) {
   }
   if (Array.isArray(si.mounts)) {
     for (const m of si.mounts.slice(0, 6)) {
-      lines.push(`disk ${m.path}: ${m.percent}%`);
+      const where = m.network ? ` (network${m.server ? ' ' + m.server : ''})` : '';
+      lines.push(`disk ${m.path}${where}: ${m.stalled ? 'stalled' : (m.percent != null ? m.percent + '%' : 'n/a')}`);
     }
   }
   document.getElementById('metric-thresholds-current').textContent =
@@ -3423,8 +3424,14 @@ function _registerDeviceMetricsTable() {
       if (mounts.length > 0) {
         const items = mounts.map(m => {
           const lv = state[`disk:${m.path}`] || 'ok';
+          const net = m.network ? '⇄ ' : '';   // network share marker
+          const label = escHtml((m.path.length > 14 ? '…' + m.path.slice(-13) : m.path));
+          // v3.13.0: stalled / unknown-usage net share — show state, not "0%".
+          if (m.stalled || m.percent == null) {
+            return `<span title="${escHtml(m.path)}${m.server ? ' — ' + escHtml(m.server) : ''}" class="isl-349" data-color="var(--red)">${net}${label}: ${m.stalled ? 'stalled' : '—'}</span>`;
+          }
           const color = lv === 'critical' ? 'var(--red)' : lv === 'warning' ? 'var(--amber)' : 'var(--muted)';
-          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB" class="isl-349" data-color="${color}">${escHtml(m.path.length > 14 ? '…' + m.path.slice(-13) : m.path)}: ${Number(m.percent).toFixed(0)}%</span>`;
+          return `<span title="${escHtml(m.path)} — ${m.used_gb}/${m.total_gb} GB${m.server ? ' @ ' + escHtml(m.server) : ''}" class="isl-349" data-color="${color}">${net}${label}: ${Number(m.percent).toFixed(0)}%</span>`;
         });
         diskCell = items.join('');
       } else if (si.disk_percent !== undefined) {
@@ -13861,15 +13868,24 @@ async function _loadAuditSection(key) {
             }).join('') + `</div>`;
         }
         if ((si.mounts||[]).length) {
+          // v3.13.0: network shares (NFS/SMB/CIFS) get a badge + their server,
+          // and a stalled share (no usable usage) shows "stalled" not "null%".
           h += `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
             <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
-            <tbody>` + si.mounts.map(m=>
-              `<tr><td class="isl-629"><code>${escHtml(m.path)}</code></td>
+            <tbody>` + si.mounts.map(m=>{
+              const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)" title="${escAttr(m.server||'network share')}">net</span>` : '';
+              if (m.stalled) {
+                return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
+                   <td class="fs-11 c-muted">${escHtml(m.fstype || '—')}</td>
+                   <td class="ta-center c-muted" colspan="3"><span class="pill" data-color="var(--red)">stalled</span></td></tr>`;
+              }
+              const pct = (m.percent != null) ? m.percent : null;
+              return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
                    <td class="fs-11 c-muted">${escHtml(m.fstype || '—')}</td>
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
-                   <td class="isl-630 ${m.percent>85?'c-red': m.percent>70?'c-amber': ''}">${m.percent}%</td></tr>`
-            ).join('') + `</tbody></table></div>`;
+                   <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td></tr>`;
+            }).join('') + `</tbody></table></div>`;
         }
         // v3.13.0: per-host storage / RAID health (ZFS / mdadm / btrfs).
         // Previously only on the fleet Storage page — surface this host's own

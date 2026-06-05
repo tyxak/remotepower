@@ -157,6 +157,83 @@ class TestSecurityHardening(unittest.TestCase):
         self.assertIn("getaddrinfo(host, port", self.src)
 
 
+class TestProjectWideTableCap(unittest.TestCase):
+    """Every table card caps at ~15 rows and scrolls with a sticky header."""
+
+    def setUp(self):
+        self.css = (_ROOT / "server/html/static/css/styles.css").read_text()
+
+    def test_table_card_capped(self):
+        # The base .table-card rule must carry a max-height + overflow so no
+        # page (e.g. Exposure) grows unbounded.
+        seg = self.css.split(".table-card {", 1)[1].split("}", 1)[0]
+        self.assertIn("max-height", seg)
+        self.assertIn("overflow", seg)
+
+    def test_table_card_sticky_header(self):
+        self.assertIn(".table-card thead th", self.css)
+        seg = self.css.split(".table-card thead th", 1)[1].split("}", 1)[0]
+        self.assertIn("sticky", seg)
+
+
+class TestNetworkMounts(unittest.TestCase):
+    """NFS/SMB/CIFS mounts are collected (agent) and preserved (server)."""
+
+    def setUp(self):
+        self.agent = (_ROOT / "client/remotepower-agent.py").read_text()
+        self.api = (_CGI_BIN / "api.py").read_text()
+        self.js = client_js()
+
+    def test_agent_includes_network_filesystems(self):
+        # all=False omits every network mount — the bug. Must be all=True.
+        self.assertIn("disk_partitions(all=True)", self.agent)
+        self.assertNotIn("disk_partitions(all=False)", self.agent)
+
+    def test_agent_flags_network_and_guards_stall(self):
+        # Network mounts get a flag, and a hung share is probed (killable)
+        # before statvfs so it can't block the heartbeat.
+        self.assertIn("'network'", self.agent)
+        self.assertIn("_mount_responsive", self.agent)
+
+    def test_server_preserves_network_fields(self):
+        self.assertIn("entry['network'] = True", self.api)
+        self.assertIn("entry['server']", self.api)
+
+    def test_frontend_renders_net_and_stalled(self):
+        self.assertIn("m.network", self.js)
+        self.assertIn("stalled", self.js)
+
+
+class TestFirewallDetection(unittest.TestCase):
+    """Firewall probe scans all tables + both backends + nft handles + firewalld."""
+
+    def setUp(self):
+        self.agent = (_ROOT / "client/remotepower-agent.py").read_text()
+
+    def test_scans_all_tables_via_save(self):
+        self.assertIn("iptables-save", self.agent)
+        self.assertIn("iptables-legacy-save", self.agent)
+
+    def test_nft_counts_by_handle(self):
+        self.assertIn("# handle ", self.agent)
+
+    def test_detects_firewalld(self):
+        self.assertIn("firewall-cmd", self.agent)
+
+    def test_collect_runs(self):
+        # Import the agent and run the collector — must not raise even where
+        # the tools are absent / unreadable (returns None or a list).
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rpa_fw", _ROOT / "client/remotepower-agent.py")
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except SystemExit:
+            pass
+        res = mod.collect_firewall_detail()
+        self.assertTrue(res is None or isinstance(res, dict))
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored
