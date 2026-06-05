@@ -246,6 +246,92 @@ def build_users() -> dict:
     }
 
 
+def _demo_enrich_sysinfo(dev, rng, si):
+    """v3.11–v3.13 device-drawer / Exposure / Storage demo data, added in place.
+
+    Populates the signals that drive the newer per-device cards so the demo
+    actually shows them: access watch (recent logins), systemd timers, listening
+    ports with world/lan/local scope, per-host storage/RAID health, and the
+    firewall posture + drift fingerprint."""
+    tags = dev.get('tags') or []
+    # ── access watch: recent logins + distinct source IPs ──
+    _users = rng.sample(['jmo', 'root', 'deploy', 'ansible', 'admin'],
+                        k=rng.randint(1, 3))
+    _srcs = rng.sample(['192.168.1.50', '10.0.0.12', '213.174.78.189',
+                        '95.166.252.182', '172.19.0.1', '192.168.2.21'],
+                       k=rng.randint(1, 4))
+    si['auth'] = {
+        'recent_logins': [{'user': rng.choice(_users), 'source': rng.choice(_srcs)}
+                          for _ in range(rng.randint(2, 8))],
+        'sources': _srcs,
+    }
+    # ── systemd timers (some failed on a couple of hosts) ──
+    _timers = [('apt-daily.timer', 'apt-daily.service'),
+               ('logrotate.timer', 'logrotate.service'),
+               ('fstrim.timer', 'fstrim.service'),
+               ('certbot.timer', 'certbot.service'),
+               ('backup-nightly.timer', 'backup-nightly.service')]
+    si['timers'] = [{'unit': u, 'activates': a,
+                     'failed': (dev['id'] in ('jf01', 'nc01') and u == 'backup-nightly.timer')}
+                    for u, a in rng.sample(_timers, k=rng.randint(3, len(_timers)))]
+    # ── listening ports with bind address + scope (Exposure) ──
+    _catalog = [('tcp', 22, 'sshd', '0.0.0.0', 'world'),
+                ('tcp', 443, 'nginx', '0.0.0.0', 'world'),
+                ('tcp', 80, 'nginx', '0.0.0.0', 'world'),
+                ('tcp', 53, 'systemd-resolve', '127.0.0.53', 'local'),
+                ('udp', 53, 'AdGuardHome', '10.0.0.2', 'lan'),
+                ('tcp', 3306, 'mysqld', '127.0.0.1', 'local'),
+                ('tcp', 8006, 'pveproxy', '0.0.0.0', 'world'),
+                ('tcp', 9090, 'prometheus', '10.0.0.5', 'lan'),
+                ('tcp', 5432, 'postgres', '127.0.0.1', 'local')]
+    si['listening_ports'] = [{'proto': p, 'port': port, 'process': proc,
+                              'addr': addr, 'scope': scope}
+                             for p, port, proc, addr, scope in
+                             rng.sample(_catalog, k=rng.randint(4, len(_catalog)))]
+    # ── per-host storage / RAID health (storage / nas / backup hosts) ──
+    if any(t in tags for t in ('storage', 'nas', 'backup')):
+        si['storage_health'] = [
+            {'name': 'tank', 'kind': 'zfs',
+             'state': rng.choice(['ONLINE', 'ONLINE', 'DEGRADED']),
+             'capacity': rng.randint(55, 92),
+             'scrub': rng.choice(['scrub repaired 0B', 'none requested',
+                                  'scrub in progress'])},
+            {'name': 'md0', 'kind': 'mdadm',
+             'state': rng.choice(['active', 'active', 'degraded']),
+             'capacity': rng.randint(40, 80), 'scrub': ''},
+        ]
+    # ── host firewall posture + drift fingerprint ──
+    _backend = rng.choice(['nftables', 'iptables', 'ufw'])
+    _rules = rng.randint(0, 120)
+    _active = _rules > 0
+    si['firewall'] = {
+        'active': _active,
+        'backends': [{'name': _backend, 'present': True, 'active': _active,
+                      'rules': _rules, 'policy': 'DROP' if _active else 'ACCEPT'}],
+    }
+    si['firewall_fp'] = {'backend': _backend, 'rules': _rules,
+                         'fp': hashlib.sha256(
+                             f"{dev['id']}|fw".encode()).hexdigest()[:16]}
+
+
+# v2.6.0/v3.13.0: sample desired host configs for the Host Configuration modal
+# + fleet export demo. Keyed by device id; SSH keys are placeholders.
+_DEMO_HOST_CONFIG = {
+    'ng01': {
+        'services': ['nginx.service', 'fail2ban.service'],
+        'hosts': '127.0.0.1 localhost\n10.0.0.10 ng01 nginx.lab\n10.0.0.2 adguard.lab',
+        'motd': 'Authorized access only — nginx reverse proxy (managed by RemotePower).',
+        'resolv_conf': 'nameserver 10.0.0.2\nsearch lab',
+    },
+    'nc01': {
+        'services': ['apache2.service', 'php8.2-fpm.service', 'mariadb.service'],
+        'hosts': '127.0.0.1 localhost\n10.0.0.13 nc01 nextcloud.lab',
+        'motd': 'Nextcloud — data on /mnt/share (CIFS). Managed by RemotePower.',
+        'cron': '30 2 * * * mysqldump --single-transaction nextcloud | zstd -o /mnt/share/db/nc.sql.zst',
+    },
+}
+
+
 def build_devices() -> dict:
     """Build devices.json with sysinfo, last_seen, and per-mount disks."""
     out = {}
@@ -272,7 +358,7 @@ def build_devices() -> dict:
             # from the raw device list.
             'monitored':   dev.get('monitored', dev['id'] != 'bk01'),
             'poll_interval': 60,
-            'version':     '3.8.0' if not dev['agentless'] else None,
+            'version':     '3.13.0' if not dev['agentless'] else None,
             'hostname':    dev['name'],
             # v3.5.0: site assignment (most devices belong to one of three sites)
             'site':        SITE_OF.get(dev['id'], ''),
@@ -316,13 +402,33 @@ def build_devices() -> dict:
             else:
                 mounts.append({'path': '/var', 'percent': round(rng.uniform(35, 72), 1),
                                'used_gb': 0, 'total_gb': rng.choice([10, 20, 40])})
+            # v3.13.0: a CIFS/NFS network share on media/web/app hosts, so the
+            # demo shows the "net" badge (drawer + Monitor), the per-mount Trends
+            # series and the disk-fill Forecast for a network mount.
+            if 'media' in dev['tags'] or 'web' in dev['tags'] or 'cloud' in dev['tags']:
+                _share = rng.choice(['//192.168.2.100/data', '//truenas.lab/media',
+                                     '10.0.0.20:/export/backups'])
+                mounts.append({'path': '/mnt/share',
+                               'percent': round(rng.uniform(48, 88), 1),
+                               'used_gb': 0, 'total_gb': rng.choice([2000, 8000, 18000]),
+                               'fstype': 'cifs' if _share.startswith('//') else 'nfs4',
+                               'network': True, 'server': _share})
             # Compute used_gb from percent × total_gb so the numbers are self-consistent
             for m in mounts:
                 m['used_gb'] = round(m['total_gb'] * m['percent'] / 100, 1)
 
+            _disk_total = round(sum(m['total_gb'] for m in mounts
+                                    if not m.get('network')), 1)
             rec['sysinfo'] = {
                 'cpu_count':    cpu_count,
+                # v3.13.0: CMDB Hardware panel reads cpu/mem_total_mb/disk_total_gb/kernel
+                'cpu':          rng.choice([
+                                    'Intel(R) Xeon(R) E-2336 @ 2.90GHz',
+                                    'AMD Ryzen 7 5800X 8-Core', '13th Gen Intel Core i5-13500',
+                                    'AMD EPYC 7302P 16-Core', 'Intel(R) Core(TM) i7-10700']),
                 'mem_total_gb': mem_total_gb,
+                'mem_total_mb': mem_total_gb * 1024,
+                'disk_total_gb': _disk_total,
                 'mem_percent':  round(mem_pct, 1),
                 'swap_percent': round(rng.uniform(0, 8), 1),
                 'loadavg_1m':   round(load_per_cpu * cpu_count, 2),
@@ -333,6 +439,10 @@ def build_devices() -> dict:
                 'uptime_s':     rng.randint(86400, 86400 * 180),
                 'packages':     {'upgradable': rng.choices([0, 0, 0, 1, 3, 7, 12, 23], k=1)[0]},
             }
+            # v3.11–v3.13: device-drawer cards — access watch (recent logins),
+            # systemd timers, listening ports w/ scope (Exposure), per-host
+            # storage/RAID health, and the firewall posture + fingerprint.
+            _demo_enrich_sysinfo(dev, rng, rec['sysinfo'])
             # v3.8.0: failed systemd units (drives the failed_units attention
             # item + AI-investigate playbook) and logged-in users (drawer
             # System Info). A couple of hosts have failures to demo the signal.
@@ -347,6 +457,17 @@ def build_devices() -> dict:
             ])
             # Add a few common services
             rec['services'] = build_device_services(dev, rng)
+
+            # v2.6.0/v3.13.0: a desired host config on a couple of hosts so the
+            # Host Configuration modal and the fleet "Export all host configs"
+            # action have content. Audit-only (apply disabled) — demo is read-only.
+            if dev['id'] in _DEMO_HOST_CONFIG:
+                rec['host_config'] = {
+                    'desired': _DEMO_HOST_CONFIG[dev['id']],
+                    'desired_at': last_seen - 86400 * 3,
+                    'apply_enabled': False, 'enforce': False,
+                    'drift': {},
+                }
 
             # v2.2.0+: compose_projects for demo realism. Only devices that
             # have docker in their tags (media, web, proxy, git, cloud,
@@ -1095,8 +1216,8 @@ def build_config() -> dict:
     """
     return {
         'server_name':       'RemotePower Demo',
-        'server_version':    '3.8.0',
-        'agent_version':     '3.8.0',
+        'server_version':    '3.13.0',
+        'agent_version':     '3.13.0',
         'remember_me_default': True,
 
         # v3.0.2 multi-webhook destinations. The legacy webhook_url is
@@ -1162,6 +1283,36 @@ def build_config() -> dict:
         'audit_forward_host':    'siem.example.invalid',
         'audit_forward_port':    514,
         'audit_forward_tcp':     False,
+
+        # v3.11.0 — software policy rules (Software policy page).
+        'software_policy': {'rules': [
+            {'type': 'required',    'package': 'fail2ban'},
+            {'type': 'banned',      'package': 'telnetd'},
+            {'type': 'min_version', 'package': 'openssl', 'version': '3.0.2'},
+            {'type': 'required',    'package': 'unattended-upgrades', 'tags': ['prod']},
+        ]},
+
+        # v3.13.0 — drift config: global default + named profiles + assignments.
+        'drift': {
+            'enabled': True,
+            'default_watched_files': [
+                '/etc/ssh/sshd_config', '/etc/sudoers', '/etc/fstab',
+                '/etc/crontab', '/etc/hosts', '/etc/resolv.conf',
+            ],
+            'profiles': [
+                {'id': 'dp_web', 'name': 'Web servers',
+                 'files': ['/etc/nginx/nginx.conf', '/etc/ssh/sshd_config',
+                           '/etc/letsencrypt/cli.ini', '/etc/hosts'],
+                 'created': now() - 86400 * 30, 'updated': now() - 86400 * 4},
+                {'id': 'dp_db', 'name': 'Database hosts',
+                 'files': ['/etc/mysql/my.cnf', '/etc/ssh/sshd_config', '/etc/fstab'],
+                 'created': now() - 86400 * 20, 'updated': now() - 86400 * 2},
+            ],
+            'assignments': [
+                {'scope_type': 'tag',    'scope_value': 'web',  'profile_id': 'dp_web'},
+                {'scope_type': 'device', 'scope_value': 'nc01', 'profile_id': 'dp_db'},
+            ],
+        },
     }
 
 
@@ -1594,6 +1745,27 @@ def build_fleet_events() -> dict:
 
 # ─── v2.2.0: Config drift state ─────────────────────────────────────────────
 
+def build_software_violations() -> dict:
+    """v3.11.0 — evaluated software-policy violations (Software policy page table),
+    matching the rules seeded in build_config()."""
+    return {
+        'ng01': {'name': 'nginx.lab', 'checked_at': now() - 3600, 'violations': [
+            {'type': 'min_version', 'package': 'openssl',
+             'expected': '>= 3.0.2', 'found': '1.1.1n'},
+            {'type': 'required', 'package': 'fail2ban',
+             'expected': 'installed', 'found': 'missing'},
+        ]},
+        'jf01': {'name': 'jellyfin.lab', 'checked_at': now() - 7200, 'violations': [
+            {'type': 'banned', 'package': 'telnetd',
+             'expected': 'not installed', 'found': '0.17-41'},
+        ]},
+        'gt01': {'name': 'gitea.lab', 'checked_at': now() - 5400, 'violations': [
+            {'type': 'required', 'package': 'unattended-upgrades',
+             'expected': 'installed', 'found': 'missing'},
+        ]},
+    }
+
+
 def build_drift() -> dict:
     """v2.2.0 — file-integrity / config-drift state per device. Keyed by device
     id. Shape mirrors _ingest_drift_report's stored record. A file is "drifted"
@@ -1770,6 +1942,8 @@ BUILDERS = {
     'fleet_events.json':           build_fleet_events,
     'drift_state.json':            build_drift,
     'health_history.json':         build_health_history,
+    # v3.11.0 / v3.13.0 demo content
+    'software_violations.json':    build_software_violations,
 }
 
 
