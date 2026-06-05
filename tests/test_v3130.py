@@ -637,6 +637,65 @@ class TestForecastNetworkMounts(unittest.TestCase):
         self.assertIn("network share (NFS/SMB/CIFS)", client_js())
 
 
+class TestUiPolishBatch(unittest.TestCase):
+    """Password-form a11y, settings-row stacking, host-config modal sizing,
+    software-center 'where installed'."""
+
+    def setUp(self):
+        self.css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.html = (_ROOT / "server/html/index.html").read_text()
+        self.js = client_js()
+
+    def test_pw_form_a11y_injection(self):
+        self.assertIn("function _ensurePwFormA11y", self.js)
+        self.assertIn(".visually-hidden", self.css)
+        # passwd-form's username is now a visually-hidden text field, not hidden.
+        self.assertIn('id="passwd-username" class="visually-hidden"', self.html)
+
+    def test_settings_row_stacks_direct_label(self):
+        self.assertIn(".settings-row:has(> .form-label)", self.css)
+
+    def test_hostconfig_modal_fixed_size(self):
+        self.assertIn("#host-config-modal > .modal {", self.css)
+        seg = self.css.split("#host-config-modal > .modal {", 1)[1].split("}", 1)[0]
+        self.assertIn("flex-direction: column", seg)
+
+    def test_software_center_where_installed(self):
+        # endpoint returns host names per version
+        self.assertIn("'host_names'", (_CGI_BIN / "api.py").read_text())
+        # frontend expands a row to show where it's installed
+        self.assertIn("_swCatalogToggle", self.js)
+        self.assertIn("Installed on:", self.js)
+
+
+class TestAiButtons(unittest.TestCase):
+    """v3.13.0: targeted AI buttons across the UI (frontend-only, reuse
+    openAIModal + /api/ai/chat which accepts a raw system-prompt string)."""
+
+    def setUp(self):
+        self.js = client_js()
+        self.html = (_ROOT / "server/html/index.html").read_text()
+
+    def test_helper_functions_exist(self):
+        for fn in ('aiPackageSafety', 'aiExposureAdvice', 'aiForecastAdvice',
+                   'aiRemediateControl', 'aiDiagnoseUnits', 'aiDiagnoseContainer',
+                   'aiExplainDrift', 'aiAskFleet'):
+            self.assertIn(f'function {fn}', self.js)
+
+    def test_buttons_wired(self):
+        for action in ('aiPackageSafety', 'aiExposureAdvice', 'aiForecastAdvice',
+                       'aiRemediateControl', 'aiDiagnoseUnits', 'aiDiagnoseContainer',
+                       'aiExplainDrift'):
+            self.assertIn(f'data-action="{action}"', self.js)
+
+    def test_home_omnibox(self):
+        self.assertIn('id="home-ai-q"', self.html)
+        self.assertIn('data-action="aiAskFleet"', self.html)
+
+    def test_data_enter_handler(self):
+        self.assertIn("input[data-enter]", self.js)
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

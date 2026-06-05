@@ -451,6 +451,12 @@
         <div class="page-title">Fleet at a glance</div>
         <div class="page-subtitle">Everything that needs your attention, in one screen.</div>
 
+        <!-- v3.13.0: ask-the-fleet AI omnibox (uses RAG over fleet state) -->
+        <div class="home-ai-ask mb-16">
+          <input type="text" id="home-ai-q" class="form-input" placeholder="Ask AI about your fleet — e.g. which hosts are low on disk? any critical CVEs? what changed?" data-enter="aiAskFleet">
+          <button class="btn-primary" data-action="aiAskFleet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> Ask</button>
+        </div>
+
         <!-- Big number summary tiles -->
         <div id="home-tiles" class="tile-grid">
           <!-- Populated by loadHome() -->
@@ -4903,7 +4909,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
   </div>
   <div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="role-add-modal">Cancel</button><button type="button" class="btn-primary" data-action="saveRole">Save</button></div>
 </div></div>
-<div class="modal-overlay" id="passwd-modal"><form class="modal" id="passwd-form" autocomplete="on"><div class="modal-title">Change password</div><input type="hidden" id="passwd-username" autocomplete="username"><div class="form-group" id="passwd-old-wrap"><label class="form-label" for="passwd-old">Current password</label><input type="password" id="passwd-old" name="current_password" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label" for="passwd-new">New password</label><input type="password" id="passwd-new" name="new_password" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="submitPasswd" >Update</button></div></form></div>
+<div class="modal-overlay" id="passwd-modal"><form class="modal" id="passwd-form" autocomplete="on"><div class="modal-title">Change password</div><input type="text" id="passwd-username" class="visually-hidden" autocomplete="username" tabindex="-1" aria-hidden="true" readonly><div class="form-group" id="passwd-old-wrap"><label class="form-label" for="passwd-old">Current password</label><input type="password" id="passwd-old" name="current_password" class="form-input" autocomplete="current-password"></div><div class="form-group"><label class="form-label" for="passwd-new">New password</label><input type="password" id="passwd-new" name="new_password" class="form-input" autocomplete="new-password"></div><div class="modal-actions"><button type="button" class="btn-secondary" data-action="closeModal" data-arg="passwd-modal" >Cancel</button><button type="submit" class="btn-primary" data-action="submitPasswd" >Update</button></div></form></div>
 <div class="modal-overlay" id="schedule-add-modal">
   <div class="modal">
     <div class="modal-title">Schedule command</div>

@@ -22189,14 +22189,20 @@ def handle_inventory_catalog():
             ver = (p.get('version') or '').strip() or '—'
             agg.setdefault(name, {}).setdefault(ver, set()).add(dev_id)
     CAP = 1000
+    def _dname(did):
+        return (devices.get(did) or {}).get('name', did)
     rows = []
     for name, vers in agg.items():
         hosts = set()
         for s in vers.values():
             hosts |= s
-        # versions sorted by host count desc, capped so one row can't explode
-        vlist = sorted(({'version': v, 'hosts': len(s)} for v, s in vers.items()),
-                       key=lambda x: -x['hosts'])[:8]
+        # versions sorted by host count desc, capped so one row can't explode.
+        # host_names answers "WHERE is it installed" (capped per version).
+        vlist = sorted(
+            ({'version': v, 'hosts': len(s),
+              'host_names': sorted(_dname(d) for d in list(s)[:25])}
+             for v, s in vers.items()),
+            key=lambda x: -x['hosts'])[:8]
         rows.append({'package': name, 'versions': vlist,
                      'version_count': len(vers), 'hosts': len(hosts)})
     truncated = len(rows) > CAP

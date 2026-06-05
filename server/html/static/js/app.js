@@ -2583,6 +2583,23 @@ document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener(
 // `onclick="foo('${escAttr(x)}')"` site. Use escAttr() for values that are
 // interpolated into JS string literals inside an HTML attribute.
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+// v3.13.0: inject a visually-hidden username field into each service-secret
+// password wrapper that lacks one, silencing Chrome's password-form a11y
+// warning without enabling autofill. Idempotent; safe to call repeatedly.
+function _ensurePwFormA11y() {
+  document.querySelectorAll('form[data-csp-pw-form]').forEach(f => {
+    if (f.querySelector('input[autocomplete="username"]')) return;
+    const u = document.createElement('input');
+    u.type = 'text';
+    u.autocomplete = 'username';
+    u.value = '';
+    u.className = 'visually-hidden';
+    u.tabIndex = -1;
+    u.setAttribute('aria-hidden', 'true');
+    f.insertBefore(u, f.firstChild);
+  });
+}
 // v2.1.0: escape for use inside a JS string that's embedded in an HTML
 // attribute, e.g. onclick="foo('${escAttr(x)}')". The output is pure ASCII
 // (no HTML metacharacters) so the HTML parser passes it through verbatim,
@@ -3009,6 +3026,7 @@ const _DYK_TIPS = [
   "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
+  "Look for the ✦ AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
   "Take a full disaster-recovery backup from Settings → Advanced → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
   "Network shares (NFS/SMB/CIFS) now appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
   "The Exposure page classifies every listening socket as world / LAN / local — so you can spot a service that's accidentally bound to 0.0.0.0 instead of localhost.",
@@ -8507,6 +8525,92 @@ function aiAuditScript(scriptBody) {
   });
 }
 
+// ── v3.13.0: targeted AI helpers (frontend-only — openAIModal accepts a raw
+// system-prompt string, so no server prompt keys needed). Each builds a focused
+// context from already-loaded data and asks a single, scoped question. ──────────
+function aiPackageSafety(pkg) {
+  const p = (typeof _swCatalog !== 'undefined' ? _swCatalog : []).find(x => x.package === pkg);
+  const vers = p ? p.versions.map(v => `${v.version} (on ${v.hosts} host${v.hosts === 1 ? '' : 's'})`).join(', ') : 'unknown';
+  openAIModal({
+    title: `AI — is ${pkg} safe?`,
+    system: 'You are a Linux security advisor. Given a package and the versions deployed across a fleet, assess whether those versions are current and safe, flag any well-known CVEs affecting them, and recommend the minimum safe version plus the upgrade action. Be concise and concrete. If unsure whether a specific CVE applies, say so rather than inventing one.',
+    userMsg: `Package: ${pkg}\nInstalled versions across the fleet: ${vers}`,
+    context: `package:${pkg}`, maxTokens: 1200,
+  });
+}
+function aiExposureAdvice(device, hostport, proc) {
+  openAIModal({
+    title: `AI — exposure: ${proc || hostport}`,
+    system: 'You are a Linux network-security advisor. A service is listening and WORLD-reachable (bound to a public/wildcard address). Advise whether it should be reachable from the internet, the concrete risk, and specific steps to restrict it (bind to localhost, host firewall rule, reverse proxy, or disable). Be concise and specific to the named service.',
+    userMsg: `Host: ${device}\nWorld-reachable socket: ${hostport}\nProcess: ${proc || 'unknown'}`,
+    context: `exposure:${device}`, maxTokens: 1000,
+  });
+}
+function aiForecastAdvice(device, path) {
+  const m = (typeof _forecastRows !== 'undefined' ? _forecastRows : []).find(r => r.device_name === device && r.path === path);
+  const facts = m ? `current ${m.current_gb}/${m.total_gb} GB (${m.current_percent}%), trend ${m.trend_gb_per_day} GB/day, ${m.days_to_full != null ? 'fills in ~' + m.days_to_full + ' days' : 'no projected fill'}` : '';
+  openAIModal({
+    title: `AI — ${path} filling on ${device}`,
+    system: 'You are a Linux storage/ops advisor. A filesystem is trending toward full. Suggest the most likely space consumers for THIS mount and concrete, safe commands to investigate and reclaim space (journald, package cache, old kernels, logs, docker, temp), ordered safest-first. Call out anything that must NOT be deleted. Be concise and command-oriented.',
+    userMsg: `Host: ${device}\nMount: ${path}\n${facts}`,
+    context: `forecast:${device}`, maxTokens: 1200,
+  });
+}
+function aiRemediateControl(controlId, title) {
+  openAIModal({
+    title: `AI — remediate ${controlId}`,
+    system: 'You are a Linux compliance/hardening advisor. Given a failing compliance control, briefly explain why it matters and give concrete, minimal remediation steps (commands or config) to make it pass, plus how to verify. Warn about any operational risk. Be concise.',
+    userMsg: `Failing control: ${controlId} — ${title}`,
+    context: `compliance:${controlId}`, maxTokens: 1200,
+  });
+}
+function aiDiagnoseUnits(devId, deviceName, unitsCsv) {
+  openAIModal({
+    title: `AI — failed units on ${deviceName}`,
+    system: 'You are a Linux systemd troubleshooter. For each failed unit, give the likely cause and the exact commands to diagnose (systemctl status, journalctl -u …) and the most probable fix. Be concise and command-oriented.',
+    userMsg: `Host: ${deviceName}\nFailed units:\n${(unitsCsv || '').split(',').join('\n')}`,
+    context: `device:${devId}`, maxTokens: 1500,
+  });
+}
+function aiDiagnoseContainer(devId, deviceName, name) {
+  openAIModal({
+    title: `AI — container ${name}`,
+    system: 'You are a Docker/Podman troubleshooter. The named container is unhealthy, restarting, or stopped. Give likely causes and concrete commands to diagnose (docker logs/inspect/stats) and fix. Be concise.',
+    userMsg: `Host: ${deviceName}\nContainer: ${name}`,
+    context: `device:${devId}`, maxTokens: 1200,
+  });
+}
+function aiExplainDrift() {
+  const d = window._driftDetail || {};
+  const files = d.files || {};
+  const drifted = Object.keys(files).filter(p =>
+    files[p].current_hash !== files[p].baseline_hash || !files[p].exists);
+  openAIModal({
+    title: `AI — config drift on ${d.name || ''}`,
+    system: 'You are a Linux change-management advisor. Given watched config files that drifted from baseline on a host, explain what each controls, whether a change there is typically benign or security-significant, and what to check. Recommend whether to accept the new baseline or investigate. Be concise.',
+    userMsg: `Host: ${d.name || ''}\nDrifted/changed files:\n${drifted.join('\n') || '(none)'}`,
+    context: `drift:${d.id || ''}`, maxTokens: 1200,
+  });
+}
+function aiAskFleet() {
+  const inp = document.getElementById('home-ai-q');
+  const q = (inp && inp.value || '').trim();
+  if (!q) { toast('Ask a question about your fleet', 'info'); return; }
+  openAIModal({
+    title: 'Ask about my fleet',
+    system: "You are RemotePower's fleet assistant. Answer the operator's question about their Linux fleet using the provided context (RAG over fleet state is attached automatically). If context is insufficient, say what you'd need. Be concise and actionable.",
+    userMsg: q,
+    context: 'fleet', maxTokens: 1500,
+  });
+}
+// v3.13.0: generic Enter-to-action for inputs marked data-enter="<globalFn>".
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target && e.target.matches && e.target.matches('input[data-enter]')) {
+    const fn = window[e.target.getAttribute('data-enter')];
+    if (typeof fn === 'function') { e.preventDefault(); fn(); }
+  }
+});
+
 function aiGenerateScript(prompt, targetElementId) {
   if (!prompt || !prompt.trim()) { toast('Describe what the script should do', 'info'); return; }
   openAIModal({
@@ -9641,7 +9745,7 @@ function _renderExposure() {
     <td>${escHtml(proc || '—')}${(r.muted || isHostMuted) ? ' <span class="pill" data-color="var(--muted)">muted</span>' : ''}</td>
     <td class="hint">${escHtml(r.addr || '—')}</td>
     <td>${badge(r.scope)}</td>
-    <td class="exposure-actions">${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}</td>
+    <td class="exposure-actions">${r.scope === 'world' ? `<button class="btn-icon cell-sm" data-action="aiExposureAdvice" data-arg="${escAttr(r.device)}" data-arg2="${escAttr(r.proto + '/' + r.port)}" data-arg3="${escAttr(proc)}" title="AI: should this be exposed? how to lock it down">${_icon('sparkles', 12)}</button> ` : ''}${isHostMuted ? hostBtn : procBtn + ' ' + hostBtn}</td>
   </tr>`;
   }).join('');
 }
@@ -9803,18 +9907,32 @@ function _renderSwCatalog() {
   const verCell = (p) => p.versions.map(v =>
     `<span class="cmd-badge fs-11">${escHtml(v.version)}${v.hosts > 1 ? ` <span class="c-muted">×${v.hosts}</span>` : ''}</span>`).join(' ')
     + (p.version_count > p.versions.length ? ` <span class="c-muted fs-11">+${p.version_count - p.versions.length} more</span>` : '');
+  // "where installed": each version → the hosts running it (capped server-side).
+  const whereRow = (p, i) => {
+    const detail = p.versions.map(v =>
+      `<div class="mb-4"><span class="cmd-badge fs-11">${escHtml(v.version)}</span> `
+      + `<span class="fs-12">${(v.host_names || []).map(h => escHtml(h)).join(', ')}`
+      + (v.hosts > (v.host_names || []).length ? ` <span class="c-muted">+${v.hosts - v.host_names.length} more</span>` : '')
+      + `</span></div>`).join('');
+    return `<tr class="d-none" id="swcat-where-${i}"><td colspan="3" class="audit-section-body">`
+      + `<div class="fs-12 fw-600 mb-6">Installed on:</div>${detail}</td></tr>`;
+  };
   body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full">
     <thead><tr class="c-muted"><th>Package</th><th>Installed version(s)</th><th class="ta-center">Hosts</th></tr></thead>
-    <tbody>` + shown.map(p =>
-      `<tr><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''}</td>
+    <tbody>` + shown.map((p, i) =>
+      `<tr class="pointer" data-action="_swCatalogToggle" data-arg="${i}" title="Show where it's installed"><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''} <button class="btn-icon cell-sm" data-action="aiPackageSafety" data-arg="${escAttr(p.package)}" data-stop-prop="1" title="AI: is this version safe / any known CVEs?">${_icon('sparkles', 12)}</button></td>
         <td>${verCell(p)}</td>
-        <td class="ta-center">${p.hosts}</td></tr>`).join('')
+        <td class="ta-center">${p.hosts}</td></tr>` + whereRow(p, i)).join('')
     + `</tbody></table></div>`
     + (rows.length > shown.length ? `<div class="hint mt-6">Showing 500 of ${rows.length} — refine the filter.</div>` : '');
 }
 function _swCatalogFilter() {
   clearTimeout(_swCatalogTimer);
   _swCatalogTimer = setTimeout(_renderSwCatalog, 150);
+}
+function _swCatalogToggle(i) {
+  const row = document.getElementById('swcat-where-' + i);
+  if (row) row.classList.toggle('d-none');
 }
 
 async function loadSoftwarePolicy() {
@@ -9947,6 +10065,7 @@ async function openDriftDetail(devId, devName) {
     const files = data.files || {};
     const watched = data.watched_files || [];
     const fileKeys = Object.keys(files).sort();
+    window._driftDetail = {id: devId, name: devName, files};   // for aiExplainDrift
 
     if (fileKeys.length === 0) {
       body.innerHTML = `<div class="empty-p20">
@@ -9975,6 +10094,7 @@ async function openDriftDetail(devId, devName) {
     let html = `<div class="isl-539">
       Watched: ${watched.length} ${watched.length === 1 ? 'path' : 'paths'} · Reported: ${fileKeys.length}
       <span class="hint"> · via ${escHtml(_srcText)}</span>
+      <button class="btn-secondary fs-12 ml-8" data-action="aiExplainDrift" title="AI: explain what changed and whether it's risky">${_icon('sparkles', 12)} Explain drift</button>
     </div>`;
 
     html += '<table class="isl-540"><thead><tr class="isl-468"><th class="cell-pad">Path</th><th class="cell-pad">Status</th><th class="cell-pad">Last check</th><th class="cell-pad">Drift count</th><th></th></tr></thead><tbody>';
@@ -13427,7 +13547,8 @@ async function _loadAuditSection(key) {
         // them per-device (also drives the Fleet Query filter + compliance).
         if (Array.isArray(si.failed_units) && si.failed_units.length) {
           const failIco = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round" class="va-middle"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`;
-          h += `<div class="fs-12 mt-8 c-red">${failIco} <strong>${si.failed_units.length} failed unit${si.failed_units.length===1?'':'s'}</strong></div>` +
+          h += `<div class="fs-12 mt-8 c-red">${failIco} <strong>${si.failed_units.length} failed unit${si.failed_units.length===1?'':'s'}</strong> ` +
+            `<button class="btn-icon cell-sm" data-action="aiDiagnoseUnits" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(si.failed_units.join(','))}" title="AI: diagnose these failed units">${_icon('sparkles',12)} AI diagnose</button></div>` +
             `<div class="mb-8 mt-4">` + si.failed_units.map(u=>
               `<span class="cmd-badge fs-11">${escHtml(String(u))}</span> `
             ).join('') + `</div>`;
@@ -13894,8 +14015,10 @@ async function _loadAuditSection(key) {
               } else if (typeof c.started_at === 'number' && c.started_at > 0) {
                 age = _fmtDur(Math.floor(Date.now() / 1000) - c.started_at);
               }
+              const unhealthy = !up || /unhealthy|restart/.test((c.health||'') + ' ' + stat);
+              const ctrAi = unhealthy ? ` <button class="btn-icon cell-sm" data-action="aiDiagnoseContainer" data-arg="${escAttr(id)}" data-arg2="${escAttr(name)}" data-arg3="${escAttr(c.name||c.Names||'?')}" title="AI: diagnose this container">${_icon('sparkles',12)}</button>` : '';
               return `<tr class="border-top">
-                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}</td>
+                <td class="isl-651"><code>${escHtml(c.name||c.Names||'?')}</code>${_healthBadge(c.health)}${ctrAi}</td>
                 <td class="isl-652" data-color="${col}">${escHtml(c.status||c.State||'?')}</td>
                 <td class="isl-653">${escHtml(img)}</td>
                 <td class="hint">${_resCell(c)}</td>
@@ -15696,7 +15819,7 @@ function _renderForecastTable() {
     const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)" title="network share (NFS/SMB/CIFS)">net</span>` : '';
     return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
       <td class="fw-500">${escHtml(m.device_name)}</td>
-      <td><code>${escHtml(m.path)}</code>${netBadge}${extra}</td>
+      <td><code>${escHtml(m.path)}</code>${netBadge}${extra} <button class="btn-icon cell-sm" data-action="aiForecastAdvice" data-arg="${escAttr(m.device_name)}" data-arg2="${escAttr(m.path)}" data-stop-prop="1" title="AI: why is this filling, and what to clean up?">${_icon('sparkles', 12)}</button></td>
       <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
       <td class="ta-center">${m.current_percent}%</td>
       <td class="ta-center"${m.recent_gb_per_day != null ? ` title="recent (~7d): ${m.recent_gb_per_day} GB/day"` : ''}>${m.trend_gb_per_day} GB/day</td>
@@ -15795,8 +15918,11 @@ async function loadCompliance() {
       f.controls.map(c => {
         const fix = (c.status === 'fail' && _COMPLIANCE_FIX_PAGE[c.topic])
           ? ` <a class="compliance-fix" data-action="complianceFix" data-arg="${escAttr(c.topic)}">Fix &rarr;</a>` : '';
+        // v3.13.0: AI remediation for any failing control.
+        const aiBtn = c.status === 'fail'
+          ? ` <button class="btn-icon cell-sm" data-action="aiRemediateControl" data-arg="${escAttr(c.id)}" data-arg2="${escAttr(c.title)}" title="AI: how to remediate this control">${_icon('sparkles', 12)}</button>` : '';
         return `<tr>
-        <td><strong>${escHtml(c.id)}</strong><div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
+        <td><strong>${escHtml(c.id)}</strong>${aiBtn}<div class="fs-11 c-muted">${escHtml(c.title)}</div></td>
         <td>${statusPill(c.status)}</td>
         <td class="fs-12">${escHtml(c.evidence)}${c.remediation ? `<div class="fs-11 c-amber mt-2">&rarr; ${escHtml(c.remediation)}${fix}</div>` : ''}</td>
       </tr>`; }).join('') + `</tbody></table></div></div>`;
@@ -17853,6 +17979,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(id)?.addEventListener('submit', e => e.preventDefault());
   });
 
+  // v3.0.6 / v3.13.0 a11y: see _ensurePwFormA11y below.
   // v3.0.6: admin-config password fields (SMTP / LDAP / Proxmox /
   // CMDB vault / etc.) are wrapped in tiny <form autocomplete="off"
   // data-csp-pw-form> elements so the browser silences the "[DOM]
@@ -17865,6 +17992,13 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
     }
   });
+
+  // v3.13.0: Chrome warns "Password forms should have a username field for
+  // accessibility". These service-secret wrappers (SMTP/LDAP/Proxmox/AI/…) have
+  // no real username, so inject a visually-hidden empty username field with
+  // autocomplete=username — satisfies the a11y check without offering password-
+  // manager autofill of service-account secrets.
+  _ensurePwFormA11y();
 
   // Header buttons
   document.querySelector('.theme-btn')?.addEventListener('click', toggleTheme);

@@ -610,6 +610,13 @@
      doesn't resize and re-centre the window. The active pane scrolls inside. */
   #cmdb-asset-modal > .modal { height: min(88vh, 760px); display: flex; flex-direction: column; overflow: hidden; }
   #cmdb-asset-modal > .modal > [id^="cmdb-tab-"] { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  /* v3.13.0: same fixed-size treatment for the Host Configuration modal — its
+   * sections (Repos / Netplan / … / Cron) vary a lot in height, so switching
+   * tabs used to resize and re-centre the window. The active .hc-panel now
+   * flex-grows and scrolls inside a stable-height modal; header/tabs and the
+   * Save row stay put. */
+  #host-config-modal > .modal { height: min(88vh, 760px); display: flex; flex-direction: column; overflow: hidden; }
+  #host-config-modal > .modal > .hc-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .muted-row { opacity: 0.55; }
   /* v3.12.0: top-right account menu + My Account page */
   .acct-menu { position: relative; }
@@ -1311,6 +1318,15 @@
     font-family: var(--font);
   }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
+  /* v3.13.0: off-screen-but-present (a11y) — used for the hidden username field
+   * that satisfies the browser's password-form accessibility check. */
+  .visually-hidden { position: absolute !important; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0; }
+  /* v3.13.0: Home "ask the fleet" AI omnibox */
+  .home-ai-ask { display: flex; gap: 8px; align-items: center; }
+  .home-ai-ask > .form-input { flex: 1; }
+  .home-ai-ask > .btn-primary { flex: 0 0 auto; white-space: nowrap; }
   /* v3.12.0: one consistent checkbox/radio size + colour across the whole UI
      (they were rendering at assorted browser-default sizes). flex:none keeps
      them from shrinking inside flex rows. Mobile bumps to 20px further down. */
@@ -1384,6 +1400,13 @@
   .settings-section .hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
   .settings-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
   .settings-row .form-group { flex: 1; min-width: 160px; margin: 0; }
+  /* v3.13.0: a settings-row whose label is a DIRECT child is a single labelled
+   * field (audit-forwarding, retention, scheduled backup, …) — stack it
+   * label-above-input instead of side-by-side, matching every other form.
+   * Multi-field rows nest their labels inside .form-group, so they don't match
+   * and keep their horizontal layout. */
+  .settings-row:has(> .form-label) { flex-direction: column; align-items: stretch; gap: 6px; }
+  .settings-row:has(> .form-label) > .form-label { margin-bottom: 0; }
   .user-row td:last-child { text-align: right; }
   .user-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }

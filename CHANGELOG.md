@@ -38,10 +38,20 @@ already being reported and stored.
   line on the **Trends** chart and is covered by disk-fill **forecasting**.
   (Also fixes a pre-existing bug where the per-device Trends endpoint read the
   history store with the wrong shape and returned nothing.)
+- **Targeted AI buttons across the UI.** One-click, context-scoped AI help
+  wherever a question naturally arises: **Software center** (is this package
+  version safe / any known CVEs), **Drift detail** (explain what changed and
+  whether it's risky), **Exposure** world-reachable rows (should this be exposed
+  / how to lock it down), **Forecast** rows (why is this filling / what to clean
+  up), **Compliance** failing controls (how to remediate), **failed systemd
+  units** and **unhealthy containers** in the device drawer (diagnose), plus an
+  **"Ask about my fleet"** omnibox on the Home dashboard (RAG over fleet state).
+  All reuse the existing AI provider; nothing is sent unless you click.
 - **Software center.** A new card on the **Software policy** page lists every
   package installed across the fleet, aggregated to one row per package with the
   versions in use and how many hosts run each (a "mixed" badge flags packages
-  running more than one version). Type to filter. `GET /api/inventory/catalog`.
+  running more than one version). Type to filter; **click a row to expand it and
+  see exactly which hosts run which version**. `GET /api/inventory/catalog`.
 - **Fleet Query "has package" now shows the installed version.** A
   `has_package` filter result includes the matched package name **and version**
   in a new column, so you don't need a second lookup to answer "which version".
@@ -113,6 +123,18 @@ already being reported and stored.
 - **Network mounts in the disk-fill forecast.** NFS/SMB/CIFS shares are included
   in the Forecast projection (they were never excluded; this adds a `net` label)
   once they have a few days of daily history.
+- **Password-form accessibility.** Service-secret password fields (SMTP / LDAP /
+  Proxmox / AI / audit-token) are wrapped in form elements with no username,
+  which the browser flags as an a11y issue — a visually-hidden username field is
+  now injected into each so the console warning is gone (no autofill of
+  service-account secrets is introduced). The Change-password modal's username
+  field is now a visually-hidden text field instead of `type=hidden`.
+- **Single-field settings rows stack label-above-input.** Audit-forwarding,
+  retention and scheduled-backup rows put the label *beside* the box; they now
+  match every other form (label on top, full-width box below).
+- **Host Configuration modal keeps a stable size.** Switching its sections
+  (Repos / Netplan / … / Cron) no longer resizes and re-centres the window — the
+  active section scrolls inside a fixed-height modal, same as the CMDB modal.
 - **Host firewall detection (round two).** Beyond scanning all tables + both
   backends + firewalld, the probe now (a) **falls back to `iptables -S`** when
   `iptables-save` is present but errors — the earlier change regressed such hosts
