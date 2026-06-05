@@ -4157,8 +4157,15 @@ def execute_command(cmd):
             actual_shell = shell_cmd
         log.info(f"Executing custom command: {actual_shell!r}")
         try:
-            # Parse optional timeout from exec:<timeout>:<cmd> format
-            exec_timeout = 300  # default 5 min for longer tasks like apt upgrade
+            # v3.13.0: package upgrades can take far longer than 5 min on a host
+            # with many pending updates. The old fixed 300s timeout killed the
+            # command mid-upgrade — and for `upgrade_and_reboot` that meant the
+            # trailing `systemctl reboot` never ran, so the host upgraded but
+            # never rebooted. Give upgrade/reboot commands 30 min.
+            _is_upgrade = any(n in actual_shell for n in (
+                'apt-get -y upgrade', 'dnf -y upgrade', 'yum -y upgrade',
+                'pacman -Syu', 'zypper', 'apk upgrade', 'remotepower_update.log'))
+            exec_timeout = 1800 if _is_upgrade else 300
             result = subprocess.run(actual_shell, shell=True, capture_output=True, text=True, timeout=exec_timeout)
             output = (result.stdout + result.stderr).strip()
             log.info(f"Command output (rc={result.returncode}): {output[:200]}")

@@ -6671,6 +6671,87 @@ def _autopatch_target_devices(target):
     return out
 
 
+def _cron_next(cron, after_ts, horizon_days=45):
+    """Next whole-minute unix ts at/after after_ts matching cron, or None if
+    none within horizon_days. Reuses _cron_match (defined later — both are
+    module-level, so resolved at call time)."""
+    probe = (int(after_ts) // 60 + 1) * 60
+    end = int(after_ts) + horizon_days * 86400
+    while probe <= end:
+        try:
+            if _cron_match(cron, probe):
+                return probe
+        except Exception:
+            return None
+        probe += 60
+    return None
+
+
+def _cron_to_recur(cron):
+    """Map a 5-field cron to the calendar's coarse recurrence bucket."""
+    parts = (cron or '').split()
+    if len(parts) != 5:
+        return 'none'
+    _m, _h, dom, mon, dow = parts
+    if dow != '*':
+        return 'weekly'
+    if dom != '*':
+        return 'monthly'
+    if mon != '*':
+        return 'yearly'
+    return 'daily'
+
+
+def _autopatch_sync(pol, remove=False):
+    """v3.13.0: mirror an auto-patch policy into a maintenance window (so alerts
+    are suppressed during the patch run / reboot) AND a calendar event (so the
+    schedule is visible). Both are linked by `autopatch_id` and upserted
+    idempotently. Best-effort — never raises into the caller."""
+    pid = pol.get('id')
+    if not pid:
+        return
+    active = (not remove) and bool(pol.get('enabled', True)) and bool(pol.get('cron'))
+    try:
+        with _LockedUpdate(MAINT_FILE) as mw:
+            wins = mw.setdefault('windows', [])
+            wins[:] = [w for w in wins
+                       if not (isinstance(w, dict) and w.get('autopatch_id') == pid)]
+            if active:
+                wins.append({
+                    'name': f"Auto-patch: {pol.get('name', '')}"[:120],
+                    'cron': pol['cron'], 'duration': 3600,
+                    'autopatch_id': pid, 'auto': True,
+                })
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] autopatch maint sync: {e}\n')
+    try:
+        with _LockedUpdate(CALENDAR_FILE) as cal:
+            evs = cal.setdefault('events', [])
+            evs[:] = [e for e in evs
+                      if not (isinstance(e, dict) and e.get('autopatch_id') == pid)]
+            if active:
+                nxt = _cron_next(pol['cron'], int(time.time()))
+                if nxt:
+                    import datetime as _dt
+                    s = _dt.datetime.fromtimestamp(nxt, _dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    e = _dt.datetime.fromtimestamp(nxt + 3600, _dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    tgt = pol.get('target') or {}
+                    tdesc = tgt.get('type', 'all') + (f": {tgt.get('value')}" if tgt.get('value') else '')
+                    evs.append({
+                        'id': 'ap_' + str(pid),
+                        'title': f"Auto-patch: {pol.get('name', '')}"[:120],
+                        'description': (f"Scheduled package upgrade ({tdesc})"
+                                        + (" + reboot" if pol.get('reboot') else "")
+                                        + f". cron: {pol['cron']}")[:2000],
+                        'start': s, 'end': e, 'all_day': False,
+                        'color': 'amber', 'recur': _cron_to_recur(pol['cron']),
+                        'autopatch_id': pid, 'created_by': 'auto-patch',
+                        'created_at': int(time.time()),
+                    })
+    except Exception as e:
+        sys.stderr.write(f'[remotepower] autopatch calendar sync: {e}\n')
+
+
 def handle_autopatch_list():
     """GET /api/autopatch — list policies."""
     require_auth()
@@ -6706,6 +6787,7 @@ def handle_autopatch_create():
            'last_run': 0, 'last_fired_minute': None}
     data['policies'].append(pol)
     save(AUTOPATCH_FILE, data)
+    _autopatch_sync(pol)   # v3.13.0: mirror into maintenance window + calendar
     audit_log(actor, 'autopatch_create', detail=f'policy={pol["id"]} {ttype}:{tval}')
     respond(200, {'ok': True, 'id': pol['id']})
 
@@ -6737,6 +6819,7 @@ def handle_autopatch_update(pol_id):
         if tt in ('all', 'group', 'tag', 'site'):
             pol['target'] = {'type': tt, 'value': tv}
     save(AUTOPATCH_FILE, data)
+    _autopatch_sync(pol)   # v3.13.0: keep the maintenance window + calendar in sync
     audit_log(actor, 'autopatch_update', detail=f'policy={pol_id}')
     respond(200, {'ok': True})
 
@@ -6752,6 +6835,7 @@ def handle_autopatch_delete(pol_id):
     if len(data['policies']) == n:
         respond(404, {'error': 'policy not found'})
     save(AUTOPATCH_FILE, data)
+    _autopatch_sync({'id': pol_id}, remove=True)   # v3.13.0: drop linked window + event
     audit_log(actor, 'autopatch_delete', detail=f'policy={pol_id}')
     respond(200, {'ok': True})
 
@@ -9102,7 +9186,10 @@ _SCHED_UPGRADE_REBOOT_CMD = (
     'echo "=== $(date +%Y-%m-%d_%H:%M:%S) upgrade-packages+reboot ===" >> "$L"; '
     '( ' + _UPGRADE_CMD + ' ) >> "$L" 2>&1; RC=$?; '
     'echo "=== exit $RC — rebooting ===" >> "$L"; '
-    'systemctl reboot'
+    # v3.13.0: reboot unconditionally after the upgrade (success or not), with
+    # fallbacks so it fires regardless of init system / PATH. The agent gives
+    # upgrade commands a 30-min exec timeout so this line is actually reached.
+    'systemctl reboot || /sbin/reboot || reboot'
 )
 
 
@@ -21230,10 +21317,18 @@ def handle_fleet_query():
             ls = d.get('last_seen', 0)
             if not (ls and (now - ls) / 86400 > offline_days):
                 continue
+        matched_pkg = None
         if has_pkg:
-            names = [(p.get('name') or '').lower() for p in (pkg_store.get(did) or {}).get('packages') or []]
-            if not any(has_pkg in n for n in names):
+            installed = (pkg_store.get(did) or {}).get('packages') or []
+            hits = [p for p in installed if has_pkg in (p.get('name') or '').lower()]
+            if not hits:
                 continue
+            # v3.13.0: surface the matched package name + INSTALLED VERSION so a
+            # "has package X" query answers "which version" without a second look.
+            matched_pkg = ', '.join(
+                f"{p.get('name')} {p.get('version', '')}".strip() for p in hits[:3])
+            if len(hits) > 3:
+                matched_pkg += f' +{len(hits) - 3} more'
         if integ and _agent_integrity_status(d, canonical, SERVER_VERSION) != integ:
             continue
         if cve_min is not None and (cve.get(did, 0) < cve_min):
@@ -21243,6 +21338,7 @@ def handle_fleet_query():
                      'version': d.get('version', ''),
                      'online': online,
                      'pending': pend if isinstance(pend, int) else None,
+                     'pkg_match': matched_pkg,
                      'cve_high': cve.get(did, 0) if cve is not None else None})
     rows.sort(key=lambda r: r['name'].lower())
     respond(200, {'total': len(rows), 'devices': rows})
@@ -22069,6 +22165,45 @@ def handle_inventory_search():
     respond(200, {'query': q, 'op': op, 'version': target,
                   'results': results, 'total': len(results),
                   'truncated': truncated})
+
+
+def handle_inventory_catalog():
+    """GET /api/inventory/catalog?q=<substr> — the "software center": every
+    installed package across the (in-scope) fleet, aggregated to one row per
+    package with the set of installed versions and how many hosts run each.
+    Answers "what's installed and which versions" at a glance. Auth: require_auth."""
+    require_auth()
+    qs = urllib.parse.parse_qs(os.environ.get('QUERY_STRING', '') or '')
+    q = (qs.get('q') or [''])[0].strip().lower()
+    store = load(PACKAGES_FILE) or {}
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    # package -> {version -> set(device_id)}
+    agg = {}
+    for dev_id, entry in store.items():
+        if dev_id not in devices:
+            continue
+        for p in (entry or {}).get('packages') or []:
+            name = p.get('name') or ''
+            if not name or (q and q not in name.lower()):
+                continue
+            ver = (p.get('version') or '').strip() or '—'
+            agg.setdefault(name, {}).setdefault(ver, set()).add(dev_id)
+    CAP = 1000
+    rows = []
+    for name, vers in agg.items():
+        hosts = set()
+        for s in vers.values():
+            hosts |= s
+        # versions sorted by host count desc, capped so one row can't explode
+        vlist = sorted(({'version': v, 'hosts': len(s)} for v, s in vers.items()),
+                       key=lambda x: -x['hosts'])[:8]
+        rows.append({'package': name, 'versions': vlist,
+                     'version_count': len(vers), 'hosts': len(hosts)})
+    truncated = len(rows) > CAP
+    # Most-deployed first, then most-version-fragmented (interesting for ops).
+    rows.sort(key=lambda r: (-r['hosts'], -r['version_count'], r['package'].lower()))
+    respond(200, {'query': q, 'packages': rows[:CAP],
+                  'total': len(rows), 'truncated': truncated})
 
 
 def _upgrade_verify_status(dev, now):
@@ -31857,6 +31992,7 @@ def _dispatch(pi, m):
     elif pi == '/api/fleet/timeline' and m == 'GET': handle_fleet_timeline()
     # v3.4.1: software inventory search across the fleet's package lists
     elif pi == '/api/inventory/search' and m == 'GET': handle_inventory_search()
+    elif pi == '/api/inventory/catalog' and m == 'GET': handle_inventory_catalog()
     # v3.4.2: fleet-wide patch catalog (pending updates by package)
     elif pi == '/api/patch-catalog' and m == 'GET': handle_patch_catalog()
     # v3.4.2: software metering / license compliance

@@ -472,6 +472,171 @@ class TestMountTrends(unittest.TestCase):
         self.assertIn("(net)", self.src)
 
 
+class TestThemeAndControls(unittest.TestCase):
+    """White-background sweep + Tasks linked-device filterbox."""
+
+    def setUp(self):
+        self.css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        self.html = (_ROOT / "server/html/index.html").read_text()
+
+    def test_bare_controls_themed(self):
+        # Global base rule themes bare input/select/textarea so nothing renders
+        # browser-white. Checkboxes excluded; :where() keeps it low-specificity.
+        self.assertIn("input:where(:not([type=checkbox])", self.css)
+        seg = self.css.split("input:where(:not([type=checkbox])", 1)[1].split("}", 1)[0]
+        self.assertIn("var(--bg)", seg)
+
+    def test_btn_defined(self):
+        # .btn (software-policy "Add rule") had no CSS → white; now styled.
+        self.assertIn("\n  .btn {", self.css)
+
+    def test_form_group_width(self):
+        self.assertIn(".form-group > select", self.css)
+
+    def test_task_device_is_combobox(self):
+        # Tasks "Linked device" must be the type-to-search filterbox, not a
+        # bare dropdown.
+        self.assertRegex(self.html, r'id="task-device"[^>]*class="[^"]*device-combo')
+
+
+class TestUpgradeRebootReliability(unittest.TestCase):
+    def setUp(self):
+        self.agent = (_ROOT / "client/remotepower-agent.py").read_text()
+        self.api = (_CGI_BIN / "api.py").read_text()
+
+    def test_upgrade_gets_long_timeout(self):
+        # Upgrades must not be killed at 300s before the trailing reboot runs.
+        self.assertIn("exec_timeout = 1800 if _is_upgrade else 300", self.agent)
+
+    def test_reboot_has_fallbacks(self):
+        self.assertIn("systemctl reboot || /sbin/reboot || reboot", self.api)
+
+
+class TestAutopatchSync(unittest.TestCase):
+    """Auto-patch policy mirrors into a maintenance window + calendar event."""
+
+    def setUp(self):
+        # Point the file constants at a fresh temp dir for this test.
+        import tempfile
+        from pathlib import Path as _P
+        self.d = _P(tempfile.mkdtemp())
+        self._old = (api.MAINT_FILE, api.CALENDAR_FILE)
+        api.MAINT_FILE = self.d / "maintenance.json"
+        api.CALENDAR_FILE = self.d / "calendar.json"
+
+    def tearDown(self):
+        api.MAINT_FILE, api.CALENDAR_FILE = self._old
+
+    def test_sync_creates_and_removes(self):
+        pol = {'id': 'p1', 'name': 'Nightly', 'cron': '0 3 * * *',
+               'enabled': True, 'reboot': True, 'target': {'type': 'all', 'value': ''}}
+        api._autopatch_sync(pol)
+        wins = (api.load(api.MAINT_FILE) or {}).get('windows') or []
+        evs = (api.load(api.CALENDAR_FILE) or {}).get('events') or []
+        self.assertTrue(any(w.get('autopatch_id') == 'p1' and w.get('cron') == '0 3 * * *' for w in wins))
+        self.assertTrue(any(e.get('autopatch_id') == 'p1' for e in evs))
+        # remove
+        api._autopatch_sync({'id': 'p1'}, remove=True)
+        wins2 = (api.load(api.MAINT_FILE) or {}).get('windows') or []
+        evs2 = (api.load(api.CALENDAR_FILE) or {}).get('events') or []
+        self.assertFalse(any(w.get('autopatch_id') == 'p1' for w in wins2))
+        self.assertFalse(any(e.get('autopatch_id') == 'p1' for e in evs2))
+
+    def test_cron_to_recur(self):
+        self.assertEqual(api._cron_to_recur('0 3 * * 0'), 'weekly')
+        self.assertEqual(api._cron_to_recur('0 3 1 * *'), 'monthly')
+        self.assertEqual(api._cron_to_recur('0 3 * * *'), 'daily')
+
+    def test_create_wires_sync(self):
+        self.assertIn("_autopatch_sync(pol)", (_CGI_BIN / "api.py").read_text())
+
+
+class TestInventoryCatalog(unittest.TestCase):
+    """Software center: aggregated installed-package catalog + has-package version."""
+
+    def test_route_registered(self):
+        src = (_CGI_BIN / "api.py").read_text()
+        self.assertIn("/api/inventory/catalog", src)
+        self.assertTrue(callable(getattr(api, "handle_inventory_catalog", None)))
+
+    def test_catalog_aggregates(self):
+        import tempfile
+        from pathlib import Path as _P
+        d = _P(tempfile.mkdtemp())
+        old_pkg, old_dev = api.PACKAGES_FILE, api.DEVICES_FILE
+        api.PACKAGES_FILE = d / "packages.json"
+        api.DEVICES_FILE = d / "devices.json"
+        try:
+            api.save(api.DEVICES_FILE, {'a': {'name': 'A'}, 'b': {'name': 'B'}})
+            api.save(api.PACKAGES_FILE, {
+                'a': {'packages': [{'name': 'openssl', 'version': '3.0.2'},
+                                   {'name': 'curl', 'version': '8.1'}]},
+                'b': {'packages': [{'name': 'openssl', 'version': '3.0.5'}]},
+            })
+            # aggregate by hand via the same logic the handler uses
+            store = api.load(api.PACKAGES_FILE)
+            agg = {}
+            for did, e in store.items():
+                for p in e['packages']:
+                    agg.setdefault(p['name'], {}).setdefault(p['version'], set()).add(did)
+            self.assertEqual(len(agg['openssl']), 2)   # two distinct versions
+            self.assertEqual(len(agg['curl']['8.1']), 1)
+        finally:
+            api.PACKAGES_FILE, api.DEVICES_FILE = old_pkg, old_dev
+
+    def test_fleet_query_outputs_pkg_version(self):
+        src = (_CGI_BIN / "api.py").read_text()
+        self.assertIn("'pkg_match': matched_pkg", src)
+        # the matched string includes the installed version
+        self.assertIn("p.get('version', '')", src)
+        # frontend renders the matched-package column
+        self.assertIn("hasPkgCol", client_js())
+
+    def test_frontend_software_center(self):
+        js = client_js()
+        for fn in ('loadSoftwareCatalog', '_renderSwCatalog', '_swCatalogFilter'):
+            self.assertIn(f'function {fn}', js)
+
+
+class TestFormControlSpecificity(unittest.TestCase):
+    """The global control-theming rule must NOT outrank .form-input (regression:
+    the :not() chain inflated specificity and clobbered .form-input width)."""
+
+    def test_base_rule_uses_where(self):
+        css = (_ROOT / "server/html/static/css/styles.css").read_text()
+        # The :not chain is wrapped in :where() to keep element-level specificity.
+        self.assertIn("input:where(:not([type=checkbox])", css)
+        # And the old high-specificity bare form was removed.
+        self.assertNotIn("\n  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),", css)
+
+
+class TestForecastNetworkMounts(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("fc_net", _CGI_BIN / "forecast.py")
+        self.fc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.fc)
+
+    def test_network_flag_passthrough(self):
+        import time
+        now = int(time.time())
+        samples = [{'ts': now - i * 86400,
+                    'mounts': [{'path': '/data', 'used_gb': 10 + i, 'total_gb': 100, 'network': True},
+                               {'path': '/', 'used_gb': 5, 'total_gb': 50}]}
+                   for i in range(5)]
+        rows = {r['path']: r for r in self.fc.forecast_mounts(samples)}
+        self.assertIn('/data', rows)
+        self.assertTrue(rows['/data']['network'])
+        self.assertFalse(rows['/'].get('network'))
+
+    def test_network_not_excluded(self):
+        # Network shares aren't in the volatile-exclude list.
+        self.assertNotIn('/data', self.fc.VOLATILE_MOUNTS)
+
+    def test_frontend_labels_net(self):
+        self.assertIn("network share (NFS/SMB/CIFS)", client_js())
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

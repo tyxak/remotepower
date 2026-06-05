@@ -38,6 +38,20 @@ already being reported and stored.
   line on the **Trends** chart and is covered by disk-fill **forecasting**.
   (Also fixes a pre-existing bug where the per-device Trends endpoint read the
   history store with the wrong shape and returned nothing.)
+- **Software center.** A new card on the **Software policy** page lists every
+  package installed across the fleet, aggregated to one row per package with the
+  versions in use and how many hosts run each (a "mixed" badge flags packages
+  running more than one version). Type to filter. `GET /api/inventory/catalog`.
+- **Fleet Query "has package" now shows the installed version.** A
+  `has_package` filter result includes the matched package name **and version**
+  in a new column, so you don't need a second lookup to answer "which version".
+- **Tasks "Linked device" is a type-to-search filterbox.** Matches the device
+  combobox used elsewhere, instead of a long native dropdown.
+- **Auto-patch policies mirror into the calendar + maintenance windows.**
+  Creating (or editing) an auto-patch policy now also creates a linked recurring
+  **calendar event** (so the schedule is visible) and a recurring **maintenance
+  window** (so alerts are suppressed during the patch run / reboot), both kept in
+  sync with the policy and removed when it's deleted or disabled.
 - **Controller backup & restore.** A new **full disaster-recovery backup**
   (`GET /api/backup/download`) streams a tar.gz of the entire data directory —
   *including* the encrypted credentials vault and integration secrets — and a
@@ -81,6 +95,24 @@ already being reported and stored.
   closing the rebinding window the HTTP path already guarded.
 
 ### Fixed
+- **`upgrade_and_reboot` now actually reboots.** Queued `exec:` commands ran with
+  a fixed 300 s timeout, so a package upgrade taking longer than 5 minutes was
+  killed *before* the trailing `systemctl reboot` — the host upgraded but never
+  rebooted. Upgrade commands now get a 30-minute timeout, and the reboot has
+  fallbacks (`systemctl reboot || /sbin/reboot || reboot`).
+- **White form controls themed everywhere.** Bare `<input>` / `<select>` /
+  `<textarea>` that were missing the `.form-input` class (the Calendar new-event
+  form, the Tasks "Linked device" field, and others) rendered browser-white. A
+  global base rule now themes every native control to match the dark UI
+  (checkboxes/radios keep their accent styling); fields inside a labelled group
+  fill the row. The generic `.btn` class (the Software-policy "Add rule" button)
+  had no CSS at all and is now styled like the secondary button. The base rule's
+  `:not()` chain is wrapped in `:where()` so it keeps element-level specificity
+  and never outranks `.form-input` — otherwise it clobbered `width:100%` and
+  misaligned the SMTP / audit-forward / LDAP / retention settings forms.
+- **Network mounts in the disk-fill forecast.** NFS/SMB/CIFS shares are included
+  in the Forecast projection (they were never excluded; this adds a `net` label)
+  once they have a few days of daily history.
 - **Host firewall detection (round two).** Beyond scanning all tables + both
   backends + firewalld, the probe now (a) **falls back to `iptables -S`** when
   `iptables-save` is present but errors — the earlier change regressed such hosts

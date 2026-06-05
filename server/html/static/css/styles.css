@@ -1266,6 +1266,51 @@
   .form-input:focus { border-color: var(--accent); }
   .form-input::placeholder { color: var(--muted); }
   select.form-input { cursor: pointer; }
+
+  /* v3.13.0: theme EVERY native form control by default, so a control that is
+   * missing its .form-input class (or a bare <select>/<input>/<textarea>) still
+   * matches the dark theme instead of rendering browser-white. The :not() chain
+   * is wrapped in :where() so the whole selector keeps ELEMENT-level specificity
+   * (0,0,1) — otherwise the five attribute :not()s would outrank .form-input
+   * (0,1,0) and clobber its width:100%, misaligning every settings form.
+   * Checkboxes, radios, range, color and file inputs keep their own styling. */
+  input:where(:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file])),
+  select,
+  textarea {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    font-size: 14px;
+    font-family: var(--font);
+    outline: none;
+  }
+  input:where(:not([type=checkbox]):not([type=radio])):focus,
+  select:focus, textarea:focus { border-color: var(--accent); }
+  input::placeholder, textarea::placeholder { color: var(--muted); }
+  select:where(:not(.form-input)) { cursor: pointer; }
+  /* Form fields inside a labelled group fill the row (matches .form-input)
+   * without forcing width on inline inputs elsewhere (toolbars, steppers) or on
+   * deliberately narrow inputs. */
+  .form-group > input:not([type=checkbox]):not([type=radio]):not(.input-narrow),
+  .form-group > select:not(.input-narrow),
+  .form-group > textarea { width: 100%; }
+
+  /* Generic .btn (e.g. the software-policy "Add rule" button) had no CSS at all
+   * and rendered as a white browser default — match the secondary button. */
+  .btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
   /* v3.12.0: one consistent checkbox/radio size + colour across the whole UI
      (they were rendering at assorted browser-default sizes). flex:none keeps
      them from shrinking inside flex rows. Mobile bumps to 20px further down. */

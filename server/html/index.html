@@ -4617,7 +4617,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             <input type="text" id="swpol-pkg" class="form-input" placeholder="package name (e.g. fail2ban)">
             <input type="text" id="swpol-ver" class="form-input" placeholder="min version (min_version only)">
             <input type="text" id="swpol-tags" class="form-input" placeholder="tags (optional, comma-sep)">
-            <button class="btn" data-action="swPolAddRule">Add rule</button>
+            <button class="btn-secondary" data-action="swPolAddRule">Add rule</button>
           </div>
         </div>
         <div class="table-card card-padded">
@@ -4630,6 +4630,14 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
             </tr></thead>
             <tbody id="swpol-viol-tbody"><tr><td colspan="5" class="hint">Loading…</td></tr></tbody>
           </table>
+        </div>
+        <!-- v3.13.0: software center — every installed package + its versions -->
+        <div class="table-card card-padded">
+          <div class="page-subtitle fw-600">Software center — installed packages</div>
+          <p class="hint">Every package installed across the fleet, with the versions in use and how many hosts run each. Type to filter; click a row to see which hosts (and versions) on the Patches → inventory search.</p>
+          <input type="text" id="swcatalog-q" class="form-input page-filter mb-8" placeholder="Filter package name (e.g. openssl)…" data-input="_swCatalogFilter">
+          <span id="swcatalog-summary" class="isl-100"></span>
+          <div id="swcatalog-body"><div class="c-muted fs-13">Loading…</div></div>
         </div>
       </div>
 
@@ -6271,7 +6279,7 @@ curl -X PATCH -H "X-Token: $T" -H "Content-Type: application/json" \
       </select>
     </div>
     <div class="form-group"><label>Linked device (optional)</label>
-      <select id="task-device"><option value="">— None —</option></select>
+      <select id="task-device" class="form-input device-combo" data-combo-placeholder="Search devices…"><option value="">— None —</option></select>
     </div>
   </div>
   <div id="task-meta" class="isl-281"></div>

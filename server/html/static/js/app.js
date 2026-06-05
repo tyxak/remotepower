@@ -9778,9 +9778,49 @@ function _renderStorage() {
 // ─── v3.11.0: Fleet Software Policy ──────────────────────────────────────────
 let _swPolicy = { rules: [] };
 let _swViolations = [];
+// v3.13.0: software center — every installed package + versions across the fleet.
+let _swCatalog = [];
+let _swCatalogTimer = null;
+async function loadSoftwareCatalog() {
+  const body = document.getElementById('swcatalog-body');
+  if (!body) return;
+  body.innerHTML = '<div class="c-muted fs-13">Loading…</div>';
+  const r = await api('GET', '/inventory/catalog').catch(() => null);
+  if (!r) { body.innerHTML = '<div class="c-red">Failed to load software inventory.</div>'; return; }
+  _swCatalog = r.packages || [];
+  const sum = document.getElementById('swcatalog-summary');
+  if (sum) sum.textContent = `${r.total} package${r.total === 1 ? '' : 's'}${r.truncated ? ' (showing first 1000)' : ''}`;
+  _renderSwCatalog();
+}
+function _renderSwCatalog() {
+  const body = document.getElementById('swcatalog-body');
+  if (!body) return;
+  const q = (document.getElementById('swcatalog-q')?.value || '').toLowerCase().trim();
+  let rows = _swCatalog;
+  if (q) rows = rows.filter(p => (p.package || '').toLowerCase().includes(q));
+  if (!rows.length) { body.innerHTML = '<div class="c-muted fs-13">No packages match.</div>'; return; }
+  const shown = rows.slice(0, 500);
+  const verCell = (p) => p.versions.map(v =>
+    `<span class="cmd-badge fs-11">${escHtml(v.version)}${v.hosts > 1 ? ` <span class="c-muted">×${v.hosts}</span>` : ''}</span>`).join(' ')
+    + (p.version_count > p.versions.length ? ` <span class="c-muted fs-11">+${p.version_count - p.versions.length} more</span>` : '');
+  body.innerHTML = `<div class="scrollable-table-wrap audit-scroll"><table class="data-table w-full">
+    <thead><tr class="c-muted"><th>Package</th><th>Installed version(s)</th><th class="ta-center">Hosts</th></tr></thead>
+    <tbody>` + shown.map(p =>
+      `<tr><td class="mono-12">${escHtml(p.package)}${p.version_count > 1 ? ' <span class="pill" data-color="var(--amber)" title="multiple versions across the fleet">mixed</span>' : ''}</td>
+        <td>${verCell(p)}</td>
+        <td class="ta-center">${p.hosts}</td></tr>`).join('')
+    + `</tbody></table></div>`
+    + (rows.length > shown.length ? `<div class="hint mt-6">Showing 500 of ${rows.length} — refine the filter.</div>` : '');
+}
+function _swCatalogFilter() {
+  clearTimeout(_swCatalogTimer);
+  _swCatalogTimer = setTimeout(_renderSwCatalog, 150);
+}
+
 async function loadSoftwarePolicy() {
   const tbody = document.getElementById('swpol-viol-tbody');
   if (!tbody) return;
+  loadSoftwareCatalog();   // v3.13.0: software center
   tableCtl.wireSortOnly('swpol-viol-thead', 'swpol', () => _renderSwViolations());
   tbody.innerHTML = '<tr><td colspan="5" class="hint">Loading…</td></tr>';
   try {
@@ -13407,15 +13447,18 @@ async function _loadAuditSection(key) {
           h += `<div class="scrollable-table-wrap audit-scroll"><table class="isl-627">
             <thead><tr class="c-muted"><th class="isl-628">Mount</th><th>FS</th><th>Used</th><th>Total</th><th>%</th></tr></thead>
             <tbody>` + si.mounts.map(m=>{
-              const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)" title="${escAttr(m.server||'network share')}">net</span>` : '';
+              const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)">net</span>` : '';
+              // Show the share server inline (not just a tooltip) so an SMB/NFS
+              // mount is unmistakable: e.g. "cifs · //192.168.2.100/data".
+              const fsCell = escHtml(m.fstype || '—') + (m.network && m.server ? ` · <code>${escHtml(m.server)}</code>` : '');
               if (m.stalled) {
                 return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
-                   <td class="fs-11 c-muted">${escHtml(m.fstype || '—')}</td>
+                   <td class="fs-11 c-muted">${fsCell}</td>
                    <td class="ta-center c-muted" colspan="3"><span class="pill" data-color="var(--red)">stalled</span></td></tr>`;
               }
               const pct = (m.percent != null) ? m.percent : null;
               return `<tr><td class="isl-629"><code>${escHtml(m.path)}</code>${netBadge}</td>
-                   <td class="fs-11 c-muted">${escHtml(m.fstype || '—')}</td>
+                   <td class="fs-11 c-muted">${fsCell}</td>
                    <td class="ta-center">${m.used_gb}GB</td>
                    <td class="ta-center">${m.total_gb}GB</td>
                    <td class="isl-630 ${pct>85?'c-red': pct>70?'c-amber': ''}">${pct!=null?pct+'%':'—'}</td></tr>`;
@@ -15400,14 +15443,20 @@ async function runFleetQuery() {
     pending: (d.pending == null ? -1 : d.pending),
     cve: (d.cve_high == null ? -1 : d.cve_high),
   }));
+  // v3.13.0: when the query filtered on "has package", show the matched
+  // package + its INSTALLED VERSION as a column.
+  const hasPkgCol = r.devices.some(d => d.pkg_match);
   const rows = sorted.map(d =>
     `<tr><td><button class="tl-devchip" data-action="openDeviceTimeline" data-arg="${escAttr(d.device_id)}">${escHtml(d.name)}</button></td>`
     + `<td class="hint">${escHtml(d.group || '—')}</td><td class="fs-12">${escHtml((d.os || '').substring(0, 28))}</td>`
     + `<td><span class="mon-status ${d.online ? 'up' : 'down'}">${d.online ? 'Online' : 'Offline'}</span></td>`
     + `<td class="ta-center">${d.pending == null ? '—' : d.pending}</td>`
+    + (hasPkgCol ? `<td class="fs-12 mono-12">${escHtml(d.pkg_match || '—')}</td>` : '')
     + `<td class="ta-center">${d.cve_high == null ? '—' : d.cve_high}</td></tr>`).join('');
   out.innerHTML = `<div class="fs-12 c-muted mb-6">${r.total} device(s)</div>`
-    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th><th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    + `<div class="table-card"><table><thead id="fq-thead"><tr><th data-col="device">Device</th><th data-col="group">Group</th><th data-col="os">OS</th><th data-col="status">Status</th><th data-col="pending" class="ta-center">Pending</th>`
+    + (hasPkgCol ? `<th>Matched package</th>` : '')
+    + `<th data-col="cve" class="ta-center">CVE</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   tableCtl.wireSortOnly('fq-thead', 'fleet_query', runFleetQuery);
 }
 
@@ -15644,9 +15693,10 @@ function _renderForecastTable() {
       ? ` <span class="c-muted fs-11" title="Same filesystem: ${escAttr(shared.join(', '))}">+${shared.length - 1}</span>`
       : '';
     const sel = idx === _forecastSel ? ' is-selected' : '';
+    const netBadge = m.network ? ` <span class="pill" data-color="var(--accent)" title="network share (NFS/SMB/CIFS)">net</span>` : '';
     return `<tr class="pointer${sel}" data-action="forecastSelect" data-arg="${idx}">
       <td class="fw-500">${escHtml(m.device_name)}</td>
-      <td><code>${escHtml(m.path)}</code>${extra}</td>
+      <td><code>${escHtml(m.path)}</code>${netBadge}${extra}</td>
       <td class="ta-center">${m.current_gb}/${m.total_gb} GB</td>
       <td class="ta-center">${m.current_percent}%</td>
       <td class="ta-center"${m.recent_gb_per_day != null ? ` title="recent (~7d): ${m.recent_gb_per_day} GB/day"` : ''}>${m.trend_gb_per_day} GB/day</td>

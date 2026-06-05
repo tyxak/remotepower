@@ -106,6 +106,7 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
 
     # Gather a per-mount time series: {path: [(ts, used_gb, total_gb), ...]}.
     series = {}
+    net_paths = set()   # v3.13.0: paths that are network shares (NFS/SMB/CIFS)
     for s in samples:
         ts = s.get('ts')
         if not isinstance(ts, (int, float)):
@@ -118,6 +119,8 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
                 continue
             if _is_volatile_mount(path, exclude):
                 continue   # v3.4.2: skip ephemeral / tmpfs-style mounts
+            if m.get('network'):
+                net_paths.add(path)
             series.setdefault(path, []).append((ts, float(used), float(total)))
 
     # Collapse mounts that are the SAME underlying filesystem. btrfs subvolumes
@@ -197,6 +200,7 @@ def forecast_mounts(samples, min_points=3, exclude=None, min_r2=_MIN_R2):
 
         out.append({
             'path':             path,
+            'network':          path in net_paths,   # v3.13.0: NFS/SMB/CIFS share
             'current_gb':       round(cur, 2),
             'total_gb':         round(total, 2),
             'current_percent':  round(100.0 * cur / total, 1) if total else 0.0,
