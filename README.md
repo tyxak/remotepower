@@ -188,10 +188,13 @@ Full feature inventory: **[docs/features.md](docs/features.md)**.
 ## Security
 
 RemotePower is security-reviewed every few releases — the latest is
-**[docs/security-review-3.10.0.md](docs/security-review-3.10.0.md)** (server +
-agent), preceded by the 3.9.0, 3.8.0, 3.0.5, and 2.3.2 reviews. v3.8.0 additionally
-passed an external dynamic scan (OWASP ZAP full active scan + nikto + nuclei).
-Posture in
+**[docs/security-review-3.13.0.md](docs/security-review-3.13.0.md)** (server +
+agent), preceded by the 3.10.0, 3.9.0, 3.8.0, 3.0.5, and 2.3.2 reviews. It is
+also scanned with a combined **SAST + DAST** pipeline — **Bandit** (static
+analysis of the Python), and **OWASP ZAP** (full active scan), **Nikto**,
+**Nuclei**, **Wapiti** and **WhatWeb** (dynamic) — and the latest full run
+reported **no exploitable findings** (only informational items and
+false positives). Posture in
 brief: bcrypt (cost 12, with a PBKDF2-HMAC-SHA256 fallback at OWASP-2023
 parameters) passwords behind rate-limited login, TOTP 2FA with one-time
 recovery codes; 256-bit header-based session tokens (CSRF-safe by

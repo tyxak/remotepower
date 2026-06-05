@@ -199,6 +199,29 @@ behind a VPN/SSO instead. Never IP-restrict `/api/csp-report` (you'd lose CSP
 reports from real browsers). The shipped `server/conf/remotepower.conf` carries
 this guidance inline.
 
+## Security testing
+
+RemotePower is reviewed and scanned on an ongoing basis:
+
+- **Manual security reviews** of the server and agent every few releases
+  (see the `docs/security-review-*.md` files; latest:
+  [security-review-3.13.0.md](security-review-3.13.0.md)).
+- **SAST** — [Bandit](https://bandit.readthedocs.io/) static analysis of the
+  Python codebase.
+- **DAST** — [OWASP ZAP](https://www.zaproxy.org/) full active scan,
+  [Nikto](https://github.com/sullo/nikto), [Nuclei](https://github.com/projectdiscovery/nuclei),
+  [Wapiti](https://wapiti-scanner.github.io/) and WhatWeb against a running
+  instance.
+
+The most recent full SAST + DAST run reported **no exploitable findings** —
+only informational results and tool false positives (e.g. a metadata-SSRF
+probe against a path that simply returns a 404, and benign timestamp/internal-IP
+disclosures inherent to a fleet dashboard). The few static-analysis nits it did
+surface (e.g. non-cryptographic fingerprint hashes) were annotated or fixed.
+
+If you find a security issue, please report it privately rather than opening a
+public issue.
+
 ## Threat model
 
 **In scope:**

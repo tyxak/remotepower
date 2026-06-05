@@ -723,6 +723,27 @@ class TestFleetHostConfig(unittest.TestCase):
         self.assertIn('data-action="exportAllHostConfigs"', html)
 
 
+class TestSecurityAuditFixes(unittest.TestCase):
+    """v3.13.0 audit fixes: restore bomb guard, AI-chat RBAC scoping, SHA1 nits."""
+
+    def setUp(self):
+        self.src = (_CGI_BIN / "api.py").read_text()
+
+    def test_restore_decompression_bomb_guard(self):
+        self.assertIn("_MAX_RESTORE_BYTES", self.src)
+        self.assertIn("possible zip bomb", self.src)
+
+    def test_ai_chat_scope_filtered(self):
+        # fleet snapshot scoped to caller; RAG only for full-access callers.
+        self.assertIn("raw = _scope_filter_devices(load(DEVICES_FILE) or {})", self.src)
+        self.assertIn("_ai_scope = _caller_scope()", self.src)
+        self.assertIn("include_rag and _ai_scope is None", self.src)
+
+    def test_sha1_fingerprints_not_for_security(self):
+        # Both dedupe fingerprints annotated usedforsecurity=False.
+        self.assertEqual(self.src.count("usedforsecurity=False"), 2)
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

@@ -384,7 +384,8 @@ def _line_signature(line):
     one missed dedupe."""
     if not isinstance(line, str):
         line = str(line)
-    return hashlib.sha1(line.encode('utf-8', errors='replace')).hexdigest()[:16]
+    return hashlib.sha1(line.encode('utf-8', errors='replace'),
+                        usedforsecurity=False).hexdigest()[:16]
 
 
 
@@ -16171,10 +16172,14 @@ def handle_ai_chat():
     ctx_opts = cfg.get('context') or {}
     include_project = bool(ctx_opts.get('include_project_context', True))
     include_fleet   = bool(ctx_opts.get('include_fleet_context', True))
+    # v3.13.0 RBAC: scope the fleet snapshot to what THIS caller may see, so a
+    # viewer / scoped role can't pull device data outside its scope into the AI
+    # context. _caller_scope() is None for full-access (admin) callers.
+    _ai_scope = _caller_scope()
     fleet_devices = None
     if include_fleet:
         try:
-            raw = load(DEVICES_FILE)
+            raw = _scope_filter_devices(load(DEVICES_FILE) or {})
             fleet_devices = list(raw.values()) if isinstance(raw, dict) else (raw or [])
         except Exception:
             # If devices.json can't be read, just skip fleet context —
@@ -16185,7 +16190,10 @@ def handle_ai_chat():
     # context toggle AND the rag.enabled flag; never allowed to break chat.
     include_rag = bool(ctx_opts.get('include_rag', True))
     retrieved = None
-    if include_rag and (cfg.get('rag') or {}).get('enabled'):
+    # v3.13.0 RBAC: the RAG corpus spans the whole fleet and isn't scope-tagged
+    # per-device, so only full-access (admin) callers get RAG retrieval —
+    # scoped roles would otherwise see out-of-scope infra in the answer.
+    if include_rag and _ai_scope is None and (cfg.get('rag') or {}).get('enabled'):
         last_user = next((m.get('content') for m in reversed(messages)
                           if isinstance(m, dict) and m.get('role') == 'user'
                           and isinstance(m.get('content'), str)), '')
@@ -20423,7 +20431,13 @@ def handle_backup_restore():
     except Exception as e:
         respond(400, {'error': f'not a valid .tar.gz: {e}'})
     base = os.path.realpath(str(DATA_DIR))
+    # v3.13.0: decompression-bomb guard — a 50 MB gzip can inflate to many GB.
+    # Cap the cumulative uncompressed size and member count before extracting so
+    # a crafted archive can't fill the data-dir filesystem.
+    _MAX_RESTORE_BYTES = 2 * 1024 * 1024 * 1024   # 2 GB uncompressed
+    _MAX_RESTORE_MEMBERS = 50000
     safe_members = []
+    total_bytes = 0
     for m in tf.getmembers():
         if not (m.isfile() or m.isdir()):
             respond(400, {'error': f'archive contains a non-regular entry ({m.name}) — refused'})
@@ -20433,6 +20447,9 @@ def handle_backup_restore():
         dest = os.path.realpath(os.path.join(base, name))
         if dest != base and not dest.startswith(base + os.sep):
             respond(400, {'error': f'path escapes data dir: {name}'})
+        total_bytes += int(getattr(m, 'size', 0) or 0)
+        if total_bytes > _MAX_RESTORE_BYTES or len(safe_members) > _MAX_RESTORE_MEMBERS:
+            respond(400, {'error': 'archive too large when decompressed — refused (possible zip bomb)'})
         safe_members.append(m)
     # 3) Extract.
     restored = 0
@@ -33239,7 +33256,8 @@ def _attention_item_key(item):
         str(item.get('device') or ''),
         str(item.get('summary') or ''),
     ])
-    return hashlib.sha1(raw.encode('utf-8', errors='replace')).hexdigest()[:16]
+    return hashlib.sha1(raw.encode('utf-8', errors='replace'),
+                        usedforsecurity=False).hexdigest()[:16]
 
 
 def _ignored_load():

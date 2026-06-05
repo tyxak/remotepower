@@ -99,6 +99,14 @@ already being reported and stored.
   function/var being referenced at load time after a future move.
 
 ### Security
+- **External SAST + DAST scan: no exploitable findings.** The release was
+  scanned with Bandit (SAST) and OWASP ZAP / Nikto / Nuclei / Wapiti / WhatWeb
+  (DAST); see [docs/security-review-3.13.0.md](docs/security-review-3.13.0.md).
+  Two LOW items found in the new v3.13.0 surface were fixed: a
+  decompression-bomb guard on **backup restore** (cap uncompressed size + member
+  count), and **RBAC isolation for `/api/ai/chat`** (the fleet context is now
+  scope-filtered to the caller and RAG retrieval is admin-only). Two
+  non-cryptographic SHA-1 fingerprint hashes were annotated `usedforsecurity=False`.
 - **Sandboxed SCAP reports.** Agent-supplied OpenSCAP HTML is served under a
   self-contained sandboxed CSP (`default-src 'none'; … sandbox;`) +
   `X-Frame-Options: DENY`, so stored XSS can't reach an operator's session even

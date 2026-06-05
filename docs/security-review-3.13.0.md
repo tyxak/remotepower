@@ -114,3 +114,51 @@ unchecked resolution.
 
 No outstanding issues. The reviewed surface is consistent with the strong
 posture of prior releases.
+
+---
+
+## Addendum — v3.13.0 new-surface audit + external scan
+
+The large v3.13.0 feature set added new endpoints that were given a dedicated
+review: the controller **backup/restore**, fleet **host-config collect/export**,
+the **software-center** inventory catalog, **drift profiles** CRUD, the
+fleet-risk cache, the network-mount collectors, and the targeted **AI buttons**
+(which send a raw system-prompt to `/api/ai/chat`).
+
+**Result: no CRITICAL or HIGH issues.** Highlights verified clean: restore
+extraction rejects symlinks/hardlinks/devices, absolute paths, `..`, and any
+realpath that escapes the data dir, and takes a pre-restore safety snapshot;
+collect-all queues a fixed command (no injection) and is admin-only; export and
+the inventory catalog are RBAC scope-filtered; drift-profile mutations are
+admin-only with absolute-path validation; agent collectors use fixed argv
+subprocess calls (no shell). Two **LOW** items were fixed:
+
+- **Restore decompression-bomb guard** — the uploaded tarball is capped at 50 MB
+  compressed, but the *uncompressed* size was unbounded; a crafted gzip could
+  fill the data-dir filesystem. Restore now rejects archives whose cumulative
+  uncompressed size or member count exceeds a bound (admin-only either way).
+- **AI-chat RBAC isolation** — `/api/ai/chat` injected an unscoped fleet snapshot
+  and RAG corpus, so a scoped/viewer role could pull out-of-scope device data
+  into the AI context. The fleet snapshot is now scope-filtered to the caller,
+  and RAG retrieval is restricted to full-access (admin) callers.
+
+Two non-cryptographic SHA-1 *fingerprint* hashes (log-line and attention-item
+dedupe keys) flagged by static analysis were annotated `usedforsecurity=False`
+(they were never used for security; the digest is unchanged).
+
+## External SAST + DAST scan
+
+A full combined scan was run against a deployed instance and the source:
+
+- **SAST:** Bandit over the server + agent Python.
+- **DAST:** OWASP ZAP full active scan, Nikto, Nuclei, Wapiti, WhatWeb.
+
+**Outcome: no exploitable findings.** Nuclei and the dependency-CVE check were
+empty; ZAP's single "High" (a cloud-metadata probe) was a false positive — the
+probed path returns a plain 404 and there is no `proxy_pass $host` upstream, so
+metadata SSRF is structurally impossible; the remaining items were informational
+(CSP notices, unix-timestamp and internal-IP disclosures inherent to a fleet
+dashboard). Bandit surfaced only the fingerprint-hash nits above plus the
+expected, accepted patterns (SSRF-guarded outbound clients, argv subprocess
+calls). A separate operational note (not a code issue): keep source backups out
+of the web-served `cgi-bin/` directory.
