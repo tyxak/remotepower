@@ -31517,6 +31517,8 @@ def _build_exact_routes():
         ('POST', '/api/drift/profiles'): handle_drift_profiles,
         ('POST', '/api/drift/assign'): handle_drift_assign,
         ('GET', '/api/forecast'): handle_forecast,
+        ('POST', '/api/host-config/collect-all'): handle_host_config_collect_all,
+        ('GET', '/api/host-config/export'): handle_host_config_export,
         (None, '/api/enroll/pin'): handle_enroll_pin,
         ('GET', '/api/enrollment-tokens'): handle_enroll_token_list,
         ('POST', '/api/enrollment-tokens'): handle_enroll_token_create,
@@ -32581,6 +32583,76 @@ def handle_device_host_config_current(dev_id):
         'current':              current_data,
         'current_collected_at': collected_at,
     })
+
+
+# ── v3.13.0: fleet-wide host-config collect + export ─────────────────────────
+def handle_host_config_collect_all():
+    """POST /api/host-config/collect-all — queue the agent "send current configs"
+    command to every (in-scope, agent) device, optionally narrowed by
+    {target:{type,value}} (all|group|tag|site). Admin only. Each agent re-reports
+    its live host config on its next poll; results land via the heartbeat."""
+    actor = require_admin_auth()
+    if method() != 'POST':
+        respond(405, {'error': 'Method not allowed'})
+    body = get_json_body() or {}
+    target = body.get('target') or {'type': 'all', 'value': ''}
+    targets = _autopatch_target_devices(target)   # resolves type/value, skips quarantined
+    devices = load(DEVICES_FILE) or {}
+    # Host config is agent-only — drop agentless devices.
+    targets = [d for d in targets if not (devices.get(d) or {}).get('agentless')]
+    if not targets:
+        respond(400, {'error': 'no matching agent devices'})
+    _queue_command_batch(targets, 'exec:remotepower-agent send_current_configs', actor)
+    audit_log(actor, 'host_config_collect_all',
+              f'{len(targets)} device(s) ({target.get("type")}:{target.get("value")})')
+    respond(200, {'ok': True, 'queued': len(targets)})
+
+
+def handle_host_config_export():
+    """GET /api/host-config/export — one JSON bundle of every (in-scope) device's
+    desired + current host config and drift. For audit / backup / diffing."""
+    require_auth()
+    devices = _scope_filter_devices(load(DEVICES_FILE) or {})
+    out = []
+    for dev_id, dev in devices.items():
+        if not isinstance(dev, dict) or dev.get('agentless'):
+            continue
+        hc = dev.get('host_config') or {}
+        current_data, collected_at = {}, hc.get('current_collected_at')
+        cpath = HOST_CONFIG_CURRENT_DIR / f'{dev_id}.json'
+        if cpath.exists():
+            try:
+                raw = load(cpath) or {}
+                current_data = raw.get('current', {})
+                collected_at = raw.get('collected_at', collected_at)
+            except Exception:
+                pass
+        if not hc.get('desired') and not current_data:
+            continue   # nothing recorded for this host — skip
+        out.append({
+            'device_id':   dev_id,
+            'name':        dev.get('name', dev_id),
+            'group':       dev.get('group', ''),
+            'desired':     hc.get('desired', {}),
+            'current':     current_data,
+            'drift':       hc.get('drift', {}),
+            'collected_at': collected_at,
+            'apply_enabled': bool(hc.get('apply_enabled', False)),
+            'enforce':     bool(hc.get('enforce', False)),
+        })
+    out.sort(key=lambda r: r['name'].lower())
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.gmtime())
+    bundle = json.dumps({'exported_at': int(time.time()),
+                         'server_version': SERVER_VERSION,
+                         'count': len(out), 'devices': out}, indent=2)
+    print("Status: 200 OK")
+    print("Content-Type: application/json")
+    print(f'Content-Disposition: attachment; filename="host-configs-{stamp}.json"')
+    print("Cache-Control: no-store")
+    print("X-Content-Type-Options: nosniff")
+    print()
+    sys.stdout.write(bundle)
+    sys.exit(0)
 
 
 def handle_debug_log_download():

@@ -104,6 +104,9 @@ The complete list. Items marked with a version number indicate when they were ad
 | **Named drift profiles** | Reusable named sets of watched config files, created/edited/deleted on the Drift page and assigned to a device / tag / group; precedence device-override > profile (device > tag > group) > global default; drift detail explains which rule won. `GET/POST /api/drift/profiles`, `POST /api/drift/assign` (v3.13.0) |
 | **Network-mount trends** | NFS/SMB/CIFS shares flow into the daily metrics history — each filesystem gets its own line on the Trends chart and disk-fill forecasting (v3.13.0) |
 | **Controller backup & restore** | Full disaster-recovery backup (tar.gz of the whole data dir incl. the encrypted vault) and restore (with an automatic pre-restore safety snapshot + strict path validation), alongside the existing redacted ZIP export. `GET /api/backup/download`, `POST /api/backup/restore` (v3.13.0) |
+| **Fleet host-config collect & export** | Drift page: "Collect all host configs" fans the agent re-collect command across the fleet; "Export all host configs" downloads one JSON bundle of every device's desired + current config and drift. `POST /api/host-config/collect-all`, `GET /api/host-config/export` (v3.13.0) |
+| **Software center** | Browse every installed package across the fleet with versions + host counts; click a row to see which hosts run which version. `GET /api/inventory/catalog` (v3.13.0) |
+| **Targeted AI buttons** | One-click context-scoped AI on exposed services, filling disks, failing compliance controls, config drift, failed units, unhealthy containers, packages, plus an "Ask about my fleet" omnibox on Home (v3.13.0) |
 
 ### Custom monitoring scripts *(v2.5.0)*
 

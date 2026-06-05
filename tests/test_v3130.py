@@ -696,6 +696,33 @@ class TestAiButtons(unittest.TestCase):
         self.assertIn("input[data-enter]", self.js)
 
 
+class TestFleetHostConfig(unittest.TestCase):
+    """Fleet-wide host-config collect + export."""
+
+    def test_routes_registered(self):
+        routes = api._build_exact_routes()
+        self.assertIn(('POST', '/api/host-config/collect-all'), routes)
+        self.assertIn(('GET', '/api/host-config/export'), routes)
+
+    def test_handlers_exist(self):
+        self.assertTrue(callable(getattr(api, 'handle_host_config_collect_all', None)))
+        self.assertTrue(callable(getattr(api, 'handle_host_config_export', None)))
+
+    def test_collect_uses_agent_command(self):
+        src = (_CGI_BIN / "api.py").read_text()
+        self.assertIn("exec:remotepower-agent send_current_configs", src)
+        # agentless devices are excluded from collect-all
+        self.assertIn("(devices.get(d) or {}).get('agentless')", src)
+
+    def test_frontend_buttons(self):
+        js = client_js()
+        self.assertIn("function collectAllHostConfigs", js)
+        self.assertIn("function exportAllHostConfigs", js)
+        html = (_ROOT / "server/html/index.html").read_text()
+        self.assertIn('data-action="collectAllHostConfigs"', html)
+        self.assertIn('data-action="exportAllHostConfigs"', html)
+
+
 class TestStaticCacheImmutable(unittest.TestCase):
     def test_nginx_static_immutable(self):
         # The tracked reference config — deploy/nginx/* is gitignored

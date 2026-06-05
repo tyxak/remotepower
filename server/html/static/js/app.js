@@ -3026,6 +3026,7 @@ const _DYK_TIPS = [
   "The drawer's Ports card now shows each socket's bind address and a world / LAN / local badge — see that :22 is bound 0.0.0.0 right where you're inspecting the host.",
   "The Firewall card shows the active ruleset fingerprint and rule count; if it changes, the firewall-changed alert tells you the host's firewall drifted from its baseline.",
   "Create a drift profile (a named set of watched config files) on the Drift page and assign it to a tag or group — every matching host monitors that set, no per-device editing.",
+  "On the Drift page, 'Export all host configs' downloads one JSON bundle of every device's desired + current config — handy for audits, backups and diffing. 'Collect all' refreshes them from the agents first.",
   "Look for the ✦ AI buttons across the UI — on exposed services, filling disks, failing compliance controls, config drift, failed units and packages — for one-click, context-aware help. The Home page also has an 'Ask about my fleet' box.",
   "Take a full disaster-recovery backup from Settings → Advanced → Backup & restore — a tar.gz of the entire data dir (including the encrypted vault). Restore takes a safety snapshot of current data first.",
   "Network shares (NFS/SMB/CIFS) now appear as their own line on the Trends chart and feed disk-fill forecasting — not just local disks.",
@@ -9609,6 +9610,17 @@ async function unassignDriftProfile(scope_type, scope_value) {
   if (!r || r.error) { toast('Unassign failed: ' + (r?.error || 'unknown'), 'error'); return; }
   toast('Unassigned', 'success');
   loadDriftProfiles();
+}
+
+// v3.13.0: fleet-wide host-config collect + export (Drift page).
+async function collectAllHostConfigs() {
+  if (!confirm('Ask every agent to re-collect and send its live host config now?\nResults arrive over the next poll cycle (~60s).')) return;
+  const r = await api('POST', '/host-config/collect-all', {});
+  if (!r || !r.ok) { toast((r && r.error) || 'Failed', 'error'); return; }
+  toast(`Queued on ${r.queued} device(s) — current configs arrive in ~60s`, 'success');
+}
+function exportAllHostConfigs() {
+  _downloadAuthed('/api/host-config/export', 'host-configs.json', 'Host configs exported');
 }
 
 async function loadDrift() {

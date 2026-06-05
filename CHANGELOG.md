@@ -38,6 +38,12 @@ already being reported and stored.
   line on the **Trends** chart and is covered by disk-fill **forecasting**.
   (Also fixes a pre-existing bug where the per-device Trends endpoint read the
   history store with the wrong shape and returned nothing.)
+- **Fleet host-config: collect-all + export.** Two actions on the **Drift**
+  page: **Collect all host configs** queues the "send current config" command to
+  every agent device (`POST /api/host-config/collect-all`, admin), and **Export
+  all host configs** downloads one JSON bundle of every device's desired +
+  current config and drift (`GET /api/host-config/export`) — for audit, backup,
+  and diffing.
 - **Targeted AI buttons across the UI.** One-click, context-scoped AI help
   wherever a question naturally arises: **Software center** (is this package
   version safe / any known CVEs), **Drift detail** (explain what changed and
